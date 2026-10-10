@@ -59,9 +59,9 @@ fields: [Material graph nodes](../reference/graph-material.md).
       {"id": "e5", "from": {"node": "mul", "port": "out"}, "to": {"node": "out", "port": "emissive"}}]}}}
    ```
 2. Wear it ([`setComponent`](../reference/ops-detail.md#op-setComponent),
-   [`materials`](../reference/components-rendering.md#component-materials)):
+   [`materials`](../reference/components-rendering-1.md#component-materials)):
    `{"entityId": "<object>", "component": "materials", "value": {"*": "glow"}}`.
-3. One object's own tint ([`materialParams`](../reference/components-rendering.md#component-materialParams)):
+3. One object's own tint ([`materialParams`](../reference/components-rendering-1.md#component-materialParams)):
    `{"entityId": "<object>", "component": "materialParams", "value": {"glow": {"tint": "#20a040"}}}`.
 4. An instance: `setMaterial` with
    `{"material": {"materialId": "glow-red", "name": "Glow red", "shader": "standard", "params": {}, "textures": {}, "instanceOf": "glow", "values": {"tint": "#c02020"}}}`.

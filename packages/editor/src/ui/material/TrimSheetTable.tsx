@@ -4,7 +4,8 @@
  * own density (empty: the sheet's), whether it tiles in v — with the row's
  * height in metres and the deepest mip level it reads cleanly. "Equal rows"
  * splits the sheet again into equal rows (the default layout), "Import
- * layout.json" reads a Texture Designer trim export's table, "Check padding"
+ * layout.json" reads a Texture Designer trim export's table (its rows and
+ * its decal cells, listed under the rows), "Check padding"
  * asks the backend to compare the albedo's padding pixels with each row's
  * edge. A table the model would refuse is not saved (the message says why);
  * the warnings (thin padding, a shallow safe mip level, missing starter
@@ -26,6 +27,7 @@ import {
   trimSheetFromLayout,
   trimSheetProblems,
   trimSheetSafeMipLevel,
+  trimCellMetres,
 } from '@thirdlight/project-model/trim-sheet';
 
 import type { TrimCheckView } from '../../session/client';
@@ -98,7 +100,8 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
       setError(r.message);
       return;
     }
-    if (save(r.sheet) && r.skipped.length > 0) setChecked(`Imported ${r.sheet.rows.length} rows; decal layers are cells, not rows (left out: ${r.skipped.join(', ')}).`);
+    const cells = r.sheet.cells?.length ?? 0;
+    if (save(r.sheet)) setChecked(`Imported ${r.sheet.rows.length} rows and ${cells} decal cell${cells === 1 ? '' : 's'}${r.skipped.length > 0 ? ` (left out, neither rows nor cells: ${r.skipped.join(', ')})` : ''}.`);
   };
   const runCheck = async (): Promise<void> => {
     const texture = material.textures['map'];
@@ -168,6 +171,18 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
           ))}
         </tbody>
       </table>
+      {sheet.cells !== undefined && (
+        <ul className="tl-inspector__hint" aria-label="trim decal cells" title="Marks placed once on the sheet, drawn by decal materials (read from layout.json)">
+          {sheet.cells.map((c) => {
+            const [w, h] = trimCellMetres(sheet, c);
+            return (
+              <li key={c.name}>
+                {c.name}: {c.rect[2]} × {c.rect[3]} px at {c.rect[0]}, {c.rect[1]} ({w.toFixed(2)} × {h.toFixed(2)} m)
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <div className="tl-inspector__modes">
         <button className="tl-btn tl-btn--small" onClick={addRow} title="A row below the last one">
           + row

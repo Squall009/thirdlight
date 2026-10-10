@@ -3,7 +3,7 @@
 Project save slots, what a save keeps, the save schema and its settings
 document, where saves are stored and what a refused write says. Step by
 step: [the saves guide](../guides/saves.md); the fields:
-[Project saves](../reference/content-blocks-save-schema.md#content-saveSchema).
+[Project saves](../reference/content-blocks-script-libraries.md#content-saveSchema).
 
 ## Saves
 

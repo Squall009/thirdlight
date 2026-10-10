@@ -19,6 +19,7 @@ import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
+import { canonicalDecal, validateDecalComponent, type DecalComponent } from './decals';
 import { canonicalTerrain, validateTerrainComponent, type TerrainComponent } from './terrain';
 import { canonicalSpline, validateSplineComponent, type SplineComponent } from './spline';
 import { canonicalArchitecture, validateArchitectureComponent, type ArchitectureComponent } from './architecture';
@@ -141,8 +142,9 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture'];
-// `terrain` (a heightfield of tiles) last.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal'];
+// `decal` (a box that marks the surfaces inside it) last.
+// `terrain`, `spline` and `architecture` (level geometry) before it.
 // `probeVolume` (a box the probe bake fills with probes) before it.
 // `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) before it.
 // `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
@@ -255,7 +257,7 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
  */
 
 /** The keys of an `instances` component. */
-const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights']);
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers']);
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
@@ -799,6 +801,8 @@ function validateEntityComponentsV3(
   // A camera region (any entity may carry one).
   if (comps['cameraRegion'] !== undefined) validateCameraRegionComponent(comps['cameraRegion'], `${path}/cameraRegion`, errors);
   if (comps['probeVolume'] !== undefined) validateProbeVolumeComponent(comps['probeVolume'], `${path}/probeVolume`, errors);
+  // A decal (any entity may carry one: it marks the surfaces around it, its own included).
+  if (comps['decal'] !== undefined) validateDecalComponent(comps['decal'], `${path}/decal`, errors);
   if (comps['terrain'] !== undefined) {
     validateTerrainComponent(comps['terrain'], `${path}/terrain`, errors);
     // A terrain is level geometry of its own: no model, body or other level geometry on the same object.
@@ -1096,8 +1100,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['terrain'] !== undefined) components.terrain = canonicalTerrain(comps['terrain'] as TerrainComponent);
   if (comps['spline'] !== undefined) components.spline = canonicalSpline(comps['spline'] as SplineComponent);
   if (comps['architecture'] !== undefined) components.architecture = canonicalArchitecture(comps['architecture'] as ArchitectureComponent);
+  if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1113,6 +1118,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
       ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
       ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
+      ...(typeof i.decalLayers === 'number' ? { decalLayers: i.decalLayers } : {}),
     };
   }
   const name = e['name'];

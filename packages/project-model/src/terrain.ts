@@ -20,6 +20,7 @@
  * Pure.
  */
 import type { ModelErrorV2 } from './errors';
+import { validateDecalLayerMask } from './decals';
 import { canonicalSurfaceRules, validateSurfaceRules, type SurfaceRule } from './surface-rules';
 import { canonicalScatterRules, validateScatterRules, type ScatterRule } from './scatter';
 import { canonicalTerrainLayers, validateTerrainLayers, type TerrainLayer } from './terrain-layers';
@@ -130,10 +131,12 @@ export interface TerrainComponent {
    * across the border whatever their repeat.
    */
   uvOrigin?: [number, number];
+  /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
 }
 
 /** The component's fields in canonical order. */
-export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules', 'scatter', 'layers', 'streaming', 'overview', 'uvOrigin']);
+export const TERRAIN_FIELDS: readonly string[] = Object.freeze(['tileSamples', 'spacing', 'heightRange', 'tiles', 'lodDistance', 'collision', 'macroDistance', 'rules', 'scatter', 'layers', 'streaming', 'overview', 'uvOrigin', 'decalLayers']);
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
@@ -148,7 +151,7 @@ export const terrainTileKey = (x: number, z: number): string => `${x},${z}`;
 
 export function validateTerrainComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(value)) {
-    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules?, scatter?, layers?, streaming?, overview?, uvOrigin? }', value);
+    err(errors, 'field_type', path, 'a terrain is an object { tileSamples, spacing, heightRange, tiles, lodDistance?, collision?, macroDistance?, rules?, scatter?, layers?, streaming?, overview?, uvOrigin?, decalLayers? }', value);
     return;
   }
   for (const k of Object.keys(value)) if (!TERRAIN_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown terrain field "${k}"`, k);
@@ -178,6 +181,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
   validateStreamingRings(value['streaming'], `${path}/streaming`, errors, false);
   const uvo = value['uvOrigin'];
   if (uvo !== undefined && !(Array.isArray(uvo) && uvo.length === 2 && uvo.every((v) => finite(v) && Math.abs(v) <= TERRAIN_HEIGHT_LIMIT * 100))) err(errors, 'field_value', `${path}/uvOrigin`, 'uvOrigin is the world [x, z] the texture coordinates count from', uvo);
+  validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
   if (value['overview'] !== undefined && (typeof value['overview'] !== 'string' || !DIGEST_RE.test(value['overview']))) err(errors, 'field_value', `${path}/overview`, 'overview is the SHA-256 of the terrain\'s overview blob (64 lowercase hex)', value['overview']);
   const tiles = value['tiles'];
   if (tiles === undefined) {
@@ -210,7 +214,7 @@ export function validateTerrainComponent(value: unknown, path: string, errors: M
 export function canonicalTerrain(c: TerrainComponent): TerrainComponent {
   const tiles = c.tiles.map((t) => ({ x: t.x, z: t.z, ...(t.data !== undefined ? { data: t.data } : {}), ...(t.scatter !== undefined ? { scatter: t.scatter } : {}), ...(t.base !== undefined ? { base: t.base } : {}) }));
   tiles.sort((a, b) => a.z - b.z || a.x - b.x);
-  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}), ...(c.layers !== undefined && c.layers.length > 0 ? { layers: canonicalTerrainLayers(c.layers) } : {}), ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}), ...(c.overview !== undefined ? { overview: c.overview } : {}), ...(c.uvOrigin !== undefined ? { uvOrigin: [c.uvOrigin[0], c.uvOrigin[1]] } : {}) };
+  return { tileSamples: c.tileSamples, spacing: c.spacing, heightRange: [c.heightRange[0], c.heightRange[1]], tiles, ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}), ...(c.collision === false ? { collision: false } : {}), ...(c.macroDistance !== undefined ? { macroDistance: c.macroDistance } : {}), ...(c.rules !== undefined ? { rules: canonicalSurfaceRules(c.rules) } : {}), ...(c.scatter !== undefined ? { scatter: canonicalScatterRules(c.scatter) } : {}), ...(c.layers !== undefined && c.layers.length > 0 ? { layers: canonicalTerrainLayers(c.layers) } : {}), ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}), ...(c.overview !== undefined ? { overview: c.overview } : {}), ...(c.uvOrigin !== undefined ? { uvOrigin: [c.uvOrigin[0], c.uvOrigin[1]] } : {}), ...(c.decalLayers !== undefined ? { decalLayers: c.decalLayers } : {}) };
 }
 
 /** Metres along one tile side. */

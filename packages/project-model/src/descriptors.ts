@@ -41,6 +41,7 @@ import { blockFootprint, blockLayer } from './block-descriptors';
 import { terrain } from './terrain-descriptor';
 import { spline } from './spline-descriptor';
 import { architecture } from './architecture-descriptor';
+import { decal } from './decal-descriptor';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
 import { animator, audioSource, behavior, behaviorGroupC, box, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, probeVolume, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
 import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
@@ -60,6 +61,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   instances,
   fogVolume,
   probeVolume,
+  decal,
   collider,
   controller,
   virtualCamera,

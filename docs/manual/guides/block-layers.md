@@ -83,7 +83,7 @@ The same steps as commands (see [the request](../reference/ops.md#op-request)):
    and `wall` the same with `"placement": "edge"`.
 2. The layer: [`createEntity`](../reference/ops-detail.md#op-createEntity)
    `{"sceneId": "scene-main", "kind": "group", "name": "Level", "components": {"blockLayer": {"cellSize": [1, 1, 1], "bounds": {"min": [0, 0, 0], "max": [32, 8, 32]}}}}`
-   ([`blockLayer`](../reference/components-rendering.md#component-blockLayer)).
+   ([`blockLayer`](../reference/components-rendering-1.md#component-blockLayer)).
    The answer's `createdId` is the layer's id.
 3. Cells, walls and a region in one
    [`editBlocks`](../reference/ops-detail.md#op-editBlocks) (one undo step;

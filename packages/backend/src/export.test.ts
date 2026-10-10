@@ -18,7 +18,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestBackend } from './testing';
-import { AUTHORING_ORIGIN, PREVIEW_ORIGIN } from './test-helpers';
+import { AUTHORING_ORIGIN, exportContentOf, PREVIEW_ORIGIN } from './test-helpers';
 
 const PROJECT = 'demo-0001';
 
@@ -210,6 +210,34 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
         const strip = (v: unknown): string => JSON.stringify(v, (key, val: unknown) => (key === 'buildId' ? undefined : val));
         expect(strip(meta2[k]), k).toBe(strip(meta1[k]));
       }
+
+      // --- decals: the decal material and the trim sheet whose cell it draws ship; an unused material does not ---
+      let revision = body.revision;
+      const command = async (op: string, args: Record<string, unknown>): Promise<void> => {
+        const r = await fetch(`${ctx.base}/api/v1/projects/${PROJECT}/commands`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${AUTH_TOKEN}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ op, projectId: PROJECT, requestId: `req-${hex(32)}`, expectedRevision: revision, args, origin: { kind: 'mcp', clientId: 'export-e2e' } }),
+        });
+        const j = (await r.json()) as { ok: boolean; revision: number };
+        expect(j.ok, JSON.stringify(j)).toBe(true);
+        revision = j.revision;
+      };
+      const sheet = { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 4, bottom: 60 }], cells: [{ name: 'crack', rect: [8, 128, 64, 64] }] };
+      await command('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: {}, trim: sheet } });
+      await command('setMaterial', { material: { materialId: 'mat-crack', name: 'Crack', shader: 'decal', params: { blend: 'multiply' }, textures: {}, decal: { sheet: 'mat-sheet', cell: 'crack' } } });
+      await command('setMaterial', { material: { materialId: 'mat-unused', name: 'Unused', shader: 'decal', params: {}, textures: {} } });
+      const decal = { size: [2, 2, 0.5], material: 'mat-crack', opacity: { normal: 0.5 }, sortOrder: 1, layers: 1 };
+      await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Crack', components: { decal } });
+      const res3 = await fetch(`${ctx.base}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' }, body: '{}' });
+      const body3 = (await res3.json()) as { ok: boolean; outputDir: string };
+      expect(body3.ok, JSON.stringify(body3)).toBe(true);
+      const shipped = exportContentOf(join(ctx.exportRoot, body3.outputDir)) as unknown as { materials: { materialId: string; decal?: unknown; trim?: { cells?: unknown } }[] };
+      expect(shipped.materials.map((m) => m.materialId).sort()).toEqual(['mat-crack', 'mat-sheet']);
+      expect(shipped.materials.find((m) => m.materialId === 'mat-crack')!.decal).toEqual({ sheet: 'mat-sheet', cell: 'crack' });
+      expect(shipped.materials.find((m) => m.materialId === 'mat-sheet')!.trim!.cells).toEqual(sheet.cells);
+      const scene3 = JSON.parse(readFileSync(join(ctx.exportRoot, body3.outputDir, 'scene.json'), 'utf8')) as { entities: Array<{ name?: string; components: Record<string, unknown> }> };
+      expect(scene3.entities.find((e) => e.name === 'Crack')!.components['decal']).toEqual(decal);
     },
     240000,
   );

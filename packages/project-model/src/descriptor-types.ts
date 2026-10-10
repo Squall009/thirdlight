@@ -121,10 +121,11 @@ export interface IntFieldDescriptor extends FieldBase {
   /** What each of `values` is called (same order; shown instead of the number). */
   readonly valueLabels?: readonly string[];
   /**
-   * A bit mask of the project's light layers (bit n: layer n + 1): the
-   * Inspector shows one checkbox per layer, named by `content.lightLayers`.
+   * A bit mask of layers (bit n: layer n + 1): the Inspector shows one
+   * checkbox per layer — light layers named by `content.lightLayers`, decal
+   * layers by number.
    */
-  readonly mask?: 'lightLayers';
+  readonly mask?: 'lightLayers' | 'decalLayers';
 }
 export interface BoolFieldDescriptor extends FieldBase {
   readonly type: 'bool';

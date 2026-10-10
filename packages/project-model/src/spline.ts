@@ -19,6 +19,7 @@
 import type { ModelErrorV2 } from './errors';
 import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 import { ID_RE } from './validate';
+import { validateDecalLayerMask } from './decals';
 
 /** The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). */
 export const SPLINE_LIMITS = Object.freeze({
@@ -146,10 +147,12 @@ export interface SplineComponent {
   pieces?: SplinePieceSettings[];
   /** SHA-256 of the mesh and pieces the project host made from the fields above (written by the host; absent: nothing made). */
   data?: string;
+  /** The decal layers projected decals mark its mesh and pieces in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
 }
 
 /** The component's fields in canonical order. */
-export const SPLINE_FIELDS: readonly string[] = Object.freeze(['points', 'closed', 'width', 'terrain', 'scatter', 'mesh', 'pieces', 'data']);
+export const SPLINE_FIELDS: readonly string[] = Object.freeze(['points', 'closed', 'width', 'terrain', 'scatter', 'mesh', 'pieces', 'data', 'decalLayers']);
 const POINT_FIELDS = ['at', 'tangent', 'width', 'roll'];
 const TERRAIN_FIELDS_ = ['shape', 'falloff', 'depth', 'offset', 'paint', 'order'];
 const PAINT_FIELDS = ['layer', 'strength', 'width', 'falloff'];
@@ -278,6 +281,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
     }
   }
   if (value['data'] !== undefined && (typeof value['data'] !== 'string' || !DIGEST_RE.test(value['data']))) err(errors, 'field_value', `${path}/data`, 'data is the SHA-256 of what the host made along the spline (64 lowercase hex)', value['data']);
+  validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
 }
 
 const v3 = (v: readonly number[]): [number, number, number] => [v[0]!, v[1]!, v[2]!];
@@ -305,6 +309,7 @@ export function canonicalSpline(c: SplineComponent): SplineComponent {
   if (c.mesh !== undefined) out.mesh = pick({ ...c.mesh, ...(c.mesh.profile !== undefined ? { profile: c.mesh.profile.map((q) => [q[0], q[1]] as [number, number]) } : {}) }, MESH_FIELDS);
   if (c.pieces !== undefined) out.pieces = c.pieces.map((q) => pick({ ...q, asset: { assetId: q.asset.assetId, ...(q.asset.piece !== undefined ? { piece: q.asset.piece } : {}) }, ...(q.offset !== undefined ? { offset: [q.offset[0], q.offset[1]] as [number, number] } : {}) }, PIECE_FIELDS));
   if (c.data !== undefined) out.data = c.data;
+  if (c.decalLayers !== undefined) out.decalLayers = c.decalLayers;
   return out;
 }
 

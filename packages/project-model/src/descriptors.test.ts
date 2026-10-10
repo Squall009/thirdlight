@@ -480,18 +480,19 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex' }],
-  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none' }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex', decalLayers: 5 }],
+  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0 }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
-  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel' }],
+  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel', decalLayers: 2 }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
-  architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' }],
-  spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) }],
-  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] }],
+  decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
+  architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1 }],
+  spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) , decalLayers: 1 }],
+  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] , decalLayers: 1 }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
@@ -578,7 +579,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1 }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -698,10 +699,12 @@ const MATERIAL_BASES: J[] = [
       shader: s,
       params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])),
       textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])),
-      // A one-pixel row at the top: every size, density and padding in range keeps it valid.
-      ...(s === 'trim' ? { trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 0, bottom: 1, texelDensity: 64, tileV: true }] } } : {}),
+      // A one-pixel row and a one-pixel decal cell at the top: every size, density and padding in range keeps them valid.
+      ...(s === 'trim' ? { trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 0, bottom: 1, texelDensity: 64, tileV: true }], cells: [{ name: 'sign', rect: [0, 0, 1, 1] }] } } : {}),
     },
   ]),
+  // A decal material drawing a trim sheet's cell (no texture slots of its own).
+  [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A graph material with an exposed parameter.
   [
     {
@@ -1023,8 +1026,9 @@ describe('descriptor registry', () => {
     // repeat their look and turn, about 3 KB; a block layer's cut-away, about 1.6 KB; kits on block types and layers,
     // about 2 KB; a block layer's walk and corner shading, about 1.7 KB; the terrain and its exclusions, about 1.6 KB; material rules and far ground, about 1 KB; the spline, its terrain
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
-    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB; the declared types of JSON values, about 0.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(314_000);
+    // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB; the declared types of JSON values, about 0.6 KB;
+    // decals — the component, decal layers on every drawn object, the decal material and trim cells — about 10 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(325_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

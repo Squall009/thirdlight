@@ -84,7 +84,7 @@ always a script's job.
   a copy changes only that copy. To change all of them, make a new prefab
   and place it again.
 - **A prefab never holds the player controller, cameras, lights or spawn
-  points.** The exact list: [content.prefabs](../reference/content-blocks-save-schema.md#content-prefabs).
+  points.** The exact list: [content.prefabs](../reference/content-blocks-script-libraries.md#content-prefabs).
 - **Spawned copies are the game's, not the project's.** They are gone when
   the run restarts, and a save keeps them only when its schema has the
   `spawned` section. `ctx.destroy` removes spawned copies only.

@@ -7,6 +7,8 @@
  * - an object's material mapping (`materials`: slot → materialId) or its
  *   graph-material overrides (`materialParams`, keyed by materialId), in any
  *   scene or in a prefab a script may spawn;
+ * - a decal's material (`decal.material`; a decal material drawing a trim
+ *   sheet's cell ships with that sheet, `decalSheetsOf`);
  * - a shipped model asset's default mapping (`materials` on the asset row);
  * - a block type's mapping;
  * - an effect's Output block that shades with a project material;
@@ -20,6 +22,7 @@
  * materials an object wears (`ctx.materials`), they never put a material on
  * an object, so a script cannot name a material that none of the above does.
  */
+import { decalMaterialOf } from './decals';
 import { effectMaterialRefs, type EffectDef } from './effects';
 import { timelineRefs, type TimelineAsset } from './timelines';
 
@@ -44,6 +47,8 @@ export function materialsInUse(input: MaterialUseInput): Set<string> {
     const c = e.components as { materials?: unknown; materialParams?: unknown } | undefined;
     if (c === undefined || c === null) continue;
     mapping(c.materials);
+    const decal = decalMaterialOf(c);
+    if (decal !== null) used.add(decal);
     if (typeof c.materialParams === 'object' && c.materialParams !== null) for (const id of Object.keys(c.materialParams)) used.add(id);
   }
   for (const a of input.assets ?? []) mapping(a.materials);

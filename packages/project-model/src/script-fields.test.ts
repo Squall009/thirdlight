@@ -82,7 +82,7 @@ describe('script access marks', () => {
   });
 });
 
-const PINNED_V7 = 'a227ef8c9be0866e';
+const PINNED_V7 = 'b775aa11ed88867a';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

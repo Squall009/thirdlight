@@ -27,7 +27,7 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
@@ -937,9 +937,12 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
           for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
           // The trim sheets architecture presets name (any preset may be swapped in at run time).
           for (const p of archStyles().presets.values()) if (p.sheet !== '') used.add(p.sheet);
+          // A decal material drawing a trim sheet's cell ships with its sheet.
+          const resolved = resolveMaterialInstances(allMaterials);
+          for (const id of decalSheetsOf(resolved, used)) used.add(id);
           // A named instance ships resolved (its chain's graph, parameters and values folded
           // in), so the runtime never sees an instance; its parents ship only when something names them.
-          return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
+          return resolved.filter((m) => used.has(m.materialId));
         })();
     return usedMemo;
   };

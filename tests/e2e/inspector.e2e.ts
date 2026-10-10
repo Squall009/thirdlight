@@ -101,6 +101,7 @@ const MENU: { option: string; name: string; added: Record<string, unknown>; edit
 test('every component kind: added, edited (one undo) and removed through the Inspector', async ({ page }) => {
   test.setTimeout(300_000);
   await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Plain', shader: 'standard', params: {}, textures: {} } });
+  await cmd('setMaterial', { material: { materialId: 'mat-stain', name: 'Stain', shader: 'decal', params: { blend: 'multiply' }, textures: {} } });
   const behaviorId = 'behavior-drift';
   await cmd('publishBehavior', { behaviorId, displayName: 'Drift', mode: 'declaration-create', declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 3.5, min: -100, max: 100, step: 0.5 }] } });
 
@@ -153,6 +154,28 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await synced(page);
   await inspector(page).getByRole('button', { name: 'remove materials', exact: true }).click();
   await expect.poll(comp(id, 'materials')).toBeUndefined();
+  await synced(page);
+  // Decal layers: a box left out of layer 2 stores its mask; back in every layer, the field is gone again.
+  const decalLayers = async (): Promise<unknown> => ((await comp(id, 'box')()) as { decalLayers?: number }).decalLayers;
+  await inspector(page).getByLabel('box decalLayers Layer 2', { exact: true }).click();
+  await expect.poll(decalLayers).toBe(253);
+  await synced(page);
+  await inspector(page).getByLabel('box decalLayers Layer 2', { exact: true }).click();
+  await expect.poll(decalLayers).toBeUndefined();
+  // A decal (picked material), its sort order and layers edited, one undo, removed.
+  await add(page, 'Decal');
+  await inspector(page).getByLabel('decal material', { exact: true }).selectOption({ label: 'Stain' });
+  await inspector(page).getByRole('button', { name: 'Add', exact: true }).click();
+  await expect.poll(comp(id, 'decal')).toEqual({ size: [1, 1, 1], material: 'mat-stain' });
+  await field(page, 'decal sortOrder', '4');
+  await expect.poll(comp(id, 'decal')).toEqual({ size: [1, 1, 1], material: 'mat-stain', sortOrder: 4 });
+  await synced(page);
+  await inspector(page).getByLabel('decal layers Layer 3', { exact: true }).click();
+  await expect.poll(comp(id, 'decal')).toEqual({ size: [1, 1, 1], material: 'mat-stain', sortOrder: 4, layers: 251 });
+  await undo(page);
+  await expect.poll(comp(id, 'decal')).toEqual({ size: [1, 1, 1], material: 'mat-stain', sortOrder: 4 });
+  await inspector(page).getByRole('button', { name: 'remove decal', exact: true }).click();
+  await expect.poll(comp(id, 'decal')).toBeUndefined();
   // The box itself is removable too (one command; undo brings it back).
   await inspector(page).getByRole('button', { name: 'remove box', exact: true }).click();
   await expect.poll(comp(id, 'box')).toBeUndefined();

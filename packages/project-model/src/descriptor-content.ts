@@ -273,7 +273,7 @@ function paramField(key: string, t: MaterialParamType, shader: string): FieldDes
 const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and overrides.', [
   str('materialId', 'Id', 'The stable material id.', { ...ID, required: true }),
   str('name', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
-  enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit, water or trim (a trim sheet: its row table in trim).', MATERIAL_SHADERS, { required: true, default: 'standard' }),
+  enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit, water, trim (a trim sheet: its row table in trim) or decal (a mark decals and decal meshes draw with: its own textures or a trim sheet\'s decal cell in decal).', MATERIAL_SHADERS, { required: true, default: 'standard' }),
   obj('params', 'Parameters', 'Shader parameter overrides.', MATERIAL_SHADERS.flatMap((s) => Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => paramField(k, t, s))), { required: true, default: {} }),
   obj('textures', 'Textures', 'Texture slots.', MATERIAL_SHADERS.flatMap((s) => MATERIAL_TEXTURE_SLOTS[s].map((slot) => asset(slot, slot.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), `The ${s} shader\'s ${slot} texture.`, ['texture'], { when: when('../shader', s) }))), { required: true, default: {} }),
   // A graph material's exposed parameters and its node graph.
@@ -306,7 +306,13 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
       num('texelDensity', 'Texel density', 'Its own pixels per metre (absent: the sheet\'s).', { min: TRIM_DENSITY_MIN, max: TRIM_DENSITY_MAX, step: 1, unit: 'px' }),
       bool('tileV', 'Tiles in v', 'It tiles in v too: its padding continues its wrap.', { default: false, omitDefault: true }),
     ]), { required: true }),
+    json('cells', 'Decal cells', 'Marks placed once on the sheet (signs, cracks, stains): [{name, rect: [x, y, width, height]}], each a named rectangle in whole pixels from the image\'s top-left corner, inside the sheet, that decal materials draw (read from the Texture Designer\'s layout.json; empty: none).', { shape: 'TrimCell[]' }),
   ], { required: true, when: when('shader', 'trim') }),
+  // A decal material's trim sheet cell (decals.ts).
+  obj('decal', 'Decal cell', 'A decal material that draws one decal cell of a trim sheet (its textures are the sheet\'s; empty: its own texture slots).', [
+    ref('sheet', 'Sheet', 'The trim material whose sheet holds the cell.', 'material', { required: true }),
+    str('cell', 'Cell', 'The cell\'s name in the sheet\'s decal cells.', { ...ID, required: true }),
+  ], { when: when('shader', 'decal') }),
 ]);
 
 // A visual effect (systems of particles, each a graph of kind "effect").

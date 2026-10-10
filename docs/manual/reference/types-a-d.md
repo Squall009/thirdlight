@@ -1366,6 +1366,19 @@ Declared in `packages/project-model/src/input.ts`.
 type CursorMode = 'free' | 'locked';
 ```
 
+<a id="type-decal-cell-ref"></a>
+### DecalCellRef
+
+Declared in `packages/project-model/src/decals.ts`.
+
+```ts
+/** A decal material's cell of a trim sheet: the sheet (a trim material) and the cell's name in its `cells`. */
+interface DecalCellRef {
+  sheet: string;
+  cell: string;
+}
+```
+
 <a id="type-declared-property"></a>
 ### DeclaredProperty
 

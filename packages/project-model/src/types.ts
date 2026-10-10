@@ -42,6 +42,8 @@ export interface BoxComponent {
   lightLayers?: number;
   /** How local lights reach it (local-lights.ts; absent: its material's mode, else per pixel). */
   localLights?: LocalLightMode;
+  /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
 }
 
 /** `camera` component — perspective; `aspect` is never persisted. */

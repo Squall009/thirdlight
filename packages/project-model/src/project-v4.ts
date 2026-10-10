@@ -34,7 +34,7 @@ import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
 import type { ContentCatalogV3, ContentCatalogV4, SceneEntityV3, SceneV3, SceneV4 } from './types-v3';
 import { isFolderEntity } from './types-v3';
-import { materialOverrideErrors } from './materials';
+import { materialOverrideErrors, resolveMaterial } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
 import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion } from './upgrade-v24';
@@ -319,6 +319,14 @@ function sceneReferenceRules(s: SceneV4, content: ContentCatalogV4): readonly Mo
         }
       }
     }
+    // A decal names a decal material of the project.
+    const decal = e.components.decal;
+    if (decal !== undefined) {
+      const m = (content.materials ?? []).find((x) => x.materialId === decal.material);
+      const root = m === undefined ? undefined : resolveMaterial(content.materials ?? [], m.materialId);
+      if (m === undefined) mappings.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/decal/material`, message: 'the decal names no material of this project', expected: 'a decal materialId in content.materials' }, decal.material)));
+      else if (root?.shader !== 'decal') mappings.push(sceneError(s.sceneId, withFound({ code: 'field_value', path: `/entities/${i}/components/decal/material`, message: `a decal draws with a decal material ("${m.name}" is ${root?.shader ?? 'a broken instance'})`, expected: 'a material whose shader is decal' }, decal.material)));
+    }
     // Overrides name public parameters of the project's graph materials.
     const o = e.components.materialParams;
     if (o !== undefined) {
@@ -343,7 +351,8 @@ const usesOf = new WeakMap<SceneV4, { params: boolean; effects: boolean }>();
 function sceneUses(s: SceneV4): { params: boolean; effects: boolean } {
   let out = usesOf.get(s);
   if (out === undefined) {
-    out = { params: s.entities.some((e) => e.components.materialParams !== undefined), effects: s.entities.some((e) => e.components.effect !== undefined) };
+    // A decal reads its material's shader, as an override reads its material's parameters.
+    out = { params: s.entities.some((e) => e.components.materialParams !== undefined || e.components.decal !== undefined), effects: s.entities.some((e) => e.components.effect !== undefined) };
     usesOf.set(s, out);
   }
   return out;

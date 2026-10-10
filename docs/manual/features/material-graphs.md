@@ -217,8 +217,9 @@ the **Trim sheet** table:
   cleanly are shown;
 - **Equal rows** splits the sheet again (bands aligned to the padding's
   power of two), **Import layout.json** reads a Texture Designer trim
-  export's table (strip layers become rows; decal cells are left out and
-  named), **Check padding** compares the albedo's padding pixels with each
+  export's table (strip layers become rows, the cells of its decal layers
+  become the sheet's **decal cells**, listed under the table; anything else
+  is left out and named), **Check padding** compares the albedo's padding pixels with each
   row's edge on the backend (a PNG as imported, a KTX2's lossless original,
   else the KTX2 transcoded with a looser tolerance) and says which row and
   side differ. A table the model refuses is not saved; warnings (no or thin

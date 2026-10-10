@@ -33,7 +33,7 @@ reload a scene. Anything else is a UI event your scripts answer.
 - Editor: **File → Project Settings… → Game shell**. UI documents are made
   with the Project window's **create ▾ → UI document**.
 - API: [`setShell`](../reference/ops-detail.md#op-setShell); the fields are
-  in [the shell in the reference](../reference/content-blocks-animators.md#content-shell),
+  in [the shell in the reference](../reference/content-blocks-script-libraries.md#content-shell),
   UI documents in [UI documents](../reference/ui.md#ui-document).
 
 The shell gives you screens and wiring, not a game flow. What *New game*,

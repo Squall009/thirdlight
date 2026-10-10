@@ -24,6 +24,7 @@ import {
 } from './components';
 import { EFFECT_LIMITS } from './effects';
 import { blockLayer } from './block-descriptors';
+import { decalLayersField } from './decal-descriptor';
 import { MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS } from './materials';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
@@ -76,6 +77,7 @@ export const model: ComponentDescriptor = {
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     enm('localLights', 'Local lights', 'Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel).', LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
+    decalLayersField(true),
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
@@ -101,6 +103,7 @@ export const box: ComponentDescriptor = {
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     enm('localLights', 'Local lights', 'Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel).', LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
+    decalLayersField(false),
   ]),
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
@@ -650,6 +653,7 @@ export const instances: ComponentDescriptor = {
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     enm('localLights', 'Local lights', `Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as the material says, else ${INSTANCES_LOCAL_LIGHTS_DEFAULT === 'vertex' ? 'per vertex' : 'per pixel'}).`, LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
+    decalLayersField(false),
     // Absent = the project's Instance chunk size (32 m unless set).
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on.', { min: 1, max: 4096, step: 1, unit: 'm' }),
     // Off by default: a chunk straddling a switch point draws once per level when on (performance first).

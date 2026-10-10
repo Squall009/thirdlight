@@ -19,7 +19,7 @@ What a prefab keeps: models and boxes, colliders, materials, animators,
 scripts and the gameplay blocks (movers, triggers, health and so on). What
 it never holds: the player controller and level wiring such as cameras,
 lights and spawn points. The exact list of components a prefab may hold is
-in [prefabs in the reference](../reference/content-blocks-save-schema.md#content-prefabs).
+in [prefabs in the reference](../reference/content-blocks-script-libraries.md#content-prefabs).
 
 ## In the editor
 

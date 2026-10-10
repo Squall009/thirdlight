@@ -32,6 +32,7 @@
  * `block-mesh.ts`.
  */
 import { validateLightLayerMask } from './light-layers';
+import { validateDecalLayerMask } from './decals';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
@@ -134,6 +135,8 @@ export interface BlockLayerComponent {
   receiveShadow?: boolean;
   /** The light layers its blocks are in, a bit mask (light-layers.ts; absent: every layer). */
   lightLayers?: number;
+  /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
   /**
    * Degrees: the steepest part of the layer's surface that counts as ground —
    * characters do not walk up steeper slopes whatever their own slope limit,
@@ -853,7 +856,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -899,6 +902,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   if (v['rules'] !== undefined) validateSurfaceRules(v['rules'], `${path}/rules`, errors, true);
   if (v['scatter'] !== undefined) validateScatterRules(v['scatter'], `${path}/scatter`, errors, true);
   validateStreamingRings(v['streaming'], `${path}/streaming`, errors, true);
+  validateDecalLayerMask(v['decalLayers'], `${path}/decalLayers`, errors, 0);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -921,6 +925,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.rules !== undefined && c.rules.length > 0 ? { rules: canonicalSurfaceRules(c.rules) } : {}),
     ...(c.scatter !== undefined && c.scatter.length > 0 ? { scatter: canonicalScatterRules(c.scatter) } : {}),
     ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}),
+    ...(c.decalLayers !== undefined ? { decalLayers: c.decalLayers } : {}),
   };
 }
 

@@ -7,6 +7,7 @@
  */
 import { asset, bool, enm, int, json, list, num, obj, str, vec2, vec3, when, NAME } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
+import { decalLayersField } from './decal-descriptor';
 import {
   SPLINE_FALLOFF_DEFAULT,
   SPLINE_LIMITS,
@@ -82,6 +83,7 @@ export const spline: ComponentDescriptor = {
       bool('collide', 'Collides', 'Pieces carry their model\'s _COL colliders.', { default: true }),
       bool('castShadow', 'Casts shadows', 'Blocks the directional light.', { default: true }),
     ]), { maxItems: L.pieces }),
+    decalLayersField(false),
     str('data', 'Made', 'SHA-256 of the mesh and pieces made from it (written by the host).', { format: 'sha256', minLength: 64, maxLength: 64, readOnly: true }),
   ]),
   add: { kind: 'menu', value: { points: POINTS_NEW } },

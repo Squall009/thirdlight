@@ -84,7 +84,8 @@ use and why.
 
 [Features](features/index.md) holds the full description of each feature
 area, one page per area: everything a feature does, its settings and its
-edge cases.
+edge cases. Growing now: [Decals](features/decals.md) (the data exists;
+drawing follows).
 
 ## Reference
 

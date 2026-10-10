@@ -28,7 +28,7 @@ size of one file, how many objects one scene holds, how many lights shine
 at once and similar. They are listed, with their values, in
 [limits and defaults](../reference/limits.md#limits-index). Both budgets
 are project settings: see
-[the settings in the reference](../reference/content-blocks-save-schema.md#content-settings).
+[the settings in the reference](../reference/content-blocks-script-libraries.md#content-settings).
 
 Guides: [measure and budget performance](../guides/performance.md),
 [limits](../guides/limits.md).

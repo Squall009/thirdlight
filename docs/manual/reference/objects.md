@@ -20,7 +20,7 @@ An object in a scene.
 | `static` | bool | `false` |  | **Static.** Never moves (baked lighting, cheaper rendering). (stored only when not the default; scripts read) |
 | `keepLoaded` | bool | `false` |  | **Keep loaded.** Survives scene changes (with its children and scripts): loading, unloading or reloading its scene, or loading a save, never destroys it. On a root object (or one in folders). (stored only when not the default; scripts read and write) |
 | `tags` | int | `0` | 0 – 4294967295, step 1 | **Tags.** The tag bits (a 32-bit mask of the project's tags). (stored only when not the default; scripts read) |
-| `components` | components (40 kinds) |  |  | **Components.** What the object is and does. (required; allowed: `transform`, `model`, `box`, `materials`, `materialParams`, `effect`, `surface`, `instances`, `fogVolume`, `probeVolume`, `collider`, `controller`, `virtualCamera`, `cameraPath`, `cameraRegion`, `socketAttach`, `light`, `playerSpawn`, `mover`, `trigger`, `switch`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `audioSource`, `animator`, `faceMovement`, `modelAnimation`, `behavior`, `prefab`, `folder`, `blockLayer`, `blockFootprint`, `behaviorGroup`, `terrain`, `spline`, `architecture`) |
+| `components` | components (41 kinds) |  |  | **Components.** What the object is and does. (required; allowed: `transform`, `model`, `box`, `materials`, `materialParams`, `effect`, `surface`, `instances`, `fogVolume`, `probeVolume`, `decal`, `collider`, `controller`, `virtualCamera`, `cameraPath`, `cameraRegion`, `socketAttach`, `light`, `playerSpawn`, `mover`, `trigger`, `switch`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `audioSource`, `animator`, `faceMovement`, `modelAnimation`, `behavior`, `prefab`, `folder`, `blockLayer`, `blockFootprint`, `behaviorGroup`, `terrain`, `spline`, `architecture`) |
 
 <a id="component-index"></a>
 ## Components
@@ -30,15 +30,16 @@ Every component, in "+ Add component" order within its category.
 | Component | Name | Category | What it does |
 |---|---|---|---|
 | [`transform`](components-object.md#component-transform) | Transform | Object | Where the object is, how it is turned and how big it is (relative to its parent). |
-| [`model`](components-rendering.md#component-model) | Model | Rendering | Shows an imported 3D model (a whole file or one named piece of it). |
-| [`box`](components-rendering.md#component-box) | Box | Rendering | A simple coloured box (blocking out a level, placeholders). |
-| [`materials`](components-rendering.md#component-materials) | Materials | Rendering | Which project material each of the object's materials uses ("*": all of them). |
-| [`materialParams`](components-rendering.md#component-materialParams) | Material parameters | Rendering | This object's values for the public parameters of its graph materials (the materials keep their own values elsewhere). |
-| [`effect`](components-rendering.md#component-effect) | Effect | Rendering | Plays a visual effect (particles) from this object. Visual only: it never changes the game simulation. |
-| [`surface`](components-rendering.md#component-surface) | Surface | Rendering | Simple look overrides for a box or model: colour, roughness, metalness and glow. |
-| [`instances`](components-rendering.md#component-instances) | Instance set | Rendering | One model placed many times (grass, rocks, trees), stored as a binary transform buffer. |
-| [`fogVolume`](components-rendering.md#component-fogVolume) | Fog volume | Rendering | A box of fog (mist in a valley, smoke in a room). |
-| [`probeVolume`](components-rendering.md#component-probeVolume) | Probe volume | Rendering | A box the probe bake fills with light probes (Lighting window → Bake probes). Without any, the bake covers the static objects. |
+| [`model`](components-rendering-1.md#component-model) | Model | Rendering | Shows an imported 3D model (a whole file or one named piece of it). |
+| [`box`](components-rendering-1.md#component-box) | Box | Rendering | A simple coloured box (blocking out a level, placeholders). |
+| [`materials`](components-rendering-1.md#component-materials) | Materials | Rendering | Which project material each of the object's materials uses ("*": all of them). |
+| [`materialParams`](components-rendering-1.md#component-materialParams) | Material parameters | Rendering | This object's values for the public parameters of its graph materials (the materials keep their own values elsewhere). |
+| [`effect`](components-rendering-1.md#component-effect) | Effect | Rendering | Plays a visual effect (particles) from this object. Visual only: it never changes the game simulation. |
+| [`surface`](components-rendering-1.md#component-surface) | Surface | Rendering | Simple look overrides for a box or model: colour, roughness, metalness and glow. |
+| [`instances`](components-rendering-1.md#component-instances) | Instance set | Rendering | One model placed many times (grass, rocks, trees), stored as a binary transform buffer. |
+| [`fogVolume`](components-rendering-1.md#component-fogVolume) | Fog volume | Rendering | A box of fog (mist in a valley, smoke in a room). |
+| [`probeVolume`](components-rendering-1.md#component-probeVolume) | Probe volume | Rendering | A box the probe bake fills with light probes (Lighting window → Bake probes). Without any, the bake covers the static objects. |
+| [`decal`](components-rendering-1.md#component-decal) | Decal | Rendering | A box that marks the surfaces inside it with a decal material (dirt, cracks, stains, signs), projected along the object's −Z. |
 | [`collider`](components-physics.md#component-collider) | Collider | Physics | A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh), placed anywhere in the object's frame; several shapes as a compound, or the convex parts of its model's _COL node. |
 | [`controller`](components-physics.md#component-controller) | Player controller | Physics | Makes this object the player: it runs, jumps and collides with a capsule. |
 | [`virtualCamera`](components-camera.md#component-virtualCamera) | Virtual camera | Camera | A camera shot the game cuts or blends to: follow/orbit a target, orbit a point in snapped turns, top-down, fixed/look-at, along a rail, or track a target with a dead zone and bounds. The live one is the enabled camera with the highest priority (on a tie the one activated last); it is what the game shows (without one the view holds a default pose and Play warns). |
@@ -63,12 +64,12 @@ Every component, in "+ Add component" order within its category.
 | [`behavior`](components-scripting.md#component-behavior) | Script | Scripting | Runs a published behavior (script) on this object with per-object property values. |
 | [`prefab`](components-organisation.md#component-prefab) | Prefab link | Organisation | Which prefab (and which of its entities) this object was placed from. |
 | [`folder`](components-organisation.md#component-folder) | Folder | Organisation | Organises objects in the Hierarchy; carries nothing else. |
-| [`blockLayer`](components-rendering.md#component-blockLayer) | Block layer | Rendering | A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands. |
+| [`blockLayer`](components-rendering-1.md#component-blockLayer) | Block layer | Rendering | A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands. |
 | [`blockFootprint`](components-gameplay.md#component-blockFootprint) | Block footprint | Gameplay | The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked). |
 | [`behaviorGroup`](components-scripting.md#component-behaviorGroup) | Behavior group | Scripting | The group this object's behavior belongs to. A game mode lists the groups that tick while it is active; the others pause (their scripts do not run). |
-| [`terrain`](components-rendering.md#component-terrain) | Terrain | Rendering | A heightfield of square tiles for landscape reaching the horizon, sculpted, painted and cut with the terrain commands (editTerrain). |
-| [`spline`](components-rendering.md#component-spline) | Spline | Rendering | A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines). |
-| [`architecture`](components-rendering.md#component-architecture) | Architecture | Rendering | Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture"). |
+| [`terrain`](components-rendering-1.md#component-terrain) | Terrain | Rendering | A heightfield of square tiles for landscape reaching the horizon, sculpted, painted and cut with the terrain commands (editTerrain). |
+| [`spline`](components-rendering-1.md#component-spline) | Spline | Rendering | A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines). |
+| [`architecture`](components-rendering-2.md#component-architecture) | Architecture | Rendering | Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture"). |
 
 <a id="handle-kinds"></a>
 ## Scene-view handle kinds

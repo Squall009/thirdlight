@@ -49,13 +49,13 @@ Everything but the bake itself:
   `{"entityId": "<id>", "static": true}`.
 - A probe volume: `createEntity` with `components.probeVolume
   {"size": [32, 8, 16], "spacing": 2}`
-  ([`probeVolume`](../reference/components-rendering.md#component-probeVolume)).
+  ([`probeVolume`](../reference/components-rendering-1.md#component-probeVolume)).
 - Layer names: [`setLightLayers`](../reference/ops-detail.md#op-setLightLayers)
   `{"layers": ["World", "Interior"]}`; an object's layers are its
   `lightLayers` mask (bit n = layer n + 1).
 - Quality levels: [`setEnvironment`](../reference/ops-detail.md#op-setEnvironment)
   without `sceneId`, `environment.qualityLevels`
-  ([`QualityLevelConfig`](../reference/types-p-w.md#type-quality-level-config))
+  ([`QualityLevelConfig`](../reference/types-p-u.md#type-quality-level-config))
   and `environment.quality` (the starting level).
 - Clear a bake: [`setLighting`](../reference/ops-detail.md#op-setLighting)
   `{"sceneId": "<scene>", "lighting": null}`.

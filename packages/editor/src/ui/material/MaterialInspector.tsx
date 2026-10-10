@@ -29,6 +29,7 @@ import { CONVERTIBLE_SHADERS, convertToGraph } from '../../session/material-grap
 import { RefPicker, TEXTURE_KINDS, useEntryName } from '../catalog/RefPicker';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { TrimSheetTable, type TrimCheck } from './TrimSheetTable';
+import { DecalCellPicker } from './DecalCellPicker';
 import { OpenItemButton } from '../catalog/item-opener';
 
 /** The DataTransfer type a dragged material carries (dropped onto an object in the Scene view). */
@@ -105,7 +106,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
           </button>
         </div>
       ) : (
-        <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} {...(p.onCheckTrim !== undefined ? { onCheckTrim: p.onCheckTrim } : {})} />
+        <MaterialInspector key={selected.materialId} material={selected} materials={p.materials} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} {...(p.onCheckTrim !== undefined ? { onCheckTrim: p.onCheckTrim } : {})} />
       )}
       <button className="tl-btn tl-btn--small" onClick={createInstance} title="A material instance of this material: its look, with the values you change in it">
         + new instance
@@ -114,7 +115,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
   );
 }
 
-function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onCheckTrim?: TrimCheck }): JSX.Element {
+function MaterialInspector(props: { material: MaterialDef; materials: readonly MaterialDef[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onCheckTrim?: TrimCheck }): JSX.Element {
   const m = props.material;
   const schema = MATERIAL_PARAMS[m.shader];
   const slots = MATERIAL_TEXTURE_SLOTS[m.shader];
@@ -157,9 +158,10 @@ function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave
             const shader = e.target.value as MaterialShader;
             const params = Object.fromEntries(Object.entries(m.params).filter(([k]) => MATERIAL_PARAMS[shader][k] !== undefined));
             const textures = Object.fromEntries(Object.entries(m.textures).filter(([k]) => MATERIAL_TEXTURE_SLOTS[shader].includes(k)));
-            // A trim material has a row table (the starter layout to begin with); no other shader has one.
-            const { trim, ...rest } = m;
-            props.onSave({ ...rest, shader, params, textures, ...(shader === 'trim' ? { trim: trim ?? defaultTrimSheet() } : {}) });
+            // A trim material has a row table (the starter layout to begin with), a decal material may name a sheet's
+            // cell; no other shader has either.
+            const { trim, decal, ...rest } = m;
+            props.onSave({ ...rest, shader, params, textures, ...(shader === 'trim' ? { trim: trim ?? defaultTrimSheet() } : {}), ...(shader === 'decal' && decal !== undefined ? { decal } : {}) });
           }}
         >
           {MATERIAL_SHADERS.map((s) => (
@@ -173,8 +175,9 @@ function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave
       {Object.entries(schema).map(([key, type]) => (
         <ParamRow key={key} name={key} type={type} value={m.params[key]} onCommit={(v) => setParam(key, v)} />
       ))}
-      <div className="tl-subhead">Textures (empty = the file's own)</div>
-      {slots.map((slot) => (
+      {m.shader === 'decal' && <DecalCellPicker material={m} materials={props.materials} onSave={props.onSave} />}
+      <div className="tl-subhead">{m.decal !== undefined ? "Textures: the sheet's, inside the cell" : "Textures (empty = the file's own)"}</div>
+      {m.decal === undefined && slots.map((slot) => (
         <label
           key={slot}
           className="tl-field"

@@ -25,8 +25,9 @@ import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
+import { DECAL_BLENDS, validateDecalCellRef, type DecalCellRef } from './decals';
 
-export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim'] as const;
+export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim', 'decal'] as const;
 export type MaterialShader = (typeof MATERIAL_SHADERS)[number];
 
 export type MaterialParamType =
@@ -129,6 +130,21 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     doubleSided: bool(false),
     localLights: { kind: 'enum', values: MATERIAL_LOCAL_LIGHT_MODES, default: 'object' },
   },
+  // A decal (`decals.ts`): albedo with opacity in alpha, normal, ORM and emissive, from its own textures or one
+  // decal cell of a trim sheet (`decal`). The factors multiply the textures' values (glTF's rule; roughness 1 and
+  // metalness 0 with no ORM). `blend` is how a mesh or clipped decal's lit colour goes over the surface; a
+  // projected decal blends channel by channel with its component's opacities instead.
+  decal: {
+    color: color('#ffffff'),
+    opacity: num(0, 1, 1),
+    roughness: num(0, 1, 1),
+    metalness: num(0, 1, 0),
+    normalScale: num(0, 4, 1),
+    aoIntensity: num(0, 2, 1),
+    emissive: color('#000000'),
+    emissiveIntensity: num(0, 16, 0),
+    blend: { kind: 'enum', values: DECAL_BLENDS, default: 'blend' },
+  },
 };
 
 /** The texture slots of every shader type (values: texture asset ids). */
@@ -139,6 +155,7 @@ export const MATERIAL_TEXTURE_SLOTS: Readonly<Record<MaterialShader, readonly st
   unlit: ['map'],
   water: ['normalMap'],
   trim: ['map', 'normalMap', 'ormMap'],
+  decal: ['map', 'normalMap', 'ormMap', 'emissiveMap'],
 };
 
 /**
@@ -185,6 +202,11 @@ export interface MaterialDef {
    * instance uses its root's table: a sheet laid out differently is a material of its own.
    */
   trim?: TrimSheet;
+  /**
+   * A decal material's cell of a trim sheet (`shader: 'decal'` only, on a root material; `decals.ts`): its
+   * textures are the sheet's, inside the cell. Absent: its own texture slots.
+   */
+  decal?: DecalCellRef;
 }
 
 /** An exposed parameter of a graph material. */
@@ -408,12 +430,12 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       return;
     }
     for (const k of Object.keys(m)) {
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal');
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
       if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
-      for (const k of ['graph', 'parameters', 'trim'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
+      for (const k of ['graph', 'parameters', 'trim', 'decal'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
     }
     // Shape here; "values only on an instance" with the whole list (validateMaterialInstances).
     if (m['values'] !== undefined) validateMaterialInstanceValues(m['values'], `${p}/values`, errors);
@@ -434,6 +456,14 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       for (const e of trimSheetErrors(m['trim'])) {
         if (e.allowed !== undefined) err(errors, 'field_unexpected', `${p}/trim${e.path}`, e.message, e.path.slice(e.path.lastIndexOf('/') + 1), e.allowed.join(', '));
         else err(errors, 'field_value', `${p}/trim${e.path}`, e.message);
+      }
+    }
+    // A decal material's trim sheet cell: refused elsewhere; its textures are the sheet's, so it has no slots of its own.
+    if (m['decal'] !== undefined) {
+      if (shader !== 'decal') err(errors, 'field_unexpected', `${p}/decal`, 'only a decal material takes a trim sheet cell (decal)', 'decal', 'shader "decal"');
+      else {
+        validateDecalCellRef(m['decal'], `${p}/decal`, errors);
+        if (isPlainObject(m['textures']) && Object.keys(m['textures']).length > 0) err(errors, 'field_value', `${p}/textures`, 'a decal material draws from its sheet cell (decal) or its own textures, not both', Object.keys(m['textures'])[0]);
       }
     }
     const schema = MATERIAL_PARAMS[shader as MaterialShader];
@@ -589,6 +619,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
     ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
     ...(root.graph !== undefined ? { graph: root.graph } : {}),
     ...(root.trim !== undefined ? { trim: root.trim } : {}),
+    ...(root.decal !== undefined ? { decal: root.decal } : {}),
   };
 }
 
@@ -646,6 +677,7 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
         ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? ([...v] as MaterialValue) : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
         : {}),
       ...(m.trim !== undefined ? { trim: canonicalTrimSheet(m.trim) } : {}),
+      ...(m.decal !== undefined ? { decal: { sheet: m.decal.sheet, cell: m.decal.cell } } : {}),
     }));
 }
 

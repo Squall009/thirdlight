@@ -10,6 +10,7 @@ import { lightLayerMask, list, str } from './descriptor-builders';
 import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
 import { WALK_METRES_RANGE } from './block-walk-settings';
 import { streamingField } from './world-streaming-descriptor';
+import { decalLayersField } from './decal-descriptor';
 import { BLOCK_LIMITS, BLOCK_MAX_SLOPE_RANGE, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
 import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, IntFieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
 
@@ -56,6 +57,7 @@ export const blockLayer: ComponentDescriptor = {
     }),
     bool('wallPaint', 'Wall paint', "Walls have paint of their own (Paint mode, Walls): an unpainted wall shows material layer 2, the top's paint wraps over the lip and fades one row down, and wall faces get vertices about every 0.5 m so the paint shows. Off: walls show the paint of the top above them.", { default: false }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers its blocks are in: only lights whose light mask shares one of them light the blocks, and the blocks cast shadows only for lights whose shadow caster mask shares one.', 1),
+    decalLayersField(false),
     obj('cutaway', 'Cut-away', "What is hidden from the view while the camera's target (or a subject a script names) is under or inside it: roofs and upper floors over the player, the walls round the room it is in, the floors above a dungeon level. Drawing only: collision, queries and shadows stay.", [
       list('regions', 'Regions', "Regions of the layer whose cells are hidden while the subject stands under them (within their columns, below their lowest row), or, with When, while it is inside another region.", obj('*', 'Region', 'A region cut away.', [
         str('region', 'Region', 'The region whose cells are hidden.', { required: true, minLength: 1, maxLength: 64 }),

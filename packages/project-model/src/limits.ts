@@ -35,6 +35,7 @@ export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 export { MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH, SKY_ROTATION_MAX, WET_ALBEDO_SCALE, WET_ROUGHNESS } from './materials';
 export { MAX_LOCAL_LIGHTS } from './local-lights';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
+export { DECAL_LAYER_COUNT, DECAL_LAYERS_ALL, DECAL_LIMITS } from './decals';
 export { INSTANCES_LOCAL_LIGHTS_DEFAULT, LIGHT_IMPORTANCES, LOCAL_LIGHT_MODES, MATERIAL_LOCAL_LIGHT_MODES } from './local-lights';
 export { COLLIDER_3D_LIMITS, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA } from './components';
 // The audio load-type defaults and the browser-support rules (pure data rules the editor applies too).

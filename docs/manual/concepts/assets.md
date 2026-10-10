@@ -58,7 +58,7 @@ and [`setAddress`](../reference/ops-detail.md#op-setAddress) name things
 for scripts; [`deleteAsset`](../reference/ops-detail.md#op-deleteAsset)
 deletes a file and its sidecar, and is refused while anything uses it.
 Uploads go through MCP's `tl_content_upload`. The asset fields are in
-[assets in the reference](../reference/content-blocks-save-schema.md#content-assets).
+[assets in the reference](../reference/content-blocks-script-libraries.md#content-assets).
 
 There is no limit on how many assets or resources a project holds. Limits
 apply to the size of one file and to the game's memory; see

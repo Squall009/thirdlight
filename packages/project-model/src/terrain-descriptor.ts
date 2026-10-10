@@ -7,6 +7,7 @@
  */
 import { bool, int, json, num, obj, vec2 } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
+import { decalLayersField } from './decal-descriptor';
 import { streamingField } from './world-streaming-descriptor';
 import { TERRAIN_HEIGHT_LIMIT, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_MACRO_DISTANCE_LIMITS, TERRAIN_SPACING_LIMITS, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT } from './terrain';
 
@@ -27,6 +28,7 @@ export const terrain: ComponentDescriptor = {
     json('scatter', 'Scatter rules', 'Models placed by rules, their copies baked per tile: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (set and baked by Scatter rules in the terrain tools, or editTerrain bake; the scatter brush\'s hand edits stay over them).', { readOnly: true, shape: 'ScatterRule[]' }),
     json('layers', 'Edit layers', 'Layers over the hand-made ground, applied in order and combined into the tiles: [{id, kind: stamps|erosion|splines|blocks, name?, enabled?, strength?, stamps?: [{asset, at, size, rotation?, height, mode?, y?, falloff?}], tiles?, settings?, blockLayers?, mode?: cut|flatten, blend?, paint?}] (the Layers list in the terrain tools; erosion is run by editTerrain erode; a blocks layer makes the ground meet block layers: their border followed over blend metres, cut away or flattened under them, their paint carried across; absent: one base layer with the splines on top).', { readOnly: true, shape: 'TerrainLayer[]' }),
     streamingField('tiles', false, 1500),
+    decalLayersField(false),
     vec2('uvOrigin', 'Texture origin', 'The world x, z its material\'s texture coordinates count from (empty: the object\'s position). A terrain with a blocks layer takes the block layer\'s origin, so textures line up across the border.', { min: -TERRAIN_HEIGHT_LIMIT * 100, max: TERRAIN_HEIGHT_LIMIT * 100, step: 1, unit: 'm', labels: ['x', 'z'] }),
     json('overview', 'Overview', 'The SHA-256 of every tile at its coarsest level, which a streamed terrain draws past its render ring (written by a build, never in the editor).', { readOnly: true }),
   ]),

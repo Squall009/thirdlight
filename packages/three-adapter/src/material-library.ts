@@ -79,7 +79,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY } from './material-keys';
 import type { ResourceManager } from '@thirdlight/runtime';
 
-export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water' | 'trim';
+export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water' | 'trim' | 'decal';
 
 /** The adapter's structural copy of a project material (project-model `MaterialDef`). */
 export interface MaterialDefLike {
@@ -98,6 +98,8 @@ export interface MaterialDefLike {
   readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
   /** A trim material's row table (an instance draws with its root's). */
   readonly trim?: TrimSheet;
+  /** A decal material's trim sheet cell (an instance draws with its root's). */
+  readonly decal?: { readonly sheet: string; readonly cell: string };
 }
 
 /** The longest instance chain (the model's). */
@@ -154,6 +156,7 @@ export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): 
       ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
       ...(root.graph !== undefined ? { graph: root.graph } : {}),
       ...(root.trim !== undefined ? { trim: root.trim } : {}),
+      ...(root.decal !== undefined ? { decal: root.decal } : {}),
     });
   }
   return out;
@@ -436,6 +439,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (p['doubleSided'] !== undefined || def.shader === 'foliage') m.side = p['doubleSided'] === false ? THREE.FrontSide : p['doubleSided'] === true || def.shader === 'foliage' ? THREE.DoubleSide : m.side;
     applyAlpha(m, p);
     if (def.shader === 'trim') return buildTrim(m, def);
+    // A decal material on a mesh is a see-through surface that never hides what is behind it. Its blend modes,
+    // depth push and sort order, and a trim sheet cell's textures, are the mesh decal drawing's; until then it
+    // draws its own textures, tint and opacity over the surface like any blended material.
+    if (def.shader === 'decal') {
+      m.transparent = true;
+      m.depthWrite = false;
+    }
     // The file's textures take the material's tiling too (clones: the file's stay as they are).
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {

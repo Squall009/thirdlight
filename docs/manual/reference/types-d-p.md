@@ -1,4 +1,4 @@
-# Types (DialogueSettings to PublishAssetArgs)
+# Types (DialogueSettings to PublishAssetAnimation)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1034,7 +1034,7 @@ const MATERIAL_PARAMETER_TYPES: readonly ["float", "vec2", "vec3", "vec4", "colo
 Declared in `packages/project-model/src/materials.ts`.
 
 ```ts
-const MATERIAL_SHADERS: readonly ["standard", "foliage", "kit", "unlit", "water", "trim"];
+const MATERIAL_SHADERS: readonly ["standard", "foliage", "kit", "unlit", "water", "trim", "decal"];
 ```
 
 <a id="type-material-def"></a>
@@ -1080,6 +1080,11 @@ interface MaterialDef {
    * instance uses its root's table: a sheet laid out differently is a material of its own.
    */
   trim?: TrimSheet;
+  /**
+   * A decal material's cell of a trim sheet (`shader: 'decal'` only, on a root material; `decals.ts`): its
+   * textures are the sheet's, inside the cell. Absent: its own texture slots.
+   */
+  decal?: DecalCellRef;
 }
 ```
 
@@ -1638,45 +1643,5 @@ Declared in `packages/commands/src/types.ts`.
 interface PublishAssetAnimation {
   entityId: string;
   roles: ModelAnimationRolesValue;
-}
-```
-
-<a id="type-publish-asset-args"></a>
-### PublishAssetArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** `publishAsset` args. */
-interface PublishAssetArgs {
-  mode: 'create' | 'reimport';
-  assetId: string;
-  /** The kind discriminator: required on create; must match the record on reimport. */
-  kind?: AssetKind;
-  /** Display name; defaults to the assetId on create, unchanged on reimport. */
-  displayName?: string;
-  /** 64 lowercase hex; stage-free digest-addressed fact. */
-  sourceDigest: string;
-  sourceByteLength: number;
-  /** A file referenced in place: its path relative to the game folder. */
-  sourcePath?: string;
-  /** The original a converted model was made from (FBX). */
-  convertedFrom?: ConvertedFrom;
-  /** A texture packed from texture assets (channel by channel, layer by layer). */
-  packedFrom?: PackedFrom;
-  importRecipe: ImportRecipe | ImportRecipeV3;
-  metrics: AssetMetrics;
-  /** A project-model timestamp; a prepared fact. */
-  importedAt: string;
-  /** Atomic version-local role mapping. */
-  animation?: PublishAssetAnimation;
-  /**
-   * Model only: the "extract textures" import setting (true: on; false: off,
-   * the extracted textures are forgotten; absent: a create leaves it off, a
-   * reimport keeps the record's).
-   */
-  extractTextures?: boolean;
-  /** Model only: the texture asset each image of this version was extracted into (absent: none). */
-  textures?: Record<string, string>;
 }
 ```

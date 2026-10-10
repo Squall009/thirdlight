@@ -835,6 +835,8 @@ export {
 } from './lighting';
 // Probe grids (baked indirect light).
 export * from './probe-grids';
+// Decals: the component, decal layers and decal materials' trim sheet cells.
+export * from './decals';
 // Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,
@@ -1168,10 +1170,13 @@ export {
   trimSheetMipLevels,
   trimSheetProblems,
   trimSheetSafeMipLevel,
+  trimCellMetres,
+  trimCellOf,
   trimU,
   trimV,
   writeTrimStripUvs,
   writeTrimVertexColour,
+  type TrimCell,
   type TrimLayoutImport,
   type TrimPaddingProblem,
   type TrimRow,

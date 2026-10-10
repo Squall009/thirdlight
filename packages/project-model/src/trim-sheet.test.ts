@@ -15,6 +15,8 @@ import {
   trimSafeMipLevel,
   trimSheetErrors,
   trimSheetFromLayout,
+  trimCellMetres,
+  trimCellOf,
   trimSheetMipLevels,
   trimSheetProblems,
   trimSheetSafeMipLevel,
@@ -238,7 +240,7 @@ describe('padding pixels', () => {
 });
 
 describe('Texture Designer layout import', () => {
-  it('reads strip layers as rows and skips decal cells', () => {
+  it('reads strip layers as rows and decal layers as named cells', () => {
     const layout = {
       format: 'trim/1',
       size: [1024, 512],
@@ -247,16 +249,40 @@ describe('Texture Designer layout import', () => {
       layers: [
         { name: 'plaster_field', kind: 'tile_uv', px: [8, 264] },
         { name: 'coping', kind: 'tile_u', px: [280, 376] },
-        { name: 'decals', kind: 'decals', px: [392, 504], cells: [] },
+        { name: 'decals', kind: 'decals', px: [392, 504], cells: [{ name: 'window_round', px_rect: [8, 392, 112, 112], size_m: [0.21875, 0.21875] }, { name: 'crack', px_rect: [136, 392, 64, 64] }] },
+        { name: 'notes', kind: 'text' },
       ],
     };
     const r = trimSheetFromLayout(layout);
-    expect(r).toEqual({
-      ok: true,
-      skipped: ['decals'],
-      sheet: { size: [1024, 512], texelDensity: 512, padding: 8, rows: [{ slot: 'plaster_field', top: 8, bottom: 264, tileV: true }, { slot: 'coping', top: 280, bottom: 376 }] },
-    });
+    const sheet = { size: [1024, 512], texelDensity: 512, padding: 8, rows: [{ slot: 'plaster_field', top: 8, bottom: 264, tileV: true }, { slot: 'coping', top: 280, bottom: 376 }], cells: [{ name: 'window_round', rect: [8, 392, 112, 112] }, { name: 'crack', rect: [136, 392, 64, 64] }] };
+    expect(r).toEqual({ ok: true, skipped: ['notes'], sheet });
+    expect(trimCellMetres(sheet as TrimSheet, trimCellOf(sheet as TrimSheet, 'window_round')!)).toEqual([0.21875, 0.21875]);
+    // A decal layer without cells adds no cells key: a sheet without them keeps its bytes.
+    const bare = trimSheetFromLayout({ ...layout, layers: layout.layers.slice(0, 2).concat([{ name: 'decals', kind: 'decals', px: [392, 504], cells: [] }]) });
+    expect(bare.ok && 'cells' in bare.sheet).toBe(false);
+    // A cell off the sheet fails the import.
+    const off = trimSheetFromLayout({ ...layout, layers: [...layout.layers.slice(0, 2), { name: 'decals', kind: 'decals', cells: [{ name: 'big', px_rect: [1000, 0, 64, 64] }] }] });
+    expect(off).toEqual({ ok: false, message: 'layout.json: /cells/0/rect the cell runs off the 1024 × 512 sheet' });
     expect(trimSheetFromLayout({ format: 'tdg/1' }).ok).toBe(false);
     expect(trimSheetFromLayout({ ...layout, layers: [{ name: 'Bad Name', kind: 'tile_u', px: [0, 10] }] }).ok).toBe(false);
+  });
+});
+
+describe('decal cells', () => {
+  const base: TrimSheet = { size: [256, 128], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 4, bottom: 60 }] };
+  it('are named rectangles inside the sheet, names unique; the table keeps their order and drops an empty list', () => {
+    const sheet: TrimSheet = { ...base, cells: [{ name: 'stain', rect: [128, 64, 64, 64] }, { name: 'crack', rect: [0, 64, 64, 32] }] };
+    expect(trimSheetErrors(sheet)).toEqual([]);
+    expect(canonicalTrimSheet(sheet).cells!.map((c) => c.name)).toEqual(['stain', 'crack']);
+    expect('cells' in canonicalTrimSheet({ ...base, cells: [] })).toBe(false);
+    expect(canonicalTrimSheet(base)).toEqual(base);
+    const msgs = (cells: unknown): string[] => trimSheetErrors({ ...base, cells } as unknown as TrimSheet).map((e) => `${e.path} ${e.message}`);
+    expect(msgs([{ name: 'a', rect: [0, 0, 8, 8] }, { name: 'a', rect: [8, 0, 8, 8] }])).toEqual(['/cells/1/name cell "a" is listed twice']);
+    expect(msgs([{ name: 'a', rect: [250, 0, 8, 8] }])).toEqual(['/cells/0/rect the cell runs off the 256 × 128 sheet']);
+    expect(msgs([{ name: 'a', rect: [0, 0, 0, 8] }])[0]).toMatch(/^\/cells\/0\/rect rect is/);
+    expect(msgs([{ name: 'Bad', rect: [0, 0, 8, 8], tile: true }])).toEqual(['/cells/0/tile unknown cell field "tile"', '/cells/0/name a cell name uses the id syntax [a-z0-9][a-z0-9_-]{0,63}']);
+    expect(trimCellOf(sheet, 'crack')!.rect).toEqual([0, 64, 64, 32]);
+    expect(trimCellOf(sheet, 'none')).toBeNull();
+    expect(trimCellMetres(sheet, trimCellOf(sheet, 'crack')!)).toEqual([0.5, 0.25]);
   });
 });

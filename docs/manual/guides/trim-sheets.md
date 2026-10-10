@@ -29,7 +29,7 @@ of a wall as a strip of its slot's row.
 ## Through the API
 
 - The material: [`setMaterial`](../reference/ops-detail.md#op-setMaterial)
-  with `shader: "trim"` and a [`TrimSheet`](../reference/types-p-w.md#type-trim-sheet):
+  with `shader: "trim"` and a [`TrimSheet`](../reference/types-p-u.md#type-trim-sheet):
   ```json
   {"material": {"materialId": "trim-a", "name": "Trim A", "shader": "trim", "params": {},
     "textures": {"map": "<albedo>", "normalMap": "<normal>", "ormMap": "<orm>"},

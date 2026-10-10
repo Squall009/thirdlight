@@ -27,6 +27,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { ID_RE } from './validate';
+import { validateDecalLayerMask } from './decals';
 
 /** Bounds of one component's values: coordinates and sizes, so a request cannot ask for unbounded geometry. */
 export const ARCHITECTURE_LIMITS = Object.freeze({
@@ -426,10 +427,12 @@ export interface ArchitectureComponent {
   paint?: ArchitecturePaint;
   /** This object is a building's interior made into its own scene (written by the build, never stored by the editor). */
   interiorOf?: ArchitectureInteriorOf;
+  /** The decal layers projected decals mark its meshes in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf', 'decalLayers']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
 const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer', 'cap'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
@@ -839,6 +842,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
   bool(value, 'receiveShadow', path, errors);
   if (value['baked'] !== undefined && (typeof value['baked'] !== 'string' || !DIGEST_RE.test(value['baked']))) err(errors, 'field_value', `${path}/baked`, 'baked is the SHA-256 of the shipped meshes (64 lowercase hex), written by an export', value['baked']);
   if (value['layer'] !== undefined && (typeof value['layer'] !== 'string' || value['layer'].length < 1 || value['layer'].length > 128)) err(errors, 'field_value', `${path}/layer`, 'layer names the block layer object the rooms are drawn on', value['layer']);
+  validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
 }
 
 /** The component in canonical form: fields in order; nested objects as given (validation fixed their fields). */

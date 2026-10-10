@@ -13,7 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CONTROLLER_FIELDS } from '@thirdlight/project-model';
+import { CONTROLLER_FIELDS, DECAL_FIELDS, validateDecalComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -47,7 +47,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie', 'lightMask', 'shadowCasterMask', 'importance'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers'],
   // Free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
@@ -86,6 +86,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   terrain: TERRAIN_FIELDS,
   spline: SPLINE_FIELDS,
   architecture: ARCHITECTURE_FIELDS,
+  decal: DECAL_FIELDS,
 };
 
 /**
@@ -93,11 +94,11 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
  * argument check, the forward op and the history's changed fields read.
  */
 export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
-  // The shadow flags and light layers (optional; `null` goes back to the default: true, every layer).
-  box: ['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights'],
+  // The shadow flags, light and decal layers (optional; `null` goes back to the default: true, every layer).
+  box: ['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers'],
   camera: ['type', 'fovY', 'near', 'far'],
   // The piece of a multi-piece file is an Inspector field too.
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights'],
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers'],
   // The shape, the one-way flag and the collision layers (both optional).
   collider: ['shape', 'oneWay', 'layers'],
   // The capsule, then the movement tuning (all optional; `null` goes back to the default).
@@ -161,6 +162,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'terrain',
   'spline',
   'architecture',
+  // v4 scenes only.
+  'decal',
 ];
 
 /** Every component `setComponent` may address. */
@@ -258,6 +261,9 @@ export function validateV3ComponentValue(
       break;
     case 'architecture':
       validateArchitectureComponent(value, path, errors as unknown as Parameters<typeof validateArchitectureComponent>[2]);
+      break;
+    case 'decal':
+      validateDecalComponent(value, path, errors as unknown as Parameters<typeof validateDecalComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

@@ -12,12 +12,12 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 - Category: Physics
 - Added: from "+ Add component", starting as `{"shape":{"type":"box","hx":0.5,"hy":0.5}}`
 - On prefab objects: yes
-- Cannot share an object with [`terrain`](components-rendering.md#component-terrain): a terrain is its own level geometry
+- Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): a terrain is its own level geometry
 - Cannot share an object with [`socketAttach`](components-object.md#component-socketAttach): a socket poses the object every step; a physics body is posed by physics
-- Cannot share an object with [`blockLayer`](components-rendering.md#component-blockLayer): a block layer is its own level geometry
+- Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): a block layer is its own level geometry
 - Cannot share an object with [`controller`](#component-controller): the player controller has its own capsule
 - Cannot share an object with [`playerSpawn`](components-gameplay.md#component-playerSpawn): a player spawn is a marker
-- Cannot share an object with [`instances`](components-rendering.md#component-instances): an instance set is scenery without its own body
+- Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery without its own body
 - Cannot share an object with [`patrol`](components-gameplay.md#component-patrol): a patroller is not a physics body (give it a hitbox)
 - Cannot share an object with [`gravity`](components-gameplay.md#component-gravity): a gravity body is not a physics body (give it a hitbox)
 - Rule: A physics body (collider or controller) is at unit scale [1, 1, 1] on a 2D plane and rotated about Z only there (any axis and scale in a 3D one); the player controller and a mover are root objects and the controller stands upright; a collider on a child follows its parent.
@@ -85,13 +85,13 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 - Category: Physics
 - Added: from "+ Add component", starting as `{}`
 - On prefab objects: no
-- Cannot share an object with [`terrain`](components-rendering.md#component-terrain): a terrain is its own level geometry
+- Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): a terrain is its own level geometry
 - Cannot share an object with [`socketAttach`](components-object.md#component-socketAttach): a socket poses the object every step; the player is moved by its controller
-- Cannot share an object with [`blockLayer`](components-rendering.md#component-blockLayer): a block layer is its own level geometry
+- Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): a block layer is its own level geometry
 - Cannot share an object with [`collider`](#component-collider): the player controller has its own capsule
 - Cannot share an object with [`mover`](components-gameplay.md#component-mover): the player moves by input, not along waypoints
 - Cannot share an object with [`playerSpawn`](components-gameplay.md#component-playerSpawn): the spawn marks where the player starts
-- Cannot share an object with [`instances`](components-rendering.md#component-instances): an instance set is scenery
+- Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery
 - Cannot share an object with [`collectible`](components-gameplay.md#component-collectible): the character collects; it is not collected
 - Cannot share an object with [`patrol`](components-gameplay.md#component-patrol): the character moves by input, not by itself
 - Cannot share an object with [`climbVolume`](components-gameplay.md#component-climbVolume): the character climbs in a climb volume; it is not one

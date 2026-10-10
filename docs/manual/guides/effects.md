@@ -66,7 +66,7 @@ visual only: the game simulation never reads them back.
    ```
    Later edits of one system: [`graphEdit`](../reference/ops-detail.md#op-graphEdit)
    `{"owner": {"kind": "effect", "id": "sparks/main"}, "ops": [...]}`.
-2. Play it on an object ([`effect`](../reference/components-rendering.md#component-effect)):
+2. Play it on an object ([`effect`](../reference/components-rendering-1.md#component-effect)):
    `setComponent {"entityId": "<object>", "component": "effect", "value": {"effectId": "sparks"}}`.
 3. Play and read the diagnostics' `renderer.effects`: the executor
    (`webgpu` or `cpu`), what plays, the particle count and `problems` (a

@@ -6,6 +6,7 @@
 import { type AssetRefFieldDescriptor, type BoolFieldDescriptor, type ColorFieldDescriptor, type DescriptorAssetKind, type DescriptorRefTarget, type DescriptorScalar, type EntityRefFieldDescriptor, type EnumFieldDescriptor, type EnumOption, type FieldCondition, type FieldDescriptor, type IntFieldDescriptor, type JsonFieldDescriptor, type ListFieldDescriptor, type MapFieldDescriptor, type NumberFieldDescriptor, type ObjectFieldDescriptor, type RefFieldDescriptor, type SceneRefFieldDescriptor, type SignalFieldDescriptor, type StringFieldDescriptor, type VecFieldDescriptor } from './descriptor-types';
 
 import { LIGHT_LAYERS_ALL } from './light-layers';
+import { DECAL_LAYERS_ALL } from './decals';
 
 // ---- small builders ------------------------------------------------------------
 
@@ -19,6 +20,12 @@ export const int = (key: string, label: string, tooltip: string, o: Opts<IntFiel
  */
 export const lightLayerMask = (key: string, label: string, tooltip: string, min: 0 | 1, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor =>
   int(key, label, tooltip, { min, max: LIGHT_LAYERS_ALL, default: LIGHT_LAYERS_ALL, omitDefault: true, mask: 'lightLayers', ...o });
+/**
+ * A decal layer mask (decals.ts): an integer from `min` to every layer. A receiver's starts at 0 (it may take
+ * no decal), a decal's at 1. `omitDefault` is the caller's: a skinned model's absent mask is none, not every layer.
+ */
+export const decalLayerMask = (key: string, label: string, tooltip: string, min: 0 | 1, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor =>
+  int(key, label, tooltip, { min, max: DECAL_LAYERS_ALL, default: DECAL_LAYERS_ALL, mask: 'decalLayers', ...o });
 export const bool = (key: string, label: string, tooltip: string, o: Opts<BoolFieldDescriptor> = {}): BoolFieldDescriptor => ({ type: 'bool', key, label, tooltip, ...o });
 const opts = (values: readonly string[], labels: Readonly<Record<string, string>> = {}): EnumOption[] => values.map((v) => ({ value: v, label: labels[v] ?? v.charAt(0).toUpperCase() + v.slice(1) }));
 export const enm = (key: string, label: string, tooltip: string, values: readonly string[], o: Opts<EnumFieldDescriptor> | (Omit<Opts<EnumFieldDescriptor>, 'options'> & { labels?: Readonly<Record<string, string>> }) = {}): EnumFieldDescriptor => {

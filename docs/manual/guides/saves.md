@@ -4,7 +4,7 @@
 your scripts keep, plus the game's own record of where the play stands.
 Everything a save can hold and where it is stored:
 [Saves](../features/saves.md); the fields:
-[Project saves](../reference/content-blocks-save-schema.md#content-saveSchema);
+[Project saves](../reference/content-blocks-script-libraries.md#content-saveSchema);
 the calls: [`ctx.saves`](../reference/script-api.md#ctx-saves) and
 [`ctx.save`](../reference/script-api.md#ctx-save).
 

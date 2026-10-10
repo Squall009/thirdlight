@@ -12,7 +12,7 @@ Plays the model's animations with an animator controller (a state machine).
 - Category: Animation
 - Added: from "+ Add component" after picking `controller` (the rest starts as `{}`)
 - On prefab objects: yes
-- Needs one of [`model`](components-rendering.md#component-model) on the same object: an animator plays the object's model
+- Needs one of [`model`](components-rendering-1.md#component-model) on the same object: an animator plays the object's model
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -70,8 +70,8 @@ The old idle/run/airborne clip roles. Projects are moved to an animator when ope
 - Added: never by hand: replaced by the animator (kept for old data)
 - On prefab objects: no
 - Legacy: kept working for old data, not offered for new objects
-- Needs one of [`model`](components-rendering.md#component-model) on the same object: it animates the object's model
-- Cannot share an object with [`instances`](components-rendering.md#component-instances): an instance set is not animated
+- Needs one of [`model`](components-rendering-1.md#component-model) on the same object: it animates the object's model
+- Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is not animated
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

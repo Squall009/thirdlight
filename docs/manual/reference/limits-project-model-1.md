@@ -214,6 +214,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-engine-timing-defaults"></a>`ENGINE_TIMING_DEFAULTS` | `{"dropThroughTime":0.125,"settleTime":0.1}` | Engine timing every project played with before it became data (recorded replays stay valid). Generic reasons: falling through a one-way platform ignores it for 0.125 s (enough to clear a thin platform at any normal fall speed); the world settles for 0.1 s before the first frame so resting bodies start at rest. |
 
+<a id="limits-project-model--decals"></a>
+## `decals.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-decal-defaults"></a>`DECAL_DEFAULTS` | `{"size":[1,1,1],"mode":"projected","normalFade":90,"edgeFade":[0.3,0.3],"sortOrder":0}` | A new decal: a 1 m cube projected along −Z; faces turned more than 90° from the projector get nothing (it fades out over the last fifth of the angle); it fades over 30 % of the box depth at each end (Godot's upper and lower fades), so a mark ends softly on a surface that leaves the box. |
+| <a id="limit-decal-limits"></a>`DECAL_LIMITS` | `{"sizeMax":1000,"normalFadeMin":1,"normalFadeMax":180,"fadeDistanceMax":100000,"sortOrderMin":-1000,"sortOrderMax":1000}` | The component's bounds: - a box side up to 1000 m: a decal is a mark on a level, the size of a puddle to a road marking; a whole-level change is a material's job; - the normal fade is the angle from facing the projector, 1–180°: 180 lets back faces take the mark too; - edge fades are fractions of the box depth; - the fade distance runs to the farthest a camera sees (a far plane's 100 km); - sort orders −1000 to 1000 leave room between groups of marks. |
+
 <a id="limits-project-model--dialogue"></a>
 ## `dialogue.ts`
 
@@ -349,29 +357,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |
 | <a id="limit-max-material-slots"></a>`MAX_MATERIAL_SLOTS` | `32` | Most material slots one object or asset maps. |
 | <a id="limit-sky-rotation-max"></a>`SKY_ROTATION_MAX` | `360` | The largest turn a sky's `rotation` takes either way (degrees; one full turn). |
-
-<a id="limits-project-model--model-lod"></a>
-## `model-lod.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-instance-density-end-default"></a>`INSTANCE_DENSITY_END_DEFAULT` | `0.005` |  |
-| <a id="limit-instance-density-min-default"></a>`INSTANCE_DENSITY_MIN_DEFAULT` | `1` | The share kept where copies are smallest when a set does not set it: all (no thinning). |
-| <a id="limit-instance-density-min-new"></a>`INSTANCE_DENSITY_MIN_NEW` | `0.25` | The share new instance sets are made with (the scatter dialog writes it into the component). |
-| <a id="limit-instance-density-start-default"></a>`INSTANCE_DENSITY_START_DEFAULT` | `0.02` | Instance-set density falloff: full density down to 2 % of the screen height, a quarter of the copies at 0.5 % and smaller. A 0.5 m grass tuft starts thinning at ~27 m and reaches a quarter at ~107 m; a 6 m tree at ~320 m — so near and mid ground look the same and only what is a few pixels across thins. A set that does not set `densityMin` draws every copy (sets made before thinning existed keep their look); new sets are made with {@link INSTANCE_DENSITY_MIN_NEW} written out. |
-| <a id="limit-lod-bias-default"></a>`LOD_BIAS_DEFAULT` | `1` | The project's LOD bias: 1 = the models' own switch points. |
-| <a id="limit-lod-bias-max"></a>`LOD_BIAS_MAX` | `4` |  |
-| <a id="limit-lod-bias-min"></a>`LOD_BIAS_MIN` | `0.25` |  |
-| <a id="limit-lod-cull-size-default"></a>`LOD_CULL_SIZE_DEFAULT` | `0` | No culling: a model is drawn however small it is (the default). |
-| <a id="limit-lod-hysteresis-default"></a>`LOD_HYSTERESIS_DEFAULT` | `0.1` | The project's LOD hysteresis: a tenth. A model standing still at a switch point does not flicker with the camera's sway, and a level shown one step coarser for 10 % of the switch distance is not noticed. |
-| <a id="limit-lod-hysteresis-max"></a>`LOD_HYSTERESIS_MAX` | `0.5` |  |
-| <a id="limit-lod-screen-sizes-default"></a>`LOD_SCREEN_SIZES_DEFAULT` | `[0.08,0.03,0.012,0.005]` | The screen sizes where levels 1, 2, 3, 4 take over (8 %, 3 %, 1.2 %, 0.5 % of the screen height); a model with more levels switches its later ones at the last. They were the engine-wide switch points before models had their own. |
-| <a id="limit-lod-screen-sizes-max"></a>`LOD_SCREEN_SIZES_MAX` | `8` | Most switch points a model's settings may list (levels beyond use the last). |
-| <a id="limit-mesh-lod-ratios-default"></a>`MESH_LOD_RATIOS_DEFAULT` | `[0.5,0.25,0.125]` | The triangle shares of the levels 1, 2, 3 the "generate LODs" import setting makes for a model without authored levels: each half the one before, as the default screen sizes roughly halve from level to level. |
-
-<a id="limits-project-model--model-rig"></a>
-## `model-rig.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-model-rig-limits"></a>`MODEL_RIG_LIMITS` | `{"nodes":4096,"clips":64,"keyNumbers":262144}` | Engine limits of a rig as data. Nodes and clips match the importer's caps (4,096 nodes, 64 clips). Key numbers (times + values of every channel) bound what one model adds to a play/export manifest: 262,144 numbers is about 3 MB of JSON — a character with 60 bones × 12 clips × 3 channels of 30 keys fits with room; clips past the limit are left out and the rig is marked `truncated` (a socket on it then warns once in the play log). The budget is per model (its animation-only files included), never shared across the project, so a game's hundredth character is read like its first. |

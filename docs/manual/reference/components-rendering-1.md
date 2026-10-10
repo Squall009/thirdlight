@@ -1,4 +1,4 @@
-# Components: Rendering
+# Components: Rendering (part 1)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -26,6 +26,7 @@ Shows an imported 3D model (a whole file or one named piece of it).
 | `receiveShadow` | bool | `true` |  | **Receives shadows.** Shows the realtime shadows falling on it. (stored only when not the default; scripts read) |
 | `lightLayers` | int (light layer mask) | `255` | 1 – 255, step 1 | **Light layers.** The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one. (stored only when not the default; scripts read) |
 | `localLights` | enum: `pixel`, `vertex`, `none` |  |  | **Local lights.** Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel). (scripts read; choices: `pixel` = Per pixel, `vertex` = Per vertex, `none` = None) |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer, none for a skinned model: a projector fixed in the world slides over a moving skin. (scripts read) |
 
 <a id="component-box"></a>
 ## box — Box
@@ -49,6 +50,7 @@ A simple coloured box (blocking out a level, placeholders).
 | `receiveShadow` | bool | `true` |  | **Receives shadows.** Shows the realtime shadows falling on it. (stored only when not the default; scripts read) |
 | `lightLayers` | int (light layer mask) | `255` | 1 – 255, step 1 | **Light layers.** The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one. (stored only when not the default; scripts read) |
 | `localLights` | enum: `pixel`, `vertex`, `none` |  |  | **Local lights.** Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel). (scripts read; choices: `pixel` = Per pixel, `vertex` = Per vertex, `none` = None) |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default; scripts read) |
 
 Scene-view handles:
 
@@ -64,7 +66,7 @@ Which project material each of the object's materials uses ("*": all of them).
 - Category: Rendering
 - Added: from "+ Add component" after picking `*` (the rest starts as `{}`)
 - On prefab objects: yes
-- Needs one of [`model`](#component-model), [`box`](#component-box), [`instances`](#component-instances), [`terrain`](#component-terrain), [`spline`](#component-spline), [`architecture`](#component-architecture) on the same object: materials dress a model, a box, an instance set, a terrain (its layered material: "*"), a spline's mesh ("spline") or generated architecture (its trim material: "architecture")
+- Needs one of [`model`](#component-model), [`box`](#component-box), [`instances`](#component-instances), [`terrain`](#component-terrain), [`spline`](#component-spline), [`architecture`](components-rendering-2.md#component-architecture) on the same object: materials dress a model, a box, an instance set, a terrain (its layered material: "*"), a spline's mesh ("spline") or generated architecture (its trim material: "architecture")
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -78,7 +80,7 @@ This object's values for the public parameters of its graph materials (the mater
 - Category: Rendering
 - Added: by a tool: Materials section of the Inspector (override a public parameter)
 - On prefab objects: yes
-- Needs one of [`model`](#component-model), [`box`](#component-box), [`instances`](#component-instances), [`terrain`](#component-terrain), [`spline`](#component-spline), [`architecture`](#component-architecture) on the same object: material parameters belong to the materials of a model, a box, an instance set, a terrain, a spline or generated architecture
+- Needs one of [`model`](#component-model), [`box`](#component-box), [`instances`](#component-instances), [`terrain`](#component-terrain), [`spline`](#component-spline), [`architecture`](components-rendering-2.md#component-architecture) on the same object: material parameters belong to the materials of a model, a box, an instance set, a terrain, a spline or generated architecture
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -149,6 +151,7 @@ One model placed many times (grass, rocks, trees), stored as a binary transform 
 | `receiveShadow` | bool | `true` |  | **Receives shadows.** Shows the realtime shadows falling on it. (stored only when not the default) |
 | `lightLayers` | int (light layer mask) | `255` | 1 – 255, step 1 | **Light layers.** The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one. (stored only when not the default) |
 | `localLights` | enum: `pixel`, `vertex`, `none` |  |  | **Local lights.** Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as the material says, else per pixel). (choices: `pixel` = Per pixel, `vertex` = Per vertex, `none` = None) |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default) |
 | `chunkSize` | number |  | 1 – 4096, step 1, m | **Chunk size.** The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project's Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on. |
 | `lodPerCopy` | bool | `false` |  | **Level per copy.** Each copy picks its own level of detail by its own distance and size, instead of the level its chunk picks at its centre: truer where a chunk spans a switch point, at one more draw per level in each such chunk. (stored only when not the default) |
 | `densityStart` | number |  | 0.0001 – 1, step 0.001 | **Thinning starts at.** Copies start thinning out where they cover less than this share of the screen height (absent: 0.02). |
@@ -205,6 +208,39 @@ Scene-view handles:
 
 GameObject menu: Light → Probe volume
 
+<a id="component-decal"></a>
+## decal — Decal
+
+A box that marks the surfaces inside it with a decal material (dirt, cracks, stains, signs), projected along the object's −Z.
+
+- Category: Rendering
+- Added: from "+ Add component" after picking `material` (the rest starts as `{"size":[1,1,1]}`)
+- On prefab objects: no
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `size` | vec3 [w, h, d] | `[1,1,1]` | > 0, ≤ 1000, step 0.05, m | **Size.** Width and height of the mark, and depth of the box it reaches through (metres; the object's scale applies). (required; Scene handle: box3; scripts read) |
+| `mode` | enum: `projected`, `clipped` | `"projected"` |  | **Mode.** Projected: the surfaces under it blend it in channel by channel before they are lit. Clipped: a mesh cut from the surfaces under it at load, drawn as a mesh decal (its material's blend). (stored only when not the default; scripts read) |
+| `material` | material id |  |  | **Material.** A decal material: its textures (or a trim sheet's decal cell) and its blend. (required; scripts read) |
+| `opacity` | object |  |  | **Channel opacity.** Projected decals: how much of each surface channel it changes (empty: all of it). Mesh and clipped decals blend their lit colour instead. (scripts read) |
+| `opacity.albedo` | number | `1` | 0 – 1, step 0.05 | **Albedo.** How much of its colour covers the surface's. |
+| `opacity.normal` | number | `1` | 0 – 1, step 0.05 | **Normal.** How much of its normal map bends the surface's (cracks, seams). |
+| `opacity.roughness` | number | `1` | 0 – 1, step 0.05 | **Roughness.** How much of its roughness replaces the surface's (a wet patch: roughness only). |
+| `opacity.metalness` | number | `1` | 0 – 1, step 0.05 | **Metalness.** How much of its metalness replaces the surface's. |
+| `opacity.occlusion` | number | `1` | 0 – 1, step 0.05 | **Occlusion.** How much of its occlusion darkens the surface's indirect light. |
+| `opacity.emission` | number | `1` | 0 – 1, step 0.05 | **Emission.** How much of its glow is added to the surface. |
+| `normalFade` | number | `90` | 1 – 180, step 1, deg | **Normal fade.** Surfaces turned further than this from facing the projector take no mark; it fades out over the last fifth of the angle (180: back faces too). (scripts read) |
+| `edgeFade` | vec2 [front, back] | `[0.3,0.3]` | 0 – 1, step 0.05 | **Edge fade.** The share of the box depth it fades over near its front and back ends, so a mark ends softly where a surface leaves the box. (scripts read) |
+| `fadeDistance` | number |  | > 0, ≤ 100000, step 1, m | **Fade distance.** Metres from the camera where it has faded out, over the last fifth (empty: never). (scripts read) |
+| `sortOrder` | int | `0` | -1000 – 1000, step 1 | **Sort order.** Where decals overlap, the higher order is drawn over the lower. (stored only when not the default; scripts read) |
+| `layers` | int | `255` | 1 – 255, step 1 | **Layers.** The decal layers it marks: only objects whose decal layers share one take it. (stored only when not the default; scripts read) |
+
+Scene-view handles:
+
+| Handle | Kind | Edits | Space | Shown when |
+|---|---|---|---|---|
+| Size | box3 | size → `size` | local (follows transform) |  |
+
 <a id="component-blockLayer"></a>
 ## blockLayer — Block layer
 
@@ -220,7 +256,7 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 - Cannot share an object with [`instances`](#component-instances): a block layer is its own level geometry
 - Cannot share an object with [`terrain`](#component-terrain): a block layer is its own level geometry
 - Cannot share an object with [`spline`](#component-spline): a block layer is its own level geometry
-- Cannot share an object with [`architecture`](#component-architecture): a block layer is its own level geometry
+- Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a block layer is its own level geometry
 - Rule: A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.
 
 | Field | Type | Default | Range | Description |
@@ -236,6 +272,7 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 | `topSubdivision` | int (one of 1 = 1 × 1, 2 = 2 × 2) | `1` |  | **Top subdivision.** How finely sloped tops are drawn: 1 × 1 is the corners' two flat triangles; 2 × 2 cuts each top in four with the inner heights blended from the corners, so hills read as rolling ground. The collision shape stays the corners' two triangles. |
 | `wallPaint` | bool | `false` |  | **Wall paint.** Walls have paint of their own (Paint mode, Walls): an unpainted wall shows material layer 2, the top's paint wraps over the lip and fades one row down, and wall faces get vertices about every 0.5 m so the paint shows. Off: walls show the paint of the top above them. |
 | `lightLayers` | int (light layer mask) | `255` | 1 – 255, step 1 | **Light layers.** The light layers its blocks are in: only lights whose light mask shares one of them light the blocks, and the blocks cast shadows only for lights whose shadow caster mask shares one. (stored only when not the default) |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default) |
 | `cutaway` | object |  |  | **Cut-away.** What is hidden from the view while the camera's target (or a subject a script names) is under or inside it: roofs and upper floors over the player, the walls round the room it is in, the floors above a dungeon level. Drawing only: collision, queries and shadows stay. |
 | `cutaway.regions` | list of objects, ≤ 256 items |  |  | **Regions.** Regions of the layer whose cells are hidden while the subject stands under them (within their columns, below their lowest row), or, with When, while it is inside another region. |
 | `cutaway.regions[].region` | string, 1–64 chars |  |  | **Region.** The region whose cells are hidden. (required) |
@@ -252,8 +289,8 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 | `walk.headroom` | number |  | 0 – 64, step 0.05, m | **Headroom.** The free height a place to stand needs above it, and under which no wall or closed door may stand across a step (absent: one cell height). |
 | `walk.field` | string, identifier, 1–32 chars |  |  | **Walkable field.** A yes/no cell field: only tops whose cell has it on are walked (empty: every top). (format identifier) |
 | `walk.diagonal` | bool | `false` |  | **Diagonal.** Steps across cell corners too, where both ways round the corner walk. |
-| `rules` | JSON: `SurfaceRule[]` ([SurfaceRule](types-p-w.md#type-surface-rule)) |  |  | **Material rules.** Layers 0-3 by slope, height, cavity, noise, top or wall, block type and cell metadata, painted at every vertex when chunks are meshed: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}] (the Blocks tools' Rules). Hand paint stays over them. |
-| `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-p-w.md#type-scatter-rule)) |  |  | **Scatter rules.** Models placed on the tops by rules, their copies baked per chunk by the layer's edits: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, blocks?, meta?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (the Blocks tools' Scatter). The scatter brush's hand edits stay over them. |
+| `rules` | JSON: `SurfaceRule[]` ([SurfaceRule](types-p-u.md#type-surface-rule)) |  |  | **Material rules.** Layers 0-3 by slope, height, cavity, noise, top or wall, block type and cell metadata, painted at every vertex when chunks are meshed: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}] (the Blocks tools' Rules). Hand paint stays over them. |
+| `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-p-u.md#type-scatter-rule)) |  |  | **Scatter rules.** Models placed on the tops by rules, their copies baked per chunk by the layer's edits: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, blocks?, meta?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (the Blocks tools' Scatter). The scatter brush's hand edits stay over them. |
 | `vertexAO` | number | `0` | 0 – 1, step 0.05 | **Corner shading.** How dark the blocks' corners and creases get from per-vertex ambient occlusion: where neighbouring blocks close a corner in, that much of its indirect light is taken away. 0: none. Cheap (worked out when a chunk is meshed); a layer with baked lightmaps has its shading in the bake. |
 | `streaming` | object |  |  | **Streaming.** Rings around the camera (in Play and the export) within which its chunks are loaded, measured across the ground; past them they are let go, within the project's streaming budget (streaming_budget_mb). Empty: everything loaded. |
 | `streaming.render` | number | `256` | 1 – 100000, step 1, m | **Render ring.** Metres within which chunks are drawn. (required) |
@@ -277,25 +314,26 @@ A heightfield of square tiles for landscape reaching the horizon, sculpted, pain
 - Cannot share an object with [`instances`](#component-instances): a terrain is its own level geometry
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a terrain is its own level geometry
 - Cannot share an object with [`spline`](#component-spline): a terrain is its own level geometry
-- Cannot share an object with [`architecture`](#component-architecture): a terrain is its own level geometry
+- Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a terrain is its own level geometry
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `tileSamples` | int (one of 17, 33, 65, 129, 257, 513, 1025) | `257` | 17 – 1025, step 1 | **Tile samples.** Samples along a tile side: 17, 33, 65, 129, 257, 513, 1025 (2^n + 1; neighbouring tiles share their edge samples). Fixed once tiles hold data. (required) |
 | `spacing` | number | `1` | 0.05 – 64, step 0.05, m | **Spacing.** Metres between samples. (required) |
 | `heightRange` | vec2 [low, high] | `[-128,384]` | -100000 – 100000, step 1, ascending, m | **Height range.** The lowest and highest height a sample can hold, metres above the object (16-bit steps between them: a narrower range is finer). (required) |
-| `tiles` | JSON: `TerrainTileRef[]` ([TerrainTileRef](types-p-w.md#type-terrain-tile-ref)) |  |  | **Tiles.** The tiles: [{x, z, data?, scatter?, base?}], data the SHA-256 of the tile's heights, layers, holes and paint (absent: flat at 0 m), scatter of its scatter rules' copies, base of the tile as made by hand before splines shaped it (written by the terrain commands). (required; written by a tool) |
+| `tiles` | JSON: `TerrainTileRef[]` ([TerrainTileRef](types-p-u.md#type-terrain-tile-ref)) |  |  | **Tiles.** The tiles: [{x, z, data?, scatter?, base?}], data the SHA-256 of the tile's heights, layers, holes and paint (absent: flat at 0 m), scatter of its scatter rules' copies, base of the tile as made by hand before splines shaped it (written by the terrain commands). (required; written by a tool) |
 | `lodDistance` | number |  | 1 – 100000, step 1, m | **Detail distance.** Metres the finest level of detail reaches from the camera; each coarser level reaches twice as far (a quality level's LOD bias divides it). Empty: the nearest the tile size allows, also the least it takes. |
 | `collision` | bool | `true` |  | **Collision.** The tiles are heightfield colliders in a 3D project; off for scenery the player never reaches. |
 | `macroDistance` | number |  | 1 – 100000, step 10, m | **Macro distance.** Metres past which each tile is drawn from its macro texture — its look baked from above (albedo and normal, a few metres a texel) — instead of its material's layers: two texture reads instead of a dozen for the far ground. Empty: the layers everywhere. |
-| `rules` | JSON: `SurfaceRule[]` ([SurfaceRule](types-p-w.md#type-surface-rule)) |  |  | **Material rules.** Layers by slope, height, cavity and noise, baked into the tiles: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?}] (set and baked by Material rules in the terrain tools, or editTerrain bake; hand paint stays over them). (written by a tool) |
-| `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-p-w.md#type-scatter-rule)) |  |  | **Scatter rules.** Models placed by rules, their copies baked per tile: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (set and baked by Scatter rules in the terrain tools, or editTerrain bake; the scatter brush's hand edits stay over them). (written by a tool) |
-| `layers` | JSON: `TerrainLayer[]` ([TerrainLayer](types-p-w.md#type-terrain-layer)) |  |  | **Edit layers.** Layers over the hand-made ground, applied in order and combined into the tiles: [{id, kind: stamps\|erosion\|splines\|blocks, name?, enabled?, strength?, stamps?: [{asset, at, size, rotation?, height, mode?, y?, falloff?}], tiles?, settings?, blockLayers?, mode?: cut\|flatten, blend?, paint?}] (the Layers list in the terrain tools; erosion is run by editTerrain erode; a blocks layer makes the ground meet block layers: their border followed over blend metres, cut away or flattened under them, their paint carried across; absent: one base layer with the splines on top). (written by a tool) |
+| `rules` | JSON: `SurfaceRule[]` ([SurfaceRule](types-p-u.md#type-surface-rule)) |  |  | **Material rules.** Layers by slope, height, cavity and noise, baked into the tiles: [{layer, strength?, face?, height?, slope?, cavity?, noise?, weight?}] (set and baked by Material rules in the terrain tools, or editTerrain bake; hand paint stays over them). (written by a tool) |
+| `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-p-u.md#type-scatter-rule)) |  |  | **Scatter rules.** Models placed by rules, their copies baked per tile: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (set and baked by Scatter rules in the terrain tools, or editTerrain bake; the scatter brush's hand edits stay over them). (written by a tool) |
+| `layers` | JSON: `TerrainLayer[]` ([TerrainLayer](types-p-u.md#type-terrain-layer)) |  |  | **Edit layers.** Layers over the hand-made ground, applied in order and combined into the tiles: [{id, kind: stamps\|erosion\|splines\|blocks, name?, enabled?, strength?, stamps?: [{asset, at, size, rotation?, height, mode?, y?, falloff?}], tiles?, settings?, blockLayers?, mode?: cut\|flatten, blend?, paint?}] (the Layers list in the terrain tools; erosion is run by editTerrain erode; a blocks layer makes the ground meet block layers: their border followed over blend metres, cut away or flattened under them, their paint carried across; absent: one base layer with the splines on top). (written by a tool) |
 | `streaming` | object |  |  | **Streaming.** Rings around the camera (in Play and the export) within which its tiles are loaded, measured across the ground; past them they are let go, within the project's streaming budget (streaming_budget_mb). Empty: everything loaded. |
 | `streaming.render` | number | `1500` | 1 – 100000, step 1, m | **Render ring.** Metres within which tiles are drawn at full detail (never less than where they reach their coarsest level); past it they are drawn from the overview a build ships. (required) |
 | `streaming.collision` | number |  | 1 – 100000, step 1, m | **Collision ring.** Metres around the camera, its target and every character within which tiles have colliders (empty: the render ring). |
 | `streaming.scatter` | number |  | 1 – 100000, step 1, m | **Scatter ring.** Metres within which stored scatter is drawn (empty: the render ring). |
 | `streaming.hysteresis` | number |  | 0 – 10000, step 1, m | **Hysteresis.** Metres something loaded may be past its ring before it is let go (empty: a tenth of each ring). |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default) |
 | `uvOrigin` | vec2 [x, z] |  | -10000000 – 10000000, step 1, m | **Texture origin.** The world x, z its material's texture coordinates count from (empty: the object's position). A terrain with a blocks layer takes the block layer's origin, so textures line up across the border. |
 | `overview` | JSON |  |  | **Overview.** The SHA-256 of every tile at its coarsest level, which a streamed terrain draws past its render ring (written by a build, never in the editor). (written by a tool) |
 
@@ -309,7 +347,7 @@ A curve through points, each with its own width and roll: roads, paths and river
 - On prefab objects: no
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a spline is its own object beside the level geometry it shapes
 - Cannot share an object with [`terrain`](#component-terrain): a spline is its own object beside the level geometry it shapes
-- Cannot share an object with [`architecture`](#component-architecture): a spline is its own object beside the level geometry it shapes
+- Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a spline is its own object beside the level geometry it shapes
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -356,6 +394,7 @@ A curve through points, each with its own width and roll: roads, paths and river
 | `pieces[].upright` | bool | `true` |  | **Upright.** Upright (off: they lean with slope and roll). |
 | `pieces[].collide` | bool | `true` |  | **Collides.** Pieces carry their model's _COL colliders. |
 | `pieces[].castShadow` | bool | `true` |  | **Casts shadows.** Blocks the directional light. |
+| `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default; scripts read) |
 | `data` | string, sha256, 64 chars |  |  | **Made.** SHA-256 of the mesh and pieces made from it (written by the host). (written by a tool; scripts read; format sha256) |
 
 Scene-view handles:
@@ -365,34 +404,3 @@ Scene-view handles:
 | Spline | spline | points → `points` | local |  |
 
 GameObject menu: Level → Spline (3D), Level → Road (3D), Level → River (3D)
-
-<a id="component-architecture"></a>
-## architecture — Architecture
-
-Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture").
-
-- Category: Rendering
-- Added: from "+ Add component", starting as `{"profiles":{"wall":{"points":[[0.1,0],[0.1,3],[-0.1,3],[-0.1,0]],"slots":["lower_wall","bevel","upper_wall"]}},"elements":[{"id":"wall","kind":"sweep","path":{"points":[[0,0,0],[6,0,0]]},"profile":"wall"}]}`
-- On prefab objects: no
-- Cannot share an object with [`blockLayer`](#component-blockLayer): generated architecture is its own object beside the level geometry
-- Cannot share an object with [`terrain`](#component-terrain): generated architecture is its own object beside the level geometry
-- Cannot share an object with [`spline`](#component-spline): generated architecture is its own object beside the level geometry
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `elements` | JSON: `ArchitectureElement[]` ([ArchitectureElement](types-a-d.md#type-architecture-element)) |  |  | **Elements.** Sweeps {id, kind: "sweep", path, profile, openings?}, repeats {id, kind: "repeat", path, spacing, piece} and fills {id, kind: "fill", path, shape, slot}. (required; scripts read) |
-| `profiles` | JSON: `Record<string, ArchitectureProfile>` ([ArchitectureProfile](types-a-d.md#type-architecture-profile)) |  |  | **Profiles.** Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}. (scripts read) |
-| `overrides` | JSON: `ArchitectureOverride[]` ([ArchitectureOverride](types-a-d.md#type-architecture-override)) |  |  | **Overrides.** Kit models in place of a segment or a corner: [{element, segment \| corner, model: {assetId}}]. (scripts read) |
-| `outlines` | JSON: `ArchitectureOutline[]` ([ArchitectureOutline](types-a-d.md#type-architecture-outline)) |  |  | **Outlines.** Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?}] (the preset's style graph makes their elements; a block layer's Rooms tool draws them). (scripts read) |
-| `buildings` | JSON: `ArchitectureBuilding[]` ([ArchitectureBuilding](types-a-d.md#type-architecture-building)) |  |  | **Buildings.** Rooms with a roof: [{id, path, preset, outside?, storeys?, openings?, roof?: {shape, rise?, overhang?, slot?}, interior?: {scene, offset?}}] (the Rooms tool draws them). (scripts read) |
-| `masks` | JSON: `Record<string, ArchitectureMask>` ([ArchitectureMask](types-a-d.md#type-architecture-mask)) |  |  | **Masks.** Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}. (scripts read) |
-| `chunkSize` | number | `16` | 4 – 1024, step 1, m | **Chunk size.** Metres a generated chunk covers (one draw per material each). (scripts read) |
-| `seed` | int | `0` | 0 – 4294967295, step 1 | **Seed.** Seeds the variation of repeated copies. (scripts read) |
-| `ao` | object |  |  | **Baked AO.** Vertex ambient occlusion in inside corners and where walls meet the ground. (scripts read) |
-| `ao.strength` | number | `0.6` | 0 – 1, step 0.05 | **Strength.** How dark a right-angled inside corner gets (0: none). |
-| `ao.radius` | number | `0.5` | 0.01 – 10, step 0.05, m | **Radius.** Metres the darkening reaches. |
-| `lodDistance` | number | `40` | 0 – 100000, step 1, m | **Far level from.** Metres from the camera where detail (mouldings, frames, chamfers) is left out. (scripts read) |
-| `castShadow` | bool | `true` |  | **Casts shadows.** Blocks the directional light. (scripts read) |
-| `receiveShadow` | bool | `true` |  | **Receives shadows.** Shows the shadows falling on it. (scripts read) |
-| `layer` | string, ≤ 128 chars |  |  | **Block layer.** The block layer object the rooms are drawn on: their walls block its grid walks, rooms are its regions, its wall paint shows on them. (scripts read) |
-| `baked` | string, sha256, 64 chars |  |  | **Shipped meshes.** SHA-256 of the generated meshes an export shipped (written by the export). (written by a tool; scripts read; format sha256) |

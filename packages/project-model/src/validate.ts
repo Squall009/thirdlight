@@ -750,6 +750,7 @@ export function canonicalBox(b: unknown): BoxComponent {
     ...(typeof o['receiveShadow'] === 'boolean' ? { receiveShadow: o['receiveShadow'] } : {}),
     ...(typeof o['lightLayers'] === 'number' ? { lightLayers: o['lightLayers'] } : {}),
     ...(typeof o['localLights'] === 'string' ? { localLights: o['localLights'] as LocalLightMode } : {}),
+    ...(typeof o['decalLayers'] === 'number' ? { decalLayers: o['decalLayers'] } : {}),
   };
 }
 

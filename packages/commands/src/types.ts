@@ -248,7 +248,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: a curve through points (roads, rivers, rails). */
   | 'spline'
   /** v4 scenes only: generated architecture (parameters; geometry made at load). */
-  | 'architecture';
+  | 'architecture'
+  /** v4 scenes only: a decal (a projector box; a clipped one's mesh is made at load). */
+  | 'decal';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

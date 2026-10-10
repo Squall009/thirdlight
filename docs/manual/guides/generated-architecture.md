@@ -48,7 +48,7 @@ rooms drive culling and lighting (a lamp stops at its room's walls).
 
 1. Rooms and a building on a block layer, one
    [`createEntity`](../reference/ops-detail.md#op-createEntity) with an
-   [`architecture`](../reference/components-rendering.md#component-architecture)
+   [`architecture`](../reference/components-rendering-2.md#component-architecture)
    component (outlines are [`ArchitectureOutline`](../reference/types-a-d.md#type-architecture-outline)s,
    buildings [`ArchitectureBuilding`](../reference/types-a-d.md#type-architecture-building)s;
    points in metres from the object, which stands at the layer's place):

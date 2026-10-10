@@ -11,6 +11,6 @@ Every engine limit and default the packages export, each defined once in the pac
 - `@thirdlight/behavior-build`: [Limits and defaults: behavior-build](limits-behavior-build.md)
 - `@thirdlight/commands`: [Limits and defaults: commands](limits-commands.md)
 - `@thirdlight/game-host`: [Limits and defaults: game-host](limits-game-host.md)
-- `@thirdlight/project-model`: [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md), [Limits and defaults: project-model (part 2, from `modes.ts`)](limits-project-model-2.md)
+- `@thirdlight/project-model`: [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md), [Limits and defaults: project-model (part 2, from `model-lod.ts`)](limits-project-model-2.md)
 - `@thirdlight/protocol`: [Limits and defaults: protocol](limits-protocol.md)
 - `@thirdlight/runtime`: [Limits and defaults: runtime](limits-runtime.md)

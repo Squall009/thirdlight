@@ -100,10 +100,10 @@ import { publishBytes, publishScript, startBackend, type E2EBackend } from './ba
 import { materials, packTexture, publishTexture, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { stripPatchCentre, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
+import { stripPatchCentre, TEST_TRIM_CELL, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
-import { closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
+import { chooseItem, closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
@@ -613,7 +613,7 @@ const fmtRooms = (c: Record<string, readonly number[]>): string => Object.entrie
 
 async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<void> {
   variants.set(page, variant);
-  type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] } };
+  type TrimMat = { materialId: string; shader: string; textures: Record<string, string>; trim?: { size: number[]; padding: number; rows: { slot: string; top: number; bottom: number; texelDensity?: number }[] }; decal?: { sheet: string; cell: string } };
   const trimMaterial = async (): Promise<TrimMat | undefined> => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.shader === 'trim');
   await publishTexture(be!, new Uint8Array(testTrimSheetPng()), 'trim-sheet', 'Trim sheet');
 
@@ -623,8 +623,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const table = inspector(page).getByRole('table', { name: 'trim rows' });
   await expect(table).toBeVisible();
   await inspector(page).getByLabel('trim layout file').setInputFiles({ name: 'layout.json', mimeType: 'application/json', buffer: Buffer.from(testTrimLayoutJson()) });
-  await expect.poll(async () => (await trimMaterial())?.trim).toEqual(TEST_TRIM_SHEET);
-  await expect(inspector(page).getByLabel('trim check')).toContainText('left out: signs');
+  // The rows, and the decal layer's cell kept as a named rectangle (listed under the table).
+  await expect.poll(async () => (await trimMaterial())?.trim).toEqual({ ...TEST_TRIM_SHEET, cells: [TEST_TRIM_CELL] });
+  await expect(inspector(page).getByLabel('trim check')).toContainText('4 rows and 1 decal cell (left out, neither rows nor cells: notes)');
+  await expect(inspector(page).getByLabel('trim decal cells')).toContainText('sign: 32 × 32 px at 8, 192 (0.25 × 0.25 m)');
   const cell = (label: string) => table.getByLabel(label, { exact: true });
   // Row 2 reaching into row 3 is refused (the field shows the stored value again); row 4's own density is saved.
   await cell('row 2 bottom').fill('101');
@@ -641,6 +643,12 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await inspector(page).getByRole('button', { name: 'Check padding' }).click();
   await expect(inspector(page).getByLabel('trim check')).toContainText('Padding OK', { timeout: 15_000 });
   const trimId = (await trimMaterial())!.materialId;
+  // A decal material draws the sheet's cell: its source picked in the Inspector, one setMaterial.
+  await cmd('setMaterial', { material: { materialId: 'mat-stain', name: 'Stain', shader: 'decal', params: { blend: 'multiply' }, textures: {} } });
+  await chooseItem(page, 'material', 'Stain');
+  await inspector(page).getByLabel('decal sheet', { exact: true }).selectOption({ label: 'Trim' });
+  await expect.poll(async () => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.materialId === 'mat-stain')?.decal).toEqual({ sheet: trimId, cell: TEST_TRIM_CELL.name });
+  await expect(inspector(page).getByLabel('decal cell', { exact: true })).toHaveValue(TEST_TRIM_CELL.name);
 
   // ---- Play: the strips at a grazing angle, the trim material's and the standard material's.
   await cmd('setMaterial', { material: { materialId: 'mat-trim-std', name: 'Trim sheet, standard', shader: 'standard', params: { roughness: 1 }, textures: { map: 'trim-sheet' } } });

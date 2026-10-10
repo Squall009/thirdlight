@@ -69,7 +69,7 @@ and **Texture budget**.
 **API:** [`setSettings`](../reference/ops-detail.md#op-setSettings)
 `{"settings": {"texture_budget_mb": 768, "streaming_budget_mb": 1024}}`
 (each [1](../reference/limits-project-model-2.md#limit-streaming-budget-min-mb)–[65,536](../reference/limits-project-model-2.md#limit-streaming-budget-max-mb) MiB; see
-[the settings](../reference/content-blocks-save-schema.md#content-settings)).
+[the settings](../reference/content-blocks-script-libraries.md#content-settings)).
 
 Raise a budget only for machines that have the memory: the defaults hold a
 large landscape on a laptop with an integrated GPU sharing 8–16 GiB.

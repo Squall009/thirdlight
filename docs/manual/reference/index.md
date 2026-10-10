@@ -8,7 +8,8 @@ What the engine offers, generated from its source: the objects, components and c
 |---|---|
 | [Objects and components](objects.md) | Object fields, Components, Scene-view handle kinds |
 | [Components: Object](components-object.md) | transform — Transform, socketAttach — Socket |
-| [Components: Rendering](components-rendering.md) | 13 sections |
+| [Components: Rendering (part 1)](components-rendering-1.md) | 13 sections |
+| [Components: Rendering (part 2)](components-rendering-2.md) | architecture — Architecture |
 | [Components: Physics](components-physics.md) | collider — Collider, controller — Player controller |
 | [Components: Camera](components-camera.md) | virtualCamera — Virtual camera, cameraPath — Camera path, cameraRegion — Camera region |
 | [Components: Lighting](components-lighting.md) | light — Light |
@@ -18,16 +19,18 @@ What the engine offers, generated from its source: the objects, components and c
 | [Components: Scripting](components-scripting.md) | behavior — Script, behaviorGroup — Behavior group |
 | [Components: Organisation](components-organisation.md) | prefab — Prefab link, folder — Folder |
 | [Content documents](content.md) | Content blocks |
-| [Content documents (environment to materials)](content-blocks-environment.md) | environment — Environment, input — Input, materials — Materials |
-| [Content documents (animators to lightLayers)](content-blocks-animators.md) | 21 sections |
-| [Content documents (saveSchema to lighting)](content-blocks-save-schema.md) | saveSchema — Project saves, settings — Gameplay settings, scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
+| [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
+| [Content documents (materials to effects)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers, effects — Effects |
+| [Content documents (scriptLibraries to prefabs)](content-blocks-script-libraries.md) | 25 sections |
+| [Content documents (behaviors to lighting)](content-blocks-behaviors.md) | behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 78 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to DialogueDocument)](types-a-d.md) | 75 sections |
-| [Types (DialogueSettings to PublishAssetArgs)](types-d-p.md) | 100 sections |
-| [Types (PublishBehaviorArgs to WindConfig)](types-p-w.md) | 89 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to DialogueDocument)](types-a-d.md) | 76 sections |
+| [Types (DialogueSettings to PublishAssetAnimation)](types-d-p.md) | 99 sections |
+| [Types (PublishAssetArgs to UpdateEntityArgs)](types-p-u.md) | 88 sections |
+| [Types (V3OwnedComponent to WindConfig)](types-v-w.md) | 3 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
@@ -62,12 +65,12 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `errors.ts`, `ops.ts`, `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
-| [Limits and defaults: project-model (part 2, from `modes.ts`)](limits-project-model-2.md) | 28 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
+| [Limits and defaults: project-model (part 2, from `model-lod.ts`)](limits-project-model-2.md) | 30 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
-| [MCP tools (part 2, from tl_command: Animation: animator controllers)](mcp-tools-2.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload` |
-| [MCP tools (part 3, from tl_diagnostics)](mcp-tools-3.md) | 13 sections |
+| [MCP tools (part 2, from tl_command: Cameras and sockets)](mcp-tools-2.md) | `tl_content_job`, `tl_content_query` |
+| [MCP tools (part 3, from tl_content_upload)](mcp-tools-3.md) | 14 sections |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

@@ -5,7 +5,7 @@ walks, the HUD shows) and **Map** (the world holds still, a map document
 shows, an overhead camera is live) — switched with one key and back,
 without loading anything. Every setting:
 [Game modes](../features/game-modes.md) and the
-[modes reference](../reference/content-blocks-animators.md#content-modes).
+[modes reference](../reference/content-blocks-script-libraries.md#content-modes).
 
 A mode sets, together: the active **input maps**, a **camera** that is live
 while it is, the **UI documents** shown, the **behavior groups** whose

@@ -69,6 +69,8 @@ export interface InstancesComponent {
   lightLayers?: number;
   /** How local lights reach the copies (local-lights.ts; absent: their material's mode, else `INSTANCES_LOCAL_LIGHTS_DEFAULT`). */
   localLights?: LocalLightMode;
+  /** The decal layers projected decals mark the copies in, a bit mask (decals.ts; absent: every layer). */
+  decalLayers?: number;
   /** Density falloff: the screen size where copies start thinning, where they reach `densityMin`, and that share (absent: `model-lod.ts` defaults). */
   densityStart?: number;
   densityEnd?: number;
@@ -182,6 +184,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   cameraRegion?: import('./cameras').CameraRegionComponent;
   /** v4 only: a box the probe bake fills with probes (baked indirect light). */
   probeVolume?: import('./probe-grids').ProbeVolumeComponent;
+  /** v4 only: a decal: a box that marks the surfaces inside it. */
+  decal?: import('./decals').DecalComponent;
   /** v4 only: a heightfield of tiles (their data are blobs named by digest). */
   terrain?: import('./terrain').TerrainComponent;
   /** v4 only: a curve through points (roads, rivers, rails) and what is made along it. */

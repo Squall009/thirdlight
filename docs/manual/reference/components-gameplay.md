@@ -14,7 +14,7 @@ Where the player starts (a level names its spawn).
 - On prefab objects: no
 - Cannot share an object with [`collider`](components-physics.md#component-collider): a player spawn is a marker
 - Cannot share an object with [`controller`](components-physics.md#component-controller): the spawn marks where the player starts
-- Cannot share an object with [`instances`](components-rendering.md#component-instances): an instance set is scenery
+- Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery
 - Icon: spawn
 - Rule: A zone or player spawn is a root object at unit scale with no rotation.
 

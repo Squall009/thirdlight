@@ -17,7 +17,7 @@ metre apart, heights −128 to 384 m, and selects it. Its Inspector shows the
 fields, then the terrain tools.
 
 **API:** [`createEntity`](../reference/ops-detail.md#op-createEntity) with a
-[`terrain`](../reference/components-rendering.md#component-terrain)
+[`terrain`](../reference/components-rendering-1.md#component-terrain)
 component naming its tiles (a tile without data is flat at 0 m):
 
 ```json
@@ -55,7 +55,7 @@ of an earlier layer); **Apply** bakes them into every tile. **Paint** puts
 hand paint over them.
 
 **API:** `editTerrain` kind `bake` sets and bakes the rules in one command
-([`SurfaceRule`](../reference/types-p-w.md#type-surface-rule)):
+([`SurfaceRule`](../reference/types-p-u.md#type-surface-rule)):
 
 ```json
 {"entityId": "<terrain>", "kind": "bake", "rules": [
@@ -65,7 +65,7 @@ hand paint over them.
 
 Where no rule applies the ground is layer 0. Later sculpting bakes the
 rules again where it moved the ground. To see the layers as textures, give
-the object a [`materials`](../reference/components-rendering.md#component-materials)
+the object a [`materials`](../reference/components-rendering-1.md#component-materials)
 component whose `*` names a material made from the **height-blended
 layers** template; without one the first four layers show as plain colours.
 
@@ -78,7 +78,7 @@ marked as ground cover is never stored: it is made round the camera while
 the game runs.
 
 **API:** `editTerrain` kind `bake` with `scatter`
-([`ScatterRule`](../reference/types-p-w.md#type-scatter-rule)):
+([`ScatterRule`](../reference/types-p-u.md#type-scatter-rule)):
 
 ```json
 {"entityId": "<terrain>", "kind": "bake", "scatter": [
@@ -98,7 +98,7 @@ its width grip and its tangent. Each drag is one undo step, and the terrain
 follows in the same step.
 
 **API:** `createEntity` with a
-[`spline`](../reference/components-rendering.md#component-spline):
+[`spline`](../reference/components-rendering-1.md#component-spline):
 
 ```json
 {"sceneId": "scene-main", "kind": "group", "name": "Road", "components": {"spline": {
@@ -120,7 +120,7 @@ the ground back. Scripts read it as a path with
    blocks layer**. **API:** `setComponent` `{"entityId": "<terrain>",
    "component": "terrain", "value": {"layers": [{"id": "courtyard", "kind":
    "blocks", "blend": 8}]}}`
-   ([`TerrainBlocksLayer`](../reference/types-p-w.md#type-terrain-blocks-layer)).
+   ([`TerrainBlocksLayer`](../reference/types-p-u.md#type-terrain-blocks-layer)).
 
 The terrain then cuts a hole under the blocks, meets their top edge exactly
 at the border and fades back to its own height over `blend` metres. Later

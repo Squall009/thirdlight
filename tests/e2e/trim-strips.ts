@@ -44,10 +44,13 @@ export function testTrimSheetPng(): Buffer {
   return makePng(256, 256, (_x, y) => [...TEST_TRIM_COLOURS[bandOf(y)]!, 255]);
 }
 
-/** A Texture Designer layout.json (trim/1) of the test sheet, with a decal layer the import leaves out. */
+/** The decal cell the test layout's decal layer holds (the import keeps it as a named rectangle). */
+export const TEST_TRIM_CELL = { name: 'sign', rect: [8, 192, 32, 32] as [number, number, number, number] };
+
+/** A Texture Designer layout.json (trim/1) of the test sheet, with a decal layer of one cell and a layer that is neither rows nor cells. */
 export function testTrimLayoutJson(): string {
   const layers = TEST_TRIM_SHEET.rows.map((r) => ({ name: r.slot, kind: 'tile_u', px: [r.top, r.bottom], height_px: r.bottom - r.top, gutter_px: TEST_TRIM_SHEET.padding }));
-  return JSON.stringify({ format: 'trim/1', name: 'e2e_rows', size: TEST_TRIM_SHEET.size, texel_density_px_per_m: TEST_TRIM_SHEET.texelDensity, gutter_px: TEST_TRIM_SHEET.padding, uv_origin: 'top-left', layers: [...layers, { name: 'signs', kind: 'decals', px: [0, 4], cells: [] }] });
+  return JSON.stringify({ format: 'trim/1', name: 'e2e_rows', size: TEST_TRIM_SHEET.size, texel_density_px_per_m: TEST_TRIM_SHEET.texelDensity, gutter_px: TEST_TRIM_SHEET.padding, uv_origin: 'top-left', layers: [...layers, { name: 'signs', kind: 'decals', px: [0, 4], cells: [{ name: TEST_TRIM_CELL.name, px_rect: TEST_TRIM_CELL.rect }] }, { name: 'notes', kind: 'text' }] });
 }
 
 export interface StripPatch {

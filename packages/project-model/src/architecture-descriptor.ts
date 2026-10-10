@@ -9,6 +9,7 @@
  */
 import { bool, int, json, num, obj, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
+import { decalLayersField } from './decal-descriptor';
 import { ARCHITECTURE_AO_DEFAULTS, ARCHITECTURE_CHUNK_DEFAULT, ARCHITECTURE_LIMITS, ARCHITECTURE_LOD_DISTANCE_DEFAULT } from './architecture';
 
 const L = ARCHITECTURE_LIMITS;
@@ -41,6 +42,7 @@ export const architecture: ComponentDescriptor = {
     bool('castShadow', 'Casts shadows', 'Blocks the directional light.', { default: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the shadows falling on it.', { default: true }),
     str('layer', 'Block layer', 'The block layer object the rooms are drawn on: their walls block its grid walks, rooms are its regions, its wall paint shows on them.', { maxLength: 128 }),
+    decalLayersField(false),
     str('baked', 'Shipped meshes', 'SHA-256 of the generated meshes an export shipped (written by the export).', { format: 'sha256', minLength: 64, maxLength: 64, readOnly: true }),
   ]),
   add: { kind: 'menu', value: NEW_VALUE },

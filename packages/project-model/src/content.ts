@@ -60,6 +60,7 @@ import type { ModelErrorV2, ModelResultV2, ModelResultV3 } from './errors';
 import type { BehaviorRecord, GameplaySettings, PrefabDefinition, SettingsMap } from './types-v2';
 import { validateCollisionLayers, ID_RE_V2 } from './components';
 import { validateLightLayerNames } from './light-layers';
+import { validateDecalCells } from './decals';
 import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 import { REMOVED_FROM_ENGINE } from './upgrade-v24';
@@ -245,6 +246,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']), trusted('materials', 'graphs'));
     // Instances against their parents (the whole list).
     validateMaterialInstances(doc['materials'], '/materials', errors);
+    // Decal materials against the trim sheets whose cells they draw.
+    validateDecalCells(doc['materials'], '/materials', errors);
   }
   if (doc['environment'] !== undefined && !same('environment')) validateEnvironment(doc['environment'], '/environment', errors);
   if (doc['lighting'] !== undefined && !same('lighting')) validateLighting(doc['lighting'], '/lighting', errors);

@@ -34,6 +34,7 @@ The pages, and the Deployment sections each took:
 | [blocks.md](blocks.md) | Block layers, Block layer editing, Blocks on terrain | done |
 | [terrain.md](terrain.md) | Terrain, Terrain edit layers, stamps and erosion, Rule scatter and ground cover, Splines | done |
 | [architecture.md](architecture.md) | Generated architecture, Architecture styles and presets, Rooms and paths, Rooms drive culling and lighting, Buildings, Floor plans and furnishing | done |
+| [decals.md](decals.md) | — (new: the decal component, decal layers, decal materials, trim sheet decal cells) | growing |
 | [streaming.md](streaming.md) | World streaming | done |
 | [performance.md](performance.md) | Performance | done |
 | [ui.md](ui.md) | Project UI (UI documents), The UI document editor | done |

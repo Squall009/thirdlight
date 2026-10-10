@@ -1,8 +1,48 @@
-# Types (PublishBehaviorArgs to WindConfig)
+# Types (PublishAssetArgs to UpdateEntityArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-publish-asset-args"></a>
+### PublishAssetArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** `publishAsset` args. */
+interface PublishAssetArgs {
+  mode: 'create' | 'reimport';
+  assetId: string;
+  /** The kind discriminator: required on create; must match the record on reimport. */
+  kind?: AssetKind;
+  /** Display name; defaults to the assetId on create, unchanged on reimport. */
+  displayName?: string;
+  /** 64 lowercase hex; stage-free digest-addressed fact. */
+  sourceDigest: string;
+  sourceByteLength: number;
+  /** A file referenced in place: its path relative to the game folder. */
+  sourcePath?: string;
+  /** The original a converted model was made from (FBX). */
+  convertedFrom?: ConvertedFrom;
+  /** A texture packed from texture assets (channel by channel, layer by layer). */
+  packedFrom?: PackedFrom;
+  importRecipe: ImportRecipe | ImportRecipeV3;
+  metrics: AssetMetrics;
+  /** A project-model timestamp; a prepared fact. */
+  importedAt: string;
+  /** Atomic version-local role mapping. */
+  animation?: PublishAssetAnimation;
+  /**
+   * Model only: the "extract textures" import setting (true: on; false: off,
+   * the extracted textures are forgotten; absent: a create leaves it off, a
+   * reimport keeps the record's).
+   */
+  extractTextures?: boolean;
+  /** Model only: the texture asset each image of this version was extracted into (absent: none). */
+  textures?: Record<string, string>;
+}
+```
 
 <a id="type-publish-behavior-args"></a>
 ### PublishBehaviorArgs
@@ -1053,6 +1093,21 @@ Declared in `packages/project-model/src/timelines.ts`.
 type TimelineValue = number | number[] | string;
 ```
 
+<a id="type-trim-cell"></a>
+### TrimCell
+
+Declared in `packages/project-model/src/trim-sheet.ts`.
+
+```ts
+/** A decal cell's place on the sheet: a named rectangle in pixels, [x, y] its top-left corner counted from the image's top-left. */
+interface TrimCell {
+  /** The cell's name (an id), unique among the sheet's cells; decal materials name it. */
+  name: string;
+  /** [x, y, width, height] in pixels, inside the sheet. */
+  rect: [number, number, number, number];
+}
+```
+
 <a id="type-trim-row"></a>
 ### TrimRow
 
@@ -1087,6 +1142,8 @@ interface TrimSheet {
   /** Pixels above and below every row that repeat its edge (or continue its wrap). */
   padding: number;
   rows: TrimRow[];
+  /** Decal cells (absent: none). */
+  cells?: TrimCell[];
 }
 ```
 
@@ -1515,99 +1572,5 @@ interface UpdateEntityArgs {
   keepLoaded?: boolean;
   /** The entity's own tags, by name (replaces the whole set; [] clears). */
   tags?: string[];
-}
-```
-
-<a id="type-v3-owned-component"></a>
-### V3OwnedComponent
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/**
- * The six v3 add-capable components.
- * `playerSpawn` is a field-less marker; the rest are partial-replaceable.
- */
-type V3OwnedComponent =
-  | 'playerSpawn'
-  | 'light'
-  | 'surface'
-  | 'modelAnimation'
-  /** v4 scenes only: an instance set. */
-  | 'instances'
-  /** v4 scenes only: the object's material mapping. */
-  | 'materials'
-  /** v4 scenes only: a fog volume. */
-  | 'fogVolume'
-  /** v4 scenes only: a grid of blocks. */
-  | 'blockLayer'
-  /** v4 scenes only: the metadata a prop writes into the block cells beneath it. */
-  | 'blockFootprint'
-  /** v4 scenes only: an animator controller on a model. */
-  | 'animator'
-  /** v4 scenes only: gameplay building blocks. */
-  | 'mover'
-  | 'trigger'
-  | 'switch'
-  | 'health'
-  | 'audioSource'
-  | 'faceMovement'
-  /** v4 scenes only: overrides of graph-material parameters. */
-  | 'materialParams'
-  /** v4 scenes only: a visual effect played from the entity. */
-  | 'effect'
-  /** v4 scenes only: a virtual camera shot and a camera path. */
-  | 'virtualCamera'
-  | 'cameraPath'
-  /** v4 scenes only: rides on a node of another entity's model. */
-  | 'socketAttach'
-  /** v4 scenes only: the behavior group the entity's behavior belongs to. */
-  | 'behaviorGroup'
-  /** v4 scenes only: generic primitives. */
-  | 'collectible'
-  | 'patrol'
-  | 'hitbox'
-  /** v4 scenes only: a climb volume and a gravity body. */
-  | 'climbVolume'
-  | 'gravity'
-  /** v4 scenes only: a camera region. */
-  | 'cameraRegion'
-  /** v4 scenes only: a box the probe bake fills with probes. */
-  | 'probeVolume'
-  /** v4 scenes only: a heightfield of tiles. */
-  | 'terrain'
-  /** v4 scenes only: a curve through points (roads, rivers, rails). */
-  | 'spline'
-  /** v4 scenes only: generated architecture (parameters; geometry made at load). */
-  | 'architecture';
-```
-
-<a id="type-vec3"></a>
-### Vec3
-
-Declared in `packages/project-model/src/types.ts`.
-
-```ts
-/** Three finite numbers (meters), in canonical order. */
-type Vec3 = [number, number, number];
-```
-
-<a id="type-wind-config"></a>
-### WindConfig
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-interface WindConfig {
-  /** Horizontal direction [x, z] (normalized by the runtime; not both zero). */
-  direction: [number, number];
-  /** Base strength (0 = still air). */
-  strength: number;
-  /** Extra strength of gusts. */
-  gust: number;
-  /** Gusts per second. */
-  gustFrequency: number;
-  /** Small-scale variation over space (0-1). */
-  turbulence: number;
 }
 ```

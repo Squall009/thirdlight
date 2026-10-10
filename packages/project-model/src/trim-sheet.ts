@@ -32,6 +32,14 @@
  * wrap-filtered mips are); a wider mip filter needs a pixel or two more
  * padding.
  *
+ * Decal cells. A sheet may also hold square marks placed once (signs,
+ * cracks, stains: the Texture Designer's `decals` layer): `cells` names
+ * each one's pixel rectangle. Rows are strips; a cell is drawn by a decal
+ * material that names the sheet and the cell (`decals.ts`), so a level
+ * restyled by swapping its sheet swaps its decals too. Cells have their own
+ * gutter in the image (the designer repeats their edges), not the rows'
+ * padding.
+ *
  * Vertex colours (COLOR_0) on trim meshes are data: R occlusion (0 open,
  * 1 fully occluded), G grime weight, B wetness; A is unused. A mesh without
  * them reads (0, 0, 0, 1): clean, dry, unoccluded. The material blends them
@@ -55,6 +63,14 @@ export interface TrimRow {
   tileV?: boolean;
 }
 
+/** A decal cell's place on the sheet: a named rectangle in pixels, [x, y] its top-left corner counted from the image's top-left. */
+export interface TrimCell {
+  /** The cell's name (an id), unique among the sheet's cells; decal materials name it. */
+  name: string;
+  /** [x, y, width, height] in pixels, inside the sheet. */
+  rect: [number, number, number, number];
+}
+
 /** A trim sheet's row table (a trim material's `trim`). */
 export interface TrimSheet {
   /** The sheet's size in pixels [width, height] (level 0 of its textures). */
@@ -64,6 +80,8 @@ export interface TrimSheet {
   /** Pixels above and below every row that repeat its edge (or continue its wrap). */
   padding: number;
   rows: TrimRow[];
+  /** Decal cells (absent: none). */
+  cells?: TrimCell[];
 }
 
 /**
@@ -98,7 +116,8 @@ export interface TrimSheetError {
   allowed?: readonly string[];
 }
 
-const SHEET_FIELDS = ['size', 'texelDensity', 'padding', 'rows'] as const;
+const SHEET_FIELDS = ['size', 'texelDensity', 'padding', 'rows', 'cells'] as const;
+const CELL_FIELDS = ['name', 'rect'] as const;
 const ROW_FIELDS = ['slot', 'top', 'bottom', 'texelDensity', 'tileV'] as const;
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
@@ -156,7 +175,33 @@ export function trimSheetErrors(v: unknown): TrimSheetError[] {
     const [, prevBottom, j] = spans[k - 1]!;
     if (top < prevBottom) out.push({ path: `/rows/${i}/top`, message: `row ${i} overlaps row ${j}` });
   }
+  if (v['cells'] !== undefined) cellErrors(v['cells'], sized ? (size as number[])[0]! : TRIM_SHEET_SIZE_MAX, height, out);
   return out;
+}
+
+/** The decal cells' problems: names unique, rectangles at least a pixel and inside the sheet. */
+function cellErrors(cells: unknown, width: number, height: number, out: TrimSheetError[]): void {
+  if (!Array.isArray(cells)) {
+    out.push({ path: '/cells', message: 'cells lists decal cells {name, rect: [x, y, width, height]}' });
+    return;
+  }
+  const names = new Set<string>();
+  cells.forEach((c, i) => {
+    const p = `/cells/${i}`;
+    if (!isObject(c)) {
+      out.push({ path: p, message: 'a cell is an object {name, rect: [x, y, width, height]}' });
+      return;
+    }
+    for (const k of Object.keys(c)) if (!(CELL_FIELDS as readonly string[]).includes(k)) out.push({ path: `${p}/${k}`, message: `unknown cell field "${k}"`, allowed: CELL_FIELDS });
+    const name = c['name'];
+    if (typeof name !== 'string' || !ID_RE.test(name)) out.push({ path: `${p}/name`, message: 'a cell name uses the id syntax [a-z0-9][a-z0-9_-]{0,63}' });
+    else if (names.has(name)) out.push({ path: `${p}/name`, message: `cell "${name}" is listed twice` });
+    else names.add(name);
+    const r = c['rect'];
+    const ok = Array.isArray(r) && r.length === 4 && isInt(r[0], 0, width - 1) && isInt(r[1], 0, height - 1) && isInt(r[2], 1, width) && isInt(r[3], 1, height);
+    if (!ok) out.push({ path: `${p}/rect`, message: `rect is [x, y, width, height] in whole pixels inside the ${width} × ${height} sheet` });
+    else if ((r[0] as number) + (r[2] as number) > width || (r[1] as number) + (r[3] as number) > height) out.push({ path: `${p}/rect`, message: `the cell runs off the ${width} × ${height} sheet` });
+  });
 }
 
 /** The table in canonical form: rows by top, optional fields only when set. */
@@ -168,7 +213,19 @@ export function canonicalTrimSheet(s: TrimSheet): TrimSheet {
     rows: [...s.rows]
       .sort((a, b) => a.top - b.top)
       .map((r) => ({ slot: r.slot, top: r.top, bottom: r.bottom, ...(r.texelDensity !== undefined ? { texelDensity: r.texelDensity } : {}), ...(r.tileV === true ? { tileV: true } : {}) })),
+    // Cells keep their order (the order a picker lists them in); an empty list is no list, so a sheet without cells keeps its bytes.
+    ...(s.cells !== undefined && s.cells.length > 0 ? { cells: s.cells.map((c) => ({ name: c.name, rect: [c.rect[0], c.rect[1], c.rect[2], c.rect[3]] as TrimCell['rect'] })) } : {}),
   };
+}
+
+/** The decal cell named `name`, or null. */
+export function trimCellOf(sheet: TrimSheet, name: string): TrimCell | null {
+  return sheet.cells?.find((c) => c.name === name) ?? null;
+}
+
+/** A cell's size in metres at the sheet's texel density (the size a decal shows it at without stretching). */
+export function trimCellMetres(sheet: TrimSheet, cell: TrimCell): [number, number] {
+  return [cell.rect[2] / sheet.texelDensity, cell.rect[3] / sheet.texelDensity];
 }
 
 /**
@@ -417,9 +474,10 @@ export type TrimLayoutImport = { ok: true; sheet: TrimSheet; skipped: string[] }
 
 /**
  * A row table from the Texture Designer's `layout.json` (format `trim/1`):
- * the sheet's size, texel density and gutter (the padding), and one row per
+ * the sheet's size, texel density and gutter (the padding), one row per
  * strip layer (`tile_u` / `tile_uv`, by its pixel bounds; `tile_uv` tiles in
- * v). Decal layers are cells, not strips: they are listed in `skipped`.
+ * v), and the cells of its decal layers (`cells`, each by its `px_rect`).
+ * A layer that is neither is listed in `skipped`.
  */
 export function trimSheetFromLayout(json: unknown): TrimLayoutImport {
   if (!isObject(json) || json['format'] !== 'trim/1') return { ok: false, message: 'not a trim sheet layout (layout.json, format "trim/1")' };
@@ -431,17 +489,25 @@ export function trimSheetFromLayout(json: unknown): TrimLayoutImport {
   if (!isNum(density, TRIM_DENSITY_MIN, TRIM_DENSITY_MAX)) return { ok: false, message: 'layout.json: texel_density_px_per_m is missing' };
   if (!Array.isArray(layers)) return { ok: false, message: 'layout.json: layers is missing' };
   const rows: TrimRow[] = [];
+  const cells: TrimCell[] = [];
   const skipped: string[] = [];
   for (const l of layers) {
     if (!isObject(l) || typeof l['name'] !== 'string') continue;
+    if (l['kind'] === 'decals') {
+      for (const c of Array.isArray(l['cells']) ? (l['cells'] as unknown[]) : []) {
+        const r = isObject(c) ? c['px_rect'] : undefined;
+        if (isObject(c) && typeof c['name'] === 'string' && Array.isArray(r) && r.length === 4) cells.push({ name: c['name'], rect: [r[0], r[1], r[2], r[3]] });
+      }
+      continue;
+    }
     const px = l['px'];
-    if (l['kind'] === 'decals' || !Array.isArray(px) || px.length !== 2 || typeof px[0] !== 'number' || typeof px[1] !== 'number') {
+    if (!Array.isArray(px) || px.length !== 2 || typeof px[0] !== 'number' || typeof px[1] !== 'number') {
       skipped.push(l['name']);
       continue;
     }
     rows.push({ slot: l['name'], top: px[0], bottom: px[1], ...(l['kind'] === 'tile_uv' ? { tileV: true } : {}) });
   }
-  const sheet: TrimSheet = { size: [size[0], size[1]], texelDensity: density, padding: isInt(gutter, 0, TRIM_PADDING_MAX) ? gutter : 0, rows };
+  const sheet: TrimSheet = { size: [size[0], size[1]], texelDensity: density, padding: isInt(gutter, 0, TRIM_PADDING_MAX) ? gutter : 0, rows, ...(cells.length > 0 ? { cells } : {}) };
   const errors = trimSheetErrors(sheet);
   if (errors.length > 0) return { ok: false, message: `layout.json: ${errors[0]!.path} ${errors[0]!.message}` };
   return { ok: true, sheet: canonicalTrimSheet(sheet), skipped };

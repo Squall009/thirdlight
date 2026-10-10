@@ -34,7 +34,7 @@ blocks, use [rule scatter](terrain.md#rule-scatter-and-ground-cover) (see
    `tl_instance_buffer {transforms}`.
 2. Make the set: [`createEntity`](../reference/ops-detail.md#op-createEntity)
    `{"sceneId": "scene-main", "kind": "group", "name": "Rocks", "components": {"instances": {"asset": {"assetId": "<model>"}, "buffer": "<digest>", "count": 50}}}`
-   ([`instances`](../reference/components-rendering.md#component-instances)).
+   ([`instances`](../reference/components-rendering-1.md#component-instances)).
 3. Brush strokes: [`paintInstances`](../reference/ops-detail.md#op-paintInstances)
    `{"entityId": "<set>", "mode": "paint", "dabs": [[12, 1, 12], [13, 1, 13]], "brush": {"radius": 3, "density": 0.5, "spacing": 1, "scale": [0.8, 1.2], "yaw": 360, "align": 0, "seed": 7}}`.
    The same stroke always gives the same copies; painting it again adds
