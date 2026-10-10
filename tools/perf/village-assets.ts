@@ -87,14 +87,22 @@ function lathe(rings: number, sides: number, height: number, profile: (t: number
   return { pos, nrm, uv, idx, max };
 }
 
-/** One lathe mesh into `g`; returns the glTF mesh. */
-function latheMesh(g: GlbData, name: string, m: ReturnType<typeof lathe>, height: number, material: number): Record<string, unknown> {
+/**
+ * One lathe mesh into `g`; returns the glTF mesh. With `paint`, it also
+ * carries a 4-byte-a-vertex `COLOR_0` stream of the generator's bytes, which
+ * no material of the file reads (vertex colours are shader data unless the
+ * asset asks for a tint): the memory and vertex layout of a painted mesh,
+ * without its look.
+ */
+function latheMesh(g: GlbData, name: string, m: ReturnType<typeof lathe>, height: number, material: number, paint?: () => number): Record<string, unknown> {
   const n = m.pos.length / 3;
   const POS = g.accessor(m.pos, FLOAT, n, 'VEC3', { min: [-m.max, 0, -m.max], max: [m.max, height, m.max] }, ARRAY);
   const NRM = g.accessor(m.nrm, FLOAT, n, 'VEC3', {}, ARRAY);
   const UV = g.accessor(m.uv, FLOAT, n, 'VEC2', {}, ARRAY);
   const IDX = g.accessor(m.idx, U16, m.idx.length, 'SCALAR', {}, ELEMENTS);
-  return { name, primitives: [{ attributes: { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV }, indices: IDX, material }] };
+  const attributes: Record<string, number> = { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV };
+  if (paint !== undefined) attributes['COLOR_0'] = g.accessor(Uint8Array.from({ length: n * 4 }, () => Math.floor(paint() * 256)), U8, n, 'VEC4', { normalized: true }, ARRAY);
+  return { name, primitives: [{ attributes, indices: IDX, material }] };
 }
 
 /** Render levels: rings × sides of LOD0, halved per level. */
@@ -110,9 +118,15 @@ export interface PropSpec {
   textureSize: number;
 }
 
-/** A prop file: root `prop` → parts `partN` (each `partN_LOD0..2`), one material. */
-export function propGlb(seed: number, spec: PropSpec): Buffer {
+/**
+ * A prop file: root `prop` → parts `partN` (each `partN_LOD0..2`), one
+ * material. `painted`: the same file whose meshes also carry an unread
+ * 4-byte stream (see `latheMesh`); its shape and material are unchanged.
+ */
+export function propGlb(seed: number, spec: PropSpec, painted = false): Buffer {
   const rnd = prng(seed);
+  // Its own generator, so a painted file's shape is the plain file's.
+  const paint = painted ? prng(seed ^ 0x27d4eb2f) : undefined;
   const g = new GlbData();
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [{ name: 'prop', children: [] as number[] }];
@@ -126,7 +140,7 @@ export function propGlb(seed: number, spec: PropSpec): Buffer {
     for (let l = 0; l < LOD_LEVELS; l += 1) {
       const rings = Math.max(2, Math.round(spec.rings / 2 ** l));
       const sides = Math.max(4, Math.round(spec.sides / 2 ** l));
-      meshes.push(latheMesh(g, `part${p}_LOD${l}`, lathe(rings, sides, height, profile), height, 0));
+      meshes.push(latheMesh(g, `part${p}_LOD${l}`, lathe(rings, sides, height, profile), height, 0, paint));
       nodes.push({ name: `part${p}_LOD${l}`, mesh: meshes.length - 1 });
       levels.push(nodes.length - 1);
     }
@@ -155,6 +169,38 @@ export function propGlb(seed: number, spec: PropSpec): Buffer {
   const bin = g.bin();
   json['buffers'] = [{ byteLength: bin.length }];
   return packGlb(json, bin);
+}
+
+/**
+ * A 1 × 1 m quad in the XY plane facing +Z (two triangles, UVs over it) and
+ * one material named `material`: a flat mark to lay over a surface, the
+ * object's +Z on the surface's normal and its scale the mark's size.
+ */
+export function quadGlb(material: string): Buffer {
+  const g = new GlbData();
+  const pos = new Float32Array([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0]);
+  const nrm = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  const uv = new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]);
+  const idx = new Uint16Array([0, 1, 2, 0, 2, 3]);
+  const POS = g.accessor(pos, FLOAT, 4, 'VEC3', { min: [-0.5, -0.5, 0], max: [0.5, 0.5, 0] }, ARRAY);
+  const NRM = g.accessor(nrm, FLOAT, 4, 'VEC3', {}, ARRAY);
+  const UV = g.accessor(uv, FLOAT, 4, 'VEC2', {}, ARRAY);
+  const IDX = g.accessor(idx, U16, 6, 'SCALAR', {}, ELEMENTS);
+  const bin = g.bin();
+  return packGlb(
+    {
+      asset: { version: '2.0', generator: 'thirdlight perf quad' },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: 'quad', mesh: 0 }],
+      meshes: [{ name: 'quad', primitives: [{ attributes: { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV }, indices: IDX, material: 0 }] }],
+      materials: [{ name: material, pbrMetallicRoughness: { baseColorFactor: [0.25, 0.2, 0.16, 1], metallicFactor: 0, roughnessFactor: 0.9 } }],
+      accessors: g.accessors,
+      bufferViews: g.views,
+      buffers: [{ byteLength: bin.length }],
+    },
+    bin,
+  );
 }
 
 /** A scatter kit: top-level pieces `<name>_LOD0..2` (small lathes), one material. */

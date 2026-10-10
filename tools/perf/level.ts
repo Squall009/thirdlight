@@ -74,6 +74,10 @@
  * foam, soft shores), scatter kept 2 m clear. Both are made after the
  * terrain's heights, paint and rules and before its scatter is baked.
  *
+ * Any outdoor class can carry decals and vertex paint on the area's surfaces
+ * (`--decals N`, `--mesh-decals N`, `--clipped-decals N`, `--painted N`;
+ * none by default, as recorded): level-marks.ts places them.
+ *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
@@ -86,7 +90,8 @@ import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
-import { coverKitGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
+import { levelMarks, markCounts, markEntities, marksNotBuilt, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_STANDIN_MATERIAL, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
+import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
 export const LEVEL_VERSION = 4;
@@ -335,6 +340,8 @@ export interface LevelPlan {
    * set to the layer's id once created) and the edge block type its doors are (absent: no building).
    */
   interior?: { architecture: Record<string, unknown>; doorType: Record<string, unknown> };
+  /** Decals and paint on the area's surfaces (level-marks.ts; absent or all empty: none). */
+  marks?: LevelMarks;
 }
 
 /** The landscape's road and river: their objects' places (world) and spline components (points as offsets). */
@@ -487,7 +494,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false): LevelPlan {
+export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false, markOptions: LevelMarksOptions = NO_LEVEL_MARKS): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -662,6 +669,31 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
   }
   counts.liveDoors = liveDoors.length;
 
+  // Decals and paint on the area's surfaces, from generators of their own (the content above never moves with them).
+  const marks = levelMarks(
+    {
+      seed,
+      side: N,
+      origin: [-half, 0, -half],
+      cellHeight: S.cellHeight,
+      groundY,
+      rooms,
+      props: entities.filter((e) => e.id.startsWith('prop-')).map((e) => {
+        const t = e.components['transform'] as { position: number[]; scale: number[] };
+        return { id: e.id, position: t.position, scale: t.scale[0]! };
+      }),
+      foliage: entities.filter((e) => e.id.startsWith('foliage-')).map((e) => ({ id: e.id, count: S.foliageCopies })),
+    },
+    markOptions,
+  );
+  // A painted prop is drawn from its file's painted twin.
+  for (const id of marks.paintedProps) {
+    const model = entities.find((e) => e.id === id)!.components['model'] as { asset: { assetId: string } };
+    model.asset = { assetId: `${model.asset.assetId}${PAINTED_FILE_SUFFIX}` };
+  }
+  entities.push(...markEntities(marks));
+  Object.assign(counts, markCounts(marks));
+
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
   const layer: EntityValue = { id: 'ground', name: 'Ground', components: { transform: T(-half, 0, -half), blockLayer: { cellSize: [1, S.cellHeight, 1], bounds: { min: [0, 0, 0], max: [N, 32, N] }, maxSlope: 60, smoothAngle: 40, topSubdivision: 2, ...(wallPaint ? { wallPaint: true } : {}), ...(vertexAO > 0 ? { vertexAO } : {}), ...(rules ? { rules: LEVEL_RULES } : {}), ...(kind !== 'area' ? { scatter: levelScatterBlocks(foliage) } : {}), ...(roofs === 'cutaway' ? { cutaway: { regions: rooms.map((_, i) => ({ region: `roof-${i}` })) } } : {}), ...(world ? { streaming: S.world.streaming.layers } : {}) } } };
@@ -671,7 +703,7 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
   if (kind !== 'area' && splines) counts.splines = levelSplines().length;
   const fields = world ? levelFields(seed, foliage) : null;
   if (fields !== null) counts.fieldChunks = (S.world.fields.side / 16) ** 2;
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, blocksSeam: kind !== 'area' && blocksSeam, fields };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, blocksSeam: kind !== 'area' && blocksSeam, fields, marks };
 }
 
 /**
@@ -746,6 +778,24 @@ export const LEVEL_LOOK = Object.freeze({
 /** A landscape's height fog: a haze lying in the valleys, thinning over some 30 m of height, with a sun glow. */
 export const LEVEL_HEIGHT_FOG = Object.freeze({ density: 0.004, color: '#c9d3df', height: 0, falloff: 0.03, start: 40, inscatterColor: '#ffd9a0', inscatterExponent: 8 });
 
+/** The marks' files and material: refused first when a kind waits for an engine part (level-marks.ts). */
+async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, plan: LevelPlan, m: LevelMarks): Promise<void> {
+  const refused = marksNotBuilt(m);
+  if (refused !== null) throw new Error(refused);
+  // The painted twins of the files painted props are drawn from.
+  const painted = new Set(plan.batches.flat().map((e) => (e.components['model'] as { asset?: { assetId?: string } } | undefined)?.asset?.assetId).filter((id): id is string => id?.endsWith(PAINTED_FILE_SUFFIX) === true));
+  for (const f of plan.props) {
+    const assetId = `${f.assetId}${PAINTED_FILE_SUFFIX}`;
+    if (painted.has(assetId)) await publishFileVia(be, projectId, cmd, { assetId, kind: 'model', displayName: assetId, bytes: propGlb(f.seed, f.spec, true) });
+  }
+  if (m.meshDecals.length > 0) {
+    // The mesh-decal stand-in: one blended standard material over a quad.
+    await cmd('setMaterial', { material: { materialId: MARK_STANDIN_MATERIAL, name: 'Level mark (stand-in)', shader: 'standard', params: { color: '#3a2e24', roughness: 0.9, alphaMode: 'blend', opacity: 0.6 }, textures: {} } });
+    await publishFileVia(be, projectId, cmd, { assetId: MARK_QUAD, kind: 'model', displayName: 'Level mark quad', bytes: quadGlb(MARK_QUAD_MATERIAL) });
+    await cmd('setAssetOptions', { assetId: MARK_QUAD, materials: { [MARK_QUAD_MATERIAL]: MARK_STANDIN_MATERIAL } });
+  }
+}
+
 export async function buildLevel(be: PerfBackend, projectId: string, plan: LevelPlan, log: (s: string) => void = () => undefined): Promise<LevelBuild> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Perf level ${plan.kind}` });
@@ -759,6 +809,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   await cmd('setSettings', { settings: { physics_dimension: 3, ...(hasTerrain(plan.kind) ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
   for (const f of plan.props) await publishFileVia(be, projectId, cmd, { assetId: f.assetId, kind: 'model', displayName: f.assetId, bytes: propGlb(f.seed, f.spec) });
+  if (plan.marks !== undefined) await publishMarks(be, projectId, cmd, plan, plan.marks);
   // The interior has no foliage: the kit would only be shipped unused.
   if (plan.interior === undefined) await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
   if (hasTerrain(plan.kind)) {

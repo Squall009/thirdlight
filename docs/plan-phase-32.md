@@ -65,8 +65,8 @@ Defaults this plan chooses, owner to confirm (repeated in §7):
   own lit colour over the surface (`blend`, `multiply` for stains, `add` for
   glow). Per-channel blending (normal only, roughness only: wet patches,
   scratches) is for projected decals. A forward renderer can't blend a
-  normal into a surface that is already lit (Unreal's forward and mobile
-  path likewise keeps only colour and emission, §3).
+  normal into a surface that is already lit (Unreal's mobile forward path
+  likewise applies only base colour and emissive to the lit colour, §3).
 - **Default chosen, owner to confirm:** clipped decals store the projector,
   not the triangles. Their mesh is clipped at load from the receivers'
   current geometry (on a worker, cached by a hash of the inputs), as
@@ -174,14 +174,24 @@ Defaults this plan chooses, owner to confirm (repeated in §7):
   `three-adapter/src/material-graph.ts` 1,678. An item that grows one of them
   past 2,000 lines first moves its area into its own module.
 
-## 3. How other engines do it (from their documentation, 2026-10-09; 32.0 re-reads the pages)
+## 3. How other engines do it (from their documentation, 2026-10-09; re-read 2026-10-10)
 
 | Topic | Unreal 5 | Unity URP / HDRP | Godot 4 | three.js r186 | Thirdlight after phase 32 |
 |---|---|---|---|---|---|
-| Projected decals | Decal actor (box). Deferred Decal material domain. The DBuffer is the default: decals are written into a decal buffer before the base pass, and base-pass materials read it. The GBuffer path blends after the base pass [1] | URP Decal Projector. Techniques: DBuffer (needs a depth-normal prepass; surface data Albedo / +Normal / +MAOS) or Screen Space (decals lit as meshes over the opaque scene, normals rebuilt from depth with 1/3/5 samples) [3]. HDRP projector: thousands of instanced decals, a decal atlas, decal layers, opaque and transparent receivers [4] | `Decal` node: an AABB projected along −Y. Albedo, normal, ORM and emission textures. `cull_mask`, `normal_fade`, upper/lower fade, distance fade, `albedo_mix`. Clustered decals are evaluated while the mesh draws. Forward+ only (512 clustered elements, lights included); Mobile 8 per mesh; not in Compatibility [5] | None (no G-buffer) | Box projector. Evaluated in every receiving material before lighting. Found per pixel through a world-grid index. Per-channel opacities, normal fade, edge and distance fades. Both renderers (32.6) |
-| Mesh decals | Mesh decals: geometry that "hugs" the surface with a built-in depth bias. They update the DBuffer/GBuffer without writing depth and cost fewer pixels than projected ones. No sort order [2] | HDRP decal meshes: only on opaque surfaces, no decal layers [4] | None built in | Any transparent mesh with `polygonOffset` (the `DecalGeometry` example) [6] | `decal` material mode: blend / multiply / add, a depth push in the vertex stage, a sort order, merged into static cells (32.5) |
+| Projected decals | Decal actor (box). Deferred Decal material domain. The DBuffer is the default: decals are written into a decal buffer before the base pass, and base-pass materials read it. The GBuffer path blends after the base pass [1] | URP Decal Projector. Techniques: DBuffer (needs a depth-normal prepass; surface data Albedo / +Normal / +MAOS) or Screen Space (decals lit as meshes over the opaque scene, normals rebuilt from depth with 1/3/5 samples) [3]. HDRP projector: thousands of instanced decals, a decal atlas (opaque receivers), decal layers; transparent receivers through clustered structures, only with the Decal shader and without emission [4] | `Decal` node: an AABB projected along −Y. Albedo, normal, ORM and emission textures. `cull_mask`, `normal_fade`, upper/lower fade, distance fade, `albedo_mix`. Clustered decals are evaluated while the mesh draws. Forward+ only (512 clustered elements, lights included); Mobile 8 per mesh; not in Compatibility [5] | None (no G-buffer) | Box projector. Evaluated in every receiving material before lighting. Found per pixel through a world-grid index. Per-channel opacities, normal fade, edge and distance fades. Both renderers (32.6) |
+| Mesh decals | Mesh decals: geometry placed just off the surface; there is no adjustable depth bias (offset the mesh or use World Position Offset). They update the DBuffer/GBuffer after the opaque geometry without writing depth, and are cheaper than projected ones (fewer draws; a flat decal facing away covers no pixels). No artist sort order (sort by depth) [2] | HDRP decal meshes: only on opaque surfaces, no decal layers [4] | None built in | Any transparent mesh with `polygonOffset` (the `DecalGeometry` example) [6] | `decal` material mode: blend / multiply / add, a depth push in the vertex stage, a sort order, merged into static cells (32.5) |
 | Placement by clipping | Not built in (mesh decals are authored) | Not built in | Not built in | `DecalGeometry` (one mesh, CPU) [6] | Typed-array clipper over several receivers, run at load, cached; Bake to model (32.7, 32.8) |
 | Vertex paint | Mesh Paint mode: per-instance vertex colours stored on the component, not the asset; can be copied between instances [7] | `MeshRenderer.additionalVertexStreams`: a second mesh whose attributes override or add to the first, used by vertex painters; not with GPU instancing or dynamic batching [8] | None built in (add-ons) | — | `tlPaint` stream per object, per copy in instance sets (still one instanced draw), path-space paint on generated meshes (32.10–32.12) |
+
+Re-read 2026-10-10: Unreal's mesh-decal page says there is no adjustable
+depth bias and no artist sort order (the table above is corrected); its
+decal-materials page says mobile forward applies only base colour and
+emissive to the lit colour, and mobile deferred uses GBuffer decals without
+AO. HDRP's transparent receivers take projectors only with the Decal shader,
+without emission. URP, Godot (stable docs now 4.7) and three's
+`DecalGeometry` and `webgl_decals` (`polygonOffsetFactor` −4, no depth
+write) are as written. Nothing changes the plan: our mesh decals keep their
+vertex-stage push and their sort order (32.5).
 
 Notes. Every engine's projected decals need either a prepass and an extra
 buffer (Unreal DBuffer, URP DBuffer), a lit pass over rebuilt normals (URP
@@ -273,8 +283,8 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
 
 | Item | Status |
 |---|---|
-| 32.0 | — |
-| 32.1 | — |
+| 32.0 | Done 2026-10-10: plan committed, STATUS/roadmap rows; three.js 0.186.1 still the latest (r186, no update); Rapier 0.21.0 exists, pinned 0.20.0 kept (nothing here depends on it); §3 re-read and corrected (Unreal mesh decals: no depth bias, no sort order; HDRP transparent receivers). |
+| 32.1 | Done 2026-10-10: `level --classes area` (any outdoor class) takes `--decals/--mesh-decals/--clipped-decals/--painted N` (`tools/perf/level-marks.ts`; vitest `tests/perf/level-marks.test.ts`); at 0 the plan is unchanged. Projected, clipped and copy paint are refused until their items land. Mesh decals and painted props have stand-ins, see §7. **Before (N = 0, HEAD 5c630012, two runs, Iris Xe, 1080p, DPR 1, uncapped).** WebGPU: p50/p95 6.6/9.4–9.6 ms; GPU 10.34 ms (scene 4.16, SSAO 1.38, SMAA weights 1.16, output 0.84, RTT 0.72, bloom ~1.3 in total, shadow 0.27); main thread 6.56–6.60 ms; 259–260 draws (scene 237–238); 48 shader modules, 317 KiB WGSL (largest 42 KiB); 27 pipelines. WebGL 2: p50/p95 2.6–2.7/6.8–7.8 ms (p99 123–175 ms: occasional 280–300 ms stalls); main thread 6.64–6.75 ms; 260 draws; 26 programs; GPU not timed (three times only the outer pass). **Stand-ins.** `--mesh-decals 1000`, blended quads: 1029 draws (+769 in view, each its own draw). WebGPU scene pass +0.4 ms GPU, main thread +0.23 ms, +2 modules (+42 KiB WGSL), +1 pipeline. WebGL 2 main thread +0.46 ms, p50 2.7→5.7 ms. 32.5's target is one draw per cell per material. `--painted 300`, an unread 4 B/vertex `COLOR_0`: no change in draws or frame time; merged vertex data 492→532 KiB; 2 more pipelines (the merged layout). Look of the stand-ins seen in the run's screenshots on both renderers; not judged. |
 | 32.2 | — |
 | 32.3 | — |
 | 32.4 | — |
@@ -347,6 +357,18 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   8 layers, absent = all. Skinned meshes default to none: a world-space
   projector slides over a moving skin. Characters that want marks use mesh
   decals parented to a bone.
+- 2026-10-10 (releases): three.js 0.186.1 is still the latest (GitHub r186 of 2026-09-24); no update. `@dimforge/rapier3d` 0.21.0 exists; the pinned 0.20.0 stays, because nothing in this phase depends on it. Its upgrade is a later item's job.
+- 2026-10-10 (32.13): "the limits and budgets in `docs/deployment.md`" now means the manual. Since phase 31, deployment.md covers only the server. The limits go to `docs/manual/features/decals.md`, `vertex-paint.md` and the manual's limits guide.
+- 2026-10-10 (measure-first switches, default chosen, owner to confirm):
+  - The switches mark the area inside every outdoor class (area, landscape, world). The interior refuses them.
+  - The area class has no generated architecture, so its decals go on the ground, the block walls (both faces of every room wall, door gaps kept clear) and the props. Projected and clipped decals split 50/30/20 between those three; mesh decals split 60/40 between ground and walls (they are flat).
+  - Decals on generated walls are measured in the interior class: 32.6 and 32.8 extend the placement to its outlines.
+  - 30 % of each kind come as overlapping pairs: the second decal is moved 0.4 of the first's width along the same surface.
+  - Each kind has its own generator, so the class's content never moves with the counts.
+- 2026-10-10 (honest stand-ins, default chosen):
+  - A kind the engine can't draw yet stops the build with the part it waits for (`--decals`, `--clipped-decals`, and `--painted` past the 300 props). It is never measured as something else.
+  - Mesh decals are measured with a stand-in: quads with one blended standard material (`mat-level-mark`), lifted 3 cm off the surface. Today every one is its own draw, because the batcher takes no transparent mesh. That is the "before" 32.5 replaces.
+  - Painted props are measured with a stand-in: their files' twins, with a normalised 4-byte `COLOR_0` that no material reads. That gives the memory and vertex layout of a paint stream, not its look. 32.10/32.11 replace both stand-ins with the real thing.
 - Open for the owner: whether runtime-spawned decals (bullet holes,
   footprints) need an effects-graph output (an effect system that leaves
   decals). The plan gives prefabs and a transient budget only.
