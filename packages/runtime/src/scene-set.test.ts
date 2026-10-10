@@ -329,13 +329,15 @@ describe('runtime scene set', () => {
     });
     h.tick(2);
     expect(seenY).toBeCloseTo(0.91);
-    expect(h.log.placed).toEqual([]);
+    // The run's start placed the character where it starts.
+    const start = { x: 3, y: 0.91 };
+    expect(h.log.placed).toEqual([start]);
     killBelow = 5; // the character is below it: the script respawns them (ctx.lifecycle.respawn)
     h.tick();
     killBelow = null;
-    expect(h.log.placed).toEqual([]); // the placement waits for the step boundary
+    expect(h.log.placed).toEqual([start]); // the placement waits for the step boundary
     h.tick();
-    expect(h.log.placed).toEqual([{ x: 3, y: 0.91 }]); // at the start spawn
+    expect(h.log.placed).toEqual([start, { x: 3, y: 0.91 }]); // at the start spawn
   });
 });
 

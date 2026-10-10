@@ -117,7 +117,6 @@ import {
   type PhysicsQueryFilter3D,
   type OverlapShape3D,
   type PhysicsQuat,
-  type PhysicsResetPort,
   type PhysicsStepClient,
   type Vec2,
 } from './ports';
@@ -551,6 +550,8 @@ export class RuntimeInstance implements Runtime {
   private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
+  /** A run's start waiting for this step boundary: the first run's, and a restart's after its module resets. */
+  private runStartDue = true;
   /** Respawns, arrivals, a save's placement and script placements of each player controller, and the way it faces. */
   private readonly placement: ControllerPlacements;
   /** The shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
@@ -1864,6 +1865,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.placement.atBoundary(this.stepIndex + 1)) return false;
     // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
+    if (this.runStartDue && !this.startRun()) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
     if (!this.syncLiveBlocks()) return false;
     this.modes.beginStep(this.stepIndex + 1);
@@ -1998,6 +2000,7 @@ export class RuntimeInstance implements Runtime {
     // A restart asked for last step, then the game mode's step start
     // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
+    if (this.runStartDue && !this.startRun()) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
     if (!this.syncLiveBlocks()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
@@ -2348,15 +2351,9 @@ export class RuntimeInstance implements Runtime {
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
     this.activeSpawn = null;
-    // Each player controller's body from rest where it started, then every module's run reset: the
-    // controllers come back in the state they were created in (not a placement's, which starts a
-    // character from rest mid-run), so a restarted run repeats the first start for every player.
-    try {
-      this.controllers.restartRun(this.resetPort());
-    } catch (e) {
-      this.failStopFromError(e, this.stepIndex);
-      return false;
-    }
+    // Every module's run reset brings the controllers back in the state they were created in (not a placement's,
+    // which starts a character from rest mid-run); right after, the run starts as the first did (`startRun`).
+    this.runStartDue = true;
     const first = this.controllers.first !== undefined ? this.entities.get(this.controllers.first) : undefined;
     const start: Vec2 = first === undefined ? { x: 0, y: 0 } : { x: first.transform.position[0], y: first.transform.position[1] };
     for (const entry of this.entries) {
@@ -2574,7 +2571,7 @@ export class RuntimeInstance implements Runtime {
    * transfer naming the controller).
    */
   private placeCharacter2D(id: string, x: number, y: number, ordinal: number): void {
-    if (!this.controllers.place2D(id, this.resetPort(), x, y)) return;
+    if (!this.controllers.place2D(id, x, y)) return;
     const target: Vec2 = { x, y };
     for (const entry of this.entries) {
       if (!entry.phased || !entry.owners.includes(id)) continue;
@@ -2831,14 +2828,15 @@ export class RuntimeInstance implements Runtime {
     return r.ok ? r : { ok: false, error: fail('game_command_invalid', r.message, { reason: r.reason, ...(r.path !== undefined ? { path: r.path } : {}) }) };
   }
 
-  /** Narrow the injected physics port to the reset/clearance surface (placing the 2D character). */
-  private resetPort(): PhysicsResetPort | null {
-    const port = this.physics as (PhysicsPort & Partial<PhysicsResetPort>) | undefined;
-    if (port === undefined) return null;
-    if (typeof port.clearCharacterMotion !== 'function') return null;
-    if (typeof port.placeCharacter !== 'function') return null;
-    if (typeof port.characterClearance !== 'function') return null;
-    return port as PhysicsResetPort;
+  /** A run's start at a step boundary, the first run's and every restart's alike (the physics world, the bodies); false after a fail-stop. */
+  private startRun(): boolean {
+    this.runStartDue = false;
+    try {
+      this.controllers.startRun();
+    } catch (e) {
+      this.failStopFromError(e, this.stepIndex);
+    }
+    return this.stateName !== 'failed';
   }
 
   /** Build one `ModuleResetContext` (the character was placed). */
@@ -3690,7 +3688,7 @@ export class RuntimeInstance implements Runtime {
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
       // The 3D character controller's channels (one writer each per controller and step).
       // character_place on the 2D plane too (a character with a physics port).
-      if (this.physics3d === undefined && (intent.kind !== 'character_place' || player === undefined || this.resetPort() === null)) {
+      if (this.physics3d === undefined && (intent.kind !== 'character_place' || player === undefined || this.controllers.resetPort2D() === null)) {
         throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_place' ? 'a character_place intent needs a character (a controller) with physics' : `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
       }
       const c = channels!;

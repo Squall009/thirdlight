@@ -370,11 +370,13 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     });
     h.tick(3);
     expect(h.character().slice(0, 2)).toEqual([0, 5]);
-    expect(h.placed).toEqual([]);
+    // The run's start placed the character where it starts.
+    expect(h.placed).toEqual([{ x: 0, y: 5 }]);
     expect(lifecycle!.spawnPoint()).toBe('spawn-a'); // the first spawn until one is set
 
     // Asked in a step: that step still sees the character where it was; the next one sees it at the spawn.
     seen.length = 0;
+    h.placed.length = 0;
     ask = () => lifecycle!.respawn();
     h.tick(1);
     expect(h.placed).toEqual([]);

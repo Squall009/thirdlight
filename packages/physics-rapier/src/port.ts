@@ -377,8 +377,9 @@ function addStaticBody(
  * with each other (each sweep and query leaves every character out).
  */
 interface CharacterBody {
-  readonly collider: RAPIER.Collider;
-  readonly controller: RAPIER.KinematicCharacterController;
+  /** The capsule and its controller (a rebuilt world makes both anew). */
+  collider: RAPIER.Collider;
+  controller: RAPIER.KinematicCharacterController;
   readonly cap: CapsuleShape;
   readonly tuning: RapierControllerConfig;
   /** The authoritative position (a double; the collider holds its f32 rounding). */
@@ -403,12 +404,18 @@ function capsuleOfSpec(c: RapierCharacterSpec): CapsuleShape {
 
 /** A character's capsule collider (parentless, at its position + offset) and its controller. */
 function makeCharacterBody(world: RAPIER.World, spec: RapierCharacterSpec, tuning: RapierControllerConfig): CharacterBody {
+  const cap = capsuleOfSpec(spec);
+  const { collider, controller } = makeCapsule(world, cap, spec, tuning);
+  return { collider, controller, cap, tuning, position: { x: spec.x, y: spec.y }, staged: null, grounded: false, retainedSupport: { x: 0, y: 1 }, dropSteps: 0, last: undefined };
+}
+
+/** A character's capsule collider at its position + offset and its own Rapier controller, in `world`. */
+function makeCapsule(world: RAPIER.World, cap: CapsuleShape, at: Vec2, tuning: RapierControllerConfig): { collider: RAPIER.Collider; controller: RAPIER.KinematicCharacterController } {
   // PARENTLESS character collider (normative trap): created with no parent
   // rigid body and moved with `setTranslation`. Parenting it would make the
   // solver re-sync the collider toward the body and break this loop.
   // The player's capsule, centred at the character position + offset.
-  const cap = capsuleOfSpec(spec);
-  const collider = world.createCollider(RAPIER.ColliderDesc.capsule(cap.halfHeight, cap.radius).setTranslation(spec.x + cap.offset.x, spec.y + cap.offset.y));
+  const collider = world.createCollider(RAPIER.ColliderDesc.capsule(cap.halfHeight, cap.radius).setTranslation(at.x + cap.offset.x, at.y + cap.offset.y));
   // The skin, ground snap and autostep are the player's data (defaults 0.01 m, 0.1 m, off).
   const controller = world.createCharacterController(tuning.offsetSkin);
   controller.setMaxSlopeClimbAngle(tuning.maxSlopeClimbRad);
@@ -418,17 +425,32 @@ function makeCharacterBody(world: RAPIER.World, spec: RapierCharacterSpec, tunin
     // The step's top must leave room for the character (default: its radius); static bodies only.
     controller.enableAutostep(tuning.autostepHeight ?? 0.25, tuning.autostepMinWidth ?? cap.radius, false);
   }
-  return { collider, controller, cap, tuning, position: { x: spec.x, y: spec.y }, staged: null, grounded: false, retainedSupport: { x: 0, y: 1 }, dropSteps: 0, last: undefined };
+  return { collider, controller };
+}
+
+/** A static body's collider records (what the sweeps and queries read by collider handle). */
+function infoOf(spec: RapierStaticColliderSpec, added: { body: RAPIER.RigidBody; top: number; reach: number }): ColliderInfo {
+  return { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 };
+}
+
+/** An empty world with the config's gravity and step. */
+function newWorld(config: RapierPhysicsInitConfig): RAPIER.World {
+  const world = new RAPIER.World({ x: 0, y: config.solver.gravityY });
+  world.timestep = 1 / config.solver.hz;
+  return world;
 }
 
 function createAdapter(
-  world: RAPIER.World,
+  initialWorld: RAPIER.World,
   primary: CharacterBody,
   further: ReadonlyMap<string, CharacterBody>,
   config: RapierPhysicsInitConfig,
+  staticSpecs: Map<string, RapierStaticColliderSpec>,
   staticBodies: Map<string, RAPIER.RigidBody>,
   colliderInfo: Map<number, ColliderInfo>,
 ): RapierPhysicsPort {
+  /** The world (`restartWorld` replaces it). */
+  let world = initialWorld;
   // Mover poses for this step, the ground entity.
   let kinematicPoses: readonly { entityId: string; position: Vec2; rotationZ: number }[] = [];
   /** Where each kinematic body was posed last, and the largest move of the last world step. */
@@ -1156,7 +1178,8 @@ function createAdapter(
         const added = addStaticBody(world, spec as RapierStaticColliderSpec);
         if (!added.ok) throw new Error(`statics(${spec.entityId}): ${added.detail}`);
         staticBodies.set(spec.entityId, added.body);
-        for (const c of added.colliders) colliderInfo.set(c.handle, { entityId: spec.entityId, oneWay: (spec as RapierStaticColliderSpec).oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
+        staticSpecs.set(spec.entityId, spec as RapierStaticColliderSpec);
+        for (const c of added.colliders) colliderInfo.set(c.handle, infoOf(spec as RapierStaticColliderSpec, added));
       }
       relist();
     },
@@ -1172,9 +1195,57 @@ function createAdapter(
         // Removing the body frees its collider too.
         world.removeRigidBody(body);
         staticBodies.delete(id);
+        staticSpecs.delete(id);
       }
       if (gone.size > 0) for (const [handle, info] of [...colliderInfo]) if (gone.has(info.body)) colliderInfo.delete(handle);
       relist();
+    },
+    restartWorld(): void {
+      assertLive('restartWorld');
+      const next = newWorld(config);
+      try {
+        // The statics by id, then the characters in their order: the world then depends on what it holds only.
+        const nextBodies = new Map<string, RAPIER.RigidBody>();
+        const nextInfo = new Map<number, ColliderInfo>();
+        for (const id of [...staticSpecs.keys()].sort()) {
+          const spec = staticSpecs.get(id)!;
+          const added = addStaticBody(next, spec);
+          if (!added.ok) throw new Error(`statics(${id}): ${added.detail}`);
+          nextBodies.set(id, added.body);
+          for (const c of added.colliders) nextInfo.set(c.handle, infoOf(spec, added));
+        }
+        const capsules = bodies.map((b) => makeCapsule(next, b.cap, b.position, b.tuning));
+        // Nothing failed: the new world replaces the old one.
+        for (const b of bodies) world.removeCharacterController(b.controller);
+        world.free();
+        world = next;
+        staticBodies.clear();
+        for (const [id, body] of nextBodies) staticBodies.set(id, body);
+        colliderInfo.clear();
+        for (const [handle, info] of nextInfo) colliderInfo.set(handle, info);
+        characterHandles.clear();
+        bodies.forEach((b, i) => {
+          b.collider = capsules[i]!.collider;
+          b.controller = capsules[i]!.controller;
+          b.staged = null;
+          b.grounded = false;
+          b.retainedSupport = { x: 0, y: 1 };
+          b.dropSteps = 0;
+          b.last = undefined;
+          characterHandles.add(b.collider.handle);
+        });
+      } catch (e) {
+        if (world !== next) next.free();
+        throw e;
+      }
+      relist();
+      // The movers as made (no last pose to measure a move from).
+      kinematicPoses = [];
+      kinematicAt.clear();
+      kinematicMoved = 0;
+      stilled.length = 0;
+      // One pipeline update: the first sweep and every query see every collider.
+      world.step();
     },
     dispose(): void {
       if (disposed) return;
@@ -1216,9 +1287,9 @@ export async function createPhysicsPort(
 
   let world: RAPIER.World | null = null;
   try {
-    world = new RAPIER.World({ x: 0, y: config.solver.gravityY });
-    world.timestep = 1 / config.solver.hz;
+    world = newWorld(config);
     const staticBodies = new Map<string, RAPIER.RigidBody>();
+    const staticSpecs = new Map<string, RapierStaticColliderSpec>();
     const colliderInfo = new Map<number, ColliderInfo>();
     for (const spec of config.statics) {
       const added = addStaticBody(world, spec);
@@ -1229,7 +1300,8 @@ export async function createPhysicsPort(
         return failedResult('invalid_shape', `statics(${spec.entityId}): ${added.detail}`);
       }
       staticBodies.set(spec.entityId, added.body);
-      for (const c of added.colliders) colliderInfo.set(c.handle, { entityId: spec.entityId, oneWay: spec.oneWay === true, body: added.body, top: added.top, reach: added.reach, kinematic: spec.kinematic === true, topNow: 0, xNow: 0, yNow: 0 });
+      staticSpecs.set(spec.entityId, spec);
+      for (const c of added.colliders) colliderInfo.set(c.handle, infoOf(spec, added));
     }
     if (signal?.aborted) {
       world.free();
@@ -1239,7 +1311,7 @@ export async function createPhysicsPort(
     const primary = makeCharacterBody(world, config.character, config.controller);
     const further = new Map<string, CharacterBody>();
     for (const c of config.characters ?? []) further.set(c.id, makeCharacterBody(world, c, c.controller ?? config.controller));
-    return { ok: true, port: createAdapter(world, primary, further, config, staticBodies, colliderInfo) };
+    return { ok: true, port: createAdapter(world, primary, further, config, staticSpecs, staticBodies, colliderInfo) };
   } catch (error) {
     world?.free();
     return failedResult(

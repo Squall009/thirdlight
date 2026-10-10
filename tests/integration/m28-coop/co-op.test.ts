@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { BlockGrid, applyBlockEdits } from '@thirdlight/project-model';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
@@ -191,12 +192,26 @@ export default {
 };
 `;
 
-async function restartedRuns(mode: Mode, dim: Dim, ticks: readonly number[]): Promise<{ logs: Any[][]; errors: Any[] }> {
+/**
+ * A 3D floor of blocks with the box floor's top (y 0): a block layer of 30 × 2 × 32 cells, 1 × 0.5 × 1 m each,
+ * from x −1, whose chunks (16 × 16 cells, one collider each) meet at x 15 and z 0: the first player starts on
+ * its edge and on a seam, the second walks and lands on the seam.
+ */
+function blockFloor(): { entity: Any; data: Any; types: Any[] } {
+  const layer = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [30, 2, 32] } };
+  const types = [{ blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full' }];
+  const g = new BlockGrid(layer as Any);
+  applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 30, 2, 32], cell: { block: 'stone' } }], { types: new Map(types.map((t) => [t.blockId, t as Any])), stamps: new Map() });
+  return { entity: { id: 'floor-0001', components: { transform: T([-1, -1, -16]), blockLayer: layer } }, data: g.toData('floor-0001', null, g.takeDirty().chunks)!, types };
+}
+
+async function restartedRuns(mode: Mode, dim: Dim, ticks: readonly number[], floor: 'box' | 'blocks' = 'box'): Promise<{ logs: Any[][]; errors: Any[] }> {
+  const blocks = floor === 'blocks' ? blockFloor() : null;
   // The second player starts in the air: the start's settle moves it, so a restart must put it back exactly.
   const entities: Any[] = [
     { id: 'player-0001', components: { transform: T([-1, 0.91, 0]), controller: {} } },
     { id: 'player-0002', keepLoaded: true, components: { transform: T([5, 1.6, 0]), controller: { moveAction: 'move_p2', jumpAction: 'jump_p2' } } },
-    box(dim, 'floor-0001', [0, -0.5, 0], [30, 0.5, 4]),
+    blocks?.entity ?? box(dim, 'floor-0001', [0, -0.5, 0], [30, 0.5, 4]),
     { id: 'runner-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'runner', values: {} } } },
   ];
   const settings = dim === 3 ? SETTINGS_3D : SETTINGS_2D;
@@ -206,7 +221,7 @@ async function restartedRuns(mode: Mode, dim: Dim, ticks: readonly number[]): Pr
       ? physics3DConfigOf(entities, SETTINGS_3D)
       : { character: { x: -1, y: 0.91 }, characters: [{ id: 'player-0002', x: 5, y: 1.6 }], statics, solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y }, controller: CONTROLLER_2D };
   const h = await startHarness(mode, {
-    snapshot: { snapshotId: `coop-runs${dim}@r1`, projectId: `coop-runs${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
+    snapshot: { snapshotId: `coop-runs${dim}@r1`, projectId: `coop-runs${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, ...(blocks !== null ? { blocks: [blocks.data] } : {}) }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }], ...(blocks !== null ? { blockTypes: blocks.types } : {}) },
     storage: true,
     settings,
     physics,
@@ -242,13 +257,28 @@ describe.each([2, 3] as const)('runs restarted in one play with two player contr
       expect(logs[1]![15]![2][0]).toBeLessThan(4.5);
       expect(Math.max(...logs[1]!.map((r: Any) => r[2][1]))).toBeGreaterThan(1.7);
       for (let r = 2; r < logs.length; r += 1) expect(logs[r], `${mode} run ${r}`).toEqual(logs[1]);
-      // A restarted run is the first start again. On the 2D plane the first start's first sweep differs (the physics
-      // world's query pipeline is empty until its first step; a placement updates it), so there only the second player's
-      // run, which starts in the air, is the same.
+      // A restarted run is the first start again.
       const first = await restartedRuns(mode, dim, [230, 230]);
       expect(first.errors).toEqual([]);
-      if (dim === 3) expect(first.logs[1], `${mode} first start`).toEqual(first.logs[0]);
-      else expect(first.logs[1]!.map((row: Any) => row[2]), `${mode} first start`).toEqual(first.logs[0]!.map((row: Any) => row[2]));
+      expect(first.logs[1], `${mode} first start`).toEqual(first.logs[0]);
     }
   }, 120_000);
 });
+
+describe('runs on a block floor (3D)', () => {
+  it('the first start and every restarted run are one run, players on the seam of two chunks; page and worker', async () => {
+    for (const mode of ['single', 'worker'] as const) {
+      const { logs, errors } = await restartedRuns(mode, 3, [230, 12, 230, 230], 'blocks');
+      expect(errors).toEqual([]);
+      expect(logs[0]!.length).toBe(21);
+      // Both walked, the second jumped.
+      expect(logs[0]![15]![1][0]).toBeGreaterThan(-0.5);
+      expect(logs[0]![15]![2][0]).toBeLessThan(4.5);
+      expect(Math.max(...logs[0]!.map((r: Any) => r[2][1]))).toBeGreaterThan(1.7);
+      // The short second run is the first one's start.
+      expect(logs[1], `${mode} run 1`).toEqual(logs[0]!.slice(0, logs[1]!.length));
+      for (let r = 2; r < logs.length; r += 1) expect(logs[r], `${mode} run ${r}`).toEqual(logs[0]);
+    }
+  }, 120_000);
+});
+

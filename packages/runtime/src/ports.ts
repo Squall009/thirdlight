@@ -95,6 +95,15 @@ export interface PhysicsPort {
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
   /** The entities whose colliders overlap `shape` at `center` (the characters excluded), sorted, at most 64. */
   overlap?(shape: OverlapShape, center: Vec2): string[];
+  /**
+   * Rebuild the world from the colliders it holds now, as if made afresh in
+   * one fixed order (the characters keep their places, from rest). A run
+   * starts on it: a world's query structures keep the history of what moved
+   * and what was added in it, and that history decides ties in a sweep (a
+   * capsule on the seam of two colliders), so only a rebuilt world makes
+   * every run start alike. Throws a port failure.
+   */
+  restartWorld?(): void;
   dispose(): void;
 }
 
@@ -531,6 +540,8 @@ export interface PhysicsPort3D {
   characterClearance?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   /** Re-place a character (its origin; absent id: the first) and return its clearance there; clears its motion caches. */
   placeCharacter?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
+  /** Rebuild the world from the colliders it holds now (see the 2D port's). */
+  restartWorld?(): void;
   dispose(): void;
 }
 

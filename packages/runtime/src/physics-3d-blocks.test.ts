@@ -113,6 +113,10 @@ function scriptedPort(start: PhysicsVec3): PhysicsPort3D & { poses: KinematicPos
       for (const s of specs) added.push(`${s.entityId}:${s.kinematic === true ? 'kinematic' : 'fixed'}`);
     },
     removeStaticColliders() {},
+    placeCharacter(origin) {
+      p = { ...origin };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 }, penetration: 0 };
+    },
     dispose() {},
     // Test hook: what the character stands on (a lift under it).
     set standOn(id: string | null) {

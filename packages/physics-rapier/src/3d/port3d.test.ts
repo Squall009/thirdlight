@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PhysicsInitConfig3D, PhysicsPort3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
-import { createPhysicsPort3D, physicsMemoryBytes3D, validateColliderShape3D } from './index';
+import { createPhysicsPort3D, physicsMemoryBytes3D, validateColliderShape3D, type Rapier3DDiagnostics } from './index';
 
 const HZ = 120;
 const G = -19.62;
@@ -103,6 +103,12 @@ describe('the Rapier 3D port', () => {
     port.addStaticColliders!([box('added', [0, 0, 2], [1, 1, 0.5])]);
     expect(port.raycast!({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 50)).toMatchObject({ entityId: 'added' });
     port.removeStaticColliders!(['added']);
+    expect(port.raycast!({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 50)).toBeNull();
+    // A rebuilt world (a run's start) holds what the world held: the removed collider stays gone.
+    const counts = port.diagnostics!() as Rapier3DDiagnostics;
+    port.restartWorld!();
+    expect(port.diagnostics!()).toMatchObject({ worldColliderCount: counts.worldColliderCount, worldBodyCount: counts.worldBodyCount });
+    expect(port.raycast!({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -2 }, 50)).toMatchObject({ entityId: 'near' });
     expect(port.raycast!({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 50)).toBeNull();
     port.dispose();
   });

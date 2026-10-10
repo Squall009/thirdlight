@@ -89,6 +89,7 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
+  restartWorld(): void;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -560,8 +561,9 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
  * character out).
  */
 interface CharacterBody3D {
-  readonly collider: RAPIER.Collider;
-  readonly controller: RAPIER.KinematicCharacterController;
+  /** The capsule and its controller (a rebuilt world makes both anew). */
+  collider: RAPIER.Collider;
+  controller: RAPIER.KinematicCharacterController;
   readonly shape: { readonly radius: number; readonly halfHeight: number; readonly offset: PhysicsVec3 };
   readonly tuning: PhysicsInitConfig3D['controller'];
   readonly overlapCapsule: RAPIER.Capsule;
@@ -583,16 +585,7 @@ interface CharacterBody3D {
 
 /** A character's capsule collider (parentless, at its origin + offset) and its controller. */
 function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): CharacterBody3D {
-  // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
-  const collider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
-  const controller = world.createCharacterController(tuning.offsetSkin);
-  // Up is +Y (gravity along −Y), as in the 2D plane.
-  controller.setUp({ x: 0, y: 1, z: 0 });
-  controller.setMaxSlopeClimbAngle(tuning.maxSlopeClimbRad);
-  controller.setMinSlopeSlideAngle(tuning.minSlopeSlideRad);
-  controller.enableSnapToGround(tuning.groundSnap);
-  // Stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
-  // autostep, which missed risers above about 0.15 m with a capsule.
+  const { collider, controller } = makeCapsule3D(world, ch, tuning);
   return {
     collider,
     controller,
@@ -608,6 +601,21 @@ function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['chara
   };
 }
 
+/** A character's capsule collider at its origin + offset and its own Rapier controller, in `world`. */
+function makeCapsule3D(world: RAPIER.World, ch: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): { collider: RAPIER.Collider; controller: RAPIER.KinematicCharacterController } {
+  // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
+  const collider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
+  const controller = world.createCharacterController(tuning.offsetSkin);
+  // Up is +Y (gravity along −Y), as in the 2D plane.
+  controller.setUp({ x: 0, y: 1, z: 0 });
+  controller.setMaxSlopeClimbAngle(tuning.maxSlopeClimbRad);
+  controller.setMinSlopeSlideAngle(tuning.minSlopeSlideRad);
+  controller.enableSnapToGround(tuning.groundSnap);
+  // Stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
+  // autostep, which missed risers above about 0.15 m with a capsule.
+  return { collider, controller };
+}
+
 /** Both predicates (either may be absent). */
 function bothPredicates(a: ((c: RAPIER.Collider) => boolean) | undefined, b: ((c: RAPIER.Collider) => boolean) | undefined): ((c: RAPIER.Collider) => boolean) | undefined {
   if (a === undefined) return b;
@@ -615,7 +623,9 @@ function bothPredicates(a: ((c: RAPIER.Collider) => boolean) | undefined, b: ((c
   return (c) => a(c) && b(c);
 }
 
-function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
+function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
+  /** The world (`restartWorld` replaces it). */
+  let world = initialWorld;
   const noCharacter = config.noCharacter === true;
   /** Every character, the init config's first, then the further ones in their order (the step sweeps them in this order). */
   const chars: readonly CharacterBody3D[] = noCharacter ? [] : [primary, ...further.values()];
@@ -1148,6 +1158,7 @@ function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: R
         for (const spec of specs) {
           const a = addStaticBody(world, spec, bits);
           bodies.set(spec.entityId, a.body);
+          staticSpecs.set(spec.entityId, spec);
           for (const c of a.colliders) infoByHandle.set(c.collider.handle, c.info);
           added.push({ id: spec.entityId, body: a.body });
         }
@@ -1156,6 +1167,7 @@ function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: R
           for (const [handle, info] of [...infoByHandle]) if (info.body === a.body) infoByHandle.delete(handle);
           world.removeRigidBody(a.body);
           bodies.delete(a.id);
+          staticSpecs.delete(a.id);
         }
         throw e;
       }
@@ -1173,9 +1185,57 @@ function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: R
         gone.add(body);
         world.removeRigidBody(body);
         bodies.delete(id);
+        staticSpecs.delete(id);
         kinematicAt.delete(id);
       }
       if (gone.size > 0) for (const [handle, info] of [...infoByHandle]) if (gone.has(info.body)) infoByHandle.delete(handle);
+      world.step();
+    },
+
+    restartWorld(): void {
+      assertLive('restartWorld');
+      const next = newWorld(config);
+      try {
+        // The statics by id, then the characters in their order: the world then depends on what it holds only.
+        const nextBodies = new Map<string, RAPIER.RigidBody>();
+        const nextInfo = new Map<number, Collider3DInfo>();
+        for (const id of [...staticSpecs.keys()].sort()) {
+          const a = addStaticBody(next, staticSpecs.get(id)!, bits);
+          nextBodies.set(id, a.body);
+          for (const c of a.colliders) nextInfo.set(c.collider.handle, c.info);
+        }
+        const all = [primary, ...further.values()];
+        const capsules = all.map((b) => makeCapsule3D(next, { position: b.position, radius: b.shape.radius, halfHeight: b.shape.halfHeight, offset: b.shape.offset }, b.tuning));
+        // Nothing failed: the new world replaces the old one.
+        for (const b of all) world.removeCharacterController(b.controller);
+        world.free();
+        world = next;
+        bodies.clear();
+        for (const [id, body] of nextBodies) bodies.set(id, body);
+        infoByHandle.clear();
+        for (const [handle, info] of nextInfo) infoByHandle.set(handle, info);
+        characterHandles.clear();
+        all.forEach((b, i) => {
+          b.collider = capsules[i]!.collider;
+          b.controller = capsules[i]!.controller;
+          b.staged = null;
+          b.grounded = false;
+          b.retainedSupport = { x: 0, y: 1, z: 0 };
+          b.stepping = null;
+          b.last = undefined;
+          characterHandles.add(b.collider.handle);
+        });
+        if (noCharacter) primary.collider.setEnabled(false);
+      } catch (e) {
+        if (world !== next) next.free();
+        throw e;
+      }
+      // The movers as made (no last pose to measure a move from).
+      kinematicPoses = [];
+      kinematicAt.clear();
+      kinematicMoved = 0;
+      stilled.length = 0;
+      // One pipeline update so the first sweep and any ray see every collider, as at creation.
       world.step();
     },
 
@@ -1190,6 +1250,13 @@ function createAdapter(world: RAPIER.World, primary: CharacterBody3D, further: R
       world.free();
     },
   };
+}
+
+/** An empty world with the config's gravity and step. */
+function newWorld(config: PhysicsInitConfig3D): RAPIER.World {
+  const world = new RAPIER.World({ x: 0, y: config.solver.gravityY, z: 0 });
+  world.timestep = 1 / config.solver.hz;
+  return world;
 }
 
 /**
@@ -1211,14 +1278,15 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
   if (signal?.aborted) return cancelled;
   let world: RAPIER.World | null = null;
   try {
-    world = new RAPIER.World({ x: 0, y: config.solver.gravityY, z: 0 });
-    world.timestep = 1 / config.solver.hz;
+    world = newWorld(config);
     const bodies = new Map<string, RAPIER.RigidBody>();
+    const staticSpecs = new Map<string, StaticColliderSpec3D>();
     const infoByHandle = new Map<number, Collider3DInfo>();
     const bits = layerBitsOf(config.layers);
     for (const spec of config.statics) {
       const added = addStaticBody(world, spec, bits);
       bodies.set(spec.entityId, added.body);
+      staticSpecs.set(spec.entityId, spec);
       for (const c of added.colliders) infoByHandle.set(c.collider.handle, c.info);
     }
     // The first character, then each further one (several player controllers), each with its own tuning.
@@ -1229,7 +1297,7 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     for (const c of config.characters ?? []) further.set(c.id, makeCharacterBody3D(world, c, c.controller ?? config.controller));
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();
-    return { ok: true, port: createAdapter(world, primary, further, config, bodies, infoByHandle, bits) };
+    return { ok: true, port: createAdapter(world, primary, further, config, staticSpecs, bodies, infoByHandle, bits) };
   } catch (error) {
     world?.free();
     return { ok: false, error: { code: 'physics_init_failed', reason: 'wasm_unavailable', message: `Rapier 3D world construction failed: ${error instanceof Error ? error.message : String(error)}` } };

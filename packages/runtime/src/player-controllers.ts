@@ -382,7 +382,8 @@ export class PlayerControllers {
    * is cleared and placed and its transform set (the caller resets its
    * controller module). False without a reset port or for an unknown controller.
    */
-  place2D(id: string, port: PhysicsResetPort | null, x: number, y: number): boolean {
+  place2D(id: string, x: number, y: number): boolean {
+    const port = this.resetPort2D();
     const c = this.byId.get(id);
     if (c === undefined || port === null) return false;
     try {
@@ -401,13 +402,18 @@ export class PlayerControllers {
   }
 
   /**
-   * A run restart: every controller whose object is in the game is put back
-   * where its transform now says (the runtime restored the authored one), from
-   * rest, and holds nothing of the last run (its last result, fall speed,
-   * impulse or staged move), as when the game started. On the 2D plane
-   * without a reset port the bodies stay. Throws a port failure.
+   * The start of a run, the first and every restarted one alike: every
+   * controller whose object is in the game is put back where its transform
+   * now says (a restart restored the authored one), from rest, holding
+   * nothing of the last run (its last result, fall speed, impulse or staged
+   * move); then the physics world is rebuilt from the colliders it holds,
+   * the bodies where they now are. A world's query structures keep the
+   * history of what was added and moved in it, and that history decides
+   * ties in a sweep (a body on the seam of two block chunks went another way
+   * in the first run than after a restart). On the 2D plane without a reset
+   * port the bodies stay. Throws a port failure.
    */
-  restartRun(port2D: PhysicsResetPort | null): void {
+  startRun(): void {
     this.clearImpulses();
     this.clearStaged();
     const curr = this.host.curr();
@@ -420,8 +426,23 @@ export class PlayerControllers {
       if (t === undefined) continue;
       const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
       if (this.host.physics3d !== undefined) this.place3D(id, x, y, z);
-      else this.place2D(id, port2D, x, y);
+      else this.place2D(id, x, y);
     }
+    try {
+      (this.host.physics3d ?? this.host.physics)?.restartWorld?.();
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port restartWorld() threw: ${messageOf(e)}`);
+    }
+  }
+
+  /** The 2D port narrowed to the reset/clearance surface placements need (null: it has none). */
+  resetPort2D(): PhysicsResetPort | null {
+    const port = this.host.physics as (PhysicsPort & Partial<PhysicsResetPort>) | undefined;
+    if (port === undefined) return null;
+    if (typeof port.clearCharacterMotion !== 'function') return null;
+    if (typeof port.placeCharacter !== 'function') return null;
+    if (typeof port.characterClearance !== 'function') return null;
+    return port as PhysicsResetPort;
   }
 
   /** A timeline moves a 3D controller: its body goes with it, from rest. Returns whether it was one. */
