@@ -47,7 +47,10 @@ Project Settings → **Saves** (MCP: `setSaveSchema {schema | null}`):
   `ctx.grid`), *material values* (`ctx.materials`), *spawned objects*
   (prefab copies with their placement and ids; their scripts start fresh),
   *script storage* (`ctx.save`), *environment* (the preset blend,
-  `ctx.environment`), *where the play stands* (`world`, above).
+  `ctx.environment`), *dialogue* (its variables and the lines seen),
+  *objects' state* (`components`: health, collectibles, patrols and
+  hitboxes as the game changed them), *where the play stands* (`world`,
+  above).
   A section the schema includes but a save lacks is reset to the run's start
   on load (a missing world leaves the scenes as they are).
 - **Slot picture**: size and format (default 256 × 144 JPEG; at most

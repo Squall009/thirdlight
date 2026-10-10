@@ -41,8 +41,9 @@ The pieces:
 4. **The modes.** **File → Project Settings… → Game modes**: **add mode**
    `title` (UI documents: Title; Physics: Hold; Pause allowed off), then
    `play` (UI documents: HUD). The first mode is the start mode.
-5. **The pause screen.** **Project Settings → Game shell → Screens →
-   Pause**: `Pause`. Leave **Title** at *none* (the title is a mode here).
+5. **The pause screen.** **Project Settings → Game shell**: **add game
+   shell** (the Starter has none), **+ add** under **Screens**, then
+   **Pause**: `Pause`. Leave **Title** at *none* (the title is a mode here).
 6. **The director script.** **Project Settings → Scripts → + New behavior**
    `director`, then in its Script tab:
    ```ts

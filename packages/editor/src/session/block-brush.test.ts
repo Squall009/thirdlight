@@ -318,7 +318,7 @@ describe('edge brush maths', () => {
     expect(eb.nextRotation(0, WALL)).toBe(180);
     expect(eb.brushEdge({ ...DEFAULT_BRUSH, block: 'wall', rot: 270 }, WALL)).toEqual({ block: 'wall' });
     expect(eb.brushEdge({ ...DEFAULT_BRUSH, block: 'wall', rot: 180, randomize: false, variant: 1 }, WALL)).toEqual({ block: 'wall', rot: 180, variant: 1 });
-    expect(eb.edgeTool('rect', WALL) && !eb.edgeTool('box', WALL) && !eb.edgeTool('rect', { placement: undefined })).toBe(true);
+    expect(eb.edgeTool('rect', WALL) && eb.edgeTool('box', WALL) && !eb.edgeTool('flood', WALL) && !eb.edgeTool('rect', { placement: undefined })).toBe(true);
     // x = 8 is the layer's far border line (in bounds for an x-line edge), z = 8 is not a cell row.
     expect(eb.edgesEdit([[8, 0, 2, 0], [2, 0, 8, 0], [2, 0, 8, 1]], { block: 'wall' }, BOUNDS)).toEqual([{ kind: 'edges', at: [8, 0, 2, 0, 2, 0, 8, 1], edge: { block: 'wall' } }]);
     expect(eb.edgesEdit([[9, 0, 2, 0]], null, BOUNDS)).toBeNull();

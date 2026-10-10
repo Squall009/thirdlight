@@ -11,16 +11,22 @@ the prefab itself never changes after it is made.
 ## In the editor
 
 1. Make the object: **GameObject → Box**, name it `Barrel`, give it a size
-   and a colour, and **+ Add component → Collider**. Children come along, so
-   a prefab can be a whole group.
+   and a colour, and **+ Add component → Collider: Box**. The collider
+   starts at half sizes of 0.5 m, not the box's: set its **Half width**,
+   **Half height** and (in a 3D project) **Half depth** to half the box's
+   size. Children come along, so a prefab can be a whole group.
 2. Select it and choose **GameObject → Create prefab from selection** (also
-   in the Hierarchy's right-click menu). Name it. The prefab is now in the
-   project window (`t:prefab`).
-3. Choose the prefab in the project window. Its Inspector has **place
-   copy**: each press puts one copy at the scene root. Move the copies like
-   any object.
+   in the Hierarchy's right-click menu). The prefab is made at once, named
+   after the object. It is in the project window under `t:prefab` (or the
+   `assets/prefabs` folder; **All assets** with *any kind* lists asset
+   files only).
+3. Choose the prefab in the project window. Its Inspector shows its **id**
+   (generated, for example `prefab-7902b2e2c166558e`): a script spawns the
+   prefab by this id. **place copy** puts one copy where the source object
+   stood, at the scene root, each press. Move the copies like any object.
 4. For spawning, write a script (see [the script guide](scripts.md)) that
-   calls `ctx.spawn`, and put it on an object (step 3 below shows one).
+   calls `ctx.spawn` with the id from step 3, and put it on an object (step
+   4 of the API path shows one).
 5. Press **▶ play**.
 
 ## Through the API

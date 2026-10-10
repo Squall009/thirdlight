@@ -55,6 +55,9 @@ server.
   not in the export.
 - The game's saves are the player's own: an exported game stores its slots
   in the browser under `thirdlight:<projectId>`, apart from Play's.
+- Nothing but your game on screen: the line naming the build and the play
+  state (top left) shows only with **Debug console in export** on
+  (Project Settings → Gameplay → Engine). A start error shows there either way.
 
 ## Which to use
 

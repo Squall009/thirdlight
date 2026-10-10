@@ -33,12 +33,25 @@ export type ReportFailure = (what: string, res: CommandResult) => void;
 export function commandError(res: { response: MutationResponse }): GameplayBackendError {
   const r = res.response;
   if (r.ok) return { code: 'unexpected_response', message: 'unexpected response shape' };
-  return { code: r.code, message: r.message ?? r.code };
+  return { code: r.code, message: withFirstDetail(r.message ?? r.code, r) };
+}
+
+/**
+ * A refusal's message with the first rule that refused it and where. A whole-scene
+ * check ("resulting scene failed validation") says nothing a user can act on by
+ * itself; its first detail names the field and the object (the path).
+ */
+function withFirstDetail(message: string, r: unknown): string {
+  const details = (r as { details?: readonly { message?: string; path?: string }[]; detailCount?: number }).details;
+  const first = details?.[0];
+  if (first?.message === undefined) return message;
+  const more = ((r as { detailCount?: number }).detailCount ?? details!.length) - 1;
+  return `${message} — ${first.message}${first.path !== undefined ? ` (at ${first.path})` : ''}${more > 0 ? ` and ${more} more` : ''}`;
 }
 
 /** Why a command was refused, or null when it was applied. */
 export const refusal = (res: CommandResult): string | null =>
-  res.ok ? null : ((res.response as { message?: string; code?: string }).message ?? (res.response as { code?: string }).code ?? 'the edit was refused');
+  res.ok ? null : withFirstDetail((res.response as { message?: string; code?: string }).message ?? (res.response as { code?: string }).code ?? 'the edit was refused', res.response);
 
 /** A fresh relay id for the editor's own requests to the running Play (never one of the backend's). */
 export function localRelayId(): string {

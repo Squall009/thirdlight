@@ -31,7 +31,9 @@ and two lights. It has no game rules; you add those yourself.
   Player, Spawn, Key light, Ambient fill and Pillar. A **K** beside an
   object means *Keep loaded*: the camera and the player survive scene
   changes (see [Game flow](../concepts/game-flow.md)).
-- The **Scene** view in the centre, with a **Game** tab beside it.
+- The **Scene** view in the centre, with a **Game** tab beside it. Drag
+  to turn it, right-drag to pan, wheel to zoom; **F** frames the selected
+  object ([Moving around the Scene view](../features/editor.md#moving-around-the-scene-view)).
 - The **Inspector** on the right. It shows the selected object.
 - The bottom dock with three tabs: **Project** (the project's files: the
   Character and Pillar models), **Console** (logs of a running game) and

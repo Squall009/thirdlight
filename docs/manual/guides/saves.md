@@ -16,12 +16,13 @@ Play keeps its own apart from exported games.
 
 ## In the editor
 
-1. **File → Project Settings… → Saves**: **Version** 1, **Slots** 3, and
-   under **Included in every save** tick **Script storage** (the
-   `ctx.save` values) and whatever else your game changes at run time
-   (block cells, spawned objects, objects' health…). Leave **Where the play
-   stands** off: your game restores its scenes and player itself (below).
-   **Apply**.
+1. **File → Project Settings… → Saves**: **Add save schema** (a new
+   project has none), then **Version** 1, **Slots** 3, and under
+   **Included in every save** tick **Script storage** (the `ctx.save`
+   values) and whatever else your game changes at run time (block cells,
+   material values, spawned objects, dialogue, environment, objects' state
+   such as health). Leave **Where the play stands** off: your game restores
+   its scenes and player itself (below). **Apply**.
 2. A script on a kept object saves and loads:
    ```ts
    import type { BehaviorContext } from '@thirdlight/runtime';

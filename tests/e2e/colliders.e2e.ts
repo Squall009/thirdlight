@@ -15,7 +15,8 @@
  * conversion command over HTTP and the Inspector's "Compound of _COL parts"
  * button store the same compound. A plate on a child of an object its
  * script moves follows it and pushes the player ahead of it. The Scene view
- * draws no collider outlines until asked, the selection's always.
+ * draws no collider outlines until asked, the selection's always; a refused
+ * switch back to the 2D plane names the rule and where it failed.
  */
 import { randomBytes } from 'node:crypto';
 
@@ -254,4 +255,12 @@ test('the Scene view draws no collider outlines on open, the selection\'s (a com
   await page.keyboard.press('Escape');
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(0);
   await expect.poll(() => outlinePixels(page), { message: 'every outline is drawn with nothing selected' }).toBeGreaterThan(100);
+
+  // Back to the 2D plane is refused (the sphere is a 3D shape), and the refusal says which rule and where.
+  await menu(page, 'File', 'Project Settings…');
+  const physics = page.locator('section[aria-label="project settings"] select').filter({ has: page.locator('option', { hasText: '2D plane' }) });
+  await physics.selectOption({ label: '2D plane' });
+  const refusal = page.locator('section[aria-label="project settings"] .tl-gameplay__errors');
+  await expect(refusal).toContainText('collider is a 3D shape');
+  await expect(refusal).toContainText('components/collider/shape');
 });

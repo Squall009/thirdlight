@@ -21,7 +21,9 @@ Everything a script can do: [Scripting](../features/scripting.md) and the
    ```
    **+ File** → `src/table.json` with `{ "coin": 5, "gem": 25 }`. **Save**.
 2. **The script.** **File → Project Settings… → Scripts**, **+ New
-   behavior**, give it a name and save. Double-click it in the list (or in
+   behavior**: fill **behavior id** (`scorer`) and **display name**, remove
+   the starting property row (the code declares its properties), and press
+   **Create behavior**. Double-click its card in the list (or the script in
    the project window) to open its **Script** tab, and write `src/index.ts`:
    ```ts
    import type { BehaviorContext } from '@thirdlight/runtime';
@@ -42,8 +44,9 @@ Everything a script can do: [Scripting](../features/scripting.md) and the
    Ctrl+S compiles without publishing; problems are underlined.
    **Publish**: the first time a source is published, the trust notice
    asks you to acknowledge it.
-3. Select an object, **+ Add component → Script**, pick the script. Its
-   properties show in the Inspector; set **Kind** to `gem`.
+3. Select an object, **+ Add component → Script**, pick the script under
+   **Behavior** and press **Add**. Its properties show in the Inspector;
+   set **Kind** to `gem`.
 4. **▶ play**. The **Console** tab shows `ctx.log` lines and errors at
    their source lines.
 

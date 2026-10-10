@@ -9,6 +9,7 @@ import { transformSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 
 import { M2_PINNED_MODULES, compileBehavior, labelOfKey, preparedSourceFrom, readCodeDeclaration } from './index';
+import { originalPosition } from './source-map';
 
 const SOURCE = [
   'export const properties = {',
@@ -90,6 +91,10 @@ describe('properties declared in code', () => {
     // The output runs with no `property` helper in scope; `properties` is plain data.
     const text = new TextDecoder().decode(result.outputBytes);
     expect(text).not.toContain('property.number');
+    // Lines below the declaration map back to the author's line numbers (step() is on line 15).
+    const out = text.split('\n');
+    const stepLine = out.findIndex((l) => l.includes('ctx.properties.speed')) + 1;
+    expect(originalPosition(result.sourceMap!, stepLine, out[stepLine - 1]!.indexOf('ctx.properties.speed') + 1)).toMatchObject({ source: 'src/index.ts', line: 15 });
     // Evaluated here only as a test of the output (the compiler never runs source): as CommonJS.
     const cjs = transformSync(text, { format: 'cjs' }).code;
     const holder: { exports: Record<string, unknown> } = { exports: {} };

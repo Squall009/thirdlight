@@ -113,8 +113,11 @@ async function main(): Promise<void> {
       return res.ok ? res.observation : null;
     };
     const res = host.observe();
-    // The debug line names the build and the play state only (no game rules).
-    hud(res.ok ? `${manifest.snapshotId} · build ${manifest.buildId.slice(0, 12)} · ${res.observation.state}` : '', false);
+    // The debug line names the build and the play state only (no game rules). It sits where a game's own HUD
+    // usually goes, so a release game (no debug console) clears it; an error shown while starting stays.
+    const debugLine = res.ok && (manifest.settings as unknown as Record<string, unknown>)['debug_console'] === 1;
+    if (debugLine) hud(`${manifest.snapshotId} · build ${manifest.buildId.slice(0, 12)} · ${res.observation.state}`, false);
+    else if (document.getElementById('hud')?.className !== 'error') hud('', false);
     window.addEventListener('pagehide', () => game.dispose(), { once: true });
   } catch (e) {
     hud(`export error: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`, true);

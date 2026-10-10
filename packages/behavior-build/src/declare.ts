@@ -295,10 +295,14 @@ export function readCodeDeclaration(entryText: string): CodeDeclarationResult {
 /**
  * The entry text the bundler compiles: the declaration statement becomes
  * plain data (key → declared property), so no `property` helper is needed at
- * run time.
+ * run time. The data keeps the statement's line count: the source map is
+ * made from this text, and every line below the declaration must keep the
+ * number the author sees (errors and `ctx.log` lines in the Console).
  */
 export function rewriteCodeDeclaration(entryText: string, start: number, end: number, properties: readonly DeclaredProperty[]): string {
   const data: Record<string, DeclaredProperty> = {};
   for (const p of properties) data[p.key] = p;
-  return `${entryText.slice(0, start)}export const properties = ${JSON.stringify(data)}${entryText.slice(end)}`;
+  const lines = entryText.slice(start, end).split('\n').length - 1;
+  // The breaks go before the data: after it, a newline would end the statement ahead of `as const`.
+  return `${entryText.slice(0, start)}export const properties =${'\n'.repeat(lines)} ${JSON.stringify(data)}${entryText.slice(end)}`;
 }

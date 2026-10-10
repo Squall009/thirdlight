@@ -13,16 +13,21 @@ fields: [Material graph nodes](../reference/graph-material.md).
    World-aligned kit, Unlit, Water, River, Height-blended layers). Name it
    `Glow`. It opens in the editor window as a **Material** tab; the preview
    pane above the Inspector shows it on a sphere.
-2. **Exposed parameters** (left of the graph): add `tint` (colour),
-   `rim` (colour) and `power` (float, 0.5–8, default 2). Public ones can be
-   set per object.
-3. Add nodes (right-click, Space or **+ Node**): three **Parameter** nodes
-   (key `tint`, `rim`, `power`), a **Fresnel** and a **Multiply**. Wire
+2. **Exposed parameters** (left of the graph): **+ Parameter**, then its
+   key, type, default and public/private: `tint` (color), `rim` (color)
+   and `power` (float, default 2). Public ones can be set per object. (A
+   float's `min` and `max` are set over the API; the panel has no fields
+   for them.)
+3. Add nodes (right-click, Space or **+ Node**; type to search, Enter
+   adds): three **Parameter** nodes, a **Fresnel** and a **Multiply**. A new
+   Parameter node reads the first parameter; set each one's key (`tint`,
+   `rim`, `power`) in its Inspector. Wire
    `tint` → PBR output **base colour**; `power` → Fresnel **power**;
    `rim` and the Fresnel output → Multiply; Multiply → **emissive**. The
    preview updates with each wire.
-4. Select an object (a box or a model), **+ Add component → Materials**,
-   pick `*` and the material. The Inspector's **Materials** section lists
+4. Select an object (a box or a model). Its Inspector has a
+   **Materials** section: pick the material under **all materials** (on
+   another object, **+ Add component → Materials** first). The Inspector's **Materials** section lists
    the public parameters: set this object's `tint`; ↺ goes back to the
    material's.
 5. Choose the material in the project window and press **+ new

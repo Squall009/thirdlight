@@ -230,6 +230,15 @@ export interface CommandResultOk {
 }
 export type CommandResult = CommandResultOk | { ok: false; response: MutationResponse };
 
+/** The first rule of a refusal's details (its message and path) and the count of all of them. */
+function ruleDetails(details: readonly unknown[], count: number | undefined): { details: { message?: string; path?: string }[]; detailCount: number } {
+  const first = details[0] as { message?: unknown; path?: unknown } | undefined;
+  const view: { message?: string; path?: string } = {};
+  if (typeof first?.message === 'string') view.message = first.message;
+  if (typeof first?.path === 'string') view.path = first.path;
+  return { details: first === undefined ? [] : [view], detailCount: count ?? details.length };
+}
+
 export class SessionClientCore {
   readonly projection = new Projection();
   /** The additive content projection (asset summaries). */
@@ -1263,6 +1272,8 @@ export class SessionClientCore {
             ...(typeof details.sourceDigest === 'string' ? { sourceDigest: details.sourceDigest } : {}),
             ...(typeof details.behaviorId === 'string' ? { behaviorId: details.behaviorId } : {}),
             ...(Array.isArray(details.diagnostics) ? { diagnostics: details.diagnostics } : {}),
+            // A whole-document check's rules: the first one (what and where) and how many there are, for the panels.
+            ...(body.error.details !== undefined ? ruleDetails(body.error.details, body.error.detailCount) : {}),
             ...((err.body as { folderImport?: unknown }).folderImport !== undefined ? { folderImport: (err.body as { folderImport: import('./folder-upload').FolderImportView }).folderImport } : {}),
           },
         };

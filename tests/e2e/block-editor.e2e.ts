@@ -322,6 +322,11 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   const line = [5, 8, 8, 6, 9, 11];
   await expect.poll(async () => (await edgesIn(line)).edges.filter((e) => e[0] === 5 && e[3] === 0).length).toBe(3);
   expect((await edgesIn(line)).edgePalette).toEqual([{ block: 'wall', rot: 180 }]);
+  // A box with an edge piece: the outline on every row up to the box height (2), walls two rows tall in one command.
+  await tool(page, 'Box').click();
+  await stroke(page, [await screen(page, floorAt(1, 13)), await screen(page, floorAt(3, 15))]);
+  await expect.poll(async () => (await edgesIn([1, 8, 13, 4, 10, 16])).edges.length).toBe(16);
+  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"box".*"edges":true/);
   await panel(page).getByRole('button', { name: 'rotate brush' }).click();
   // The block type form makes a block type an edge piece.
   await blockButton(page, 'door').click();

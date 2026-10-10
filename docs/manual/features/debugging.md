@@ -71,6 +71,8 @@ Run one from:
   its step. Play always has it. An exported game has it only when **Project
   settings → Engine → Debug console in export** (`debug_console`) is on —
   off by default, so a release build never ships a console by accident.
+  The same setting shows the export's build line (snapshot, build id,
+  play state) at the top left; a release game shows only its own UI.
 
 ## Frame statistics
 

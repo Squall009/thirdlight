@@ -27,7 +27,8 @@
  * tools work on cell edges: the target is the edge of the target cell's row
  * nearest the pointer (`data-block-edge`), paint and erase collect the edges
  * the drag passes, line and rectangle run along the grid lines between two
- * corners; each stroke is one `edges` edit, previewed the same way.
+ * corners, box repeats the rectangle's outline up to the box height; each
+ * stroke is one `edges` edit, previewed the same way.
  *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
@@ -633,6 +634,12 @@ export class BlockEditor {
   private strokeEdges(k: NonNullable<BlockEditor['edgeStroke']>): Edge4[] {
     if (k.tool === 'line') return edgeLine(k.start, k.end, k.row);
     if (k.tool === 'rect') return edgeRect(k.start, k.end, k.row);
+    // A box is the rectangle's outline on every row up to the box height: walls that tall.
+    if (k.tool === 'box') {
+      const rows: Edge4[] = [];
+      for (let r = 0; r < Math.max(1, this.opts.brush.height); r++) rows.push(...edgeRect(k.start, k.end, k.row + r));
+      return rows;
+    }
     return k.edges;
   }
 
@@ -671,7 +678,7 @@ export class BlockEditor {
       this.host.requestRender();
       return;
     }
-    if (k.tool === 'line' || k.tool === 'rect') this.drawLineGhost(this.strokeEdges(k).map((e) => edgeGhostBox(e, Math.max(BLOCK_EDGE_THICKNESS, 0.1))));
+    if (k.tool === 'line' || k.tool === 'rect' || k.tool === 'box') this.drawLineGhost(this.strokeEdges(k).map((e) => edgeGhostBox(e, Math.max(BLOCK_EDGE_THICKNESS, 0.1))));
     this.host.requestRender();
   }
 

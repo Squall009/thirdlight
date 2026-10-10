@@ -45,6 +45,10 @@ export function PrefabInspector(p: PrefabInspectorProps): JSX.Element {
       <div className="tl-prop__caption" title={p.prefabId}>
         {d !== null ? `${d.displayName} — ${d.entityCount} object${d.entityCount === 1 ? '' : 's'}, depth ${d.depth}` : p.prefabId} · copies are independent
       </div>
+      {/* A prefab made in the editor gets a generated id, and scripts spawn it by that id, so it is shown to copy. */}
+      <div className="tl-prop__caption" aria-label="prefab id">
+        id <code>{p.prefabId}</code> — the name <code>ctx.spawn</code> takes
+      </div>
       <div className="tl-prop__caption">Initial override (optional) — applies to the copy placed next, not to the definition.</div>
       {p.targets.length === 0 && <div className="tl-inspector__empty">this definition has no declared properties</div>}
       {p.targets.map((t) => (

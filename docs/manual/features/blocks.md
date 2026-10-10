@@ -530,7 +530,8 @@ stroke or button is one undo step, and MCP can do the same.
   pointer (on the row in front of the face under it) and every edge the drag
   passes, Line runs along the grid line between the press and release
   corners (in the longer direction), and Rectangle draws the edges of its
-  outline (a room's walls); each is one undo step.
+  outline (a room's walls), Box draws that outline on every row up to the box
+  height (walls that tall); each is one undo step.
 - **Brush**: Rotate (Q) steps through the block type's allowed rotations (an
   edge piece: 0 and 180);
   "Random look" lets every cell show a look picked by the variants' weights
@@ -550,7 +551,7 @@ stroke or button is one undo step, and MCP can do the same.
   (Del); "Save as stamp". **Stamps**: the library places a stamp (turned or
   mirrored) with the Stamp tool, or deletes it.
 - **Regions**: the layer's named regions are outlined; click one to paint it
-  with the Region tool (Ctrl removes), + Region makes one (from the selection
+  with the Region tool (Ctrl removes), + Region makes one named by the field beside it (from the selection
   when there is one), Rename, delete, "Add / Remove selection". **Cut**
   marks a region cut away in the game (the layer's `cutaway.regions`, one
   undo step); **Preview** then shows the Scene view as the game does while

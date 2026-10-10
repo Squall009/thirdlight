@@ -46,7 +46,7 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
   { id: 'single', label: 'Paint', hint: 'Paint the brush block cell by cell (drag); an edge piece (wall, door, fence) goes on the cell edges you drag over.' },
   { id: 'line', label: 'Line', hint: 'Drag a straight line of blocks; an edge piece runs along the grid line between two corners.' },
   { id: 'rect', label: 'Rectangle', hint: 'Drag a one-cell-thick rectangle; an edge piece draws its outline (the walls of a room).' },
-  { id: 'box', label: 'Box', hint: 'Drag a rectangle; it is filled up to the box height.' },
+  { id: 'box', label: 'Box', hint: 'Drag a rectangle; it is filled up to the box height. An edge piece draws the outline on every row up to the box height (walls that tall).' },
   { id: 'flood', label: 'Flood', hint: 'Fill the connected cells equal to the clicked one.' },
   { id: 'column', label: 'Raise / lower', hint: 'Raise the columns you drag over by one cell (lower: Ctrl held or the Lower toggle).' },
   { id: 'height', label: 'Height', hint: 'Terrain: raise the ground smoothly under a round brush as you drag (lower: Ctrl held or the Lower toggle); the tops slope.' },
@@ -255,7 +255,7 @@ export type Edge4 = [number, number, number, number];
 
 /** Whether the brush paints edge pieces with this tool (its block is an edge piece, and the tool draws). */
 export function edgeTool(tool: BlockToolId, t: Pick<BlockType, 'placement'> | undefined): boolean {
-  return t?.placement === 'edge' && (tool === 'single' || tool === 'erase' || tool === 'line' || tool === 'rect');
+  return t?.placement === 'edge' && (tool === 'single' || tool === 'erase' || tool === 'line' || tool === 'rect' || tool === 'box');
 }
 
 /** The cell edge nearest a point of row `y` (`fx`, `fz` in cells: the side of the cell under it the point is closest to). */

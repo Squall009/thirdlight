@@ -52,6 +52,9 @@ export type MutationResponse =
       /** A script library change a dependent script does not compile against. */
       behaviorId?: string;
       diagnostics?: import('./behavior-publication').CompileDiagnosticView[];
+      /** A whole-document check: its first rule (message, path) and how many rules refused. */
+      details?: { message?: string; path?: string }[];
+      detailCount?: number;
     };
 
 /** A transport-level outcome for a command the browser sent. */

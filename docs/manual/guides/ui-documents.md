@@ -31,8 +31,10 @@ switch a game mode, or a dialogue input.
    `resume`; *event* `quit-to-title` then `resume`. In **Document**, tick
    **Modal** and set **First focus** to the Resume button, so Enter and the
    pad reach it.
-4. **Show them.** **File → Project Settings… → Game shell**: add `HUD`
-   under **HUD**, set **Screens → Pause** to `Pause`. (A game mode can show
+4. **Show them.** **File → Project Settings… → Game shell**: a project
+   without a shell (the Starter) first needs **add game shell**, then the
+   **+ add** buttons for **Screens** and **HUD**. Add `HUD` under **HUD**,
+   set **Screens → Pause** to `Pause`. (A game mode can show
    documents too; see [game modes](game-modes.md).)
 5. **Answer the events** in a script with `ctx.ui.event('restart-level')`
    (see [title, new game, restart and scene changes](game-flow.md)).

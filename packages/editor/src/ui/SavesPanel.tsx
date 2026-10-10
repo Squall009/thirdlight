@@ -41,6 +41,7 @@ const SECTIONS: readonly { id: SaveSection; label: string; hint: string }[] = [
   // The dialogue variables and the lines seen (skip-if-seen).
   { id: 'dialogue', label: 'Dialogue', hint: 'the dialogue variables and the lines already seen' },
   { id: 'environment', label: 'Environment', hint: 'the environment preset blend scripts set (ctx.environment)' },
+  { id: 'components', label: 'Objects\' state', hint: 'objects\' health, collectibles, patrols and hitboxes as the game changed them' },
   // Where the play stands: a load moves the game to the saved scenes and the player's place.
   { id: 'world', label: 'Where the play stands', hint: 'the loaded scenes, the active spawn and the player\'s place; a load moves the game there' },
 ];

@@ -319,6 +319,23 @@ inactive entities are removed, and each entity gets its effective `static`.
   - `tl_inspect target="project"` lists the registry.
   - `tl_inspect target="entity"` shows `tagNames: {own, effective}`.
 
+## Moving around the Scene view
+
+The Scene view's camera turns around a point in front of it:
+
+- **Left drag** on empty space turns the view around that point; **right
+  drag** pans; the **wheel** and the **middle drag** move closer or further.
+  Shift or Ctrl with a left drag pans too.
+- **F** moves the point to the selected object's origin and keeps the
+  distance. A block layer's origin is its corner, not its middle: after F,
+  wheel in or pan to the cells.
+- While a block layer's **Edit cells** is on, the left button belongs to
+  the block tools: **right drag** or **Alt + left drag** turns the view,
+  **middle drag** pans, the wheel zooms. Space + drag paints there; it does
+  not pan.
+- A larger browser window gives the Scene view more room; the Project /
+  Console / Problems dock and the side panels take the rest.
+
 ## Icons and gizmos
 
 The Scene view and the hierarchy show what an object is: its light type

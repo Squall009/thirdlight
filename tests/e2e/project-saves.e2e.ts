@@ -197,6 +197,8 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   await panel.getByLabel('save slots').fill('5');
   await panel.getByLabel('save section grid').check();
   await panel.getByLabel('save section storage').check();
+  // Every section the schema knows has its box (objects' state too).
+  await expect(panel.getByLabel('save section components')).toBeVisible();
   await panel.getByRole('button', { name: 'add setting' }).click();
   await panel.getByLabel('setting 0 key').fill('hints');
   await panel.getByLabel('setting 0 default').check();

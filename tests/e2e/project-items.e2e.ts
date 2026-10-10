@@ -199,6 +199,8 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
 
   // A prefab: place a copy from its Inspector.
   await chooseItem(page, 'prefab', 'Crate');
+  // Its id is shown: a script spawns the prefab by it.
+  await expect(inspector(page).getByLabel('prefab id', { exact: true })).toContainText('crate');
   const copies = await entities();
   await inspector(page).getByRole('button', { name: 'place copy', exact: true }).click();
   await expect.poll(entities).toBeGreaterThan(copies);

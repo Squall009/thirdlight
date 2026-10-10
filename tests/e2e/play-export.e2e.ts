@@ -98,6 +98,9 @@ test('Play renders a fresh project scene in the isolated preview, which fills th
     expect(errors).toEqual([]);
     expect(await game.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight)).toBe(false);
     await expect(game.getByText(/error/i)).toHaveCount(0);
+    // A release game (no debug console) keeps no build line over its own HUD once it runs.
+    await expect.poll(() => game.evaluate(() => typeof (window as { __thirdlightObserve?: unknown }).__thirdlightObserve)).toBe('function');
+    await expect(game.locator('#hud')).toHaveText('');
     expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
   } finally {
     await site.close();
