@@ -220,6 +220,8 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await inspector(page).getByRole('button', { name: 'Add', exact: true }).click();
   await expect.poll(comp(id, 'model')).toEqual({ asset: { assetId: model } });
   await expect(inspector(page).locator('.tl-inspector__kind')).toHaveText('model');
+  // The model is skinned: its absent decal layers are none (a world projector would slide over the skin).
+  for (const n of [1, 8]) await expect(inspector(page).getByLabel(`model decalLayers Layer ${n}`, { exact: true })).not.toBeChecked();
   // An animator for the model: a controller made from the project window's Create menu, picked in the Inspector.
   await chooseItem(page, 'model', model);
   await createItem(page, 'Animator controller', 'New animator');

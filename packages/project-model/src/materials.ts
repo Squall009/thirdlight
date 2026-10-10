@@ -25,6 +25,7 @@ import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
+import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
 import { DECAL_BLENDS, validateDecalCellRef, type DecalCellRef } from './decals';
 
 export const MATERIAL_SHADERS = ['standard', 'foliage', 'kit', 'unlit', 'water', 'trim', 'decal'] as const;
@@ -207,6 +208,11 @@ export interface MaterialDef {
    * textures are the sheet's, inside the cell. Absent: its own texture slots.
    */
   decal?: DecalCellRef;
+  /**
+   * Where a decal material's images are on the build's decal pages (`decal-pages.ts`). Only a build writes it,
+   * on the materials it hands the runtime; a project never stores one.
+   */
+  decalPage?: DecalPageRef;
 }
 
 /** An exposed parameter of a graph material. */
@@ -409,8 +415,12 @@ export function validateMaterialGraph(material: Record<string, unknown>, path: s
   });
 }
 
-/** `content.materials`: unique ids, known shader params and slots (a project has as many materials as it needs). */
-export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext, trusted?: ReadonlySet<unknown>): void {
+/**
+ * `content.materials`: unique ids, known shader params and slots (a project has as many materials as it needs).
+ * `build`: the materials of a build's manifest, which may carry what only a build writes (a decal material's
+ * `decalPage`).
+ */
+export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext, trusted?: ReadonlySet<unknown>, build = false): void {
   if (!Array.isArray(value)) {
     err(errors, 'field_type', path, 'materials must be an array', value, 'array of materials');
     return;
@@ -430,6 +440,7 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       return;
     }
     for (const k of Object.keys(m)) {
+      if (build && k === 'decalPage') continue;
       if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal');
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
@@ -465,6 +476,10 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
         validateDecalCellRef(m['decal'], `${p}/decal`, errors);
         if (isPlainObject(m['textures']) && Object.keys(m['textures']).length > 0) err(errors, 'field_value', `${p}/textures`, 'a decal material draws from its sheet cell (decal) or its own textures, not both', Object.keys(m['textures'])[0]);
       }
+    }
+    if (m['decalPage'] !== undefined && build) {
+      if (shader !== 'decal') err(errors, 'field_unexpected', `${p}/decalPage`, 'only a decal material has a place on the decal pages (decalPage)', 'decalPage', 'shader "decal"');
+      else validateDecalPageRef(m['decalPage'], `${p}/decalPage`, errors);
     }
     const schema = MATERIAL_PARAMS[shader as MaterialShader];
     const params = m['params'];
@@ -678,6 +693,8 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
         : {}),
       ...(m.trim !== undefined ? { trim: canonicalTrimSheet(m.trim) } : {}),
       ...(m.decal !== undefined ? { decal: { sheet: m.decal.sheet, cell: m.decal.cell } } : {}),
+      // A build's (manifests only).
+      ...(m.decalPage !== undefined ? { decalPage: canonicalDecalPageRef(m.decalPage) } : {}),
     }));
 }
 

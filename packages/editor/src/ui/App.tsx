@@ -739,7 +739,7 @@ function EditorApp(): JSX.Element {
   }, [ui.connection, ui.error]);
 
   const animatorTools = useAnimatorTools({ clientRef, modelFilesRef, reportFailure, animators, openDocument, sendGraphEdit: docCmds.sendGraphEdit });
-  const { modelNodesOf } = animatorTools;
+  const { modelNodesOf, modelSkinnedOf } = animatorTools;
   // New items, renames and deletes in the project window and the Inspector.
   const items = useItemActions({
     clientRef,
@@ -838,8 +838,14 @@ function EditorApp(): JSX.Element {
         const assetId = (e?.components as { model?: { asset?: { assetId?: unknown } } } | undefined)?.model?.asset?.assetId;
         return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
       },
+      // A skinned model's absent decal layers are none (its file says whether it is).
+      modelSkinned: (entityId: string) => {
+        const e = allEntitiesMemo.find((x) => x.id === entityId);
+        const assetId = (e?.components as { model?: { asset?: { assetId?: unknown } } } | undefined)?.model?.asset?.assetId;
+        return typeof assetId === 'string' ? modelSkinnedOf(assetId) : undefined;
+      },
     }),
-    [allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes, lightLayers],
+    [allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, modelSkinnedOf, behaviorGroups, modes, lightLayers],
   );
   /** How many objects carry each behavior group. */
   const groupUsageMemo = useMemo(() => {

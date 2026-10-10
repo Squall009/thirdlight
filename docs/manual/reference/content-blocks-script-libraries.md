@@ -238,7 +238,7 @@ Conversations: node graphs of lines (speaker, expression, text, voice clip), cho
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-a-d.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
+| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-d-p.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
 
 <a id="content-speakers"></a>
 ## speakers — Speakers

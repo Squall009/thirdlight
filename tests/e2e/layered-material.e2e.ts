@@ -649,6 +649,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await inspector(page).getByLabel('decal sheet', { exact: true }).selectOption({ label: 'Trim' });
   await expect.poll(async () => ((await materials(be!)) as unknown as TrimMat[]).find((m) => m.materialId === 'mat-stain')?.decal).toEqual({ sheet: trimId, cell: TEST_TRIM_CELL.name });
   await expect(inspector(page).getByLabel('decal cell', { exact: true })).toHaveValue(TEST_TRIM_CELL.name);
+  // A projected decal of that cell, out of sight: its page reaches the GPU in Play and the export (nothing draws it yet).
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Stain', transform: { position: [0, -40, 0] }, components: { decal: { size: [0.25, 0.25, 0.25], material: 'mat-stain' } } });
 
   // ---- Play: the strips at a grazing angle, the trim material's and the standard material's.
   await cmd('setMaterial', { material: { materialId: 'mat-trim-std', name: 'Trim sheet, standard', shader: 'standard', params: { roughness: 1 }, textures: { map: 'trim-sheet' } } });
@@ -763,6 +765,12 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     return ((await r.json()) as { diagnostics?: { renderer?: Record<string, unknown> } }).diagnostics?.renderer ?? {};
   };
   const renderer = await diagnostics();
+  // The decal's page: one array (the sheet copied onto a page: the test sheet is a PNG), held and uploaded, inside the budget.
+  const decalPages = renderer['decals'] as { decals: number; pages: number; layers: number; bytes: number; onGpu: number } | undefined;
+  const budget = renderer['textures'] as { budgetBytes: number; fixedBytes: number } | undefined;
+  console.log(`decal pages ${variant} Play: ${JSON.stringify(decalPages ?? null)}; textures ${budget?.fixedBytes ?? '-'} fixed of a ${budget?.budgetBytes ?? '-'} byte budget`);
+  expect(decalPages).toMatchObject({ decals: 1, pages: 1, layers: 1, onGpu: 1 });
+  expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
   expectCulled(renderer['rooms'] as never);
   // The building: the facade, the windows (the inner wall behind them) and the roof; its interior read ahead while its door is near.
@@ -833,6 +841,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     await expectRendererBackend(exported, variant);
     let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
     await expect.poll(async () => (shown = readArchitecture(decodePng(await exported.screenshot()))).ok && shown.colours.every((c, i) => sameColour(c, arch.colours[i]!)), { timeout: 45_000, intervals: [500], message: 'the export picture of the architecture' }).toBe(true);
+    // The decal page on the GPU: "<arrays>|<layers>|<bytes>|<uploaded>".
+    expect(String(await exported.getAttribute('data-tl-decal-pages'))).toBe(`1|1|${decalPages!.bytes}|1`);
     let styledExport = readStyled(decodePng(await exported.screenshot()));
     await expect.poll(async () => (styledExport = readStyled(decodePng(await exported.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the export picture of the styled walls' }).toBe(true).catch((e: unknown) => {
       console.log(`styled walls ${variant} export (failed): low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);

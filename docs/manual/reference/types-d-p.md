@@ -1,8 +1,32 @@
-# Types (DialogueSettings to PublishAssetAnimation)
+# Types (DeleteEntityArgs to PublishAssetAnimation)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-delete-entity-args"></a>
+### DeleteEntityArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+interface DeleteEntityArgs {
+  entityId: string;
+}
+```
+
+<a id="type-dialogue-document"></a>
+### DialogueDocument
+
+Declared in `packages/project-model/src/dialogue.ts`.
+
+```ts
+interface DialogueDocument {
+  dialogueId: string;
+  name: string;
+  graph: GraphData;
+}
+```
 
 <a id="type-dialogue-settings"></a>
 ### DialogueSettings
@@ -1085,6 +1109,11 @@ interface MaterialDef {
    * textures are the sheet's, inside the cell. Absent: its own texture slots.
    */
   decal?: DecalCellRef;
+  /**
+   * Where a decal material's images are on the build's decal pages (`decal-pages.ts`). Only a build writes it,
+   * on the materials it hands the runtime; a project never stores one.
+   */
+  decalPage?: DecalPageRef;
 }
 ```
 

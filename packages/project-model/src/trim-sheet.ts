@@ -326,15 +326,24 @@ export function trimSheetMipLevels(sheet: TrimSheet): number {
   return Math.floor(Math.log2(Math.max(sheet.size[0], sheet.size[1]))) + 1;
 }
 
-/** Whether every pixel bilinear filtering reads at level `level` for v-pixel `y` lies in [lo, hi). */
-function readsInside(height: number, level: number, y: number, lo: number, hi: number): boolean {
-  const texels = Math.max(1, Math.floor(height / 2 ** level));
-  const s = height / texels;
+/**
+ * Whether every pixel bilinear filtering reads at mip level `level` for the
+ * level-0 pixel coordinate `y` (along an axis `size` pixels long) lies in
+ * [lo, hi). A read past the image's end is outside, unless `clampEdges`:
+ * then it reads the edge texel (a clamping sampler), which must lie inside
+ * too. Trim rows wrap (no clamp); decal pages clamp.
+ */
+export function bilinearReadsInside(size: number, level: number, y: number, lo: number, hi: number, clampEdges = false): boolean {
+  const texels = Math.max(1, Math.floor(size / 2 ** level));
+  const s = size / texels;
   const yl = y / s - 0.5;
   const i0 = Math.floor(yl);
   const f = yl - i0;
   const used = f < 1e-9 ? [i0] : f > 1 - 1e-9 ? [i0 + 1] : [i0, i0 + 1];
-  return used.every((i) => i >= 0 && i < texels && i * s >= lo - 1e-9 && (i + 1) * s <= hi + 1e-9);
+  return used.every((i0) => {
+    const i = clampEdges ? Math.max(0, Math.min(texels - 1, i0)) : i0;
+    return i >= 0 && i < texels && i * s >= lo - 1e-9 && (i + 1) * s <= hi + 1e-9;
+  });
 }
 
 /**
@@ -358,7 +367,7 @@ export function trimSafeMipLevel(sheet: TrimSheet, row: TrimRow): number {
   const levels = trimSheetMipLevels(sheet);
   let safe = 0;
   for (let l = 1; l < levels; l++) {
-    if (!readsInside(h, l, v0 * h, lo, hi) || !readsInside(h, l, v1 * h, lo, hi)) break;
+    if (!bilinearReadsInside(h, l, v0 * h, lo, hi) || !bilinearReadsInside(h, l, v1 * h, lo, hi)) break;
     safe = l;
   }
   return safe;

@@ -14,7 +14,9 @@ each:
   [assets](assets.md).
 - **Textures.** Large compressed (KTX2) textures stream their detail inside
   the **texture budget** (`texture_budget_mb`, 512 MiB unless you set it),
-  dropping what is least needed first.
+  dropping what is least needed first. Textures that do not stream (arrays,
+  [decal pages](../features/decals.md#decal-pages), small textures) count
+  against the same budget.
 - **World streaming.** A terrain or block layer with **Streaming** rings
   keeps only the tiles and chunks around the camera and the players loaded,
   inside the **streaming budget** (`streaming_budget_mb`, 768 MiB unless

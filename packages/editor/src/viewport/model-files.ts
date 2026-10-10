@@ -29,7 +29,7 @@ import {
   type TextureHolds,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { assetVersionKey, createResourceManager, readModelRig, rigNodeNames, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, glbHasSkins, readModelRig, rigNodeNames, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
 
 export type VisualDescriptor = AssetVersionDescriptor;
 
@@ -173,13 +173,18 @@ export class ModelFiles {
    * Inspector offers the names the game finds). Null when it cannot be read.
    */
   async nodeNames(assetId: string): Promise<string[] | null> {
+    return (await this.rigFacts(assetId))?.nodes ?? null;
+  }
+
+  /** The node names (as `nodeNames`) and whether the file has a skin, read from the asset's current GLB. Null when it cannot be read. */
+  async rigFacts(assetId: string): Promise<{ nodes: string[]; skinned: boolean } | null> {
     if (this.options.descriptorFor(assetId) === null) await this.options.ensureDescriptor?.(assetId);
     const descriptor = this.options.descriptorFor(assetId);
     if (descriptor === null || this.disposed) return null;
     try {
       const bytes = await this.options.resolve(descriptor);
       const r = readModelRig(bytes, assetId, 0);
-      return r.ok ? rigNodeNames(r.rig) : null;
+      return r.ok ? { nodes: rigNodeNames(r.rig), skinned: glbHasSkins(bytes) } : null;
     } catch {
       return null;
     }

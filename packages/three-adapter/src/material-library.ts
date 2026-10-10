@@ -100,6 +100,17 @@ export interface MaterialDefLike {
   readonly trim?: TrimSheet;
   /** A decal material's trim sheet cell (an instance draws with its root's). */
   readonly decal?: { readonly sheet: string; readonly cell: string };
+  /** A decal material's place on the build's decal pages (project-model `DecalPageRef`; builds only). */
+  readonly decalPage?: DecalPageRefLike;
+}
+
+/** The adapter's structural copy of project-model `DecalPageRef`. */
+export interface DecalPageRefLike {
+  readonly rect: readonly [number, number, number, number];
+  readonly mip: number;
+  readonly albedo?: { readonly texture: string; readonly layer: number };
+  readonly normal?: { readonly texture: string; readonly layer: number };
+  readonly orm?: { readonly texture: string; readonly layer: number };
 }
 
 /** The longest instance chain (the model's). */
@@ -242,6 +253,8 @@ export interface MaterialLibrary {
   onReassigned?(listener: (root: THREE.Object3D) => void): () => void;
   /** A trim material's row table (an instance answers with its root's; null: no such material, or not a trim material). */
   trimSheetOf?(materialId: string): TrimSheet | null;
+  /** A decal material's place on the decal pages (null: no such material, or it has none). */
+  decalPageOf?(materialId: string): DecalPageRefLike | null;
   /** Call `listener` after the definitions change (`setMaterials`); returns the unsubscribe. */
   onDefinitions?(listener: () => void): () => void;
   dispose(): void;
@@ -983,6 +996,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     trimSheetOf(materialId) {
       const d = defs.get(materialId);
       return d?.shader === 'trim' && d.trim !== undefined ? d.trim : null;
+    },
+    decalPageOf(materialId) {
+      const d = defs.get(materialId);
+      return d?.shader === 'decal' && d.decalPage !== undefined ? d.decalPage : null;
     },
     onDefinitions(listener) {
       definitionListeners.add(listener);

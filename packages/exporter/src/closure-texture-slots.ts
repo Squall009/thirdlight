@@ -19,6 +19,7 @@
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
 import { materialTextureSlotSets, textureSlotSetKey, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet } from '@thirdlight/project-model';
 
+import type { ClosureDecalPages } from './closure-decal-pages';
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
 
 /** One layer of a slot list: the texture version the captured content holds. */
@@ -28,8 +29,8 @@ export interface ClosureSlotLayer {
   readonly sourceDigest: string;
 }
 
-/** The backend's texture-array assembly from single-layer textures (cached by their digests). */
-export interface ClosureTextureSlots {
+/** The backend's texture-array assembly from single-layer textures (cached by their digests), and of decal pages. */
+export interface ClosureTextureSlots extends ClosureDecalPages {
   assemble(projectId: string, layers: readonly ClosureSlotLayer[], mode: Ktx2Encoding): Promise<{ ok: true; file: BlobFile } | { ok: false; code: string; message: string }>;
 }
 
@@ -111,7 +112,7 @@ function slotLayers(set: TextureSlotSet, byId: ReadonlyMap<string, AssetRecordLi
 }
 
 /** A located file's bytes, checked against its digest while read (a message when it changed). */
-async function readWhole(service: WorkspaceService, projectId: string, f: BlobFile): Promise<Uint8Array | string> {
+export async function readWhole(service: WorkspaceService, projectId: string, f: BlobFile): Promise<Uint8Array | string> {
   const opened = service.openBlobFile(projectId, f);
   if (!opened.ok) return `the assembled array ${f.digest.slice(0, 12)}… cannot be read: ${opened.error.message}`;
   const parts: Uint8Array[] = [];

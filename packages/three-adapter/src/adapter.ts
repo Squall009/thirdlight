@@ -26,6 +26,7 @@
  * backend), never a throw.
  */
 import type { MaterialFunctionLike } from './material-graph';
+import { createDecalPages } from './decal-pages';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
@@ -164,6 +165,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setMaterials(opts.materials.defs, opts.materials.functions ?? []);
     materialLibrary.setWind(opts.materials.wind);
   }
+  // The decal pages the loaded decals' materials name, held per decal and uploaded as they arrive.
+  const decalPages = materialLibrary?.decalPageOf !== undefined && opts.materials !== undefined ? createDecalPages({ holds: textureHolds(resources, opts.materials.loadTexture), pageOf: (id) => materialLibrary.decalPageOf!(id), onChange: () => opts.onChange?.() }) : null;
+  materialLibrary?.onDefinitions?.(() => decalPages?.refresh());
   const materialUndo = new Map<string, () => void>();
   /** The material swaps the running game made, put on once their materials have loaded (created with the scene below). */
   let materialSwaps: MaterialSwapView | null = null;
@@ -568,6 +572,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (arch !== undefined) architecture.set(e.id, arch, t.position);
     if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
+    decalPages?.set(e.id, (e.components as { decal?: { material?: string } }).decal?.material ?? null);
     const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
@@ -602,6 +607,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
+    decalPages?.remove(id);
     // Its light (a directional or ambient light hangs off the scene; one on the node goes with it).
     lights.release(id);
     // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).
@@ -1381,6 +1387,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera!.updateProjectionMatrix();
     // What the camera sees decides which texture mips stream in or out (presentation only).
     opts.textureStreamer?.update(scene, camera!, h * renderer.getPixelRatio(), false, graph.parkedObjects());
+    // The decal pages that arrived go to the GPU now; the canvas says so (an export has no other in-page diagnostics surface).
+    if (decalPages?.upload(renderer as unknown as { initTexture?(t: THREE.Texture): void }) === true && typeof canvasLike?.setAttribute === 'function') {
+      const o = decalPages.observe();
+      canvasLike.setAttribute('data-tl-decal-pages', `${o.pages}|${o.layers}|${o.bytes}|${o.onGpu}`);
+    }
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;
@@ -1611,6 +1622,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const probeState = disposed ? null : probes.observe();
     if (probeState !== null) d.probes = probeState;
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
+    const decalState = decalPages !== null && !disposed ? decalPages.observe() : null;
+    if (decalState !== null && decalState.decals > 0) d.decals = decalState;
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
     return {
@@ -1630,6 +1643,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     effectMaterials.clear();
     animatorPlayers.clear();
     lightmaps?.dispose();
+    decalPages?.dispose();
     probes.dispose();
     runtimeMaterials?.dispose();
     materialSwaps?.dispose();

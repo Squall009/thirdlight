@@ -101,25 +101,35 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
   }, [modelFilesRef]);
   // A model's skeleton (the Animator's bone mask picker).
-  // The node names of the models socket targets carry (the Inspector's node list), read once per version.
-  const [modelNodeNames, setModelNodeNames] = useState<Readonly<Record<string, readonly string[] | 'failed'>>>({});
-  const modelNodeLoads = useRef(new Set<string>());
-  const modelNodesOf = useCallback(
-    (assetId: string): readonly string[] | null | undefined => {
+  // The node names of the models socket targets carry (the Inspector's node list) and whether each is skinned
+  // (a skinned model's absent decal layers are none), read once per version.
+  const [modelRigFacts, setModelRigFacts] = useState<Readonly<Record<string, { nodes: readonly string[]; skinned: boolean } | 'failed'>>>({});
+  const modelRigLoads = useRef(new Set<string>());
+  /** The facts of an asset's current version: undefined when it has none or cannot be read, null while it is read. */
+  const rigFactsOf = useCallback(
+    (assetId: string): { nodes: readonly string[]; skinned: boolean } | null | undefined => {
       const version = clientRef.current?.content.resolveVersion(assetId)?.version;
       if (version === undefined) return undefined;
       const key = `${assetId}@${version}`;
-      const have = modelNodeNames[key];
+      const have = modelRigFacts[key];
       if (have === 'failed') return undefined;
       if (have !== undefined) return have;
-      if (!modelNodeLoads.current.has(key)) {
-        modelNodeLoads.current.add(key);
-        void (modelFilesRef.current?.nodeNames(assetId) ?? Promise.resolve(null)).then((names) => setModelNodeNames((m) => ({ ...m, [key]: names ?? 'failed' })));
+      if (!modelRigLoads.current.has(key)) {
+        modelRigLoads.current.add(key);
+        void (modelFilesRef.current?.rigFacts(assetId) ?? Promise.resolve(null)).then((facts) => setModelRigFacts((m) => ({ ...m, [key]: facts ?? 'failed' })));
       }
       return null;
     },
-    [clientRef, modelFilesRef, modelNodeNames],
+    [clientRef, modelFilesRef, modelRigFacts],
   );
+  const modelNodesOf = useCallback((assetId: string): readonly string[] | null | undefined => {
+    const f = rigFactsOf(assetId);
+    return f === null || f === undefined ? f : f.nodes;
+  }, [rigFactsOf]);
+  const modelSkinnedOf = useCallback((assetId: string): boolean | null | undefined => {
+    const f = rigFactsOf(assetId);
+    return f === null || f === undefined ? f : f.skinned;
+  }, [rigFactsOf]);
   const skeletonOf = useCallback(async (assetId: string) => {
     const r = await modelFilesRef.current?.prepared(assetId);
     return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
@@ -160,7 +170,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
   };
   const animatorGraphEdit = (ownerId: string, ops: GraphOp[]): Promise<string | null> => sendGraphEdit({ kind: 'animator', id: ownerId }, ops);
 
-  return { animatorError, previewAnimator, saveAnimator, deleteAnimator, clipsOf, modelNodesOf, skeletonOf, setAssetClipsFor, missingBones, animatorProps, animatorGraphEdit };
+  return { animatorError, previewAnimator, saveAnimator, deleteAnimator, clipsOf, modelNodesOf, modelSkinnedOf, skeletonOf, setAssetClipsFor, missingBones, animatorProps, animatorGraphEdit };
 }
 
 export type AnimatorTools = ReturnType<typeof useAnimatorTools>;

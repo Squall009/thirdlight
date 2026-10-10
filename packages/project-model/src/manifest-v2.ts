@@ -1360,7 +1360,7 @@ export function contentFileBlockProblem(key: ManifestContentFileKey, block: unkn
       }
       break;
     case 'materials':
-      validateMaterials(block, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, ctx.materialFunctions));
+      validateMaterials(block, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, ctx.materialFunctions), undefined, true);
       break;
     case 'uiDocuments':
       validateUiDocuments(block, '/uiDocuments', errors, projectInputMaps(ctx.input));

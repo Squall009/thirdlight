@@ -2,6 +2,7 @@
  * The scene adapter's public shapes: its options, its diagnostics block and
  * the adapter surface itself (`createSceneAdapter` in adapter.ts builds it).
  */
+import type { DecalPagesObservation } from './decal-pages';
 import type * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot, EnvironmentBlendView, ResourceManager } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from './material-graph';
@@ -381,6 +382,8 @@ export interface SceneAdapterDiagnostics {
   environment?: { iblRebakes: number; post: boolean; passes: string[]; quality: QualityLevel; samples: number; fallback: string | null };
   /** The loaded scenes' baked probe tiles: listed, loaded, their probes and GPU bytes, failed loads; ABSENT without any. */
   probes?: ProbeGridsObservation;
+  /** The decal pages the loaded decals hold (`decal-pages.ts`; present while a loaded decal has a place on them). */
+  decals?: DecalPagesObservation;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then

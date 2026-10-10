@@ -136,6 +136,12 @@ export const COMPONENT_TYPES: Record<number, { bytes: number; read: (v: DataView
   5126: { bytes: 4, read: (v, o) => v.getFloat32(o, true), norm: 1 },
 };
 
+/** Whether a GLB has a skin (its meshes follow bones: a world-space projector would slide over them). */
+export function glbHasSkins(bytes: Uint8Array): boolean {
+  const c = glbChunks(bytes);
+  return typeof c !== 'string' && Array.isArray(c.json['skins']) && c.json['skins'].length > 0;
+}
+
 /** Split a GLB into its JSON and BIN chunks (a string: why it is not a GLB 2.0). */
 export function glbChunks(bytes: Uint8Array): { json: Json; bin: DataView | null } | string {
   if (bytes.byteLength < 20) return 'the file is too short to be a GLB';

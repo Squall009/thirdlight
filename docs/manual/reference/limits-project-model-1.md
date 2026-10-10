@@ -214,6 +214,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-engine-timing-defaults"></a>`ENGINE_TIMING_DEFAULTS` | `{"dropThroughTime":0.125,"settleTime":0.1}` | Engine timing every project played with before it became data (recorded replays stay valid). Generic reasons: falling through a one-way platform ignores it for 0.125 s (enough to clear a thin platform at any normal fall speed); the world settles for 0.1 s before the first frame so resting bodies start at rest. |
 
+<a id="limits-project-model--decal-pages"></a>
+## `decal-pages.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-decal-page-limits"></a>`DECAL_PAGE_LIMITS` | `{"gutter":8,"align":16,"sizeMin":256,"composeSizeMax":2048}` | - `gutter`: pixels around a copied rectangle that repeat its edge; - `align`: a copied rectangle's padded box starts and ends on multiples of this, so the texels of the first levels never straddle two boxes (gutter 8 and align 16 keep levels 0–3 of any rectangle at least 16 px across inside its box, a 64 px one to level 4); - `sizeMin`: the smallest page (a few small marks still share one); - `composeSizeMax`: the largest page made from copied rectangles: the KTX2 encoder takes 12 Mpix an image, and 2048² is the largest power-of-two square within it. |
+
 <a id="limits-project-model--decals"></a>
 ## `decals.ts`
 

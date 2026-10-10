@@ -59,6 +59,8 @@ export interface FieldContext extends PickerData {
    * undefined when the object has no model.
    */
   readonly modelNodes?: (entityId: string) => readonly string[] | null | undefined;
+  /** Whether an object's model is skinned (null while its file is read; undefined: no model). */
+  readonly modelSkinned?: (entityId: string) => boolean | null | undefined;
   /** The object being inspected (its own model's bones are offered for a bone of it). */
   readonly selfId?: string;
   /** The project's light layer names by number (a light layer mask's checkboxes are labelled with them). */
@@ -269,7 +271,9 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     }
     case 'mask': {
       // One checkbox per layer; a box whose removal the field's min refuses (an object's last layer) is disabled.
-      const mask = typeof shown === 'number' ? shown : 0;
+      // A skinned model's absent decal layers are none, not the field's every-layer default.
+      const noneWhenAbsent = p.value === undefined && f.type === 'int' && f.mask === 'decalLayers' && p.component === 'model' && p.ctx.selfId !== undefined && p.ctx.modelSkinned?.(p.ctx.selfId) === true;
+      const mask = noneWhenAbsent ? 0 : typeof shown === 'number' ? shown : 0;
       const names = f.type === 'int' && f.mask === 'lightLayers' ? p.ctx.lightLayerNames : undefined;
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>

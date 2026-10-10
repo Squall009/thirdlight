@@ -38,6 +38,7 @@ import { Worker } from 'node:worker_threads';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import * as ktx2Encoder from 'ktx2-encoder';
 
+import { composePageRgba, type ComposeLayer } from './decal-page-compose';
 import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
 import { joinUastcLayers, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
@@ -82,6 +83,8 @@ export interface TextureEncoder {
    * a KTX2 source when the layers have to be encoded.
    */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2PackResult>;
+  /** A decal page of side `size` composed of rectangles of the sources, one UASTC layer (`composeKtx2`). */
+  compose(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2ComposeResult>;
   /** An image's pixels (PNG, JPEG, WebP, or a single-image KTX2 transcoded: its top level) as 8-bit RGBA, at most `maxPixels`. */
   decode(bytes: Uint8Array, maxPixels: number): Promise<TextureDecodeResult>;
   dispose?(): void;
@@ -148,6 +151,7 @@ interface BasisEncoderLike {
   setNormalMap(): void;
   setQualityLevel(level: number): void;
   setKTX2UASTCSupercompression(v: boolean): void;
+  setPackUASTCFlags?(flags: number): void;
   setDebug(v: boolean): void;
   setTexType(t: number): void;
   setSliceSourceImage(slice: number, data: Uint8Array, width: number, height: number, type: number): boolean | void;
@@ -296,6 +300,19 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     return out;
   });
   const reencoded = layers.map((l) => l.some((c) => 'source' in c && transcoded.has(c.source)));
+  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color');
+  return encoded.ok ? { ok: true, ktx2: encoded.ktx2, width, height, layers: slices.length, reencoded, joined: false } : encoded;
+}
+
+/**
+ * Encode RGBA slices (one: a 2D texture; more: an array) with the mode's
+ * settings: colour sRGB and perceptual, a normal map with the encoder's
+ * normal preset, data linear; `uastc` UASTC with Zstandard, else ETC1S (a
+ * colour import's quality); `uastcLevel` the UASTC effort (absent: the
+ * encoder's default, as imports use).
+ */
+async function encodeSlices(slices: readonly Uint8Array[], width: number, height: number, mode: Ktx2Mode, uastc: boolean, uastcLevel?: number): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
+  const n = width * height;
   try {
     const mod = await basisModule();
     if (mod === null) return { ok: false, code: 'texture_encode_failed', message: 'the KTX2 encoder\'s Node entry is not loaded' };
@@ -306,7 +323,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
       const colour = mode === 'color';
       enc.setDebug(false);
       enc.setCreateKTX2File(true);
-      enc.setUASTC(!colour);
+      enc.setUASTC(uastc);
       enc.setMipGen(true);
       enc.setYFlip(false);
       if (enc.setKTX2AndBasisSRGBTransferFunc !== undefined) enc.setKTX2AndBasisSRGBTransferFunc(colour);
@@ -316,8 +333,9 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
         else enc.setNormalMap();
       }
       // ETC1S: the same quality as a colour import; UASTC: Zstandard supercompression.
-      if (colour) enc.setQualityLevel(128);
+      if (!uastc) enc.setQualityLevel(128);
       else enc.setKTX2UASTCSupercompression(true);
+      if (uastc && uastcLevel !== undefined) enc.setPackUASTCFlags?.(uastcLevel);
       enc.setPerceptual(colour);
       enc.setTexType(slices.length > 1 ? BASIS_TEX_2D_ARRAY : BASIS_TEX_2D);
       for (let i = 0; i < slices.length; i++) {
@@ -328,7 +346,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
       for (let attempt = 0; attempt < 2; attempt++) {
         const out = new Uint8Array(capacity);
         const length = enc.encode(out);
-        if (length > 0) return { ok: true, ktx2: out.slice(0, length), width, height, layers: slices.length, reencoded, joined: false };
+        if (length > 0) return { ok: true, ktx2: out.slice(0, length) };
         capacity *= 2;
       }
       return { ok: false, code: 'texture_encode_failed', message: 'KTX2 encoding failed (the encoder produced nothing)' };
@@ -340,12 +358,62 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
   }
 }
 
+/**
+ * The UASTC effort of a composed decal page (Basis Universal's "faster"
+ * pack level; imports keep the encoder's default). Measured on a noisy
+ * 1024² image: 2.4 s at 31.57 dB PSNR against 8.2 s at 31.63 dB by default
+ * (the fastest level: 0.7 s at 24.0 dB). A 2048² page holds dozens of
+ * marks and is made once, then cached.
+ */
+export const DECAL_PAGE_UASTC_LEVEL = 1;
+
+/** A composed decal page: the KTX2 of one layer, and whether a source's texels were transcoded out of a lossy KTX2. */
+export type Ktx2ComposeResult = { ok: true; ktx2: Uint8Array; reencoded: boolean } | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
+
+/**
+ * A decal page composed of rectangles of the sources (`decal-page-compose.ts`),
+ * encoded as one UASTC layer (in every mode, so the pages of a set join into
+ * one array without re-encoding) of side `size`. A KTX2 source is
+ * transcoded, or its lossless original (`lossless[i]`) read instead.
+ */
+export async function composeKtx2(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = []): Promise<Ktx2ComposeResult> {
+  if (!Number.isInteger(size) || size < 1 || size * size > KTX2_SOURCE_PIXELS_MAX) return { ok: false, code: 'texture_encode_unsupported', message: `a composed decal page is at most ${KTX2_SOURCE_PIXELS_MAX} pixels (${size}² asked)` };
+  const used = new Set<number>();
+  for (const p of layer.place) for (const c of p.channels) if ('source' in c) used.add(c.source);
+  const images: (DecodedImage | undefined)[] = [];
+  let reencoded = false;
+  for (const i of used) {
+    const given = sources[i];
+    if (given === undefined) return { ok: false, code: 'texture_encode_unsupported', message: `a rectangle reads source ${i + 1}, which is not given` };
+    const original = lossless[i] ?? null;
+    const bytes = original !== null && sourceFormat(given) === 'ktx2' ? original : given;
+    const format = sourceFormat(bytes);
+    if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: `source ${i + 1} is not a PNG, JPEG, WebP or KTX2 image` };
+    try {
+      if (format === 'ktx2') {
+        images[i] = await transcodeKtx2Rgba(bytes, KTX2_SOURCE_PIXELS_MAX);
+        reencoded = true;
+      } else images[i] = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
+    } catch (e) {
+      return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+  let pixels: Uint8Array;
+  try {
+    pixels = composePageRgba(size, layer, images);
+  } catch (e) {
+    return { ok: false, code: 'texture_encode_unsupported', message: e instanceof Error ? e.message : String(e) };
+  }
+  const encoded = await encodeSlices([pixels], size, size, mode, true, DECAL_PAGE_UASTC_LEVEL);
+  return encoded.ok ? { ok: true, ktx2: encoded.ktx2, reencoded } : encoded;
+}
+
 /** The encoder worker's heap and stack limits (MB). */
 export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerationSizeMb: 64, stackSizeMb: 4 } as const;
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless) => packKtx2(sources, layers, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
+  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless) => packKtx2(sources, layers, mode, lossless), compose: (sources, layer, size, mode, lossless) => composeKtx2(sources, layer, size, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
 }
 
 /**
@@ -368,7 +436,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
   let worker: Worker | null = null;
   let idle: ReturnType<typeof setTimeout> | null = null;
   let next = 1;
-  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void>();
+  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void>();
   const failAll = (message: string): void => {
     for (const done of pending.values()) done({ ok: false, code: 'texture_encode_failed', message });
     pending.clear();
@@ -391,7 +459,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     // pixel limit, not by these.
     const w = new Worker(workerUrl, { resourceLimits: KTX2_WORKER_LIMITS });
     w.unref();
-    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null } }) => {
+    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null } }) => {
       const done = pending.get(m.id);
       pending.delete(m.id);
       done?.(m.result);
@@ -421,7 +489,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
         const copy = bytes.slice();
         w.postMessage({ id, bytes: copy, mode }, [copy.buffer]);
       });
@@ -430,11 +498,22 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
         const copies = sources.map((b) => b.slice());
         const originals = lossless.map((b) => (b === null ? null : b.slice()));
         const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
         w.postMessage({ id, pack: { sources: copies, layers, lossless: originals }, mode }, moved);
+      });
+    },
+    compose(sources, layer, size, mode, lossless = []) {
+      const w = start();
+      const id = next++;
+      return new Promise((resolve) => {
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
+        const copies = sources.map((b) => b.slice());
+        const originals = lossless.map((b) => (b === null ? null : b.slice()));
+        const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
+        w.postMessage({ id, compose: { sources: copies, layer, size, lossless: originals }, mode }, moved);
       });
     },
     thumbnail(bytes) {

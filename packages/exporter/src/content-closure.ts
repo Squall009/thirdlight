@@ -32,6 +32,7 @@ import { MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuild
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
+import { closureDecalPages, hasDecalMaterials, withDecalPages, type ClosureDecalPageArrays } from './closure-decal-pages';
 import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
@@ -959,6 +960,20 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
     assetArtifacts.push(...slotArrays.artifacts.filter((f) => !have.has(f.path)));
     for (const r of slotArrays.rows) shippedKey.push(`slots:${r.sourceDigest}`);
   }
+  // 5b'. Decal pages: the used decal materials' images as texture arrays (the backend's, cached), each
+  //      decal material told its place on them.
+  let decalPages: ClosureDecalPageArrays | null = null;
+  if (allMaterials !== undefined && hasDecalMaterials(usedMaterialsOf() ?? [])) {
+    const made = await closureDecalPages({ port: input.textureSlots, service, projectId, assets: ((input.content as { assets?: [] }).assets ?? []) as never, materials: usedMaterialsOf() ?? [], locate, hash });
+    if (!made.ok) return made;
+    decalPages = made.pages;
+    const have = new Set([...assetFiles, ...assetArtifacts].map((a) => a.path));
+    assetFiles.push(...decalPages.files.filter((f) => !have.has(f.path)));
+    assetArtifacts.push(...decalPages.artifacts.filter((f) => !have.has(f.path)));
+    for (const r of decalPages.rows) shippedKey.push(`decals:${r.sourceDigest}`);
+  }
+  // Built arrays shipped beside the project's assets (slot arrays, decal pages).
+  const builtRows = [...(slotArrays?.rows ?? []), ...(decalPages?.rows ?? [])];
   // The decoders the shipped assets need, from what their records say (the bytes are not read here):
   // a model's import recipe names the glTF extensions it uses (the view's recipe is only its profile and version).
   const decoders = new Set<'draco' | 'basis'>();
@@ -970,7 +985,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
     } else if (a.kind === 'texture' && recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.metrics?.format === 'ktx2') decoders.add('basis');
   }
   // An assembled array is a KTX2.
-  if ((slotArrays?.rows.length ?? 0) > 0) decoders.add('basis');
+  if (builtRows.length > 0) decoders.add('basis');
 
   stage('assets');
   if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -1135,12 +1150,13 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
     const content = input.content as Record<string, unknown>;
     // A slot list becomes the id of its assembled array (the runtime samples arrays only).
     const slotIds = slotArrays?.ids;
-    const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(slotIds !== undefined ? withAssembledSlots(usedMaterials, (set) => slotIds.get(textureSlotSetKey(set)) ?? '') : usedMaterials) : undefined;
+    const slotted = usedMaterials !== undefined && slotIds !== undefined ? withAssembledSlots(usedMaterials, (set) => slotIds.get(textureSlotSetKey(set)) ?? '') : usedMaterials;
+    const runtimeMaterials = slotted !== undefined ? materialsForRuntime(decalPages !== null ? withDecalPages(slotted, decalPages.refs) : slotted) : undefined;
     const runtimeFunctions = usedMaterials !== undefined ? materialFunctionsForRuntime(usedMaterials, (content['graphs'] as GraphDocument[] | undefined) ?? []) : undefined;
     const runtimeEffects = content['effects'] !== undefined ? effectsForRuntime(content['effects'] as EffectDef[]) : undefined;
     const runtimeAnimators = content['animators'] !== undefined ? animatorsForRuntime(content['animators'] as AnimatorController[]) : undefined;
     // What each scene, each model and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
-    const tables = dependencyTables({ assets: slotArrays !== null ? [...view.assets, ...slotArrays.rows] : view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
+    const tables = dependencyTables({ assets: builtRows.length > 0 ? [...view.assets, ...builtRows] : view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
     const lighting = content['lighting'] as LightingMap | undefined;
     const sceneDependencies = new Map<string, readonly string[]>(derived?.sceneDependencies ?? []);
     if (derived?.sceneDependencies === undefined) {
@@ -1182,7 +1198,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       capturedAt: input.capturedAt,
       sceneDigest,
       contentDigest: view.contentDigest,
-      assets: slotArrays !== null ? [...entries, ...slotArrays.rows] : entries,
+      assets: builtRows.length > 0 ? [...entries, ...builtRows] : entries,
       // The catalog of what a script may load by address or label (what this build holds).
       loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
       behaviors: behaviorInputs,

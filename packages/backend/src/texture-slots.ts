@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 
 import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspace';
 
+import type { DecalPageRequest, DecalPageResult } from './decal-page-assembly';
 import { readKtx2 } from './ktx2-container';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
@@ -49,6 +50,8 @@ export interface TextureSlotAssembler {
   assemble(projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode): Promise<SlotArrayResult>;
   /** Arrays assembled and found cached since start (the diagnostics and tests read them). */
   readonly stats: { assembled: number; cached: number };
+  /** A build's decal pages as texture arrays (`decal-page-assembly.ts`). */
+  readonly decalPages?: (projectId: string, request: DecalPageRequest) => Promise<DecalPageResult>;
 }
 
 /** The import cache's importer name and version for an assembled array (a change to the assembly changes the version). */

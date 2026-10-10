@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to DialogueDocument)
+# Types (AcknowledgeBehaviorTrustArgs to DeclaredProperty)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1379,6 +1379,37 @@ interface DecalCellRef {
 }
 ```
 
+<a id="type-decal-page-layer-ref"></a>
+### DecalPageLayerRef
+
+Declared in `packages/project-model/src/decal-pages.ts`.
+
+```ts
+interface DecalPageLayerRef {
+  /** The texture array (a texture asset id of the build). */
+  texture: string;
+  layer: number;
+}
+```
+
+<a id="type-decal-page-ref"></a>
+### DecalPageRef
+
+Declared in `packages/project-model/src/decal-pages.ts`.
+
+```ts
+/** The place a build hands the runtime with a decal material (`decalPage`): the rectangle and each set's array and layer. */
+interface DecalPageRef {
+  /** [u0, v0, u1, v1] on the page, 0–1 from its top-left, inset half a texel. */
+  rect: [number, number, number, number];
+  /** The deepest mip level sampling may reach. */
+  mip: number;
+  albedo?: DecalPageLayerRef;
+  normal?: DecalPageLayerRef;
+  orm?: DecalPageLayerRef;
+}
+```
+
 <a id="type-declared-property"></a>
 ### DeclaredProperty
 
@@ -1409,29 +1440,5 @@ interface DeclaredProperty {
   header?: string;
   /** The hover help of the property's field (1–256 characters). */
   tooltip?: string;
-}
-```
-
-<a id="type-delete-entity-args"></a>
-### DeleteEntityArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-interface DeleteEntityArgs {
-  entityId: string;
-}
-```
-
-<a id="type-dialogue-document"></a>
-### DialogueDocument
-
-Declared in `packages/project-model/src/dialogue.ts`.
-
-```ts
-interface DialogueDocument {
-  dialogueId: string;
-  name: string;
-  graph: GraphData;
 }
 ```

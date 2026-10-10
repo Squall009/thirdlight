@@ -709,6 +709,7 @@ export {
 } from './sockets';
 export {
   MODEL_RIG_LIMITS,
+  glbHasSkins,
   quatFromRotation,
   readModelRig,
   rigNodeNames,
@@ -837,6 +838,8 @@ export {
 export * from './probe-grids';
 // Decals: the component, decal layers and decal materials' trim sheet cells.
 export * from './decals';
+// Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
+export * from './decal-pages';
 // Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,

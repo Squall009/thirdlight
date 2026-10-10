@@ -36,6 +36,7 @@ import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
+import { createDecalPageAssembler } from './decal-page-assembly';
 import { createTextureSlotAssembler, type TextureSlotAssembler } from './texture-slots';
 import { createTextureExtraction } from './model-textures';
 import { createErosionRunner } from './erosion-runner';
@@ -99,6 +100,7 @@ export interface Backend {
     contentRoutes: ContentRoutes;
     playContent: PlayContentStore;
     textureSlots: TextureSlotAssembler;
+    decalPages: { readonly stats: { composed: number; cached: number; arrays: number } };
   };
 }
 
@@ -312,7 +314,9 @@ export function createBackend(
   // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
   const textureEncoder = KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder();
   // Per-layer texture slots' arrays (Play, the export and the editor's views), cached in the import cache.
-  const textureSlots = createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs });
+  // Decal pages ride on the same port: the builds that assemble slot arrays make the pages too.
+  const decalPages = createDecalPageAssembler({ service, encoder: textureEncoder, now: nowMs });
+  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs }), decalPages: decalPages.assemble };
   // A model's "extract textures" import setting: its images become texture assets.
   const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
   // The game folder is the truth for assets: moved and changed files, the import cache.
@@ -1679,7 +1683,7 @@ export function createBackend(
           });
         });
       }),
-    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots },
+    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots, decalPages },
   };
 
   return { ok: true, backend };

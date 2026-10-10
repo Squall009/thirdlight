@@ -252,7 +252,7 @@ export { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, sample
 export { WorldMatrices } from './world-matrices';
 export type { BehaviorSockets } from './types';
 // The rig reader (hosts and the editor read the node names the game resolves sockets on).
-export { readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
+export { glbHasSkins, readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
 // A build's block chunk data, decoded on the game page before a scene reaches the runtime (pure byte decoding).
 export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/project-model';
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).

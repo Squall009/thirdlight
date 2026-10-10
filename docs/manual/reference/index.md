@@ -27,8 +27,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 78 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to DialogueDocument)](types-a-d.md) | 76 sections |
-| [Types (DialogueSettings to PublishAssetAnimation)](types-d-p.md) | 99 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to DeclaredProperty)](types-a-d.md) | 76 sections |
+| [Types (DeleteEntityArgs to PublishAssetAnimation)](types-d-p.md) | 101 sections |
 | [Types (PublishAssetArgs to UpdateEntityArgs)](types-p-u.md) | 88 sections |
 | [Types (V3OwnedComponent to WindConfig)](types-v-w.md) | 3 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
@@ -65,7 +65,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `errors.ts`, `ops.ts`, `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
 | [Limits and defaults: project-model (part 2, from `model-lod.ts`)](limits-project-model-2.md) | 30 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
