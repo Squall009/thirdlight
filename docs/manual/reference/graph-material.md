@@ -1347,7 +1347,7 @@ Fields:
 <a id="graph-material--output"></a>
 ## Output
 
-- PBR output (`pbr`): A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it.
+- PBR output (`pbr`): A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it. Specular intensity and colour scale a non-metal's reflectance (F0 0.04 × colour × intensity; glTF KHR_materials_specular): connected, the surface draws with the physical shading model, which costs a little more; left alone, they change nothing.
 - Unlit output (`unlit`): A surface that ignores lights (its colour is what you see).
 - Custom-lit output (`customLit`): A surface whose colour the graph computes from the Lighting inputs (toon bands, painterly, hatching); fog, tone mapping and the post stack still apply. Normal is tangent space and shapes N·L and the diffuse light (it cannot read them); emissive is added; alpha clip > 0 discards pixels below it.
 - Vertex offset (`vertexOffset`): Moves the mesh's vertices (the vertex stage), in object or world space.
@@ -1355,7 +1355,7 @@ Fields:
 <a id="node-material--pbr"></a>
 ### PBR output (`pbr`)
 
-A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it.
+A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it. Specular intensity and colour scale a non-metal's reflectance (F0 0.04 × colour × intensity; glTF KHR_materials_specular): connected, the surface draws with the physical shading model, which costs a little more; left alone, they change nothing.
 
 (every graph needs one; one node of the `surface` group)
 
@@ -1369,6 +1369,8 @@ Inputs:
 - `ao` "ambient occlusion" (float): unconnected: `1`
 - `opacity` (float): unconnected: `1`
 - `alphaClip` "alpha clip" (float): unconnected: `0`
+- `specularIntensity` "specular intensity" (float): unconnected: `1`
+- `specularColor` "specular colour" (vec3): unconnected: `[1,1,1]`
 
 Fields:
 

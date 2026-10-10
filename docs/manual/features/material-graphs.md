@@ -62,7 +62,14 @@ carries the graph (and the material functions it calls) in its manifest,
 without comments and groups. A PBR output becomes a standard node material
 (base colour, metalness, roughness, a tangent-space normal, emissive, AO,
 opacity, alpha clip), an Unlit output a basic one, a Vertex offset moves
-the vertices; *Double-sided*, *Transparent* and *Casts shadows* are the
+the vertices. A PBR output with its **specular intensity** or **specular
+colour** wired becomes a physical node material instead: they scale a
+non-metal's reflectance (F0 = 0.04 × colour × intensity, as glTF's
+`KHR_materials_specular` does), so a graph can keep the highlights of a
+model exported with that extension (Blender's *Specular IOR Level* 0.3 is
+intensity 0.6, F0 0.024). The physical model is another shader program and
+costs a little more per pixel; left unwired, the ports change nothing and
+the material builds exactly the program it built before. *Double-sided*, *Transparent* and *Casts shadows* are the
 output's fields (an object whose material casts no shadow casts none,
 whatever its own flag says, while it wears it). A graph material uses only
 what its graph contains: the model file's own material and textures are not
@@ -120,7 +127,7 @@ gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp, Sample data (
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
 PBR output (base colour, metalness, roughness, normal, emissive, AO,
-opacity, alpha clip), Unlit output or Custom-lit output (colour, emissive,
+opacity, alpha clip, specular intensity, specular colour), Unlit output or Custom-lit output (colour, emissive,
 normal, opacity, alpha clip) — one of them per material —, Vertex
 offset; the render flags (double-sided, transparent, casts shadows) are
 fields of the surface output. Port types are float, vec2, vec3, vec4,

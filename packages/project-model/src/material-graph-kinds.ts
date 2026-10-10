@@ -502,7 +502,8 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
     type: 'pbr',
     label: 'PBR output',
     category: 'Output',
-    description: 'A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it.',
+    description:
+      'A lit, physically based surface. Normal is tangent space; alpha clip > 0 discards pixels below it. Specular intensity and colour scale a non-metal\'s reflectance (F0 0.04 × colour × intensity; glTF KHR_materials_specular): connected, the surface draws with the physical shading model, which costs a little more; left alone, they change nothing.',
     inputs: [
       port('baseColor', 'base colour', 'vec3', [1, 1, 1]),
       port('metalness', 'metalness', 'float', 0),
@@ -513,6 +514,9 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
       port('ao', 'ambient occlusion', 'float', 1),
       port('opacity', 'opacity', 'float', 1),
       port('alphaClip', 'alpha clip', 'float', 0),
+      // Appended, so saved graphs keep their port order. 1 and white: the standard surface's reflectance.
+      port('specularIntensity', 'specular intensity', 'float', 1),
+      port('specularColor', 'specular colour', 'vec3', [1, 1, 1]),
     ],
     outputs: [],
     fields: LIT_SURFACE_FLAGS,

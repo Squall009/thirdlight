@@ -173,11 +173,14 @@ async function main() {
   //    capturable by the test suite). The packages are independent checks,
   //    and one at a time takes about two minutes: a few run at once,
   //    their output printed in package order.
-  const runs = await runLimited(pkgs, TSC_PARALLEL, (name) => tscRun(tscScript, root, name));
+  // The projects outside packages/ with their own tsconfig (the performance harness and its tests): typed
+  // against the packages, so a package change that breaks them fails here, not at the next perf run.
+  const projects = [...pkgs.map((name) => join('packages', name)), ...EXTRA_PROJECTS.filter((p) => existsSync(join(root, p, 'tsconfig.json')))];
+  const runs = await runLimited(projects, TSC_PARALLEL, (project) => tscRun(tscScript, root, project));
   let failed = false;
-  pkgs.forEach((name, i) => {
+  projects.forEach((project, i) => {
     const r = runs[i];
-    console.log(`typecheck: tsc --noEmit -p packages/${name}`);
+    console.log(`typecheck: tsc --noEmit -p ${project}`);
     if (r.stdout) process.stdout.write(r.stdout);
     if (r.stderr) process.stderr.write(r.stderr);
     if (r.status !== 0) failed = true;
@@ -188,14 +191,17 @@ async function main() {
 /** How many tsc processes run at once: each takes up to ~1 GB, and the gate runs under a memory cap. */
 const TSC_PARALLEL = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
 
-function tscRun(tscScript, root, name) {
+/** Typechecked like a package, though not one (each has a tsconfig that extends the base). */
+const EXTRA_PROJECTS = ['tools/perf'];
+
+function tscRun(tscScript, root, project) {
   return new Promise((done) => {
     // Incremental: tsc keeps each package's last check (file versions, dependency signatures, its
     // diagnostics) and re-checks only what changed since. The gate's typecheck usually runs on code a
     // build already checked, so it took a minute to repeat a clean result; an unchanged package now
     // costs seconds and its earlier errors are still reported. Kept under dist/ (build output, ignored).
-    const info = join(root, 'dist', '.typecheck', `${name}.tsbuildinfo`);
-    const child = spawn(process.execPath, [tscScript, '--noEmit', '--incremental', '--tsBuildInfoFile', info, '-p', join('packages', name)], { cwd: root });
+    const info = join(root, 'dist', '.typecheck', `${project.replace(/^packages\//, '').replaceAll('/', '-')}.tsbuildinfo`);
+    const child = spawn(process.execPath, [tscScript, '--noEmit', '--incremental', '--tsBuildInfoFile', info, '-p', project], { cwd: root });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });

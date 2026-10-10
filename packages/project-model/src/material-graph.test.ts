@@ -74,7 +74,7 @@ describe('the material node catalogue (data)', () => {
     ];
     for (const t of expected) expect(types.has(t), t).toBe(true);
     const pbr = MATERIAL_GRAPH_KIND.nodes.find((d) => d.type === 'pbr')!;
-    expect(pbr.inputs.map((p) => p.id)).toEqual(['baseColor', 'metalness', 'roughness', 'normal', 'emissive', 'ao', 'opacity', 'alphaClip']);
+    expect(pbr.inputs.map((p) => p.id)).toEqual(['baseColor', 'metalness', 'roughness', 'normal', 'emissive', 'ao', 'opacity', 'alphaClip', 'specularIntensity', 'specularColor']);
     expect(pbr.fields!.map((f) => f.key)).toEqual(['doubleSided', 'transparent', 'castShadows', 'localLights']);
     // A function has interface nodes instead of parameters and outputs.
     const fn = new Set(MATERIAL_FUNCTION_GRAPH_KIND.nodes.map((d) => d.type));

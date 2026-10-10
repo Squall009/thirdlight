@@ -87,6 +87,12 @@ later change of its parent's graph.
 - **A graph material ignores the model file's own material and textures.**
   Only what the graph contains is drawn; **Remove graph** brings the shader
   material back.
+- **A model exported with `KHR_materials_specular` loses it under a graph.**
+  The file's material is replaced, so its highlights go back to F0 0.04.
+  Wire its specular factor into the PBR output's **specular intensity** (and
+  its colour into **specular colour**), as constants or parameters. Wire them
+  only where the difference shows: a wired port makes the material a
+  physical one, a separate and slightly dearer shader program.
 - **An input takes one wire.** Over the API a `connect` to an input that is
   already wired is refused (`field_value`, "takes one connection");
   `disconnect` the old edge first. The editor replaces it for you.

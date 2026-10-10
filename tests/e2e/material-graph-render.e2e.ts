@@ -9,7 +9,10 @@
  * - pixel checks of a representative subset: an unlit constant colour
  *   (exact), a nearest-sampled texture, a public parameter overridden on one
  *   object of a shared material (both colours, one material object), a
- *   fresnel emissive rim, a world-space vertex offset.
+ *   fresnel emissive rim, a world-space vertex offset, and the PBR output's
+ *   specular intensity: the sun's highlight on a black sphere at F0 0.024 is
+ *   dimmer than at the default 0.04 and matches a GLB material carrying
+ *   KHR_materials_specular 0.6.
  *
  * - Custom-lit outputs and the lighting inputs: N·L of the
  *   main light quantized into two bands (two tones on a sphere), the main
@@ -90,6 +93,16 @@ test('every node kind compiles and draws', async ({ page }) => {
   expect(missing).toEqual([]);
 });
 
+/** The brightest pixel (mean of the channels) within `r` of a point: a highlight's peak, wherever the raster puts it. */
+const peak = (img: Image, p: [number, number], r: number): number => {
+  let best = 0;
+  for (let y = p[1] - r; y <= p[1] + r; y++) for (let x = p[0] - r; x <= p[0] + r; x++) {
+    const c = img.pixel(x, y);
+    best = Math.max(best, (c[0] + c[1] + c[2]) / 3);
+  }
+  return best;
+};
+
 test('known values: constant, texture, per-object parameter, fresnel, vertex offset', async ({ page }) => {
   test.setTimeout(120_000);
   const { img, result, errors } = await render(page, 'values');
@@ -115,6 +128,20 @@ test('known values: constant, texture, per-object parameter, fresnel, vertex off
   // The lifted quad draws 1.2 m above its place, and not where its lower half was.
   expect(near(p('liftedAt'), [255, 255, 255], 3), JSON.stringify(p('liftedAt'))).toBe(true);
   expect(near(p('liftedFrom'), BACKGROUND, 3), JSON.stringify(p('liftedFrom'))).toBe(true);
+});
+
+test('specular: intensity 0.6 dims the highlight, as a GLB with KHR_materials_specular 0.6 draws it', async ({ page }) => {
+  test.setTimeout(60_000);
+  const { img, result, errors } = await render(page, 'specular');
+  expect(errors).toEqual([]);
+  // Only a connected port makes the physical material; intensity 0.6 dims the highlight (F0 0.024 vs 0.04), and a
+  // GLB's own KHR_materials_specular 0.6 draws the same highlight as the graph mapping it.
+  expect((result as unknown as { specMaterials: Record<string, string> }).specMaterials).toEqual({ specDefault: 'MeshStandardNodeMaterial', spec06: 'MeshPhysicalNodeMaterial', specGlb: 'MeshPhysicalMaterial' });
+  const hl = { default: peak(img, result.probes['specDefault']!, 4), graph06: peak(img, result.probes['spec06']!, 4), glb06: peak(img, result.probes['specGlb']!, 4) };
+  console.log(`[material-graph-render] ${backendOf()} specular peaks ${JSON.stringify(hl)}`);
+  expect(hl.graph06, JSON.stringify(hl)).toBeGreaterThan(40);
+  expect(hl.default, JSON.stringify(hl)).toBeGreaterThan(hl.graph06 + 15);
+  expect(Math.abs(hl.glb06 - hl.graph06), JSON.stringify(hl)).toBeLessThanOrEqual(1);
 });
 
 test('custom-lit: N·L bands, the shadow input, a point light in the diffuse light, the main light, fog', async ({ page }) => {

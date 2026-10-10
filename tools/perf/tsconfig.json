@@ -1,10 +1,10 @@
 {
-  "//": "Phase 21.1: strict typecheck of the performance harness (not a workspace package): npx tsc -p tools/perf",
+  "//": "Strict typecheck of the performance harness and its tests (not a workspace package); tools/typecheck.mjs runs it with the packages",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"],
     "allowJs": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["*.ts", "../../tests/perf/*.ts", "../../tests/e2e/perf-harness.e2e.ts", "../../tests/e2e/scale-bench.e2e.ts"]
+  "include": ["*.ts", "../../packages/commands/src/vite-glob.d.ts", "../../tests/perf/*.ts", "../../tests/e2e/perf-harness.e2e.ts", "../../tests/e2e/scale-bench.e2e.ts"]
 }

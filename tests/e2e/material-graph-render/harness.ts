@@ -2,7 +2,7 @@
  * The material-graph render harness (browser code, bundled by
  * `material-graph-render.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu&case=kinds|values|lit
+ *   index.html?backend=webgl2|webgpu&case=kinds|values|specular|lit
  *
  * Graph materials go through the real three-adapter code
  * (`createRenderer`, `createMaterialLibrary` with graph definitions), with a
@@ -14,6 +14,9 @@
  * - `values`: known pictures — an unlit constant colour, an unlit nearest-
  *   sampled texture, one shared material with a public parameter overridden
  *   on one object, a fresnel emissive rim and a vertex offset;
+ * - `specular`: the PBR output's specular, a highlight at F0 0.04
+ *   (unconnected), 0.024 (intensity 0.6) and a GLB's own
+ *   KHR_materials_specular 0.6 material;
  * - `lit`: Custom-lit outputs reading the lighting inputs —
  *   two N·L bands, the shadow input, the diffuse light with a point light,
  *   the main light's colour, fog.
@@ -21,6 +24,7 @@
  * `window.__graphCase` = { ok, backend, probes: {name: [x, y]}, sharedMaterial?, problems? }.
  */
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { COMPILER_NODES, createMaterialLibrary, LIGHTING_TYPES, lightmappedMaterial, mainLightIndex, createRenderer, type MaterialDefLike, type MaterialGraphLike, type RendererPreference } from '@thirdlight/three-adapter';
 
@@ -77,7 +81,7 @@ const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
  * away), which would push the sphere out of view, so only their emissive use is drawn. */
 const PIXEL_ONLY = new Set(['sceneDepth']);
 
-const cases: Record<string, () => void> = {
+const cases: Record<string, () => void | Promise<void>> = {
   kinds() {
     const kinds = Object.keys(COMPILER_NODES).filter((t) => !SKIP.has(t));
     const defs: MaterialDefLike[] = [];
@@ -203,6 +207,52 @@ const cases: Record<string, () => void> = {
     quad(0, -3.4, 'lifted');
     probe('liftedAt', new THREE.Vector3(0, -3.4 + 1.2, 0));
     probe('liftedFrom', new THREE.Vector3(0, -3.4 - 0.6, 0));
+  },
+  /**
+   * The PBR output's specular: the same black sphere three times — the
+   * graph's default F0, the graph's intensity 0.6, and a GLB material with
+   * KHR_materials_specular 0.6 as three's loader makes it (the look a graph
+   * mapping it has to keep).
+   */
+  async specular() {
+    // Black non-metals: only the sun's highlight shows, and its peak is F0 × the rest (the Fresnel rise is nil face-on).
+    const specular = (intensity: number | null): MaterialGraphLike => ({
+      nodes: [
+        { id: 'out', type: 'pbr', position: [0, 0] },
+        { id: 'black', type: 'color', position: [0, 0], data: { color: '#000000' } },
+        { id: 'r', type: 'float', position: [0, 0], data: { value: 0.35 } },
+        ...(intensity !== null ? [{ id: 'i', type: 'float', position: [0, 0], data: { value: intensity } }] : []),
+      ],
+      edges: [
+        { id: 'a', from: { node: 'black', port: 'rgb' }, to: { node: 'out', port: 'baseColor' } },
+        { id: 'b', from: { node: 'r', port: 'value' }, to: { node: 'out', port: 'roughness' } },
+        ...(intensity !== null ? [{ id: 'c', from: { node: 'i', port: 'value' }, to: { node: 'out', port: 'specularIntensity' } }] : []),
+      ],
+    });
+    library.setMaterials([graphDef('spec-default', specular(null)), graphDef('spec-06', specular(0.6))]);
+    const gltf = {
+      asset: { version: '2.0' },
+      extensionsUsed: ['KHR_materials_specular'],
+      materials: [{ name: 'glb', pbrMetallicRoughness: { baseColorFactor: [0, 0, 0, 1], metallicFactor: 0, roughnessFactor: 0.35 }, extensions: { KHR_materials_specular: { specularFactor: 0.6 } } }],
+    };
+    const parsed = await new GLTFLoader().parseAsync(JSON.stringify(gltf), '');
+    const glbMaterial = (await parsed.parser.getDependency('material', 0)) as THREE.Material;
+    const specSphere = (x: number, y: number, material: string | THREE.Material): THREE.Mesh => {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.8, 64, 48), typeof material === 'string' ? src() : material);
+      s.position.set(x, y, 0);
+      scene.add(s);
+      if (typeof material === 'string') library.apply(s, { '*': material });
+      return s;
+    };
+    // The graph's 0.6 and the GLB's sit mirrored about the plane holding the camera's axis and the sun's direction
+    // (the line y = 2x on the screen), so their highlights are mirror images: the same peak when the F0 is the same.
+    const shapes = { specDefault: specSphere(1.2, 2.4, 'spec-default'), spec06: specSphere(-2.5, 0.5, 'spec-06'), specGlb: specSphere(1.9, -1.7, glbMaterial) };
+    for (const [name, s] of Object.entries(shapes)) {
+      // Where the surface faces halfway between the sun and the camera.
+      const h = sun.position.clone().normalize().add(camera.position.clone().sub(s.position).normalize()).normalize();
+      probe(name, s.position.clone().addScaledVector(h, 0.8));
+    }
+    extra = { specMaterials: Object.fromEntries(Object.entries(shapes).map(([k, s]) => [k, (s.material as THREE.Material).type])) };
   },
   /**
    * Custom-lit outputs reading the lighting inputs (neutral
@@ -343,7 +393,7 @@ async function main(): Promise<void> {
   renderer.setSize(SIZE, SIZE, false);
   const make = cases[which];
   if (make === undefined) throw new Error(`unknown case ${which}`);
-  make();
+  await make();
   // Textures arrive through promises (the graphs recompile when they land), then draw a few frames.
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 30));
   renderer.render(scene, camera);

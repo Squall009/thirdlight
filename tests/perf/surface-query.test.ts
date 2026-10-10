@@ -17,7 +17,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TERRAIN_PAINT_BYTES, TERRAIN_WEIGHT_BYTES, applyBlockEdits, type BlockLayerComponent, type BlockType, type EntityV3, type SurfaceRule, type TerrainComponent } from '@thirdlight/project-model';
+import { BlockGrid, TERRAIN_PAINT_BYTES, TERRAIN_WEIGHT_BYTES, applyBlockEdits, type BlockEdit, type BlockLayerComponent, type BlockType, type EntityV3, type SurfaceRule, type TerrainComponent } from '@thirdlight/project-model';
 
 import { RuntimeGrid } from '../../packages/runtime/src/grid';
 
@@ -77,7 +77,7 @@ describe.runIf(ON)('surface query cost', () => {
     ];
     const comp: BlockLayerComponent = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [100, 8, 100] }, rules };
     const g = new BlockGrid(comp);
-    const edits: Parameters<typeof applyBlockEdits>[1] = [{ kind: 'fill', box: [0, 0, 0, 100, 2, 100], cell: { block: 'rock' } }];
+    const edits: BlockEdit[] = [{ kind: 'fill', box: [0, 0, 0, 100, 2, 100], cell: { block: 'rock' } }];
     for (let x = 0; x < 100; x += 4) edits.push({ kind: 'cells', at: [x, 1, 50], cell: { block: 'rock', corners: [1, 0.5, 0.5, 1] } });
     for (let k = 0; k < 20; k++) edits.push({ kind: 'paint', at: [5 + k * 5, 30], radius: 4, strength: 1, channel: 2 });
     const r = applyBlockEdits(g, edits, { types: new Map(types.map((t) => [t.blockId, t])), stamps: new Map() });

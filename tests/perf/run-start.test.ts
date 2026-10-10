@@ -78,7 +78,7 @@ describe.skipIf(!ON)('run start on a large 3D world', () => {
     const withSpecs = heapMiB();
     let t0 = performance.now();
     const player = { id: 'player-0001', components: { transform: { position: [10, 40, 10], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, controller: {} } };
-    const made = await createPhysicsPort3D({ ...(physics3DConfigOf([player] as Any, { physics_dimension: 3, gravity_y: -20, run_speed: 4, jump_velocity: 8, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 }) as Any), statics });
+    const made = await createPhysicsPort3D({ ...(physics3DConfigOf([player] as Any, { gravity_y: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 }) as Any), statics });
     const create = performance.now() - t0;
     if (!made.ok) throw new Error(JSON.stringify(made.error));
     const port = made.port;

@@ -54,7 +54,7 @@
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
-import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'three/webgpu';
+import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'three/webgpu';
 
 import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
 import { instanceOrigin, normalGreenSign } from './node-materials';
@@ -194,6 +194,9 @@ export interface CompiledMaterialGraph {
     readonly normal: N | null;
     readonly emissive: N | null;
     readonly ao: N | null;
+    /** PBR specular intensity and colour, only when connected (then the material is a physical one). */
+    readonly specularIntensity: N | null;
+    readonly specularColor: N | null;
     readonly opacity: N | null;
     readonly alphaTest: N | null;
     readonly position: N | null;
@@ -464,7 +467,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   alphaClip: { inputs: [P('alpha', 'float', 1), P('threshold', 'float', 0.5)], outputs: [P('alpha', 'float')] },
   call: { inputs: [], outputs: [] },
   pbr: {
-    inputs: [P('baseColor', 'vec3', [1, 1, 1]), P('metalness', 'float', 0), P('roughness', 'float', 0.8), P('normal', 'vec3', [0, 0, 1]), P('emissive', 'vec3', [0, 0, 0]), P('ao', 'float', 1), P('opacity', 'float', 1), P('alphaClip', 'float', 0)],
+    inputs: [P('baseColor', 'vec3', [1, 1, 1]), P('metalness', 'float', 0), P('roughness', 'float', 0.8), P('normal', 'vec3', [0, 0, 1]), P('emissive', 'vec3', [0, 0, 0]), P('ao', 'float', 1), P('opacity', 'float', 1), P('alphaClip', 'float', 0), P('specularIntensity', 'float', 1), P('specularColor', 'vec3', [1, 1, 1])],
     outputs: [],
   },
   unlit: { inputs: [P('color', 'vec3', [1, 1, 1]), P('opacity', 'float', 1), P('alphaClip', 'float', 0)], outputs: [] },
@@ -1528,6 +1531,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     // The material's own emissive stays added: the selection tint and a look override write it (per-mesh copies).
     emissive: emissiveIn !== null ? emissiveIn.add(T.materialEmissive) : null,
     ao: pbr ? slot('ao', true) : null,
+    specularIntensity: pbr ? slot('specularIntensity', true) : null,
+    specularColor: pbr ? slot('specularColor', true) : null,
     opacity: litAlpha ? null : slot('opacity', true),
     alphaTest: litAlpha ? null : slot('alphaClip', true),
     position,
@@ -1573,9 +1578,20 @@ export function materialGraphProblems(def: { graph: MaterialGraphLike; parameter
   return compileMaterialGraph(def, { globals: detachedGlobals(), texture: (id) => (textureIds.has(id) ? 'loading' : null), fn: (id) => byId.get(id) ?? null }).problems;
 }
 
-/** A node material for a compiled graph (PBR → standard, Unlit → basic, Custom-lit → `MeshCustomLitNodeMaterial`). */
+/**
+ * Whether a compiled graph needs three's physical material: only a PBR
+ * output with a specular port connected. Every other PBR graph stays a
+ * standard material, so it builds the programs it built before the ports
+ * existed (the physical model's shader is another program).
+ */
+export function graphNeedsPhysical(c: CompiledMaterialGraph): boolean {
+  return c.slots.specularIntensity !== null || c.slots.specularColor !== null;
+}
+
+/** A node material for a compiled graph (PBR → standard, or physical with specular; Unlit → basic, Custom-lit → `MeshCustomLitNodeMaterial`). */
 export function buildGraphMaterial(c: CompiledMaterialGraph, name: string): THREE.Material {
-  const m = c.surface === 'unlit' ? new MeshBasicNodeMaterial() : c.surface === 'customLit' ? new MeshCustomLitNodeMaterial() : new MeshStandardNodeMaterial();
+  const m =
+    c.surface === 'unlit' ? new MeshBasicNodeMaterial() : c.surface === 'customLit' ? new MeshCustomLitNodeMaterial() : graphNeedsPhysical(c) ? new MeshPhysicalNodeMaterial() : new MeshStandardNodeMaterial();
   applyGraphNodes(m, c);
   m.name = name;
   return m as unknown as THREE.Material;
@@ -1605,6 +1621,10 @@ export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNo
     m.normalNode = c.slots.normal;
     m.emissiveNode = c.slots.emissive;
     m.aoNode = c.slots.ao;
+  }
+  if ((material as MeshPhysicalNodeMaterial).isMeshPhysicalNodeMaterial === true) {
+    m.specularIntensityNode = c.slots.specularIntensity;
+    m.specularColorNode = c.slots.specularColor;
   }
   m.vertexColors = false; // COLOR_0 is read by Vertex colour nodes only
   m.side = c.flags.doubleSided ? THREE.DoubleSide : THREE.FrontSide;

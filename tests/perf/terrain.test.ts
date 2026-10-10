@@ -200,7 +200,7 @@ describe.runIf(ON)('terrain data perf', () => {
       expect(map.ok).toBe(true);
       if (!map.ok) return;
       const b = performance.now();
-      const s = new TerrainSamples({ ...COMP, tiles: [] }, new Map());
+      const s = new TerrainSamples(COMP, new Map());
       const laid = importHeightmap(s, map.map, [0, 0], [-200, 600]);
       const c = performance.now();
       let stored = 0;
@@ -218,6 +218,7 @@ describe.runIf(ON)('terrain data perf', () => {
     tile.weights = new Uint8Array(samples * samples * 8);
     for (let i = 0; i < samples * samples; i++) tile.weights.set([i % 4, (i + 1) % 4, 0, 0, 200, 55, 0, 0], i * 8);
     const out = new Uint8Array(samples * samples * TERRAIN_TEXEL_BYTES);
+    const ids = new Uint8Array(samples * samples * TERRAIN_TEXEL_BYTES);
     const heightsMs: number[] = [];
     const layersMs: number[] = [];
     const boundsMs: number[] = [];
@@ -226,7 +227,7 @@ describe.runIf(ON)('terrain data perf', () => {
       packHeightNormal(out, tile, () => tile, 512 / 65535, 2);
       heightsMs.push(ms(t0));
       t0 = performance.now();
-      packLayers(out, tile);
+      packLayers(out, ids, tile);
       layersMs.push(ms(t0));
       t0 = performance.now();
       tileHeightBounds(tile.heights, layout);
