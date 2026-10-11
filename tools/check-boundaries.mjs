@@ -249,8 +249,10 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'project-model': true },
     // The importer checks the model's own limits (plain constants) and decodes
     // EXT_meshopt_compression with the model's decoder (pure; the build reads
-    // a model's collision parts with the same one).
-    valueSubpaths: { 'project-model': ['limits', 'meshopt'] },
+    // a model's collision parts with the same one). It accepts the attribute a
+    // clipped decal baked to a model keeps its fade in, named where the GLB
+    // writer names it (decal-clip-glb: a constant and a pure writer).
+    valueSubpaths: { 'project-model': ['limits', 'meshopt', 'decal-clip-glb'] },
   },
   // "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the

@@ -842,6 +842,10 @@ export * from './decals';
 export * from './decal-pages';
 // The decal clipper: a clipped decal's mesh cut from its receivers' triangles inside its box.
 export * from './decal-clip';
+// What a clipped decal's mesh is kept by: the key of its inputs and the mesh as bytes.
+export * from './decal-clip-cache';
+// A clipped decal's mesh as a GLB ("Bake to model").
+export * from './decal-clip-glb';
 // Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,

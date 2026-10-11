@@ -273,6 +273,10 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   // Openings stay on their own walls: the front room's east wall dragged a cell in shortens the sides before the
   // arch's wall (its distance round the room changes); the arch stays where it stood, as does the door on the shared wall.
   const dragWall = async (from: V3, to: V3): Promise<void> => {
+    // The tool picks walls from the editor's copy of the outlines: it must have the last drag's command first (the
+    // poll before reads the backend's), or the drag starts on a wall that is not where it was drawn.
+    const want = Number((await query('queryProject')).revision);
+    await expect(page.locator('.tl-statusbar__rev')).toHaveText(`revision ${want}`, { timeout: 15_000 });
     const a = (await screen(page, from))!;
     await page.mouse.move(a.x, a.y);
     await page.mouse.down();

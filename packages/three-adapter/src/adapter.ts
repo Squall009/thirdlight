@@ -28,6 +28,7 @@
 import type { MaterialFunctionLike } from './material-graph';
 import { createDecalPages } from './decal-pages';
 import { createDecalProjectors, type DecalRequestLike, type ProjectedDecalLike } from './decal-projectors';
+import { CLIPPED_DECALS_KEY, ClippedDecals } from './clipped-decals';
 import { setDecalDepthMode } from './mesh-decals';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
@@ -509,6 +510,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // They hear what enters and leaves the scene and what moved from the render graph (none walks the scene); rooms first
   // (the room is part of a batch's key).
   graph.setMembership(bothMemberships(archHost.rooms, bothMemberships(batcher, viewCull)));
+  // Clipped decals: cut from the surfaces the graph holds, on the generator's workers, kept with its chunks' store.
+  const clipped = opts.clippedDecals !== false ? new ClippedDecals({ node: (id) => graph.nodeFor(id) ?? null, dress: (mesh, id) => materialLibrary?.apply(mesh, { '*': id }, null) ?? null, workers: architecture, store: opts.architectureStore ?? null, changed: () => opts.onChange?.() }) : null;
+  graph.onSurfaces(clipped);
+  // A measurement reads their diagnostics from the scene (as the projected decals').
+  if (clipped !== null) scene.userData[CLIPPED_DECALS_KEY] = { diagnostics: () => clipped.diagnostics() };
   // Block layers and terrains (level-views.ts), streamed round the camera on a game page; cut-aways follow their subject.
   const { blockView, terrains, ownTiles, cutaways } = createLevelViews({
     blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
@@ -585,6 +591,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     decalPages?.set(e.id, (e.components as { decal?: { material?: string } }).decal?.material ?? null);
     projectors?.set(e.id, graph.nodeFor(e.id)!, (e.components as { decal?: ProjectedDecalLike }).decal ?? null);
+    clipped?.set(e.id, (e.components as { decal?: ProjectedDecalLike }).decal ?? null, scope);
     const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
@@ -621,6 +628,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     fogVolumeIds.delete(id);
     decalPages?.remove(id);
     projectors?.remove(id);
+    clipped?.remove(id);
     // Its light (a directional or ambient light hangs off the scene; one on the node goes with it).
     lights.release(id);
     // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).
@@ -1427,6 +1435,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
     splines.update();
     architecture.update(viewCull.view.eye);
+    // Clipped decals follow their surfaces (chunks made, objects realized) and themselves.
+    clipped?.beforeFrame();
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)
     scatter.stored.update(viewCull.view);
     if (cutaways.wanted()) cutaways.follow();
@@ -1644,6 +1654,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (decalState !== null && decalState.decals > 0) d.decals = decalState;
     const projected = projectors !== null && !disposed ? projectors.observe() : null;
     if (projected !== null && projected.decals > 0) d.projectedDecals = projected;
+    const clips = clipped !== null && !disposed ? clipped.diagnostics() : null;
+    if (clips !== null && clips.decals > 0) d.clippedDecals = clips;
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
     return {
@@ -1665,6 +1677,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lightmaps?.dispose();
     decalPages?.dispose();
     projectors?.dispose();
+    clipped?.dispose();
     probes.dispose();
     runtimeMaterials?.dispose();
     materialSwaps?.dispose();
@@ -1858,6 +1871,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     threeScene: () => scene,
     probeLighting: () => probes.light(),
     pickables: () => graph.pickables(),
+    clippedDecalMesh: (entityId) => clipped?.meshOf(entityId) ?? null,
     attachOverlay(entityId, object): void {
       let hung = overlays.get(entityId);
       if (hung === undefined) overlays.set(entityId, (hung = new Set()));

@@ -71,7 +71,7 @@ import {
 import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { installTrimNodes, type TrimTextures } from './trim-material';
 import { decalPageArray, installDecalNodes, type DecalImages, type DecalPlace } from './decal-material';
-import { decalDrawOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
+import { decalDrawOf, decalOrderOffsetOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
@@ -1073,7 +1073,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       if (Object.keys(ids).length > 0) data[MATERIAL_IDS_KEY] = ids;
       else delete data[MATERIAL_IDS_KEY];
       // A decal casts no shadow and draws in the decal order (mesh-decals.ts).
-      const order = decalRenderOrder(changed ? next : list);
+      const order = decalRenderOrder(changed ? next : list, decalOrderOffsetOf(mesh));
       if (order !== null) noShadow = true;
       setDecalOrder(mesh, order);
       // The graph's "casts shadows" flag (the object's own flag is kept to restore).

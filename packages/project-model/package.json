@@ -10,7 +10,8 @@
     "./limits": "./src/limits.ts",
     "./texture-slots": "./src/texture-slots.ts",
     "./trim-sheet": "./src/trim-sheet.ts",
-    "./meshopt": "./src/meshopt.ts"
+    "./meshopt": "./src/meshopt.ts",
+    "./decal-clip-glb": "./src/decal-clip-glb.ts"
   },
   "sideEffects": false
 }

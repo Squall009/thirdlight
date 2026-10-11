@@ -26,7 +26,7 @@ import type { CoverSpline } from './cover-worker';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
-import { DECAL_LAYERS_KEY, decalLayersField } from './projected-decals';
+import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
 import type { ModelInstance } from './visual';
 
 /** Screen rows a level's error is measured against (1080p): it switches where its error is under one of them. */
@@ -290,6 +290,8 @@ export class SplineView {
           mesh.receiveShadow = receive;
           if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
           if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
+          // Clipped decals may be cut from it (clipped-decals.ts).
+          mesh.userData[DECAL_SURFACE_KEY] = true;
           // Each level from where its error is under a pixel; never before the one finer than it.
           const at = k === 0 ? 0 : Math.max(last + 1, level.error * DISTANCE_PER_ERROR);
           last = at;

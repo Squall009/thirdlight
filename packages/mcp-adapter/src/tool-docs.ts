@@ -247,7 +247,8 @@ export const TOOL_DETAILS = {
     `blocks, terrain, props, generated architecture, splines, instance copies alike. At most ${DECAL_CELL_BUDGET} overlap at any spot (past it the lowest sortOrder drops; Play's Problems say decal_overlap). ` +
     'A decal on a moving object (a mover, a parent) follows it. A prefab may carry a decal: scripts leave it on a surface with ctx.decals.spawn(prefabId, {position, normal, angle, scale, lifetime, entityId}) ' +
     `(presentation only, not in the simulation; past ${DECAL_TRANSIENT_BUDGET} spawned at once the oldest fade out) and ctx.decals.remove(handle | entityId). ` +
-    'Clipped decals are data so far: nothing draws them yet (see docs/manual/features/decals.md). ' +
+    'A clipped decal (mode clipped) is a mesh cut at load from the surfaces in its box (models, boxes, block chunks, generated architecture, splines; not terrain) and drawn as a mesh decal (its material\'s blend; albedo opacity scales it; ' +
+    'sortOrder adds to the material\'s); it is clipped again when a surface under it changes, kept by a hash of its inputs, and static ones merge into the static cells; the editor\'s Inspector bakes one to a model asset (Bake to model: a GLB with a _DECAL_FADE attribute, the decal material mapped). ' +
     'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
     'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +
     `A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to ${MAX_MATERIAL_INSTANCE_DEPTH}): it draws as its parent with ` +

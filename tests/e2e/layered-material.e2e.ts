@@ -117,7 +117,7 @@ import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
-import { DECALS_KEY, expectSameGreen, fmtDecals, frameDecals, judgeChanges, judgeDecals, makeProjectedDecals, onDecals, sceneViewProjector, type DecalJudgement } from './projected-decals-scene';
+import { DECALS_KEY, expectSameGreen, fmtDecals, frameDecals, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -626,6 +626,25 @@ async function expectDecals(shot: () => Promise<{ png: Buffer; read: (p: readonl
   return got;
 }
 
+/** The clipped decals pass their reads in a picture (on the block edge, gone where a block was taken away once `remeshed`; on the wall). */
+async function expectClipped(shot: () => Promise<{ png: Buffer; read: (p: readonly [number, number, number]) => readonly number[] }>, what: string, remeshed: boolean): Promise<void> {
+  let got = judgeClipped(() => [0, 0, 0], remeshed);
+  let png: Buffer | null = null;
+  await expect
+    .poll(async () => {
+      const s = await shot();
+      png = s.png;
+      return (got = judgeClipped(s.read, remeshed)).ok;
+    }, { timeout: 30_000, intervals: [500], message: `the ${what} picture of the clipped decals${remeshed ? ' (re-meshed)' : ''}` })
+    .toBe(true)
+    .catch((e: unknown) => {
+      console.log(`clipped decals ${what} (failed): ${JSON.stringify(got)}`);
+      if (png !== null) keep(`clipped-decals-failed-${what.replace(/\W+/g, '-')}`, png);
+      throw e;
+    });
+  console.log(`clipped decals ${what}${remeshed ? ' (re-meshed)' : ''}: ${Object.entries(got.colours).map(([k, c]) => `${k} ${c.map((v) => v.toFixed(0)).join(',')}`).join('; ')}`);
+}
+
 /** The decals that change in Play (moved, spawned; the spawn gone once `removed`) pass their reads in a picture of the decal camera. */
 async function expectChanges(canvas: Locator, what: string, removed: boolean): Promise<void> {
   let got = judgeChanges(() => [0, 0, 0], removed);
@@ -743,12 +762,35 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await cmd('setInput', { input: { actions: [...PLANS_ACTIONS, decalSetup.action] } });
   const sceneView = page.locator('canvas.tl-viewport');
   await frameDecals(page, sceneView, decalSetup.focusId);
-  const sceneDecals = await expectDecals(async () => {
+  const sceneShot = async (): Promise<{ png: Buffer; read: (p: readonly [number, number, number]) => readonly number[] }> => {
     const project = await sceneViewProjector(sceneView);
     const png = await sceneView.screenshot();
     const img = decodePng(png);
     return { png, read: (p) => { const s = project(p); return s === null ? [0, 0, 0] : colourAt(img, s); } };
-  }, `${variant} Scene view`);
+  };
+  const sceneDecals = await expectDecals(sceneShot, `${variant} Scene view`);
+  // The clipped decals on the block edge and the wall; a block taken away under the edge re-meshes its chunk and the mark follows.
+  await expectClipped(sceneShot, `${variant} Scene view`, false);
+  await cmd('editBlocks', { entityId: decalSetup.blocksId, edits: [{ kind: 'cells', at: [...REMESH_CELL], cell: null }] });
+  await expectClipped(sceneShot, `${variant} Scene view`, true);
+  // Bake to model: the wall's clipped decal becomes a model asset placed on its object (the decal component goes); the mark stays.
+  await page.locator('.tl-hierarchy__filter').fill('Clipped on the wall');
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.clippedWallId}"]`).click({ timeout: 10_000 });
+  await inspector(page).getByRole('button', { name: 'Bake to model' }).click({ timeout: 10_000 });
+  type Baked = { components: { model?: { asset?: { assetId?: string } }; decal?: unknown } };
+  let baked: Baked | null = null;
+  await expect.poll(async () => {
+    baked = ((await query('queryEntity', { entityId: decalSetup.clippedWallId })) as { entity: Baked }).entity;
+    return `${baked.components.model?.asset?.assetId !== undefined} ${baked.components.decal === undefined}`;
+  }, { timeout: 30_000, message: 'the wall decal baked to a model' }).toBe('true true');
+  const bakedAsset = (baked as Baked | null)!.components.model!.asset!.assetId!;
+  console.log(`clipped decal ${variant} baked to model ${bakedAsset}`);
+  await page.locator('.tl-hierarchy__filter').fill('');
+  // The terrain tile selected again (its gizmo away from the reads): the baked object's gizmo stood over the wall's mark.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
+  await expectClipped(sceneShot, `${variant} Scene view (baked)`, true);
+  const decalCount = decalSetup.decals - 1;
+  const clippedCount = decalSetup.clipped - 1;
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -839,7 +881,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const decalPages = renderer['decals'] as { decals: number; pages: number; layers: number; bytes: number; onGpu: number } | undefined;
   const budget = renderer['textures'] as { budgetBytes: number; fixedBytes: number } | undefined;
   console.log(`decal pages ${variant} Play: ${JSON.stringify(decalPages ?? null)}; textures ${budget?.fixedBytes ?? '-'} fixed of a ${budget?.budgetBytes ?? '-'} byte budget`);
-  expect(decalPages).toMatchObject({ decals: decalSetup.decals + 1, pages: 2, layers: 3, onGpu: 2 });
+  expect(decalPages).toMatchObject({ decals: decalCount + 1, pages: 2, layers: 3, onGpu: 2 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
   expectCulled(renderer['rooms'] as never);
@@ -901,13 +943,23 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
   }, `${variant} Play`);
   expectSameGreen(sceneDecals, playDecals, `${variant} Play`);
+  await expectClipped(async () => {
+    const png = await canvas.screenshot();
+    const img = decodePng(png);
+    return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
+  }, `${variant} Play`, true);
+  const clippedPlay = (await diagnostics())['clippedDecals'] as { decals: number; drawn: number; pending: number; made: Record<string, number>; workerMs: { mean: number; max: number }; readyMs: number | null } | undefined;
+  console.log(`clipped decals ${variant} Play: ${JSON.stringify(clippedPlay ?? null)}`);
+  // Clipped at load from the chunks under them (on the generator's workers, or the page while they started).
+  expect(clippedPlay).toMatchObject({ decals: clippedCount, drawn: clippedCount, pending: 0 });
+  expect((clippedPlay!.made['worker'] ?? 0) + (clippedPlay!.made['page'] ?? 0)).toBeGreaterThanOrEqual(clippedCount);
   // The moving decal where its mover took it, the spawned one beside it.
   await expectChanges(canvas, `${variant} Play`, false);
   const projected = (await diagnostics())['projectedDecals'] as { decals: number; drawn: number; unplaced: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates: number; spawned: number; receiverDraws: number } | undefined;
   console.log(`projected decals ${variant} Play: ${JSON.stringify(projected ?? null)}`);
   // Every one drawn (the trim cell's stain out of sight too, the spawn), none over the overlap budget, only the draws they reach blending them;
   // the moving one and the spawn changed the index in place.
-  expect(projected).toMatchObject({ decals: decalSetup.decals + 2, drawn: decalSetup.decals + 2, unplaced: 0, dropped: 0, spawned: 1 });
+  expect(projected).toMatchObject({ decals: decalSetup.projected + 2, drawn: decalSetup.projected + 2, unplaced: 0, dropped: 0, spawned: 1 });
   expect(projected!.receiverDraws).toBeGreaterThan(0);
   expect(projected!.updates).toBeGreaterThan(0);
   // The key again: the spawn fades out.
@@ -997,6 +1049,11 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
     }, `${variant} export`);
     expectSameGreen(sceneDecals, exportDecals, `${variant} export`);
+    await expectClipped(async () => {
+      const png = await exported.screenshot();
+      const img = decodePng(png);
+      return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
+    }, `${variant} export`, true);
     await expectChanges(exported, `${variant} export`, false);
     await pressDecalsKey(game);
     await expectChanges(exported, `${variant} export`, true);
@@ -1005,6 +1062,14 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     // Generated, not shipped: on the workers, or on the page while they were starting.
     expect(marks.chunks.length).toBeGreaterThan(0);
     expect(marks.chunks.every((c) => c.where === 'worker' || c.where === 'page')).toBe(true);
+    // A second visit finds the clipped decals' meshes in the player's IndexedDB: nothing is clipped again.
+    const clipMarks = async (): Promise<{ where: string; ms: number }[]> => game.evaluate(() => (performance.getEntriesByType('mark') as PerformanceMark[]).filter((m) => m.name === 'tl:decal:clip').map((m) => m.detail as { where: string; ms: number }));
+    expect((await clipMarks()).every((m) => m.where === 'worker' || m.where === 'page')).toBe(true);
+    await game.reload();
+    await expect.poll(async () => (await clipMarks()).length, { timeout: 30_000, message: 'the clipped decals drawn on a second visit' }).toBe(clippedCount);
+    const again = await clipMarks();
+    console.log(`clipped decals ${variant} export, second visit: ${JSON.stringify(again)}`);
+    expect(again.every((m) => m.where === 'store')).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await game.close();

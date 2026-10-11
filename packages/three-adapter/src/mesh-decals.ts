@@ -84,18 +84,35 @@ export function decalDrawOf(material: THREE.Material | null | undefined): DecalD
   return (material?.userData?.[DECAL_DRAW_KEY] as DecalDraw | undefined) ?? null;
 }
 
-/** The render order a mesh wearing `material` draws in (null: not a decal). */
-export function decalRenderOrder(material: THREE.Material | THREE.Material[] | null | undefined): number | null {
+/** The render order a mesh wearing `material` draws in (null: not a decal), its own sort order `offset` added to the material's. */
+export function decalRenderOrder(material: THREE.Material | THREE.Material[] | null | undefined, offset = 0): number | null {
   if (Array.isArray(material)) {
     let order: number | null = null;
     for (const m of material) {
       const d = decalDrawOf(m);
-      if (d !== null) order = Math.min(order ?? Infinity, decalRenderOrderFor(d.sortOrder));
+      if (d !== null) order = Math.min(order ?? Infinity, decalRenderOrderFor(d.sortOrder + offset));
     }
     return order;
   }
   const d = decalDrawOf(material);
-  return d === null ? null : decalRenderOrderFor(d.sortOrder);
+  return d === null ? null : decalRenderOrderFor(d.sortOrder + offset);
+}
+
+/**
+ * `mesh.userData[DECAL_ORDER_OFFSET_KEY]`: a mesh's own decal sort order, added to its material's (a clipped
+ * decal's component `sortOrder`: one material, many marks, each with its place among the decals).
+ */
+export const DECAL_ORDER_OFFSET_KEY = '__tlDecalOrderOffset';
+
+/** A mesh's own decal sort order (0: none). */
+export function decalOrderOffsetOf(mesh: THREE.Object3D): number {
+  const v = mesh.userData[DECAL_ORDER_OFFSET_KEY];
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+/** The render order a mesh draws in as a decal: its material's sort order and its own (null: not a decal). */
+export function meshDecalRenderOrder(mesh: THREE.Mesh): number | null {
+  return decalRenderOrder(mesh.material, decalOrderOffsetOf(mesh));
 }
 
 export type DepthBufferMode = 'standard' | 'reversed' | 'logarithmic';

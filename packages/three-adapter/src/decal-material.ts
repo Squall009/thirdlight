@@ -22,6 +22,7 @@
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
+import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/runtime';
 import type { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 
 type Node = ReturnType<typeof TSL.float>;
@@ -58,6 +59,24 @@ export interface DecalPlace {
 }
 
 const numOf = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+/**
+ * A clipped decal's per-vertex fade (the clipper's normal and edge fades, times the component's albedo
+ * opacity): how much of the mark each vertex shows. A baked decal's glTF names it `_DECAL_FADE`, which three's
+ * loader lowercases: the same name here, so a clipped decal baked to a model fades the same.
+ */
+export const DECAL_FADE_ATTRIBUTE = DECAL_FADE_GLTF_ATTRIBUTE.toLowerCase();
+
+/**
+ * `alpha` times the mesh's {@link DECAL_FADE_ATTRIBUTE} where its geometry has one. Decided per program (a
+ * geometry's attributes are part of three's program key), so a mesh decal without fades builds exactly the
+ * program it built before clipped decals existed.
+ */
+function faded(alpha: Node): Node {
+  return TSL.Fn((builder: { geometry?: { hasAttribute?(name: string): boolean } }) =>
+    builder.geometry?.hasAttribute?.(DECAL_FADE_ATTRIBUTE) === true ? alpha.mul(TSL.attribute(DECAL_FADE_ATTRIBUTE, 'float')) : alpha,
+  )() as unknown as Node;
+}
 
 /**
  * Put the decal nodes on `m` (a standard node material, or a basic one for
@@ -101,11 +120,11 @@ export function installDecalNodes(m: THREE.Material, params: Readonly<Record<str
     if (multiply) {
       const nb = m as unknown as MeshBasicNodeMaterial;
       // White where the decal is not: the blend multiplies the surface by this.
-      nb.colorNode = TSL.vec4(TSL.mix(TSL.vec3(1, 1, 1), tinted, TSL.saturate(albedo.a.mul(TSL.materialOpacity))), 1) as unknown as MeshBasicNodeMaterial['colorNode'];
+      nb.colorNode = TSL.vec4(TSL.mix(TSL.vec3(1, 1, 1), tinted, TSL.saturate(faded(albedo.a.mul(TSL.materialOpacity) as unknown as Node))), 1) as unknown as MeshBasicNodeMaterial['colorNode'];
       return;
     }
     const nm = m as unknown as MeshStandardNodeMaterial;
-    nm.colorNode = TSL.vec4(tinted, albedo.a) as unknown as MeshStandardNodeMaterial['colorNode'];
+    nm.colorNode = TSL.vec4(tinted, faded(albedo.a as unknown as Node)) as unknown as MeshStandardNodeMaterial['colorNode'];
     const orm = read(images.orm, layers.orm);
     if (orm !== null) {
       nm.roughnessNode = TSL.materialRoughness.mul(orm.g) as unknown as MeshStandardNodeMaterial['roughnessNode'];

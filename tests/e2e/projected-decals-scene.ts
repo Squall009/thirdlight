@@ -17,6 +17,17 @@
  * the Scene view is framed on them in the editor. Each read is a world
  * point; the Scene view's green must have Play's hue.
  *
+ * Clipped decals (the same green, in `clipped` mode): one across the block
+ * layer's front edge (tilted 45°, so it marks the top and the front face
+ * at once) and one on the generated wall. Their meshes are clipped from the
+ * block chunk and the wall's chunk on the generator workers. In the Scene
+ * view a block under the edge mark is taken away: the chunk re-meshes and
+ * the mark is clipped again, gone where the block was (a stale mesh would
+ * hang in the air) and still on the block beside it; Play and the export
+ * draw it so too. The wall's clipped decal is then baked to a model (the
+ * Inspector's "Bake to model"): a model asset of the same mark, drawn as a
+ * mesh decal where the decal was.
+ *
  * Change while the game runs: a green decal carried by a mover goes 2.4 m
  * along the terrain once Play starts (Play shows it where it went, not
  * where it was placed), and the key's script spawns a decal from a prefab
@@ -63,6 +74,16 @@ const DECALS = [
   { name: 'Normal-only decal', at: [247, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-bump', opacity: { albedo: 0 } },
 ] as const;
 
+/** Tilted 45° down toward the camera: the box's −Z meets a block's top and its front (+Z) face alike. */
+const TILTED: readonly number[] = [-Math.sin(Math.PI / 8), 0, 0, Math.cos(Math.PI / 8)];
+/** The clipped decals: across the block layer's front edge (z 29, top 1), and on the wall. */
+const CLIPPED = [
+  { name: 'Clipped on the block edge', at: [251.3, 1, 29] as V3, size: [1.6, 0.8, 1.2], rotation: TILTED },
+  { name: 'Clipped on the wall', at: [248, 1, WALL_Z] as V3, size: [1.2, 1.2, 1], rotation: [0, 0, 0, 1] },
+] as const;
+/** The block taken away under the edge mark in the Scene view (its layer cell; world x 251–252, z 28–29): the chunk re-meshes. */
+export const REMESH_CELL = [3, 0, 3] as const;
+
 /** The world points read: each marked surface, a clean one beside it, the prop off the decal's layer, the bumped terrain and its reference. */
 export const DECAL_READS = {
   terrain: [243.4, 0, 29.3] as V3,
@@ -74,6 +95,15 @@ export const DECAL_READS = {
   masked: [259.15, 1, 27.15] as V3,
   bumped: [247.3, 0, 33.3] as V3,
   bumpClean: [252, 0, 33.3] as V3,
+} as const;
+
+/** The clipped decals' reads: the edge's top and front over the block taken away, its front on the block beside it, the wall, a clean front. */
+export const CLIPPED_READS = {
+  top: [251.3, 1, 28.85] as V3,
+  front: [251.3, 0.85, 29.01] as V3,
+  beside: [250.75, 0.85, 29.01] as V3,
+  wall: [248.2, 1.2, WALL_Z + 0.01] as V3,
+  frontClean: [249.6, 0.6, 29.01] as V3,
 } as const;
 
 /** The reads of the decals that change in Play: where the moving one went and came from, the spawn. */
@@ -105,8 +135,13 @@ const DECALS_SCRIPT = (scene: string): string =>
 export interface ProjectedDecalSetup {
   /** The input action that loads the decal scene (the caller's input lists it with its own). */
   readonly action: { name: string; type: 'button'; map: 'gameplay'; bindings: { kind: 'key'; code: string }[] };
-  /** The decal entities made in the main scene (the moving one included). */
+  /** The decal entities made in the main scene (the moving one and the clipped ones included), and of them the projected ones. */
   readonly decals: number;
+  readonly projected: number;
+  /** The clipped ones, the block layer the first lies on (the Scene view takes a block from under it), the one on the wall (baked to a model). */
+  readonly clipped: number;
+  readonly blocksId: string;
+  readonly clippedWallId: string;
   /** The entity to focus the Scene view on (the terrain tile: focused, the view frames it whole). */
   readonly focusId: string;
 }
@@ -139,6 +174,11 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
     const decal = { size: [...d.size], material: d.material, ...('layers' in d ? { layers: d.layers } : {}), ...('opacity' in d ? { opacity: d.opacity } : {}) };
     await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: d.name, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal } });
   }
+  const clippedIds: string[] = [];
+  for (const d of CLIPPED) {
+    const decal = { size: [...d.size], mode: 'clipped', material: 'mat-pd-green' };
+    clippedIds.push(String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: d.name, static: true, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal } }))['createdId']));
+  }
   // A decal carried along the terrain by a mover (from where it was placed, once); a prefab whose decal the key's script spawns.
   const mark = { size: [0.6, 0.6, 1], material: 'mat-pd-green' };
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Moving decal', transform: { position: [...MOVE_FROM], rotation: [...DOWN] }, components: { decal: mark, mover: { waypoints: [[MOVE_TO[0] - MOVE_FROM[0], 0, 0]], speed: 1.5, mode: 'once' } } });
@@ -152,7 +192,7 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
   const p = DECALS_CAMERA.pitch;
   await cmd('createEntity', { sceneId: scene, parentId: null, kind: 'group', name: 'Decals camera', transform: { position: [...DECALS_CAMERA.at], rotation: [Math.sin(p / 2), 0, 0, Math.cos(p / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: DECALS_CAMERA.fovY, near: 0.2, far: 80 } } });
   await publish.script('show-decals', DECALS_SCRIPT(scene), ground);
-  return { action: { name: 'showDecals', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: DECALS_KEY }] }, decals: DECALS.length + 1, focusId: ground };
+  return { action: { name: 'showDecals', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: DECALS_KEY }] }, decals: DECALS.length + 1 + CLIPPED.length, projected: DECALS.length + 1, clipped: CLIPPED.length, blocksId: blocks, clippedWallId: clippedIds[1]!, focusId: ground };
 }
 
 /** A world point on a picture (`w` × `h`) of the decal camera. */
@@ -215,6 +255,27 @@ export function judgeChanges(read: (p: V3) => Rgb, removed: boolean): { colours:
     ['movedFrom', bare(colours.movedFrom)],
     ['spawned', removed ? bare(colours.spawned) : isDecalGreen(colours.spawned)],
     ['clean', !isDecalGreen(colours.clean)],
+  ];
+  const bad = checks.filter(([, ok]) => !ok).map(([k]) => k);
+  return { colours, bad, ok: bad.length === 0 };
+}
+
+/**
+ * Whether a picture shows the clipped decals: green on the wall and on the
+ * block edge (its top and front), the front beside it clean; once the block
+ * under the mark is taken away (`remeshed`), none where it was and still
+ * green on the block beside it.
+ */
+export function judgeClipped(read: (p: V3) => Rgb, remeshed: boolean): { colours: Record<keyof typeof CLIPPED_READS, Rgb>; bad: string[]; ok: boolean } {
+  const colours = Object.fromEntries(Object.entries(CLIPPED_READS).map(([k, p]) => [k, read(p)])) as Record<keyof typeof CLIPPED_READS, Rgb>;
+  // A sunlit top takes some white (its highlight): green well over red and blue still, grey nowhere near.
+  const mark = (c: Rgb): boolean => c[1]! > 40 && c[1]! > c[0]! * 1.5 && c[1]! > c[2]! * 1.4;
+  const checks: [keyof typeof CLIPPED_READS, boolean][] = [
+    ['top', mark(colours.top) !== remeshed],
+    ['front', mark(colours.front) !== remeshed],
+    ['beside', mark(colours.beside)],
+    ['wall', mark(colours.wall)],
+    ['frontClean', !mark(colours.frontClean) && sum(colours.frontClean) > 30],
   ];
   const bad = checks.filter(([, ok]) => !ok).map(([k]) => k);
   return { colours, bad, ok: bad.length === 0 };

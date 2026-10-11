@@ -61,7 +61,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
-import { decalRenderOrder } from './mesh-decals';
+import { meshDecalRenderOrder } from './mesh-decals';
 import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
@@ -109,6 +109,8 @@ export interface BatchKeyParts {
   readonly room: number | undefined;
   /** Its decal layers when set (projected-decals.ts; undefined: the default): one draw has one mask. */
   readonly decalLayers: number | undefined;
+  /** Its render order as a decal (mesh-decals.ts; null: not a decal): one draw has one place among the decals. */
+  readonly decalOrder: number | null;
 }
 
 const DEFAULT_ON_BEFORE_RENDER = THREE.Object3D.prototype.onBeforeRender;
@@ -126,7 +128,7 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   const mat = mesh.material;
   if (Array.isArray(mat) || mat === undefined || mat === null) return 'several materials';
   // A mesh decal is transparent but needs no sorting among its own: drawn together, in its decal order.
-  const decalOrder = decalRenderOrder(mat);
+  const decalOrder = meshDecalRenderOrder(mesh);
   if (mat.transparent === true && decalOrder === null) return 'transparent';
   if (mat.visible === false) return 'material hidden';
   // The columns are applied before three's displacement (batches draw no displaced mesh).
@@ -157,6 +159,7 @@ export function batchKeyParts(mesh: THREE.Mesh): BatchKeyParts | null {
     localLights: objectLocalLights(mesh),
     room: roomKeyOf(mesh),
     decalLayers: mesh.userData[DECAL_LAYERS_KEY] as number | undefined,
+    decalOrder: meshDecalRenderOrder(mesh),
   };
 }
 
@@ -181,7 +184,7 @@ const keyIdOf = (o: object): number => {
 
 /** The group key of a batchable mesh: geometry, material, shadow flags, light layers and (detailed geometry only) the world cell. */
 export function batchKey(parts: BatchKeyParts, worldPosition: readonly [number, number, number] | null, cellSize: number): string {
-  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}`;
+  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.decalOrder === null ? '' : `D${parts.decalOrder}`}`;
   const base = `${keyIdOf(parts.geometry)}|${keyIdOf(parts.material)}|${flags}`;
   if (worldPosition === null) return base;
   return `${base}|${Math.floor(worldPosition[0] / cellSize)},${Math.floor(worldPosition[1] / cellSize)},${Math.floor(worldPosition[2] / cellSize)}`;
@@ -630,8 +633,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (g.parts.room !== undefined) mesh.userData[ROOM_KEY] = g.parts.room;
       if (g.parts.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = g.parts.decalLayers;
       mesh.userData['tlBatch'] = true;
-      // A decal group draws in its decal order (its material's; mesh-decals.ts).
-      mesh.renderOrder = decalRenderOrder(g.parts.material) ?? 0;
+      // A decal group draws in its decal order (its material's and its members' own; mesh-decals.ts).
+      mesh.renderOrder = g.parts.decalOrder ?? 0;
       // Picking goes to the members (they keep their entity ids); the batch is drawn only.
       mesh.raycast = () => undefined;
       g.inst = inst;

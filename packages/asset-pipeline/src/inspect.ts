@@ -25,6 +25,7 @@ import type { AudioImportProposal, AudioRecipe } from './inspect-audio';
 
 import { decodedImageBytes, detectImageMime, imageDimensions, type ImportImageMime } from './images';
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from '@thirdlight/project-model/meshopt';
+import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/project-model/decal-clip-glb';
 import { escapePointer, strictJsonParse } from './json';
 import {
   ANIMATION_PROFILE_MAX_CLIPS,
@@ -114,6 +115,8 @@ const ATTRIBUTE_ALLOWLIST = new Set([
   'COLOR_0',
   'JOINTS_0',
   'WEIGHTS_0',
+  // A baked clipped decal's per-vertex fade (the engine's own custom attribute: decal materials read it).
+  DECAL_FADE_GLTF_ATTRIBUTE,
 ]);
 
 const ANIMATION_PATHS = new Set(['translation', 'rotation', 'scale', 'weights']);

@@ -85,8 +85,13 @@ describe('the level marks switches', () => {
     const projectors = p.batches.flat().filter((e) => e.id.startsWith('projected-'));
     expect(projectors).toHaveLength(200);
     expect(projectors[0]!.components['decal']).toEqual({ size: d[0]!.size, material: 'mat-level-mark' });
-    // Clipped decals are not built yet: refused, not measured as something else.
-    expect(marksNotBuilt(plan({ ...NO_LEVEL_MARKS, clippedDecals: 10 }).marks!)).toMatch(/--clipped-decals/);
+    // Clipped decals: static projectors in clipped mode, placed as projected ones are.
+    const c = plan({ ...NO_LEVEL_MARKS, clippedDecals: 10 });
+    expect(marksNotBuilt(c.marks!)).toBeNull();
+    const clipped = c.batches.flat().filter((e) => e.id.startsWith('clipped-'));
+    expect(clipped).toHaveLength(10);
+    expect(clipped.every((e) => e.static === true)).toBe(true);
+    expect(clipped[0]!.components['decal']).toEqual({ size: c.marks!.clippedDecals[0]!.size, mode: 'clipped', material: 'mat-level-mark' });
   });
 
   it('place mesh decals as quads laid over the ground and the walls, static', () => {

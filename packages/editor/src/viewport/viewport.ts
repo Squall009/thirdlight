@@ -864,6 +864,11 @@ export class Viewport {
     return { min: [box.min.x - at.x, box.min.y - at.y, box.min.z - at.z], max: [box.max.x - at.x, box.max.y - at.y, box.max.z - at.z] };
   }
 
+  /** A clipped decal's mesh as the Scene view draws it, in its object's space (null: none yet): what "Bake to model" writes. */
+  clippedDecalMesh(entityId: string): THREE.Mesh | null {
+    return this.adapter.clippedDecalMesh?.(entityId) ?? null;
+  }
+
   /** Where the camera is looking (new entities spawn here). */
   focusPoint(): [number, number, number] {
     const t = this.orbit.target;

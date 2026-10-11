@@ -9,8 +9,10 @@
  *   layer's ground, its rooms' walls and the props, ~30 % of them in
  *   overlapping pairs (a pixel under two decals is the case that costs).
  * - `--mesh-decals N`: flat marks over the ground and the walls.
- * - `--clipped-decals N`: projectors like `--decals`, whose meshes are
- *   clipped onto what is under them.
+ * - `--clipped-decals N`: projectors like `--decals` (static, the same
+ *   decal material) in `clipped` mode: their meshes are clipped at load
+ *   from the block layer's chunks and the props under them, on the
+ *   generator workers, and merge into the static cells.
  * - `--painted N`: placed props, then foliage copies, with a paint stream.
  * - `--moving-decals N` (with `--decals`): the first N projected decals move
  *   to and fro along their surface (a `mover`, 1 m at 0.5 m/s), so their
@@ -361,13 +363,23 @@ export function markEntities(m: LevelMarks): EntityValue[] {
       },
     };
   });
-  return [...quads, ...projected];
+  const clipped = m.clippedDecals.map(
+    (d, i): EntityValue => ({
+      id: `clipped-${i}`,
+      name: `Clipped ${i + 1}`,
+      static: true,
+      components: {
+        transform: { position: [...d.position], rotation: d.rotation, scale: [1, 1, 1] },
+        decal: { size: [...d.size], mode: 'clipped', material: MARK_DECAL_MATERIAL },
+      },
+    }),
+  );
+  return [...quads, ...projected, ...clipped];
 }
 
 /** Why a requested kind is refused (null: it can be built): the engine part it waits for. */
 export function marksNotBuilt(m: LevelMarks): string | null {
   const missing: string[] = [];
-  if (m.clippedDecals.length > 0) missing.push('--clipped-decals: clipped decals need the decal component and the clipper (not built yet)');
   if (m.paintedCopies.length > 0) missing.push(`--painted: past the ${m.paintedProps.length} props, painting instance copies needs the per-copy paint stream (not built yet)`);
   return missing.length === 0 ? null : missing.join('; ');
 }

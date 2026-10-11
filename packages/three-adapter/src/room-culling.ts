@@ -41,8 +41,9 @@ export const ROOM_TAG_KEY = '__tlRoomTag';
 /**
  * `mesh.userData[ROOM_AT_KEY]`: the world point (x, y, z) of the foot of a
  * copy the draw holds, whose room is the draw's (copies drawn per room: an
- * instanced draw's bounds can reach past its room), or null: the draw is in
- * no room (copies standing in a wall: doors, windows).
+ * instanced draw's bounds can reach past its room), or of the side a
+ * clipped decal marks its surfaces from (clipped-decals.ts), or null: the
+ * draw is in no room (copies standing in a wall: doors, windows).
  */
 export const ROOM_AT_KEY = '__tlRoomAt';
 

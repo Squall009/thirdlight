@@ -185,6 +185,20 @@ export interface SceneGraphCounts {
   readonly matrixWritesTotal: number;
 }
 
+/**
+ * Told of the meshes this graph holds at full detail (no LOD level but the
+ * first) as they come, go and move: the surfaces clipped decals are cut from
+ * (clipped-decals.ts). Their world matrices are right only by the next frame
+ * (an entity's parts are placed after they are taken in).
+ */
+export interface SurfaceListener {
+  added(o: THREE.Object3D): void;
+  removed(o: THREE.Object3D): void;
+  moved(o: THREE.Object3D): void;
+  /** An entity's node got a new world matrix (it, or an ancestor, moved; or it was just made). */
+  placed(entityId: string): void;
+}
+
 /** An entity's node: its world matrix, the logical parent of what it shows (never in the scene). */
 export class EntityNode extends THREE.Object3D {
   readonly entityId: string;
@@ -254,6 +268,8 @@ export class RenderGraph {
   private membership: BatchMembership | null = null;
   /** Nodes this graph moves itself (hoisting a static mesh's children and back): no watch reacts to them. */
   private moving = 0;
+  /** Told of the full-detail meshes as they come, go and move. */
+  private surfaces: SurfaceListener | null = null;
 
   constructor(scene: THREE.Scene, animated: (entityId: string) => boolean) {
     this.scene = scene;
@@ -266,6 +282,11 @@ export class RenderGraph {
    */
   onStaticChange(fn: ((where: THREE.Object3D | null) => void) | null): void {
     this.staticChanged = fn;
+  }
+
+  /** Tell `l` of the full-detail meshes taken in, let go and moved from now on (null: no one). */
+  onSurfaces(l: SurfaceListener | null): void {
+    this.surfaces = l;
   }
 
   /** Tell `m` about every listed drawable from now on (and the ones listed already). */
@@ -605,6 +626,7 @@ export class RenderGraph {
       if (node !== null && animated) o.userData[MOVING_CASTER_KEY] = true;
       h.parts.push(part);
       for (const g of gates) g.sw.parts.push(part);
+      if (this.surfaces !== null && !above && (o as THREE.Mesh).isMesh === true && gates.every((g) => g.level === 0)) this.surfaces.added(o);
       const nearest = gates[gates.length - 1];
       if (nearest !== undefined) o.traverse((x) => void (x.userData[LOD_OWNER_KEY] = nearest.sw.lod));
       this.dirtyVisibility = true;
@@ -673,6 +695,7 @@ export class RenderGraph {
       }
       if (p.listed) this.unlistObject(p.object);
       p.listed = false;
+      this.surfaces?.removed(p.object);
       // Gone for good from what this graph holds (a merged copy of it goes too).
       this.membership?.dropped(p.object);
       if (p.gates.length > 0) p.object.traverse((x) => void delete x.userData[LOD_OWNER_KEY]);
@@ -740,12 +763,14 @@ export class RenderGraph {
     if (i === undefined) return;
     node.matrix.fromArray(this.world.world, i * 16);
     node.matrixWorld.copy(node.matrix);
+    this.surfaces?.placed(node.entityId);
     const h = this.held.get(node);
     if (h === undefined) return;
     for (const p of h.parts) {
       if (p.offset === null) continue;
       p.object.matrixWorld.multiplyMatrices(node.matrixWorld, p.offset);
       this.placedNow += 1;
+      this.surfaces?.moved(p.object);
       if (p.listed) {
         this.membership?.moved(p.object);
         this.noteStatic(p.object, true);

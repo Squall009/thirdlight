@@ -29,6 +29,10 @@
  * shed (a building of its own object) wears a plain preset inside and the
  * room preset as its facade: only its facade is swapped, and its roof (the
  * facade's sheet) turns purple too.
+ * An orange clipped decal stands across the room's front corner from wall
+ * top to foot (its moulding with it): its mesh is clipped from the room's
+ * chunk at load, and again when the swap makes the room anew; the mark
+ * stays on both faces (it survives the regeneration).
  * The export ships the architecture's meshes (`architecture_ship_meshes`):
  * they are drawn as shipped, and the swap makes the swapped ones on the page
  * (Play generates everything at load). A
@@ -112,6 +116,11 @@ const INTERIOR_OFFSET: V3 = [0, 0, -400];
 const FENCE: readonly [number, number][] = [[-16, 8], [-6, 8]];
 const PIPE: readonly [number, number][] = [[6, 0], [10, 0]];
 const PROP_AT: V3 = [-8, BASE + 0.5, -4];
+/**
+ * The clipped decal across the room's front-right corner: projecting along the corner's diagonal (its box's −Z
+ * toward −x −z), tall enough for the whole wall and its mouldings; short edge fades, so both faces are marked whole.
+ */
+const CORNER_DECAL = { at: [ROOM.x[1] + 0.1, BASE + 1.6, ROOM.z[1] + 0.1] as V3, size: [1.2, 3.4, 1.6], rotation: [0, Math.sin(Math.PI / 8), 0, Math.cos(Math.PI / 8)], edgeFade: [0.1, 0.1] } as const;
 /** A shed (a building, an object of its own) whose facade alone names a swapped preset. */
 const SHED = { x: [6, 10], z: [-7, -4] } as const;
 
@@ -145,6 +154,8 @@ const isPeach: Pred = (r, g, b) => r > 170 && g > 0.5 * r && g < 0.88 * r && b <
 const isSkyBlue: Pred = (r, g, b) => b > 110 && b > 1.4 * r && b > 1.15 * g;
 const isSheetA: Pred = (r, g, b) => g > 70 && g > 1.5 * r && g > 1.5 * b;
 const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.6 * g && b > 1.9 * g;
+/** The corner mark's orange, lit or in the shade of the room's east face (dim, red well over green and blue). */
+const isOrange: Pred = (r, g, b) => r > 30 && r - g > 25 && g < 0.6 * r && b < 0.35 * r;
 
 // ---- Trim sheets: the starter row layout, every row one colour (A green, B purple).
 const SHEET: TrimSheet = { size: [256, 256], texelDensity: 64, padding: 4, rows: equalTrimRows(256, TRIM_STARTER_LAYOUT, 4) };
@@ -339,6 +350,11 @@ async function buildLevel(): Promise<Built> {
   const shed = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Shed', transform: { position: AREA_AT } }))['createdId']);
   await cmd('setComponent', { entityId: shed, component: 'architecture', value: { layer: area, elements: [], buildings: [{ id: 'shed-1', preset: 'acc-plain-a', outside: 'acc-room-a', storeys: 1, roof: { shape: 'hip' }, path: rectangle(SHED) }] } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Prop', transform: { position: PROP_AT }, box: { size: [1, 1, 1], material: { color: '#ff40a0' } } });
+  // The clipped decal across the room's corner (an orange mark, static).
+  await publishTexture(be!, new Uint8Array(makePng(64, 64, () => [230, 90, 20, 255])), 'acc-mark', 'Corner mark');
+  await cmd('setMaterial', { material: { materialId: 'acc-mark', name: 'Corner mark', shader: 'decal', params: {}, textures: { map: 'acc-mark' } } });
+  const d = CORNER_DECAL;
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Corner mark', static: true, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal: { size: [...d.size], mode: 'clipped', material: 'acc-mark', edgeFade: [...d.edgeFade] } } });
   await cmd('setInput', { input: { actions: [{ name: 'restyle', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: RESTYLE_KEY }] }, { name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] }] } });
   await publishScript(be!, 'acc-level', LEVEL_SCRIPT, architecture);
 
@@ -396,7 +412,7 @@ function judgeLevel(img: Image, b: Built): Judged {
   };
   // The tufts: lit ground passes the white test in a few dozen pixels with no tuft at all (23–35 measured with the tufts
   // dark), the tufts in thousands; the bound sits between.
-  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') ? 0.3 : 0.5);
+  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') || k.startsWith('clip') ? 0.3 : 0.5);
   return { reads, ok: Object.entries(reads).every(([k, v]) => v >= min(k)), note: note() };
 }
 
@@ -409,6 +425,10 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
     archPipe: near('pipe', [(PIPE[0]![0] + PIPE[1]![0]) / 2, BASE + 1.2, PIPE[0]![1] + 0.3], sheet, 4),
     archShedRoof: near('shed roof', [(SHED.x[0] + SHED.x[1]) / 2, BASE + 3.4, SHED.z[1] - 0.6], sheet, 6),
     prop: near('prop', [PROP_AT[0], PROP_AT[1], PROP_AT[2] + 0.51], isPink),
+    // The clipped mark on both faces of the room's corner (made again with the room).
+    clipFront: near('mark front', [ROOM.x[1] - 0.4, BASE + 1.5, ROOM.z[1] + 0.12], isOrange, 4),
+    // (The east face is seen nearly edge-on: a few pixels wide.)
+    clipSide: near('mark side', [ROOM.x[1] + 0.11, BASE + 1.5, ROOM.z[1] - 0.3], isOrange, 2),
   };
 }
 
@@ -503,11 +523,26 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
       const s = await relay(`${psid}/screenshot`, { maxWidth: 2048 });
       return s.status === 200 ? Buffer.from(String(s.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64') : null;
     };
+    // The corner's clipped decal, clipped at load from the room's chunk.
+    type Clipped = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null };
+    let clipped: Clipped | undefined;
+    await expect
+      .poll(async () => {
+        clipped = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { clippedDecals?: Clipped } } }).diagnostics?.renderer?.clippedDecals;
+        return clipped?.drawn ?? 0;
+      }, { timeout: 60_000, message: `${renderer} Play: the corner's clipped decal drawn` })
+      .toBe(1)
+      .catch((e: unknown) => {
+        console.log(`${renderer} Play clipped decals (failed): ${JSON.stringify(clipped ?? null)}`);
+        throw e;
+      });
+    console.log(`${renderer} Play clipped decals: ${JSON.stringify(clipped ?? null)}`);
     await until(frame, (img) => judgeLevel(img, built), `${renderer} Play level`);
     // Generated at load from the parameters: chunks made on the generator workers (or the page while they start).
     const chunks = await archTimes(canvas);
     console.log(`${renderer} Play architecture: ${JSON.stringify(chunks)}`);
     expect(chunks.chunks, `${renderer} Play: architecture chunks generated`).toBeGreaterThan(0);
+
     // The swap: every preset shows its sheet-B twin; the outlines and the prop stay.
     const input = async (action: string): Promise<void> => {
       const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: [{ stepOffset: 0, actions: { [action]: { v: 1, p: 'pressed' } } }] });

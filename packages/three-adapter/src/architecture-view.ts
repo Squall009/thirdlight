@@ -56,7 +56,7 @@ import { splitByCutaway } from './block-cutaway-view';
 import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
 import { ROOM_AT_KEY, ROOM_TAG_KEY } from './room-culling';
-import { DECAL_LAYERS_KEY, decalLayersField } from './projected-decals';
+import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
@@ -276,6 +276,8 @@ export class ArchitectureView {
   private styles: ArchitectureStyles;
   private swaps: Readonly<Record<string, string>> = {};
   private previewing: ArchitecturePreview | null = null;
+  /** Who sends jobs of another kind to these workers (clipped decals), and hears their replies. */
+  private side: { reply(worker: number, message: unknown): void; failed(): void } | null = null;
 
   constructor(private readonly deps: ArchitectureViewDeps) {
     this.styles = architectureStylesOf(deps.styles ?? undefined);
@@ -774,6 +776,37 @@ export class ArchitectureView {
     return x * x + z * z;
   }
 
+  /**
+   * Jobs of another kind on these workers (clipped decals: decal-clip-worker.ts runs beside the generator): the
+   * replies of that kind go to `reply` with the worker that sent them, and `failed` hears when the workers are
+   * gone (their jobs are the sender's to make again).
+   */
+  onSideJobs(reply: (worker: number, message: unknown) => void, failed: () => void): void {
+    this.side = { reply, failed };
+  }
+
+  /**
+   * A worker free for one more job of another kind (the least busy one; the generator's chunks and those jobs
+   * share each worker's {@link IN_FLIGHT_PER_WORKER}), null while all are busy, 'page' when there are no
+   * workers (the sender works on the page). Starts the workers.
+   */
+  sideWorker(): number | 'page' | null {
+    if (this.disposed || this.pageMakes()) return 'page';
+    this.startWorkers();
+    if (this.workers === null || this.workers.length === 0) return 'page';
+    let w = -1;
+    for (let i = 0; i < this.workers.length; i++) if (this.workers[i]!.busy < IN_FLIGHT_PER_WORKER && (w < 0 || this.workers[i]!.busy < this.workers[w]!.busy)) w = i;
+    return w < 0 ? null : w;
+  }
+
+  /** Send a job of another kind to worker `worker` (from {@link sideWorker}); its reply comes to the `onSideJobs` handler. */
+  postSide(worker: number, message: unknown, transfer?: readonly ArrayBuffer[]): void {
+    const w = this.workers?.[worker];
+    if (w === undefined) return;
+    w.busy += 1;
+    w.port.post(message, transfer);
+  }
+
   private pageMakes(): boolean {
     return this.deps.worker === undefined || this.workersFailed || (this.workers !== null && this.workers.length === 0);
   }
@@ -810,8 +843,16 @@ export class ArchitectureView {
       const port = this.deps.worker();
       if (port === null) break;
       const entry = { port, busy: 0, warm: false };
+      const index = list.length;
       port.listen((raw) => {
         const m = raw as Partial<ArchitectureJobReply> | null;
+        if ((m as { t?: unknown } | null)?.t === 'decalClipped') {
+          // Another kind of job on these workers (clipped decals): its answer is its sender's.
+          entry.busy = Math.max(0, entry.busy - 1);
+          entry.warm = true;
+          this.side?.reply(index, raw);
+          return;
+        }
         if (m?.t !== 'archGenerated' || typeof m.job !== 'number') return;
         entry.busy = Math.max(0, entry.busy - 1);
         entry.warm = true;
@@ -832,6 +873,7 @@ export class ArchitectureView {
     if (this.workersFailed) return;
     this.workersFailed = true;
     this.fail(`architecture workers: ${message}`);
+    this.side?.failed();
     for (const w of this.workers ?? []) w.port.terminate();
     this.workers = [];
     // Their jobs are made on the page.
@@ -996,6 +1038,8 @@ export class ArchitectureView {
         mesh.receiveShadow = receive;
         if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
         if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
+        // Clipped decals may be cut from it (clipped-decals.ts).
+        mesh.userData[DECAL_SURFACE_KEY] = true;
         return mesh;
       };
       /** A level: one mesh, or (in a layer's cut-away zones) the triangles in none and a mesh per set of zones. */

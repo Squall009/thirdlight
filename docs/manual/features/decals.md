@@ -6,9 +6,8 @@
 > export — the [decal pages](#decal-pages) (Play and the export put the
 > decal materials' images on texture arrays), [mesh decals](#mesh-decals),
 > [projected decals](#projected-decals), which draw, follow moving objects
-> and can be [spawned by scripts](#decals-spawned-by-scripts). **Clipped
-> decals do not draw yet**; this page will say so when they do. How-to:
-> [Decals](../guides/decals.md).
+> and can be [spawned by scripts](#decals-spawned-by-scripts), and
+> [clipped decals](#clipped-decals). How-to: [Decals](../guides/decals.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
@@ -225,6 +224,81 @@ alive, and of them fading out), `dataBytes` (table and grid),
 last frame that blended decals). The first time a spot has more decals than
 the overlap budget, Play's Problems say so (`decal_overlap`). `?decals=off`
 on a Play or export URL draws without them, to see what they cost.
+
+## Clipped decals
+
+A decal component in `clipped` mode is drawn as a **mesh cut from the
+surfaces inside its box**: their triangles clipped to the box, lifted 1 mm
+off them, with the box's image coordinates. It then draws as a
+[mesh decal](#mesh-decals) — its own lit colour over the surface (`blend`,
+`multiply`, `add`), pushed toward the camera, before other transparent
+surfaces — so it changes no receiving shader and costs no pixel of a
+surface outside it. Use it for many static marks that need no per-channel
+blending; use a projected decal for a wet patch, a crack in the normal
+only, or a mark on terrain.
+
+- **What it is cut from:** placed models (their base pose), boxes, block
+  layers' chunks, generated architecture and spline meshes, at full detail,
+  in one of the decal's layers. Not terrain (its levels of detail change the
+  surface with distance: a projected decal marks it), instance sets and
+  scatter copies, see-through materials or other decals.
+- **Fades:** faces turned past `normalFade` from the projector are left
+  out, the rest fade over its last fifth; `edgeFade` fades the mark near the
+  box's ends; the component's **albedo opacity** scales the whole mark.
+  `fadeDistance` and the other channels' opacities are the projected mode's.
+- **Order:** the component's `sortOrder` is added to its material's.
+- **When it is made:** when the scene loads, and again when a surface under
+  it changes — a block chunk re-meshed, a generated object made again (a
+  slider, a preset swapped by a script), a model reimported, a surface that
+  moves through the box — or when the decal itself moves over them. Until
+  the new mesh is in, the old one stays drawn. A decal and the surfaces it
+  marks moving together (a mark parented to the cart it is on) are never
+  clipped again for the motion. The component stores the projector, never
+  the triangles.
+- **On workers, cached:** each clip is a job for generated architecture's
+  worker pool; a big model's vertices cross to a worker once for all the
+  marks on it. A clip is kept by a hash of everything it is made from (the
+  box and fades, each surface's geometry and its place relative to the
+  decal, the clipper's version `DECAL_CLIP_VERSION`): in the page's memory
+  (an edit, an undo or a decal realized again finds it), and in an exported
+  game in the player's browser (IndexedDB, with the architecture's chunks),
+  so a second visit clips nothing.
+- **Drawn:** a static decal's mesh merges into the static cells — one draw
+  per cell per decal material and sort order; a decal under a moving parent
+  is its own draw and follows it. A static mark is lit and culled with the
+  room its projector looks from (a mark across a room's outside corner is
+  outside).
+- **Bake to model:** the Inspector's **Bake to model** button on a
+  clipped decal writes its mesh, as the Scene view clipped it, as a model
+  asset (a GLB: positions, normals, texture coordinates, tangents and the
+  per-vertex fade as the custom attribute `_DECAL_FADE`, which the model
+  import accepts; its one material named `<decal material>_decal`), maps
+  the decal material to it in the asset's materials, and puts the model on
+  the decal's object in place of the decal component — four ordinary
+  commands (the import's `publishAsset`, `setAssetOptions`, `setComponent`
+  model, `setComponent` decal removed). The model draws as a mesh decal of
+  the same material in the same place; edit the file by hand from there. It
+  is no longer clipped again when the surfaces change, and the component's
+  sort order is not kept (the material's applies).
+- **Cost** (this engine's test host, Iris Xe, 1080p, uncapped; 1,000
+  clipped decals over a test level's ground, walls and props, 881 with
+  something under them, 39k triangles): 4 more draws, the scene pass
+  +0.5 ms GPU on WebGPU, the main thread +0.35–0.4 ms a frame on both
+  renderers; a clip 0.25 ms on average on a worker (14 ms the worst, a big
+  prop); all drawn about 2.7 s after the first frame (the level's models
+  and chunks arrive first), and on a second visit, every mesh found in the
+  browser's storage, about 1.9 s after it (a decal with nothing under it
+  waits 2 s before it counts as settled). A still frame does no clipping
+  work.
+- **Diagnostics:** Play's `renderer.clippedDecals` — `decals`, `drawn`,
+  `empty` (nothing under them), `pending`, `triangles`, `surfaces` (what
+  they may be cut from), `made` (meshes clipped on a `worker` or the `page`,
+  found in `memory` or the `store`), `workerMs` and `pageMs` (a clip's mean
+  and worst), `readyMs` (from the first decal set to all drawn),
+  `readyAfterFirstFrameMs` and `readyFrames` (the same from the first frame),
+  `cacheBytes` and `problems`. Performance marks `tl:decal:clip` (each
+  decal's first mesh: `{decal, ms, where}`) and `tl:decal:clip-ready`.
+  `?decals=off` leaves clipped decals out too.
 
 ## Decals spawned by scripts
 

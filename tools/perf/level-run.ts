@@ -82,7 +82,8 @@ import { join } from 'node:path';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { moduleIndex } from './profile';
-import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
+import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, uncappedUrl, type FrameRenderer, type FrameRunResult } from './frame-run';
+import { installFrameProbe, probeSceneCounts } from './frame-probe';
 import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
@@ -95,6 +96,37 @@ import { makePng } from '../../tests/e2e/png-make';
 
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;
+
+type ClippedDiag = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null; readyAfterFirstFrameMs: number | null };
+
+/** The clipped decals of an export loaded, then loaded again in the same browser profile: what each visit clipped or found, and when all were drawn. */
+async function clippedReload(browser: import('@playwright/test').Browser, url: string): Promise<string> {
+  const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
+  await context.addInitScript(installFrameProbe, { timestamps: false });
+  const page = await context.newPage();
+  const visit = async (): Promise<ClippedDiag | null> => {
+    const t0 = Date.now();
+    let c: ClippedDiag | null = null;
+    while (Date.now() - t0 < 120_000) {
+      c = ((await page.evaluate(probeSceneCounts).catch(() => null))?.clippedDecals as ClippedDiag | undefined) ?? null;
+      if (c !== null && c.decals > 0 && c.pending === 0 && c.readyMs !== null) break;
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    return c;
+  };
+  const fmt = (c: ClippedDiag | null): string => (c === null ? '-' : `${c.drawn}/${c.decals} drawn, ready ${c.readyMs?.toFixed(0) ?? '-'} ms (${c.readyAfterFirstFrameMs?.toFixed(0) ?? '-'} ms after the first frame), made ${JSON.stringify(c.made)}`);
+  try {
+    await page.goto(uncappedUrl(url));
+    const first = await visit();
+    // A player stays a moment: what the visit made is written to the browser's storage meanwhile.
+    await new Promise((res) => setTimeout(res, 3000));
+    await page.reload();
+    const second = await visit();
+    return `first visit: ${fmt(first)}; second visit: ${fmt(second)}`;
+  } finally {
+    await context.close();
+  }
+}
 
 /** How long a flight waits for its scene to load before it is measured (the scene never settles while the camera flies). */
 const FLIGHT_SETTLE_MS = 20_000;
@@ -316,6 +348,11 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           // Projected decals (--decals): drawn, the index, the draws that blended them, the index build.
           const pd = res.scene.projectedDecals as { decals: number; drawn: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates?: number; updateMs?: number; spawned?: number; fading?: number; receiverDraws: number; dataBytes: number } | undefined;
           if (pd !== undefined) log(`level ${kind} ${r} projected decals: ${pd.drawn}/${pd.decals} drawn (${pd.spawned ?? 0} spawned, ${pd.fading ?? 0} fading), index ${pd.cells} cells ${pd.entries} entries (${pd.dropped} over the budget), ${pd.builds} whole builds (last ${pd.buildMs.toFixed(2)} ms), ${pd.updates ?? 0} frames changed in place (last ${(pd.updateMs ?? 0).toFixed(3)} ms), ${Math.round(pd.dataBytes / 1024)} KiB; ${pd.receiverDraws} draws a frame blended them`);
+          // Clipped decals (--clipped-decals): drawn, how long until all were, where their meshes came from, a clip's cost.
+          const cd = res.scene.clippedDecals as { decals: number; drawn: number; empty: number; pending: number; triangles: number; surfaces: number; made: Record<string, number>; workerMs: { mean: number; max: number }; pageMs: { mean: number; max: number }; readyMs: number | null; readyAfterFirstFrameMs: number | null; readyFrames: number | null; cacheBytes: number } | undefined;
+          if (cd !== undefined) log(`level ${kind} ${r} clipped decals: ${cd.drawn}/${cd.decals} drawn (${cd.empty} on nothing, ${cd.pending} pending), ${cd.triangles} triangles, ready ${cd.readyMs === null ? '-' : cd.readyMs.toFixed(0)} ms after the first was set (${cd.readyAfterFirstFrameMs === null ? '-' : cd.readyAfterFirstFrameMs.toFixed(0)} ms, ${cd.readyFrames ?? '-'} frames after the first frame); made ${JSON.stringify(cd.made)}; a clip on a worker ${cd.workerMs.mean.toFixed(2)} ms (most ${cd.workerMs.max.toFixed(2)}), on the page ${cd.pageMs.mean.toFixed(2)} ms; ${cd.surfaces} surfaces, cache ${Math.round(cd.cacheBytes / 1024)} KiB`);
+          // A second visit (the same browser profile): the clipped decals' meshes come from the player's IndexedDB.
+          if (cd !== undefined) log(`level ${kind} ${r} clipped decals, ${await clippedReload(browser, `${site.url}?renderer=${r}${query}`)}`);
           // World streaming (a class that streams): what is resident against the budget, the deciding's main-thread time.
           const st = res.scene.streaming as { budgetBytes: number; residentBytes: number; peakResidentBytes: number; ringBytes: number; overBudget: boolean; ms: { mean: number; max: number }; kinds: Record<string, { resident: number; bytes: number; inRing: number; kept: number; evicted: number }> } | undefined;
           if (st !== undefined) {

@@ -37,6 +37,7 @@ import type { ItemActions } from '../project/useItemActions';
 import type { ProjectItem } from '../../session/project-items';
 import { assetPlacementAvailable } from '../../session/placement';
 import { ModelAssetOptions } from '../ModelAssetOptions';
+import { bakeClippedDecal } from './decal-bake';
 import type { CuePreview } from './useCuePreview';
 import type { AssetsWindow } from './useAssetsWindow';
 import type { AssetActions } from './useAssetActions';
@@ -456,6 +457,26 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                   stage={props.terrain.stageFile}
                 />
               ),
+              // A clipped decal's mesh written as a model asset placed on the object instead (decal-bake.ts).
+              ...((selected.components['decal'] as { mode?: unknown } | undefined)?.mode === 'clipped'
+                ? {
+                    decal: (
+                      <div className="tl-inspector__modes">
+                        <button
+                          className="tl-btn tl-btn--small"
+                          title="Write the clipped mesh as a model asset (its decal material mapped) and place it on this object instead of the decal"
+                          onClick={() => {
+                            const c = clientRef.current;
+                            if (!c) return;
+                            void bakeClippedDecal(c, selected.id, viewportRef.current?.clippedDecalMesh(selected.id) ?? null).then((r) => setNotice(r.ok ? 'Baked the decal to a model.' : r.message));
+                          }}
+                        >
+                          Bake to model
+                        </button>
+                      </div>
+                    ),
+                  }
+                : {}),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">

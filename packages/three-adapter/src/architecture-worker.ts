@@ -12,6 +12,8 @@
  */
 import { generateArchitectureChunk, type ArchitectureChunk, type ArchitectureComponent, type ArchitectureSheets } from '@thirdlight/runtime';
 
+import { runDecalClipWorker } from './decal-clip-worker';
+
 /** Page → worker: make one chunk. */
 export interface ArchitectureJobRequest {
   readonly t: 'archGenerate';
@@ -52,8 +54,12 @@ export function architectureChunkBuffers(c: ArchitectureChunk): ArrayBuffer[] {
   return [...out];
 }
 
-/** Run the generator on an endpoint (beside the view worker's other parts on the same one: each ignores the others' messages). */
+/**
+ * Run the generator on an endpoint (beside the view worker's other parts on the same one: each ignores the others'
+ * messages), with the decal clipper: clipped decals are made on the generator's workers (decal-clip-worker.ts).
+ */
 export function runArchitectureWorker(endpoint: ArchitectureEndpoint): void {
+  runDecalClipWorker(endpoint);
   endpoint.listen((raw) => {
     const m = raw as Partial<ArchitectureJobRequest> | null;
     if (m?.t !== 'archGenerate') return;

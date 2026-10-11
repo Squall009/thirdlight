@@ -226,6 +226,13 @@ export interface SceneAdapterOptions {
    */
   projectedDecals?: boolean | { readonly onProblem?: (code: string, message: string) => void };
   /**
+   * Clipped decals (`decal` components in `clipped` mode): a mesh clipped
+   * from the surfaces under each at load and when they change, on the
+   * generator workers, kept by key (`clipped-decals.ts`; default true). False:
+   * none drawn (`?decals=off`).
+   */
+  clippedDecals?: boolean;
+  /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;
    * default true). False: every caster drawn into one map every frame (tests
@@ -394,6 +401,8 @@ export interface SceneAdapterDiagnostics {
   decals?: DecalPagesObservation;
   /** The projected decals: loaded, drawn, the index's cells and entries, its last build (`decal-projectors.ts`); ABSENT without any. */
   projectedDecals?: DecalProjectorsObservation;
+  /** Clipped decals: their meshes, what is still being made, where meshes came from and what a clip cost (only once a decal is clipped). */
+  clippedDecals?: import('./clipped-decals').ClippedDecalsDiagnostics;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then
@@ -481,6 +490,8 @@ export interface SceneAdapter {
   previewArchitecture?(preview: import('@thirdlight/runtime').ArchitecturePreview | null): number;
   /** What a probe bake reads of generated architecture: an object's meshes at full detail, and each room's box inset `inset` metres (world). */
   architectureBake?(): { meshes(entityId: string): THREE.Mesh[]; rooms(inset: number): { min: number[]; max: number[] }[] };
+  /** A clipped decal's mesh as drawn now, in its entity's space (null: none, not made yet, or not a clipped decal): what "Bake to model" writes. */
+  clippedDecalMesh?(entityId: string): THREE.Mesh | null;
   /** The host's material library changed a material in place: the lightmapped copies follow it. */
   materialsChanged?(): void;
   /** Bring the scene set, transforms, world matrices and hidden objects up to date now, without drawing. */

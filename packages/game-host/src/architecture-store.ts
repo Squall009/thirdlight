@@ -3,8 +3,9 @@
  * visits (IndexedDB database `thirdlight-architecture`, store `chunks`), by
  * the chunk's key: the hash of the generator version and every parameter
  * and sheet the chunk is made from, so a key never names stale meshes and a
- * second visit draws without generating. An exported game uses it; Play
- * generates afresh (its parameters change with every edit).
+ * second visit draws without generating. Clipped decals' meshes are kept
+ * here too, by their own keys (clipped-decals.ts). An exported game uses it;
+ * Play generates afresh (its parameters change with every edit).
  *
  * A cache, not a save: anything that fails (no IndexedDB, a full disk) just
  * means the chunk is generated again.
@@ -13,8 +14,9 @@
 const DB = 'thirdlight-architecture';
 const STORE = 'chunks';
 /**
- * Chunks kept before the store is emptied and starts again (each tens of
- * kilobytes): a cache's bound on the player's disk, not a project's.
+ * Entries (chunks and clipped decals' meshes) kept before the store is
+ * emptied and starts again (each a few to tens of kilobytes): a cache's
+ * bound on the player's disk, not a project's.
  */
 export const ARCHITECTURE_STORE_MAX_CHUNKS = 8192;
 
@@ -67,6 +69,9 @@ export function browserArchitectureStore(): BrowserArchitectureStore | null {
   };
   // Opened now, while the game loads: the first chunk asked for does not wait on the database opening.
   void open();
+  /** What was made since the last write, written in one transaction. */
+  const pending = new Map<string, Uint8Array>();
+  let flushing = false;
   return {
     get: async (key) => {
       const d = await open();
@@ -82,14 +87,25 @@ export function browserArchitectureStore(): BrowserArchitectureStore | null {
       });
     },
     put: (key, bytes) => {
-      void open().then((d) => {
-        if (d === null) return;
-        try {
-          d.transaction(STORE, 'readwrite').objectStore(STORE).put(bytes, key);
-        } catch {
-          // a cache: the chunk is generated again next time
-        }
-      });
+      // Written together, one transaction for what a frame made: a level's load makes hundreds (clipped decals),
+      // and a transaction each kept the database busy long after the level was drawn.
+      pending.set(key, bytes);
+      if (flushing) return;
+      flushing = true;
+      setTimeout(() => {
+        flushing = false;
+        const batch = [...pending];
+        pending.clear();
+        void open().then((d) => {
+          if (d === null) return;
+          try {
+            const store = d.transaction(STORE, 'readwrite').objectStore(STORE);
+            for (const [k, b] of batch) store.put(b, k);
+          } catch {
+            // a cache: what was not written is made again next time
+          }
+        });
+      }, 0);
     },
   };
 }

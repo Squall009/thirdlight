@@ -64,6 +64,13 @@ const { diffuseColor, metalness, roughness, ambientOcclusion, diffuseContributio
 /** `object.userData[DECAL_LAYERS_KEY]`: the decal layers a drawable is in (absent: every layer; a skinned mesh none). */
 export const DECAL_LAYERS_KEY = '__tlDecalLayers';
 
+/**
+ * `mesh.userData[DECAL_SURFACE_KEY]`: a level surface clipped decals may be cut from (a block chunk's, a
+ * generated architecture chunk's or a spline's mesh; placed models and boxes are known by their batch mark).
+ * Terrain carries none: its levels of detail change the surface with distance, so it takes projected decals.
+ */
+export const DECAL_SURFACE_KEY = '__tlDecalSurface';
+
 /** The decal layers a drawable is in. */
 export function objectDecalLayers(o: THREE.Object3D): number {
   const v = o.userData[DECAL_LAYERS_KEY] as number | undefined;
@@ -844,10 +851,10 @@ export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn
   };
 }
 
-/** The page flag that draws without projected decals (`?decals=off`: their cost, by comparison). */
+/** The page flag that draws without projected and clipped decals (`?decals=off`: their cost, by comparison). */
 export const DECALS_URL_PARAM = 'decals';
 
-/** Whether a page's query string leaves projected decals on (the default) — `decals=off` or `0` turns them off. */
+/** Whether a page's query string leaves projected and clipped decals on (the default) — `decals=off` or `0` turns them off. */
 export function decalsFromUrl(search: string): boolean {
   const v = new URLSearchParams(search).get(DECALS_URL_PARAM);
   return v !== 'off' && v !== '0' && v !== 'false';

@@ -42,7 +42,6 @@ import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
-import { decalRenderOrder } from './mesh-decals';
 import { DECAL_LAYERS_KEY } from './projected-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
@@ -236,6 +235,8 @@ interface Cell {
   readonly room: number | undefined;
   /** Their decal layers when set (one merged draw has one mask). */
   readonly decalLayers: number | undefined;
+  /** Their render order as decals (null: not decals): one merged draw has one place among the decals. */
+  readonly decalOrder: number | null;
   readonly slots: Set<Slot>;
   built: Built | null;
   /** Slots without vertices in the build, or too many dead ones. */
@@ -515,7 +516,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     const s = options.cellSize;
     const cell = `${Math.floor(e[12]! / s)},${Math.floor(e[13]! / s)},${Math.floor(e[14]! / s)}`;
     // A decal's sort order is part of the key: one draw has one place among the decals.
-    const order = decalRenderOrder(parts.material);
+    const order = parts.decalOrder;
     return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}|${cell}|${mergeLayout(mesh.geometry)}`;
   };
 
@@ -545,7 +546,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const cellFor = (key: string, parts: BatchKeyParts): Cell => {
     let cell = cells.get(key);
     if (cell !== undefined) return cell;
-    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, decalLayers: parts.decalLayers, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
+    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, decalLayers: parts.decalLayers, decalOrder: parts.decalOrder, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
     // A material disposed (its last wearer went) takes its cells with it; the objects are drawn alone again.
     const onDispose = (): void => {
       if (cells.get(key) !== c) return;
@@ -671,7 +672,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     // scene, or moving, is reported by the host.
     mesh.userData[STATIC_CASTER_KEY] = true;
     // A decal cell draws in its decal order, after the opaque scene (mesh-decals.ts).
-    mesh.renderOrder = decalRenderOrder(cell.material) ?? MERGED_RENDER_ORDER;
+    mesh.renderOrder = cell.decalOrder ?? MERGED_RENDER_ORDER;
     mesh.raycast = () => undefined;
     if (cell.built !== null) releaseBuilt(cell.built);
     const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });

@@ -4,17 +4,19 @@
 surfaces without new unique textures. The full description is in
 [Decals](../features/decals.md).
 
-Two kinds draw today:
+Three kinds:
 
 - **projected decals**: a decal component — a box that marks every surface
   inside it (blocks, terrain, props, generated walls) channel by channel;
   the quickest way to put a mark anywhere, and the only one that can change
   just the roughness or just the normal;
+- **clipped decals**: the same box in `clipped` mode — a mesh cut from the
+  surfaces inside it when the level loads, drawn as a mesh decal; the
+  cheapest way to put many static marks on blocks, walls and props;
 - **mesh decals**: a flat mesh — a quad, or a strip that follows a curb or
   a wall's foot — laid on a surface and wearing a **decal material**.
 
-Both use a **decal material**. Clipped decals (the component's `clipped`
-mode) are saved and shipped but do not draw yet.
+All use a **decal material**.
 
 ## Make a decal material
 
@@ -67,6 +69,34 @@ dense marks out or merge them into one image.
 
 A projected decal on an object that moves (a mover, a moving parent)
 moves with it.
+
+## Clip it onto the surfaces
+
+For many marks that never move — grime along walls, cracks on a floor,
+posters — set the decal component's **mode** to `clipped`:
+
+1. Place the decal as above (the box, its size, its turn; a material).
+2. Set **mode** `clipped`. Mark the object **static**: its mesh then merges
+   with the other static marks of its material in the area into one draw.
+3. Check the mark covers what it should: it is cut from blocks, generated
+   walls, splines, boxes and models (not terrain: keep `projected` for
+   marks on the ground of a terrain). Its blend is the material's; the
+   channel opacities other than albedo do not apply (albedo opacity scales
+   the whole mark).
+
+The mesh is made again by itself when what is under it changes (blocks
+edited, a wall's preset or slider changed, a model reimported); nothing is
+stored but the box.
+
+To edit a mark by hand, select it and press **Bake to model** in its Decal
+section: the clipped mesh becomes a model asset (its decal material
+mapped) placed on the same object, and the decal component goes. It is an
+ordinary model asset from then on: reimport an edited file over it.
+
+```json
+{ "op": "setComponent", "args": { "entityId": "grime-12", "component": "decal",
+  "value": { "size": [1.5, 1, 0.6], "mode": "clipped", "material": "mat-grime", "normalFade": 70 } } }
+```
 
 ## Leave marks from a script
 
@@ -132,6 +162,10 @@ and copies of one mark mesh are drawn together however many there are.
 - In Play, decals that lie in a surface show whole at every distance; a
   mark that flickers is not on the surface (more than a few centimetres off
   it) or faces away from the camera.
+- A clipped decal that does not show: the same questions, and is the
+  surface one it is cut from (not terrain, not instance copies or scatter)?
+  Play diagnostics `renderer.clippedDecals` count the drawn, empty and
+  pending ones and where their meshes came from.
 - A projected decal that does not show: is the surface inside the box
   (its middle), facing the projector (within `normalFade`), in one of its
   layers? Play diagnostics `renderer.projectedDecals` count the loaded and
