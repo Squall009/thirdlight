@@ -51,7 +51,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { M2_GLTF_EXTENSION_ALLOWLIST, MODEL_JSON_CHUNK_BYTES_MAX } from '@thirdlight/runtime';
+import { M2_GLTF_EXTENSION_ALLOWLIST, MODEL_JSON_CHUNK_BYTES_MAX, modelNodePaths } from '@thirdlight/runtime';
 import { sharedKtx2Loader } from './ktx2';
 import {
   visualLoadFailure,
@@ -61,6 +61,7 @@ import {
   type LoadedGlb,
 } from './visual';
 import { TEXTURE_ASSET_KEY } from './resource-bytes';
+import { PAINT_MESH_KEY } from './vertex-paint-draw';
 
 const GL_FILTERS: Readonly<Record<number, MagnificationTextureFilter | MinificationTextureFilter>> = {
   9728: NearestFilter,
@@ -145,7 +146,7 @@ function messageOf(e: unknown): string {
 
 /** A bounded read of the GLB header + JSON-chunk extension/image declarations. */
 type ContainerGuard =
-  | { readonly ok: true; readonly used: readonly string[]; readonly required: readonly string[]; readonly images: number }
+  | { readonly ok: true; readonly used: readonly string[]; readonly required: readonly string[]; readonly images: number; readonly json: Readonly<Record<string, unknown>> }
   | { readonly ok: false; readonly failure: ReturnType<typeof visualLoadFailure> };
 
 function stringList(value: unknown): readonly string[] | null {
@@ -185,7 +186,7 @@ function readContainerGuard(bytes: Uint8Array): ContainerGuard {
   if (used === null || required === null) return corrupt('the extension lists are not bounded string arrays');
   const images = Array.isArray(root.images) ? root.images.length : 0;
   if (images > GLB_IMAGE_ENTRY_LIMIT) return corrupt('the image list exceeds the profile bound');
-  return { ok: true, used, required, images };
+  return { ok: true, used, required, images, json: root as Readonly<Record<string, unknown>> };
 }
 
 type OwnedSets = {
@@ -193,6 +194,30 @@ type OwnedSets = {
   readonly materials: Set<Material>;
   readonly textures: Set<Texture>;
 };
+
+/**
+ * Name each mesh as vertex paint stores it (its node's path from the scene
+ * root and its primitive, `Body/Hull#0`; project-model `modelNodePaths`), from
+ * the loader's record of which node and primitive made it. Copies of the
+ * model keep the name (it is in their `userData`).
+ */
+function nameMeshesForPaint(gltf: GLTF, json: Readonly<Record<string, unknown>>): void {
+  let paths: Map<number, string> | null = null;
+  try {
+    const assoc = gltf.parser.associations as Map<Object3D, { nodes?: number; primitives?: number } | undefined>;
+    gltf.scene.traverse((o) => {
+      if ((o as { isMesh?: boolean }).isMesh !== true) return;
+      const own = assoc.get(o);
+      const node = own?.nodes ?? (o.parent !== null ? assoc.get(o.parent)?.nodes : undefined);
+      if (node === undefined) return;
+      paths ??= modelNodePaths(json);
+      const path = paths.get(node);
+      if (path !== undefined) o.userData[PAINT_MESH_KEY] = `${path}#${own?.primitives ?? 0}`;
+    });
+  } catch {
+    /* the association map is the loader's own record: without it nothing is named (and no paint drawn) */
+  }
+}
 
 /** Collect every GPU resource this load owns (scene graph + parser cache). */
 function collectOwned(gltf: GLTF): OwnedSets {
@@ -269,6 +294,7 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
         throw classify(e, guard.images > 0);
       }
 
+      nameMeshesForPaint(gltf, guard.json);
       const owned = collectOwned(gltf);
       // A material's copy of an asset's texture (a UV set or transform of its own) belongs to this load too.
       gltf.scene.traverse((o) => {

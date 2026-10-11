@@ -3,9 +3,9 @@
 > **Growing.** This page grows as vertex paint is built. What exists now:
 > the data and the command — paint on placed models, instance copies and
 > generated meshes (architecture and splines) is stored, undone, checked
-> against reimports, reached through MCP and shipped with an export. Not
-> yet: drawing it (materials do not read it yet) and the editor's paint
-> brush.
+> against reimports, reached through MCP and shipped with an export — and
+> its drawing: materials read it in the Scene view, Play and the export.
+> Not yet: the editor's paint brush (strokes come over MCP for now).
 
 Vertex paint puts per-vertex values on meshes — colour, grime, wetness,
 blend weights for a height blend — without new textures. Each painted
@@ -101,6 +101,46 @@ Paint names its path by key: an outline, a building or a sweep element of
 the object's `architecture` (`outline:<id>`, `building:<id>`,
 `element:<id>`), or `spline`. A path that is deleted leaves its paint
 unused.
+
+## Drawing it
+
+Paint changes nothing until a material reads it. Four readers:
+
+| Material | What it does with the paint |
+|---|---|
+| a standard material with **Paint tint** (`paintTint: true`) | multiplies its albedo by the paint's RGB, by the paint's A (A 0: no tint). Off by default. |
+| the trim shader (generated walls) | adds G to its grime and B to its wetness (on top of the generator's `COLOR_0`). |
+| a graph's **Vertex colour** node, set **paint** | gives the paint as RGBA (an unpainted vertex reads (0, 0, 0, 0), whatever *Without the set* says). |
+| a graph's **Height blend** node with its weights unwired | takes the paint as the four layers' weights (an unpainted vertex shows the first layer). |
+
+A model's own vertex colours (`COLOR_0`) keep their meaning beside it.
+
+How it is drawn (the same in the Scene view, Play and the export):
+
+- **A placed model drawn on its own**: its painted meshes carry the paint
+  as a vertex attribute (4 bytes a vertex).
+- **Copies of one mesh drawn together** (an automatic batch, or an
+  instance set's chunk): painted copies stay in that one draw. Each copy
+  carries a paint slot beside its matrix, and the draw reads its copies'
+  paint from a stream (a data texture) by slot and vertex. Painting a copy
+  never splits the draw.
+- **Static objects merged into a cell**: the paint is copied into the
+  cell's vertices (unpainted members 0).
+- **Generated architecture and splines**: the path paint is sampled onto
+  the vertices whenever a chunk or a spline's mesh is drawn, so it stays
+  where it was painted when the mesh is made again (a regenerated room, a
+  swapped preset, a moved spline point).
+
+An object with paint is drawn once its paint has arrived (no unpainted
+first frame). A draw with paint has a program of its own (one more per
+material that meets paint); a scene without paint draws exactly as it did.
+`?paint=off` on a game page draws without paint, to compare its cost.
+
+A painted draw's stream holds up to 4096 × 8192 painted vertices (its
+painted copies × the mesh's vertices); past that the draw is drawn without
+paint. Diagnostics (`renderer.vertexPaint`) count the painted draws alone
+and merged, the instanced draws reading a stream with their copies, and
+the GPU bytes.
 
 ## Shipping
 

@@ -254,6 +254,26 @@ export { WorldMatrices } from './world-matrices';
 export type { BehaviorSockets } from './types';
 // The rig reader (hosts and the editor read the node names the game resolves sockets on).
 export { glbHasSkins, readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
+// Vertex paint as the renderer draws it: meshes named and checked as the backend stored them, copy slots, path paint sampled onto generated vertices.
+export {
+  PATH_PAINT_SIDES,
+  VERTEX_PAINT_BYTES,
+  copySlot,
+  decodeCopyTable,
+  modelNodePaths,
+  normalizedPositionScale,
+  paintPositionsHash,
+  pathPaintFrame,
+  samplePathPaint,
+  type CopyTable,
+  type InstancePaint,
+  type PathGrid,
+  type PathPaintGrid,
+  type PathPaintSide,
+  type PathPaintSource,
+  type VertexPaintComponent,
+  type VertexPaintMesh,
+} from '@thirdlight/project-model';
 // A build's block chunk data, decoded on the game page before a scene reaches the runtime (pure byte decoding).
 export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/project-model';
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).

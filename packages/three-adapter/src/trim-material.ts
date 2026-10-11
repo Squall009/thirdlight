@@ -13,6 +13,10 @@
  *   the layered template does;
  * - occlusion darkens the indirect light with the ORM's own.
  *
+ * Vertex paint (vertex-paint-draw.ts) adds its G to the grime and its B to
+ * the wetness where the mesh carries paint (a generated wall's path paint);
+ * a mesh without paint builds the program it did.
+ *
  * Every read samples with the screen-space derivatives shortened to the
  * sheet's safe footprint (`trimMaxFootprint`): the GPU then never picks a
  * mip level deep enough for a texel to straddle two rows. Textures sample
@@ -27,6 +31,8 @@ import { trimMaxFootprint, WET_ALBEDO_SCALE, WET_ROUGHNESS, type TrimSheet } fro
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import type { MeshStandardNodeMaterial } from 'three/webgpu';
+
+import { withPaint } from './vertex-paint-draw';
 
 /** The roughness grime moves toward (dust and soot are matte). */
 const GRIME_ROUGHNESS = 0.95;
@@ -102,7 +108,8 @@ export function installTrimNodes(m: THREE.MeshStandardMaterial, input: TrimNodeI
     const orm = read(textures.ormMap) ?? TSL.vec4(1, 1, 0, 1);
     const normal = read(textures.normalMap);
 
-    const vc = input.vertexData() as Vec4Node;
+    // COLOR_0 with the paint's grime (G) and wetness (B) added where the mesh is painted.
+    const vc = withPaint(input.vertexData(), (base: Vec4Node, paint: Vec4Node) => TSL.vec4(base.r, TSL.min(base.g.add(paint.g), 1), TSL.min(base.b.add(paint.b), 1), base.a)) as Vec4Node;
     const wet = TSL.saturate(TSL.max(vc.b, wetness).add(input.sceneWetness as Node));
     // Crevices first: at the ORM's full occlusion grime counts double.
     const grimeMask = TSL.saturate(vc.g.mul(grime).mul(TSL.float(2).sub(orm.r)));

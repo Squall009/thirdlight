@@ -31,6 +31,7 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { MODEL_READ_LIMITS, type ModelGeometry } from './model-collision';
+import { COMPONENT_TYPES as GLTF_COMPONENT_TYPES } from './model-rig';
 import type { PaintLayout } from './paint-brush';
 import { sha256Hex } from './sha256';
 import { MAX_INSTANCES } from './types-v3';
@@ -243,7 +244,21 @@ export function paintPositionsHash(local: ArrayLike<number>, hash: (bytes: Uint8
   return hash(bytes).slice(0, PAINT_POSITIONS_HASH_LENGTH);
 }
 
-/** A mesh a model draws, as paint sees it: its name, vertex count, position hash, and its vertices in the model's root space. */
+/** glTF's component type of each integer typed array a decoded accessor may be kept in. */
+const ARRAY_COMPONENT_TYPES: Readonly<Record<string, number>> = { Int8Array: 5120, Uint8Array: 5121, Int16Array: 5122, Uint16Array: 5123, Uint32Array: 5125 };
+
+/**
+ * What one stored number of a normalized POSITION is multiplied by when the
+ * model is read (glTF's scale, as {@link readModelGeometry} applies it), by
+ * the typed array a loader kept the integers in; 1 for floats. A page that
+ * hashes its loaded positions then hashes the numbers the backend hashed.
+ */
+export function normalizedPositionScale(array: ArrayLike<number>): number {
+  const type = ARRAY_COMPONENT_TYPES[(array as { constructor?: { name?: string } }).constructor?.name ?? ''];
+  return type === undefined ? 1 : (GLTF_COMPONENT_TYPES[type]?.norm ?? 1);
+}
+
+/** A mesh a model draws, as paint sees it:its name, vertex count, position hash, and its vertices in the model's root space. */
 export interface PaintableMesh {
   mesh: string;
   /** The top-level piece it belongs to. */

@@ -82,7 +82,35 @@ materials in bulk from a template graph, or to make instances for a palette
 of variants. Prefer an instance to a copied graph: every instance follows a
 later change of its parent's graph.
 
+## Reading vertex paint
+
+**Goal:** a prop and some copies of it painted with a stain where a wall
+meets the ground, without a new texture. The data and the command:
+[Vertex paint](../features/vertex-paint.md).
+
+1. Pick how the material reads the paint:
+   - a standard material: switch on **Paint tint** in its Inspector
+     (`paintTint: true`). Paint RGB is the tint, A how much of it;
+   - a graph: a **Vertex colour** node with **Set** `paint`, wired where
+     the paint should act — for a stain, `rgb` → a **Lerp** between the
+     base colour and a dirt colour with `alpha` as its `t`;
+   - layered surfaces: a **Height blend** node with its weights unwired
+     reads the paint as its layers' weights (R, G, B, A one layer each);
+   - generated walls on a trim sheet need nothing: paint G adds grime, B
+     wetness.
+2. Paint the objects: one `paintVertices` stroke per channel over MCP,
+   e.g. `{ "entityId": "rock-000001", "dabs": [[10, 0.2, 4]], "brush":
+   { "radius": 0.8, "strength": 1, "channel": 3 } }` for A, then the same
+   with `channel` 0 for R. An instance copy takes `copy` (its place in the
+   set's buffer); a wall takes `path` and `side`.
+3. Press **Play**: the painted copies are drawn in the same draw as the
+   others (Play's `renderer.vertexPaint` diagnostics count them).
+
 ## Pitfalls
+
+- **A material that does not read paint shows none.** Painting a prop
+  that wears a plain standard material changes nothing until **Paint
+  tint** is on (or a graph reads it).
 
 - **A graph material ignores the model file's own material and textures.**
   Only what the graph contains is drawn; **Remove graph** brings the shader

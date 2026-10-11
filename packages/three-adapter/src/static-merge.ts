@@ -26,6 +26,10 @@
  * - **Scenes:** the scope a host marks (its scene) is part of the key, so a
  *   scene unload or reload drops or rebuilds only its own cells; a host marks
  *   no object kept loaded across scenes.
+ * - **Vertex paint:** a painted member's paint (`tlPaint`) is copied with its
+ *   vertices; it is not part of the layout, so painted and unpainted members
+ *   share a cell, the unpainted ones' paint 0. A cell without painted members
+ *   has no paint attribute (the program it had).
  * - **Not merged:** materials that read the object's own frame (its origin or
  *   object-space position: the result would be the world's), vertex layouts
  *   that differ, morph targets — and everything instancing refuses.
@@ -44,6 +48,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { DECAL_LAYERS_KEY } from './projected-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
+import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
 import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
 
 /** `mesh.userData[STATIC_KEY]`: the scope (a scene id) of a mesh whose object never moves; absent: not static. */
@@ -108,6 +113,8 @@ export function mergeLayout(g: THREE.BufferGeometry): string | null {
   if (!morph && g.getAttribute('position') !== undefined) {
     const parts: string[] = [];
     for (const name of Object.keys(g.attributes).sort()) {
+      // Paint is copied where a member has it and 0 where not: members merge with or without it.
+      if (name === PAINT_ATTRIBUTE) continue;
       const a = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
       const want = TRANSFORMED[name];
       if (want !== undefined) {
@@ -278,10 +285,15 @@ function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: 
   const mirrored = tmpM.determinant() < 0;
   const n = slot.vCount;
   for (const [name, out] of attrs) {
-    const src = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+    const src = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined;
     const size = out.itemSize;
-    const dst = out.array as unknown as { [i: number]: number; set(a: ArrayLike<number>, at: number): void };
+    const dst = out.array as unknown as { [i: number]: number; set(a: ArrayLike<number>, at: number): void; fill(v: number, start: number, end: number): void };
     const base = slot.vStart * size;
+    // An unpainted member of a cell with paint: no paint.
+    if (src === undefined) {
+      dst.fill(0, base, base + n * size);
+      continue;
+    }
     if (name === 'position') {
       let x0 = Infinity;
       let y0 = Infinity;
@@ -346,9 +358,10 @@ function writeTriangles(template: Uint32Array, slot: Pick<Slot, 'geometry' | 'vS
   }
 }
 
-/** New attributes for `vertices` vertices of `first`'s layout (the transformed ones as floats). */
-function layoutAttributes(first: THREE.BufferGeometry, vertices: number): Map<string, THREE.BufferAttribute> {
+/** New attributes for `vertices` vertices of `first`'s layout (the transformed ones as floats), with paint when `painted`. */
+function layoutAttributes(first: THREE.BufferGeometry, vertices: number, painted = false): Map<string, THREE.BufferAttribute> {
   const attrs = new Map<string, THREE.BufferAttribute>();
+  if (painted && first.getAttribute(PAINT_ATTRIBUTE) === undefined) attrs.set(PAINT_ATTRIBUTE, new THREE.BufferAttribute(new Uint8Array(vertices * 4), 4, true));
   for (const name of Object.keys(first.attributes)) {
     const src = first.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
     const size = src.itemSize;
@@ -638,7 +651,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       indices += s.iCount;
     }
     const geometry = new THREE.BufferGeometry();
-    const attrs = layoutAttributes(first, vertices);
+    const attrs = layoutAttributes(first, vertices, list.some((s) => s.geometry.getAttribute(PAINT_ATTRIBUTE) !== undefined));
     let vertexBytes = 0;
     for (const [name, attr] of attrs) {
       geometry.setAttribute(name, attr);

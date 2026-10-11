@@ -60,9 +60,9 @@
  *   --decals N                   N projected decals over the area's ground, walls and props, ~30 % in overlapping pairs
  *   --mesh-decals N              N mesh decals over its ground and walls (quads of one decal material)
  *   --clipped-decals N           N clipped decals placed as --decals places them
- *   --painted N                  N placed props, then foliage copies, painted (props today a stand-in: an unread
- *                                4-byte stream); a kind the engine can't draw yet is refused, never measured as
- *                                something else (all default 0: the class as recorded; level-marks.ts)
+ *   --painted N                  N placed props, then foliage copies, painted by strokes and wearing a paint-tinted
+ *                                material (with --switches paint=off: the same scene, paint not drawn); all default
+ *                                0: the class as recorded (level-marks.ts)
  *   --moving-decals N            with --decals: the first N projected decals move to and fro along their surface
  *   --decal-spawns N             with --decals: a script spawns N decals a second on their ground spots (past the
  *                                transient budget the oldest fade out)

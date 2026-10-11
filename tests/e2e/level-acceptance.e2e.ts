@@ -40,6 +40,18 @@
  * interior scene, whose camera shows the inside of the front wall in a sheet's
  * colour.
  *
+ * Vertex paint, stored by `paintVertices` strokes: white blocks wearing a
+ * material the paint tints (`paintTint`) on the paved strip in front of the
+ * room — one drawn alone (red), a batch of four copies of one mesh (one red,
+ * one blue, two white: still one instanced draw), a merged static pair (one
+ * red), and an instance set of three (the middle copy red: still one draw);
+ * the shed's front wall painted with grime (G) over the trim sheet, which
+ * stays when the swap makes its facade anew; and a kerb (a spline's strip)
+ * painted red along its east half. (At this distance generated meshes draw
+ * their far levels, whose vertices are fewer: paint shows at those
+ * vertices, so the strokes cover whole faces.) Play's diagnostics count the painted
+ * draws: the batch's and the set's copies stay in two instanced draws.
+ *
  * Each feature is read where the fixed camera sees it (world points projected
  * through its view), the scatter by colour over the whole frame; Play's
  * diagnostics count the terrain's tiles, the scatter and cover copies, the
@@ -117,12 +129,25 @@ const FENCE: readonly [number, number][] = [[-16, 8], [-6, 8]];
 const PIPE: readonly [number, number][] = [[6, 0], [10, 0]];
 const PROP_AT: V3 = [-8, BASE + 0.5, -4];
 /**
+ * Vertex paint on the paved strip in front of the room (blocks 0.7 m, tops at BASE + 0.7): one alone, a batch of four,
+ * a static pair (merged), an instance set of three (z −4.6); each with which of them is painted (R red, B blue).
+ */
+const PAINT_ROW_Z = -3;
+const PAINT_SOLO_X = -18.6;
+const PAINT_BATCH_X = [-17.2, -16.2, -15.2, -14.2] as const;
+const PAINT_PAIR_X = [-12.8, -11.8] as const;
+const PAINT_SET = { at: [-16, BASE, -4.6] as V3, copies: [-1.6, 0, 1.6] } as const;
+const PAINT_TOP = BASE + 0.7;
+/**
  * The clipped decal across the room's front-right corner: projecting along the corner's diagonal (its box's −Z
  * toward −x −z), tall enough for the whole wall and its mouldings; short edge fades, so both faces are marked whole.
  */
 const CORNER_DECAL = { at: [ROOM.x[1] + 0.1, BASE + 1.6, ROOM.z[1] + 0.1] as V3, size: [1.2, 3.4, 1.6], rotation: [0, Math.sin(Math.PI / 8), 0, Math.cos(Math.PI / 8)], edgeFade: [0.1, 0.1] } as const;
 /** A shed (a building, an object of its own) whose facade alone names a swapped preset. */
 const SHED = { x: [6, 10], z: [-7, -4] } as const;
+/** The shed's front wall painted with grime around this point (both faces of its outline), and the kerb's red half (from `spot`). */
+const WALL_PAINT_AT: V3 = [(SHED.x[0] + SHED.x[1]) / 2, BASE + 1.5, SHED.z[1]];
+const KERB = { at: [-2, BASE, -3.2] as V3, half: 3, width: 2, spot: 1.5 } as const;
 
 // ---- The camera: over the area's south side, looking north across it to the horizon.
 const CAM_POS: V3 = [0, 16, 30];
@@ -154,6 +179,11 @@ const isPeach: Pred = (r, g, b) => r > 170 && g > 0.5 * r && g < 0.88 * r && b <
 const isSkyBlue: Pred = (r, g, b) => b > 110 && b > 1.4 * r && b > 1.15 * g;
 const isSheetA: Pred = (r, g, b) => g > 70 && g > 1.5 * r && g > 1.5 * b;
 const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.6 * g && b > 1.9 * g;
+/** The paint's red and blue tints over white; the white of an unpainted block; the trim's grime (a dark brown). */
+const isPaintRed: Pred = (r, g, b) => r > 90 && g < 0.4 * r && b < 0.4 * r;
+const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.5 * b && g < 0.5 * b;
+const isPaintPlain: Pred = (r, g, b) => Math.min(r, g, b) > 90 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
+const isGrime: Pred = (r, g, b) => r > 20 && r < 150 && g <= 1.1 * r && g >= 0.55 * r && b <= r && b >= 0.4 * r;
 /** The corner mark's orange, lit or in the shade of the room's east face (dim, red well over green and blue). */
 const isOrange: Pred = (r, g, b) => r > 30 && r - g > 25 && g < 0.6 * r && b < 0.35 * r;
 
@@ -216,6 +246,42 @@ interface Built {
   outlines: unknown;
   /** Terrain heights (world y) at the points the frames read on it. */
   heights: { ramp: number; road: number[]; far: number };
+}
+
+/** The vertex paint (see the header): the blocks, their material, the kerb, and the strokes. */
+async function paintThings(shed: string): Promise<void> {
+  // One file, a piece each: the lone block, the batch's (and the set's) and the merged pair's are three meshes.
+  const piece = (name: string): { name: string; lods: [number, number, number][]; colors: [number, number, number][] } => ({ name, lods: [[0.7, 0.7, 0.7]], colors: [[1, 1, 1]] });
+  await publishBytes(be!, multiPieceGlb([piece('solo'), piece('block'), piece('pair')], { centred: true }), 'model', 'acc-paint', 'Paint blocks');
+  await cmd('setMaterial', { material: { materialId: 'acc-tint', name: 'Paint tint', shader: 'standard', params: { color: '#ffffff', roughness: 0.9, paintTint: true }, textures: {} } });
+  const tinted = { materials: { '*': 'acc-tint' } };
+  const model = async (piece: string, x: number, isStatic: boolean): Promise<string> =>
+    String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: `Paint ${piece}`, ...(isStatic ? { static: true } : {}), transform: { position: [x, BASE, PAINT_ROW_Z] }, model: { asset: { assetId: 'acc-paint' }, piece }, components: tinted }))['createdId']);
+  const stroke = async (entityId: string, at: readonly number[], channels: number[], radius: number, extra: Record<string, unknown> = {}): Promise<void> => {
+    for (const channel of channels) await cmd('paintVertices', { entityId, dabs: [at], brush: { radius, strength: 1, channel, falloff: 'constant' }, ...extra });
+  };
+  const RED = [0, 3];
+  const BLUE = [2, 3];
+  const centre = (x: number, z = PAINT_ROW_Z): number[] => [x, BASE + 0.35, z];
+  await stroke(await model('solo', PAINT_SOLO_X, false), centre(PAINT_SOLO_X), RED, 1);
+  const batch: string[] = [];
+  for (const x of PAINT_BATCH_X) batch.push(await model('block', x, false));
+  await stroke(batch[0]!, centre(PAINT_BATCH_X[0]), RED, 0.8);
+  await stroke(batch[1]!, centre(PAINT_BATCH_X[1]), BLUE, 0.8);
+  const pair = [await model('pair', PAINT_PAIR_X[0], true), await model('pair', PAINT_PAIR_X[1], true)];
+  await stroke(pair[0]!, centre(PAINT_PAIR_X[0]), RED, 0.8);
+  const transforms = PAINT_SET.copies.flatMap((dx) => [dx, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+  const res = await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be!.token}`, 'content-type': 'application/json', origin: be!.origin }, body: JSON.stringify({ transforms }) });
+  const buffer = ((await res.json()) as { digest: string }).digest;
+  const set = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Painted set', transform: { position: [...PAINT_SET.at] }, components: { instances: { asset: { assetId: 'acc-paint', piece: 'block' }, buffer, count: PAINT_SET.copies.length }, ...tinted } }))['createdId']);
+  await stroke(set, centre(PAINT_SET.at[0], PAINT_SET.at[2]), RED, 0.8, { copy: 1 });
+  // The shed's front wall: grime (G) on both sides of its outline, the whole face (its far level's vertices are its corners).
+  for (const side of ['left', 'right']) await stroke(shed, WALL_PAINT_AT, [1], 3, { path: 'building:shed-1', side });
+  // The kerb: a strip along x on the paved strip, red at one spot of its top.
+  const kerb = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Kerb', static: true, transform: { position: [...KERB.at] } }))['createdId']);
+  await cmd('setComponent', { entityId: kerb, component: 'spline', value: { points: [{ at: [-KERB.half, 0, 0] }, { at: [KERB.half, 0, 0] }], width: KERB.width, mesh: { step: 0.5, offset: 0.05 } } });
+  await cmd('setComponent', { entityId: kerb, component: 'materials', value: { spline: 'acc-tint' } });
+  await stroke(kerb, [KERB.at[0] + KERB.spot, BASE + 0.05, KERB.at[2]], RED, 2, { path: 'spline', side: 'top' });
 }
 
 async function buildLevel(): Promise<Built> {
@@ -355,6 +421,7 @@ async function buildLevel(): Promise<Built> {
   await cmd('setMaterial', { material: { materialId: 'acc-mark', name: 'Corner mark', shader: 'decal', params: {}, textures: { map: 'acc-mark' } } });
   const d = CORNER_DECAL;
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Corner mark', static: true, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal: { size: [...d.size], mode: 'clipped', material: 'acc-mark', edgeFade: [...d.edgeFade] } } });
+  await paintThings(shed);
   await cmd('setInput', { input: { actions: [{ name: 'restyle', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: RESTYLE_KEY }] }, { name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] }] } });
   await publishScript(be!, 'acc-level', LEVEL_SCRIPT, architecture);
 
@@ -412,7 +479,7 @@ function judgeLevel(img: Image, b: Built): Judged {
   };
   // The tufts: lit ground passes the white test in a few dozen pixels with no tuft at all (23–35 measured with the tufts
   // dark), the tufts in thousands; the bound sits between.
-  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') || k.startsWith('clip') ? 0.3 : 0.5);
+  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') || k.startsWith('clip') || k.startsWith('paint') ? 0.3 : 0.5);
   return { reads, ok: Object.entries(reads).every(([k, v]) => v >= min(k)), note: note() };
 }
 
@@ -425,10 +492,29 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
     archPipe: near('pipe', [(PIPE[0]![0] + PIPE[1]![0]) / 2, BASE + 1.2, PIPE[0]![1] + 0.3], sheet, 4),
     archShedRoof: near('shed roof', [(SHED.x[0] + SHED.x[1]) / 2, BASE + 3.4, SHED.z[1] - 0.6], sheet, 6),
     prop: near('prop', [PROP_AT[0], PROP_AT[1], PROP_AT[2] + 0.51], isPink),
+    ...judgePaint(near),
     // The clipped mark on both faces of the room's corner (made again with the room).
     clipFront: near('mark front', [ROOM.x[1] - 0.4, BASE + 1.5, ROOM.z[1] + 0.12], isOrange, 4),
     // (The east face is seen nearly edge-on: a few pixels wide.)
     clipSide: near('mark side', [ROOM.x[1] + 0.11, BASE + 1.5, ROOM.z[1] - 0.3], isOrange, 2),
+  };
+}
+
+/** The painted blocks, the room's grime and the kerb's spot (the same with either sheet: the paint survives the room made anew). */
+function judgePaint(near: (label: string, p: V3, t: Pred, size?: number) => number): Reads {
+  const top = (x: number, z = PAINT_ROW_Z): V3 => [x, PAINT_TOP, z];
+  return {
+    paintSolo: near('paint solo', top(PAINT_SOLO_X), isPaintRed, 4),
+    paintBatchRed: near('batch red', top(PAINT_BATCH_X[0]), isPaintRed, 4),
+    paintBatchBlue: near('batch blue', top(PAINT_BATCH_X[1]), isPaintBlue, 4),
+    paintBatchPlain: near('batch plain', top(PAINT_BATCH_X[3]), isPaintPlain, 4),
+    paintMergedRed: near('merged red', top(PAINT_PAIR_X[0]), isPaintRed, 4),
+    paintMergedPlain: near('merged plain', top(PAINT_PAIR_X[1]), isPaintPlain, 4),
+    paintCopyRed: near('copy red', top(PAINT_SET.at[0], PAINT_SET.at[2]), isPaintRed, 4),
+    paintCopyPlain: near('copy plain', top(PAINT_SET.at[0] + PAINT_SET.copies[2], PAINT_SET.at[2]), isPaintPlain, 4),
+    paintWall: near('wall grime', [WALL_PAINT_AT[0], WALL_PAINT_AT[1], SHED.z[1] + 0.12], isGrime, 6),
+    paintKerb: near('kerb red', [KERB.at[0] + KERB.half - 0.3, BASE + 0.06, KERB.at[2]], isPaintRed, 4),
+    paintKerbPlain: near('kerb plain', [KERB.at[0] - KERB.half + 0.3, BASE + 0.06, KERB.at[2]], isPaintPlain, 4),
   };
 }
 
@@ -537,6 +623,22 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
         throw e;
       });
     console.log(`${renderer} Play clipped decals: ${JSON.stringify(clipped ?? null)}`);
+    // Painted copies stay in their instanced draws: the batch's four (two painted) and the set's three (one painted) are two draws.
+    type Paint = { alone: number; merged: number; instancedDraws: number; instances: number; paintedInstances: number; attributeBytes: number; streamBytes: number };
+    type Painted = { vertexPaint?: Paint; splines?: { painted: number; paintPending: number }; architecture?: { painted: number; paintPending: number } };
+    let paint: Painted | undefined;
+    await expect
+      .poll(async () => {
+        paint = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: Painted } }).diagnostics?.renderer;
+        const v = paint?.vertexPaint;
+        return v === undefined ? null : { draws: v.instancedDraws, painted: v.paintedInstances, merged: v.merged > 0, alone: v.alone >= 3, spline: paint?.splines?.painted ?? 0, architecture: paint?.architecture?.painted ?? 0 };
+      }, { timeout: 60_000, message: `${renderer} Play: painted draws` })
+      .toEqual({ draws: 2, painted: 3, merged: true, alone: true, spline: 1, architecture: 1 })
+      .catch((e: unknown) => {
+        console.log(`${renderer} Play vertex paint (failed): ${JSON.stringify({ paint: paint?.vertexPaint, splines: paint?.splines, architecture: paint?.architecture })}`);
+        throw e;
+      });
+    console.log(`${renderer} Play vertex paint: ${JSON.stringify(paint?.vertexPaint ?? null)}`);
     await until(frame, (img) => judgeLevel(img, built), `${renderer} Play level`);
     // Generated at load from the parameters: chunks made on the generator workers (or the page while they start).
     const chunks = await archTimes(canvas);

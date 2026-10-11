@@ -79,6 +79,8 @@ import { OBJECT_FRAME_KEY } from './static-merge';
 import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
+import { withPaint } from './vertex-paint-draw';
+import type { N as TslNode } from './effects-tsl';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water' | 'trim' | 'decal';
@@ -510,6 +512,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (def.shader === 'foliage') installFoliageNodes(m, p);
     else if (def.shader === 'kit') installKitNodes(m, def);
     else if (def.shader === 'water') installWaterNodes(m, p);
+    else if (p['paintTint'] === true) {
+      // Vertex paint tints the albedo: RGB the tint, A how much (unpainted: none); unpainted meshes build the plain colour.
+      (m as unknown as MeshStandardNodeMaterial).colorNode = withPaint(TSL.materialColor, (c: TslNode, paint: TslNode) => TSL.vec4(c.rgb.mul(TSL.mix(TSL.vec3(1, 1, 1), paint.rgb, paint.a)), c.a)) as MeshStandardNodeMaterial['colorNode'];
+    }
     return m;
   };
 

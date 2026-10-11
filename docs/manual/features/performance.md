@@ -162,6 +162,8 @@ on an export's URL they apply directly):
 - `?frameRateCap=none|30|60|120` — pins the frame-rate cap;
 - `?probes=off` — draws without the probe grids (the flat ambient light);
 - `?vertexLights=off` — every local light per pixel;
+- `?paint=off` — draws without vertex paint (models, instance copies,
+  generated walls and roads as if unpainted);
 - `?quality=<id>` — pins a quality level;
 - `?ao=off|ssao|gtao`, `?renderScale=0.5…1`, `?dynamicResolution=on|off` —
   pin the render settings over the project's (an export's URL; the perf

@@ -1,8 +1,44 @@
-# Content documents (scriptLibraries to prefabs)
+# Content documents (effects to startScenes)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The project's content blocks and their fields. Paths with `[]` are list items and `{}` map values.
+
+<a id="content-effects"></a>
+## effects — Effects
+
+Visual effects: particle systems authored as node graphs.
+
+- In every project: no
+- Written by: [`setEffect`](ops-detail.md#op-setEffect), [`deleteEffect`](ops-detail.md#op-deleteEffect), [`renameEffect`](ops-detail.md#op-renameEffect), [`graphEdit`](ops-detail.md#op-graphEdit)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `effects` | list of objects | `[]` |  | **Effects.** The project's effects (each its own file). |
+| `effects[].effectId` | string, id, 1–64 chars |  |  | **Id.** The stable effect id. (required; written by a tool; format id) |
+| `effects[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in pickers and the Effects list. (required; format name) |
+| `effects[].duration` | number | `2` | 0.01 – 3600, step 0.1, s | **Duration.** One cycle of the effect (bursts and the effect time refer to it). (required) |
+| `effects[].loop` | bool | `true` |  | **Loop.** Restart the cycle at its end (off: spawning stops and the effect ends when its particles are gone). (required) |
+| `effects[].seed` | int | `1` | 0 – 4294967295, step 1 | **Seed.** The random seed: the same seed gives the same particles. (required) |
+| `effects[].bounds` | object |  |  | **Bounds.** The culling box around the origin: the effect is skipped when this box is off screen. (required) |
+| `effects[].bounds.center` | vec3 [x, y, z] | `[0,1,0]` | -10000 – 10000, step 0.1, m | **Centre.** The box centre relative to the origin. (required) |
+| `effects[].bounds.size` | vec3 [x, y, z] | `[4,4,4]` | > 0, ≤ 10000, step 0.1, m | **Size.** The box size. (required) |
+| `effects[].parameters` | list of objects, ≤ 32 items |  |  | **Exposed parameters.** Up to 32 parameters the systems read (Parameter nodes); objects may override the public ones. |
+| `effects[].parameters[].key` | string, identifier, 1–32 chars |  |  | **Key.** The name Parameter nodes and overrides use. (required; format identifier) |
+| `effects[].parameters[].type` | enum: `float`, `vec3`, `color` | `"float"` |  | **Type.** The value type. (required) |
+| `effects[].parameters[].default` | JSON (typed by effectParameter) |  |  | **Default.** The effect's own value (a number, 3 numbers or "#rrggbb"). (required) |
+| `effects[].parameters[].min` | number |  |  | **Min.** The lowest value, within ±1e6 (numbers and vectors). (applies when `type` is `float` or `vec3`) |
+| `effects[].parameters[].max` | number |  |  | **Max.** The highest value, within ±1e6 and at least min (numbers and vectors). (applies when `type` is `float` or `vec3`) |
+| `effects[].parameters[].visibility` | enum: `public`, `private` | `"public"` |  | **Visibility.** Public: objects may override it. Private: the effect's value only. (stored only when not the default) |
+| `effects[].parameters[].label` | string, 1–64 chars |  |  | **Label.** Shown instead of the key. |
+| `effects[].parameters[].group` | string, 1–64 chars |  |  | **Group.** A foldable group in the Inspector. |
+| `effects[].parameters[].tooltip` | string, 1–256 chars |  |  | **Tooltip.** Help text. |
+| `effects[].systems` | list of objects, ≤ 16 items | `[]` |  | **Systems.** Up to 16 particle systems, in evaluation order. (required) |
+| `effects[].systems[].systemId` | string, id, 1–64 chars |  |  | **Id.** The stable system id (unique in the effect). (required; written by a tool; format id) |
+| `effects[].systems[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the Effect tab. (required; format name) |
+| `effects[].systems[].maxParticles` | int | `1000` | 1 – 1048576, step 1 | **Max particles.** The most living particles (executors may cap lower; the CPU fallback does). (required) |
+| `effects[].systems[].space` | enum: `local`, `world` | `"local"` |  | **Simulation space.** Local: particles move with the object. World: they stay where they were born. (required) |
+| `effects[].systems[].graph` | JSON |  |  | **Graph.** The system graph (graph kind "effect": Spawn, Initialize, Update and Output chains), edited in the Effect tab with graph edits. (required; written by a tool) |
 
 <a id="content-scriptLibraries"></a>
 ## scriptLibraries — Script libraries
@@ -436,49 +472,3 @@ The scenes loaded when the game starts (without a flow).
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `startScenes` | list of scene id, ≥ 1 items, distinct |  |  | **Start scenes.** At least one scene. (required) |
-
-<a id="content-assets"></a>
-## assets — Assets
-
-Imported models, audio, textures and fonts (their versions are written by the importer).
-
-- In every project: yes
-- Written by: [`publishAsset`](ops-detail.md#op-publishAsset), [`setAssetOptions`](ops-detail.md#op-setAssetOptions), [`deleteAsset`](ops-detail.md#op-deleteAsset), [`importAssets`](ops-detail.md#op-importAssets), [`setLabels`](ops-detail.md#op-setLabels), [`setAddress`](ops-detail.md#op-setAddress)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `assets` | list of objects |  |  | **Assets.** The asset catalog. (required) |
-| `assets[].assetId` | string, id, 1–64 chars |  |  | **Id.** The stable asset id. (required; written by a tool; format id) |
-| `assets[].kind` | enum: `model`, `audio`, `texture`, `font` |  |  | **Kind.** Model, audio, texture or font. (required; written by a tool) |
-| `assets[].displayName` | string, name, 1–128 chars |  |  | **Name.** Shown in the asset browser. (required; written by a tool; format name) |
-| `assets[].currentVersion` | int |  | ≥ 1, step 1 | **Version.** The current version (the last). (required; written by a tool) |
-| `assets[].versions` | list of JSON, ≥ 1 items |  |  | **Versions.** Every imported version (append-only, written by the importer). (required; written by a tool) |
-| `assets[].vertexColors` | enum: `data`, `tint` | `"data"` |  | **Vertex colours.** Data: COLOR_0 feeds shaders (wind weights). Tint: multiplies the colour. (applies when `kind` is `model`; stored only when not the default) |
-| `assets[].materials` | map materialSlot → material id, 1–32 entries |  |  | **Default materials.** Material slot → project material, for every placement. (applies when `kind` is `model`) |
-| `assets[].extractTextures` | bool | `false` |  | **Extract textures.** Import setting: the file's images become texture assets the model draws with (they count and stream like any texture). Set when the model is imported or re-imported. (applies when `kind` is `model`; stored only when not the default; written by a tool) |
-| `assets[].textures` | map key → asset id (texture), 1–64 entries |  |  | **Extracted textures.** The file's image index → the texture asset it was extracted into (written by the importer). (applies when `kind` is `model`) |
-| `assets[].clipsFor` | asset id (model) |  |  | **Clips for.** An animation-only file: its clips play on this model's rig. (applies when `kind` is `model`) |
-| `assets[].labels` | list of string, 1–64 chars, ≥ 1 items, distinct |  |  | **Labels.** Names a script may load the asset by, with every other asset carrying them (ascending; set with setLabels). (written by a tool) |
-| `assets[].address` | string, 1–128 chars |  |  | **Address.** The one name a script may load the asset by (unique in the project; set with setAddress). (written by a tool) |
-
-<a id="content-prefabs"></a>
-## prefabs — Prefabs
-
-Captured object groups placed as independent copies.
-
-- In every project: yes
-- Written by: [`createPrefab`](ops-detail.md#op-createPrefab), [`instantiatePrefab`](ops-detail.md#op-instantiatePrefab), [`deletePrefab`](ops-detail.md#op-deletePrefab)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `prefabs` | list of objects |  |  | **Prefabs.** The project's prefabs (each its own file). (required) |
-| `prefabs[].prefabId` | string, id, 1–64 chars |  |  | **Id.** The stable prefab id. (required; written by a tool; format id) |
-| `prefabs[].displayName` | string, name, 1–128 chars |  |  | **Name.** Shown in the prefab list. (required; written by a tool; format name) |
-| `prefabs[].createdRevision` | int |  | ≥ 0, step 1 | **Created at.** The project revision it was captured at. (required; written by a tool) |
-| `prefabs[].entityCount` | int |  | 1 – 1024, step 1 | **Objects.** How many objects it holds (derived). (required; written by a tool) |
-| `prefabs[].depth` | int |  | ≥ 1, step 1 | **Depth.** Hierarchy depth (derived). (required; written by a tool) |
-| `prefabs[].entities` | list of objects, 1–1024 items |  |  | **Objects.** 1–1024 objects, parents first. (required; written by a tool) |
-| `prefabs[].entities[].localId` | string, id, 1–64 chars |  |  | **Local id.** The id inside the prefab. (required; written by a tool; format id) |
-| `prefabs[].entities[].name` | string, name, 1–128 chars |  |  | **Name.** The object name. (written by a tool; format name) |
-| `prefabs[].entities[].parentLocalId` | string, id, 1–64 chars |  |  | **Parent.** The parent inside the prefab (none: a root). (may be null; written by a tool; format id) |
-| `prefabs[].entities[].components` | components (24 kinds) |  |  | **Components.** The prefab component vocabulary. (required; written by a tool; allowed: `transform`, `model`, `box`, `behavior`, `collider`, `surface`, `materials`, `animator`, `mover`, `trigger`, `switch`, `audioSource`, `faceMovement`, `materialParams`, `effect`, `blockFootprint`, `behaviorGroup`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `decal`) |

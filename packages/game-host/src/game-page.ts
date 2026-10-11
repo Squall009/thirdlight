@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { architectureFromUrl, batchingFromUrl, decalsFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, batchingFromUrl, decalsFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -952,6 +952,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           projectedDecals: decalsFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // Clipped decals too (an export keeps their meshes with the architecture's chunks between visits).
           clippedDecals: decalsFromUrl(pageSearch()),
+          // Vertex paint drawn unless the page says ?paint=off (a diagnostic comparison).
+          vertexPaint: paintFromUrl(pageSearch()),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

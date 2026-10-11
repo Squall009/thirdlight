@@ -39,6 +39,7 @@ import { INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type Prep
 export { chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
+import { PAINT_MESH_KEY, PAINT_STREAM_KEY, type PaintStream } from './vertex-paint-draw';
 
 /** `mesh.userData[INSTANCE_SET_KEY]`: the mesh draws copies of an instance set (one chunk, one mesh and level). */
 export const INSTANCE_SET_KEY = 'tlInstanceSet';
@@ -117,6 +118,20 @@ export interface InstanceSetOptions {
    * shadow near them would keep showing them where they were.
    */
   readonly moved?: (spheres: readonly number[]) => void;
+  /**
+   * Painted copies (an instance set's `paint`): each copy's paint slot (−1:
+   * unpainted) and, by mesh name, the stream of its slots' runs. A chunk draw
+   * with a painted copy reads its mesh's stream; the copies stay in that one
+   * draw.
+   */
+  readonly paint?: InstanceSetPaint;
+}
+
+/** What an instance set's draws read of its paint. */
+export interface InstanceSetPaint {
+  slotOf(copy: number): number;
+  /** The stream of a mesh's pool (its `PAINT_MESH_KEY` name), or undefined when it is not painted or its paint does not fit it. */
+  stream(mesh: string): PaintStream | undefined;
 }
 
 /** One mesh of the template: its offset in the model, and its LOD (index into `lods`, level) if it has one. */
@@ -292,7 +307,23 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
     const chunk = chunks[chunks.length - 1]!;
     const part = parts[k]!;
     const filter = chunk.picker?.filter(part.lod, part.level);
-    const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, pc.copies.length, { raycast: true, group: chunk.culler!, matrices: pc.matrices[k]!, ...(filter !== undefined ? { filter } : {}) });
+    // Its copies' paint slots, when its mesh is painted and a copy of the chunk is (else the plain draw).
+    const meshKey = part.mesh.userData[PAINT_MESH_KEY] as string | undefined;
+    const stream = meshKey === undefined ? undefined : options.paint?.stream(meshKey);
+    let slots: Float32Array | null = null;
+    if (stream !== undefined) {
+      for (let s = 0; s < pc.copies.length; s += 1) {
+        const at = options.paint!.slotOf(pc.copies[s]!);
+        if (at < 0 || at >= stream.slots) continue;
+        slots ??= new Float32Array(pc.copies.length);
+        slots[s] = at + 1;
+      }
+    }
+    const inst = createAttributeInstancedMesh(part.mesh.geometry, part.mesh.material as THREE.Material, pc.copies.length, { raycast: true, group: chunk.culler!, matrices: pc.matrices[k]!, ...(filter !== undefined ? { filter } : {}), ...(slots !== null ? { painted: true } : {}) });
+    if (slots !== null && stream !== undefined) {
+      inst.paintSlots!.set(slots);
+      inst.mesh.userData[PAINT_STREAM_KEY] = stream;
+    }
     inst.count = pc.copies.length;
     inst.mesh.name = part.mesh.name;
     // Tools counting instance-set copies (the perf harness's scene walk) find the chunk draws by it.

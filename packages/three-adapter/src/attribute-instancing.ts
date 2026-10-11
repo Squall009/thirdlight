@@ -29,6 +29,16 @@ import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type C
 /** The name prefix of the four instance-matrix columns (`…0` to `…3`, `vec4` each). */
 export const INSTANCE_MATRIX_ATTRIBUTE = 'tlInstanceMatrix';
 
+/**
+ * The marker of a draw whose instances carry paint slots (vertex-paint-draw.ts):
+ * a view of each matrix's float 3 (the first column's `w`, the unused fourth
+ * row of an affine matrix), never read by a shader. It is in the geometry so
+ * the painted draw's vertex layout, and so its program, is its own.
+ */
+export const PAINT_SLOT_ATTRIBUTE = 'tlPaintSlot';
+/** Where in an instance's 16 floats its paint slot rides. */
+const PAINT_SLOT_FLOAT = 3;
+
 /** The columns' names. */
 const COLUMNS = [0, 1, 2, 3].map((i) => `${INSTANCE_MATRIX_ATTRIBUTE}${i}`);
 
@@ -141,6 +151,12 @@ export interface AttributeInstancedMesh extends ViewCullable {
    * known already (made on a worker, or unchanged).
    */
   markChanged(bounds?: ArrayLike<number>): void;
+  /**
+   * Each slot's paint slot + 1 (0: unpainted), `capacity` long, on a draw made
+   * `painted` (else null): written into the drawn buffer beside the matrices
+   * at {@link markChanged}.
+   */
+  readonly paintSlots: Float32Array | null;
   /** Instance `i`'s matrix (mesh space). */
   getMatrixAt(i: number, out: THREE.Matrix4): THREE.Matrix4;
   /**
@@ -204,7 +220,15 @@ const sphereOut = new Float64Array(4);
  * instance-matrix columns. The source geometry's attributes, index, groups
  * and draw range are shared, not copied.
  */
-export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: { readonly raycast?: boolean; readonly filter?: InstanceFilter; readonly group?: ViewCullable; /** The slots' matrices, written already (`capacity × 16`; taken, not copied). */ readonly matrices?: Float32Array } = {}): AttributeInstancedMesh {
+export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: {
+    readonly raycast?: boolean;
+    readonly filter?: InstanceFilter;
+    readonly group?: ViewCullable;
+    /** The slots' matrices, written already (`capacity × 16`; taken, not copied). */
+    readonly matrices?: Float32Array;
+    /** The instances carry paint slots (`paintSlots`; a draw of its own program). */
+    readonly painted?: boolean;
+  } = {}): AttributeInstancedMesh {
   const filter = options.filter;
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
@@ -224,6 +248,12 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     geometry.setAttribute(name, column);
     return column;
   });
+  const paintSlots = options.painted === true ? new Float32Array(capacity) : null;
+  if (paintSlots !== null) {
+    const marker = new THREE.InterleavedBufferAttribute(buffer, 1, PAINT_SLOT_FLOAT);
+    geometry.setAttribute(PAINT_SLOT_ATTRIBUTE, marker);
+    columns.push(marker);
+  }
   geometry.instanceCount = 0;
   if (source.boundingSphere === null) source.computeBoundingSphere();
   geometry.boundingSphere = new THREE.Sphere();
@@ -292,6 +322,8 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       const to = at * 16;
       for (let k = 0; k < 16; k += 1) drawn[to + k] = array[from + k]!;
     }
+    // Each instance's paint slot travels with it in the order.
+    if (paintSlots !== null) for (let at = 0; at < len; at += 1) drawn[at * 16 + PAINT_SLOT_FLOAT] = paintSlots[order[at]!]!;
     // Only what was written goes to the GPU (a large group's view moves every frame).
     buffer.addUpdateRange(0, len * 16);
     buffer.needsUpdate = true;
@@ -299,6 +331,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   const copySlotOrder = (): void => {
     if (filter === undefined) {
       drawn.set(array.subarray(0, drawnCount * 16));
+      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) drawn[i * 16 + PAINT_SLOT_FLOAT] = paintSlots[i]!;
       buffer.addUpdateRange(0, drawnCount * 16);
       buffer.needsUpdate = true;
       includedCount = drawnCount;
@@ -344,6 +377,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     ...(options.group !== undefined ? { group: options.group } : {}),
     capacity,
     array,
+    paintSlots,
     count: 0,
     get inView() {
       return culledFor !== null && culledStamp === culledFor.stamp ? inView : includedCount;

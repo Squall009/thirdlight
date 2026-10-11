@@ -61,7 +61,8 @@ import { createScenePreparations } from './scene-preparation';
 import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
-import { materialParamsOf, modelRefsOf } from './entity-refs';
+import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
+import { vertexPaintDiagnostics } from './vertex-paint-draw';
 import { type ArchitectureComponent, type BlockLayerComponent, type BlockLayerData, type BlockType, type GridRenderChange, type SplineComponent, type TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
@@ -584,9 +585,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
     const spline = (e.components as { spline?: SplineComponent }).spline;
-    if (spline !== undefined) splines.set(e.id, spline, t.position);
+    if (spline !== undefined) splines.set(e.id, spline, t.position, opts.vertexPaint !== false ? pathPaintOf(e.components) : undefined);
     const arch = (e.components as { architecture?: ArchitectureComponent }).architecture;
-    if (arch !== undefined) architecture.set(e.id, arch, t.position);
+    if (arch !== undefined) architecture.set(e.id, arch, t.position, opts.vertexPaint !== false ? pathPaintOf(e.components) : undefined);
     if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     decalPages?.set(e.id, (e.components as { decal?: { material?: string } }).decal?.material ?? null);
@@ -685,7 +686,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (opts.models !== undefined) {
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
     // the adapter never re-validates (the runtime already did).
-    const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
+    const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities, paints: modelPaint } = modelRefsOf(opts.snapshot.scene.entities);
     // No game session drives the roles (the idle/run/airborne
     // profile of an older project): every animated entity gets the constant
     // neutral motion at the runtime's step, so the accepted pure selector
@@ -709,6 +710,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       modelEntities,
       modelAnimationEntities,
       instanceEntities,
+      modelPaint,
+      vertexPaint: opts.vertexPaint !== false,
       modelPieces,
       materialLibrary,
       resources,
@@ -1656,6 +1659,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (projected !== null && projected.decals > 0) d.projectedDecals = projected;
     const clips = clipped !== null && !disposed ? clipped.diagnostics() : null;
     if (clips !== null && clips.decals > 0) d.clippedDecals = clips;
+    const painted = disposed ? null : vertexPaintDiagnostics(scene);
+    if (painted !== null) d.vertexPaint = painted;
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
     return {

@@ -233,6 +233,12 @@ export interface SceneAdapterOptions {
    */
   clippedDecals?: boolean;
   /**
+   * Vertex paint (`vertexPaint`, an instance set's `paint`) drawn on models,
+   * instance copies and generated meshes (`vertex-paint-draw.ts`; default
+   * true). False: none drawn (`?paint=off`, a diagnostic comparison).
+   */
+  vertexPaint?: boolean;
+  /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;
    * default true). False: every caster drawn into one map every frame (tests
@@ -403,6 +409,8 @@ export interface SceneAdapterDiagnostics {
   projectedDecals?: DecalProjectorsObservation;
   /** Clipped decals: their meshes, what is still being made, where meshes came from and what a clip cost (only once a decal is clipped). */
   clippedDecals?: import('./clipped-decals').ClippedDecalsDiagnostics;
+  /** Vertex paint drawn: painted meshes alone and merged, instanced draws reading a paint stream and their copies, GPU bytes; ABSENT without any. */
+  vertexPaint?: import('./vertex-paint-draw').VertexPaintDiagnostics;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then

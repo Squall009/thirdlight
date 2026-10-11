@@ -191,6 +191,36 @@ export function modelNodeSegments(siblings: readonly { index: number; name: stri
   });
 }
 
+/**
+ * Each node's path from the scene root (glTF JSON), as {@link readModelGeometry}
+ * names the meshes it reads: a renderer that loaded the file names its meshes
+ * the same way without decoding them (vertex paint is stored by these names).
+ */
+export function modelNodePaths(json: Readonly<Record<string, unknown>>): Map<number, string> {
+  const nodes = Array.isArray(json['nodes']) ? (json['nodes'] as unknown[]) : [];
+  const scenes = Array.isArray(json['scenes']) ? (json['scenes'] as unknown[]) : [];
+  const scene = scenes[typeof json['scene'] === 'number' ? json['scene'] : 0];
+  const out = new Map<number, string>();
+  const seen = new Set<number>();
+  const visitAll = (list: readonly unknown[], depth: number, prefix: string): void => {
+    const segments = modelNodeSegments(list.map((k) => {
+      const def = typeof k === 'number' ? nodes[k] : undefined;
+      return { index: typeof k === 'number' ? k : -1, name: isObj(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
+    }));
+    list.forEach((k, i) => {
+      if (typeof k !== 'number' || depth > READ_LIMITS.depth || seen.has(k)) return;
+      const def = nodes[k];
+      if (!isObj(def)) return;
+      seen.add(k);
+      const path = `${prefix}${segments[i]!}`;
+      out.set(k, path);
+      visitAll(Array.isArray(def['children']) ? (def['children'] as unknown[]) : [], depth + 1, `${path}/`);
+    });
+  };
+  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], 0, '');
+  return out;
+}
+
 /** Read a model's mesh primitives in root space. Never throws. */
 export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
   const chunks = glbChunks(bytes);

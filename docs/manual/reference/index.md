@@ -20,9 +20,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Components: Organisation](components-organisation.md) | prefab — Prefab link, folder — Folder |
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
-| [Content documents (materials to effects)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers, effects — Effects |
-| [Content documents (scriptLibraries to prefabs)](content-blocks-script-libraries.md) | 25 sections |
-| [Content documents (behaviors to lighting)](content-blocks-behaviors.md) | behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
+| [Content documents (materials to animators)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers |
+| [Content documents (effects to startScenes)](content-blocks-effects.md) | 24 sections |
+| [Content documents (assets to lighting)](content-blocks-assets.md) | assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |

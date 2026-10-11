@@ -15,6 +15,9 @@
  *   (or "*"); without one, a plain grey surface or a blue, see-through water.
  *   Water carries its flow (UV set 1) and foam (vertex colour red) for a
  *   water material to read.
+ * - Vertex paint (`vertexPaint.paths`, path `spline`) is sampled onto the
+ *   pieces' vertices as they are drawn (vertex-paint-paths-view.ts); a stroke
+ *   draws the made data again, never makes it again.
  * - A spline whose data changed keeps drawing what it had until the new
  *   blob is in (also when its object is released and realized again, as an
  *   edit does: a release takes effect at the next frame's update).
@@ -28,6 +31,9 @@ import type { LodTuning } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
 import type { ModelInstance } from './visual';
+import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
+import { pathPaintAttribute, pathPaintSignature, PathPaintReader } from './vertex-paint-paths-view';
+import type { PathPaintGrid, PathPaintSource } from '@thirdlight/runtime';
 
 /** Screen rows a level's error is measured against (1080p): it switches where its error is under one of them. */
 const LOD_REFERENCE_ROWS = 1080;
@@ -88,11 +94,19 @@ interface Rec {
   reading: string | null;
   /** Released (its object realized again, or gone): dropped at the next update unless set again first. */
   leaving: boolean;
+  /** Its vertex paint: the grids, their signature, what is sampled from (null: none; 'pending': being read), and the paint drawn. */
+  paintGrids: readonly PathPaintGrid[] | undefined;
+  paintSig: string;
+  paint: readonly PathPaintSource[] | null | 'pending';
+  builtPaint: string;
 }
 
 /** What the view draws (diagnostics). */
 export interface SplineViewDiagnostics {
   splines: number;
+  /** Splines with vertex paint: drawn with it, and whose grids are still being read. */
+  painted: number;
+  paintPending: number;
   meshPieces: number;
   /** Triangles of the finest levels, and the copies of the pieces' models. */
   triangles: number;
@@ -108,19 +122,27 @@ export class SplineView {
   private disposed = false;
   private plain: THREE.MeshStandardMaterial | null = null;
   private water: THREE.MeshStandardMaterial | null = null;
+  private readonly paintReader: PathPaintReader;
 
-  constructor(private readonly deps: SplineViewDeps) {}
+  constructor(private readonly deps: SplineViewDeps) {
+    this.paintReader = new PathPaintReader(deps.read);
+  }
 
-  /** An object carrying `spline` was realized (or realized again), at `origin`. */
-  set(id: string, component: SplineComponent, origin: readonly number[]): void {
+  /** An object carrying `spline` (and its `vertexPaint.paths`) was realized (or realized again), at `origin`. */
+  set(id: string, component: SplineComponent, origin: readonly number[], paint?: readonly PathPaintGrid[]): void {
     const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     const had = this.splines.get(id);
-    const rec: Rec = had ?? { component, origin: o, hidden: false, built: null, builtDigest: null, made: null, madeDigest: null, reading: null, leaving: false };
+    const rec: Rec = had ?? { component, origin: o, hidden: false, built: null, builtDigest: null, made: null, madeDigest: null, reading: null, leaving: false, paintGrids: undefined, paintSig: '', paint: null, builtPaint: '' };
     const moved = had !== undefined && had.origin.some((v, i) => v !== o[i]);
     const coverBefore = had?.component.scatter !== undefined;
+    const paintBefore = rec.paintSig;
+    const curveBefore = rec.component;
     rec.leaving = false;
     rec.component = component;
     rec.origin = o;
+    rec.paintGrids = paint;
+    rec.paintSig = pathPaintSignature(paint);
+    if (had === undefined || rec.paintSig !== paintBefore || curveBefore !== component) this.readPaint(id, rec);
     this.splines.set(id, rec);
     if (coverBefore || component.scatter !== undefined) this.pushCover();
     const digest = this.deps.drawn === false ? null : (component.data ?? null);
@@ -137,7 +159,7 @@ export class SplineView {
       if (!rec.hidden) this.deps.place(rec.built.root, true);
       this.deps.shapeChanged();
     }
-    if (rec.builtDigest === digest && rec.built !== null) return;
+    if (rec.builtDigest === digest && rec.built !== null && rec.builtPaint === rec.paintSig) return;
     if (rec.madeDigest === digest && rec.made !== null) {
       this.build(id, rec);
       return;
@@ -153,6 +175,18 @@ export class SplineView {
   remove(id: string): void {
     const rec = this.splines.get(id);
     if (rec !== undefined) rec.leaving = true;
+  }
+
+  /** A spline's paint sources (read first when its grids are not yet): drawn again with them once made. */
+  private readPaint(id: string, rec: Rec): void {
+    const sig = rec.paintSig;
+    const curve = rec.component;
+    const got = this.paintReader.sources({ spline: curve }, rec.paintGrids, () => {
+      if (this.splines.get(id) !== rec || rec.paintSig !== sig || rec.component !== curve || this.disposed) return;
+      this.readPaint(id, rec);
+      if (rec.made !== null && rec.madeDigest === rec.component.data) this.build(id, rec);
+    });
+    rec.paint = got;
   }
 
   /** Drop the splines released and not set again (call once a frame, before the draw). */
@@ -195,14 +229,18 @@ export class SplineView {
     let triangles = 0;
     let copies = 0;
     let reading = 0;
+    let painted = 0;
+    let paintPending = 0;
     for (const r of this.splines.values()) {
+      if (r.paint === 'pending') paintPending += 1;
+      else if (r.paint !== null && r.built !== null && r.builtPaint === r.paintSig) painted += 1;
       if (r.reading !== null) reading += 1;
       if (r.built === null) continue;
       pieces += r.built.pieces;
       triangles += r.built.triangles;
       for (const s of r.built.sets) copies += s.count;
     }
-    return { splines: this.splines.size, meshPieces: pieces, triangles, copies, reading, errors: [...this.errors] };
+    return { splines: this.splines.size, painted, paintPending, meshPieces: pieces, triangles, copies, reading, errors: [...this.errors] };
   }
 
   private pushCover(): void {
@@ -242,7 +280,9 @@ export class SplineView {
   /** Draw a spline's made data (once every model its pieces repeat is in; their arrival builds it again). */
   private build(id: string, rec: Rec): void {
     const made = rec.made;
-    if (made === null || this.disposed) return;
+    // Its paint is being read: drawn once it is, painted from its first frame.
+    if (made === null || this.disposed || rec.paint === 'pending') return;
+    const paint = rec.paint;
     const c = rec.component;
     const templates = made.copies.map((k) => {
       const p = c.pieces?.[k.index];
@@ -267,6 +307,9 @@ export class SplineView {
           normal: new THREE.BufferAttribute(p.normals, 3),
           uv: new THREE.BufferAttribute(p.uvs, 2),
         };
+        // The piece's vertices are relative to its centre: the paint reads them in the object's frame.
+        const painted = paint === null ? null : pathPaintAttribute(paint, p.positions, p.normals, p.center);
+        if (painted !== null) base[PAINT_ATTRIBUTE] = painted;
         if (p.flow !== null && p.foam !== null) {
           base['uv1'] = new THREE.BufferAttribute(p.flow, 2);
           const color = new Float32Array((p.positions.length / 3) * 3);
@@ -323,6 +366,7 @@ export class SplineView {
     this.drop(rec);
     rec.built = { root, geometries, sets, undo, triangles, pieces: made.pieces.length };
     rec.builtDigest = rec.madeDigest;
+    rec.builtPaint = rec.paintSig;
     if (!rec.hidden) this.deps.place(root, true);
     this.deps.shapeChanged();
     this.deps.changed();

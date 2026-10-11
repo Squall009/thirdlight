@@ -137,14 +137,14 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     label: 'Vertex colour',
     category: 'Inputs',
     description:
-      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer).',
+      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object\'s vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.',
     inputs: [],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
     // White multiplies to no change (a tint); zero means "no effect" for data channels.
-    // `set` (a second colour set) and `first` (layer weights) appended; existing graphs keep their meaning.
+    // `set` (a second colour set), `first` (layer weights) and set `paint` (vertex paint) appended; existing graphs keep their meaning.
     fields: [
       { key: 'absent', label: 'Without the set', type: 'enum', options: ['white', 'zero', 'first'], default: 'white' },
-      { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1'], default: 'COLOR_0' },
+      { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1', 'paint'], default: 'COLOR_0' },
     ],
   },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
@@ -369,7 +369,7 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     label: 'Height blend',
     category: 'Textures',
     description:
-      'Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers\' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer\'s height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer\'s peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.',
+      'Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers\' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer\'s height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer\'s peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Unwired, the weights are the object\'s vertex paint where it is painted (R, G, B, A: one layer each; an unpainted vertex shows the first layer), else (1, 0, 0, 0). Feed the weights to Weighted mix nodes.',
     // Contrast and offset come last, so existing wires keep their ports; unwired, the heights are used as they are.
     inputs: [port('weights', 'weights', 'vec4', [1, 0, 0, 0]), port('heights', 'heights', 'vec4', [0, 0, 0, 0]), port('depth', 'depth', 'float', 0.2), port('contrast', 'contrast', 'vec4', [1, 1, 1, 1]), port('offset', 'offset', 'vec4', [0, 0, 0, 0])],
     outputs: [port('weights', 'weights', 'vec4')],

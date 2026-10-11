@@ -68,6 +68,8 @@ import {
   createVisualResourceStore,
 } from './visual';
 import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
+import { applyModelPaint, instancePaintDigests, instanceSetPaint, modelPaintDigests } from './vertex-paint-models';
+import type { InstancePaint, VertexPaintMesh } from '@thirdlight/runtime';
 import type { LodTuning } from './lod-switch';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';
@@ -212,6 +214,8 @@ interface AttachedModel {
   disposed: boolean;
   /** Restores the file's materials. */
   undoMaterials?: (() => void) | null;
+  /** Puts the model's own geometries back on its painted meshes and frees the paint (null: none painted). */
+  undoPaint: (() => void) | null;
 }
 
 /** The context the adapter hands the realization (all owned by the
@@ -234,6 +238,10 @@ export interface ModelsRealizationContext {
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
   /** The snapshot's instance-set entities (`components.instances`). */
   readonly instanceEntities?: ReadonlyMap<string, InstanceSetRef>;
+  /** The vertex paint of `model` entities (`components.vertexPaint.meshes`). */
+  readonly modelPaint?: ReadonlyMap<string, readonly VertexPaintMesh[]>;
+  /** False: models and instance copies are drawn without their vertex paint (`?paint=off`, a diagnostic comparison). */
+  readonly vertexPaint?: boolean;
   /** `model` entities that show one piece of their file: `entityId` → piece name. */
   readonly modelPieces?: ReadonlyMap<string, string>;
   /** Project materials, and an entity's own material mapping. */
@@ -281,6 +289,7 @@ export interface ModelsRealization {
     readonly pieces?: ReadonlyMap<string, string>;
     readonly animations: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
     readonly instances: ReadonlyMap<string, InstanceSetRef>;
+    readonly paints?: ReadonlyMap<string, readonly VertexPaintMesh[]>;
   }): void;
   /**
    * Release the models of unloaded entities; an asset no
@@ -343,6 +352,8 @@ export interface InstanceSetRef {
   readonly density?: InstanceDensity;
   /** Each copy picks its own level (absent: its chunk's level). */
   readonly lodPerCopy?: boolean;
+  /** Its painted copies (`components.instances.paint`). */
+  readonly paint?: InstancePaint;
 }
 
 
@@ -544,6 +555,19 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const modelAnimationEntities = new Map(ctx.modelAnimationEntities);
   const instanceEntities = new Map(ctx.instanceEntities ?? []);
   const modelPieces = new Map(ctx.modelPieces ?? []);
+  const paintOn = ctx.vertexPaint !== false;
+  const modelPaint = new Map(paintOn ? (ctx.modelPaint ?? []) : []);
+  /** An instance set's paint as drawn (none with paint off). */
+  const setPaintOf = (ref: InstanceSetRef | undefined): InstancePaint | undefined => (paintOn ? ref?.paint : undefined);
+  /** The blobs an entity's paint reads (its models' meshes, its instance set's table and pools). */
+  const paintDigestsOf = (entityId: string): string[] => [...modelPaintDigests(modelPaint.get(entityId)), ...instancePaintDigests(setPaintOf(instanceEntities.get(entityId)))];
+  /** A read paint blob's bytes (the buffers keep every blob as floats; paint is 4 bytes a vertex, a table 8 an entry). */
+  const paintBlob = (digest: string): Uint8Array | undefined => {
+    const f = buffers.get(digest);
+    return f === undefined ? undefined : new Uint8Array(f.buffer, f.byteOffset, f.byteLength);
+  };
+  /** Whether an entity's paint is still being read (it is drawn once it is in, or could not be read). */
+  const paintPending = (entityId: string): boolean => paintDigestsOf(entityId).some((d) => bufferLoads.has(d));
   /** The instance options for an entity: its piece and the asset's vertex-colour mode. */
   /** An entity's material mapping (the asset's default under its own). */
   const mappingFor = (entityId: string, assetId: string): Record<string, string> | null => {
@@ -598,7 +622,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     for (const check of [...holdWaiters]) if (check()) holdWaiters.delete(check);
   };
   const bufferInUse = (digest: string): boolean => {
-    for (const r of instanceEntities.values()) if (r.buffer === digest) return true;
+    for (const r of instanceEntities.values()) if (r.buffer === digest || instancePaintDigests(setPaintOf(r)).includes(digest)) return true;
+    for (const records of modelPaint.values()) if (records.some((r) => r.paint === digest)) return true;
     for (const h of holds) if (h.buffers.has(digest)) return true;
     return false;
   };
@@ -826,6 +851,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     if (row === undefined) return;
     for (const [entityId, entityAssetId] of modelEntities) {
       if (entityAssetId !== assetId || attached.has(entityId)) continue;
+      // Drawn with its paint from its first frame: attached once its paint is read (its arrival attaches it).
+      if (paintPending(entityId)) continue;
       const holder = ctx.holderFor(entityId);
       if (holder === null) continue; // defensive: no holder — skip (bounded)
       const created = resource.createInstance(instanceOptions(assetId, modelPieces.get(entityId)));
@@ -840,6 +867,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       }
       const instance = created.instance;
       const cloned = cloneInstanceMaterials(instance, cloneOf);
+      const undoPaint = applyModelPaint(instance.root, modelPaint.get(entityId) ?? [], paintBlob);
       holder.add(instance.root);
       const rec: AttachedModel = {
         entityId,
@@ -849,6 +877,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         roleUnresolved: false,
         diagnosticCode: null,
         disposed: false,
+        undoPaint,
       };
       attached.set(entityId, rec);
       rec.undoMaterials = applyMaterials(entityId, assetId, instance.root);
@@ -906,19 +935,22 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const resource = readyResource(ref.assetId);
     const floats = buffers.get(ref.buffer);
     const holder = ctx.holderFor(entityId);
-    if (resource === undefined || floats === undefined || holder === null) return;
+    if (resource === undefined || floats === undefined || holder === null || paintPending(entityId)) return;
     const created = resource.createInstance(instanceOptions(ref.assetId, ref.piece));
     if (created.ok === false) return;
     const template = created.instance;
+    const setPaint = setPaintOf(ref);
+    const painted = setPaint !== undefined ? instanceSetPaint(template.root, setPaint, paintBlob) : null;
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, {
       chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS,
       density: ref.density ?? instanceDensityOf(undefined),
       lodPerCopy: ref.lodPerCopy === true,
       ...(ctx.lodTuning !== undefined ? { tuning: ctx.lodTuning } : {}),
       ...(ctx.copiesMoved !== undefined ? { moved: ctx.copiesMoved } : {}),
+      ...(painted !== null ? { paint: painted.paint } : {}),
     });
     holder.add(built.group);
-    attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group) });
+    attachedSets.set(entityId, { entityId, template, built, undoMaterials: applyMaterials(entityId, ref.assetId, built.group), paint: painted });
     ctx.onAttached?.(entityId, built.group);
     ctx.models.onInstanceSetBuilt?.(entityId, built.chunks);
   }
@@ -927,6 +959,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     // The chunks go before their materials may (a material released with its last user takes the
     // chunks' render objects, and with them the way to their instance buffers).
     set.built.dispose(); // the instance matrices (geometry/materials belong to the resource)
+    set.paint?.dispose();
     set.undoMaterials?.();
     try {
       set.template.dispose();
@@ -947,20 +980,37 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (disposed) return;
         if (bufferInUse(digest)) {
           buffers.set(digest, new Float32Array(bytes.slice(0)));
-          for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest) attachInstanceSet(entityId, ref);
+          for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest || instancePaintDigests(setPaintOf(ref)).includes(digest)) attachInstanceSet(entityId, ref);
         }
+        attachPainted(digest);
         notifyHolds();
       },
       () => {
         bufferLoads.delete(digest);
+        // Paint that cannot be read is not drawn; its model is.
+        attachPainted(digest);
         notifyHolds();
       },
     );
   }
 
+  /** The models whose paint a blob read (or failed to read) completes: attached now. */
+  function attachPainted(digest: string): void {
+    if (disposed) return;
+    for (const [entityId, records] of modelPaint) {
+      if (attached.has(entityId) || !records.some((r) => r.paint === digest)) continue;
+      const assetId = modelEntities.get(entityId);
+      const ready = assetId === undefined ? undefined : readyResource(assetId);
+      if (assetId !== undefined && ready !== undefined) attachForAsset(assetId, ready);
+    }
+  }
+
   function disposeAttached(rec: AttachedModel): void {
     if (rec.disposed) return;
     rec.disposed = true;
+    // The painted geometries go before the instance (they share its geometry's attributes).
+    rec.undoPaint?.();
+    rec.undoPaint = null;
     // A glow's own material copies go first (the material undo below restores the shared ones).
     releaseEmissiveLooks(rec.instance.root);
     rec.undoMaterials?.();
@@ -1006,6 +1056,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   // The start scenes' assets (these gate the settle).
   holdEntities(modelEntities, instanceEntities);
   for (const ref of instanceEntities.values()) ensureBuffer(ref.buffer);
+  for (const id of new Set([...modelPaint.keys(), ...instanceEntities.keys()])) for (const d of paintDigestsOf(id)) ensureBuffer(d);
   initial = false;
 
   const realization: ModelsRealization = {
@@ -1145,6 +1196,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       for (const [id, piece] of entities.pieces ?? []) modelPieces.set(id, piece);
       for (const [id, anim] of entities.animations) modelAnimationEntities.set(id, anim);
       for (const [id, ref] of entities.instances) instanceEntities.set(id, ref);
+      if (paintOn) for (const [id, records] of entities.paints ?? []) modelPaint.set(id, records);
+      // Paint first: a model whose paint is being read waits for it.
+      for (const id of new Set([...(entities.paints?.keys() ?? []), ...entities.instances.keys()])) for (const d of paintDigestsOf(id)) ensureBuffer(d);
       holdEntities(entities.models, entities.instances);
       for (const ref of entities.instances.values()) ensureBuffer(ref.buffer);
     },
@@ -1160,6 +1214,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         modelAnimationEntities.delete(id);
         instanceEntities.delete(id);
         modelPieces.delete(id);
+        modelPaint.delete(id);
         // Its file (and an animation-only file its animator played) is let go; freed once no one holds it.
         const holder = entityHolder(id);
         resources.releaseHolder(holder);
@@ -1252,4 +1307,6 @@ interface AttachedInstanceSet {
   readonly template: ModelInstance;
   readonly built: BuiltInstanceSet;
   undoMaterials?: (() => void) | null;
+  /** Its copies' paint streams (null: none drawn). */
+  readonly paint: { dispose(): void } | null;
 }

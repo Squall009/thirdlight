@@ -1,4 +1,4 @@
-# Content documents (materials to effects)
+# Content documents (materials to animators)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -33,6 +33,7 @@ Project materials.
 | `materials[].params.normalScale` | number | `1` | 0 – 4, step 0.1 | **Normal Scale.** The standard shader's normal scale (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.aoIntensity` | number | `1` | 0 – 2, step 0.1 | **AO Intensity.** The standard shader's ao intensity (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.localLights` | enum: `object`, `pixel`, `vertex`, `none` | `"object"` |  | **Local Lights.** The standard shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
+| `materials[].params.paintTint` | bool | `false` |  | **Paint Tint.** The standard shader's paint tint (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The foliage shader's color (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.roughness` | number | `0.8` | 0 – 1, step 0.01 | **Roughness.** The foliage shader's roughness (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.metalness` | number | `0` | 0 – 1, step 0.01 | **Metalness.** The foliage shader's metalness (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
@@ -262,39 +263,3 @@ State machines for model animation.
 | `animators[].layers[].transitions[].exitTime` | number |  | 0 – 100, step 0.05 | **Exit time.** Only after this normalized time of the source state (absent: any time). |
 | `animators[].layers[].transitions[].interruption` | enum: `none`, `source` | `"none"` |  | **Interruption.** None, or a newer transition from the current state may cut in. |
 | `animators[].layers[].entry` | animatorState id |  |  | **Entry state.** The state the layer starts in. (required) |
-
-<a id="content-effects"></a>
-## effects — Effects
-
-Visual effects: particle systems authored as node graphs.
-
-- In every project: no
-- Written by: [`setEffect`](ops-detail.md#op-setEffect), [`deleteEffect`](ops-detail.md#op-deleteEffect), [`renameEffect`](ops-detail.md#op-renameEffect), [`graphEdit`](ops-detail.md#op-graphEdit)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `effects` | list of objects | `[]` |  | **Effects.** The project's effects (each its own file). |
-| `effects[].effectId` | string, id, 1–64 chars |  |  | **Id.** The stable effect id. (required; written by a tool; format id) |
-| `effects[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in pickers and the Effects list. (required; format name) |
-| `effects[].duration` | number | `2` | 0.01 – 3600, step 0.1, s | **Duration.** One cycle of the effect (bursts and the effect time refer to it). (required) |
-| `effects[].loop` | bool | `true` |  | **Loop.** Restart the cycle at its end (off: spawning stops and the effect ends when its particles are gone). (required) |
-| `effects[].seed` | int | `1` | 0 – 4294967295, step 1 | **Seed.** The random seed: the same seed gives the same particles. (required) |
-| `effects[].bounds` | object |  |  | **Bounds.** The culling box around the origin: the effect is skipped when this box is off screen. (required) |
-| `effects[].bounds.center` | vec3 [x, y, z] | `[0,1,0]` | -10000 – 10000, step 0.1, m | **Centre.** The box centre relative to the origin. (required) |
-| `effects[].bounds.size` | vec3 [x, y, z] | `[4,4,4]` | > 0, ≤ 10000, step 0.1, m | **Size.** The box size. (required) |
-| `effects[].parameters` | list of objects, ≤ 32 items |  |  | **Exposed parameters.** Up to 32 parameters the systems read (Parameter nodes); objects may override the public ones. |
-| `effects[].parameters[].key` | string, identifier, 1–32 chars |  |  | **Key.** The name Parameter nodes and overrides use. (required; format identifier) |
-| `effects[].parameters[].type` | enum: `float`, `vec3`, `color` | `"float"` |  | **Type.** The value type. (required) |
-| `effects[].parameters[].default` | JSON (typed by effectParameter) |  |  | **Default.** The effect's own value (a number, 3 numbers or "#rrggbb"). (required) |
-| `effects[].parameters[].min` | number |  |  | **Min.** The lowest value, within ±1e6 (numbers and vectors). (applies when `type` is `float` or `vec3`) |
-| `effects[].parameters[].max` | number |  |  | **Max.** The highest value, within ±1e6 and at least min (numbers and vectors). (applies when `type` is `float` or `vec3`) |
-| `effects[].parameters[].visibility` | enum: `public`, `private` | `"public"` |  | **Visibility.** Public: objects may override it. Private: the effect's value only. (stored only when not the default) |
-| `effects[].parameters[].label` | string, 1–64 chars |  |  | **Label.** Shown instead of the key. |
-| `effects[].parameters[].group` | string, 1–64 chars |  |  | **Group.** A foldable group in the Inspector. |
-| `effects[].parameters[].tooltip` | string, 1–256 chars |  |  | **Tooltip.** Help text. |
-| `effects[].systems` | list of objects, ≤ 16 items | `[]` |  | **Systems.** Up to 16 particle systems, in evaluation order. (required) |
-| `effects[].systems[].systemId` | string, id, 1–64 chars |  |  | **Id.** The stable system id (unique in the effect). (required; written by a tool; format id) |
-| `effects[].systems[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the Effect tab. (required; format name) |
-| `effects[].systems[].maxParticles` | int | `1000` | 1 – 1048576, step 1 | **Max particles.** The most living particles (executors may cap lower; the CPU fallback does). (required) |
-| `effects[].systems[].space` | enum: `local`, `world` | `"local"` |  | **Simulation space.** Local: particles move with the object. World: they stay where they were born. (required) |
-| `effects[].systems[].graph` | JSON |  |  | **Graph.** The system graph (graph kind "effect": Spawn, Initialize, Update and Output chains), edited in the Effect tab with graph edits. (required; written by a tool) |

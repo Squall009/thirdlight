@@ -83,14 +83,14 @@
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
  * applies it through the real command API, like the village.
  */
-import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
+import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { layeredMaterial, riverMaterial } from '../../packages/editor/src/session/material-graph';
 import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
-import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
+import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, COPY_STROKE_RADIUS, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINT_STROKE_RADIUS, PAINTED_MATERIAL, type LevelMarks, type LevelMarksOptions } from './level-marks';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -686,11 +686,8 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
     },
     markOptions,
   );
-  // A painted prop is drawn from its file's painted twin.
-  for (const id of marks.paintedProps) {
-    const model = entities.find((e) => e.id === id)!.components['model'] as { asset: { assetId: string } };
-    model.asset = { assetId: `${model.asset.assetId}${PAINTED_FILE_SUFFIX}` };
-  }
+  // Painted props and the sets of painted copies wear the material that reads the paint (their strokes come once they exist).
+  for (const id of new Set([...marks.paintedProps, ...marks.paintedCopies.map((c) => c.entityId)])) entities.find((e) => e.id === id)!.components['materials'] = { '*': PAINTED_MATERIAL };
   entities.push(...markEntities(marks));
   Object.assign(counts, markCounts(marks));
 
@@ -789,16 +786,42 @@ export const LEVEL_LOOK = Object.freeze({
 /** A landscape's height fog: a haze lying in the valleys, thinning over some 30 m of height, with a sun glow. */
 export const LEVEL_HEIGHT_FOG = Object.freeze({ density: 0.004, color: '#c9d3df', height: 0, falloff: 0.03, start: 40, inscatterColor: '#ffd9a0', inscatterExponent: 8 });
 
+/**
+ * The painted props' and copies' strokes (`paintVertices`, the editor's and
+ * MCP's command): a prop red at full alpha from a dab at its foot reaching all
+ * of it (two strokes: R, then A); a copy one stroke per channel at its place.
+ */
+async function paintMarks(p: ReturnType<PerfBackend['project']>, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, plan: LevelPlan, m: LevelMarks, log: (s: string) => void): Promise<void> {
+  if (m.paintedProps.length + m.paintedCopies.length === 0) return;
+  const t = performance.now();
+  const listed = (await p.query('queryEntities', { limit: 5000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[];
+  const byName = new Map(listed.map((e) => [e.name, e]));
+  const planned = new Map(plan.batches.flat().map((e) => [e.id, e]));
+  const stroke = async (entityId: string, at: readonly number[], radius: number, extra: Record<string, unknown> = {}): Promise<void> => {
+    for (const channel of [0, 3]) await cmd('paintVertices', { entityId, dabs: [at], brush: { radius, strength: 1, channel, falloff: 'constant' }, ...extra });
+  };
+  for (const id of m.paintedProps) {
+    const e = planned.get(id)!;
+    const live = byName.get(e.name)!;
+    await stroke(live.id, (e.components['transform'] as { position: number[] }).position, PAINT_STROKE_RADIUS);
+  }
+  for (const c of m.paintedCopies) {
+    const e = planned.get(c.entityId)!;
+    const live = byName.get(e.name)!;
+    const buffer = plan.buffers.find((b) => b.key === c.entityId)!.floats;
+    const origin = (e.components['transform'] as { position: number[] }).position;
+    const at = [0, 1, 2].map((k) => origin[k]! + buffer[c.index * INSTANCE_FLOATS + k]!);
+    await stroke(live.id, at, COPY_STROKE_RADIUS, { copy: c.index });
+  }
+  log(`level ${plan.kind}: ${m.paintedProps.length} props and ${m.paintedCopies.length} copies painted (${(m.paintedProps.length + m.paintedCopies.length) * 2} strokes) in ${Math.round(performance.now() - t)} ms`);
+}
+
 /** The marks' files and material: refused first when a kind waits for an engine part (level-marks.ts). */
 async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, plan: LevelPlan, m: LevelMarks): Promise<void> {
   const refused = marksNotBuilt(m);
   if (refused !== null) throw new Error(refused);
-  // The painted twins of the files painted props are drawn from.
-  const painted = new Set(plan.batches.flat().map((e) => (e.components['model'] as { asset?: { assetId?: string } } | undefined)?.asset?.assetId).filter((id): id is string => id?.endsWith(PAINTED_FILE_SUFFIX) === true));
-  for (const f of plan.props) {
-    const assetId = `${f.assetId}${PAINTED_FILE_SUFFIX}`;
-    if (painted.has(assetId)) await publishFileVia(be, projectId, cmd, { assetId, kind: 'model', displayName: assetId, bytes: propGlb(f.seed, f.spec, true) });
-  }
+  // What painted props and copies wear: a standard surface the paint tints (RGB the tint, A how much).
+  if (m.paintedProps.length + m.paintedCopies.length > 0) await cmd('setMaterial', { material: { materialId: PAINTED_MATERIAL, name: 'Level painted', shader: 'standard', params: { color: '#d8d0c4', roughness: 0.8, paintTint: true }, textures: {} } });
   if (m.meshDecals.length > 0 || m.decals.length > 0 || m.clippedDecals.length > 0) {
     // One decal material (a stain image on the build's decal pages): mesh decals wear it over a quad, projected ones mark with it.
     await publishFileVia(be, projectId, cmd, { assetId: MARK_DECAL_IMAGE, kind: 'texture', displayName: 'Level mark stain', bytes: markStainPng(plan.seed, 256) });
@@ -974,6 +997,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     const baked = (await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: levelScatterTerrain(plan.foliage, plan.impostorSize) }))['terrain'] as { scatter?: unknown[] } | undefined;
     log(`level ${plan.kind}: scatter baked into ${baked?.scatter?.length ?? 0} tiles in ${Math.round(performance.now() - ts)} ms (the command's round trip)`);
   }
+  if (plan.marks !== undefined) await paintMarks(p, cmd, plan, plan.marks, log);
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position, rotation: plan.camera.rotation } });

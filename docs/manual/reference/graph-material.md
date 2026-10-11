@@ -50,7 +50,7 @@ Implicit conversions:
 - Colour (`color`): A constant colour (sRGB, converted to linear) and an alpha.
 - Time (`time`): Seconds since the game started (scaled by the game clock).
 - UV (`uv`): A texture coordinate set of the mesh.
-- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer).
+- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.
 - Position (`position`): The surface position in object, world or view space.
 - Normal (`normal`): The surface normal in object, world or view space.
 - View direction (`viewDirection`): The direction from the surface to the camera (normalized).
@@ -182,7 +182,7 @@ Fields:
 <a id="node-material--vertex-color"></a>
 ### Vertex colour (`vertexColor`)
 
-A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer).
+A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.
 
 Outputs:
 
@@ -195,7 +195,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `absent` | Without the set | enum | `"white"` | `white`, `zero`, `first` |
-| `set` | Set | enum | `"COLOR_0"` | `COLOR_0`, `COLOR_1` |
+| `set` | Set | enum | `"COLOR_0"` | `COLOR_0`, `COLOR_1`, `paint` |
 
 <a id="node-material--position"></a>
 ### Position (`position`)
@@ -927,7 +927,7 @@ Fields:
 - Normal map (`normalMap`): Reads a tangent-space normal map (of a texture array, the given layer) and scales its strength (feeds a surface normal).
 - Triplanar (`triplanar`): Projects a texture (of a texture array, the given layer) along the three axes and blends by the normal (no UVs needed).
 - Projected sample (`projectedSample`): Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface's frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).
-- Height blend (`heightBlend`): Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer's height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer's peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.
+- Height blend (`heightBlend`): Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer's height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer's peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Unwired, the weights are the object's vertex paint where it is painted (R, G, B, A: one layer each; an unpainted vertex shows the first layer), else (1, 0, 0, 0). Feed the weights to Weighted mix nodes.
 - Flipbook (`flipbook`): The UV of one frame of a grid of frames (connect Time × frames per second to play it).
 - Noise (`noise`): Procedural noise: value, gradient (Perlin-like) or Voronoi (distance to the nearest cell, and a random value per cell).
 - Gradient (`gradient`): A 0–1 ramp over the UV: linear (along u), radial (from the centre) or angular (around the centre).
@@ -1056,7 +1056,7 @@ Fields:
 <a id="node-material--height-blend"></a>
 ### Height blend (`heightBlend`)
 
-Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer's height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer's peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.
+Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer's height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer's peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Unwired, the weights are the object's vertex paint where it is painted (R, G, B, A: one layer each; an unpainted vertex shows the first layer), else (1, 0, 0, 0). Feed the weights to Weighted mix nodes.
 
 Inputs:
 

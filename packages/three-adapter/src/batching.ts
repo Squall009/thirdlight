@@ -66,6 +66,7 @@ import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
+import { meshPaintOf, paintBaseOf, paintStream, PAINT_STREAM_KEY, type PaintStream } from './vertex-paint-draw';
 import { VIEW_CULL_KEY, type ViewCuller } from './view-cull';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
@@ -145,12 +146,17 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   return null;
 }
 
+/** The geometry a batchable mesh is drawn through: its hint's, else its own (a painted model mesh's model geometry: its paint goes in the batch's stream). */
+function drawGeometryOf(mesh: THREE.Mesh, hint: BatchHint): THREE.BufferGeometry {
+  return hint === true ? paintBaseOf(mesh.geometry) : hint.geometry;
+}
+
 /** The parts a batchable mesh is grouped by (null when it is not batchable). */
 export function batchKeyParts(mesh: THREE.Mesh): BatchKeyParts | null {
   if (batchRefusal(mesh) !== null) return null;
   const hint = mesh.userData[BATCH_KEY] as BatchHint;
   return {
-    geometry: hint === true ? mesh.geometry : hint.geometry,
+    geometry: drawGeometryOf(mesh, hint),
     material: mesh.material as THREE.Material,
     castShadow: mesh.castShadow,
     receiveShadow: mesh.receiveShadow,
@@ -359,6 +365,8 @@ interface Member {
   /** When it last moved (static members rejoin their cell after a quiet time), and whether it was listed this frame (its first placing is no move). */
   movedAt: number;
   fresh: boolean;
+  /** Its vertex paint as of its last regroup (null: none). */
+  paint: Uint8Array | null;
 }
 
 interface Group {
@@ -374,6 +382,9 @@ interface Group {
   materialVersion: number;
   /** Every member casts into the static shadow map, so the batch does too. */
   staticCaster: boolean;
+  /** The batch draws its members' paint (made so: a draw of its own program), and the stream it reads. */
+  painted: boolean;
+  stream: PaintStream | null;
 }
 
 export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOptions = {}): AutoBatcher {
@@ -494,6 +505,37 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     // Its render objects and its instance buffer go too (the source geometry stays its owner's).
     g.inst.dispose();
     g.inst = null;
+    g.stream?.dispose();
+    g.stream = null;
+  };
+
+  /**
+   * A painted batch's stream: its painted members' paint one after another,
+   * each member's slot pointing at its run (0: unpainted). Made again when the
+   * group or a member's paint changed (members move between slots when one
+   * leaves).
+   */
+  const writeGroupPaint = (g: Group): void => {
+    const inst = g.inst!;
+    const slots = inst.paintSlots!;
+    slots.fill(0);
+    g.stream?.dispose();
+    g.stream = null;
+    delete inst.mesh.userData[PAINT_STREAM_KEY];
+    const vertices = g.parts.geometry.getAttribute('position').count;
+    const painted = g.members.filter((m) => m.paint !== null && m.paint.length >= vertices * 4 && m.slot < inst.capacity);
+    const bytes = new Uint8Array(painted.length * vertices * 4);
+    painted.forEach((m, k) => {
+      bytes.set(m.paint!.subarray(0, vertices * 4), k * vertices * 4);
+      slots[m.slot] = k + 1;
+    });
+    const stream = paintStream(bytes, vertices, painted.length);
+    if (stream === null) {
+      slots.fill(0);
+      return;
+    }
+    g.stream = stream;
+    inst.mesh.userData[PAINT_STREAM_KEY] = stream;
   };
 
   /** Copy member `m`'s draw matrix into its slot; true when it changed. */
@@ -575,6 +617,9 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     }
     const parts = isMarked && shown(m) ? batchKeyParts(m.mesh) : null;
     m.parts = parts;
+    const paint = meshPaintOf(m.mesh);
+    const paintChanged = paint !== m.paint;
+    m.paint = paint;
     m.scope = staticScopeOf(m.mesh);
     mergeCheck.add(m);
     if (parts === null) {
@@ -591,6 +636,8 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     const key = batchKey(parts, detailed ? pos : null, cellSize);
     const current = m.group;
     if (current !== null && current.key === key) {
+      // Painted again (or no more): the batch's stream is made again.
+      if (paintChanged) changedGroups.add(current);
       if (m.scale !== parts.scale) {
         m.scale = parts.scale;
         if (current.inst !== null && m.batched && writeMatrix(current, m)) writtenGroups.add(current);
@@ -600,7 +647,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     leave(m);
     let g = groups.get(key);
     if (g === undefined) {
-      g = { key, parts, detailed, members: [], inst: null, unlisten: () => undefined, materialVersion: parts.material.version, staticCaster: false };
+      g = { key, parts, detailed, members: [], inst: null, unlisten: () => undefined, materialVersion: parts.material.version, staticCaster: false, painted: false, stream: null };
       groups.set(key, g);
     }
     join(g, m, parts.scale);
@@ -621,9 +668,12 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (n === 0) groups.delete(g.key);
       return;
     }
-    if (g.inst === null || g.inst.capacity < n) {
+    // A batch draws paint once a member is painted: made again (its own program) when that changes.
+    const painted = g.members.some((m) => m.paint !== null);
+    if (g.inst === null || g.inst.capacity < n || painted !== g.painted) {
       release(g);
-      const inst = createAttributeInstancedMesh(g.parts.geometry, g.parts.material, batchCapacity(n));
+      g.painted = painted;
+      const inst = createAttributeInstancedMesh(g.parts.geometry, g.parts.material, batchCapacity(n), { painted });
       const mesh = inst.mesh;
       mesh.name = `tl-batch:${g.key}`;
       mesh.castShadow = g.parts.castShadow;
@@ -650,9 +700,14 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         group.unlisten();
         group.unlisten = () => undefined;
         group.inst = null;
+        const stream = group.stream;
+        group.stream = null;
         options.viewCull?.remove(inst);
         inst.mesh.removeFromParent();
-        queueMicrotask(() => inst.dispose());
+        queueMicrotask(() => {
+          inst.dispose();
+          stream?.dispose();
+        });
         for (const m of group.members) {
           unbatch(m);
           dirty.add(m);
@@ -670,6 +725,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     }
     if (g.staticCaster) g.inst!.mesh.userData[STATIC_CASTER_KEY] = true;
     else delete g.inst!.mesh.userData[STATIC_CASTER_KEY];
+    if (g.painted) writeGroupPaint(g);
     writtenGroups.add(g);
   };
 
@@ -706,7 +762,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         if (mesh.isMesh !== true || mesh.userData['tlBatch'] === true) return;
         let m = members.get(mesh);
         if (m === undefined) {
-          m = { mesh, root: o, group: null, slot: -1, scale: null, cx: 0, cy: 0, cz: 0, marked: false, batched: false, scope: null, parts: null, wanting: false, merged: false, layered: false, movedAt: -Infinity, fresh: true };
+          m = { mesh, root: o, group: null, slot: -1, scale: null, cx: 0, cy: 0, cz: 0, marked: false, batched: false, scope: null, parts: null, wanting: false, merged: false, layered: false, movedAt: -Infinity, fresh: true, paint: null };
           members.set(mesh, m);
         } else {
           // Listed again on its own (a node moved out from below a mesh): it belongs to the nearer listing.

@@ -8,8 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { levelPlan, LEVEL_SPEC } from '../../tools/perf/level';
-import { DECAL_PAIR_SHARE, MARK_QUAD, MARK_SPAWN_PREFAB, MESH_DECAL_LIFT, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, marksNotBuilt, parseLevelMarks, spawnScript, spawnSpots, type LevelDecalPlacement } from '../../tools/perf/level-marks';
-import { propGlb } from '../../tools/perf/village-assets';
+import { DECAL_PAIR_SHARE, MARK_QUAD, MARK_SPAWN_PREFAB, MESH_DECAL_LIFT, NO_LEVEL_MARKS, PAINTED_MATERIAL, marksNotBuilt, parseLevelMarks, spawnScript, spawnSpots, type LevelDecalPlacement } from '../../tools/perf/level-marks';
 
 const plan = (marks = NO_LEVEL_MARKS, kind: 'area' | 'landscape' = 'area'): ReturnType<typeof levelPlan> => levelPlan(kind, undefined, 0, false, false, 'none', false, 0, false, 0, 0, 'on', false, 0, true, true, false, marks);
 const flags = (o: Record<string, string>) => (f: string): string | undefined => o[f];
@@ -113,32 +112,23 @@ describe('the level marks switches', () => {
     expect(marksNotBuilt(p.marks!)).toBeNull();
   });
 
-  it('paint props from their painted twins first, then copies, which wait for the per-copy stream', () => {
+  it('paint props first, then copies one from each set in turn, all wearing the paint-tinted material', () => {
     const p = plan({ ...NO_LEVEL_MARKS, painted: 40 });
-    const models = p.batches.flat().filter((e) => e.id.startsWith('prop-')).map((e) => (e.components['model'] as { asset: { assetId: string } }).asset.assetId);
-    expect(models.filter((m) => m.endsWith(PAINTED_FILE_SUFFIX))).toHaveLength(40);
-    expect(models.slice(0, 40).every((m) => m.endsWith(PAINTED_FILE_SUFFIX))).toBe(true);
+    const props = p.batches.flat().filter((e) => e.id.startsWith('prop-'));
+    const worn = props.filter((e) => (e.components['materials'] as Record<string, string> | undefined)?.['*'] === PAINTED_MATERIAL);
+    expect(worn.map((e) => e.id)).toEqual(p.marks!.paintedProps);
+    expect(worn).toHaveLength(40);
+    // The props keep their files (the strokes paint them once they exist).
+    expect(props.every((e) => !(e.components['model'] as { asset: { assetId: string } }).asset.assetId.includes('-painted'))).toBe(true);
+    expect(p.counts).toMatchObject({ paintedProps: 40 });
     expect(marksNotBuilt(p.marks!)).toBeNull();
     const more = plan({ ...NO_LEVEL_MARKS, painted: LEVEL_SPEC.props + 50 });
     expect(more.marks!.paintedCopies).toHaveLength(50);
     expect(new Set(more.marks!.paintedCopies.map((c) => c.entityId)).size).toBe(LEVEL_SPEC.foliageSets);
-    expect(marksNotBuilt(more.marks!)).toMatch(/per-copy paint stream/);
+    const sets = more.batches.flat().filter((e) => e.id.startsWith('foliage-'));
+    expect(sets.every((e) => (e.components['materials'] as Record<string, string> | undefined)?.['*'] === PAINTED_MATERIAL)).toBe(true);
+    expect(marksNotBuilt(more.marks!)).toBeNull();
     // The landscape carries the same marks over its area.
     expect(plan({ ...NO_LEVEL_MARKS, painted: 40 }, 'landscape').marks!.paintedProps).toEqual(p.marks!.paintedProps);
-  });
-
-  it('give a painted prop file the plain file\'s meshes plus a normalised 4-byte COLOR_0 stream', () => {
-    const json = (glb: Buffer): { meshes: { primitives: { attributes: Record<string, number> }[] }[]; accessors: Record<string, unknown>[] } => JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8'));
-    const spec = { parts: 2, rings: 8, sides: 12, textureSize: 0 };
-    const plain = json(propGlb(7, spec));
-    const painted = json(propGlb(7, spec, true));
-    expect(propGlb(7, spec, false).equals(propGlb(7, spec))).toBe(true);
-    expect(painted.meshes).toHaveLength(plain.meshes.length);
-    for (const [i, m] of painted.meshes.entries()) {
-      const a = m.primitives[0]!.attributes;
-      expect(plain.meshes[i]!.primitives[0]!.attributes['COLOR_0']).toBeUndefined();
-      expect(painted.accessors[a['COLOR_0']!]).toMatchObject({ componentType: 5121, type: 'VEC4', normalized: true, count: (painted.accessors[a['POSITION']!] as { count: number }).count });
-      expect(painted.accessors[a['POSITION']!]).toEqual({ ...(plain.accessors[plain.meshes[i]!.primitives[0]!.attributes['POSITION']!] as object), bufferView: (painted.accessors[a['POSITION']!] as { bufferView: number }).bufferView });
-    }
   });
 });

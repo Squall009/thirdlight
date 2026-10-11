@@ -20,6 +20,11 @@
  * - An object drawn on a block layer (`layer`) is made with the layer's
  *   wall paint read onto its faces; when the layer is set again only the
  *   chunks whose paint changed are made again (their keys hash it).
+ * - Vertex paint (`vertexPaint.paths`) is sampled onto a chunk's vertices
+ *   as it is drawn (vertex-paint-paths-view.ts): the chunks and their keys
+ *   stay the generator's, and a stroke draws the chunks again from what was
+ *   made. An object waits for its paint's grids before its first chunk is
+ *   drawn.
  * - What was drawn stays until what replaces it is in: an edit keeps a
  *   changed chunk's old meshes until its new ones are made, and an object
  *   released and realized again in the same frame (every edit) keeps all
@@ -61,6 +66,9 @@ import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
 import { perfMark } from './perf-marks';
+import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
+import { pathPaintAttribute, pathPaintSignature, PathPaintReader } from './vertex-paint-paths-view';
+import type { PathPaintGrid, PathPaintSource } from '@thirdlight/runtime';
 
 /** At most this many generator workers (the block mesher, the simulation, the page and the GPU process want cores too). */
 export const ARCHITECTURE_WORKERS_MAX = 2;
@@ -164,6 +172,11 @@ interface ChunkRec {
   parts?: ArchitectureChunkPart[] | undefined;
   built: BuiltChunk | null;
   builtKey: string | null;
+  /** The made chunk drawn, and the paint it was drawn with (its signature): drawn again from it when the paint changes. */
+  builtChunk?: ArchitectureChunk;
+  builtPaint?: string;
+  /** A made chunk waiting for the object's paint to be read. */
+  waiting?: { key: string; chunk: ArchitectureChunk };
 }
 
 interface Rec {
@@ -191,6 +204,10 @@ interface Rec {
   firstFrame: number | null;
   /** The cut-away zones its chunks were split by (the layer's list; null: none). */
   zones: readonly CutawayZone[] | null;
+  /** Its vertex paint: the grids, their signature, and what is sampled from (null: none; 'pending': being read). */
+  paintGrids: readonly PathPaintGrid[] | undefined;
+  paintSig: string;
+  paint: readonly PathPaintSource[] | null | 'pending';
 }
 
 /** Objects of a scene prepared ahead of its load: their chunks being made into the cache, not drawn. */
@@ -221,6 +238,9 @@ const NO_JOBS: readonly [number, Job & { worker: number }][] = [];
 /** What the view draws and makes (diagnostics). */
 export interface ArchitectureViewDiagnostics {
   objects: number;
+  /** Objects with vertex paint: whose grids are read and sampled, and still being read. */
+  painted: number;
+  paintPending: number;
   chunks: number;
   /** Draws: meshes of the near levels (one per chunk per material) and instance sets. */
   draws: number;
@@ -276,11 +296,14 @@ export class ArchitectureView {
   private styles: ArchitectureStyles;
   private swaps: Readonly<Record<string, string>> = {};
   private previewing: ArchitecturePreview | null = null;
+  /** Path paint grids read by digest. */
+  private readonly paintReader: PathPaintReader;
   /** Who sends jobs of another kind to these workers (clipped decals), and hears their replies. */
   private side: { reply(worker: number, message: unknown): void; failed(): void } | null = null;
 
   constructor(private readonly deps: ArchitectureViewDeps) {
     this.styles = architectureStylesOf(deps.styles ?? undefined);
+    this.paintReader = new PathPaintReader(deps.read);
   }
 
   /** The style and preset graphs changed: objects with outlines or buildings are made again (unchanged chunks keep their keys). */
@@ -350,18 +373,24 @@ export class ArchitectureView {
     this.deps.rooms?.(id, rec.origin, rec.raw, x.rooms);
   }
 
-  /** An object carrying `architecture` was realized (or realized again), at `origin`. */
-  set(id: string, component: ArchitectureComponent, origin: readonly number[]): void {
+  /** An object carrying `architecture` (and its `vertexPaint.paths`) was realized (or realized again), at `origin`. */
+  set(id: string, component: ArchitectureComponent, origin: readonly number[], paint?: readonly PathPaintGrid[]): void {
     const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
     let rec = this.recs.get(id);
     if (rec === undefined) {
-      rec = { raw: component, component, materials: {}, presets: new Set(), origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null, zones: null };
+      rec = { raw: component, component, materials: {}, presets: new Set(), origin: o, hidden: false, chunks: new Map(), stale: [], leaving: false, baked: null, bakedDigest: null, reading: null, since: performance.now(), waiting: true, everReady: false, firstFrame: null, zones: null, paintGrids: undefined, paintSig: '', paint: null };
       this.recs.set(id, rec);
     }
     rec.leaving = false;
     const moved = rec.origin.some((v, i) => v !== o[i]);
+    const paintBefore = rec.paintSig;
+    const pathsBefore = rec.raw;
     rec.raw = component;
     rec.origin = o;
+    rec.paintGrids = paint;
+    rec.paintSig = pathPaintSignature(paint);
+    // The paths it samples are the component's: read again when either changed.
+    if (rec.paintSig !== paintBefore || pathsBefore !== component) this.readPaint(id, rec);
     this.expand(id, rec);
     if (moved) for (const c of rec.chunks.values()) if (c.built !== null) this.moveBuilt(rec, c.built);
     if (this.deps.drawn === false) return;
@@ -418,6 +447,28 @@ export class ArchitectureView {
         this.queue = this.queue.filter((j) => this.recs.has(j.id) || this.preparing.has(j.id));
       },
     };
+  }
+
+  /** An object's paint sources (read first when its grids are not yet): its chunks are drawn again with them. */
+  private readPaint(id: string, rec: Rec): void {
+    const sig = rec.paintSig;
+    const raw = rec.raw;
+    const got = this.paintReader.sources({ architecture: raw }, rec.paintGrids, () => {
+      if (this.recs.get(id) !== rec || rec.paintSig !== sig || rec.raw !== raw || this.disposed) return;
+      this.readPaint(id, rec);
+      this.deps.changed();
+    });
+    rec.paint = got;
+    if (got === 'pending') return;
+    // Chunks drawn with other paint, or waiting for this one: drawn again from what was made.
+    for (const [ck, ch] of rec.chunks) {
+      if (ch.waiting !== undefined) {
+        this.ready.push({ id, ck, key: ch.waiting.key, chunk: ch.waiting.chunk });
+        ch.waiting = undefined;
+      } else if (ch.built !== null && ch.builtChunk !== undefined && ch.builtKey === ch.key && ch.builtPaint !== rec.paintSig) {
+        this.ready.push({ id, ck, key: ch.key, chunk: ch.builtChunk });
+      }
+    }
   }
 
   /** An object was released: it goes at the next {@link update} unless set again first. */
@@ -568,8 +619,16 @@ export class ArchitectureView {
       }
     }
     const mean = (m: number[]): { mean: number; max: number } => ({ mean: m[0]! > 0 ? m[1]! / m[0]! : 0, max: m[2]! });
+    let painted = 0;
+    let paintPending = 0;
+    for (const rec of this.recs.values()) {
+      if (rec.paint === 'pending') paintPending += 1;
+      else if (rec.paint !== null) painted += 1;
+    }
     return {
       objects: this.recs.size,
+      painted,
+      paintPending,
       chunks,
       draws,
       triangles,
@@ -979,7 +1038,13 @@ export class ArchitectureView {
   private apply(id: string, ck: string, key: string, chunk: ArchitectureChunk): void {
     const rec = this.recs.get(id);
     const ch = rec?.chunks.get(ck);
-    if (rec === undefined || ch === undefined || ch.key !== key || ch.builtKey === key || this.disposed) return;
+    if (rec === undefined || ch === undefined || ch.key !== key || (ch.builtKey === key && ch.builtPaint === rec.paintSig) || this.disposed) return;
+    // Its paint is being read: drawn once it is (readPaint), painted from its first frame.
+    if (rec.paint === 'pending') {
+      ch.waiting = { key, chunk };
+      return;
+    }
+    const paint = rec.paint;
     for (const p of chunk.problems) this.problems.add(`${id}: ${p}`);
     // Kit models first: a chunk is drawn once every model it places is in (their arrival applies it again).
     const templates = chunk.copies.map((s) => this.deps.template(s.model.assetId, s.model.piece, () => this.recs.get(id)?.chunks.get(ck)?.key === key && this.ready.push({ id, ck, key, chunk })));
@@ -1010,12 +1075,15 @@ export class ArchitectureView {
       const material = this.surface(m.material);
       const l = m.mesh;
       // One set of vertices; the near and far levels are index lists over it.
-      const attributes = {
+      const attributes: Record<string, THREE.BufferAttribute> = {
         position: new THREE.BufferAttribute(l.positions, 3),
         normal: new THREE.BufferAttribute(l.normals, 3),
         uv: new THREE.BufferAttribute(l.uvs, 2),
         color: new THREE.BufferAttribute(l.colors, 4, true),
       };
+      // Its vertices' path paint (positions are in the object's frame), when some reaches them.
+      const painted = paint === null ? null : pathPaintAttribute(paint, l.positions, l.normals);
+      if (painted !== null) attributes[PAINT_ATTRIBUTE] = painted;
       let bounds: { box: THREE.Box3; sphere: THREE.Sphere } | null = null;
       const meshOf = (indices: Uint32Array, level: number): THREE.Mesh => {
         const g = new THREE.BufferGeometry();
@@ -1104,6 +1172,8 @@ export class ArchitectureView {
     if (cut !== null) this.deps.cutaway?.register(cut.layer, cut.key, cutMeshes);
     ch.built = { group, generated, geometries, sets, undo, triangles, draws, cut };
     ch.builtKey = key;
+    ch.builtChunk = chunk;
+    ch.builtPaint = rec.paintSig;
     if (!rec.hidden) this.deps.place(group, true);
     this.deps.shapeChanged();
     this.deps.changed();

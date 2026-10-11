@@ -61,6 +61,7 @@ import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
+import { paintNode, withPaint } from './vertex-paint-draw';
 import { localLightModeOf, WORLD_UV_PERIOD_METRES, type LocalLightMode } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
@@ -1045,6 +1046,11 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('uv', env.surface?.uv(set) ?? T.uv(set));
       }
       case 'vertexColor': {
+        if (str(field(node, 'set'), 'COLOR_0') === 'paint') {
+          // The object's vertex paint (vertex-paint-draw.ts): (0, 0, 0, 0) where it carries none.
+          const paint = paintNode();
+          return { rgba: { t: 'vec4', n: paint }, rgb: { t: 'vec3', n: paint.xyz }, alpha: { t: 'float', n: paint.w } };
+        }
         const absent = str(field(node, 'absent'), 'white');
         // COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
         const name = str(field(node, 'set'), 'COLOR_0') === 'COLOR_1' ? 'color_1' : 'color';
@@ -1366,7 +1372,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         // The weights, normalized (all zero: the first layer); each layer's height lifted by its weight; the layers
         // within `depth` of the highest show, in proportion to how far above that line they reach — times their
         // weight, so a layer of weight 0 never shows and the result follows the weights where the heights agree.
-        const w0 = T.max(v(inp['weights']), T.vec4(0, 0, 0, 0));
+        // Unwired weights are the object's vertex paint where it is painted (the default elsewhere: older graphs build what they did).
+        const given = connected(scope, node.id, 'weights') ? v(inp['weights']) : withPaint(v(inp['weights']), (_w: N, paint: N) => paint);
+        const w0 = T.max(given, T.vec4(0, 0, 0, 0));
         const sum = T.dot(w0, T.vec4(1, 1, 1, 1));
         const w = sum.greaterThan(1e-5).select(w0.div(sum), T.vec4(1, 0, 0, 0));
         // Each layer's height reshaped around its middle (unwired: as it is, so older graphs compile to the same shader).

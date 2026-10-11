@@ -13,6 +13,7 @@ import type { ArchitectureView } from './architecture-view';
 import { modelRefsOf } from './entity-refs';
 import type { MaterialLibrary } from './material-library';
 import type { ModelsRealization } from './models';
+import { instancePaintDigests, modelPaintDigests } from './vertex-paint-models';
 
 type Handle = { readonly ready: Promise<void>; release(): void };
 
@@ -56,7 +57,9 @@ export function createScenePreparations(d: ScenePreparationDeps): ScenePreparati
       holds.delete(sceneId);
       if (d.disposed()) return none;
       const refs = modelRefsOf(entities);
-      const assets = hold(new Set([...refs.models.values(), ...[...refs.instances.values()].map((r) => r.assetId)]), [...refs.instances.values()].map((r) => r.buffer), textures);
+      // Instance buffers and vertex paint blobs: read before the scene arrives, so it is drawn painted from its first frame.
+      const buffers = [...[...refs.instances.values()].flatMap((r) => [r.buffer, ...instancePaintDigests(r.paint)]), ...[...refs.paints.values()].flatMap((p) => modelPaintDigests(p))];
+      const assets = hold(new Set([...refs.models.values(), ...[...refs.instances.values()].map((r) => r.assetId)]), buffers, textures);
       // Generated architecture (an interior behind a door): its chunks made now, drawn when the scene arrives.
       const objects: { id: string; component: ArchitectureComponent; origin: readonly number[]; materials?: Readonly<Record<string, string>> }[] = [];
       for (const e of entities) {

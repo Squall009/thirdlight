@@ -13,7 +13,10 @@
  *   decal material) in `clipped` mode: their meshes are clipped at load
  *   from the block layer's chunks and the props under them, on the
  *   generator workers, and merge into the static cells.
- * - `--painted N`: placed props, then foliage copies, with a paint stream.
+ * - `--painted N`: placed props, then foliage copies (one from each set in
+ *   turn), painted by `paintVertices` strokes and wearing a standard
+ *   material that tints by the paint (`paintTint`); measure the paint's
+ *   cost against the same scene with `--switches paint=off`.
  * - `--moving-decals N` (with `--decals`): the first N projected decals move
  *   to and fro along their surface (a `mover`, 1 m at 0.5 m/s), so their
  *   index cells change every frame.
@@ -28,10 +31,9 @@
  * something it isn't. Mesh decals are the engine's: quads wearing one decal
  * material with a stain image, laid a few millimetres over the surface
  * (static, so they merge into the static cells). Projected decals are the
- * engine's too: static projector entities with the same decal material. Painted props have a
- * stand-in that is drawn today, named as such in the log and the report:
- * their files with a 4-byte `COLOR_0` stream no material reads (the paint's
- * memory and vertex layout, not its look).
+ * engine's too: static projector entities with the same decal material. Painted
+ * props and copies are the engine's: the strokes store real paint, drawn as
+ * an attribute (props alone or merged) or a batch's or set's paint stream.
  *
  * The area class has no generated architecture, so generated walls are
  * left to the interior class; the area's walls are block walls.
@@ -326,8 +328,12 @@ export function spawnScript(m: LevelMarks, perSecond: number, hz: number): strin
   ].join('\n');
 }
 
-/** The suffix of a prop file's painted twin. */
-export const PAINTED_FILE_SUFFIX = '-painted';
+/** The material painted props and the sets of painted copies wear: a standard surface tinted by its paint. */
+export const PAINTED_MATERIAL = 'mat-level-painted';
+/** A painted prop's stroke: a dab at its foot reaching all of it, red (R) at full alpha (A: how much it tints). */
+export const PAINT_STROKE_RADIUS = 16;
+/** A painted copy's stroke radius (a foliage copy is under a metre or two). */
+export const COPY_STROKE_RADIUS = 4;
 /** The mesh decals' quad file, its glTF material, the decal material that file maps it to and that material's image. */
 export const MARK_QUAD = 'level-mark-quad';
 export const MARK_QUAD_MATERIAL = 'mark';
@@ -379,9 +385,8 @@ export function markEntities(m: LevelMarks): EntityValue[] {
 
 /** Why a requested kind is refused (null: it can be built): the engine part it waits for. */
 export function marksNotBuilt(m: LevelMarks): string | null {
-  const missing: string[] = [];
-  if (m.paintedCopies.length > 0) missing.push(`--painted: past the ${m.paintedProps.length} props, painting instance copies needs the per-copy paint stream (not built yet)`);
-  return missing.length === 0 ? null : missing.join('; ');
+  void m;
+  return null;
 }
 
 /** The counts a run logs and reports (absent when 0, so an unmarked class counts as it did). */
@@ -393,7 +398,7 @@ export function markCounts(m: LevelMarks): Record<string, number> {
   if (m.options.decalSpawns > 0) c['decalSpawnsPerSecond'] = m.options.decalSpawns;
   if (m.meshDecals.length > 0) Object.assign(c, { meshDecals: m.meshDecals.length, meshDecalPairs: pairs(m.meshDecals) });
   if (m.clippedDecals.length > 0) Object.assign(c, { clippedDecals: m.clippedDecals.length, clippedDecalPairs: pairs(m.clippedDecals) });
-  if (m.paintedProps.length > 0) c['paintedPropStandIns'] = m.paintedProps.length;
+  if (m.paintedProps.length > 0) c['paintedProps'] = m.paintedProps.length;
   if (m.paintedCopies.length > 0) c['paintedCopies'] = m.paintedCopies.length;
   return c;
 }

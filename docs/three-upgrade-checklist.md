@@ -29,6 +29,7 @@ change to the hook (or its removal, if three now does the job itself).
 | `node-materials.ts` `withoutLights` | instance `material.setupLighting`, `customProgramCacheKey`, `builder.lightsNode`, `renderer.lighting.createNode` | Materials drawn without the scene's lights. |
 | `local-lights.ts`, `effect-lights.ts` | `builder.lightsNode.getLights()`, `builder.material`, `builder.context.{ irradiance, lightingModel, reflectedLight, positionView }` | Per-vertex local lights; the effect light pool. |
 | `projected-decals.ts` (projected decals) | `NodeMaterial.prototype.setupDiffuseColor`, `setupAmbientOcclusion`, `setupNormal`, `setupLighting` and `MeshStandardNodeMaterial.prototype.setupVariants` / `setupSpecular` (patched once on the prototypes, in r186's call order: diffuse colour → AO → variants → lighting, normal lazily through `builder.context.setupNormal`); the TSL property nodes `diffuseColor`, `metalness`, `roughness`, `ambientOcclusion`, `diffuseContribution` and `builder.context.ambientOcclusion`; `renderer.renderObject` (wrapped: a draw a decal reaches wears an `Object.create` variant of its material with its own `_listeners` and `customProgramCacheKey`); `texture().load`, `.depth()`, `.grad()`; a bound texture node's swap rebinding on WebGL 2 only for a new `version` | The decal blend before lighting, for the draws a decal can reach only. A scene without projected decals must build the same WGSL (`projected-decals.test.ts` and `mesh-decals.test.ts` digests). If three changes what `setupVariants` derives from the metalness (specular colour, diffuse contribution) the hook must derive it again the same way. Not guarded. |
+| `vertex-paint-draw.ts` (vertex paint) | a render object's program key holding its geometry's attribute names (`RenderObject.getGeometryCacheKey`, part of `getMaterialCacheKey`): a painted draw's `tlPaint` attribute or `tlPaintSlot` marker gives it a program of its own; the marker (a view of each instance matrix's float 3, never read) bound only when a shader reads it (`renderObject.getAttributes()`); `uniform().onObjectUpdate` setting a texture node's `value` per draw before the bindings update (`_nodes.updateForRender` then `_bindings.updateForRender`); a `TextureNode` subclass without its transform and flip-Y (`setUpdateMatrix`, `setupUV`); `vertexIndex` | Painted copies in their one instanced draw read their paint stream by slot and vertex index; everything else keeps its program (`vertex-paint-draw.test.ts` digests). If the key stops holding attribute names, painted and unpainted draws would share a program: paint would read wrong or not at all. Not guarded. |
 | `dispose.ts` | `_objects._renderObjects`, `_attributes`, `_geometries._geometryDisposeListeners`, the WebGL backend's `_createVao` / `_getVaoKey` / `vaoCache`, `renderer._textures`, `_pipelines._releasePipeline` / `_releaseProgram` with `backend.gl` / `backend.get`, `_renderContexts._renderContexts` | r186 leaks: VAOs never deleted, texture dispose listeners kept, WebGL 2 programs and shaders never deleted, MRT contexts kept, a shared geometry's dispose refusing later submits. Each fix may be obsolete in a newer three (check the notes for these leaks first). `installProgramRelease` and `installBuildReuse` wrap the same two release methods: the program release must be installed first. |
 | `adapter.ts` diagnostics | `ro._nodeBuilderState` over `_objects._renderObjects` | Counts distinct node programs (r186's `info.memory` has none). |
 | `effects-gpu.ts` | `renderer._attributes.delete` | Frees compute-only storage buffers. |
@@ -71,10 +72,14 @@ These hooks are only proven by pixels:
 - Projected decals: the decal reads in `tests/e2e/layered-material.e2e.ts`
   (terrain, blocks, props, a generated wall, normal only, a layer mask;
   Scene view, Play and the export).
+- Vertex paint: the painted reads in `tests/e2e/level-acceptance.e2e.ts`
+  (a model alone, in a batch, merged, an instance copy, a generated wall, a
+  spline; Play and the export, and the painted draws counted).
 - The village perf check (`tools/gate.sh fast` ends with it) against its
   baseline, both renderers.
 - WGSL digests: `packages/three-adapter/src/material-graph-specular.test.ts`
-  compares the WGSL three builds for graphs without a feature against
+  (and `vertex-paint-draw.test.ts`, every shader type alone and through
+  instance columns) compares the WGSL three builds for graphs without a feature against
   recorded digests. A new three changes the text: check that the new WGSL
   is only three's change (no feature's nodes leaking in), then re-record the
   digests from the failure message.

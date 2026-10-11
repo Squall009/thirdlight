@@ -65,7 +65,8 @@ const SURFACE_PARAMS: Readonly<Record<string, MaterialParamType>> = {
 
 /** The parameter schema of every shader type (absent in a material = keep the file's value / the default). */
 export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<string, MaterialParamType>>>> = {
-  standard: SURFACE_PARAMS,
+  // Vertex paint tints the albedo (RGB the tint, A how much; vertex-paint.ts): off by default, so a material reads no paint unless asked.
+  standard: { ...SURFACE_PARAMS, paintTint: bool(false) },
   // COLOR_0 drives the wind (the engine's vertex-colour convention for any
   // swaying mesh — grass, trees, cloth, banners): R bend weight root→tip, G phase,
   // B flutter, A thinness (a cheap subsurface term).

@@ -182,6 +182,8 @@ function valueOf(p: MaterialDef['params'], key: string, drawn: number): number {
  *   fresnel blend from the shallow colour (face-on) to the water colour,
  *   transparent.
  * - unlit → Unlit output: colour × map (× vertex colour when tinted).
+ * - standard with `paintTint`: the base colour × lerp(white, vertex paint
+ *   RGB, paint A).
  */
 export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDef } | { ok: false; reason: string } {
   if (m.graph !== undefined) return { ok: false, reason: 'this material already has a graph' };
@@ -269,7 +271,16 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
     b.wire(b.float('opacity', valueOf(p, 'opacity', 0.8)), outId, 'opacity');
   } else {
     // standard, foliage, kit: the PBR surface.
-    const base = baseColor();
+    let base = baseColor();
+    if (shader === 'standard' && p['paintTint'] === true) {
+      // Vertex paint tint: × lerp(white, paint RGB, paint A).
+      const paint = b.add('paint', 'vertexColor', { set: 'paint' });
+      const tint = b.add('paintTint', 'lerp');
+      b.wire([b.add('paintWhite', 'color', { color: '#ffffff' }), 'rgb'], tint, 'a');
+      b.wire([paint, 'rgb'], tint, 'b');
+      b.wire([paint, 'alpha'], tint, 't');
+      base = b.op('multiply', 'paintTinted', base, [tint, 'out']);
+    }
     b.wire(base, outId, 'baseColor');
     const orm = m.textures['ormMap'];
     const ormSample = orm !== undefined ? sample('orm', orm, 'linear', uvMain()) : null;

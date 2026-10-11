@@ -87,21 +87,14 @@ function lathe(rings: number, sides: number, height: number, profile: (t: number
   return { pos, nrm, uv, idx, max };
 }
 
-/**
- * One lathe mesh into `g`; returns the glTF mesh. With `paint`, it also
- * carries a 4-byte-a-vertex `COLOR_0` stream of the generator's bytes, which
- * no material of the file reads (vertex colours are shader data unless the
- * asset asks for a tint): the memory and vertex layout of a painted mesh,
- * without its look.
- */
-function latheMesh(g: GlbData, name: string, m: ReturnType<typeof lathe>, height: number, material: number, paint?: () => number): Record<string, unknown> {
+/** One lathe mesh into `g`; returns the glTF mesh. */
+function latheMesh(g: GlbData, name: string, m: ReturnType<typeof lathe>, height: number, material: number): Record<string, unknown> {
   const n = m.pos.length / 3;
   const POS = g.accessor(m.pos, FLOAT, n, 'VEC3', { min: [-m.max, 0, -m.max], max: [m.max, height, m.max] }, ARRAY);
   const NRM = g.accessor(m.nrm, FLOAT, n, 'VEC3', {}, ARRAY);
   const UV = g.accessor(m.uv, FLOAT, n, 'VEC2', {}, ARRAY);
   const IDX = g.accessor(m.idx, U16, m.idx.length, 'SCALAR', {}, ELEMENTS);
   const attributes: Record<string, number> = { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV };
-  if (paint !== undefined) attributes['COLOR_0'] = g.accessor(Uint8Array.from({ length: n * 4 }, () => Math.floor(paint() * 256)), U8, n, 'VEC4', { normalized: true }, ARRAY);
   return { name, primitives: [{ attributes, indices: IDX, material }] };
 }
 
@@ -118,15 +111,9 @@ export interface PropSpec {
   textureSize: number;
 }
 
-/**
- * A prop file: root `prop` → parts `partN` (each `partN_LOD0..2`), one
- * material. `painted`: the same file whose meshes also carry an unread
- * 4-byte stream (see `latheMesh`); its shape and material are unchanged.
- */
-export function propGlb(seed: number, spec: PropSpec, painted = false): Buffer {
+/** A prop file: root `prop` → parts `partN` (each `partN_LOD0..2`), one material. */
+export function propGlb(seed: number, spec: PropSpec): Buffer {
   const rnd = prng(seed);
-  // Its own generator, so a painted file's shape is the plain file's.
-  const paint = painted ? prng(seed ^ 0x27d4eb2f) : undefined;
   const g = new GlbData();
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [{ name: 'prop', children: [] as number[] }];
@@ -140,7 +127,7 @@ export function propGlb(seed: number, spec: PropSpec, painted = false): Buffer {
     for (let l = 0; l < LOD_LEVELS; l += 1) {
       const rings = Math.max(2, Math.round(spec.rings / 2 ** l));
       const sides = Math.max(4, Math.round(spec.sides / 2 ** l));
-      meshes.push(latheMesh(g, `part${p}_LOD${l}`, lathe(rings, sides, height, profile), height, 0, paint));
+      meshes.push(latheMesh(g, `part${p}_LOD${l}`, lathe(rings, sides, height, profile), height, 0));
       nodes.push({ name: `part${p}_LOD${l}`, mesh: meshes.length - 1 });
       levels.push(nodes.length - 1);
     }
