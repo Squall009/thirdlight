@@ -490,7 +490,12 @@ export {
   DECAL_TRANSIENT_FADE_SECONDS,
   DECAL_DEFAULTS,
   DECAL_LAYERS_ALL,
+  DECAL_MODES,
   decalLayersOf,
+  // The editor's Decal tool: a trim cell's size at its sheet's density, and the seeded turns and sizes of its stamps.
+  trimCellMetres,
+  trimCellOf,
+  seededRandom,
   // Clipped decals: the clipper, its version and lift, and what its meshes are kept by (decal-clip.ts, decal-clip-cache.ts).
   clipDecal,
   DECAL_CLIP_VERSION,

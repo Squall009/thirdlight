@@ -1872,6 +1872,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     probeLighting: () => probes.light(),
     pickables: () => graph.pickables(),
     clippedDecalMesh: (entityId) => clipped?.meshOf(entityId) ?? null,
+    clippedDecalWaits: (entityId, wait) => clipped?.waitForSurfaces(entityId, wait),
     attachOverlay(entityId, object): void {
       let hung = overlays.get(entityId);
       if (hung === undefined) overlays.set(entityId, (hung = new Set()));

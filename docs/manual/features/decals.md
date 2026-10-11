@@ -6,8 +6,9 @@
 > export — the [decal pages](#decal-pages) (Play and the export put the
 > decal materials' images on texture arrays), [mesh decals](#mesh-decals),
 > [projected decals](#projected-decals), which draw, follow moving objects
-> and can be [spawned by scripts](#decals-spawned-by-scripts), and
-> [clipped decals](#clipped-decals). How-to: [Decals](../guides/decals.md).
+> and can be [spawned by scripts](#decals-spawned-by-scripts),
+> [clipped decals](#clipped-decals), and the Scene view's
+> [Decal tool](#the-decal-tool). How-to: [Decals](../guides/decals.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
@@ -299,6 +300,35 @@ only, or a mark on terrain.
   `cacheBytes` and `problems`. Performance marks `tl:decal:clip` (each
   decal's first mesh: `{decal, ms, where}`) and `tl:decal:clip-ready`.
   `?decals=off` leaves clipped decals out too.
+
+## The Decal tool
+
+The Scene view places decals with the **Decal tool** (the tool row's
+**decal** button, or **Window → Decals**; armed while its window is open
+over the Scene view, where it takes the left click from selection and the
+block and terrain tools):
+
+- **What:** a decal material, or a trim sheet's decal cell by name (picking
+  a cell no decal material draws makes one, one `setMaterial`, sized at the
+  sheet's texel density); the mode, the box's width, height and depth, and
+  an angle about the normal.
+- **Preview:** the decal under the pointer is drawn as it would be placed,
+  projected or clipped, through the same path as a stored one (a clipped
+  preview is cut at once; an empty result is final, not waited on).
+- **Place:** a click is one `createEntity` with the decal component (one
+  undo step) — the box centred on the surface point, its +Z along the
+  surface normal; on a floor or ceiling the image's top points to −Z,
+  elsewhere up the slope.
+- **Stamp:** Shift+click adds a random turn (± the stamp turn) and size
+  factor (stamp size min to max) drawn from the seed and the stamp's
+  number: the same clicks with the same seed give the same decals.
+- **Adjust:** the selected decal shows a ring about its normal with a turn
+  knob (one `setTransform` on release, 15° steps with snapping) and a corner
+  grip that scales width and height together (one `setComponent`); both
+  preview while dragging, Esc drops the drag.
+
+Its settings are remembered per browser, never in the project. A reload
+leaves its window closed, so the left click selects again.
 
 ## Decals spawned by scripts
 

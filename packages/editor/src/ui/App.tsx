@@ -88,6 +88,7 @@ import { useInstanceBrush } from './instances/InstanceBrush';
 import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
+import { useDecalTool } from './tools/DecalToolPanel';
 import type { ReportFailure } from './shell/commands';
 
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
@@ -722,6 +723,8 @@ function EditorApp(): JSX.Element {
   const docCmds = useDocumentCommands({ clientRef, viewportRef, workspaceDispatch, setGraphFocus: docState.setGraphFocus });
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
+  // The Decal tool is armed while its window floats over the Scene view.
+  const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
 
@@ -1012,6 +1015,8 @@ function EditorApp(): JSX.Element {
         playing={playing}
         snapping={snapping}
         onToggleSnapping={() => setSnapping((v) => !v)}
+        decalTool={toolWindows.isOpen('decals')}
+        onToggleDecalTool={() => (toolWindows.isOpen('decals') ? toolWindows.close('decals') : showToolWindow('decals'))}
         lighting={lightingMode}
         onToggleLighting={() => {
           const next = lightingMode === 'game' ? 'editor' : 'game';
@@ -1192,6 +1197,7 @@ function EditorApp(): JSX.Element {
           content={content}
           docCmds={docCmds}
           bake={bake}
+          decalTool={decalTool}
           entities={entities}
           sceneHeaders={sceneHeaders}
           activateScene={(sceneId) => void sceneAction({ kind: 'activate', sceneId })}

@@ -65,6 +65,8 @@ import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 import { TerrainEditor, type TerrainEditorCallbacks } from './terrain-editor';
+import { DecalTool, decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
+import type { DecalToolSettings } from '../session/decal-place';
 import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
 import type { ProbeBakeHost } from './probe-bake-inputs';
@@ -159,6 +161,9 @@ export class Viewport {
   private readonly grid: THREE.GridHelper;
   /** The helper overlay: collider outlines, component areas, the selection's handles. */
   private readonly helpers: HelperOverlay;
+  private readonly decalTool: DecalTool;
+  /** Where the Decal tool's placements and grip edits go (set with the tool's settings). */
+  private decalCb: DecalToolCallbacks | null = null;
   /** Which helpers the Scene view draws (the Gizmos menu). */
   private gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false };
   /** The probe debug view while the Gizmos menu shows it (over the probe light it was made for). */
@@ -238,6 +243,28 @@ export class Viewport {
     this.helpers = new HelperOverlay(this.overlay, this.camera, canvas);
     // A `{type: 'model'}` collider is outlined as its model's `_COL` parts once they are read.
     this.helpers.setModelSource((assetId) => this.assets.files.prepared(assetId), () => (this.stampGizmoCounts(), this.requestRender()));
+    const decalCb = (): DecalToolCallbacks | null => this.decalCb;
+    this.decalTool = new DecalTool(
+      {
+        overlay: this.overlay,
+        camera: this.camera,
+        canvas: () => this.root,
+        surfaceAt: (x, y) => decalSurfaceOf(this.castScene(x, y), this.raycaster.ray, (o) => this.adapter.entityOf?.(o) ?? null, (id, wx, wz) => this.adapter.terrains?.()?.field(id)?.sample(wx, wz)?.normal ?? null),
+        setPreview: (e) => (this.source.setExtra(e), this.adapter.sync?.()),
+        previewTransform: (id, t) => (this.source.setOverride(id, t), this.requestRender()),
+        previewDecal: (id, decal) => void this.previewComponent(id, 'decal', decal),
+        worldOf: (id) => this.worldOf(id),
+        clippedMesh: (id) => this.clippedDecalMesh(id),
+        snapping: () => this.snapping(),
+        requestRender: () => this.requestRender(),
+      },
+      {
+        place: (args) => decalCb()?.place(args) ?? Promise.resolve(null),
+        turn: (id, t) => decalCb()?.turn(id, t) ?? Promise.resolve(false),
+        resize: (id, d) => decalCb()?.resize(id, d) ?? Promise.resolve(false),
+        refused: (m) => decalCb()?.refused(m),
+      },
+    );
 
     this.snapping = options.snapping ?? (() => false);
 
@@ -372,6 +399,8 @@ export class Viewport {
     });
     adapter.threeScene?.().add(this.overlay);
     this.entityOverlays.attachAll(adapter);
+    // The Decal tool's preview is cut from a scene that is already there: its empty result is final at once.
+    adapter.clippedDecalWaits?.(DECAL_PREVIEW_ID, false);
     return adapter;
   }
 
@@ -1074,6 +1103,7 @@ export class Viewport {
     // Where the handle grips are on screen (tests drag them); grips keep their screen size.
     this.helpers.scaleGrips();
     this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));
+    this.decalTool.frame();
     // The selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
     const setId = this.selectedId !== null && this.synced.get(this.selectedId)?.instances !== undefined ? this.selectedId : null;
     this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
@@ -1094,7 +1124,7 @@ export class Viewport {
     const animated = this.assets.materialLibrary.animated();
     // While the block tools are on, the view-projection matrix (tests map cells to the screen).
     const terrain = adapter.terrainDiagnostics?.() ?? null;
-    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || terrain !== null) {
+    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || this.decalTool.armed() || terrain !== null) {
       this.camera.updateMatrixWorld();
       const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
@@ -1228,7 +1258,7 @@ export class Viewport {
       this.render();
       return true;
     }
-    if (this.instanceBrush.cancel()) {
+    if (this.instanceBrush.cancel() || this.decalTool.cancel()) {
       this.orbit.enabled = true;
       return true;
     }
@@ -1299,6 +1329,7 @@ export class Viewport {
     this.outlineDirty = true;
     // A selection that became locked or a folder loses its gizmo.
     if (this.selectedId !== null && !this.draggingGizmo && (selectionTouched || structural)) this.setSelected(this.selectedId);
+    else if (selectionTouched) this.decalTool.setTarget(this.synced.get(this.selectedId ?? '') ?? null);
     const ms = Math.round((performance.now() - t0) * 100) / 100;
     this.root.setAttribute('data-sync', JSON.stringify({ entities: entities.length, processed: changed.length, removed: removed.size, full, ms }));
     this.render();
@@ -1371,7 +1402,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) || this.decalTool.armed() ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1382,6 +1413,7 @@ export class Viewport {
       this.gizmoTargetId = null;
     }
     this.helpers.setSelected(id);
+    this.decalTool.setTarget(id === null ? null : (this.synced.get(id) ?? null));
     this.stampGizmoCounts();
     this.render();
   }
@@ -1477,7 +1509,7 @@ export class Viewport {
     this.root.removeEventListener('pointerleave', this.onPointerLeave);
   }
 
-  private onPointerLeave = (): void => this.instanceBrush.leave();
+  private onPointerLeave = (): void => (this.instanceBrush.leave(), this.decalTool.leave());
 
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
@@ -1488,8 +1520,16 @@ export class Viewport {
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
-    // Armed block tools take the left button (the gizmo stands aside while they are armed).
-    if ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerDown(e))) {
+    // Armed block tools take the left button (the gizmo stands aside while they are armed); the Decal tool, opened over them, wins.
+    if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerDown(e)))) {
+      e.stopImmediatePropagation();
+      this.downAt = null;
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
+      return;
+    }
+    // The Decal tool's turn and size grips (a press elsewhere may still be its click that places).
+    if (this.decalTool.pointerDown(e)) {
       e.stopImmediatePropagation();
       this.downAt = null;
       this.orbit.enabled = false;
@@ -1538,7 +1578,11 @@ export class Viewport {
   }
 
   private onPointerMove = (e: PointerEvent): void => {
-    if ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerMove(e))) {
+    if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerMove(e)))) {
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (this.decalTool.pointerMove(e)) {
       e.stopImmediatePropagation();
       return;
     }
@@ -1559,7 +1603,7 @@ export class Viewport {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    if ((this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) || (this.terrainEditorInst !== null && this.terrainEditorInst.pointerUp(e))) {
+    if (!this.decalTool.armed() && ((this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) || (this.terrainEditorInst !== null && this.terrainEditorInst.pointerUp(e)))) {
       e.stopImmediatePropagation();
       this.orbit.enabled = true;
       return;
@@ -1580,6 +1624,13 @@ export class Viewport {
       this.brushPressed = false;
       this.orbit.enabled = true;
       this.instanceBrush.end(e.clientX, e.clientY);
+      return;
+    }
+    // The Decal tool's grip drag ends (its press was the tool's alone), or its click places a decal (it picks nothing).
+    const decal = this.decalTool.pointerUp(e, CLICK_SLOP_PX);
+    if (decal !== null) {
+      if (decal === 'drag') e.stopImmediatePropagation();
+      this.orbit.enabled = true;
       return;
     }
     // A left click (no drag, not on a gizmo handle) picks or deselects.
@@ -1642,6 +1693,14 @@ export class Viewport {
     this.instanceBrush.set(entityId, mode, brush);
     this.orbit.enabled = true;
     this.setSelected(this.selectedId);
+  }
+
+  /** The Decal tool armed with these settings in `sceneId`, its edits sent through `cb` (null: off; the gizmo stands aside while it is on). */
+  setDecalTool(settings: DecalToolSettings | null, sceneId: string | null, cb: DecalToolCallbacks | null): void {
+    this.decalCb = cb;
+    this.decalTool.arm(settings, sceneId);
+    this.setSelected(this.selectedId);
+    this.requestRender();
   }
 
   /** Every instance-brush stroke sent so far has been answered. */
@@ -1878,6 +1937,7 @@ export class Viewport {
     this.gizmo.dispose();
     disposeOrbitControls(this.orbit);
     this.instanceBrush.dispose();
+    this.decalTool.dispose();
     this.adapter.dispose();
   }
 }

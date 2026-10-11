@@ -1,5 +1,5 @@
 /**
- * The open Lighting and Environment windows, floating over the Scene view
+ * The open Lighting, Environment and Decals windows, floating over the Scene view
  * (shown while the Scene view is in front; the editor window, Project
  * Settings and the Game view set them aside without closing them). Each
  * names the scene it edits, the active scene, with a picker to edit another.
@@ -13,6 +13,7 @@ import { probesAreStale } from '../../viewport/probe-bake-run';
 import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
+import { DecalToolPanel, type DecalToolState } from './DecalToolPanel';
 import { LightingPanel } from '../LightingPanel';
 import type { SceneHeaderView } from '../Hierarchy';
 import type { ClientRef, ViewportRef } from '../shell/commands';
@@ -61,6 +62,7 @@ export interface SceneToolWindowsProps {
   content: ProjectContent;
   docCmds: DocumentCommands;
   bake: LightingBakeState;
+  decalTool: DecalToolState;
   entities: ProjectedEntity[];
   /** The open scenes, the active one marked. */
   sceneHeaders: readonly SceneHeaderView[] | null;
@@ -78,7 +80,9 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
   const { saveEnvironment, saveSceneEnvironment, materialError } = p.docCmds;
   const b = p.bake;
   const body = (id: ToolWindowId): JSX.Element =>
-    id === 'environment' ? (
+    id === 'decals' ? (
+      <DecalToolPanel tool={p.decalTool} />
+    ) : id === 'environment' ? (
       <EnvironmentPanel
         environment={environment}
         onSave={(env) => void saveEnvironment(env, environment)}

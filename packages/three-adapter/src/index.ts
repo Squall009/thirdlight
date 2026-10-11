@@ -334,6 +334,7 @@ export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VA
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
 export { DECALS_URL_PARAM, decalsFromUrl } from './projected-decals';
+export { isDecalMark } from './clipped-decals';
 export type { DecalProjectorsObservation } from './decal-projectors';
 // Local lights per vertex: an object's or material's mode, a light's importance.
 export { applyObjectLightLayers } from './light-layers';

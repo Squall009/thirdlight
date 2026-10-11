@@ -75,6 +75,9 @@ export class SceneSource implements SceneRuntime {
   private readonly flipped = new Set<string>();
   private rig = false;
   private camera: THREE.PerspectiveCamera | null = null;
+  /** The project's entities as last synced, and the one drawn besides them (`setExtra`). */
+  private last: readonly ProjectedEntity[] = [];
+  private extra: ProjectedEntity | null = null;
 
   constructor(facts: SceneSourceFacts) {
     this.facts = facts;
@@ -105,6 +108,22 @@ export class SceneSource implements SceneRuntime {
    * the adapter has; its document is replaced when anything else differs.
    */
   sync(entities: readonly ProjectedEntity[], changed: readonly ProjectedEntity[] | null): void {
+    this.last = entities;
+    this.syncAll(this.extra === null ? entities : [...entities, this.extra], changed);
+  }
+
+  /**
+   * One object drawn besides the project's (null: none): a tool's preview of
+   * something not stored yet (the Decal tool's decal under the pointer). A
+   * new place moves it like any object; another document makes it again.
+   */
+  setExtra(e: ProjectedEntity | null): void {
+    if (e === null && this.extra === null) return;
+    this.extra = e;
+    this.syncAll(e === null ? this.last : [...this.last, e], e === null ? [] : [e]);
+  }
+
+  private syncAll(entities: readonly ProjectedEntity[], changed: readonly ProjectedEntity[] | null): void {
     let structure = false;
     let list = changed ?? entities;
     if (changed !== null && this.flipped.size > 0) {

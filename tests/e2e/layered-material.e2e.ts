@@ -117,7 +117,7 @@ import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
-import { DECALS_KEY, expectSameGreen, fmtDecals, frameDecals, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, type DecalJudgement } from './projected-decals-scene';
+import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -798,8 +798,11 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   // The terrain tile selected again (its gizmo away from the reads): the baked object's gizmo stood over the wall's mark.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
   await expectClipped(sceneShot, `${variant} Scene view (baked)`, true);
-  const decalCount = decalSetup.decals - 1;
-  const clippedCount = decalSetup.clipped - 1;
+  // The Decal tool: a projected and a clipped decal placed with it stay (its turns, scales and stamps are undone).
+  const selectTile = (): Promise<void> => page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
+  const tool = await driveDecalTool(page, sceneView, query, () => menu(page, 'Edit', 'Undo'), selectTile, sceneShot, variant);
+  const decalCount = decalSetup.decals - 1 + 2;
+  const clippedCount = decalSetup.clipped - 1 + 1;
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -952,6 +955,11 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
   }, `${variant} Play`);
   expectSameGreen(sceneDecals, playDecals, `${variant} Play`);
+  // The decals the tool placed, as the Scene view drew them.
+  await expect.poll(async () => {
+    const img = decodePng(await canvas.screenshot());
+    return TOOL_READS.map((p) => isDecalGreen(colourAt(img, onDecals(p, img.width, img.height))));
+  }, { timeout: 30_000, message: `the Decal tool's decals (${tool.projected}, ${tool.clipped}) in Play` }).toEqual([true, true]);
   await expectClipped(async () => {
     const png = await canvas.screenshot();
     const img = decodePng(png);
@@ -966,9 +974,9 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await expectChanges(canvas, `${variant} Play`, false);
   const projected = (await diagnostics())['projectedDecals'] as { decals: number; drawn: number; unplaced: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates: number; spawned: number; receiverDraws: number } | undefined;
   console.log(`projected decals ${variant} Play: ${JSON.stringify(projected ?? null)}`);
-  // Every one drawn (the trim cell's stain out of sight too, the spawn), none over the overlap budget, only the draws they reach blending them;
+  // Every one drawn (the trim cell's stain out of sight too, the spawn, the Decal tool's), none over the overlap budget, only the draws they reach blending them;
   // the moving one and the spawn changed the index in place.
-  expect(projected).toMatchObject({ decals: decalSetup.projected + 2, drawn: decalSetup.projected + 2, unplaced: 0, dropped: 0, spawned: 1 });
+  expect(projected).toMatchObject({ decals: decalSetup.projected + 3, drawn: decalSetup.projected + 3, unplaced: 0, dropped: 0, spawned: 1 });
   expect(projected!.receiverDraws).toBeGreaterThan(0);
   expect(projected!.updates).toBeGreaterThan(0);
   // The key again: the spawn fades out.

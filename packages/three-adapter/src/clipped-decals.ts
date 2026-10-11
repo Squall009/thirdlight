@@ -251,6 +251,14 @@ function dataOf(g: THREE.BufferGeometry): GeometryData | null {
   return out;
 }
 
+/** Whether a drawn mesh is a decal's own mark (a clipped decal's mesh or a mesh decal): never a surface to place a decal on. */
+export function isDecalMark(o: THREE.Object3D): boolean {
+  const m = o as THREE.Mesh;
+  if (m.userData?.[CLIPPED_DECAL_KEY] !== undefined) return true;
+  const mats = Array.isArray(m.material) ? m.material : [m.material];
+  return mats.some((mat) => mat !== undefined && decalDrawOf(mat) !== null);
+}
+
 /** Whether a drawable is a surface a clipped decal may be cut from (its layers aside). */
 export function isDecalSurface(o: THREE.Object3D): boolean {
   const m = o as THREE.Mesh;
@@ -335,6 +343,8 @@ export class ClippedDecals implements SurfaceListener {
   private readonly dirtyRecs = new Set<DecalRec>();
   /** Decals with nothing under them yet, still in their empty wait. */
   private readonly emptyWait = new Set<DecalRec>();
+  /** Decals whose empty result is final at once (the editor's placement preview: the surfaces it moves over are all there). */
+  private readonly noWait = new Set<string>();
   private readonly cache = new Map<string, { mesh: DecalClipMesh; bytes: number }>();
   private cacheBytes = 0;
   /** Keys waiting for a job, being made (on a worker or read from the store), and the jobs on workers. */
@@ -376,7 +386,7 @@ export class ClippedDecals implements SurfaceListener {
     if (rec === undefined) {
       rec = { id, decal, scope, matrix: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), box: new THREE.Box3(), dirty: true, dirtySince: performance.now(), touched: -1, key: null, shown: null, mesh: null, undo: null, since: performance.now(), everShown: false };
       this.decals.set(id, rec);
-      this.firstSet ??= rec.since;
+      if (!this.noWait.has(id)) this.firstSet ??= rec.since;
     } else {
       // Realized again after an edit: its node is new, so its mesh is made again (from the cache when its key holds).
       this.dropMesh(rec);
@@ -399,6 +409,15 @@ export class ClippedDecals implements SurfaceListener {
     this.dropMesh(rec);
     this.decalGrid.remove(rec);
     this.decals.delete(id);
+  }
+
+  /**
+   * The decal's empty result is final at once (true), or only after the wait a level's arriving surfaces need
+   * (false, the default): a placement preview moves over a scene that is already there.
+   */
+  waitForSurfaces(id: string, wait: boolean): void {
+    if (wait) this.noWait.delete(id);
+    else this.noWait.add(id);
   }
 
   /** The clipped mesh drawn for a decal now (null: none, or not made yet): what "Bake to model" writes. */
@@ -474,7 +493,7 @@ export class ClippedDecals implements SurfaceListener {
     if (this.emptyWait.size > 0) {
       for (const rec of this.emptyWait) {
         if (!this.decals.has(rec.id) || rec.key !== '') this.emptyWait.delete(rec);
-        else if (now - rec.since >= CLIPPED_DECAL_EMPTY_WAIT_MS) {
+        else if (this.noWait.has(rec.id) || now - rec.since >= CLIPPED_DECAL_EMPTY_WAIT_MS) {
           this.emptyWait.delete(rec);
           this.show(rec, null, '', 'page');
         }
@@ -623,7 +642,7 @@ export class ClippedDecals implements SurfaceListener {
     if (key === '') {
       // Nothing under it yet, so soon after it was set: the level's surfaces may still be arriving (a model
       // loading, a chunk being meshed). It counts as settled only once the wait is over with still nothing there.
-      if (performance.now() - rec.since < CLIPPED_DECAL_EMPTY_WAIT_MS) {
+      if (!this.noWait.has(rec.id) && performance.now() - rec.since < CLIPPED_DECAL_EMPTY_WAIT_MS) {
         this.dropMesh(rec);
         rec.shown = null;
         this.emptyWait.add(rec);

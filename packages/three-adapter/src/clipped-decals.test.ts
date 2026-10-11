@@ -145,6 +145,27 @@ describe('clipped decals', () => {
     expect(r.clipped.meshOf('d1')).not.toBeNull();
   });
 
+  it('a decal told not to wait (the placement preview) takes nothing under it as final at once, and leaves the ready time alone', () => {
+    const r = rig();
+    r.clipped.waitForSurfaces('preview', false);
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      r.decal('preview', [0, 5, 0], {});
+      r.frame();
+      r.frame();
+      expect(r.clipped.diagnostics()).toMatchObject({ decals: 1, drawn: 0, empty: 1, pending: 0, readyMs: null });
+      // Moved over a floor: cut at once.
+      r.graph.listStatic(floor(8, 0));
+      r.graph.world.setLocal('preview', [0, 0, 0], DOWN, [1, 1, 1]);
+      r.clipped.placed('preview');
+      r.frame();
+      r.frame();
+      expect(r.clipped.meshOf('preview')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a re-meshed surface clips the decal again; an edit that keeps its key finds the mesh in memory', () => {
     const r = rig();
     const before = floor(8, 0);

@@ -16,6 +16,9 @@ interface Props {
   /** The local snapping gesture option (never persisted). */
   snapping: boolean;
   onToggleSnapping: () => void;
+  /** The Decal tool's window is open (the tool armed over the Scene view). */
+  decalTool?: boolean;
+  onToggleDecalTool?: () => void;
   /** The Scene view's lighting — the fixed editor rig or the scene's own lights. */
   lighting?: 'editor' | 'game';
   onToggleLighting?: () => void;
@@ -54,6 +57,11 @@ export function Toolbar(p: Props): JSX.Element {
         >
           snap{p.snapping ? ': on' : ': off'}
         </button>
+        {p.onToggleDecalTool !== undefined && (
+          <button className={p.decalTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.decalTool === true} onClick={p.onToggleDecalTool} title="Decal tool: click a surface in the Scene view to place a decal, Shift+click to stamp more">
+            decal
+          </button>
+        )}
         {p.lighting !== undefined && (
           <button
             className={p.lighting === 'game' ? 'tl-btn is-active' : 'tl-btn'}

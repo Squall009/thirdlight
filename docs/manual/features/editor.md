@@ -39,10 +39,13 @@ window), **Console** and **Problems** (Window menu lists just those).
   Saves, Game modes, Game shell, Scripts (trust and publication) and Script
   trust (the acknowledged sources, revoke). Its
   search filters the sub-tabs by name and by the settings they hold.
-- **Window → Lighting** and **Window → Environment** float over the Scene
-  view (they preview in it): moved by the title bar, resized by the corner,
-  remembered per browser; each names the scene it edits and its picker makes
-  another scene active. A block layer's tools show in its Inspector while it
+- **Window → Lighting**, **Window → Environment** and **Window → Decals**
+  float over the Scene view (they preview in it): moved by the title bar,
+  resized by the corner, remembered per browser; each names the scene it
+  edits and its picker makes another scene active. While Decals is open,
+  the Scene view's left click places decals ([the Decal
+  tool](decals.md#the-decal-tool)); it is never reopened by a reload. A
+  block layer's tools show in its Inspector while it
   is selected; **GameObject → Create prefab from selection** (also the
   Hierarchy's right-click menu); an audio asset's load type, preload and
   listening are in its Inspector.

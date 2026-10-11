@@ -838,6 +838,8 @@ export {
 export * from './probe-grids';
 // Decals: the component, decal layers and decal materials' trim sheet cells.
 export * from './decals';
+// A small seeded generator (the editor's decal stamps draw their turns and sizes from it, as the generators do).
+export { seededRandom } from './arch-math';
 // Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
 export * from './decal-pages';
 // The decal clipper: a clipped decal's mesh cut from its receivers' triangles inside its box.

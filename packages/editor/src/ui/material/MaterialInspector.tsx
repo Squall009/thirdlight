@@ -52,7 +52,8 @@ const SLOT_LABEL: Record<string, string> = {
   macroNormalMap: 'macro normal (UV1)',
 };
 
-function newMaterialId(existing: readonly MaterialDef[], name: string): string {
+/** A free material id from a name (`mat-<name>`, numbered when taken). */
+export function newMaterialId(existing: readonly MaterialDef[], name: string): string {
   const base = `mat-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'material'}`;
   let id = base;
   for (let n = 2; existing.some((m) => m.materialId === id); n += 1) id = `${base}-${n}`;

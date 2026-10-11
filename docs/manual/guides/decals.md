@@ -35,7 +35,36 @@ All use a **decal material**.
 4. Where two decals overlap, the one with the higher **sortOrder** draws on
    top (−1000 to 1000; decals always draw before water and effects).
 
+## Place it with the Decal tool
+
+The quickest way to put marks on a level: the **decal** button in the tool
+row (or **Window → Decals**) opens the Decals window over the Scene view.
+While it is open, the Scene view's left click places decals instead of
+selecting:
+
+1. Pick **decal**: a decal material, or a trim sheet's decal cell by name
+   (a cell no decal material draws yet gets one when you pick it, sized at
+   the sheet's texel density).
+2. Pick **mode** (`projected` or `clipped`, see below), the **width**,
+   **height** and **depth** of the box, and an **angle** to turn the image.
+3. Move the pointer over a surface: the decal shows there as it will be
+   placed, facing out of the surface (on a floor the image's top points to
+   −Z, on a wall up the wall).
+4. **Click** to place it: one object with a Decal component (one undo
+   step). It is selected: drag its **knob** (the ring's handle) to turn it
+   about the surface normal (15° steps with snapping on), its **corner** to
+   scale its width and height; each drag is one undo step, Esc drops it.
+5. **Shift+click** stamps more: each with a random turn (up to ± **stamp
+   turn**) and size (between **stamp size min** and **max**) drawn from the
+   **seed**, so the same clicks with the same seed give the same marks.
+
+Close the window (or press **decal** again) to select with the left click
+again. The tool sends the same commands as MCP (`createEntity` with the
+decal component, `setTransform`, `setComponent`), below.
+
 ## Project it onto a surface
+
+By hand, or to set what the tool does not:
 
 1. Create an empty object where the mark goes and **+ Add component →
    Decal**; pick the decal material.
