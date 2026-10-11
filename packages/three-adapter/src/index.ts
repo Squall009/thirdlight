@@ -343,3 +343,6 @@ export type { DecalProjectorsObservation } from './decal-projectors';
 export { applyObjectLightLayers } from './light-layers';
 export { LIGHT_IMPORTANCE_KEY, LOCAL_LIGHTS_KEY, VERTEX_LIGHTS_URL_PARAM, localLightVariantCount, vertexLightsFromUrl } from './local-lights';
 export { BUILD_KEEP_URL_PARAM, buildKeepFromUrl, RELEASED_BUILD_KEEP_MS } from './node-builds';
+// The occlusion oracle a measurement runs from the scene (what the view draws that no pixel shows).
+export { OCCLUSION_ORACLE_KEY, type OracleResult } from './occlusion-oracle';
+export { hiddenFractions, ORACLE_KINDS, type OracleKind, type OracleShare } from './occlusion-oracle-count';

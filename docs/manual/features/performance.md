@@ -191,6 +191,18 @@ workers and the GPU process (a Chrome trace; three's pass timestamps include
 the waits between passes, so they do not measure GPU busy time at a capped
 rate).
 
+**What the view draws that no pixel shows.** `--oracle` (village and level
+runs) ends each export run by drawing the view once more with an id per
+drawable, instance copy and merged member, and counts the ids left with a
+visible pixel: the share of draws, items and triangles that are hidden (the
+most occlusion culling could save), by kind (instanced, merged, single,
+transparent); then it leaves the wholly hidden draws out of the view and
+measures the frames again (what an ideal culling of whole draws saves).
+`--view street` (village; level classes without a terrain too) and
+`--view valley` (level classes with a terrain) also export the same build
+seen from an occluded view at eye height and measure it after the open view,
+with the oracle (`node tools/perf/run.mjs level --classes area --view street`).
+
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance
 set; `setComponent instances … castShadow: true`). Older engines had instance

@@ -71,6 +71,13 @@
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
  *                                (`--classes interior --switches portals=off`: the interior again with room/portal
  *                                culling off, what the culling saves)
+ *   --view street,valley         also export each class seen from each of these views that fits it (level.ts
+ *                                levelViewCamera: `street` at eye height along the area's middle street between the
+ *                                walled rooms, outdoor classes; `valley` at eye height behind a hill looking towards
+ *                                the area, the classes with a terrain; the interior stays as it is) and measure it
+ *                                after the open view, both with the occlusion oracle (implies --oracle)
+ *   --oracle                     after each class's run, count what the view drew that no pixel showed (three-adapter
+ *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/level-<time>.json (latest-level.json too).
@@ -84,10 +91,10 @@ import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { moduleIndex } from './profile';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, uncappedUrl, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { installFrameProbe, probeSceneCounts } from './frame-probe';
-import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
+import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, levelViewCamera, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, LEVEL_VIEWS, type LevelBuild, type LevelKind, type LevelPlan, type LevelRoofs, type LevelView } from './level';
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
-import { frameLine } from './village-run';
+import { frameLine, oracleLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
@@ -196,6 +203,8 @@ export interface LevelReport {
   builds: Partial<Record<LevelKind, LevelBuild & { exportMs: number }>>;
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
   switches?: Partial<Record<LevelKind, Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>>>;
+  /** `--view`: each class seen from each view that fits it instead of its open view. */
+  views?: Partial<Record<LevelKind, Partial<Record<LevelView, { camera: LevelPlan['camera']; byRenderer: Partial<Record<FrameRenderer, FrameRunResult>> }>>>>;
   errors: string[];
 }
 
@@ -285,6 +294,11 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const foliage = get('foliage') ?? 'on';
   if (foliage !== 'on' && foliage !== 'off') throw new Error(`--foliage: on or off, not ${foliage}`);
   const marks = parseLevelMarks(get);
+  const views = (get('view') ?? '').split(',').filter((x) => x !== '') as LevelView[];
+  for (const v of views) if (!LEVEL_VIEWS.includes(v)) throw new Error(`--view: ${LEVEL_VIEWS.join(', ')}, not ${v}`);
+  const oracle = has('oracle') || views.length > 0;
+  /** The views that fit a class: a street in every outdoor class, a valley where there is a terrain. */
+  const viewsOf = (kind: LevelKind): LevelView[] => views.filter((v) => kind !== 'interior' && (v === 'street' || kind === 'landscape' || kind === 'world'));
   if (anyLevelMarks(marks) && kinds.includes('interior')) throw new Error('--decals, --mesh-decals, --clipped-decals and --painted mark the outdoor classes\' area, not the interior');
 
   const startedAt = new Date().toISOString();
@@ -303,6 +317,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
+  const viewDirs: Partial<Record<LevelKind, Partial<Record<LevelView, { dir: string; camera: LevelPlan['camera'] }>>>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
@@ -322,6 +337,15 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       report.builds[kind] = { ...b, exportMs: Math.round(performance.now() - t) };
       exportDirs[kind] = join(be.exportRoot, String(res.json['outputDir']));
       log(`level ${kind}: built in ${b.ms} ms (${b.commands} commands), exported in ${report.builds[kind]!.exportMs} ms`);
+      for (const v of viewsOf(kind)) {
+        // The same build seen from the view: the camera moved, exported again.
+        const camera = levelViewCamera(plan, v);
+        await be.project(b.projectId).command('setTransform', { entityId: 'cam-main', transform: { position: camera.position, rotation: camera.rotation } });
+        const again = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
+        if (again.status !== 200) throw new Error(`view export failed: ${JSON.stringify(again.json).slice(0, 400)}`);
+        (viewDirs[kind] ??= {})[v] = { dir: join(be.exportRoot, String(again.json['outputDir'])), camera };
+        log(`level ${kind} ${v}: camera at ${camera.position.join(', ')}`);
+      }
     }
   } finally {
     await be.stop();
@@ -334,9 +358,10 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs[kind]!);
       try {
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), oracle, oracleCull: oracle, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
           (report.classes[kind] ??= {})[r] = res;
           log(frameLine(`level ${kind} ${r}`, res) + roomsNote(res));
+          if (oracle) log(oracleLine(`level ${kind} ${r}`, res));
           // Each restyle (a kit swapped) the page timed: its chunks, how long they took to arrive, its frames and long frames.
           const restyles = (res.marks ?? []).filter((m) => m.name === 'tl:blocks:restyle').map((m) => m.detail as { ms: number; chunks: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number });
           // Each scatter set made (a copy removed on the way, a re-bake): its main-thread and worker time.
@@ -371,6 +396,21 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
         }
       } finally {
         await site.close();
+      }
+      for (const [v, at] of Object.entries(viewDirs[kind] ?? {}) as [LevelView, { dir: string; camera: LevelPlan['camera'] }][]) {
+        const viewSite = await serveStatic(at.dir);
+        try {
+          const byRenderer: Partial<Record<FrameRenderer, FrameRunResult>> = {};
+          ((report.views ??= {})[kind] ??= {})[v] = { camera: at.camera, byRenderer };
+          for (const r of renderers) {
+            const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(viewSite), shot: join(runDir, `${kind}-${v}-${r}.png`), oracle: true, oracleCull: true, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
+            byRenderer[r] = res;
+            log(frameLine(`level ${kind} ${v} ${r}`, res) + roomsNote(res));
+            log(oracleLine(`level ${kind} ${v} ${r}`, res));
+          }
+        } finally {
+          await viewSite.close();
+        }
       }
     }
   } finally {

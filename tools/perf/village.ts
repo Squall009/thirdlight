@@ -125,6 +125,20 @@ function fireEffect(): Record<string, unknown> {
   return { effectId: FIRE_EFFECT, name: 'Fire', duration: 1, loop: true, seed: 3, bounds: { center: [0, 1, 0], size: [3, 4, 3] }, systems: [{ systemId: 'sparks', name: 'Sparks', maxParticles: 48, space: 'world', graph: { nodes, edges } }] };
 }
 
+/** The occluded view the village can be measured from (`--view street`), against its open view of the same build. */
+export type VillageView = 'street';
+/** A standing player's eye over the ground (m). */
+const EYE_HEIGHT_M = 1.7;
+
+/**
+ * `street`: at eye height in the village's middle (the props keep 2 m clear of it), level, looking the way the open
+ * view looks: the props round the eye hide most of those behind them.
+ */
+export function villageViewCamera(view: VillageView): VillagePlan['camera'] {
+  if (view !== 'street') throw new Error(`--view: street, not ${String(view)}`);
+  return { position: [0, GROUND_Y + EYE_HEIGHT_M, 0], rotation: [0, 0, 0, 1] };
+}
+
 export function villagePlan(seed = VILLAGE_SEED): VillagePlan {
   const S = VILLAGE_SPEC;
   const rnd = prng(seed * 7919 + S.entities);

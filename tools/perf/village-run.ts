@@ -38,6 +38,11 @@
  *                                mean, for a baseline without one) is worse than FRAME_REGRESSION or the p95 than
  *                                FRAME_P95_REGRESSION (fractions) on any renderer
  *   --write-baseline FILE        record this run's frame times as the baseline
+ *   --view street                also export the village seen from the street (village.ts villageViewCamera: eye height,
+ *                                level, the props in front hiding much of the rest) and measure it after the open view,
+ *                                both with the occlusion oracle (implies --oracle)
+ *   --oracle                     after each export run, count what the view drew that no pixel showed (three-adapter
+ *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/<village or the project folder's name>-<time>.json
@@ -50,13 +55,15 @@ import { basename, join, resolve } from 'node:path';
 
 import * as esbuild from 'esbuild';
 
+import { hiddenFractions, ORACLE_KINDS, type OracleShare } from '@thirdlight/three-adapter';
+
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
 import { bakeProbesInEditor } from './probe-bake-run';
 import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
-import { addVillageLamps, buildVillage, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild } from './village';
+import { addVillageLamps, buildVillage, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
 
 /**
  * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
@@ -98,6 +105,8 @@ export interface VillageReport {
   sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
   /** The export with each `--switches` query added, per query. */
   switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>;
+  /** `--view`: the export seen from that view instead of the open one. */
+  views?: Partial<Record<VillageView, { camera: VillagePlan['camera']; export: Partial<Record<FrameRenderer, FrameRunResult>> }>>;
   errors: string[];
 }
 
@@ -217,6 +226,23 @@ export function frameLine(what: string, r: FrameRunResult): string {
   return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}${r.scene.lod !== undefined ? `, ${r.scene.lod.copiesInView} instance copies drawn, LOD switches ${r.scene.lod.switches} models/${r.scene.lod.copySwitches} copies last frame` : ''}${r.scene.effectsMs != null ? `, effects ${r.scene.effectsMs} ms/frame main thread` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
+/** The occlusion oracle's count for the log: what the view drew that no pixel showed, in all and by kind. */
+export function oracleLine(what: string, r: FrameRunResult): string {
+  const o = r.oracle;
+  if (o === undefined) return `${what}: oracle not run`;
+  if ('error' in o) return `${what}: oracle failed: ${o.error}`;
+  const pc = (v: number): string => `${Math.round(v * 1000) / 10}%`;
+  const share = (s: OracleShare): string => {
+    const f = hiddenFractions(s);
+    return `items ${s.hiddenItems}/${s.items} (${pc(f.items)}), draws ${s.hiddenDraws}/${s.draws} (${pc(f.draws)}), triangles ${Math.round(s.hiddenTriangles / 1000)}k/${Math.round(s.triangles / 1000)}k (${pc(f.triangles)})`;
+  };
+  const kinds = ORACLE_KINDS.filter((k) => o.byKind[k].items > 0).map((k) => `${k}: ${share(o.byKind[k])}`);
+  const c = r.oracleCulled;
+  const gpuOf = (g: FrameRunResult['gpu']): string => (g === null || !g.available ? '-' : String(g.msPerFrame));
+  const culled = c === undefined ? '' : `; the ${c.hiddenDraws} wholly hidden draws left out: frame p50/p95/p99 ${c.frames.p50}/${c.frames.p95}/${c.frames.p99} ms (with them ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}), gpu ${gpuOf(c.gpu)} ms (with ${gpuOf(r.gpu)}), main thread ${c.mainThread.taskMsPerFrame} ms (with ${r.mainThread.taskMsPerFrame}), ${c.draws.p50} draws (with ${r.draws.p50}), ${Math.round(c.tris.p50 / 1000)}k tris (with ${Math.round(r.tris.p50 / 1000)}k)`;
+  return `${what}: oracle hidden ${share(o.total)}; ${kinds.join('; ')}; ${o.width}x${o.height}, ${o.covered} px written, ${o.stray} stray, skipped ${JSON.stringify(o.skipped)}, ${o.ms} ms${culled}`;
+}
+
 /** Busy time per second (`--busy`): drawn frames, the page's main thread (untraced, and traced), workers, GPU process. */
 export function busyLine(what: string, r: FrameRunResult): string {
   const b = r.busy!;
@@ -244,6 +270,10 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const query = get('query') !== undefined ? `&${get('query')}` : '';
   const switches = gate ? [] : (get('switches') ?? '').split(',').filter((x) => x !== '');
   const busyMs = gate ? 0 : Number(get('busy') ?? 0);
+  const view = get('view') as VillageView | undefined;
+  if (view !== undefined && (gate || projectFolder !== undefined)) throw new Error('--view: the village class, not with --gate or --project');
+  const viewCamera = view === undefined ? null : villageViewCamera(view);
+  const oracle = has('oracle') || view !== undefined;
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -272,6 +302,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   // ---- the export -------------------------------------------------------------------
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   let exportDir: string | null = null;
+  let viewDir: string | null = null;
   try {
     let projectId = 'village';
     if (projectFolder === undefined) {
@@ -306,6 +337,13 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
       report.subject.exportMs = Math.round(performance.now() - t);
       exportDir = join(be.exportRoot, String(res.json['outputDir']));
+      if (viewCamera !== null) {
+        // The same build seen from the view: the camera moved, exported again.
+        await be.project(projectId).command('setTransform', { entityId: 'cam-main', transform: { position: viewCamera.position, rotation: viewCamera.rotation } });
+        const again = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
+        if (again.status !== 200) throw new Error(`view export failed: ${JSON.stringify(again.json).slice(0, 400)}`);
+        viewDir = join(be.exportRoot, String(again.json['outputDir']));
+      }
     }
   } finally {
     await be.stop();
@@ -318,9 +356,10 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
       for (const [i, r] of (site === null ? [] : renderers).entries()) {
-        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs });
+        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs, oracle, oracleCull: oracle });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
+        if (oracle) log(oracleLine(`export ${r}`, res));
         for (const m of res.marks ?? []) log(`mark ${r} ${m.name} at ${m.at} ms (first frame ${res.firstFrameMs ?? '-'} ms)${m.detail !== null ? ` ${JSON.stringify(m.detail)}` : ''}`);
         if (res.busy !== undefined) log(busyLine(`busy ${r}`, res));
         for (const sw of switches) {
@@ -333,6 +372,21 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       }
     } finally {
       await site?.close();
+    }
+    if (view !== undefined && viewDir !== null) {
+      const viewSite = await serveStatic(viewDir);
+      try {
+        const seen: Partial<Record<FrameRenderer, FrameRunResult>> = {};
+        report.views = { [view]: { camera: viewCamera!, export: seen } };
+        for (const r of renderers) {
+          const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(viewSite), shot: join(runDir, `export-${view}-${r}.png`), oracle: true, oracleCull: true });
+          seen[r] = res;
+          log(frameLine(`export ${view} ${r}`, res));
+          log(oracleLine(`export ${view} ${r}`, res));
+        }
+      } finally {
+        await viewSite.close();
+      }
     }
     if (bare) {
       const dumped = report.export[renderers[0]!]?.dump;

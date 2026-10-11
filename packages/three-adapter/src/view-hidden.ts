@@ -16,6 +16,8 @@ export const OFF_VIEW_LAYER = 31;
 /** Why a mesh is hidden (bits). */
 export const HIDDEN_BY_CUTAWAY = 1;
 export const HIDDEN_BY_ROOM = 2;
+/** Hidden behind what is drawn in front of it (the occlusion oracle's ideal culling, for a measurement). */
+export const HIDDEN_BY_OCCLUSION = 4;
 
 /** `object.userData[HIDDEN_BY_KEY]`: the reasons a mesh is hidden from the view (bits; absent: none). */
 const HIDDEN_BY_KEY = '__tlHiddenBy';

@@ -290,3 +290,19 @@ export async function probeGpuPasses(ms: number): Promise<GpuTimings> {
     .sort((a, b) => b.msPerFrame * b.frames - a.msPerFrame * a.frames);
   return out;
 }
+
+/**
+ * In the page: the occlusion oracle (three-adapter occlusion-oracle.ts, found on the scene drawn last frame) run
+ * from that scene's view camera (`hideHidden`: then the draws it found wholly hidden are left out of the view);
+ * null when no scene carries it.
+ */
+export async function probeOcclusionOracle(options: { hideHidden?: boolean }): Promise<unknown> {
+  const P = (window as unknown as { __tlProbe?: ProbeState }).__tlProbe;
+  const r = P?.renderers[P.renderers.length - 1];
+  if (P === undefined || r === undefined) return null;
+  for (const [scene, camera] of P.lastScenes) {
+    const run = (scene as { userData?: Record<string, unknown> } | null)?.userData?.['tlOcclusionOracle'];
+    if (typeof run === 'function') return await (run as (renderer: unknown, camera: unknown, o: unknown) => Promise<unknown>)(r, camera, options);
+  }
+  return null;
+}
