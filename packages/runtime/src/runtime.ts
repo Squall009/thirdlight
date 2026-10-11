@@ -24,6 +24,7 @@ import { fail } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { rideOnFrame } from './frame-queues';
+import { PresentationRequests } from './presentation-requests';
 import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
@@ -132,6 +133,7 @@ import {
   type SceneSetView,
   type SceneStatus,
   type EffectRequest,
+  type DecalRequest,
   type GameplaySettings,
   type InterpolatedState,
   type InterpolatedVisitor,
@@ -164,8 +166,7 @@ export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
 /** A script message name (the timer-name syntax). */
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-/** Effect requests kept for a renderer that does not take them (headless): the newest this many. */
-export const EFFECT_MAX_QUEUED_REQUESTS = 256;
+export { EFFECT_MAX_QUEUED_REQUESTS } from './presentation-requests';
 export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
 /**
  * The M2 settle pre-roll at 120 Hz — the engine's settle time
@@ -694,51 +695,8 @@ export class RuntimeInstance implements Runtime {
   private readonly assetHandles = new RuntimeAssetHandles((message) => this.recordBehaviorLog('thirdlight.runtime:assets', 'warn', message));
   private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
-  // ---- Visual effect requests (presentation only) ----
-  /** Requests since the adapter last took them (bounded: the oldest are dropped beyond `EFFECT_MAX_QUEUED_REQUESTS`). */
-  private effectQueue: EffectRequest[] = [];
-  /** The last play handle handed out (never reset while the game runs: handles stay unique). */
-  private effectHandle = 0;
-  /** Script plays in the current step (at most 32). */
-  private effectPlaysStep = -1;
-  private effectPlaysThisStep = 0;
-  private pushEffect(r: Omit<EffectRequest, 'stepIndex' | 'handle'> & { handle?: number }): number {
-    const handle = r.op === 'play' ? ++this.effectHandle : (r.handle ?? 0);
-    const req: EffectRequest = Object.freeze({ ...r, handle, stepIndex: this.stepIndex + 1, position: Object.freeze([r.position[0], r.position[1], r.position[2]]) as unknown as readonly [number, number, number] });
-    this.effectQueue.push(req);
-    // Nobody takes them (no renderer, e.g. a headless run): keep only the newest.
-    if (this.effectQueue.length > EFFECT_MAX_QUEUED_REQUESTS) this.effectQueue.splice(0, this.effectQueue.length - EFFECT_MAX_QUEUED_REQUESTS);
-    return handle;
-  }
-  private readonly effectsControl = Object.freeze({
-    play: (effectId: string, options?: { position?: readonly number[]; entityId?: string; params?: Readonly<Record<string, number | readonly number[] | string>> }): number => {
-      if (typeof effectId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(effectId)) return 0;
-      if (this.effectPlaysStep !== this.stepIndex) {
-        this.effectPlaysStep = this.stepIndex;
-        this.effectPlaysThisStep = 0;
-      }
-      if (this.effectPlaysThisStep >= 32) return 0;
-      this.effectPlaysThisStep += 1;
-      const p = options?.position;
-      const position: [number, number, number] = [Number(p?.[0] ?? 0), Number(p?.[1] ?? 0), Number(p?.[2] ?? 0)].map((v) => (Number.isFinite(v) ? v : 0)) as [number, number, number];
-      const entityId = typeof options?.entityId === 'string' && options.entityId !== '' ? options.entityId : null;
-      let params: Record<string, number | readonly number[] | string> | null = null;
-      if (options?.params !== undefined && options.params !== null && typeof options.params === 'object') {
-        params = {};
-        for (const [k, v] of Object.entries(options.params).slice(0, 32)) {
-          if (typeof v === 'number' && Number.isFinite(v)) params[k] = v;
-          else if (typeof v === 'string' && v.length <= 16) params[k] = v;
-          else if (Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x))) params[k] = Object.freeze([...v]);
-        }
-        params = Object.freeze(params);
-      }
-      return this.pushEffect({ op: 'play', effectId, entityId, position, params, source: 'script' });
-    },
-    stop: (target: number | string): void => {
-      if (typeof target === 'number' && Number.isInteger(target) && target > 0) this.pushEffect({ op: 'stop', effectId: '', handle: target, entityId: null, position: [0, 0, 0], params: null, source: 'script' });
-      else if (typeof target === 'string' && target !== '') this.pushEffect({ op: 'stop', effectId: '', handle: 0, entityId: target, position: [0, 0, 0], params: null, source: 'script' });
-    },
-  });
+  /** Effect and decal requests for the renderer (presentation only, never part of the simulation). */
+  private readonly presentation = new PresentationRequests({ stepIndex: () => this.stepIndex, prefab: (id) => this.prefabs.get(id) });
 
   /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
   private readonly kept = new KeptObjects();
@@ -966,7 +924,7 @@ export class RuntimeInstance implements Runtime {
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.colliders.poses() } : {}),
         // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
-        effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
+        effect: (r) => void rt.presentation.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
       },
       args.initialEntities,
     );
@@ -1046,9 +1004,12 @@ export class RuntimeInstance implements Runtime {
    * simulation computes.
    */
   takeEffectRequests(): EffectRequest[] {
-    const out = this.effectQueue;
-    this.effectQueue = [];
-    return out;
+    return this.presentation.takeEffects();
+  }
+
+  /** The decal requests since the last call (scripts' `ctx.decals`, a restart's clear); presentation only, like the effects'. */
+  takeDecalRequests(): DecalRequest[] {
+    return this.presentation.takeDecals();
   }
 
   /**
@@ -2318,8 +2279,9 @@ export class RuntimeInstance implements Runtime {
     this.controllers.clearImpulses();
     this.clearSpawned();
     this.runSpawnBase = this.spawnRequests.serial;
-    // Every sound scripts started stops: the new run's scripts hold no handle to them.
+    // Every sound scripts started stops, every decal they spawned goes: the new run's scripts hold no handle to them.
     this.audio.reset();
+    this.presentation.restartRun();
     // The scripts start over knowing no handle: those still open are released (and reported).
     this.assetHandles.endRun();
     if (!this.restoreStartSet()) return false;
@@ -2658,8 +2620,8 @@ export class RuntimeInstance implements Runtime {
         playing: (handle) => rt.audio.playing(handle),
       },
       effects: {
-        play: (effectId, options) => rt.effectsControl.play(effectId, options),
-        stop: (handle) => rt.effectsControl.stop(handle),
+        play: (effectId, options) => rt.presentation.effects.play(effectId, options),
+        stop: (handle) => rt.presentation.effects.stop(handle),
       },
       setVisible: (id, visible) => {
         if (rt.curr.has(id)) rt.blocks?.setVisible(id, visible);
@@ -3521,7 +3483,8 @@ export class RuntimeInstance implements Runtime {
       fields['look'] = { value: this.lookControl, enumerable: true };
       fields['audio'] = { value: this.audioControl.control, enumerable: true };
       fields['audioOwned'] = { value: this.audioControl.owned, enumerable: true };
-      fields['effects'] = { value: this.effectsControl, enumerable: true };
+      fields['effects'] = { value: this.presentation.effects, enumerable: true };
+      fields['decals'] = { value: this.presentation.decals, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
       fields['spawnerOwned'] = { value: this.spawnerOwned, enumerable: true };

@@ -14,12 +14,12 @@ import type { ActionFrame, ActionSource, DebugCommandCall } from './actions';
 import type { ErrorCode, RuntimeError } from './errors';
 import type { PhysicsPort, PhysicsStepClient } from './ports';
 import { registryBrand, type SimulationPhase, type TransformState } from './types-simulation';
-import { type DebugCommandState, type EffectRequest } from './types-behavior';
+import { type DebugCommandState, type DecalRequest, type EffectRequest } from './types-behavior';
 import { type SceneLoadingView, type SceneLoadOptions, type SceneLoadRequest, type SceneSetView } from './types-scene';
 export type { RuntimeSnapshotEntity, RuntimeScene, RuntimeSnapshot, RuntimeEventCue, ModelBounds, RuntimeSceneRow, ListedScene, SceneStatus, SceneLoadOptions, SceneActivateOptions, SceneTransitionView, SceneLoadingView, BehaviorSceneControl, BehaviorWorldView, WorldTransformOptions, BehaviorRandomStream, BehaviorRandom, LoadedSceneBatch, SceneSetView, SceneLoadRequest, GameplaySettings } from './types-scene';
 export { SIMULATION_PHASE_ORDER } from './types-simulation';
 export type { InstantiateConfig, TransformState, SimEntityData, SimState, ModuleConfig, Character3DQueries, SimulationModule, SimulationPhase, PlayerCapsule, ModuleResetContext, SimulationPhaseModule, StepContext, ClimbQuery, BehaviorShell, SimulationModuleSpec, SimulationRegistry } from './types-simulation';
-export type { BehaviorMessage, BehaviorMessages, BehaviorMessageControl, TriggerEventRecord, HealthEventRecord, ContactEventRecord, PatrolEventRecord, CollectEventRecord, PrimitiveEventRecord, BehaviorTimers, BehaviorSpawnControl, BehaviorSave, DebugCommandArgType, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandArgs, DebugCommandState, BehaviorDebug, AudioFinishedEvent, AudioPlayOptions, AudioStingerOptions, AudioMusicOptions, AudioMusicState, BehaviorAudio, EffectRequest, BehaviorEffects } from './types-behavior';
+export type { BehaviorMessage, BehaviorMessages, BehaviorMessageControl, TriggerEventRecord, HealthEventRecord, ContactEventRecord, PatrolEventRecord, CollectEventRecord, PrimitiveEventRecord, BehaviorTimers, BehaviorSpawnControl, BehaviorSave, DebugCommandArgType, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandArgs, DebugCommandState, BehaviorDebug, AudioFinishedEvent, AudioPlayOptions, AudioStingerOptions, AudioMusicOptions, AudioMusicState, BehaviorAudio, EffectRequest, BehaviorEffects, DecalRequest, BehaviorDecals } from './types-behavior';
 export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, BehaviorDisplay, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
 export { registryBrand as SIM_REGISTRY_BRAND };
 
@@ -85,6 +85,8 @@ export interface Runtime {
   audioState?(): Record<string, unknown> | null;
   /** The effect requests (scripts, effect-component signals, gameplay hooks) since the last call; the adapter plays them. */
   takeEffectRequests?(): EffectRequest[];
+  /** The decal requests since the last call (`ctx.decals`); presentation only. */
+  takeDecalRequests?(): DecalRequest[];
   /** The block-layer chunks to re-mesh since the last call (their cells now); the adapter applies them. */
   takeGridChanges?(): import('./grid').GridRenderChange[];
   /** The block cells changed since the run started (plain data). */

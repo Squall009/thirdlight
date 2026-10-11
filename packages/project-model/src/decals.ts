@@ -84,6 +84,19 @@ export const DECAL_LIMITS = {
 export const DECAL_CELL_BUDGET = 16;
 
 /**
+ * The transient budget: the most decals scripts' spawns (`ctx.decals.spawn`:
+ * bullet holes, footprints, scorch marks) keep on screen at once. A spawn
+ * past it fades the oldest spawned decal out (over
+ * {@link DECAL_TRANSIENT_FADE_SECONDS}), so a long fight leaves the newest
+ * marks and costs the index and the pixels no more than this many. It is a
+ * cost budget of the page, not a cap on decals in a project: authored decals
+ * never count, and a spawn is never refused for it.
+ */
+export const DECAL_TRANSIENT_BUDGET = 256;
+/** How long a spawned decal takes to fade out (its lifetime ended, the budget needed its place, a script removed it). */
+export const DECAL_TRANSIENT_FADE_SECONDS = 1;
+
+/**
  * A new decal: a 1 m cube projected along −Z; faces turned more than 90°
  * from the projector get nothing (it fades out over the last fifth of the
  * angle); it fades over 30 % of the box depth at each end (Godot's upper

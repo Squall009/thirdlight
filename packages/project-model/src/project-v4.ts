@@ -411,7 +411,7 @@ const prefabRefRules = new WeakMap<object, { key: readonly unknown[]; errors: re
 /** A prefab's gameplay components name project things (kept with the prefab, asset, animator, material and effect lists). */
 function prefabReferenceRules(content: ContentCatalogV4): readonly ModelErrorV3[] {
   const prefabs = content.prefabs ?? [];
-  const uses = derivedOf(prefabs, 'uses', () => ({ params: prefabs.some((d) => d.entities.some((e) => e.components.materialParams !== undefined)), effects: prefabs.some((d) => d.entities.some((e) => e.components.effect !== undefined)) }));
+  const uses = derivedOf(prefabs, 'uses', () => ({ params: prefabs.some((d) => d.entities.some((e) => e.components.materialParams !== undefined || e.components.decal !== undefined)), effects: prefabs.some((d) => d.entities.some((e) => e.components.effect !== undefined)) }));
   const key = [content.assets, animatorIds(content), materialIdsOf(content), uses.params ? content.materials : null, uses.effects ? content.effects : null];
   const hit = prefabRefRules.get(prefabs);
   if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.errors;
@@ -430,6 +430,13 @@ function prefabReferenceRules(content: ContentCatalogV4): readonly ModelErrorV3[
       for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
       if (c.materialParams !== undefined) for (const x of materialOverrideErrors(c.materialParams, content.materials ?? [])) bad(`materialParams${x.path}`, x.code, x.message, 'a public parameter of a graph material, with a value that fits it', x.found);
       if (c.effect !== undefined) for (const x of effectComponentErrors(c.effect, content.effects ?? [])) bad(`effect${x.path}`, x.code, x.message, 'an effect of this project and its public parameters', x.found);
+      // A decal names a decal material of the project (as on a scene entity).
+      if (c.decal !== undefined) {
+        const m = (content.materials ?? []).find((x) => x.materialId === c.decal!.material);
+        const root = m === undefined ? undefined : resolveMaterial(content.materials ?? [], m.materialId);
+        if (m === undefined) bad('decal/material', 'reference_missing', 'the decal names no material of this project', 'a decal materialId in content.materials', c.decal.material);
+        else if (root?.shader !== 'decal') bad('decal/material', 'field_value', `a decal draws with a decal material ("${m.name}" is ${root?.shader ?? 'a broken instance'})`, 'a material whose shader is decal', c.decal.material);
+      }
       if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio asset of this project', 'an audio assetId', c.audioSource.assetId);
     });
   });

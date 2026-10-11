@@ -4,10 +4,11 @@
 > data — the decal component, decal layers, decal materials and the decal
 > cells of trim sheets save, reopen, travel through MCP and ship with an
 > export — the [decal pages](#decal-pages) (Play and the export put the
-> decal materials' images on texture arrays), [mesh decals](#mesh-decals)
-> and [projected decals](#projected-decals), which draw. **Clipped decals do
-> not draw yet**, nor are decals spawned at run time; this page will say so
-> when they do. How-to: [Decals](../guides/decals.md).
+> decal materials' images on texture arrays), [mesh decals](#mesh-decals),
+> [projected decals](#projected-decals), which draw, follow moving objects
+> and can be [spawned by scripts](#decals-spawned-by-scripts). **Clipped
+> decals do not draw yet**; this page will say so when they do. How-to:
+> [Decals](../guides/decals.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
@@ -187,25 +188,83 @@ How a pixel takes it:
   diagnostics count the dropped entries (`renderer.projectedDecals.dropped`).
   It is a cost per spot, not a cap: a level may hold any number of decals,
   spread out.
-- The grid and the decal table are built when a decal is added, removed,
-  changed or moved, or its images arrive, never on a still frame.
+- A decal added, removed, changed or moved rewrites only its own row of the
+  decal table and the grid cells it left and entered (a few microseconds);
+  the objects it may reach are looked for only near it. A still frame costs
+  nothing. The whole grid is built again only when the images change (a
+  page arrives, a material is edited), when a decal of a material not
+  placed yet comes, or when the grid's layout cannot take a change (far
+  more decals or much larger ones than it was built for): 10–20 ms for 200
+  decals.
 - Measured on this engine's test host (Iris Xe, 1080p, uncapped), 200
   decals spread over a test level's ground, walls and props (they reach 226
-  of its 238 scene draws): the scene pass +0.8 ms GPU, the main thread
-  +0.5 ms (WebGPU) and +0.6–1.0 ms (WebGL 2) a frame, 2 more shaders; the
-  grid 320 KiB, built in 10–16 ms. Without projected decals: nothing.
+  of its 238 scene draws): the scene pass +0.6 ms GPU, the main thread
+  +0.35 ms (WebGPU) and +0.45 ms (WebGL 2) a frame, 2 more shaders; table
+  and grid 368 KiB. With 20 of them moving and 30 spawned a second (about
+  500 in all, 30 fading at a time): the changes 0.4–0.7 ms a frame (about
+  50 decals changed), the frame as with 200 still decals. Without projected
+  decals: nothing.
+
+**Moving decals.** A decal follows its object: one on a door, a cart or a
+platform (a `mover`, a parent that moves, a script that moves it) marks
+where the object is in every frame. Its table row and grid cells are
+written again in place each frame it moves.
 
 **Images.** Play and the export read the decal pages; the Scene view draws
 each decal material's own textures (or its sheet's cell) into a small page
 array of its own (512² a layer), so it shows what Play shows.
 
-**Diagnostics.** Play's `renderer.projectedDecals`: `decals` (loaded),
-`drawn`, `unplaced` (an image on a page array other than its set's: not
-drawn), the grid's `cells` and `entries`, `dropped` (over the overlap
-budget), `builds` and `buildMs` (the last build), `dataBytes` (table and
-grid), `viewPageBytes` (the Scene view's pages) and `receiverDraws` (draws in
-the last frame that blended decals). `?decals=off` on a Play or export URL
-draws without them, to see what they cost.
+**Diagnostics.** Play's `renderer.projectedDecals`: `decals` (loaded,
+spawned ones included), `drawn`, `unplaced` (an image on a page array other
+than its set's: not drawn), the grid's `cells` and `entries`, `dropped` (over
+the overlap budget), `builds` and `buildMs` (whole builds, the last one's
+time), `updates` and `updateMs` (frames that changed decals in place, the
+last one's time), `spawned` and `fading` (decals scripts spawned that are
+alive, and of them fading out), `dataBytes` (table and grid),
+`viewPageBytes` (the Scene view's pages) and `receiverDraws` (draws in the
+last frame that blended decals). The first time a spot has more decals than
+the overlap budget, Play's Problems say so (`decal_overlap`). `?decals=off`
+on a Play or export URL draws without them, to see what they cost.
+
+## Decals spawned by scripts
+
+Bullet holes, footprints, tyre marks and scorch marks are left while the
+game runs: a script calls
+
+```ts
+const mark = ctx.decals.spawn('scorch', { position: hit.point, normal: hit.normal, angle: 30, scale: 1.2, lifetime: 20 });
+```
+
+- **What it leaves** is a prefab's decal: the `decal` component of the
+  prefab's first object that has one (a prefab may carry a decal like any
+  copy component; place one in a scene, add the Decal component, make it a
+  prefab). Its material, opacities, fades, sort order and layers are the
+  component's; `scale` multiplies its box. Only `projected` decals spawn.
+- **Where:** centred on `position` (world metres), facing out of the surface
+  along `normal` (it projects back along it; absent: up), turned `angle`
+  degrees about the normal. With `entityId` the position and normal are in
+  that object's own space and the decal sticks to it: it moves with it and
+  goes when the object goes (unloaded, destroyed).
+- **How long:** `lifetime` seconds, then it fades out over
+  `DECAL_TRANSIENT_FADE_SECONDS` (1 s); absent, it stays until the
+  **transient budget** needs its place. `ctx.decals.remove(handle)` fades
+  one out now, `ctx.decals.remove(objectId)` every decal spawned on that
+  object.
+- **The transient budget** (`DECAL_TRANSIENT_BUDGET`, 256): the most
+  spawned decals kept at once. A spawn past it starts the oldest spawned
+  decal fading out, so a long fight keeps the newest marks and never costs
+  more than this many. Authored decals never count, and a spawn is never
+  refused for it. A script may spawn at most
+  `PRESENTATION_REQUESTS_PER_STEP` (32) decals in one fixed step; more return 0.
+- **Presentation only.** Spawned decals are drawn by the page and never
+  reach the simulation: they are not saved, not part of the run's state, and
+  a replay is the same with or without them. A run restart clears them.
+  The decal pages of a spawned decal's material load with its first spawn
+  (a scene decal of the same material keeps them loaded).
+- **Visual scripts:** the **Spawn decal** and **Remove decal** nodes.
+
+Spawning and fading change only their own rows and cells, as moving decals
+do (see what it costs above).
 
 ## Decal cells on trim sheets
 

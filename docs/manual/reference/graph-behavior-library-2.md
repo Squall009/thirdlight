@@ -99,6 +99,12 @@ The Shared script function node catalogue: port types, then each category's node
 - [Play effect](graph-behavior-4.md#node-behavior--api-effects-play) (`api.effects.play`, as in `behavior`): Play a project effect (particles) once: on `entityId` (it follows the object; `position` is then an offset from it) or, without one, at `position` in world metres. `params` override its public parameters. Returns a handle for `stop`, or 0 when refused (a bad id, more than 32 plays in one step). An empty entity means this object.
 - [Stop effect](graph-behavior-4.md#node-behavior--api-effects-stop) (`api.effects.stop`, as in `behavior`): Stop spawning: a play's handle, or an object's id (every effect playing on it, its effect component included). Living particles finish their lifetimes.
 
+<a id="graph-behavior-library--decals"></a>
+## Decals
+
+- [Spawn decal](graph-behavior-4.md#node-behavior--api-decals-spawn) (`api.decals.spawn`, as in `behavior`): Leave a projected decal (a bullet hole, a footprint, a scorch mark): the `decal` of prefab `prefabId` (its first object carrying one), centred on `position` (world metres) and facing out of the surface along `normal` (it projects back along it; absent: up), turned `angle` degrees about the normal, its box scaled by `scale`. With `entityId` it sticks to that object (`position` and `normal` in the o An empty entity means this object.
+- [Remove decal](graph-behavior-4.md#node-behavior--api-decals-remove) (`api.decals.remove`, as in `behavior`): Fade spawned decals out now: a spawn's handle, or an object's id (every decal spawned on it).
+
 <a id="graph-behavior-library--save"></a>
 ## Save
 
@@ -140,9 +146,9 @@ The Shared script function node catalogue: port types, then each category's node
 - [Door link near](graph-behavior-4.md#node-behavior--api-grid-door-link) (`api.grid.doorLink`, as in `behavior`): The linked door nearest a world point within `reach` metres (absent: 2) on the ground, or null.
 - [Get edge](graph-behavior-4.md#node-behavior--api-grid-edge) (`api.grid.edge`, as in `behavior`): The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
 - [Edge blocked](graph-behavior-4.md#node-behavior--api-grid-blocked) (`api.grid.blocked`, as in `behavior`): Whether an edge piece blocks moving from a cell across one of its sides (a wall or a closed door does; an open door, a non-blocking piece or no piece does not). Where no piece stands, a room's wall drawn on the layer blocks (its doorways and windows do not).
-- [Set edge](graph-behavior-4.md#node-behavior--api-grid-set-edge) (`api.grid.setEdge`, as in `behavior`): Put an edge piece on a side of a cell. False when refused (not an edge block type, outside the bounds, a rotation other than 0 or 180).
-- [Clear edge](graph-behavior-4.md#node-behavior--api-grid-clear-edge) (`api.grid.clearEdge`, as in `behavior`): Remove the edge piece on a side of a cell. False when refused or none stands there.
-- [Open edge](graph-behavior-4.md#node-behavior--api-grid-set-edge-open) (`api.grid.setEdgeOpen`, as in `behavior`): Open or close the edge piece on a side of a cell (a door): open, it blocks no passage and has no collider. False when none stands there or it already is.
+- [Set edge](graph-behavior-5.md#node-behavior--api-grid-set-edge) (`api.grid.setEdge`, as in `behavior`): Put an edge piece on a side of a cell. False when refused (not an edge block type, outside the bounds, a rotation other than 0 or 180).
+- [Clear edge](graph-behavior-5.md#node-behavior--api-grid-clear-edge) (`api.grid.clearEdge`, as in `behavior`): Remove the edge piece on a side of a cell. False when refused or none stands there.
+- [Open edge](graph-behavior-5.md#node-behavior--api-grid-set-edge-open) (`api.grid.setEdgeOpen`, as in `behavior`): Open or close the edge piece on a side of a cell (a door): open, it blocks no passage and has no collider. False when none stands there or it already is.
 - [Edge object](graph-behavior-5.md#node-behavior--api-grid-edge-entity) (`api.grid.edgeEntity`, as in `behavior`): The id of the object a live edge piece spawns (its prefab's root), or null when the edge shows no live piece.
 - [Cell object](graph-behavior-5.md#node-behavior--api-grid-entity) (`api.grid.entity`, as in `behavior`): The id of the object a live block's cell spawns (its prefab's root; a cell a larger block covers names the block's), or null when the cell shows no live block. The id is the cell's from the write on; the object is in the game from the end of the step that wrote the cell.
 - [Object cell](graph-behavior-5.md#node-behavior--api-grid-cell-of) (`api.grid.cellOf`, as in `behavior`): The cell a live block's object belongs to (its root or any of its children; the block's anchor cell; for a live edge piece the cell whose side it stands on, with that side), or null for any other object. An empty entity means this object.
@@ -243,13 +249,13 @@ The Shared script function node catalogue: port types, then each category's node
 - [Focus UI widget](graph-behavior-5.md#node-behavior--api-ui-focus) (`api.ui.focus`, as in `behavior`): Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
 - [UI view](graph-behavior-5.md#node-behavior--api-ui-view) (`api.ui.view`, as in `behavior`): The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
 - [UI events](graph-behavior-5.md#node-behavior--api-ui-events) (`api.ui.events`, as in `behavior`): The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
-- [UI event](graph-behavior-5.md#node-behavior--api-ui-event) (`api.ui.event`, as in `behavior`): The first UI event of this step with this name (a button's or an input's event), or null.
+- [UI event](graph-behavior-6.md#node-behavior--api-ui-event) (`api.ui.event`, as in `behavior`): The first UI event of this step with this name (a button's or an input's event), or null.
 
 <a id="graph-behavior-library--stats"></a>
 ## Stats
 
-- [Stats fps](graph-behavior-5.md#node-behavior--api-stats-fps) (`api.stats.fps`, as in `behavior`): Frames drawn per second over the window.
-- [Stats frame ms](graph-behavior-5.md#node-behavior--api-stats-frame-ms) (`api.stats.frameMs`, as in `behavior`): The time from one frame to the next (ms).
+- [Stats fps](graph-behavior-6.md#node-behavior--api-stats-fps) (`api.stats.fps`, as in `behavior`): Frames drawn per second over the window.
+- [Stats frame ms](graph-behavior-6.md#node-behavior--api-stats-frame-ms) (`api.stats.frameMs`, as in `behavior`): The time from one frame to the next (ms).
 - [Stats cpu ms](graph-behavior-6.md#node-behavior--api-stats-cpu-ms) (`api.stats.cpuMs`, as in `behavior`): The page thread's work per frame (ms): the simulation's steps when it runs on the page, the frame's host work and the draw calls' submission.
 - [Stats gpu ms](graph-behavior-6.md#node-behavior--api-stats-gpu-ms) (`api.stats.gpuMs`, as in `behavior`): The GPU's time per frame (ms) from timestamp queries; null where the browser or GPU has none (not measured).
 - [Stats draw calls](graph-behavior-6.md#node-behavior--api-stats-draw-calls) (`api.stats.drawCalls`, as in `behavior`): Draw calls of the last frame.

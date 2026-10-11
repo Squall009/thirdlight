@@ -80,6 +80,8 @@ export interface BehaviorContext {
   readonly audio?: BehaviorAudio;
   /** Play visual effects (presentation only, never part of the simulation). */
   readonly effects?: BehaviorEffects;
+  /** Leave decals on surfaces: bullet holes, footprints, scorch marks (presentation only, never part of the simulation). */
+  readonly decals?: BehaviorDecals;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
   /** Project debug commands (run by tools and the in-game console, recorded with the input). */

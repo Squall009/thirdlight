@@ -61,6 +61,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.look?` | property | `BehaviorLook \| undefined` | [`BehaviorLook`](script-types-behavior-patrol.md#script-type-behavior-look) | Per-object look overrides — a glow or a tint, set and cleared. |
 | `ctx.audio?` | property | `BehaviorAudio \| undefined` | [`BehaviorAudio`](script-types-behavior-patrol.md#script-type-behavior-audio) | Play sounds (presentation only, never part of the simulation). |
 | `ctx.effects?` | property | `BehaviorEffects \| undefined` | [`BehaviorEffects`](script-types-behavior-patrol.md#script-type-behavior-effects) | Play visual effects (presentation only, never part of the simulation). |
+| `ctx.decals?` | property | `BehaviorDecals \| undefined` | [`BehaviorDecals`](script-types-behavior-patrol.md#script-type-behavior-decals) | Leave decals on surfaces: bullet holes, footprints, scorch marks (presentation only, never part of the simulation). |
 | `ctx.save?` | property | `BehaviorSave \| undefined` | [`BehaviorSave`](script-types-behavior-patrol.md#script-type-behavior-save) | Values kept in the player's save. |
 | `ctx.debug?` | property | `BehaviorDebug \| undefined` | [`BehaviorDebug`](script-types-behavior-patrol.md#script-type-behavior-debug) | Project debug commands (run by tools and the in-game console, recorded with the input). |
 | `ctx.grid?` | property | `BehaviorGrid \| undefined` | [`BehaviorGrid`](script-types-behavior-patrol.md#script-type-behavior-grid) | The block layers of the loaded scenes — read and write cells and their metadata, pick a cell with a ray, neighbours, named regions, change events, a diff for saves. |
@@ -76,16 +77,16 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.materials?` | property | `BehaviorMaterials \| undefined` | [`BehaviorMaterials`](script-types-behavior-patrol.md#script-type-behavior-materials) | Graph-material parameters per object — set a value (number, vector, colour, texture) or write the cells of a data parameter on one object; others wearing the material keep theirs. |
 | `ctx.saves?` | property | `BehaviorSaves \| undefined` | [`BehaviorSaves`](script-types-behavior-patrol.md#script-type-behavior-saves) | The project's save document and numbered slots (save, load, delete, the slot list with title/chapter/location/play time/picture) and the project settings document. |
 | `ctx.assets?` | property | `BehaviorAssets \| undefined` | [`BehaviorAssets`](script-types-behavior-patrol.md#script-type-behavior-assets) | Load assets by id, address or label and release them: a handle's state says when they are ready (the game never waits for a load); release every handle you load. |
-| `ctx.ui?` | property | `BehaviorUi \| undefined` | [`BehaviorUi`](script-types-behavior-patrol.md#script-type-behavior-ui) | The project UI — publish view-model values, show and hide UI documents, read the step's UI events. |
-| `ctx.stats?` | property | `BehaviorStats \| undefined` | [`BehaviorStats`](script-types-behavior-stats.md#script-type-behavior-stats) | How the game runs on this device (read-only): fps, frame, CPU and GPU times (average and worst over the last window; GPU null where not measured), draw calls, triangles, resident texture bytes against the budget, geometry bytes, objects, the quality level. |
-| `ctx.display?` | property | `BehaviorDisplay \| undefined` | [`BehaviorDisplay`](script-types-behavior-stats.md#script-type-behavior-display) | The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it. |
-| `ctx.dialogue?` | property | `BehaviorDialogue \| undefined` | [`BehaviorDialogue`](script-types-behavior-stats.md#script-type-behavior-dialogue) | Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance, dialogue variables, the backlog and the events of lines, choices and signals. |
-| `ctx.modes?` | property | `BehaviorModes \| undefined` | [`BehaviorModes`](script-types-behavior-stats.md#script-type-behavior-modes) | The game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. |
-| `ctx.lifecycle?` | property | `BehaviorLifecycle \| undefined` | [`BehaviorLifecycle`](script-types-behavior-stats.md#script-type-behavior-lifecycle) | The run lifecycle — respawn the character at a spawn, restart the run. |
-| `ctx.timeline?` | property | `BehaviorTimeline \| undefined` | [`BehaviorTimeline`](script-types-behavior-stats.md#script-type-behavior-timeline) | Timelines — play, pause, skip, seek and stop project timelines; their events and markers. |
-| `ctx.environment?` | property | `BehaviorEnvironment \| undefined` | [`BehaviorEnvironment`](script-types-behavior-stats.md#script-type-behavior-environment) | The environment presets — switch or blend sky, fog, lights, exposure and grading at run time. |
-| `ctx.entity?` | method | `(entityId: string \| null): BehaviorEntityHandle \| null` | [`BehaviorEntityHandle`](script-types-behavior-stats.md#script-type-behavior-entity-handle) | One loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) — read any component (`get`: the step-start state of its script-readable fields) and write the fields marked writable (`set`: applied at the end of the step). |
-| `ctx.shell?` | property | `BehaviorShell \| undefined` | [`BehaviorShell`](script-types-behavior-stats.md#script-type-behavior-shell) | The game shell's scene list — move to the next entry (the shell's nextScene action). |
+| `ctx.ui?` | property | `BehaviorUi \| undefined` | [`BehaviorUi`](script-types-behavior-ui.md#script-type-behavior-ui) | The project UI — publish view-model values, show and hide UI documents, read the step's UI events. |
+| `ctx.stats?` | property | `BehaviorStats \| undefined` | [`BehaviorStats`](script-types-behavior-ui.md#script-type-behavior-stats) | How the game runs on this device (read-only): fps, frame, CPU and GPU times (average and worst over the last window; GPU null where not measured), draw calls, triangles, resident texture bytes against the budget, geometry bytes, objects, the quality level. |
+| `ctx.display?` | property | `BehaviorDisplay \| undefined` | [`BehaviorDisplay`](script-types-behavior-ui.md#script-type-behavior-display) | The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it. |
+| `ctx.dialogue?` | property | `BehaviorDialogue \| undefined` | [`BehaviorDialogue`](script-types-behavior-ui.md#script-type-behavior-dialogue) | Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance, dialogue variables, the backlog and the events of lines, choices and signals. |
+| `ctx.modes?` | property | `BehaviorModes \| undefined` | [`BehaviorModes`](script-types-behavior-ui.md#script-type-behavior-modes) | The game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. |
+| `ctx.lifecycle?` | property | `BehaviorLifecycle \| undefined` | [`BehaviorLifecycle`](script-types-behavior-ui.md#script-type-behavior-lifecycle) | The run lifecycle — respawn the character at a spawn, restart the run. |
+| `ctx.timeline?` | property | `BehaviorTimeline \| undefined` | [`BehaviorTimeline`](script-types-behavior-ui.md#script-type-behavior-timeline) | Timelines — play, pause, skip, seek and stop project timelines; their events and markers. |
+| `ctx.environment?` | property | `BehaviorEnvironment \| undefined` | [`BehaviorEnvironment`](script-types-behavior-ui.md#script-type-behavior-environment) | The environment presets — switch or blend sky, fog, lights, exposure and grading at run time. |
+| `ctx.entity?` | method | `(entityId: string \| null): BehaviorEntityHandle \| null` | [`BehaviorEntityHandle`](script-types-behavior-ui.md#script-type-behavior-entity-handle) | One loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) — read any component (`get`: the step-start state of its script-readable fields) and write the fields marked writable (`set`: applied at the end of the step). |
+| `ctx.shell?` | property | `BehaviorShell \| undefined` | [`BehaviorShell`](script-types-behavior-ui.md#script-type-behavior-shell) | The game shell's scene list — move to the next entry (the shell's nextScene action). |
 
 <a id="ctx-docs"></a>
 ## Context members in full
@@ -148,6 +149,8 @@ those its object properties name).
 <a id="ctx-audio"></a>**`ctx.audio`** — Play sounds (presentation only, never part of the simulation).
 
 <a id="ctx-effects"></a>**`ctx.effects`** — Play visual effects (presentation only, never part of the simulation).
+
+<a id="ctx-decals"></a>**`ctx.decals`** — Leave decals on surfaces: bullet holes, footprints, scorch marks (presentation only, never part of the simulation).
 
 <a id="ctx-save"></a>**`ctx.save`** — Values kept in the player's save.
 
@@ -222,7 +225,7 @@ marked writable (`set`: applied at the end of the step). Null for no id or an ob
 |---|---|---|---|---|
 | `behaviorId` | property | `string` |  |  |
 | `sourceDigest` | property | `string` |  |  |
-| `declaration` | property | `PropertyDeclaration` | [`PropertyDeclaration`](script-types-behavior-stats.md#script-type-property-declaration) |  |
+| `declaration` | property | `PropertyDeclaration` | [`PropertyDeclaration`](script-types-behavior-ui.md#script-type-property-declaration) |  |
 | `enginePins` | property | `readonly BehaviorEnginePin[]` |  |  |
 
 <a id="script-behavior-instance-info"></a>

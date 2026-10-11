@@ -1,8 +1,100 @@
-# Graph: Visual script (part 5, from Edge object (`api.grid.edgeEntity`))
+# Graph: Visual script (part 5, from Set edge (`api.grid.setEdge`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-set-edge"></a>
+### Set edge (`api.grid.setEdge`)
+
+Put an edge piece on a side of a cell. False when refused (not an edge block type, outside the bounds, a rotation other than 0 or 180).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `block` (string)
+- `rot` (number)
+- `variant` (number)
+- `open` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
+| `block` | block | string | `""` | ≤ 256 chars |
+| `open` | open | boolean | `false` |  |
+
+<a id="node-behavior--api-grid-clear-edge"></a>
+### Clear edge (`api.grid.clearEdge`)
+
+Remove the edge piece on a side of a cell. False when refused or none stands there.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
+
+<a id="node-behavior--api-grid-set-edge-open"></a>
+### Open edge (`api.grid.setEdgeOpen`)
+
+Open or close the edge piece on a side of a cell (a door): open, it blocks no passage and has no collider. False when none stands there or it already is.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `open` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
+| `open` | open | boolean | `false` |  |
 
 <a id="node-behavior--api-grid-edge-entity"></a>
 ### Edge object (`api.grid.edgeEntity`)
@@ -1459,65 +1551,3 @@ The UI events of this step (clicks, submits, focus changes, shows and hides), in
 Outputs:
 
 - `value` (list)
-
-<a id="node-behavior--api-ui-event"></a>
-### UI event (`api.ui.event`)
-
-The first UI event of this step with this name (a button's or an input's event), or null.
-
-Inputs:
-
-- `name` (string)
-
-Outputs:
-
-- `kind` (string)
-- `doc` (string)
-- `widget` (string)
-- `name` (string)
-- `value` (number): type from field `value_type`
-- `index` (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `name` | name | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
-
-<a id="graph-behavior--stats"></a>
-## Stats
-
-- Stats fps (`api.stats.fps`): Frames drawn per second over the window.
-- Stats frame ms (`api.stats.frameMs`): The time from one frame to the next (ms).
-- Stats cpu ms (`api.stats.cpuMs`): The page thread's work per frame (ms): the simulation's steps when it runs on the page, the frame's host work and the draw calls' submission.
-- Stats gpu ms (`api.stats.gpuMs`): The GPU's time per frame (ms) from timestamp queries; null where the browser or GPU has none (not measured).
-- Stats draw calls (`api.stats.drawCalls`): Draw calls of the last frame.
-- Stats triangles (`api.stats.triangles`): Triangles of the last frame.
-- Stats texture bytes (`api.stats.textureBytes`): Texture bytes resident on the GPU (streamed and fixed, images inside models included).
-- Stats texture budget bytes (`api.stats.textureBudgetBytes`): The texture budget (bytes; the setting texture_budget_mb).
-- Stats geometry bytes (`api.stats.geometryBytes`): Geometry bytes of the loaded models.
-- Stats entities (`api.stats.entities`): Objects in the simulation.
-- Stats quality (`api.stats.quality`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
-- Stats frame rate cap (`api.stats.frameRateCap`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
-- Stats window ms (`api.stats.windowMs`): The window the times are measured over (ms).
-
-<a id="node-behavior--api-stats-fps"></a>
-### Stats fps (`api.stats.fps`)
-
-Frames drawn per second over the window.
-
-Outputs:
-
-- `value` (number)
-
-<a id="node-behavior--api-stats-frame-ms"></a>
-### Stats frame ms (`api.stats.frameMs`)
-
-The time from one frame to the next (ms).
-
-Outputs:
-
-- `avg` (number)
-- `worst` (number)

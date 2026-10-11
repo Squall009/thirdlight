@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { canonicalDecal, DECAL_LAYERS_ALL, decalLayersOf, decalSheetsOf, validateDecalComponent, type DecalComponent } from './decals';
+import { canonicalPrefabs, validatePrefabDefinitions } from './content';
 import { materialsInUse } from './material-use';
 import { canonicalMaterials, resolveMaterialInstances, type MaterialDef } from './materials';
 import { validateProjectV4 } from './project-v4';
@@ -138,5 +139,25 @@ describe('a project without decals', () => {
     expect(r.ok && JSON.stringify(r.normalized)).toBe(JSON.stringify(plain));
     const mats = [MATERIALS[0]!, MATERIALS[4]!].map((m) => (m.trim !== undefined ? { ...m, trim: { ...m.trim, cells: undefined } } : m)) as MaterialDef[];
     expect(JSON.stringify(canonicalMaterials(mats))).not.toMatch(/cells|decal/);
+  });
+});
+
+describe('a decal in a prefab', () => {
+  const PREFAB = { prefabId: 'scorch', displayName: 'Scorch', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'group-0001', components: { transform: T(), decal: DECAL } }] };
+  const withPrefab = (decal: unknown) => ({ ...content(), prefabs: [{ ...PREFAB, entities: [{ localId: 'group-0001', components: { transform: T(), decal } }] }] });
+
+  it('is in the prefab vocabulary (a copy carries it, ctx.decals.spawn leaves it), canonical, names a decal material, and its material ships', () => {
+    const errors: ModelErrorV2[] = [];
+    validatePrefabDefinitions([PREFAB], '/prefabs', errors, 4);
+    expect(errors).toEqual([]);
+    expect(canonicalPrefabs([PREFAB as never])[0]!.entities[0]!.components.decal).toEqual(canonicalDecal(DECAL));
+    expect(problems(withPrefab(DECAL), [])).toEqual([]);
+    expect(problems(withPrefab({ ...DECAL, material: 'mat-none' }), [])).toEqual(['reference_missing /prefabs/0/entities/0/components/decal/material']);
+    expect(problems(withPrefab({ ...DECAL, material: 'mat-plain' }), [])).toEqual(['field_value /prefabs/0/entities/0/components/decal/material']);
+    const bad: ModelErrorV2[] = [];
+    validatePrefabDefinitions([{ ...PREFAB, entities: [{ localId: 'group-0001', components: { transform: T(), decal: { material: 'mat-crack' } } }] }], '/prefabs', bad, 4);
+    expect(bad.map((e) => `${e.code} ${e.path}`)).toEqual(['field_missing /prefabs/0/entities/0/components/decal/size']);
+    // A prefab's decal material is used (a script may spawn it).
+    expect([...materialsInUse({ entities: PREFAB.entities })]).toEqual(['mat-crack']);
   });
 });

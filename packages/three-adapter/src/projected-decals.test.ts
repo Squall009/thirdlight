@@ -50,7 +50,7 @@ describe('the decal index', () => {
     const index = buildDecalIndex(rows, DECAL_CELL_BUDGET);
     expect(decalRowsAt(index, { x: 0.1, y: 0, z: 0 })).toEqual([1, 0, 2]);
     expect(decalRowsAt(index, { x: 40, y: 0, z: 0 })).toEqual([3]);
-    // Between them: an empty cell (one header read); outside the grid: nothing read at all.
+    // Between them and past the decals: an empty cell (one slot read).
     expect(decalRowsAt(index, { x: 20, y: 0, z: 0 })).toEqual([]);
     expect(decalRowsAt(index, { x: 0, y: 30, z: 0 })).toEqual([]);
     expect(index.dropped).toBe(0);
@@ -70,11 +70,11 @@ describe('the decal index', () => {
   it('cells follow the decals\' sizes however far apart they are; only cells with decals are stored', () => {
     const near = buildDecalIndex([row([0, 0, 0]), row([3, 0, 0])], DECAL_CELL_BUDGET);
     expect(near.invCell[0]).toBeCloseTo(1);
-    // Kilometres apart: still metre cells, a few slots, a texture of a few lines (a dense grid would be 10^10 cells).
+    // Kilometres apart: still metre cells, a few slots, a texture of a few lines with room for changes (a dense grid would be 10^10 cells).
     const spread = buildDecalIndex([row([0, 0, 0]), row([5000, 400, 5000])], DECAL_CELL_BUDGET);
     expect(spread.invCell[0]).toBeCloseTo(1);
     expect(spread.cells).toBeLessThanOrEqual(16);
-    expect(spread.height).toBe(1);
+    expect(spread.height).toBeLessThanOrEqual(2);
     expect(decalRowsAt(spread, { x: 5000, y: 400, z: 5000 })).toEqual([1]);
     expect(decalRowsAt(spread, { x: 2500, y: 200, z: 2500 })).toEqual([]);
     // One huge decal among small ones makes the cells larger rather than reaching into millions.
@@ -151,7 +151,7 @@ describe('with projected decals', () => {
     const programs = await Promise.all(
       [1, 2].map(async (k) => {
         const decals = new ProjectedDecals();
-        decals.setPageSize(256 * k);
+        decals.layout.set(0, 256 * k, 0, 0);
         decals.origin.set(k, 0, 0, 0);
         const { scene, meshes } = await libraryScene([SHADER_TYPE_MATERIALS[0]!]);
         const m = meshes['standard']!;

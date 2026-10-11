@@ -16,6 +16,12 @@
  * In Play and the export a key loads a scene whose camera looks at them;
  * the Scene view is framed on them in the editor. Each read is a world
  * point; the Scene view's green must have Play's hue.
+ *
+ * Change while the game runs: a green decal carried by a mover goes 2.4 m
+ * along the terrain once Play starts (Play shows it where it went, not
+ * where it was placed), and the key's script spawns a decal from a prefab
+ * (`ctx.decals.spawn`) beside it; the key again removes the spawn, which
+ * fades out.
  */
 import { multiPieceGlb } from './multi-piece-glb';
 import { makePng } from './png-make';
@@ -40,6 +46,12 @@ const BLOCKS_AT: V3 = [248, 0, 25];
 const PROP_AT: V3 = [256, 0, 27];
 const MASKED_AT: V3 = [259, 0, 27];
 const WALL_Z = 22;
+/** The moving decal's start and end, the spawned decal's place: a row on the terrain before the normal-only decal. */
+const MOVE_FROM: V3 = [246.8, 0, 34.9];
+const MOVE_TO: V3 = [249.2, 0, 34.9];
+const SPAWN_AT: V3 = [251.6, 0, 34.9];
+/** The prefab the key's script spawns its decal from. */
+const SPAWN_PREFAB = 'e2e-pd-spawn';
 
 /** The decals: where each is centred, its box, how it is turned, what it draws with. */
 const DECALS = [
@@ -64,13 +76,27 @@ export const DECAL_READS = {
   bumpClean: [252, 0, 33.3] as V3,
 } as const;
 
+/** The reads of the decals that change in Play: where the moving one went and came from, the spawn. */
+export const CHANGE_READS = {
+  movedTo: [MOVE_TO[0], 0, MOVE_TO[2]] as V3,
+  movedFrom: [MOVE_FROM[0], 0, MOVE_FROM[2]] as V3,
+  spawned: [SPAWN_AT[0], 0, SPAWN_AT[2]] as V3,
+  clean: [SPAWN_AT[0] + 1.2, 0, SPAWN_AT[2]] as V3,
+} as const;
+
 const DECALS_SCRIPT = (scene: string): string =>
   [
     'export default {',
-    '  instantiate() { return { shown: false }; },',
+    '  instantiate() { return { shown: false, mark: 0 }; },',
     '  step(state, ctx) {',
-    "    if (ctx.phase !== 'intent' || state.shown || !ctx.input.pressed('showDecals')) return;",
+    "    if (ctx.phase !== 'intent' || !ctx.input.pressed('showDecals')) return;",
+    // The second press removes the spawned mark (it fades out).
+    '    if (state.shown) {',
+    '      ctx.decals.remove(state.mark);',
+    '      return;',
+    '    }',
     `    ctx.scenes.load('${scene}');`,
+    `    state.mark = ctx.decals.spawn('${SPAWN_PREFAB}', { position: ${JSON.stringify(SPAWN_AT)}, normal: [0, 1, 0] });`,
     '    state.shown = true;',
     '  },',
     '};',
@@ -79,7 +105,7 @@ const DECALS_SCRIPT = (scene: string): string =>
 export interface ProjectedDecalSetup {
   /** The input action that loads the decal scene (the caller's input lists it with its own). */
   readonly action: { name: string; type: 'button'; map: 'gameplay'; bindings: { kind: 'key'; code: string }[] };
-  /** The decal entities made. */
+  /** The decal entities made in the main scene (the moving one included). */
   readonly decals: number;
   /** The entity to focus the Scene view on (the terrain tile: focused, the view frames it whole). */
   readonly focusId: string;
@@ -113,6 +139,12 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
     const decal = { size: [...d.size], material: d.material, ...('layers' in d ? { layers: d.layers } : {}), ...('opacity' in d ? { opacity: d.opacity } : {}) };
     await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: d.name, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal } });
   }
+  // A decal carried along the terrain by a mover (from where it was placed, once); a prefab whose decal the key's script spawns.
+  const mark = { size: [0.6, 0.6, 1], material: 'mat-pd-green' };
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Moving decal', transform: { position: [...MOVE_FROM], rotation: [...DOWN] }, components: { decal: mark, mover: { waypoints: [[MOVE_TO[0] - MOVE_FROM[0], 0, 0]], speed: 1.5, mode: 'once' } } });
+  await cmd('createScene', { sceneId: 'e2e-decal-kit', name: 'Decal kit' });
+  const kit = String((await cmd('createEntity', { sceneId: 'e2e-decal-kit', parentId: null, kind: 'group', name: 'Spawned mark', transform: { position: [0, 0, 0] }, components: { decal: mark } }))['createdId']);
+  await cmd('createPrefab', { prefabId: SPAWN_PREFAB, displayName: 'Spawned mark', sourceEntityId: kit });
 
   // The decal scene: its camera (above every other) looks at them; a key loads it.
   const scene = 'e2e-decals';
@@ -120,7 +152,7 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
   const p = DECALS_CAMERA.pitch;
   await cmd('createEntity', { sceneId: scene, parentId: null, kind: 'group', name: 'Decals camera', transform: { position: [...DECALS_CAMERA.at], rotation: [Math.sin(p / 2), 0, 0, Math.cos(p / 2)] }, components: { virtualCamera: { rig: 'fixed', priority: 30, blend: 'cut', fovY: DECALS_CAMERA.fovY, near: 0.2, far: 80 } } });
   await publish.script('show-decals', DECALS_SCRIPT(scene), ground);
-  return { action: { name: 'showDecals', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: DECALS_KEY }] }, decals: DECALS.length, focusId: ground };
+  return { action: { name: 'showDecals', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: DECALS_KEY }] }, decals: DECALS.length + 1, focusId: ground };
 }
 
 /** A world point on a picture (`w` × `h`) of the decal camera. */
@@ -166,6 +198,25 @@ export function judgeDecals(read: (p: V3) => Rgb, rowHue: (slot: string, c: Rgb)
     ['bumped', sameShares(colours.bumped, colours.bumpClean) && Math.abs(sum(colours.bumped) / sum(colours.bumpClean) - 1) >= 0.08],
   ];
   const bad = checks.filter(([k, ok]) => !ok && (only === undefined || only.includes(k))).map(([k]) => k);
+  return { colours, bad, ok: bad.length === 0 };
+}
+
+/**
+ * Whether a Play or export picture shows the decals that change: the moving
+ * one green where it went and gone from where it was placed, the spawned one
+ * green (gone once `removed`: the bare terrain's colour beside it).
+ */
+export function judgeChanges(read: (p: V3) => Rgb, removed: boolean): { colours: Record<keyof typeof CHANGE_READS, Rgb>; bad: string[]; ok: boolean } {
+  const colours = Object.fromEntries(Object.entries(CHANGE_READS).map(([k, p]) => [k, read(p)])) as Record<keyof typeof CHANGE_READS, Rgb>;
+  // Gone means the bare terrain's colour beside it (a fading mark is still on its way there).
+  const bare = (c: Rgb): boolean => sum(colours.clean) > 30 && c.every((v, k) => Math.abs(v - colours.clean[k]!) <= 6);
+  const checks: [keyof typeof CHANGE_READS, boolean][] = [
+    ['movedTo', isDecalGreen(colours.movedTo)],
+    ['movedFrom', bare(colours.movedFrom)],
+    ['spawned', removed ? bare(colours.spawned) : isDecalGreen(colours.spawned)],
+    ['clean', !isDecalGreen(colours.clean)],
+  ];
+  const bad = checks.filter(([, ok]) => !ok).map(([k]) => k);
   return { colours, bad, ok: bad.length === 0 };
 }
 

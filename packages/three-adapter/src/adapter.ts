@@ -27,7 +27,7 @@
  */
 import type { MaterialFunctionLike } from './material-graph';
 import { createDecalPages } from './decal-pages';
-import { createDecalProjectors, type ProjectedDecalLike } from './decal-projectors';
+import { createDecalProjectors, type DecalRequestLike, type ProjectedDecalLike } from './decal-projectors';
 import { setDecalDepthMode } from './mesh-decals';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
@@ -170,7 +170,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // The decal pages the loaded decals' materials name, held per decal and uploaded as they arrive.
   const decalPages = materialLibrary?.decalPageOf !== undefined && opts.materials !== undefined ? createDecalPages({ holds: textureHolds(resources, opts.materials.loadTexture), pageOf: (id) => materialLibrary.decalPageOf!(id), onChange: () => opts.onChange?.() }) : null;
   // The projected decals the loaded decal entities lay over every lit surface (off: `projectedDecals: false`).
-  const projectors = materialLibrary?.projectedDecal !== undefined && opts.projectedDecals !== false ? createDecalProjectors({ scene, materialOf: (holder, id) => materialLibrary.projectedDecal!(holder, id), onChange: () => opts.onChange?.() }) : null;
+  const decalOptions = typeof opts.projectedDecals === 'object' ? opts.projectedDecals : {};
+  const projectors =
+    materialLibrary?.projectedDecal !== undefined && opts.projectedDecals !== false
+      ? createDecalProjectors({ scene, materialOf: (holder, id) => materialLibrary.projectedDecal!(holder, id), holdPages: (holder, id) => (id === null ? decalPages?.remove(holder) : decalPages?.set(holder, id)), ...(decalOptions.onProblem !== undefined ? { onProblem: decalOptions.onProblem } : {}), onChange: () => opts.onChange?.() })
+      : null;
   materialLibrary?.onDefinitions?.(() => {
     decalPages?.refresh();
     projectors?.refresh();
@@ -1404,8 +1408,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const o = decalPages.observe();
       canvasLike.setAttribute('data-tl-decal-pages', `${o.pages}|${o.layers}|${o.bytes}|${o.onGpu}`);
     }
-    // The projected decals' table and index follow their decals (moved, added, their images arrived).
-    projectors?.beforeFrame(renderer as never);
+    // The projected decals' table and index follow their decals (moved, added, spawned by scripts, their images arrived).
+    projectors?.beforeFrame(renderer as never, (opts.runtime as { takeDecalRequests?: () => DecalRequestLike[] }).takeDecalRequests?.() ?? [], (id) => graph.node(id) ?? null, (opts.runtime as { isPaused?: boolean }).isPaused === true);
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;

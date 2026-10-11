@@ -276,6 +276,26 @@ export interface BehaviorEffects {
 }
 ```
 
+<a id="script-type-behavior-decals"></a>
+## `BehaviorDecals`
+
+```ts
+/** `ctx.decals` — marks scripts leave on surfaces (presentation only, never part of the simulation). */
+export interface BehaviorDecals {
+  /**
+   * Leave a projected decal (a bullet hole, a footprint, a scorch mark): the `decal` of prefab `prefabId` (its first object carrying one), centred on `position` (world metres) and facing out of the surface along `normal` (it projects back along it; absent: up), turned `angle` degrees about the normal, its box scaled by `scale`. With `entityId` it sticks to that object (`position` and `normal` in the object's own space) and goes with it. It fades out after `lifetime` seconds (absent: when the transient budget, `DECAL_TRANSIENT_BUDGET` decals, needs its place: the oldest fade first). Returns a handle for `remove`, or 0 when refused (a prefab without a projected decal, more than 32 spawns in one step).
+   * @graphNode Spawn decal
+   * @graphLabel prefabId prefab
+   */
+  spawn(prefabId: string, options?: { position?: readonly number[]; normal?: readonly number[]; angle?: number; scale?: number; lifetime?: number; entityId?: string }): number;
+  /**
+   * Fade spawned decals out now: a spawn's handle, or an object's id (every decal spawned on it).
+   * @graphNode Remove decal
+   */
+  remove(target: number | string): void;
+}
+```
+
 <a id="script-type-behavior-save"></a>
 ## `BehaviorSave`
 
@@ -1077,80 +1097,5 @@ export interface BehaviorAssets {
    * @graphNode Assets error
    */
   error(handle: number): string;
-}
-```
-
-<a id="script-type-behavior-ui"></a>
-## `BehaviorUi`
-
-```ts
-export interface BehaviorUi {
-  /**
-   * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
-   * @graphNode Set UI value
-   */
-  set(path: string, value: unknown): boolean;
-  /**
-   * The published value at a path (null when there is none).
-   * @graphPure
-   * @graphNode UI value
-   */
-  get(path: string): unknown;
-  /**
-   * Remove a path from the view model (`false` when it was not there).
-   * @graphNode Clear UI value
-   */
-  clear(path: string): boolean;
-  /**
-   * Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
-   * @graphNode Show UI
-   * @graphLabel docId document
-   */
-  show(docId: string, options?: { layer?: number; modal?: boolean }): boolean;
-  /**
-   * Hide a shown UI document (`false` when it was not shown).
-   * @graphNode Hide UI
-   * @graphLabel docId document
-   */
-  hide(docId: string): boolean;
-  /**
-   * The document is shown.
-   * @graphPure
-   * @graphNode UI shown
-   * @graphLabel docId document
-   */
-  isShown(docId: string): boolean;
-  /**
-   * Play a tween of a document (on a widget, or the whole document). Presentation only.
-   * @graphNode Play UI tween
-   * @graphLabel docId document
-   */
-  play(docId: string, tween: string, widgetId?: string): boolean;
-  /**
-   * Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
-   * @graphNode Focus UI widget
-   * @graphLabel docId document
-   * @graphLabel widgetId widget
-   * @graphLabel index list item
-   */
-  focus(docId: string, widgetId: string, index?: number): boolean;
-  /**
-   * The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
-   * @graphPure
-   * @graphNode UI view
-   */
-  view(): BehaviorUiView;
-  /**
-   * The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
-   * @graphPure
-   * @graphNode UI events
-   */
-  events(): readonly BehaviorUiEvent[];
-  /**
-   * The first UI event of this step with this name (a button's or an input's event), or null.
-   * @graphPure
-   * @graphNode UI event
-   */
-  event(name: string): BehaviorUiEvent | null;
 }
 ```

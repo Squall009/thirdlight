@@ -1,8 +1,83 @@
-# Script API types (from `BehaviorStats`)
+# Script API types (from `BehaviorUi`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-ui"></a>
+## `BehaviorUi`
+
+```ts
+export interface BehaviorUi {
+  /**
+   * Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+   * @graphNode Set UI value
+   */
+  set(path: string, value: unknown): boolean;
+  /**
+   * The published value at a path (null when there is none).
+   * @graphPure
+   * @graphNode UI value
+   */
+  get(path: string): unknown;
+  /**
+   * Remove a path from the view model (`false` when it was not there).
+   * @graphNode Clear UI value
+   */
+  clear(path: string): boolean;
+  /**
+   * Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+   * @graphNode Show UI
+   * @graphLabel docId document
+   */
+  show(docId: string, options?: { layer?: number; modal?: boolean }): boolean;
+  /**
+   * Hide a shown UI document (`false` when it was not shown).
+   * @graphNode Hide UI
+   * @graphLabel docId document
+   */
+  hide(docId: string): boolean;
+  /**
+   * The document is shown.
+   * @graphPure
+   * @graphNode UI shown
+   * @graphLabel docId document
+   */
+  isShown(docId: string): boolean;
+  /**
+   * Play a tween of a document (on a widget, or the whole document). Presentation only.
+   * @graphNode Play UI tween
+   * @graphLabel docId document
+   */
+  play(docId: string, tween: string, widgetId?: string): boolean;
+  /**
+   * Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
+   * @graphNode Focus UI widget
+   * @graphLabel docId document
+   * @graphLabel widgetId widget
+   * @graphLabel index list item
+   */
+  focus(docId: string, widgetId: string, index?: number): boolean;
+  /**
+   * The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
+   * @graphPure
+   * @graphNode UI view
+   */
+  view(): BehaviorUiView;
+  /**
+   * The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+   * @graphPure
+   * @graphNode UI events
+   */
+  events(): readonly BehaviorUiEvent[];
+  /**
+   * The first UI event of this step with this name (a button's or an input's event), or null.
+   * @graphPure
+   * @graphNode UI event
+   */
+  event(name: string): BehaviorUiEvent | null;
+}
+```
 
 <a id="script-type-behavior-stats"></a>
 ## `BehaviorStats`
@@ -1324,80 +1399,4 @@ export interface DebugCommandOptions {
 ```ts
 /** The arguments of one debug command call. */
 export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
-```
-
-<a id="script-type-grid-cell"></a>
-## `GridCell`
-
-```ts
-/** A cell as scripts read it: its block (null: a metadata-only cell), rotation, variant and effective metadata. */
-export interface GridCell {
-  readonly block: string | null;
-  /** Degrees about +Y the block is shown at: 0, 90, 180 or 270 (a connected block: the turn its neighbours resolve). */
-  readonly rot: number;
-  /** The variant shown (an unset variant resolved from the weights and the position, or a connected block's piece). */
-  readonly variant: number;
-  /** A connected block's piece (single, end, straight, corner, t, cross, base, cap); absent: not connected or no rule for it. */
-  readonly piece?: string;
-  /** The block a kit draws in its place (`setKit`; rot, variant and piece are that block's); absent: no kit swaps it. `block` stays the cell's own. */
-  readonly kitBlock?: string;
-  /** The effective metadata (schema defaults, then the block's defaults, then the cell's own values). */
-  readonly meta: Readonly<Record<string, number | string | boolean>>;
-  /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
-  readonly anchor?: GridVec3;
-  /**
-   * A sloped top: the heights of its corners (−x−z, +x−z, +x+z, −x+z) in cell heights above its bottom, 0-4 (absent: a flat full top, all 1).
-   * @graphType list
-   */
-  readonly corners?: readonly number[];
-}
-```
-
-<a id="script-type-grid-cell-input"></a>
-## `GridCellInput`
-
-```ts
-/** What `ctx.grid.set` writes: a block (with rotation and variant) and/or metadata overrides. */
-export interface GridCellInput {
-  /** A block type id (absent: a metadata-only cell). */
-  block?: string;
-  /** Degrees about +Y: 0, 90, 180 or 270. */
-  rot?: number;
-  /** A variant index (absent: picked from the weights by position). */
-  variant?: number;
-  /**
-   * A sloped top (a single-cell full block): the heights of its corners −x−z, +x−z, +x+z, −x+z in cell heights above its bottom, 0-4 in steps of 1/64 (absent: flat).
-   * @graphType list
-   */
-  corners?: readonly number[];
-  /**
-   * Metadata overrides (field key → value).
-   * @graphType map
-   */
-  meta?: Record<string, number | string | boolean>;
-}
-```
-
-<a id="script-type-grid-surface"></a>
-## `GridSurface`
-
-```ts
-/** The ground of a layer at a point (`ctx.grid.surface`, `columnSurface`). */
-export interface GridSurface {
-  readonly layer: string;
-  /** The cell whose top it is. */
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-  /** The world height of the surface there (metres). */
-  readonly height: number;
-  /** The surface point in world space. */
-  readonly point: GridVec3;
-  /** The surface's unit normal. */
-  readonly normal: GridVec3;
-  /** Degrees from level. */
-  readonly slope: number;
-  /** Whether the slope is at most the layer's maxSlope (absent: the project's steepest walkable slope). */
-  readonly walkable: boolean;
-}
 ```

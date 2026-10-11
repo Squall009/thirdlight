@@ -345,6 +345,8 @@ export class FrameEncoder {
     if (audio.length > 0) out.audio = audio;
     const effects = rt.takeEffectRequests?.() ?? [];
     if (effects.length > 0) out.effects = effects;
+    const decals = rt.takeDecalRequests?.() ?? [];
+    if (decals.length > 0) out.decals = decals;
     // The main view as the camera brain resolved it (from the first step on).
     const camView = rt.cameraView?.() ?? null;
     if (camView !== null) {
@@ -540,6 +542,7 @@ export class FrameMirror {
   private spawnedByToken = new Map<number, SceneEntities[number]>();
   audio: AudioCommand[] = [];
   effects: unknown[] = [];
+  decals: unknown[] = [];
   /** The resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
   /** Block-layer chunk and kit changes and scatter copy states not taken yet, the latest per chunk, per layer's kits and per copy (bounded by the chunks and copies). */
@@ -804,6 +807,10 @@ export class FrameMirror {
     if (s.effects !== undefined) {
       for (const e of s.effects) this.effects.push(e);
       if (this.effects.length > MIRROR_EFFECT_LIMIT) this.effects.splice(0, this.effects.length - MIRROR_EFFECT_LIMIT);
+    }
+    if (s.decals !== undefined) {
+      for (const d of s.decals) this.decals.push(d);
+      if (this.decals.length > MIRROR_EFFECT_LIMIT) this.decals.splice(0, this.decals.length - MIRROR_EFFECT_LIMIT);
     }
     if (s.cam !== undefined) this.cam = s.cam;
     if (s.env !== undefined) this.env = s.env;

@@ -949,7 +949,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // The sun's static casters cached in their own shadow map unless the page says ?shadowcache=off (a diagnostic comparison).
           shadowCache: shadowCacheFromUrl(pageSearch()),
           // Projected decals drawn unless the page says ?decals=off (a diagnostic comparison).
-          projectedDecals: decalsFromUrl(pageSearch()),
+          projectedDecals: decalsFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

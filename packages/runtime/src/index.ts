@@ -178,6 +178,7 @@ export {
 } from './registry';
 export { interpolateTransformInto } from './interp';
 export { cameraBlendOf, interpolateCameraPose, type CameraPoseLike } from './camera-brain';
+export { DECAL_SPAWN_LIMITS, PRESENTATION_REQUESTS_PER_STEP, prefabDecal } from './presentation-requests';
 export { catchUpSteps, DROP_THROUGH_STEPS, EFFECT_MAX_QUEUED_REQUESTS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps } from './runtime';
 export { instantiateRuntime } from './runtime-instantiate';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
@@ -370,7 +371,7 @@ export type { BehaviorCollectible, BehaviorHealth, BehaviorHitbox, BehaviorPatro
 export { DEFAULT_RANDOM_SEED, MAX_RANDOM_STREAMS, randomSeedOf } from './random';
 export type { BehaviorRandom, BehaviorRandomStream } from './types';
 export { MAX_MESSAGES_PER_STEP } from './blocks';
-export type { AnimatorEventRecord, AudioFinishedEvent, AudioMusicOptions, AudioMusicState, AudioPlayOptions, AudioStingerOptions, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorEffects, BehaviorSave, EffectRequest } from './types';
+export type { AnimatorEventRecord, AudioFinishedEvent, AudioMusicOptions, AudioMusicState, AudioPlayOptions, AudioStingerOptions, BehaviorAnimatorControl, BehaviorAnimatorHandle, BehaviorAudio, BehaviorDecals, BehaviorEffects, BehaviorSave, DecalRequest, EffectRequest } from './types';
 // The 3D kinematic character controller module.
 export { CHARACTER_3D_MODULE_ID, RUN_ACTION, character3DSpec, createCharacter3DModule, type Character3DStatus } from './character3d';
 export { character3DPhysicsOf } from './scene-set';
@@ -484,6 +485,9 @@ export {
   DECAL_LIMITS,
   // Projected decals: the overlap budget a cell of the index keeps, decal layer masks (decals.ts).
   DECAL_CELL_BUDGET,
+  // Scripts' spawned decals: the most kept at once and how long one takes to fade (decals.ts).
+  DECAL_TRANSIENT_BUDGET,
+  DECAL_TRANSIENT_FADE_SECONDS,
   DECAL_DEFAULTS,
   DECAL_LAYERS_ALL,
   decalLayersOf,

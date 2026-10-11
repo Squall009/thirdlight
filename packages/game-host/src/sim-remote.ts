@@ -518,6 +518,11 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.effects = [];
       return out as ReturnType<NonNullable<Runtime['takeEffectRequests']>>;
     },
+    takeDecalRequests: () => {
+      const out = mirror.decals;
+      mirror.decals = [];
+      return out as ReturnType<NonNullable<Runtime['takeDecalRequests']>>;
+    },
     // The block-layer chunks the worker changed, in arrival order per chunk.
     takeGridChanges: () => {
       const out = [...mirror.grid.values()];

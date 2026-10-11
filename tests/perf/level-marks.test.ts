@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { levelPlan, LEVEL_SPEC } from '../../tools/perf/level';
-import { DECAL_PAIR_SHARE, MARK_QUAD, MESH_DECAL_LIFT, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, marksNotBuilt, parseLevelMarks, type LevelDecalPlacement } from '../../tools/perf/level-marks';
+import { DECAL_PAIR_SHARE, MARK_QUAD, MARK_SPAWN_PREFAB, MESH_DECAL_LIFT, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, marksNotBuilt, parseLevelMarks, spawnScript, spawnSpots, type LevelDecalPlacement } from '../../tools/perf/level-marks';
 import { propGlb } from '../../tools/perf/village-assets';
 
 const plan = (marks = NO_LEVEL_MARKS, kind: 'area' | 'landscape' = 'area'): ReturnType<typeof levelPlan> => levelPlan(kind, undefined, 0, false, false, 'none', false, 0, false, 0, 0, 'on', false, 0, true, true, false, marks);
@@ -19,8 +19,12 @@ const zAxis = ([x, y, z, w]: readonly number[]): [number, number, number] => [2 
 describe('the level marks switches', () => {
   it('read whole counts of 0 or more and refuse anything else', () => {
     expect(parseLevelMarks(flags({}))).toEqual(NO_LEVEL_MARKS);
-    expect(parseLevelMarks(flags({ decals: '200', 'mesh-decals': '1000', 'clipped-decals': '0', painted: '30' }))).toEqual({ decals: 200, meshDecals: 1000, clippedDecals: 0, painted: 30 });
+    expect(parseLevelMarks(flags({ decals: '200', 'mesh-decals': '1000', 'clipped-decals': '0', painted: '30' }))).toEqual({ decals: 200, meshDecals: 1000, clippedDecals: 0, painted: 30, movingDecals: 0, decalSpawns: 0 });
     for (const bad of ['-1', '1.5', 'x', '']) expect(() => parseLevelMarks(flags({ decals: bad }))).toThrow(/--decals: a whole number/);
+    // Moving and spawned decals go with projected ones.
+    expect(parseLevelMarks(flags({ decals: '200', 'moving-decals': '20', 'decal-spawns': '30' }))).toMatchObject({ movingDecals: 20, decalSpawns: 30 });
+    expect(() => parseLevelMarks(flags({ decals: '10', 'moving-decals': '20' }))).toThrow(/--moving-decals/);
+    expect(() => parseLevelMarks(flags({ 'decal-spawns': '5' }))).toThrow(/--decal-spawns/);
   });
 
   it('at 0 leave the class as it was: the same entities, edits and counts, nothing to publish', () => {
@@ -31,6 +35,20 @@ describe('the level marks switches', () => {
     expect(after.counts).toEqual(before.counts);
     expect(after.marks).toMatchObject({ decals: [], meshDecals: [], clippedDecals: [], paintedProps: [], paintedCopies: [] });
     expect(marksNotBuilt(after.marks!)).toBeNull();
+  });
+
+  it('moving decals carry a mover along their surface and are not static; spawns go round the ground decals\' spots', () => {
+    const p = plan({ ...NO_LEVEL_MARKS, decals: 40, movingDecals: 5, decalSpawns: 30 });
+    const projected = p.batches.flat().filter((e) => e.id.startsWith('projected-'));
+    const moving = projected.filter((e) => e.components['mover'] !== undefined);
+    expect(moving.map((e) => e.id)).toEqual(['projected-0', 'projected-1', 'projected-2', 'projected-3', 'projected-4']);
+    expect(moving.every((e) => e.static === undefined)).toBe(true);
+    expect(projected.filter((e) => e.static === true)).toHaveLength(35);
+    expect(p.counts).toMatchObject({ movingDecals: 5, decalSpawnsPerSecond: 30 });
+    const spots = spawnSpots(p.marks!);
+    expect(spots.length).toBeGreaterThan(0);
+    for (const s of spots) expect(s.normal[1]).toBeGreaterThan(0.7);
+    expect(spawnScript(p.marks!, 30, 120)).toContain(`ctx.decals.spawn('${MARK_SPAWN_PREFAB}'`);
   });
 
   it('spread projected decals over the ground, the walls and the props, 30 % in overlapping pairs, the rest of the plan unmoved', () => {

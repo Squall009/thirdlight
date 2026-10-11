@@ -221,9 +221,10 @@ export interface SceneAdapterOptions {
   /**
    * Projected decals (`decal` components in `projected` mode) laid over the
    * lit surfaces under them (`decal-projectors.ts`; default true). False:
-   * none drawn (`?decals=off`: their cost, by comparison).
+   * none drawn (`?decals=off`: their cost, by comparison). With `onProblem`:
+   * drawn, and a cell over the overlap budget is reported (`decal_overlap`).
    */
-  projectedDecals?: boolean;
+  projectedDecals?: boolean | { readonly onProblem?: (code: string, message: string) => void };
   /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;

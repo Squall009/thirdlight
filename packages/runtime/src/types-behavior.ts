@@ -3,6 +3,8 @@
  * saves, debug commands, audio and effects.
  */
 
+import type { DecalComponent } from '@thirdlight/project-model';
+
 import type { DebugCommandArg } from './actions';
 
 /** One message a script sent (`ctx.messages`). */
@@ -523,4 +525,43 @@ export interface BehaviorEffects {
    * @graphNode Stop effect
    */
   stop(target: number | string): void;
+}
+/**
+ * One request to the renderer's projected decals (`ctx.decals`).
+ * Presentation only, like {@link EffectRequest}: recorded in step order and
+ * taken by the adapter; nothing in the simulation reads them back.
+ */
+export interface DecalRequest {
+  /** spawn: a new decal; remove: fade one (or every one on `entityId`) out; clear: a new run, every spawned decal goes. */
+  readonly op: 'spawn' | 'remove' | 'clear';
+  /** spawn: the new decal's handle (> 0); remove: the handle (0 = every decal spawned on `entityId`). */
+  readonly handle: number;
+  /** spawn: the prefab it came from. */
+  readonly prefabId: string;
+  /** The object it sticks to (its position and rotation are then in the object's space), or null (world space). */
+  readonly entityId: string | null;
+  /** spawn: the prefab's decal, its box scaled; else null. */
+  readonly decal: DecalComponent | null;
+  /** The box's centre and rotation (its +Z out of the surface: it projects along −Z). */
+  readonly position: readonly [number, number, number];
+  readonly rotation: readonly [number, number, number, number];
+  /** Seconds before it fades out (0: until the transient budget makes room). */
+  readonly lifetime: number;
+  /** The step it was asked in (1-based like the step being simulated). */
+  readonly stepIndex: number;
+}
+
+/** `ctx.decals` — marks scripts leave on surfaces (presentation only, never part of the simulation). */
+export interface BehaviorDecals {
+  /**
+   * Leave a projected decal (a bullet hole, a footprint, a scorch mark): the `decal` of prefab `prefabId` (its first object carrying one), centred on `position` (world metres) and facing out of the surface along `normal` (it projects back along it; absent: up), turned `angle` degrees about the normal, its box scaled by `scale`. With `entityId` it sticks to that object (`position` and `normal` in the object's own space) and goes with it. It fades out after `lifetime` seconds (absent: when the transient budget, `DECAL_TRANSIENT_BUDGET` decals, needs its place: the oldest fade first). Returns a handle for `remove`, or 0 when refused (a prefab without a projected decal, more than 32 spawns in one step).
+   * @graphNode Spawn decal
+   * @graphLabel prefabId prefab
+   */
+  spawn(prefabId: string, options?: { position?: readonly number[]; normal?: readonly number[]; angle?: number; scale?: number; lifetime?: number; entityId?: string }): number;
+  /**
+   * Fade spawned decals out now: a spawn's handle, or an object's id (every decal spawned on it).
+   * @graphNode Remove decal
+   */
+  remove(target: number | string): void;
 }

@@ -34,8 +34,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
-| [Script API types (from `BehaviorStats`)](script-types-behavior-stats.md) | 60 sections |
-| [Script API types (from `GridVec3`)](script-types-grid-vec3.md) | 72 sections |
+| [Script API types (from `BehaviorUi`)](script-types-behavior-ui.md) | 58 sections |
+| [Script API types (from `GridCell`)](script-types-grid-cell.md) | 75 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
@@ -43,14 +43,14 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics, Tags, World |
 | [Graph: Visual script (part 3, from World transform of (`api.world.worldTransform`))](graph-behavior-3.md) | 84 sections |
-| [Graph: Visual script (part 4, from Audio)](graph-behavior-4.md) | Audio, Effects, Save, Grid |
-| [Graph: Visual script (part 5, from Edge object (`api.grid.edgeEntity`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves, Assets, UI, Stats |
-| [Graph: Visual script (part 6, from Stats cpu ms (`api.stats.cpuMs`))](graph-behavior-6.md) | Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Visual script (part 4, from Audio)](graph-behavior-4.md) | Audio, Effects, Decals, Save, Grid |
+| [Graph: Visual script (part 5, from Set edge (`api.grid.setEdge`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves, Assets, UI |
+| [Graph: Visual script (part 6, from UI event (`api.ui.event`))](graph-behavior-6.md) | Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 33 sections |
-| [Graph: Script function (part 2, from Animator)](graph-behavior-function-2.md) | 24 sections |
+| [Graph: Script function (part 2, from Animator)](graph-behavior-function-2.md) | 25 sections |
 | [Graph: Script function (part 3, from Stats)](graph-behavior-function-3.md) | Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
 | [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 23 sections |
-| [Graph: Shared script function (part 2, from Timers)](graph-behavior-library-2.md) | 25 sections |
+| [Graph: Shared script function (part 2, from Timers)](graph-behavior-library-2.md) | 26 sections |
 | [Graph: Shared script function (part 3, from Dialogue)](graph-behavior-library-3.md) | Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
 | [Graph: Material graph](graph-material.md) | Material graph, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions, Output |
 | [Graph: Material function](graph-material-function.md) | Material function, Interface, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions |

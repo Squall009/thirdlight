@@ -54,5 +54,5 @@ export const decal: ComponentDescriptor = {
   add: { kind: 'pick', value: DECAL_NEW, pick: ['material'] },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };

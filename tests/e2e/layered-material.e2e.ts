@@ -93,7 +93,9 @@
  * layers (it stays grey) and a normal-only one on the terrain (its light
  * changes, its colour does not). The Scene view draws them from its own
  * pages; in Play and the export (from the decal pages) a key loads a scene
- * whose camera looks at them; their green has the Scene view's hue.
+ * whose camera looks at them; their green has the Scene view's hue. There a
+ * decal a mover carried shows where it went, a decal the key's script
+ * spawned shows beside it, and the key again fades the spawn out.
  *
  * TL_LAYERED_DIR=<dir> keeps the pictures.
  */
@@ -115,7 +117,7 @@ import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
-import { DECALS_KEY, expectSameGreen, fmtDecals, frameDecals, judgeDecals, makeProjectedDecals, onDecals, sceneViewProjector, type DecalJudgement } from './projected-decals-scene';
+import { DECALS_KEY, expectSameGreen, fmtDecals, frameDecals, judgeChanges, judgeDecals, makeProjectedDecals, onDecals, sceneViewProjector, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -624,6 +626,29 @@ async function expectDecals(shot: () => Promise<{ png: Buffer; read: (p: readonl
   return got;
 }
 
+/** The decals that change in Play (moved, spawned; the spawn gone once `removed`) pass their reads in a picture of the decal camera. */
+async function expectChanges(canvas: Locator, what: string, removed: boolean): Promise<void> {
+  let got = judgeChanges(() => [0, 0, 0], removed);
+  await expect
+    .poll(async () => {
+      const img = decodePng(await canvas.screenshot());
+      return (got = judgeChanges((p) => colourAt(img, onDecals(p, img.width, img.height)), removed)).ok;
+    }, { timeout: 15_000, intervals: [250], message: `the ${what} picture of the moved and spawned decals${removed ? ' (spawn removed)' : ''}` })
+    .toBe(true)
+    .catch((e: unknown) => {
+      console.log(`changing decals ${what} (failed): ${JSON.stringify(got)}`);
+      throw e;
+    });
+  console.log(`changing decals ${what}${removed ? ' (spawn removed)' : ''}: ${Object.entries(got.colours).map(([k, c]) => `${k} ${c.map((v) => v.toFixed(0)).join(',')}`).join('; ')}`);
+}
+
+/** Press the key that loads the decal scene (the first time) or removes the spawned decal (the second). */
+async function pressDecalsKey(page: Page): Promise<void> {
+  await page.keyboard.down(DECALS_KEY);
+  await page.waitForTimeout(200);
+  await page.keyboard.up(DECALS_KEY);
+}
+
 /** The rooms drawn with the Rooms tool in a picture of the fixed camera: each read's colour and whether all show what they should. */
 function readRooms(img: Image): { colours: Record<string, [number, number, number]>; ok: boolean } {
   const colours = Object.fromEntries(Object.entries(ROOM_READS).map(([k, r]) => [k, colourAt(img, onPlay(r.at, img.width, img.height))])) as Record<keyof typeof ROOM_READS, [number, number, number]>;
@@ -868,21 +893,26 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   console.log(`floor plans ${variant} Play: architecture ${JSON.stringify(planRenderer['architecture'] ?? null)}; lights ${JSON.stringify((planRenderer['lights'] as Record<string, unknown> | undefined)?.['local'] ?? null)} (furnishing lights ${planRead.lights})`);
   // The furnishing's lights are lights of the start scene (made into its snapshot like the build's scene files).
   expect((planRenderer['lights'] as { local?: number } | undefined)?.local ?? 0).toBeGreaterThanOrEqual(planRead.lights);
-  // The projected decals (a key loads their camera's scene), as the Scene view drew them.
-  await page.keyboard.down(DECALS_KEY);
-  await page.waitForTimeout(200);
-  await page.keyboard.up(DECALS_KEY);
+  // The projected decals (a key loads their camera's scene and spawns a decal), as the Scene view drew them.
+  await pressDecalsKey(page);
   const playDecals = await expectDecals(async () => {
     const png = await canvas.screenshot();
     const img = decodePng(png);
     return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
   }, `${variant} Play`);
   expectSameGreen(sceneDecals, playDecals, `${variant} Play`);
-  const projected = (await diagnostics())['projectedDecals'] as { decals: number; drawn: number; unplaced: number; cells: number; entries: number; dropped: number; buildMs: number; receiverDraws: number } | undefined;
+  // The moving decal where its mover took it, the spawned one beside it.
+  await expectChanges(canvas, `${variant} Play`, false);
+  const projected = (await diagnostics())['projectedDecals'] as { decals: number; drawn: number; unplaced: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates: number; spawned: number; receiverDraws: number } | undefined;
   console.log(`projected decals ${variant} Play: ${JSON.stringify(projected ?? null)}`);
-  // Every one drawn (the trim cell's stain out of sight too), none over the overlap budget, only the draws they reach blending them.
-  expect(projected).toMatchObject({ decals: decalSetup.decals + 1, drawn: decalSetup.decals + 1, unplaced: 0, dropped: 0 });
+  // Every one drawn (the trim cell's stain out of sight too, the spawn), none over the overlap budget, only the draws they reach blending them;
+  // the moving one and the spawn changed the index in place.
+  expect(projected).toMatchObject({ decals: decalSetup.decals + 2, drawn: decalSetup.decals + 2, unplaced: 0, dropped: 0, spawned: 1 });
   expect(projected!.receiverDraws).toBeGreaterThan(0);
+  expect(projected!.updates).toBeGreaterThan(0);
+  // The key again: the spawn fades out.
+  await pressDecalsKey(page);
+  await expectChanges(canvas, `${variant} Play`, true);
   await page.getByTitle('Stop the play preview').click();
 
   // ---- The static export, served with the backend stopped: the parameters ship, the game generates the same picture.
@@ -960,15 +990,16 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       const png = await exported.screenshot();
       return { img: decodePng(png), png };
     }, `${variant} export`);
-    await game.keyboard.down(DECALS_KEY);
-    await game.waitForTimeout(200);
-    await game.keyboard.up(DECALS_KEY);
+    await pressDecalsKey(game);
     const exportDecals = await expectDecals(async () => {
       const png = await exported.screenshot();
       const img = decodePng(png);
       return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
     }, `${variant} export`);
     expectSameGreen(sceneDecals, exportDecals, `${variant} export`);
+    await expectChanges(exported, `${variant} export`, false);
+    await pressDecalsKey(game);
+    await expectChanges(exported, `${variant} export`, true);
     const marks = await architectureMarks(game);
     console.log(`architecture ${variant} export: ${shown.colours.map((c) => c.map((v) => v.toFixed(0)).join(',')).join(' ')}; chunks ${JSON.stringify(marks.chunks)}; ready ${JSON.stringify(marks.ready)}`);
     // Generated, not shipped: on the workers, or on the page while they were starting.

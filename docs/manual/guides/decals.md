@@ -65,6 +65,35 @@ dense marks out or merge them into one image.
     "opacity": { "albedo": 0.3, "normal": 0 } } } } }
 ```
 
+A projected decal on an object that moves (a mover, a moving parent)
+moves with it.
+
+## Leave marks from a script
+
+Bullet holes, footprints and scorch marks come and go while the game runs:
+
+1. Make the mark once: an empty object with a **Decal** component (a decal
+   material, a size, the channel opacities you want), then **make it a
+   prefab** (keep it in a scene the game never loads, or delete the object
+   afterwards).
+2. In the script, leave one where something hit:
+
+   ```ts
+   const hit = ctx.physics.raycast3d(from, dir, 50);
+   if (hit !== null) ctx.decals.spawn('bullet-hole', { position: hit.point, normal: hit.normal, angle: ctx.stepIndex * 37 % 360 });
+   ```
+
+   Pass `entityId` (with `position` and `normal` in that object's space) to
+   stick the mark to an object that moves; `scale` sizes it, `lifetime`
+   (seconds) fades it out by itself.
+3. Let the budget clean up: past 256 spawned marks the oldest fade out, so
+   a script never has to count them. `ctx.decals.remove(handle)` fades one
+   out sooner.
+
+Spawned marks are drawn only: they are not saved and change nothing the game
+computes. A visual script has the **Spawn decal** and **Remove decal**
+nodes.
+
 ## Put it on a mesh
 
 - **A model:** author the mark as geometry in your modelling tool, its UVs
@@ -106,8 +135,11 @@ and copies of one mark mesh are drawn together however many there are.
 - A projected decal that does not show: is the surface inside the box
   (its middle), facing the projector (within `normalFade`), in one of its
   layers? Play diagnostics `renderer.projectedDecals` count the loaded and
-  drawn decals and the ones over the overlap budget; `?decals=off` on the
+  drawn decals, the spawned and fading ones and the ones over the overlap
+  budget (Play's Problems say `decal_overlap` too); `?decals=off` on the
   Play URL hides them all to compare.
+- A spawn that returns 0: the prefab has no projected decal, or the script
+  asked for more than 32 in one step.
 - Play diagnostics count the decal page arrays under `renderer.decals`
   when a decal component names a material; a mesh decal's material holds
   its pages itself (they count in `renderer.textures`).

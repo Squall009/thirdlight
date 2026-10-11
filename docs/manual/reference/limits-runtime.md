@@ -122,6 +122,14 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 |---|---|---|
 | <a id="limit-physics-query-limit"></a>`PHYSICS_QUERY_LIMIT` | `1024` | At most this many physics queries (rays, overlaps, picks; 2D and 3D) a step, for every script together: a runtime budget. A game's agents each test line of sight and probe around them every step; 1,024 rays cost Rapier about 1.6 ms in a scene of 16,384 colliders (measured). Beyond it a query finds nothing (warned once in 3D). |
 
+<a id="limits-runtime--presentation-requests"></a>
+## `presentation-requests.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-decal-spawn-limits"></a>`DECAL_SPAWN_LIMITS` | `{"scaleMin":0.01,"scaleMax":100,"lifetimeMax":3600}` | A spawned decal's scale and lifetime (seconds) are clamped to these. |
+| <a id="limit-effect-max-queued-requests"></a>`EFFECT_MAX_QUEUED_REQUESTS` | `256` | Requests kept for a renderer that does not take them (headless): the newest this many of each kind. |
+
 <a id="limits-runtime--primitives"></a>
 ## `primitives.ts`
 
@@ -144,13 +152,6 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 |---|---|---|
 | <a id="limit-default-random-seed"></a>`DEFAULT_RANDOM_SEED` | `0` | The seed a project uses until it sets `random_seed` (any fixed value works; 0 is the neutral one). |
 | <a id="limit-max-random-streams"></a>`MAX_RANDOM_STREAMS` | `64` | An engine limit protecting the runtime: named streams per script instance. |
-
-<a id="limits-runtime--runtime"></a>
-## `runtime.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-effect-max-queued-requests"></a>`EFFECT_MAX_QUEUED_REQUESTS` | `256` | Effect requests kept for a renderer that does not take them (headless): the newest this many. |
 
 <a id="limits-runtime--scatter-copies"></a>
 ## `scatter-copies.ts`

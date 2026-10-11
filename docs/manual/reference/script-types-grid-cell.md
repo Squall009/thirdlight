@@ -1,8 +1,84 @@
-# Script API types (from `GridVec3`)
+# Script API types (from `GridCell`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-grid-cell"></a>
+## `GridCell`
+
+```ts
+/** A cell as scripts read it: its block (null: a metadata-only cell), rotation, variant and effective metadata. */
+export interface GridCell {
+  readonly block: string | null;
+  /** Degrees about +Y the block is shown at: 0, 90, 180 or 270 (a connected block: the turn its neighbours resolve). */
+  readonly rot: number;
+  /** The variant shown (an unset variant resolved from the weights and the position, or a connected block's piece). */
+  readonly variant: number;
+  /** A connected block's piece (single, end, straight, corner, t, cross, base, cap); absent: not connected or no rule for it. */
+  readonly piece?: string;
+  /** The block a kit draws in its place (`setKit`; rot, variant and piece are that block's); absent: no kit swaps it. `block` stays the cell's own. */
+  readonly kitBlock?: string;
+  /** The effective metadata (schema defaults, then the block's defaults, then the cell's own values). */
+  readonly meta: Readonly<Record<string, number | string | boolean>>;
+  /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
+  readonly anchor?: GridVec3;
+  /**
+   * A sloped top: the heights of its corners (−x−z, +x−z, +x+z, −x+z) in cell heights above its bottom, 0-4 (absent: a flat full top, all 1).
+   * @graphType list
+   */
+  readonly corners?: readonly number[];
+}
+```
+
+<a id="script-type-grid-cell-input"></a>
+## `GridCellInput`
+
+```ts
+/** What `ctx.grid.set` writes: a block (with rotation and variant) and/or metadata overrides. */
+export interface GridCellInput {
+  /** A block type id (absent: a metadata-only cell). */
+  block?: string;
+  /** Degrees about +Y: 0, 90, 180 or 270. */
+  rot?: number;
+  /** A variant index (absent: picked from the weights by position). */
+  variant?: number;
+  /**
+   * A sloped top (a single-cell full block): the heights of its corners −x−z, +x−z, +x+z, −x+z in cell heights above its bottom, 0-4 in steps of 1/64 (absent: flat).
+   * @graphType list
+   */
+  corners?: readonly number[];
+  /**
+   * Metadata overrides (field key → value).
+   * @graphType map
+   */
+  meta?: Record<string, number | string | boolean>;
+}
+```
+
+<a id="script-type-grid-surface"></a>
+## `GridSurface`
+
+```ts
+/** The ground of a layer at a point (`ctx.grid.surface`, `columnSurface`). */
+export interface GridSurface {
+  readonly layer: string;
+  /** The cell whose top it is. */
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** The world height of the surface there (metres). */
+  readonly height: number;
+  /** The surface point in world space. */
+  readonly point: GridVec3;
+  /** The surface's unit normal. */
+  readonly normal: GridVec3;
+  /** Degrees from level. */
+  readonly slope: number;
+  /** Whether the slope is at most the layer's maxSlope (absent: the project's steepest walkable slope). */
+  readonly walkable: boolean;
+}
+```
 
 <a id="script-type-grid-vec3"></a>
 ## `GridVec3`

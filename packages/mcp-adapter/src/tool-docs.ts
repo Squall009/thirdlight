@@ -31,6 +31,7 @@ import {
   AUDIO_VOICE_CAP,
   AUDIO_VOICES_DEFAULT,
   DECAL_CELL_BUDGET,
+  DECAL_TRANSIENT_BUDGET,
   EROSION_MAX_SAMPLES,
   INSTANCE_DENSITY_END_DEFAULT,
   INSTANCE_DENSITY_MIN_DEFAULT,
@@ -243,7 +244,9 @@ export const TOOL_DETAILS = {
     'Decals: a decal component {size [w,h,d] m (projects along the object\'s -Z), material (a decal material), mode?: projected|clipped, opacity? {albedo?, normal?, roughness?, metalness?, occlusion?, emission?} 0-1, ' +
     'normalFade? deg, edgeFade? [front, back], fadeDistance? m, sortOrder?, layers? (decal layer mask)}; box, model, instances, blockLayer, terrain, spline and architecture take decalLayers? (mask; absent: every layer, none on a skinned model). ' +
     'A projected decal (the default mode) is blended into the lit surfaces inside its box before they are lit, channel by channel (a channel its material has no image or value for is left alone): ' +
-    `blocks, terrain, props, generated architecture, splines, instance copies alike. At most ${DECAL_CELL_BUDGET} overlap at any spot (past it the lowest sortOrder drops). ` +
+    `blocks, terrain, props, generated architecture, splines, instance copies alike. At most ${DECAL_CELL_BUDGET} overlap at any spot (past it the lowest sortOrder drops; Play's Problems say decal_overlap). ` +
+    'A decal on a moving object (a mover, a parent) follows it. A prefab may carry a decal: scripts leave it on a surface with ctx.decals.spawn(prefabId, {position, normal, angle, scale, lifetime, entityId}) ' +
+    `(presentation only, not in the simulation; past ${DECAL_TRANSIENT_BUDGET} spawned at once the oldest fade out) and ctx.decals.remove(handle | entityId). ` +
     'Clipped decals are data so far: nothing draws them yet (see docs/manual/features/decals.md). ' +
     'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
     'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +

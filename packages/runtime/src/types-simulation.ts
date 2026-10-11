@@ -9,7 +9,7 @@ import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 import { type BehaviorSceneControl, type GameplaySettings, type RuntimeSnapshot } from './types-scene';
 import { type AnimatorEventRecord, type BehaviorAnimatorControl, type BehaviorCamera, type BehaviorCharacter, type BehaviorCollectible, type BehaviorDialogue, type BehaviorEnvironment, type BehaviorGameState, type BehaviorHealth, type BehaviorHitbox, type BehaviorLifecycle, type BehaviorLook, type BehaviorModes, type BehaviorPatrol, type BehaviorSignals, type BehaviorSockets, type BehaviorTagQuery, type BehaviorTimeline, type BehaviorUi, type BehaviorStats, type BehaviorDisplay } from './types-behavior-world';
-import { type BehaviorAudio, type BehaviorEffects, type BehaviorMessageControl, type BehaviorSave, type BehaviorSpawnControl, type DebugCommandArgs, type DebugCommandOptions, type PrimitiveEventRecord, type TriggerEventRecord } from './types-behavior';
+import { type BehaviorAudio, type BehaviorDecals, type BehaviorEffects, type BehaviorMessageControl, type BehaviorSave, type BehaviorSpawnControl, type DebugCommandArgs, type DebugCommandOptions, type PrimitiveEventRecord, type TriggerEventRecord } from './types-behavior';
 
 /** Config accepted by `instantiateRuntime` (strict shape). */
 export interface InstantiateConfig {
@@ -245,6 +245,8 @@ export interface StepContext {
   readonly audioOwned?: (entityId: string) => BehaviorAudio;
   /** Play visual effects — presentation only, never part of the simulation. */
   readonly effects?: BehaviorEffects;
+  /** Leave decals on surfaces — presentation only, never part of the simulation. */
+  readonly decals?: BehaviorDecals;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
   /** Spawn prefab copies into the running game and destroy them. */

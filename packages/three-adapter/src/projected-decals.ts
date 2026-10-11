@@ -58,7 +58,7 @@ import { decalDrawOf } from './mesh-decals';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, If, Loop, abs, cameraPosition, cameraViewMatrix, cross, dFdx, dFdy, dot, float, int, ivec2, length, max, min, normalize, saturate, select, smoothstep, uint, uniform, uvec3, texture, vec2, vec3, vec4, positionView, cameraWorldMatrix } = TSL;
+const { Break, If, Loop, abs, cameraPosition, cameraViewMatrix, cross, dFdx, dFdy, dot, float, int, ivec2, length, max, min, normalize, saturate, select, smoothstep, uint, uniform, uvec3, ivec3, vec2, vec3, vec4, positionView, cameraWorldMatrix, renderGroup } = TSL;
 const { diffuseColor, metalness, roughness, ambientOcclusion, diffuseContribution } = TSL;
 
 /** `object.userData[DECAL_LAYERS_KEY]`: the decal layers a drawable is in (absent: every layer; a skinned mesh none). */
@@ -132,45 +132,61 @@ export type DecalPageSetName = 'albedo' | 'normal' | 'orm';
 const HIT_CELL = 8;
 /** An object (or a decal) spanning more coarse cells than this is tested against every decal box (every object) instead. */
 const HIT_CELLS_MAX = 512;
+/** The decal changes an object's kept test is brought up to date through (more: it is tested again). */
+const HIT_CHANGES_MAX = 128;
+/** The changes kept for bringing objects' tests up to date (older ones: tested again). */
+const HIT_LOG_MAX = 256;
+
+/** What an object is tested against: a decal's world box and the layers it marks. */
+export interface DecalHitBox {
+  readonly min: readonly number[];
+  readonly max: readonly number[];
+  readonly layerMask: number;
+}
 
 let nextId = 1;
 
 /**
- * The projected decals of a scene: the table, the index, the page arrays and
- * the grid's placement the receiving materials read, and the decals' boxes
- * the CPU tests objects against. The host (decal-projectors.ts) fills them
- * and attaches them to its scene ({@link attachProjectedDecals}).
+ * The projected decals of a scene: the data texture (table, then index), the
+ * page arrays and the grid's placement the receiving materials read, and the
+ * decals' boxes the CPU tests objects against. The host
+ * (decal-projectors.ts) fills them and attaches them to its scene
+ * ({@link attachProjectedDecals}).
  */
 export class ProjectedDecals {
   readonly id = nextId++;
-  table: THREE.DataTexture = decalDataTexture(new Float32Array(DECAL_TEXTURE_WIDTH * 4), 1);
-  index: THREE.DataTexture = decalDataTexture(new Float32Array(DECAL_TEXTURE_WIDTH * 4), 1);
+  /** The table's lines, then the index's (`indexBase` texels in). */
+  data: THREE.DataTexture = decalDataTexture(new Float32Array(DECAL_TEXTURE_WIDTH * 4), 1);
   pages: Record<DecalPageSetName, THREE.Texture> = { albedo: placeholderPages(true), normal: placeholderPages(false), orm: placeholderPages(false) };
   private readonly placeholders = { ...this.pages };
-  /** The grid's corner; 1 / its cell size and (w) the longest probe; its cells per axis and (w) the hash table's mask. */
+  /** The grid's corner and (w) the hash table's mask; 1 / its cell size and (w) the longest probe; (x) where the index starts in the data, (y) the pages' side. */
   readonly origin = new THREE.Vector4();
   readonly invCell = new THREE.Vector4();
-  readonly dims = new THREE.Vector4();
+  readonly layout = new THREE.Vector4(0, 1, 0, 0);
   /**
-   * Counts the swaps of a bound texture (pages arrived, data grown). It is
-   * part of the variants' program key: three's WebGL 2 backend binds a
-   * texture node's new texture only for a new program state.
+   * Counts the swaps of a bound texture (pages arrived, data grown) and of
+   * what the programs blend. It is part of the variants' program key: three's
+   * WebGL 2 backend binds a texture node's new texture only for a new program
+   * state.
    */
   generation = 0;
-  /** The channels the decals change ({@link DECAL_CHANNEL_BITS}) and the layer test; all of them until the host says. */
-  uses = 127;
+  /** The channels the decals change, the page sets they read ({@link DECAL_CHANNEL_BITS}) and the layer test; all of them until the host says. */
+  uses = DECAL_USES_ALL;
   /** Draws that wore a decal variant since the host last read it (every pass). */
   draws = 0;
-  private pageSide = 1;
   private nodes: DecalNodes | null = null;
-  /** The decals' world boxes and layers, a coarse grid of them, the layers any decal marks; a count of their changes. */
-  private boxes: readonly { readonly min: readonly number[]; readonly max: readonly number[]; readonly layerMask: number }[] = [];
-  private coarse = new Map<string, number[]>();
-  private big: number[] = [];
+  /** The decals' world boxes and layers by table row, a coarse grid of them, the layers any decal marks. */
+  private boxes: (DecalHitBox | undefined)[] = [];
+  private live = 0;
+  private coarse = new Map<number, number[]>();
+  private big = new Set<number>();
   private layerUnion = 0;
+  /** Counts every change of the boxes; `base` is the revision of the last whole set, `log` the single changes since. */
   private revision = 0;
-  /** Each object's last test, on the object itself (read for every draw: a property, not a map lookup). */
-  private readonly seenKey = Symbol('tlDecalHits');
+  private base = 0;
+  private log: { readonly revision: number; readonly row: number; readonly old: DecalHitBox | undefined; readonly now: DecalHitBox | undefined }[] = [];
+  /** Each object's last test (a map: a property put on three's objects would give them another shape). */
+  private readonly seen = new WeakMap<THREE.Object3D, Seen>();
 
   /** A set's array (null: none; the placeholder stands in). */
   setPages(set: DecalPageSetName, t: THREE.Texture | null): void {
@@ -181,134 +197,182 @@ export class ProjectedDecals {
     if (this.nodes !== null) this.nodes[set].value = next;
   }
 
-  /** The channels the decals change: a change is a new generation (the variants' programs blend other channels). */
+  /** What the programs blend: a change is a new generation (the variants' programs blend other channels). */
   setUses(uses: number): void {
     if (uses === this.uses) return;
     this.uses = uses;
     this.generation += 1;
   }
 
-  /** The pages' side in level-0 texels (what a read's footprint is measured in). */
-  setPageSize(side: number): void {
-    this.pageSide = side;
-    if (this.nodes !== null) this.nodes.pageSize.value = side;
-  }
-
-  /** Swap in new table or index textures (grown); the nodes follow. */
-  setData(table: THREE.DataTexture, index: THREE.DataTexture): void {
-    if (table === this.table && index === this.index) return;
-    this.table = table;
-    this.index = index;
+  /** Swap in a new data texture (grown); the nodes follow. */
+  setData(data: THREE.DataTexture): void {
+    if (data === this.data) return;
+    this.data = data;
     this.generation += 1;
-    if (this.nodes !== null) {
-      this.nodes.table.value = table;
-      this.nodes.index.value = index;
-    }
+    if (this.nodes !== null) this.nodes.data.value = data;
   }
 
-  /** The decals' boxes as the table holds them (objects are tested against these). */
-  setBoxes(boxes: readonly { readonly min: readonly number[]; readonly max: readonly number[]; readonly layerMask: number }[]): void {
-    this.boxes = boxes;
+  /** The decals' boxes by table row (undefined: a row not in use), all at once. */
+  setBoxes(boxes: readonly (DecalHitBox | undefined)[]): void {
+    this.boxes = [];
     this.coarse = new Map();
+    this.big = new Set();
     this.layerUnion = 0;
-    this.big = [];
-    boxes.forEach((b, i) => {
-      this.layerUnion |= b.layerMask;
-      const [x0, y0, z0] = b.min.map((v) => Math.floor(v / HIT_CELL));
-      const [x1, y1, z1] = b.max.map((v) => Math.floor(v / HIT_CELL));
-      // A decal over many coarse cells is tested against every object instead of listed in each.
-      if ((x1! - x0! + 1) * (y1! - y0! + 1) * (z1! - z0! + 1) > HIT_CELLS_MAX) {
-        this.big.push(i);
-        return;
-      }
-      for (let x = x0!; x <= x1!; x++)
-        for (let y = y0!; y <= y1!; y++)
-          for (let z = z0!; z <= z1!; z++) {
-            const k = `${x},${y},${z}`;
-            const l = this.coarse.get(k);
-            if (l === undefined) this.coarse.set(k, [i]);
-            else l.push(i);
-          }
-    });
+    this.live = 0;
+    boxes.forEach((b, i) => this.place(i, b));
     this.revision += 1;
+    this.base = this.revision;
+    this.log = [];
+  }
+
+  /** One decal's box now (undefined: gone): objects' kept tests are brought up to date by it, not redone. */
+  setBox(i: number, box: DecalHitBox | undefined): void {
+    const old = this.boxes[i];
+    if (old !== undefined) this.unplace(i, old);
+    this.place(i, box);
+    this.revision += 1;
+    this.log.push({ revision: this.revision, row: i, old, now: box });
+    if (this.log.length > HIT_LOG_MAX) {
+      this.base = this.revision;
+      this.log = [];
+    }
   }
 
   /** Decals whose boxes are held. */
   get count(): number {
-    return this.boxes.length;
+    return this.live;
+  }
+
+  private place(i: number, b: DecalHitBox | undefined): void {
+    this.boxes[i] = b;
+    if (b === undefined) return;
+    this.live += 1;
+    // The layers any decal marks only grow until the next whole set (an object keeps out of them early).
+    this.layerUnion |= b.layerMask;
+    const cells = coarseCells(b.min, b.max);
+    // A decal over many coarse cells is tested against every object instead of listed in each.
+    if (cells === null) {
+      this.big.add(i);
+      return;
+    }
+    for (const k of cells) {
+      const l = this.coarse.get(k);
+      if (l === undefined) this.coarse.set(k, [i]);
+      else l.push(i);
+    }
+  }
+
+  private unplace(i: number, b: DecalHitBox): void {
+    this.boxes[i] = undefined;
+    this.live -= 1;
+    if (this.big.delete(i)) return;
+    for (const k of coarseCells(b.min, b.max) ?? []) {
+      const l = this.coarse.get(k);
+      const at = l?.indexOf(i) ?? -1;
+      if (at < 0) continue;
+      l!.splice(at, 1);
+      if (l!.length === 0) this.coarse.delete(k);
+    }
   }
 
   /**
    * Whether a decal can mark `object`: its world bounds meet a decal's box,
-   * and its decal layers share one with that decal's. Kept per object until
-   * it moves or the decals change. An object without bounds counts as hit.
+   * and its decal layers share one with that decal's. Kept per object: while
+   * the object, its bounds and its layers stay as they were, a draw reads
+   * the kept answer, brought up to date through the few decals that changed
+   * since (a moved or spawned decal does not test every object again). An
+   * object without bounds counts as hit.
    */
   hits(object: THREE.Object3D): boolean {
-    if (this.boxes.length === 0) return false;
+    if (this.live === 0) return false;
+    let known = this.seen.get(object);
     const layers = objectDecalLayers(object);
-    if ((layers & this.layerUnion) === 0) return false;
     const sphere = boundsOf(object);
     const e = object.matrixWorld.elements;
-    // Asked for every draw of every frame: what it was asked last is compared number by number, nothing made.
-    const own = object as unknown as Record<symbol, Seen | undefined>;
-    let known = own[this.seenKey];
-    if (known !== undefined && known.revision === this.revision && known.layers === layers && known.sphere === sphere && (sphere === null || (known.bounds[0] === sphere.radius && known.bounds[1] === sphere.center.x && known.bounds[2] === sphere.center.y && known.bounds[3] === sphere.center.z))) {
+    if (known !== undefined && known.layers === layers && known.sphere === sphere && (sphere === null || (known.bounds[0] === sphere.radius && known.bounds[1] === sphere.center.x && known.bounds[2] === sphere.center.y && known.bounds[3] === sphere.center.z))) {
       let same = true;
       for (let k = 0; k < 16 && same; k++) same = known.matrix[k] === e[k];
-      if (same) return known.hit;
+      if (same) {
+        if (known.revision === this.revision) return known.hit;
+        const update = this.catchUp(known);
+        if (update !== null) {
+          known.revision = this.revision;
+          known.hit = update;
+          return update;
+        }
+      }
     }
     if (known === undefined) {
-      known = { revision: -1, layers: 0, sphere: null, bounds: new Float64Array(4), matrix: new Float64Array(16), hit: false };
-      own[this.seenKey] = known;
+      known = { revision: -1, layers: 0, sphere: null, bounds: new Float64Array(4), matrix: new Float64Array(16), lo: [0, 0, 0], hi: [0, 0, 0], hit: false };
+      this.seen.set(object, known);
     }
     known.revision = this.revision;
     known.layers = layers;
     known.sphere = sphere;
     if (sphere !== null) known.bounds.set([sphere.radius, sphere.center.x, sphere.center.y, sphere.center.z]);
     known.matrix.set(e);
-    let hit = true;
+    known.hit = this.test(object, known);
+    return known.hit;
+  }
+
+  /**
+   * `known` brought up to date through the changes since its test (null:
+   * too many, or one that may have taken its hit away and none that gives
+   * one back: test again). A decal's last box meeting the object is a hit
+   * whatever else changed; a decal that left it may have been its only one.
+   */
+  private catchUp(known: Seen): boolean | null {
+    if (known.revision < this.base || known.sphere === null) return null;
+    let from = this.log.length;
+    while (from > 0 && this.log[from - 1]!.revision > known.revision) from -= 1;
+    if (this.log.length - from > HIT_CHANGES_MAX) return null;
+    let lost = false;
+    for (let k = this.log.length - 1; k >= from; k--) {
+      const c = this.log[k]!;
+      // Only a decal's latest box is where it is now.
+      const latest = this.boxes[c.row] === c.now;
+      if (latest && c.now !== undefined && meets(c.now, known)) return true;
+      if (c.old !== undefined && meets(c.old, known)) lost = true;
+    }
+    return known.hit && !lost ? true : known.hit ? null : false;
+  }
+
+  private test(object: THREE.Object3D, known: Seen): boolean {
+    const sphere = known.sphere;
     if (sphere !== null) {
+      // Its world bounds first: the changes it is brought up to date through are tested against them.
       _centre.copy(sphere.center).applyMatrix4(object.matrixWorld);
       const r = sphere.radius * object.matrixWorld.getMaxScaleOnAxis();
-      const lo = [_centre.x - r, _centre.y - r, _centre.z - r];
-      const hi = [_centre.x + r, _centre.y + r, _centre.z + r];
-      const meets = (i: number): boolean => {
-        const b = this.boxes[i]!;
-        return (b.layerMask & layers) !== 0 && b.min[0]! <= hi[0]! && b.max[0]! >= lo[0]! && b.min[1]! <= hi[1]! && b.max[1]! >= lo[1]! && b.min[2]! <= hi[2]! && b.max[2]! >= lo[2]!;
-      };
-      const c0 = lo.map((v) => Math.floor(v / HIT_CELL));
-      const c1 = hi.map((v) => Math.floor(v / HIT_CELL));
-      const cells = (c1[0]! - c0[0]! + 1) * (c1[1]! - c0[1]! + 1) * (c1[2]! - c0[2]! + 1);
-      // The decals too large for the coarse grid first, then the grid's (or every decal, for an object too large for it).
-      hit = this.big.some(meets);
-      if (!hit && cells > HIT_CELLS_MAX) {
-        for (let i = 0; i < this.boxes.length && !hit; i++) hit = meets(i);
-      } else if (!hit) {
-        for (let x = c0[0]!; x <= c1[0]! && !hit; x++)
-          for (let y = c0[1]!; y <= c1[1]! && !hit; y++)
-            for (let z = c0[2]!; z <= c1[2]! && !hit; z++) {
-              const l = this.coarse.get(`${x},${y},${z}`);
-              if (l !== undefined) for (const i of l) if (meets(i)) hit = true;
-            }
-      }
+      known.lo = [_centre.x - r, _centre.y - r, _centre.z - r];
+      known.hi = [_centre.x + r, _centre.y + r, _centre.z + r];
     }
-    known.hit = hit;
-    return hit;
+    if ((known.layers & this.layerUnion) === 0) return false;
+    if (sphere === null) return true;
+    // The decals too large for the coarse grid first, then the grid's (or every decal, for an object too large for it).
+    for (const i of this.big) if (meets(this.boxes[i]!, known)) return true;
+    const cells = coarseCells(known.lo, known.hi);
+    if (cells === null) {
+      for (const b of this.boxes) if (b !== undefined && meets(b, known)) return true;
+      return false;
+    }
+    for (const k of cells) {
+      const l = this.coarse.get(k);
+      if (l !== undefined) for (const i of l) if (meets(this.boxes[i]!, known)) return true;
+    }
+    return false;
   }
 
   /** The nodes every build reads (made once, shared). */
   nodesOf(): DecalNodes {
     if (this.nodes === null) {
       this.nodes = {
-        table: dataTextureNode(this.table),
-        index: dataTextureNode(this.index),
-        albedo: texture(this.pages.albedo),
-        normal: texture(this.pages.normal),
-        orm: texture(this.pages.orm),
-        origin: uniform(this.origin),
-        invCell: uniform(this.invCell),
-        dims: uniform(this.dims),
-        pageSize: uniform(this.pageSide),
+        data: dataTextureNode(this.data),
+        albedo: pageNode(this.pages.albedo),
+        normal: pageNode(this.pages.normal),
+        orm: pageNode(this.pages.orm),
+        origin: uniform(this.origin).setGroup(renderGroup),
+        invCell: uniform(this.invCell).setGroup(renderGroup),
+        layout: uniform(this.layout).setGroup(renderGroup),
       };
     }
     return this.nodes;
@@ -317,21 +381,50 @@ export class ProjectedDecals {
   dispose(): void {
     this.boxes = [];
     this.coarse.clear();
-    this.table.dispose();
-    this.index.dispose();
+    this.big.clear();
+    this.live = 0;
+    this.data.dispose();
     for (const t of Object.values(this.placeholders)) t.dispose();
   }
 }
 
+/** Every channel and page set, and the layer test. */
+const DECAL_USES_ALL = 1023;
+
+/** The coarse grid's cells per axis a key spans (cell coordinates are offset into 0 … this − 1: ±1 000 km of 8 m cells). */
+const HIT_KEY_SPAN = 1 << 18;
+
+/** The coarse cells a world box covers, as numbers (null: more than {@link HIT_CELLS_MAX}). */
+function coarseCells(min: readonly number[], max: readonly number[]): number[] | null {
+  const h = HIT_KEY_SPAN / 2;
+  const x0 = Math.floor(min[0]! / HIT_CELL) + h;
+  const y0 = Math.floor(min[1]! / HIT_CELL) + h;
+  const z0 = Math.floor(min[2]! / HIT_CELL) + h;
+  const x1 = Math.floor(max[0]! / HIT_CELL) + h;
+  const y1 = Math.floor(max[1]! / HIT_CELL) + h;
+  const z1 = Math.floor(max[2]! / HIT_CELL) + h;
+  if ((x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) > HIT_CELLS_MAX) return null;
+  const out: number[] = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) out.push((x * HIT_KEY_SPAN + y) * HIT_KEY_SPAN + z);
+  return out;
+}
+
+/** Whether decal box `b` can mark an object (its bounds `lo`–`hi`, its layers). */
+function meets(b: DecalHitBox, o: { readonly lo: readonly number[]; readonly hi: readonly number[]; readonly layers: number }): boolean {
+  return (b.layerMask & o.layers) !== 0 && b.min[0]! <= o.hi[0]! && b.max[0]! >= o.lo[0]! && b.min[1]! <= o.hi[1]! && b.max[1]! >= o.lo[1]! && b.min[2]! <= o.hi[2]! && b.max[2]! >= o.lo[2]!;
+}
+
 const _centre = new THREE.Vector3();
 
-/** What an object's last hit test saw (its matrix, bounds and layers) and found. */
+/** What an object's last hit test saw (its matrix, bounds and layers, its world bounds) and found. */
 interface Seen {
   revision: number;
   layers: number;
   sphere: THREE.Sphere | null;
   readonly bounds: Float64Array;
   readonly matrix: Float64Array;
+  lo: number[];
+  hi: number[];
   hit: boolean;
 }
 
@@ -346,31 +439,49 @@ function boundsOf(object: THREE.Object3D): THREE.Sphere | null {
 }
 
 /**
+ * The decal textures' nodes leave out three's texture transform. A texture
+ * node made without a UV (as `sample` and `load` clone it, through
+ * `this.constructor`) turns its matrix update on: a uniform and a
+ * `texture.updateMatrix()` for every read, every draw — sixty-odd reads of
+ * the decal loop made three update them for each reached draw. Decal data and
+ * pages are never transformed.
+ */
+class DecalPageNode extends (THREE.TextureNode as unknown as new (value: THREE.Texture) => object) {
+  setUpdateMatrix(): this {
+    (this as unknown as { updateMatrix: boolean }).updateMatrix = false;
+    return this;
+  }
+}
+
+/**
  * A data texture read texel by texel, as uploaded. three's WebGL 2 builder
  * gives every texture read a flip-Y switch (render targets are stored upside
  * down there): a uniform updated for every draw and a `textureSize` and a
- * select in the shader for every read. The table and index are plain data
- * textures, never flipped, and the decal loop reads them a dozen times a
- * decal: their reads go without it. (A clone keeps the class: `sample` and
- * `load` clone through `this.constructor`.)
+ * select in the shader for every read. The table and index are one plain
+ * data texture, never flipped, and the decal loop reads it a dozen times a
+ * decal: its reads go without it.
+ *
+ * Textures stay in each draw's own bind group (three's shared groups take
+ * uniforms only), so every texture a decal program binds is checked and bound
+ * for every reached draw: the table and the index share one texture, and a
+ * page set no decal has an image on is not bound at all.
  */
-class DecalDataNode extends (THREE.TextureNode as unknown as new (value: THREE.Texture) => object) {
+class DecalDataNode extends DecalPageNode {
   setupUV(_builder: unknown, uvNode: N): N {
     return uvNode;
   }
 }
 const dataTextureNode = (t: THREE.Texture): N => TSL.nodeObject(new DecalDataNode(t));
+const pageNode = (t: THREE.Texture): N => TSL.nodeObject(new DecalPageNode(t));
 
 interface DecalNodes {
-  table: N;
-  index: N;
+  data: N;
   albedo: N;
   normal: N;
   orm: N;
   origin: N;
   invCell: N;
-  dims: N;
-  pageSize: N;
+  layout: N;
 }
 
 /** Each scene's projected decals (a scene adapter's host attaches them while it has any). */
@@ -449,10 +560,12 @@ const objectLayers: N = uniform(DECAL_LAYERS_ALL).onObjectUpdate(({ object }: { 
 /** Texel `k` of table row `row` (int node). */
 function rowTexel(n: DecalNodes, row: N, k: number): N {
   const e = row.mul(DECAL_ROW_TEXELS).add(k);
-  return n.table.load(ivec2(e.mod(DECAL_TEXTURE_WIDTH), e.div(DECAL_TEXTURE_WIDTH)));
+  return n.data.load(ivec2(e.mod(DECAL_TEXTURE_WIDTH), e.div(DECAL_TEXTURE_WIDTH)));
 }
+/** Texel `e` of the index (int node): the index's lines follow the table's in the one data texture. */
 function indexTexel(n: DecalNodes, e: N): N {
-  return n.index.load(ivec2(e.mod(DECAL_TEXTURE_WIDTH), e.div(DECAL_TEXTURE_WIDTH)));
+  const at = e.add(int(n.layout.x));
+  return n.data.load(ivec2(at.mod(DECAL_TEXTURE_WIDTH), at.div(DECAL_TEXTURE_WIDTH)));
 }
 
 /**
@@ -468,6 +581,13 @@ export const DECAL_CHANNEL_BITS = { albedo: 1, normal: 2, roughness: 4, metalnes
  * all shares a layer with every decal (`hits` keeps out those in none).
  */
 export const DECAL_LAYER_TEST_BIT = 64;
+/**
+ * With the channels: the page sets some decal has an image on. A set no decal
+ * reads is neither bound nor sampled (its reads are the fallback value), so a
+ * stain with an albedo image and a roughness value binds one page array, not
+ * three.
+ */
+export const DECAL_PAGE_BITS = { albedo: 128, normal: 256, orm: 512 } as const;
 const ORM_BITS = DECAL_CHANNEL_BITS.roughness | DECAL_CHANNEL_BITS.metalness | DECAL_CHANNEL_BITS.occlusion | DECAL_CHANNEL_BITS.emission;
 
 /** One channel's blend: the decals' share and what is left of the surface's (`over`, front to back). */
@@ -510,11 +630,12 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
     o.t.mulAssign(float(1).sub(a));
   };
   const cf = p.sub(n.origin.xyz).mul(n.invCell.xyz).floor().toVar('tlDecalCell');
-  If(cf.greaterThanEqual(vec3(0)).all().and(cf.lessThan(n.dims.xyz).all()), () => {
+  {
     // The cell's slot in the hash table (decal-index.ts): probe from its hash until its key or an empty slot.
-    const c = uvec3(cf);
+    // Coordinates may be negative (a decal moved past the grid's corner): hashed as their signed bits, as the index does.
+    const c = uvec3(ivec3(cf));
     const hashed = c.x.mul(uint(DECAL_HASH[0])).bitXor(c.y.mul(uint(DECAL_HASH[1]))).bitXor(c.z.mul(uint(DECAL_HASH[2])));
-    const mask = uint(n.dims.w);
+    const mask = uint(n.origin.w);
     const slot = hashed.bitAnd(mask).toVar('tlDecalSlot');
     const start = int(-1).toVar('tlDecalStart');
     Loop(int(n.invCell.w), () => {
@@ -565,11 +686,13 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
             const gx = vec2(dot(m0.xyz, dpx), dot(m1.xyz, dpx).negate()).mul(span);
             const gy = vec2(dot(m0.xyz, dpy), dot(m1.xyz, dpy).negate()).mul(span);
             // The derivatives shortened so their longer one spans at most the rectangle's safe footprint (level-0 texels).
-            const longest = max(length(gx), length(gy)).mul(n.pageSize);
+            const longest = max(length(gx), length(gy)).mul(n.layout.y);
             const k = min(float(1), place.w.div(max(longest, 1e-6)));
             const sx = gx.mul(k);
             const sy = gy.mul(k);
-            const read = (pages: N, layer: N, fallback: N): N => {
+            const read = (pages: N, layer: N, fallback: N, bit: number): N => {
+              // A set no decal has an image on is not bound: its value is the fallback's.
+              if ((uses & bit) === 0) return fallback;
               const v = vec4(fallback).toVar();
               If(layer.greaterThanEqual(0), () => {
                 v.assign(pages.sample(uv).depth(int(layer)).grad(sx, sy));
@@ -577,13 +700,13 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
               return v;
             };
             // The image's alpha is the mark's shape for every channel.
-            const albedo = read(n.albedo, place.x, vec4(1, 1, 1, 1));
+            const albedo = read(n.albedo, place.x, vec4(1, 1, 1, 1), DECAL_PAGE_BITS.albedo);
             const cover = albedo.a.mul(tint.w).mul(w).toVar('tlDecalCover');
             blend(b.albedo, () => albedo.rgb.mul(tint.rgb), cover.mul(op.x));
             if ((uses & ORM_BITS) !== 0) {
               const glow = rowTexel(n, row, 9);
               const factors = rowTexel(n, row, 10);
-              const orm = read(n.orm, place.z, vec4(1, 1, 1, 0));
+              const orm = read(n.orm, place.z, vec4(1, 1, 1, 0), DECAL_PAGE_BITS.orm);
               blend(b.rough, () => saturate(orm.g.mul(factors.x)).max(0.0525), cover.mul(op.z));
               blend(b.metal, () => saturate(orm.b.mul(factors.y)), cover.mul(op.w));
               // three's aoMapIntensity rule: (r − 1) × intensity + 1.
@@ -608,7 +731,7 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
         });
       });
     });
-  });
+  }
   return b;
 }
 
@@ -692,7 +815,8 @@ export function installProjectedDecalSteps(): void {
   };
 }
 
-type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, ...rest: unknown[]) => void;
+/** three's `renderObject`, its arguments spelled out: called for every draw, a rest array would be made for each. */
+type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: unknown, lightsNode: unknown, clippingContext?: unknown, passId?: unknown) => void;
 
 /**
  * Teach a renderer projected decals: every material the decal steps, and
@@ -702,7 +826,7 @@ type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE
 export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn }): void {
   installProjectedDecalSteps();
   const base = renderer.renderObject;
-  renderer.renderObject = function renderObjectWithDecals(this: unknown, object, scene, camera, geometry, material, ...rest) {
+  renderer.renderObject = function renderObjectWithDecals(this: unknown, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) {
     if (scene !== lastScene) {
       lastScene = scene;
       lastDecals = attached.get(scene);
@@ -711,12 +835,12 @@ export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn
     if (d !== undefined && receives(material) && d.hits(object)) {
       const v = decalVariant(material, d);
       d.draws += 1;
-      base.call(this, object, scene, camera, geometry, v, ...rest);
+      base.call(this, object, scene, camera, geometry, v, group, lightsNode, clippingContext, passId);
       // A transparent double-sided draw sets `side` on the material it draws and back: keep reading the material's.
       if (Object.prototype.hasOwnProperty.call(v, 'side')) delete (v as unknown as Record<string, unknown>)['side'];
       return;
     }
-    base.call(this, object, scene, camera, geometry, material, ...rest);
+    base.call(this, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId);
   };
 }
 

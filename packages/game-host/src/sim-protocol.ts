@@ -17,6 +17,7 @@ import type {
   CameraViewInfo,
   DebugCommandCall,
   DebugCommandState,
+  DecalRequest,
   EffectRequest,
   LoadedSceneBatch,
   PointerSample,
@@ -222,6 +223,8 @@ export interface FrameState {
   /** The audio intent log's commands (script sound requests). */
   readonly audio?: readonly AudioCommand[];
   readonly effects?: readonly EffectRequest[];
+  /** Scripts' decal requests since the last frame (presentation only). */
+  readonly decals?: readonly DecalRequest[];
   /**
    * The resolved camera (virtual cameras), every frame while the game has one:
    * the view at the two steps the transforms are between (`CAMERA_POSE_FLOATS` each:

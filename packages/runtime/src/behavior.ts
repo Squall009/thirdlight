@@ -81,6 +81,7 @@ import type {
   BehaviorModes,
   BehaviorLifecycle,
   BehaviorTimeline,
+  BehaviorDecals,
   BehaviorEffects,
   BehaviorGameState,
   BehaviorCollectible,
@@ -218,6 +219,8 @@ export interface BehaviorContext {
   readonly audio?: BehaviorAudio;
   /** Play visual effects (presentation only, never part of the simulation). */
   readonly effects?: BehaviorEffects;
+  /** Leave decals on surfaces: bullet holes, footprints, scorch marks (presentation only, never part of the simulation). */
+  readonly decals?: BehaviorDecals;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
   /** Project debug commands (run by tools and the in-game console, recorded with the input). */
@@ -1147,6 +1150,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.audio !== undefined) fields['audio'] = { value: src.audioOwned?.(instance.entityId) ?? src.audio, enumerable: true };
         // Visual effects (played by the renderer; the simulation never reads them back).
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
+        if (src.decals !== undefined) fields['decals'] = { value: src.decals, enumerable: true };
         // Values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
         // The virtual cameras (resolved by the camera brain at the end of the step).

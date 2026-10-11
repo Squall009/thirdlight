@@ -90,7 +90,7 @@ import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
-import { levelMarks, markCounts, markEntities, marksNotBuilt, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
+import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINTED_FILE_SUFFIX, type LevelMarks, type LevelMarksOptions } from './level-marks';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -803,6 +803,16 @@ async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string
     // One decal material (a stain image on the build's decal pages): mesh decals wear it over a quad, projected ones mark with it.
     await publishFileVia(be, projectId, cmd, { assetId: MARK_DECAL_IMAGE, kind: 'texture', displayName: 'Level mark stain', bytes: markStainPng(plan.seed, 256) });
     await cmd('setMaterial', { material: { materialId: MARK_DECAL_MATERIAL, name: 'Level mark', shader: 'decal', params: { color: '#c8b8a8', roughness: 0.9 }, textures: { map: MARK_DECAL_IMAGE } } });
+  }
+  if (m.options.decalSpawns > 0) {
+    // The spawned decals' prefab (kept in a scene the game never loads) and the script that spawns them.
+    await cmd('createScene', { sceneId: 'scene-marks-kit', name: 'Marks kit' });
+    const mark = String((await cmd('createEntity', { sceneId: 'scene-marks-kit', parentId: null, kind: 'group', name: 'Mark', transform: { position: [0, 0, 0] }, components: { decal: { size: [0.8, 0.8, 0.5], material: MARK_DECAL_MATERIAL } } }))['createdId']);
+    await cmd('createPrefab', { prefabId: MARK_SPAWN_PREFAB, displayName: 'Level mark', sourceEntityId: mark });
+    const behavior: BehaviorPlan = { behaviorId: 'level-spawns', displayName: 'Level decal spawns', ownedTransforms: [], declaration: { properties: [] }, source: spawnScript(m, m.options.decalSpawns, DEFAULT_FIXED_STEP_HZ) };
+    await publishBehaviorVia(be, be.project(projectId), cmd, behavior);
+    const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Spawn driver', transform: { position: [0, 0, 0] } }))['createdId']);
+    await cmd('setBehaviorProperties', { entityId: driver, behaviorId: behavior.behaviorId, values: {} });
   }
   if (m.meshDecals.length > 0) {
     await publishFileVia(be, projectId, cmd, { assetId: MARK_QUAD, kind: 'model', displayName: 'Level mark quad', bytes: quadGlb(MARK_QUAD_MATERIAL) });

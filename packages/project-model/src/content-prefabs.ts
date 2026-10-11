@@ -4,6 +4,7 @@
  */
 
 import { canonicalEffectComponent, validateEffectComponent } from './effects';
+import { canonicalDecal, validateDecalComponent } from './decals';
 import { canonicalBlockFootprint, validateBlockFootprintComponent } from './block-layers';
 import { canonicalBehaviorGroup, validateBehaviorGroupComponent } from './modes';
 import { canonicalMaterialMapping, canonicalMaterialParams, validateMaterialMapping, validateMaterialParamsComponent } from './materials';
@@ -85,7 +86,7 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 // `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
 // `behaviorGroup` (a copy's behavior ticks with its group).
 // Generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity', 'decal'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -120,6 +121,8 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
     if (comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/animator`, message: 'an animator sits only on an entity with a model', expected: 'model' });
   }
   if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
+  // A copy's decal marks what is around it (scripts' `ctx.decals.spawn` leaves a prefab's decal without a copy).
+  if (comps['decal'] !== undefined) validateDecalComponent(comps['decal'], `${path}/decal`, errors);
   if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
   if (comps['behaviorGroup'] !== undefined) validateBehaviorGroupComponent(comps['behaviorGroup'], `${path}/behaviorGroup`, errors);
   for (const name of PREFAB_BLOCKS) {
@@ -325,6 +328,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   }
   if (x.materialParams !== undefined) components.materialParams = canonicalMaterialParams(x.materialParams);
   if (x.effect !== undefined) components.effect = canonicalEffectComponent(x.effect);
+  if (x.decal !== undefined) components.decal = canonicalDecal(x.decal);
   if (x.blockFootprint !== undefined) components.blockFootprint = canonicalBlockFootprint(x.blockFootprint);
   if (x.behaviorGroup !== undefined) components.behaviorGroup = canonicalBehaviorGroup(x.behaviorGroup);
   return {

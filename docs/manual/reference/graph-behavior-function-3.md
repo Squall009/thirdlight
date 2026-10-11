@@ -7,8 +7,8 @@ The Script function node catalogue: port types, then each category's nodes with 
 <a id="graph-behavior-function--stats"></a>
 ## Stats
 
-- [Stats fps](graph-behavior-5.md#node-behavior--api-stats-fps) (`api.stats.fps`, as in `behavior`): Frames drawn per second over the window.
-- [Stats frame ms](graph-behavior-5.md#node-behavior--api-stats-frame-ms) (`api.stats.frameMs`, as in `behavior`): The time from one frame to the next (ms).
+- [Stats fps](graph-behavior-6.md#node-behavior--api-stats-fps) (`api.stats.fps`, as in `behavior`): Frames drawn per second over the window.
+- [Stats frame ms](graph-behavior-6.md#node-behavior--api-stats-frame-ms) (`api.stats.frameMs`, as in `behavior`): The time from one frame to the next (ms).
 - [Stats cpu ms](graph-behavior-6.md#node-behavior--api-stats-cpu-ms) (`api.stats.cpuMs`, as in `behavior`): The page thread's work per frame (ms): the simulation's steps when it runs on the page, the frame's host work and the draw calls' submission.
 - [Stats gpu ms](graph-behavior-6.md#node-behavior--api-stats-gpu-ms) (`api.stats.gpuMs`, as in `behavior`): The GPU's time per frame (ms) from timestamp queries; null where the browser or GPU has none (not measured).
 - [Stats draw calls](graph-behavior-6.md#node-behavior--api-stats-draw-calls) (`api.stats.drawCalls`, as in `behavior`): Draw calls of the last frame.

@@ -215,7 +215,7 @@ A box that marks the surfaces inside it with a decal material (dirt, cracks, sta
 
 - Category: Rendering
 - Added: from "+ Add component" after picking `material` (the rest starts as `{"size":[1,1,1]}`)
-- On prefab objects: no
+- On prefab objects: yes
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

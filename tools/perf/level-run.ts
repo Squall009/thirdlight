@@ -63,6 +63,9 @@
  *   --painted N                  N placed props, then foliage copies, painted (props today a stand-in: an unread
  *                                4-byte stream); a kind the engine can't draw yet is refused, never measured as
  *                                something else (all default 0: the class as recorded; level-marks.ts)
+ *   --moving-decals N            with --decals: the first N projected decals move to and fro along their surface
+ *   --decal-spawns N             with --decals: a script spawns N decals a second on their ground spots (past the
+ *                                transient budget the oldest fade out)
  *   --renderers webgpu,webgl2    (default both)
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
@@ -311,8 +314,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           // Each missed refresh and the engine's marks in the 50 ms before it (a set made, a node build): what it waited on.
           if (flight && has('missed-marks')) for (const at of res.frames.missedAt ?? []) log(`level ${kind} ${r} missed at ${at} ms: ${(res.marks ?? []).filter((m) => m.at <= at && m.at >= at - 50).map((m) => `${m.name} ${JSON.stringify(m.detail)}`).join('; ') || 'no mark'}`);
           // Projected decals (--decals): drawn, the index, the draws that blended them, the index build.
-          const pd = res.scene.projectedDecals as { decals: number; drawn: number; cells: number; entries: number; dropped: number; buildMs: number; receiverDraws: number; dataBytes: number } | undefined;
-          if (pd !== undefined) log(`level ${kind} ${r} projected decals: ${pd.drawn}/${pd.decals} drawn, index ${pd.cells} cells ${pd.entries} entries (${pd.dropped} over the budget), built in ${pd.buildMs.toFixed(2)} ms, ${Math.round(pd.dataBytes / 1024)} KiB; ${pd.receiverDraws} draws a frame blended them`);
+          const pd = res.scene.projectedDecals as { decals: number; drawn: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates?: number; updateMs?: number; spawned?: number; fading?: number; receiverDraws: number; dataBytes: number } | undefined;
+          if (pd !== undefined) log(`level ${kind} ${r} projected decals: ${pd.drawn}/${pd.decals} drawn (${pd.spawned ?? 0} spawned, ${pd.fading ?? 0} fading), index ${pd.cells} cells ${pd.entries} entries (${pd.dropped} over the budget), ${pd.builds} whole builds (last ${pd.buildMs.toFixed(2)} ms), ${pd.updates ?? 0} frames changed in place (last ${(pd.updateMs ?? 0).toFixed(3)} ms), ${Math.round(pd.dataBytes / 1024)} KiB; ${pd.receiverDraws} draws a frame blended them`);
           // World streaming (a class that streams): what is resident against the budget, the deciding's main-thread time.
           const st = res.scene.streaming as { budgetBytes: number; residentBytes: number; peakResidentBytes: number; ringBytes: number; overBudget: boolean; ms: { mean: number; max: number }; kinds: Record<string, { resident: number; bytes: number; inRing: number; kept: number; evicted: number }> } | undefined;
           if (st !== undefined) {

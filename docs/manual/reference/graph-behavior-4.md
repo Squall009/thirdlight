@@ -468,6 +468,61 @@ Fields:
 | `target_type` | target type | enum | `"number"` | `number`, `string` |
 | `target` | target | string | `""` | ≤ 256 chars |
 
+<a id="graph-behavior--decals"></a>
+## Decals
+
+- Spawn decal (`api.decals.spawn`): Leave a projected decal (a bullet hole, a footprint, a scorch mark): the `decal` of prefab `prefabId` (its first object carrying one), centred on `position` (world metres) and facing out of the surface along `normal` (it projects back along it; absent: up), turned `angle` degrees about the normal, its box scaled by `scale`. With `entityId` it sticks to that object (`position` and `normal` in the o An empty entity means this object.
+- Remove decal (`api.decals.remove`): Fade spawned decals out now: a spawn's handle, or an object's id (every decal spawned on it).
+
+<a id="node-behavior--api-decals-spawn"></a>
+### Spawn decal (`api.decals.spawn`)
+
+Leave a projected decal (a bullet hole, a footprint, a scorch mark): the `decal` of prefab `prefabId` (its first object carrying one), centred on `position` (world metres) and facing out of the surface along `normal` (it projects back along it; absent: up), turned `angle` degrees about the normal, its box scaled by `scale`. With `entityId` it sticks to that object (`position` and `normal` in the o An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `prefabId` "prefab" (string)
+- `position` (vector)
+- `normal` (vector)
+- `angle` (number)
+- `scale` (number)
+- `lifetime` (number)
+- `entityId` "entity" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (number)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `prefabId` | prefab | string | `""` | ≤ 256 chars |
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-decals-remove"></a>
+### Remove decal (`api.decals.remove`)
+
+Fade spawned decals out now: a spawn's handle, or an object's id (every decal spawned on it).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `target` (number): type from field `target_type`
+
+Outputs:
+
+- `then` "" (exec): one wire
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `target_type` | target type | enum | `"number"` | `number`, `string` |
+| `target` | target | string | `""` | ≤ 256 chars |
+
 <a id="graph-behavior--save"></a>
 ## Save
 
@@ -1385,95 +1440,3 @@ Fields:
 | `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `z` | z | number | `0` | -1000000000 – 1000000000 |
 | `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
-
-<a id="node-behavior--api-grid-set-edge"></a>
-### Set edge (`api.grid.setEdge`)
-
-Put an edge piece on a side of a cell. False when refused (not an edge block type, outside the bounds, a rotation other than 0 or 180).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `block` (string)
-- `rot` (number)
-- `variant` (number)
-- `open` (boolean)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
-| `block` | block | string | `""` | ≤ 256 chars |
-| `open` | open | boolean | `false` |  |
-
-<a id="node-behavior--api-grid-clear-edge"></a>
-### Clear edge (`api.grid.clearEdge`)
-
-Remove the edge piece on a side of a cell. False when refused or none stands there.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
-
-<a id="node-behavior--api-grid-set-edge-open"></a>
-### Open edge (`api.grid.setEdgeOpen`)
-
-Open or close the edge piece on a side of a cell (a door): open, it blocks no passage and has no collider. False when none stands there or it already is.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `open` (boolean)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
-| `open` | open | boolean | `false` |  |

@@ -457,6 +457,8 @@ export interface PrefabComponentsV4Extra {
   blockFootprint?: EntityComponentsV3['blockFootprint'];
   /** A copy's behavior group. */
   behaviorGroup?: EntityComponentsV3['behaviorGroup'];
+  /** A decal the copy carries (or `ctx.decals.spawn` leaves). */
+  decal?: EntityComponentsV3['decal'];
   animator?: EntityComponentsV3['animator'];
   mover?: EntityComponentsV3['mover'];
   trigger?: EntityComponentsV3['trigger'];

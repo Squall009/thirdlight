@@ -138,6 +138,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       stopAll: rec('audio.stopAll', 0),
     },
     effects: { play: (...a: unknown[]) => { rec('effects.play')(...a); return 1; }, stop: rec('effects.stop') },
+    decals: { spawn: (...a: unknown[]) => { rec('decals.spawn')(...a); return 1; }, remove: rec('decals.remove') },
     save: { get: rec('save.get', 4), set: rec('save.set', true), remove: rec('save.remove'), keys: rec('save.keys', () => ['k']) },
     // Block layers.
     grid: {

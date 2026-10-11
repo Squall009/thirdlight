@@ -12,6 +12,13 @@
  * - `--clipped-decals N`: projectors like `--decals`, whose meshes are
  *   clipped onto what is under them.
  * - `--painted N`: placed props, then foliage copies, with a paint stream.
+ * - `--moving-decals N` (with `--decals`): the first N projected decals move
+ *   to and fro along their surface (a `mover`, 1 m at 0.5 m/s), so their
+ *   index cells change every frame.
+ * - `--decal-spawns N` (with `--decals`): a script spawns N decals a second
+ *   (`ctx.decals.spawn` of a prefab carrying the projected decals' decal) on
+ *   the projected decals' ground spots, round and round; past the transient
+ *   budget the oldest fade out, so a steady state of spawning and fading.
  *
  * The placements exist for every kind now, so each kind's measurement is the
  * same scene once its engine feature exists; what the engine can't draw yet
@@ -39,9 +46,12 @@ export interface LevelMarksOptions {
   meshDecals: number;
   clippedDecals: number;
   painted: number;
+  /** Of the projected decals, how many move; decals spawned a second. */
+  movingDecals: number;
+  decalSpawns: number;
 }
 
-export const NO_LEVEL_MARKS: Readonly<LevelMarksOptions> = Object.freeze({ decals: 0, meshDecals: 0, clippedDecals: 0, painted: 0 });
+export const NO_LEVEL_MARKS: Readonly<LevelMarksOptions> = Object.freeze({ decals: 0, meshDecals: 0, clippedDecals: 0, painted: 0, movingDecals: 0, decalSpawns: 0 });
 
 /** Each switch's flag and its option. */
 export const LEVEL_MARK_FLAGS: readonly (readonly [string, keyof LevelMarksOptions])[] = [
@@ -49,6 +59,8 @@ export const LEVEL_MARK_FLAGS: readonly (readonly [string, keyof LevelMarksOptio
   ['mesh-decals', 'meshDecals'],
   ['clipped-decals', 'clippedDecals'],
   ['painted', 'painted'],
+  ['moving-decals', 'movingDecals'],
+  ['decal-spawns', 'decalSpawns'],
 ];
 
 /** The switches from the command line's flags (`get` returns a flag's value); a count is a whole number ≥ 0. */
@@ -61,6 +73,8 @@ export function parseLevelMarks(get: (flag: string) => string | undefined): Leve
     if (v.trim() === '' || !Number.isInteger(n) || n < 0) throw new Error(`--${flag}: a whole number of marks (0 or more), not ${v}`);
     out[key] = n;
   }
+  if (out.movingDecals > out.decals) throw new Error(`--moving-decals: at most the --decals placed (${out.decals}), not ${out.movingDecals}`);
+  if (out.decalSpawns > 0 && out.decals === 0) throw new Error('--decal-spawns: spawns on the projected decals\' spots, so it needs --decals');
   return out;
 }
 
@@ -275,6 +289,41 @@ export function levelMarks(r: LevelMarkReceivers, o: LevelMarksOptions): LevelMa
   };
 }
 
+/** How far a moving decal goes along its surface (m) and how fast (m/s). */
+const MOVING_DECAL_TRAVEL = 1;
+const MOVING_DECAL_SPEED = 0.5;
+/** The prefab whose decal the spawning script leaves, and the most spots it goes round. */
+export const MARK_SPAWN_PREFAB = 'level-mark';
+const SPAWN_SPOTS_MAX = 128;
+
+/** The spots spawned decals go on: the projected ground decals' centres and normals (their box's +Z). */
+export function spawnSpots(m: LevelMarks): { position: [number, number, number]; normal: [number, number, number] }[] {
+  return m.decals
+    .filter((d) => d.surface === 'ground')
+    .slice(0, SPAWN_SPOTS_MAX)
+    .map((d) => ({ position: d.position, normal: rotate(d.rotation, [0, 0, 1]).map(r6) as [number, number, number] }));
+}
+
+/** The spawning script: `perSecond` decals a second of fixed steps (`hz`), on the spots in turn, each turned and sized a little. */
+export function spawnScript(m: LevelMarks, perSecond: number, hz: number): string {
+  return [
+    `const SPOTS = ${JSON.stringify(spawnSpots(m))};`,
+    'export default {',
+    '  instantiate() { return { owed: 0, n: 0 }; },',
+    '  step(state: any, ctx: any) {',
+    "    if (ctx.phase !== 'intent') return;",
+    `    state.owed += ${perSecond / hz};`,
+    '    while (state.owed >= 1) {',
+    '      state.owed -= 1;',
+    '      const s = SPOTS[state.n % SPOTS.length];',
+    `      ctx.decals.spawn('${MARK_SPAWN_PREFAB}', { position: s.position, normal: s.normal, angle: (state.n * 47) % 360, scale: 0.6 + ((state.n * 13) % 7) / 10 });`,
+    '      state.n += 1;',
+    '    }',
+    '  },',
+    '};',
+  ].join('\n');
+}
+
 /** The suffix of a prop file's painted twin. */
 export const PAINTED_FILE_SUFFIX = '-painted';
 /** The mesh decals' quad file, its glTF material, the decal material that file maps it to and that material's image. */
@@ -285,15 +334,21 @@ export const MARK_DECAL_IMAGE = 'level-mark-stain';
 
 /** The marks' entities: the mesh decals, static (the decal material casts no shadow), and the projected decals' projectors. */
 export function markEntities(m: LevelMarks): EntityValue[] {
-  const projected = m.decals.map((d, i): EntityValue => ({
-    id: `projected-${i}`,
-    name: `Projected ${i + 1}`,
-    static: true,
-    components: {
-      transform: { position: [...d.position], rotation: d.rotation, scale: [1, 1, 1] },
-      decal: { size: [...d.size], material: MARK_DECAL_MATERIAL },
-    },
-  }));
+  const projected = m.decals.map((d, i): EntityValue => {
+    const moving = i < m.options.movingDecals;
+    // A moving decal goes 1 m along its surface (its box's X) and back.
+    const along = rotate(d.rotation, [MOVING_DECAL_TRAVEL, 0, 0]).map(r3) as [number, number, number];
+    return {
+      id: `projected-${i}`,
+      name: `Projected ${i + 1}`,
+      ...(moving ? {} : { static: true as const }),
+      components: {
+        transform: { position: [...d.position], rotation: d.rotation, scale: [1, 1, 1] },
+        decal: { size: [...d.size], material: MARK_DECAL_MATERIAL },
+        ...(moving ? { mover: { waypoints: [along], speed: MOVING_DECAL_SPEED, mode: 'pingpong' } } : {}),
+      },
+    };
+  });
   const quads = m.meshDecals.map((d, i): EntityValue => {
     const lift = rotate(d.rotation, [0, 0, MESH_DECAL_LIFT]);
     return {
@@ -322,6 +377,8 @@ export function markCounts(m: LevelMarks): Record<string, number> {
   const pairs = (list: LevelDecalPlacement[]): number => list.filter((d) => d.overlaps !== undefined).length;
   const c: Record<string, number> = {};
   if (m.decals.length > 0) Object.assign(c, { decals: m.decals.length, decalPairs: pairs(m.decals) });
+  if (m.options.movingDecals > 0) c['movingDecals'] = m.options.movingDecals;
+  if (m.options.decalSpawns > 0) c['decalSpawnsPerSecond'] = m.options.decalSpawns;
   if (m.meshDecals.length > 0) Object.assign(c, { meshDecals: m.meshDecals.length, meshDecalPairs: pairs(m.meshDecals) });
   if (m.clippedDecals.length > 0) Object.assign(c, { clippedDecals: m.clippedDecals.length, clippedDecalPairs: pairs(m.clippedDecals) });
   if (m.paintedProps.length > 0) c['paintedPropStandIns'] = m.paintedProps.length;
