@@ -2,10 +2,9 @@
  * Mesh decals: what a decal material builds, how the batcher and the static
  * merger take it, and what a scene without one still builds.
  *
- * The digests are the WGSL of every shader type's material (not a decal) as
- * the library built them before mesh decals existed (three r186). A scene
- * without decals must keep its programs; a change of three.js changes the
- * text: re-record them then (the failure prints the new ones).
+ * The digests (test-wgsl.ts) are the WGSL of every shader type's material
+ * (not a decal) as the library built them before mesh decals existed (three
+ * r186). A scene without decals must keep its programs.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -18,58 +17,15 @@ import { digestOf } from './material-graph';
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
 import { DECAL_POLYGON_OFFSET, decalDrawOf, decalRenderOrder, decalRenderOrderFor, installDecalDraw, markFileDecals, setDecalDepthMode } from './mesh-decals';
 import { MERGED_RENDER_ORDER, STATIC_KEY } from './static-merge';
-import { litScene, settle, wgslOf, wgslRenderer } from './test-wgsl';
-
-const TRIM = { size: [256, 256] as [number, number], texelDensity: 256, padding: 8, rows: [{ slot: 'a', top: 8, bottom: 120 }, { slot: 'b', top: 136, bottom: 248 }] };
-
-/** One material of every shader type that is not a decal (textured where the type takes textures). */
-const SHADER_MATERIALS: readonly MaterialDefLike[] = [
-  { materialId: 'standard', name: 'standard', shader: 'standard', params: {}, textures: {} },
-  { materialId: 'textured', name: 'textured', shader: 'standard', params: { color: '#c08040', roughness: 0.6 }, textures: { map: 'tex', normalMap: 'tex', ormMap: 'tex', emissiveMap: 'tex' } },
-  { materialId: 'blended', name: 'blended', shader: 'standard', params: { alphaMode: 'blend', opacity: 0.6 }, textures: {} },
-  { materialId: 'foliage', name: 'foliage', shader: 'foliage', params: {}, textures: { map: 'tex' } },
-  { materialId: 'kit', name: 'kit', shader: 'kit', params: {}, textures: { map: 'tex', normalMap: 'tex' } },
-  { materialId: 'water', name: 'water', shader: 'water', params: {}, textures: { normalMap: 'tex' } },
-  { materialId: 'unlit', name: 'unlit', shader: 'unlit', params: {}, textures: { map: 'tex' } },
-  { materialId: 'trim', name: 'trim', shader: 'trim', params: {}, textures: { map: 'tex', normalMap: 'tex', ormMap: 'tex' }, trim: TRIM },
-];
-
-/** Recorded before mesh decals existed (three r186). */
-const BEFORE: Record<string, string> = {
-  standard: '2cc544a08f2da47b',
-  textured: '39c822174bd5badf',
-  blended: '4df9b83631a1f83c',
-  foliage: '3062ba15d8ae7ab1',
-  kit: '83a0897a5b6be10d',
-  water: '588fd2ffeda77232',
-  unlit: '6c19ec5d6d3f2a86',
-  trim: 'f247953ef4436cd6',
-};
-
-function texture(): THREE.Texture {
-  const t = new THREE.DataTexture(new Uint8Array([200, 120, 60, 255]), 1, 1);
-  t.needsUpdate = true;
-  return t;
-}
+import { libraryScene, litScene, settle, SHADER_TYPE_MATERIALS, TEST_TRIM, SHADER_TYPE_WGSL, testTexture, wgslOf, wgslRenderer } from './test-wgsl';
 
 describe('a scene without decals keeps its programs', () => {
   it('the WGSL of every other shader type is what it was', async () => {
-    const tex = texture();
-    const library = createMaterialLibrary({ loadTexture: async () => tex });
-    library.setMaterials(SHADER_MATERIALS);
-    const scene = litScene();
-    const meshes: Record<string, THREE.Mesh> = {};
-    for (const d of SHADER_MATERIALS) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial());
-      scene.add(m);
-      library.apply(m, { '*': d.materialId });
-      meshes[d.materialId] = m;
-    }
-    await settle();
+    const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS);
     const renderer = wgslRenderer();
     const now: Record<string, string> = {};
     for (const [id, m] of Object.entries(meshes)) now[id] = digestOf(wgslOf(renderer, scene, m));
-    expect(now).toEqual(BEFORE);
+    expect(now).toEqual(SHADER_TYPE_WGSL);
   });
 });
 
@@ -89,7 +45,7 @@ const DECALS: readonly MaterialDefLike[] = [
 ];
 
 async function decalScene(defs: readonly MaterialDefLike[]): Promise<{ scene: THREE.Scene; meshes: Record<string, THREE.Mesh> }> {
-  const arrays: Record<string, THREE.Texture> = { 'decals-albedo': pageArray(2), 'decals-normal': pageArray(1), 'decals-orm': pageArray(2), tex: texture() };
+  const arrays: Record<string, THREE.Texture> = { 'decals-albedo': pageArray(2), 'decals-normal': pageArray(1), 'decals-orm': pageArray(2), tex: testTexture() };
   const library = createMaterialLibrary({ loadTexture: async (id) => arrays[id] ?? null });
   library.setMaterials(defs);
   const scene = litScene();
@@ -173,7 +129,7 @@ describe('a decal material', () => {
 
   it('without pages it reads its own textures or its sheet cell (the Scene view), inside the cell and its gutter', async () => {
     // One row up top; the cell below it in its own band, with the sheet's 8 px gutter round it.
-    const sheet = { ...TRIM, rows: [{ slot: 'a', top: 8, bottom: 56 }], cells: [{ name: 'crack', rect: [16, 128, 64, 64] as [number, number, number, number] }] };
+    const sheet = { ...TEST_TRIM, rows: [{ slot: 'a', top: 8, bottom: 56 }], cells: [{ name: 'crack', rect: [16, 128, 64, 64] as [number, number, number, number] }] };
     const defs: MaterialDefLike[] = [
       { materialId: 'trim', name: 'trim', shader: 'trim', params: {}, textures: { map: 'tex', normalMap: 'tex', ormMap: 'tex' }, trim: sheet },
       { materialId: 'cell', name: 'cell', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'trim', cell: 'crack' } },

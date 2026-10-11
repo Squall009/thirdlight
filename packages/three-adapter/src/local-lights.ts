@@ -122,7 +122,7 @@ type LitFlags = { lights?: boolean; isNodeMaterial?: boolean; isMeshBasicNodeMat
  * lit node material, or a plain lit material three converts to one (a model
  * file's own). Basic materials take only lightmaps.
  */
-function isLit(material: THREE.Material): boolean {
+export function isLit(material: THREE.Material): boolean {
   const m = material as THREE.Material & LitFlags;
   if (m.isNodeMaterial === true) return m.lights === true && m.isMeshBasicNodeMaterial !== true;
   return m.isMeshStandardMaterial === true || m.isMeshLambertMaterial === true || m.isMeshPhongMaterial === true || m.isMeshToonMaterial === true;
@@ -134,7 +134,7 @@ function isLit(material: THREE.Material): boolean {
  * has none of its own, so its key spells them out — two variants of equal
  * materials then share a program, as the materials do.
  */
-function materialValuesKey(m: THREE.Material): string {
+export function materialValuesKey(m: THREE.Material): string {
   let key = '';
   for (const property of Object.keys(m)) {
     if (/^(is[A-Z]|_)|^(visible|version|uuid|name|opacity|userData)$/.test(property)) continue;

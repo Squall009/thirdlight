@@ -15,10 +15,11 @@
  *
  * The placements exist for every kind now, so each kind's measurement is the
  * same scene once its engine feature exists; what the engine can't draw yet
- * is refused at build time (`MARKS_NOT_BUILT`) rather than measured as
+ * is refused at build time (`marksNotBuilt`) rather than measured as
  * something it isn't. Mesh decals are the engine's: quads wearing one decal
  * material with a stain image, laid a few millimetres over the surface
- * (static, so they merge into the static cells). Painted props have a
+ * (static, so they merge into the static cells). Projected decals are the
+ * engine's too: static projector entities with the same decal material. Painted props have a
  * stand-in that is drawn today, named as such in the log and the report:
  * their files with a 4-byte `COLOR_0` stream no material reads (the paint's
  * memory and vertex layout, not its look).
@@ -282,9 +283,18 @@ export const MARK_QUAD_MATERIAL = 'mark';
 export const MARK_DECAL_MATERIAL = 'mat-level-mark';
 export const MARK_DECAL_IMAGE = 'level-mark-stain';
 
-/** The marks' entities drawn today: the mesh decals, static (the decal material casts no shadow). */
+/** The marks' entities: the mesh decals, static (the decal material casts no shadow), and the projected decals' projectors. */
 export function markEntities(m: LevelMarks): EntityValue[] {
-  return m.meshDecals.map((d, i) => {
+  const projected = m.decals.map((d, i): EntityValue => ({
+    id: `projected-${i}`,
+    name: `Projected ${i + 1}`,
+    static: true,
+    components: {
+      transform: { position: [...d.position], rotation: d.rotation, scale: [1, 1, 1] },
+      decal: { size: [...d.size], material: MARK_DECAL_MATERIAL },
+    },
+  }));
+  const quads = m.meshDecals.map((d, i): EntityValue => {
     const lift = rotate(d.rotation, [0, 0, MESH_DECAL_LIFT]);
     return {
       id: `mark-${i}`,
@@ -296,12 +306,12 @@ export function markEntities(m: LevelMarks): EntityValue[] {
       },
     };
   });
+  return [...quads, ...projected];
 }
 
 /** Why a requested kind is refused (null: it can be built): the engine part it waits for. */
 export function marksNotBuilt(m: LevelMarks): string | null {
   const missing: string[] = [];
-  if (m.decals.length > 0) missing.push('--decals: projected decals need the decal component and its drawing (not built yet)');
   if (m.clippedDecals.length > 0) missing.push('--clipped-decals: clipped decals need the decal component and the clipper (not built yet)');
   if (m.paintedCopies.length > 0) missing.push(`--painted: past the ${m.paintedProps.length} props, painting instance copies needs the per-copy paint stream (not built yet)`);
   return missing.length === 0 ? null : missing.join('; ');

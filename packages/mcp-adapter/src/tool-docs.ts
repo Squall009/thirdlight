@@ -30,6 +30,7 @@ import {
   AMBIENT_OCCLUSION_KINDS,
   AUDIO_VOICE_CAP,
   AUDIO_VOICES_DEFAULT,
+  DECAL_CELL_BUDGET,
   EROSION_MAX_SAMPLES,
   INSTANCE_DENSITY_END_DEFAULT,
   INSTANCE_DENSITY_MIN_DEFAULT,
@@ -241,7 +242,9 @@ export const TOOL_DETAILS = {
     'a graph material is a decal when its output\'s decal field is blend|multiply|add (decalSortOrder orders it). ' +
     'Decals: a decal component {size [w,h,d] m (projects along the object\'s -Z), material (a decal material), mode?: projected|clipped, opacity? {albedo?, normal?, roughness?, metalness?, occlusion?, emission?} 0-1, ' +
     'normalFade? deg, edgeFade? [front, back], fadeDistance? m, sortOrder?, layers? (decal layer mask)}; box, model, instances, blockLayer, terrain, spline and architecture take decalLayers? (mask; absent: every layer, none on a skinned model). ' +
-    'Mesh decals draw; the decal component (projected and clipped) is data so far: nothing draws it yet (see docs/manual/features/decals.md). ' +
+    'A projected decal (the default mode) is blended into the lit surfaces inside its box before they are lit, channel by channel (a channel its material has no image or value for is left alone): ' +
+    `blocks, terrain, props, generated architecture, splines, instance copies alike. At most ${DECAL_CELL_BUDGET} overlap at any spot (past it the lowest sortOrder drops). ` +
+    'Clipped decals are data so far: nothing draws them yet (see docs/manual/features/decals.md). ' +
     'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
     'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +
     `A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to ${MAX_MATERIAL_INSTANCE_DEPTH}): it draws as its parent with ` +

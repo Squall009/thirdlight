@@ -18,42 +18,13 @@ import * as TSL from 'three/tsl';
 
 import { buildGraphMaterial, compileMaterialGraph, digestOf, graphNeedsPhysical, type GraphCompileEnv, type MaterialGraphLike } from './material-graph';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { litScene, settle, wgslOf, wgslRenderer } from './test-wgsl';
+import { graphDef, GRAPH_ENV, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, settle, wgslOf, wgslRenderer } from './test-wgsl';
 
 const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });
 const e = (id: string, from: string, fp: string, to: string, tp: string) => ({ id, from: { node: from, port: fp }, to: { node: to, port: tp } });
-
-/** Graphs that connect no specular port: every other PBR slot, the surface flags, and the other outputs. */
-const GRAPHS: Record<string, MaterialGraphLike> = {
-  plain: { nodes: [n('out', 'pbr')], edges: [] },
-  tinted: {
-    nodes: [n('out', 'pbr', { castShadows: false }), n('p', 'parameter', { key: 'tint' }), n('s', 'sampleTexture', { texture: 'tex' })],
-    edges: [e('a', 'p', 'value', 'out', 'baseColor'), e('b', 's', 'r', 'out', 'roughness'), e('c', 's', 'g', 'out', 'metalness')],
-  },
-  everySlot: {
-    nodes: [n('out', 'pbr', { doubleSided: true, transparent: true }), n('s', 'sampleTexture', { texture: 'tex' }), n('nm', 'normalMap', { texture: 'tex' }), n('f', 'fresnel'), n('k', 'float', { value: 0.5 })],
-    edges: [e('a', 's', 'rgb', 'out', 'baseColor'), e('b', 'nm', 'normal', 'out', 'normal'), e('c', 'f', 'out', 'out', 'emissive'), e('d', 's', 'r', 'out', 'ao'), e('f', 's', 'a', 'out', 'opacity'), e('g', 'k', 'value', 'out', 'alphaClip')],
-  },
-  unlit: { nodes: [n('out', 'unlit'), n('c', 'color', { color: '#ff8000' })], edges: [e('a', 'c', 'rgb', 'out', 'color')] },
-  customLit: { nodes: [n('out', 'customLit'), n('d', 'diffuseLight')], edges: [e('a', 'd', 'total', 'out', 'color')] },
-};
-const ENV: GraphCompileEnv = {
-  globals: { time: TSL.uniform(0), windDir: TSL.uniform(new THREE.Vector2(1, 0)), strength: TSL.uniform(1), gust: TSL.uniform(0), gustFreq: TSL.uniform(0), turb: TSL.uniform(0), wetness: TSL.uniform(0) },
-  texture: () => null,
-  fn: () => null,
-};
-const PARAMETERS: MaterialDefLike['parameters'] = [{ key: 'tint', type: 'color', default: '#ff0000' }];
-
-/** Recorded before the specular ports existed (three r186). */
-const BEFORE: Record<string, string> = {
-  plain: 'c4870c84c910e8e4',
-  tinted: '2a9c50218bd57d29',
-  everySlot: '8d625f13e5af0475',
-  unlit: 'c2f4be09abc549e7',
-  customLit: 'b565c0183be022b0',
-};
-
-const graphDef = (materialId: string, graph: MaterialGraphLike): MaterialDefLike => ({ materialId, name: materialId, shader: 'standard', params: {}, textures: {}, graph, parameters: PARAMETERS });
+const GRAPHS = PLAIN_GRAPHS;
+const BEFORE = PLAIN_GRAPH_WGSL;
+const ENV = GRAPH_ENV;
 
 async function compiledScene(graphs: Record<string, MaterialGraphLike>): Promise<{ renderer: WebGPURenderer; scene: THREE.Scene; meshes: Record<string, THREE.Mesh> }> {
   const tex = new THREE.DataTexture(new Uint8Array([200, 120, 60, 255]), 1, 1);

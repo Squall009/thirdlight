@@ -28,6 +28,7 @@ change to the hook (or its removal, if three now does the job itself).
 | `probe-lighting.ts` `ProbeOrderedLightsNode` | extends `LightsNode`; overrides `setupLights(builder, nodes)`, `customCacheKey()`, `static type = 'LightsNode'`; replaces `renderer.lighting.createNode`; reads `builder.context.irradiance` | Orders the light nodes so the probe light replaces the ambient light, and splits local lights per vertex / per pixel. |
 | `node-materials.ts` `withoutLights` | instance `material.setupLighting`, `customProgramCacheKey`, `builder.lightsNode`, `renderer.lighting.createNode` | Materials drawn without the scene's lights. |
 | `local-lights.ts`, `effect-lights.ts` | `builder.lightsNode.getLights()`, `builder.material`, `builder.context.{ irradiance, lightingModel, reflectedLight, positionView }` | Per-vertex local lights; the effect light pool. |
+| `projected-decals.ts` (projected decals) | `NodeMaterial.prototype.setupDiffuseColor`, `setupAmbientOcclusion`, `setupNormal`, `setupLighting` and `MeshStandardNodeMaterial.prototype.setupVariants` / `setupSpecular` (patched once on the prototypes, in r186's call order: diffuse colour → AO → variants → lighting, normal lazily through `builder.context.setupNormal`); the TSL property nodes `diffuseColor`, `metalness`, `roughness`, `ambientOcclusion`, `diffuseContribution` and `builder.context.ambientOcclusion`; `renderer.renderObject` (wrapped: a draw a decal reaches wears an `Object.create` variant of its material with its own `_listeners` and `customProgramCacheKey`); `texture().load`, `.depth()`, `.grad()`; a bound texture node's swap rebinding on WebGL 2 only for a new `version` | The decal blend before lighting, for the draws a decal can reach only. A scene without projected decals must build the same WGSL (`projected-decals.test.ts` and `mesh-decals.test.ts` digests). If three changes what `setupVariants` derives from the metalness (specular colour, diffuse contribution) the hook must derive it again the same way. Not guarded. |
 | `dispose.ts` | `_objects._renderObjects`, `_attributes`, `_geometries._geometryDisposeListeners`, the WebGL backend's `_createVao` / `_getVaoKey` / `vaoCache`, `renderer._textures`, `_pipelines._releasePipeline` / `_releaseProgram` with `backend.gl` / `backend.get`, `_renderContexts._renderContexts` | r186 leaks: VAOs never deleted, texture dispose listeners kept, WebGL 2 programs and shaders never deleted, MRT contexts kept, a shared geometry's dispose refusing later submits. Each fix may be obsolete in a newer three (check the notes for these leaks first). `installProgramRelease` and `installBuildReuse` wrap the same two release methods: the program release must be installed first. |
 | `adapter.ts` diagnostics | `ro._nodeBuilderState` over `_objects._renderObjects` | Counts distinct node programs (r186's `info.memory` has none). |
 | `effects-gpu.ts` | `renderer._attributes.delete` | Frees compute-only storage buffers. |
@@ -67,6 +68,9 @@ These hooks are only proven by pixels:
   `block-lightmaps.e2e.ts`, `effect-light-pool.e2e.ts`.
 - Materials and AO: `tests/e2e/material-graph-render.e2e.ts` (every node
   kind drawn), `material-custom-lit.e2e.ts`.
+- Projected decals: the decal reads in `tests/e2e/layered-material.e2e.ts`
+  (terrain, blocks, props, a generated wall, normal only, a layer mask;
+  Scene view, Play and the export).
 - The village perf check (`tools/gate.sh fast` ends with it) against its
   baseline, both renderers.
 - WGSL digests: `packages/three-adapter/src/material-graph-specular.test.ts`

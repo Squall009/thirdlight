@@ -799,10 +799,12 @@ async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string
     const assetId = `${f.assetId}${PAINTED_FILE_SUFFIX}`;
     if (painted.has(assetId)) await publishFileVia(be, projectId, cmd, { assetId, kind: 'model', displayName: assetId, bytes: propGlb(f.seed, f.spec, true) });
   }
-  if (m.meshDecals.length > 0) {
-    // Mesh decals: one decal material (a stain image on the build's decal pages) over a quad.
+  if (m.meshDecals.length > 0 || m.decals.length > 0) {
+    // One decal material (a stain image on the build's decal pages): mesh decals wear it over a quad, projected ones mark with it.
     await publishFileVia(be, projectId, cmd, { assetId: MARK_DECAL_IMAGE, kind: 'texture', displayName: 'Level mark stain', bytes: markStainPng(plan.seed, 256) });
     await cmd('setMaterial', { material: { materialId: MARK_DECAL_MATERIAL, name: 'Level mark', shader: 'decal', params: { color: '#c8b8a8', roughness: 0.9 }, textures: { map: MARK_DECAL_IMAGE } } });
+  }
+  if (m.meshDecals.length > 0) {
     await publishFileVia(be, projectId, cmd, { assetId: MARK_QUAD, kind: 'model', displayName: 'Level mark quad', bytes: quadGlb(MARK_QUAD_MATERIAL) });
     await cmd('setAssetOptions', { assetId: MARK_QUAD, materials: { [MARK_QUAD_MATERIAL]: MARK_DECAL_MATERIAL } });
   }

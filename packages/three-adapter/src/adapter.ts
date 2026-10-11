@@ -27,6 +27,7 @@
  */
 import type { MaterialFunctionLike } from './material-graph';
 import { createDecalPages } from './decal-pages';
+import { createDecalProjectors, type ProjectedDecalLike } from './decal-projectors';
 import { setDecalDepthMode } from './mesh-decals';
 import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
@@ -168,7 +169,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
   // The decal pages the loaded decals' materials name, held per decal and uploaded as they arrive.
   const decalPages = materialLibrary?.decalPageOf !== undefined && opts.materials !== undefined ? createDecalPages({ holds: textureHolds(resources, opts.materials.loadTexture), pageOf: (id) => materialLibrary.decalPageOf!(id), onChange: () => opts.onChange?.() }) : null;
-  materialLibrary?.onDefinitions?.(() => decalPages?.refresh());
+  // The projected decals the loaded decal entities lay over every lit surface (off: `projectedDecals: false`).
+  const projectors = materialLibrary?.projectedDecal !== undefined && opts.projectedDecals !== false ? createDecalProjectors({ scene, materialOf: (holder, id) => materialLibrary.projectedDecal!(holder, id), onChange: () => opts.onChange?.() }) : null;
+  materialLibrary?.onDefinitions?.(() => {
+    decalPages?.refresh();
+    projectors?.refresh();
+  });
   const materialUndo = new Map<string, () => void>();
   /** The material swaps the running game made, put on once their materials have loaded (created with the scene below). */
   let materialSwaps: MaterialSwapView | null = null;
@@ -574,6 +580,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     decalPages?.set(e.id, (e.components as { decal?: { material?: string } }).decal?.material ?? null);
+    projectors?.set(e.id, graph.nodeFor(e.id)!, (e.components as { decal?: ProjectedDecalLike }).decal ?? null);
     const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
@@ -609,6 +616,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
     decalPages?.remove(id);
+    projectors?.remove(id);
     // Its light (a directional or ambient light hangs off the scene; one on the node goes with it).
     lights.release(id);
     // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).
@@ -1396,6 +1404,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const o = decalPages.observe();
       canvasLike.setAttribute('data-tl-decal-pages', `${o.pages}|${o.layers}|${o.bytes}|${o.onGpu}`);
     }
+    // The projected decals' table and index follow their decals (moved, added, their images arrived).
+    projectors?.beforeFrame(renderer as never);
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;
@@ -1628,6 +1638,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     const decalState = decalPages !== null && !disposed ? decalPages.observe() : null;
     if (decalState !== null && decalState.decals > 0) d.decals = decalState;
+    const projected = projectors !== null && !disposed ? projectors.observe() : null;
+    if (projected !== null && projected.decals > 0) d.projectedDecals = projected;
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
     return {
@@ -1648,6 +1660,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     animatorPlayers.clear();
     lightmaps?.dispose();
     decalPages?.dispose();
+    projectors?.dispose();
     probes.dispose();
     runtimeMaterials?.dispose();
     materialSwaps?.dispose();

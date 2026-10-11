@@ -47,6 +47,8 @@ export interface SceneCounts {
   effectsMs: number | null;
   /** World streaming (three-adapter STREAMING_KEY on the scene; absent: a page that streams nothing): its diagnostics. */
   streaming?: unknown;
+  /** Projected decals (three-adapter PROJECTED_DECALS_KEY on the scene; absent: none): their diagnostics. */
+  projectedDecals?: unknown;
 }
 
 export interface GpuPassTiming {
@@ -214,6 +216,8 @@ export function probeSceneCounts(): SceneCounts {
     }
     const st = o.isScene === true ? (ud?.['tlStreaming'] as { diagnostics?: () => unknown } | undefined) : undefined;
     if (typeof st?.diagnostics === 'function') out.streaming = st.diagnostics();
+    const pd = o.isScene === true ? (ud?.['tlProjectedDecals'] as { diagnostics?: () => unknown } | undefined) : undefined;
+    if (typeof pd?.diagnostics === 'function') out.projectedDecals = pd.diagnostics();
     const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number } | undefined) : undefined;
     if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;

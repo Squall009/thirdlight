@@ -62,6 +62,7 @@ import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './att
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
 import { decalRenderOrder } from './mesh-decals';
+import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
@@ -106,6 +107,8 @@ export interface BatchKeyParts {
   readonly localLights: LocalLightMode | undefined;
   /** The room it is in (light-layers.ts; undefined: none): one draw is lit by one room's lights and hidden with its room. */
   readonly room: number | undefined;
+  /** Its decal layers when set (projected-decals.ts; undefined: the default): one draw has one mask. */
+  readonly decalLayers: number | undefined;
 }
 
 const DEFAULT_ON_BEFORE_RENDER = THREE.Object3D.prototype.onBeforeRender;
@@ -153,6 +156,7 @@ export function batchKeyParts(mesh: THREE.Mesh): BatchKeyParts | null {
     lightLayers: objectLightLayers(mesh),
     localLights: objectLocalLights(mesh),
     room: roomKeyOf(mesh),
+    decalLayers: mesh.userData[DECAL_LAYERS_KEY] as number | undefined,
   };
 }
 
@@ -177,7 +181,7 @@ const keyIdOf = (o: object): number => {
 
 /** The group key of a batchable mesh: geometry, material, shadow flags, light layers and (detailed geometry only) the world cell. */
 export function batchKey(parts: BatchKeyParts, worldPosition: readonly [number, number, number] | null, cellSize: number): string {
-  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}`;
+  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}`;
   const base = `${keyIdOf(parts.geometry)}|${keyIdOf(parts.material)}|${flags}`;
   if (worldPosition === null) return base;
   return `${base}|${Math.floor(worldPosition[0] / cellSize)},${Math.floor(worldPosition[1] / cellSize)},${Math.floor(worldPosition[2] / cellSize)}`;
@@ -624,6 +628,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (g.parts.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = g.parts.lightLayers;
       if (g.parts.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = g.parts.localLights;
       if (g.parts.room !== undefined) mesh.userData[ROOM_KEY] = g.parts.room;
+      if (g.parts.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = g.parts.decalLayers;
       mesh.userData['tlBatch'] = true;
       // A decal group draws in its decal order (its material's; mesh-decals.ts).
       mesh.renderOrder = decalRenderOrder(g.parts.material) ?? 0;

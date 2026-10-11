@@ -30,6 +30,7 @@ import { CUTAWAY_FADE_SECONDS, cutawayCuts, cutawayZones, type BlockLayerCompone
 
 import type { N } from './effects-tsl';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { DECAL_LAYERS_KEY } from './projected-decals';
 import { HIDDEN_BY_CUTAWAY, hideFromView, OFF_VIEW_LAYER } from './view-hidden';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -416,6 +417,8 @@ export class CutawayDrawing {
       copy.userData[CUTAWAY_COPY_KEY] = true;
       const ll = c.mesh.userData[LIGHT_LAYERS_KEY] as number | undefined;
       if (ll !== undefined) copy.userData[LIGHT_LAYERS_KEY] = ll;
+      const dl = c.mesh.userData[DECAL_LAYERS_KEY] as number | undefined;
+      if (dl !== undefined) copy.userData[DECAL_LAYERS_KEY] = dl;
       // Placed with its mesh (which never moves while it is built); it is a child only to ride along into the scene.
       copy.matrixAutoUpdate = false;
       copy.matrixWorldAutoUpdate = false;
@@ -492,6 +495,8 @@ export class CutawayDrawing {
     probe.matrixWorldAutoUpdate = false;
     const ll = mesh.userData[LIGHT_LAYERS_KEY] as number | undefined;
     if (ll !== undefined) probe.userData[LIGHT_LAYERS_KEY] = ll;
+    const dl = mesh.userData[DECAL_LAYERS_KEY] as number | undefined;
+    if (dl !== undefined) probe.userData[DECAL_LAYERS_KEY] = dl;
     this.deps.precompile(probe);
   }
 }

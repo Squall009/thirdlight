@@ -482,6 +482,11 @@ export {
   // A decal material's sheet cell where a view draws the sheet itself, and the decals' sort-order range (decal-pages.ts, decals.ts).
   decalSheetCellSampling,
   DECAL_LIMITS,
+  // Projected decals: the overlap budget a cell of the index keeps, decal layer masks (decals.ts).
+  DECAL_CELL_BUDGET,
+  DECAL_DEFAULTS,
+  DECAL_LAYERS_ALL,
+  decalLayersOf,
   WET_ALBEDO_SCALE,
   WET_ROUGHNESS,
   MAX_SOURCE_BYTES,

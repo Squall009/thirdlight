@@ -4,10 +4,10 @@
 > data — the decal component, decal layers, decal materials and the decal
 > cells of trim sheets save, reopen, travel through MCP and ship with an
 > export — the [decal pages](#decal-pages) (Play and the export put the
-> decal materials' images on texture arrays), and [mesh decals](#mesh-decals),
-> which draw. **The decal component does not draw yet**: projected and
-> clipped decals are drawn by the items that follow, and this page will say
-> so when they do. How-to: [Decals](../guides/decals.md).
+> decal materials' images on texture arrays), [mesh decals](#mesh-decals)
+> and [projected decals](#projected-decals), which draw. **Clipped decals do
+> not draw yet**, nor are decals spawned at run time; this page will say so
+> when they do. How-to: [Decals](../guides/decals.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
@@ -129,6 +129,83 @@ How it draws:
   pages (its own textures and sheet cell are not loaded there); the Scene
   view draws its own textures or the sheet's cell directly, in the same
   place and with the same safe mip level.
+
+## Projected decals
+
+A decal component in `projected` mode (the default) draws in the material
+of every surface inside its box: the surface blends the decal into its own
+albedo, normal, roughness, metalness, occlusion and emission **before it is
+lit**, so the mark takes the surface's light, shadows, probes and room, and
+a wet patch can change roughness alone. It works the same on WebGPU and
+WebGL 2, and on every lit surface: block layers, terrain, props (models,
+boxes), instance copies, generated architecture, splines and static merged
+cells. Unlit materials and mesh decals take none.
+
+How a pixel takes it:
+
+- **The box.** Only the part of a surface inside the box is marked. The
+  image is the box's XY face (+Y up); the mark is stretched along −Z, the
+  way the box projects.
+- **Channels.** Each channel blends by the image's alpha × the material's
+  opacity × the component's opacity for that channel × the fades. A channel
+  the material has no image for is left alone: a decal with only a colour
+  image keeps the surface's normal map, roughness and occlusion; one with
+  only a normal map (albedo opacity 0) bends the light and keeps the colour.
+  Roughness and metalness also blend when the material sets them as values.
+  Emission adds the material's `emissive` × `emissiveIntensity` where the
+  ORM image's emissive mask is set.
+- **Normals.** The decal's normal map is read in a frame made from the
+  surface's own facing and the box's X axis, and bends the surface's normal
+  (its own normal map stays under it).
+- **Fades.** `normalFade` against the surface's facing (a wall beside a
+  floor decal takes nothing at the default 90°), `edgeFade` near the box's
+  front and back, `fadeDistance` from the camera.
+- **Layers.** The decal's `layers` and the object's `decalLayers` must share
+  one (a per-object value: no extra shader per mask).
+- **Order.** Overlapping decals blend lowest `sortOrder` first, so the
+  higher one is on top.
+- **Mips.** Reads take their mip level from how the surface spreads on
+  screen, capped at the image's safe level on its page, so a far decal
+  never takes in its neighbours' pixels.
+
+**What it costs.**
+
+- Only objects whose bounds meet a decal's box (and share a decal layer
+  with it) draw with the decal steps; every other object keeps the shader it
+  had. A scene without projected decals builds exactly the shaders it built
+  before.
+- Decals are data: however many there are, in whatever sizes, places and
+  images, each material that receives them builds one more shader (two
+  materials alike share one). A shader is made only for the channels some
+  decal in the scene changes.
+- A pixel of a reached object finds its decals through a **world grid**: a
+  cell lists the decals reaching into it. A pixel under no decal reads one
+  value and goes on.
+- **The overlap budget:** a cell lists at most 16 decals (the
+  `DECAL_CELL_BUDGET` limit), so no pixel blends more than 16. Past it the
+  cell keeps the highest sort orders and drops the rest there; Play
+  diagnostics count the dropped entries (`renderer.projectedDecals.dropped`).
+  It is a cost per spot, not a cap: a level may hold any number of decals,
+  spread out.
+- The grid and the decal table are built when a decal is added, removed,
+  changed or moved, or its images arrive, never on a still frame.
+- Measured on this engine's test host (Iris Xe, 1080p, uncapped), 200
+  decals spread over a test level's ground, walls and props (they reach 226
+  of its 238 scene draws): the scene pass +0.8 ms GPU, the main thread
+  +0.5 ms (WebGPU) and +0.6–1.0 ms (WebGL 2) a frame, 2 more shaders; the
+  grid 320 KiB, built in 10–16 ms. Without projected decals: nothing.
+
+**Images.** Play and the export read the decal pages; the Scene view draws
+each decal material's own textures (or its sheet's cell) into a small page
+array of its own (512² a layer), so it shows what Play shows.
+
+**Diagnostics.** Play's `renderer.projectedDecals`: `decals` (loaded),
+`drawn`, `unplaced` (an image on a page array other than its set's: not
+drawn), the grid's `cells` and `entries`, `dropped` (over the overlap
+budget), `builds` and `buildMs` (the last build), `dataBytes` (table and
+grid), `viewPageBytes` (the Scene view's pages) and `receiverDraws` (draws in
+the last frame that blended decals). `?decals=off` on a Play or export URL
+draws without them, to see what they cost.
 
 ## Decal cells on trim sheets
 

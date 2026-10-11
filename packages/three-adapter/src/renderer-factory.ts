@@ -33,6 +33,7 @@ import { registerEffectLights } from './effect-lights';
 import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerProbeLighting } from './probe-lighting';
+import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
@@ -341,6 +342,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerLayeredLights(r);
     // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
     registerProbeLighting(r as never);
+    // And projected decals (each draw a decal can reach wears its material's decal variant).
+    registerProjectedDecals(r as never);
     // And the screen-space ambient occlusion, a light every lit material takes into its indirect light.
     registerScreenSpaceOcclusion(r as never);
     // And objects whose local lights are shaded per vertex or not at all (their material's mode variant per draw).

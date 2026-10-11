@@ -74,6 +74,16 @@ export const DECAL_LIMITS = {
 } as const;
 
 /**
+ * The overlap budget: the most projected decals one cell of the renderer's
+ * decal index lists, so the most a pixel loops over. Past it a cell keeps
+ * the highest sort orders (the marks drawn on top) and drops the rest. It is
+ * a cost per pixel, not a cap on decals in a project: a level may hold any
+ * number, spread out. Sixteen covers a dense spot (a doorway's scuffs, a
+ * pile of stains) with room left; a pixel under none pays one index read.
+ */
+export const DECAL_CELL_BUDGET = 16;
+
+/**
  * A new decal: a 1 m cube projected along −Z; faces turned more than 90°
  * from the projector get nothing (it fades out over the last fifth of the
  * angle); it fades over 30 % of the box depth at each end (Godot's upper

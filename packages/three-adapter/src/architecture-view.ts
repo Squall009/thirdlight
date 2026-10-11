@@ -56,6 +56,7 @@ import { splitByCutaway } from './block-cutaway-view';
 import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
 import type { LodTuning } from './lod-switch';
 import { ROOM_AT_KEY, ROOM_TAG_KEY } from './room-culling';
+import { DECAL_LAYERS_KEY, decalLayersField } from './projected-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
@@ -945,6 +946,8 @@ export class ArchitectureView {
     const lodDistance = rec.component.lodDistance ?? ARCHITECTURE_LOD_DISTANCE_DEFAULT;
     const cast = rec.component.castShadow !== false;
     const receive = rec.component.receiveShadow !== false;
+    // Its decal layers (projected-decals.ts; absent: every layer), on every mesh it makes.
+    const decalLayers = decalLayersField(rec.component.decalLayers);
     const group = new THREE.Group();
     group.name = `architecture:${id}:${ck}`;
     group.position.set(...rec.origin);
@@ -992,6 +995,7 @@ export class ArchitectureView {
         mesh.castShadow = cast;
         mesh.receiveShadow = receive;
         if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
+        if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
         return mesh;
       };
       /** A level: one mesh, or (in a layer's cut-away zones) the triangles in none and a mesh per set of zones. */
@@ -1038,6 +1042,7 @@ export class ArchitectureView {
           mesh.castShadow = cast;
           mesh.receiveShadow = receive;
           if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
+          if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
           if (part.at !== undefined) mesh.userData[ROOM_AT_KEY] = part.at;
         }
         const undress = this.deps.dress(built.group, s.model.assetId);

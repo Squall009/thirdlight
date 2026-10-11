@@ -21,6 +21,7 @@
  */
 import * as THREE from 'three';
 import { buildHasInstanceColumns, instanceOriginFromColumns } from './attribute-instancing';
+import { installProjectedDecalSteps } from './projected-decals';
 import { buffer, float, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
 import {
   MeshBasicNodeMaterial,
@@ -94,6 +95,8 @@ interface BuilderLightsLike {
  * share the program of an identical material that keeps them.
  */
 function withoutLights(material: THREE.Material, leaveOut: (l: THREE.Light) => boolean, key: string): void {
+  // The decal steps go on three's prototypes first, so this hook wraps them.
+  installProjectedDecalSteps();
   const m = material as THREE.Material & { setupLighting: (builder: NodeBuilder) => unknown };
   const base = m.setupLighting;
   const baseKey = m.customProgramCacheKey;

@@ -89,6 +89,7 @@ import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
+import { DECAL_LAYERS_KEY, decalLayersField } from './projected-decals';
 import { ROOM_TAG_KEY } from './room-culling';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
@@ -1186,6 +1187,9 @@ export class BlockLayerView {
       // The layer's light layers (light-layers.ts; absent: every layer).
       const lightLayers = lightLayerMaskOf(layer.component.lightLayers);
       if (lightLayers !== LIGHT_LAYERS_ALL) m.userData[LIGHT_LAYERS_KEY] = lightLayers;
+      // Its decal layers (projected-decals.ts; absent: every layer).
+      const decalLayers = decalLayersField(layer.component.decalLayers);
+      if (decalLayers !== undefined) m.userData[DECAL_LAYERS_KEY] = decalLayers;
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       if (level > 0) m.userData[COARSE_LEVEL] = level;

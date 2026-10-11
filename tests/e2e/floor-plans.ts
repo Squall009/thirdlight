@@ -35,6 +35,11 @@ type V3 = readonly [number, number, number];
 const LAYER_AT = [399, -1, -9] as const;
 /** The key that loads the plans scene (its camera looks down on the building). */
 export const PLANS_KEY = 'KeyN';
+/** The input actions this spec's scripts read: through the building's door, and to the plans scene. */
+export const PLANS_ACTIONS = [
+  { name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] },
+  { name: 'showPlans', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: PLANS_KEY }] },
+] as const;
 /** The camera over the building, looking straight down (its up is −z), and its lens. */
 export const PLANS_CAMERA = { at: [405, 14, -4] as V3, fovY: 50 } as const;
 
@@ -153,7 +158,7 @@ export async function makeFloorPlans(page: Page, cmd: Cmd, query: Query, publish
   await cmd('createScene', { sceneId: plansScene, name: 'Plans' });
   const down = Math.SQRT1_2;
   await cmd('createEntity', { sceneId: plansScene, parentId: null, kind: 'group', name: 'Plans camera', transform: { position: [...PLANS_CAMERA.at], rotation: [-down, 0, 0, down] }, components: { virtualCamera: { rig: 'fixed', priority: 20, blend: 'cut', fovY: PLANS_CAMERA.fovY, near: 0.5, far: 60 } } });
-  await cmd('setInput', { input: { actions: [{ name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] }, { name: 'showPlans', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: PLANS_KEY }] }] } });
+  await cmd('setInput', { input: { actions: [...PLANS_ACTIONS] } });
   await publish('show-plans', PLANS_SCRIPT(plansScene), roomsId);
   return { roomsId, plansScene, editor: { props: before.size, moved, pinnedKept } };
 }

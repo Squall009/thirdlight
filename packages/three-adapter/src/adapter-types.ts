@@ -3,6 +3,7 @@
  * the adapter surface itself (`createSceneAdapter` in adapter.ts builds it).
  */
 import type { DecalPagesObservation } from './decal-pages';
+import type { DecalProjectorsObservation } from './decal-projectors';
 import type * as THREE from 'three';
 import type { Runtime, RuntimeSnapshot, EnvironmentBlendView, ResourceManager } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from './material-graph';
@@ -218,6 +219,12 @@ export interface SceneAdapterOptions {
    */
   merging?: 'load' | 'background' | 'off';
   /**
+   * Projected decals (`decal` components in `projected` mode) laid over the
+   * lit surfaces under them (`decal-projectors.ts`; default true). False:
+   * none drawn (`?decals=off`: their cost, by comparison).
+   */
+  projectedDecals?: boolean;
+  /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;
    * default true). False: every caster drawn into one map every frame (tests
@@ -384,6 +391,8 @@ export interface SceneAdapterDiagnostics {
   probes?: ProbeGridsObservation;
   /** The decal pages the loaded decals hold (`decal-pages.ts`; present while a loaded decal has a place on them). */
   decals?: DecalPagesObservation;
+  /** The projected decals: loaded, drawn, the index's cells and entries, its last build (`decal-projectors.ts`); ABSENT without any. */
+  projectedDecals?: DecalProjectorsObservation;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then

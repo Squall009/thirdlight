@@ -4,10 +4,17 @@
 surfaces without new unique textures. The full description is in
 [Decals](../features/decals.md).
 
-What draws today is **mesh decals**: a flat mesh — a quad, or a strip that
-follows a curb or a wall's foot — laid on a surface and wearing a **decal
-material**. The decal component (projected and clipped decals) is saved and
-shipped but does not draw yet.
+Two kinds draw today:
+
+- **projected decals**: a decal component — a box that marks every surface
+  inside it (blocks, terrain, props, generated walls) channel by channel;
+  the quickest way to put a mark anywhere, and the only one that can change
+  just the roughness or just the normal;
+- **mesh decals**: a flat mesh — a quad, or a strip that follows a curb or
+  a wall's foot — laid on a surface and wearing a **decal material**.
+
+Both use a **decal material**. Clipped decals (the component's `clipped`
+mode) are saved and shipped but do not draw yet.
 
 ## Make a decal material
 
@@ -25,6 +32,38 @@ shipped but does not draw yet.
    - `add` — its lit colour is added (glow, light spill).
 4. Where two decals overlap, the one with the higher **sortOrder** draws on
    top (−1000 to 1000; decals always draw before water and effects).
+
+## Project it onto a surface
+
+1. Create an empty object where the mark goes and **+ Add component →
+   Decal**; pick the decal material.
+2. Turn the object so its −Z looks at the surface (for a floor: rotate it
+   −90° about X, the image's top then points along −Z). The box is
+   centred on the object: put the object on the surface, so the surface
+   lies in the middle of the box's depth (the edge fade is weakest there).
+3. Set **size**: the mark's width and height, and a depth a little more
+   than the bumps it must reach over (0.5–2 m on a floor).
+4. Choose what it changes with **Channel opacity**:
+   - a stain, a sign: the colour (the default: every channel its material
+     has an image for);
+   - a crack or a seam: a material with only a normal map, or albedo
+     opacity 0;
+   - a wet patch: a material with only a roughness value (or an ORM
+     image), every other channel at 0.
+5. Keep a mark off an object: give the decal a **layer** the object is not
+   in (the object's **Decal layers**). Characters (skinned models) take no
+   projected decal unless their decal layers are set.
+
+Overlapping decals blend lowest **sortOrder** first. A spot covered by more
+than 16 decals keeps the 16 highest sort orders (the overlap budget); spread
+dense marks out or merge them into one image.
+
+```json
+{ "op": "createEntity", "args": { "sceneId": "scene-main", "kind": "group", "name": "Puddle",
+  "transform": { "position": [4, 0, -2], "rotation": [-0.7071, 0, 0, 0.7071] },
+  "components": { "decal": { "size": [2, 1.5, 1], "material": "mat-puddle",
+    "opacity": { "albedo": 0.3, "normal": 0 } } } } }
+```
 
 ## Put it on a mesh
 
@@ -64,6 +103,11 @@ and copies of one mark mesh are drawn together however many there are.
 - In Play, decals that lie in a surface show whole at every distance; a
   mark that flickers is not on the surface (more than a few centimetres off
   it) or faces away from the camera.
+- A projected decal that does not show: is the surface inside the box
+  (its middle), facing the projector (within `normalFade`), in one of its
+  layers? Play diagnostics `renderer.projectedDecals` count the loaded and
+  drawn decals and the ones over the overlap budget; `?decals=off` on the
+  Play URL hides them all to compare.
 - Play diagnostics count the decal page arrays under `renderer.decals`
   when a decal component names a material; a mesh decal's material holds
   its pages itself (they count in `renderer.textures`).

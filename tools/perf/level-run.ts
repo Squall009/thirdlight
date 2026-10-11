@@ -310,6 +310,9 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           if (flight) log(`level ${kind} ${r} flight: ${res.frames.n} frames in ${Math.round(recordMs / 1000)} s, ${vsync ? `${res.frames.missed ?? 0} missed a 60 Hz refresh (vsync)` : `${res.frames.long ?? 0} over ${LONG_FRAME_MS} ms (uncapped)`}, longest ${res.frames.max ?? '-'} ms`);
           // Each missed refresh and the engine's marks in the 50 ms before it (a set made, a node build): what it waited on.
           if (flight && has('missed-marks')) for (const at of res.frames.missedAt ?? []) log(`level ${kind} ${r} missed at ${at} ms: ${(res.marks ?? []).filter((m) => m.at <= at && m.at >= at - 50).map((m) => `${m.name} ${JSON.stringify(m.detail)}`).join('; ') || 'no mark'}`);
+          // Projected decals (--decals): drawn, the index, the draws that blended them, the index build.
+          const pd = res.scene.projectedDecals as { decals: number; drawn: number; cells: number; entries: number; dropped: number; buildMs: number; receiverDraws: number; dataBytes: number } | undefined;
+          if (pd !== undefined) log(`level ${kind} ${r} projected decals: ${pd.drawn}/${pd.decals} drawn, index ${pd.cells} cells ${pd.entries} entries (${pd.dropped} over the budget), built in ${pd.buildMs.toFixed(2)} ms, ${Math.round(pd.dataBytes / 1024)} KiB; ${pd.receiverDraws} draws a frame blended them`);
           // World streaming (a class that streams): what is resident against the budget, the deciding's main-thread time.
           const st = res.scene.streaming as { budgetBytes: number; residentBytes: number; peakResidentBytes: number; ringBytes: number; overBudget: boolean; ms: { mean: number; max: number }; kinds: Record<string, { resident: number; bytes: number; inRing: number; kept: number; evicted: number }> } | undefined;
           if (st !== undefined) {

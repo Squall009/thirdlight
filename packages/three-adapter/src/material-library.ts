@@ -256,6 +256,13 @@ export interface MaterialLibrary {
   trimSheetOf?(materialId: string): TrimSheet | null;
   /** A decal material's place on the decal pages (null: no such material, or it has none). */
   decalPageOf?(materialId: string): DecalPageRefLike | null;
+  /**
+   * The decal material a projected decal draws with, held for `holder` (a
+   * decal entity) until it names another or none (null); its images and
+   * place are on it ({@link decalSourceOf}). Null: no such decal material.
+   * Call again after the definitions change (the material may be rebuilt).
+   */
+  projectedDecal?(holder: string, materialId: string | null): THREE.Material | null;
   /** Call `listener` after the definitions change (`setMaterials`); returns the unsubscribe. */
   onDefinitions?(listener: () => void): () => void;
   dispose(): void;
@@ -265,6 +272,21 @@ export interface MaterialLibrary {
 export const DEFAULT_WIND_LIKE: WindLike = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
 
 const SOURCE = '__tlSourceMaterial';
+
+/** `material.userData[DECAL_SOURCE_KEY]` on a built decal material: what a projected decal reads ({@link DecalSource}). */
+const DECAL_SOURCE_KEY = '__tlDecalSource';
+
+/** A decal material's images and their place, as they have arrived, and its parameters. */
+export interface DecalSource {
+  readonly images: DecalImages;
+  readonly place: DecalPlace;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
+/** The images, place and parameters of a built decal material (null: not one). */
+export function decalSourceOf(m: THREE.Material | null | undefined): DecalSource | null {
+  return (m?.userData?.[DECAL_SOURCE_KEY] as DecalSource | undefined) ?? null;
+}
 
 function num(v: unknown, d: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : d;
@@ -580,6 +602,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     }
     refresh = installDecalNodes(m, p, images, place, multiply);
     installDecalDraw(m, { blend, sortOrder: decalSortOrder(p['sortOrder']) });
+    // Projected decals read the same images and place (decal-projectors.ts): filled in as they arrive.
+    m.userData[DECAL_SOURCE_KEY] = { images, place, params: p } satisfies DecalSource;
     return m;
   }
 
@@ -980,6 +1004,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     return m;
   };
 
+  /** The built decal material each projected decal holds (its built key). */
+  const decalHolds = new Map<string, string>();
+
   /** Digests in use by applied meshes (the rest are dropped after a material change). */
   let usedDigests = new Set<string>();
 
@@ -1116,6 +1143,20 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       const d = defs.get(materialId);
       return d?.shader === 'decal' && d.decalPage !== undefined ? d.decalPage : null;
     },
+    projectedDecal(holder, materialId) {
+      const prev = decalHolds.get(holder);
+      const def = materialId === null ? undefined : defs.get(materialId);
+      const m = def?.shader === 'decal' && !disposed ? materialFor(def.materialId, null, false) : null;
+      const key = m === null ? undefined : builtKey(def!.materialId, null, false);
+      if (key !== prev) {
+        if (key !== undefined) {
+          builtRefs.set(key, (builtRefs.get(key) ?? 0) + 1);
+          decalHolds.set(holder, key);
+        } else decalHolds.delete(holder);
+        if (prev !== undefined) releaseKey(prev);
+      }
+      return m;
+    },
     onDefinitions(listener) {
       definitionListeners.add(listener);
       return () => void definitionListeners.delete(listener);
@@ -1208,6 +1249,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
       builtRefs.clear();
+      decalHolds.clear();
       for (const e of graphEntries.values()) {
         disposeEntry(e);
         holds.releaseHolder(graphHolder(e.digest));

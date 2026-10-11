@@ -37,7 +37,9 @@ describe('the level marks switches', () => {
     const base = plan();
     const p = plan({ ...NO_LEVEL_MARKS, decals: 200 });
     expect(JSON.stringify(plan({ ...NO_LEVEL_MARKS, decals: 200 }))).toBe(JSON.stringify(p));
-    expect(p.batches).toEqual(base.batches);
+    // The class's own entities as they were; the projectors come after them.
+    const own = p.batches.map((b) => b.filter((e) => !e.id.startsWith('projected-'))).filter((b) => b.length > 0);
+    expect(own).toEqual(base.batches);
     expect(p.blockEdits).toEqual(base.blockEdits);
     const d = p.marks!.decals;
     expect(d).toHaveLength(200);
@@ -60,8 +62,12 @@ describe('the level marks switches', () => {
         expect(Math.hypot(x.position[0] - f.position[0], x.position[1] - f.position[1], x.position[2] - f.position[2])).toBeLessThan(f.size[0]);
       }
     }
-    // Not built yet: refused, not measured as something else.
-    expect(marksNotBuilt(p.marks!)).toMatch(/--decals: projected decals need the decal component/);
+    // Drawn: each a static projector entity with the marks' decal material (projected, the default mode).
+    expect(marksNotBuilt(p.marks!)).toBeNull();
+    const projectors = p.batches.flat().filter((e) => e.id.startsWith('projected-'));
+    expect(projectors).toHaveLength(200);
+    expect(projectors[0]!.components['decal']).toEqual({ size: d[0]!.size, material: 'mat-level-mark' });
+    // Clipped decals are not built yet: refused, not measured as something else.
     expect(marksNotBuilt(plan({ ...NO_LEVEL_MARKS, clippedDecals: 10 }).marks!)).toMatch(/--clipped-decals/);
   });
 

@@ -43,6 +43,7 @@ import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { decalRenderOrder } from './mesh-decals';
+import { DECAL_LAYERS_KEY } from './projected-decals';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import { SphereSide, type CullView, type ViewCullable, type ViewCuller } from './view-cull';
 
@@ -233,6 +234,8 @@ interface Cell {
   readonly localLights: LocalLightMode | undefined;
   /** Their room (one merged draw is lit by one room's lights and hidden with it). */
   readonly room: number | undefined;
+  /** Their decal layers when set (one merged draw has one mask). */
+  readonly decalLayers: number | undefined;
   readonly slots: Set<Slot>;
   built: Built | null;
   /** Slots without vertices in the build, or too many dead ones. */
@@ -513,7 +516,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     const cell = `${Math.floor(e[12]! / s)},${Math.floor(e[13]! / s)},${Math.floor(e[14]! / s)}`;
     // A decal's sort order is part of the key: one draw has one place among the decals.
     const order = decalRenderOrder(parts.material);
-    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}|${cell}|${mergeLayout(mesh.geometry)}`;
+    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}|${cell}|${mergeLayout(mesh.geometry)}`;
   };
 
   const releaseBuilt = (b: Built): void => {
@@ -542,7 +545,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const cellFor = (key: string, parts: BatchKeyParts): Cell => {
     let cell = cells.get(key);
     if (cell !== undefined) return cell;
-    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
+    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, decalLayers: parts.decalLayers, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
     // A material disposed (its last wearer went) takes its cells with it; the objects are drawn alone again.
     const onDispose = (): void => {
       if (cells.get(key) !== c) return;
@@ -657,6 +660,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     if (cell.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = cell.lightLayers;
     if (cell.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = cell.localLights;
     if (cell.room !== undefined) mesh.userData[ROOM_KEY] = cell.room;
+    if (cell.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = cell.decalLayers;
     // Vertices are in world space: the identity, never recomposed.
     mesh.matrixAutoUpdate = false;
     mesh.matrixWorldAutoUpdate = false;

@@ -332,6 +332,9 @@ export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWo
 export { isProbeLighting, PROBES_URL_PARAM, probesFromUrl, ProbeLighting } from './probe-lighting';
 export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, probeWeight, type PackedProbeTile } from './probe-pack';
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
+// Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
+export { DECALS_URL_PARAM, decalsFromUrl } from './projected-decals';
+export type { DecalProjectorsObservation } from './decal-projectors';
 // Local lights per vertex: an object's or material's mode, a light's importance.
 export { applyObjectLightLayers } from './light-layers';
 export { LIGHT_IMPORTANCE_KEY, LOCAL_LIGHTS_KEY, VERTEX_LIGHTS_URL_PARAM, localLightVariantCount, vertexLightsFromUrl } from './local-lights';

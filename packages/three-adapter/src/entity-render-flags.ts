@@ -1,7 +1,8 @@
 /**
  * How an entity's drawables meet the lights: whether its box, model or
  * instance set casts and receives the key light's shadow, which light
- * layers it is in (light-layers.ts) and how its local lights are shaded
+ * layers it is in (light-layers.ts), which decal layers projected decals
+ * mark it in (projected-decals.ts) and how its local lights are shaded
  * (local-lights.ts). Set on every mesh under what the entity
  * shows, when it is realized and when a model or instance set arrives.
  */
@@ -9,6 +10,7 @@ import type * as THREE from 'three';
 
 import { applyObjectLightLayers, lightLayersOfComponents } from './light-layers';
 import { applyObjectLocalLights, localLightsOfComponents } from './local-lights';
+import { applyObjectDecalLayers, decalLayersOfComponents } from './projected-decals';
 import { MATERIAL_NO_SHADOW_KEY } from './material-library';
 
 /**
@@ -46,5 +48,6 @@ function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive:
 export function applyEntityRenderFlags(root: THREE.Object3D, components: unknown): boolean {
   applyShadowFlags(root, shadowFlagsOf(components));
   const layers = applyObjectLightLayers(root, lightLayersOfComponents(components));
-  return applyObjectLocalLights(root, localLightsOfComponents(components)) || layers;
+  const decalLayers = applyObjectDecalLayers(root, decalLayersOfComponents(components));
+  return applyObjectLocalLights(root, localLightsOfComponents(components)) || layers || decalLayers;
 }

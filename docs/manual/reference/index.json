@@ -496,6 +496,7 @@
 "limit.CONTROLLER_TUNING_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
 "limit.CREATE_ENTITIES_MAX": {"page":"limits-commands.md","section":"limits-commands--ops"},
 "limit.DATA_TYPE_DEFAULT": {"page":"limits-project-model-1.md","section":"limits-project-model--behavior-graph-nodes"},
+"limit.DECAL_CELL_BUDGET": {"page":"limits-project-model-1.md","section":"limits-project-model--decals"},
 "limit.DECAL_DEFAULTS": {"page":"limits-project-model-1.md","section":"limits-project-model--decals"},
 "limit.DECAL_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--decals"},
 "limit.DECAL_PAGE_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--decal-pages"},
