@@ -840,6 +840,8 @@ export * from './probe-grids';
 export * from './decals';
 // Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
 export * from './decal-pages';
+// The decal clipper: a clipped decal's mesh cut from its receivers' triangles inside its box.
+export * from './decal-clip';
 // Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,
