@@ -646,6 +646,13 @@ export class ArchitectureView {
     for (const [id, rec] of this.recs) this.settle(id, rec);
   }
 
+  /** Whether chunks are being made or wait to be drawn (queued, on a worker, read from the store, arriving, paint being read). */
+  making(): boolean {
+    if (this.queue.length > 0 || this.jobs.size > 0 || this.looking.size > 0 || this.ready.length > 0) return true;
+    for (const rec of this.recs.values()) if (rec.paint === 'pending') return true;
+    return false;
+  }
+
   diagnostics(): ArchitectureViewDiagnostics {
     let chunks = 0;
     let draws = 0;

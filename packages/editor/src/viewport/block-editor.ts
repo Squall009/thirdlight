@@ -73,6 +73,7 @@ import {
 } from '../session/block-brush';
 import { overlayColor } from '../session/block-overlay';
 import { RoomTool, type RoomToolCallbacks } from './room-tool';
+import { ringGeometry, ringLine } from './helper-shapes';
 
 /** What the panel sets (the tool, the brush and its options). */
 export interface BlockToolOptions {
@@ -195,7 +196,7 @@ export class BlockEditor {
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
   private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
-  private readonly ring: THREE.LineLoop;
+  private readonly ring: THREE.Line;
   /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
@@ -219,11 +220,7 @@ export class BlockEditor {
     this.ghost.renderOrder = 18;
     this.ghost.visible = false;
     // The terrain brush's footprint: a unit circle scaled to the radius, laid on the ground under the pointer.
-    const circle: number[] = [];
-    for (let i = 0; i < 48; i++) circle.push(Math.cos((i / 48) * Math.PI * 2), 0, Math.sin((i / 48) * Math.PI * 2));
-    const ringGeo = new THREE.BufferGeometry();
-    ringGeo.setAttribute('position', new THREE.Float32BufferAttribute(circle, 3));
-    this.ring = new THREE.LineLoop(ringGeo, new THREE.LineBasicMaterial({ color: HOVER_HIT, depthTest: false, transparent: true }));
+    this.ring = ringLine(ringGeometry('xz'), new THREE.LineBasicMaterial({ color: HOVER_HIT, depthTest: false, transparent: true }));
     this.ring.renderOrder = 20;
     this.ring.visible = false;
     this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox, this.ring);

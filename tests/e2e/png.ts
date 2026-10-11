@@ -101,3 +101,15 @@ export function litBands(img: Image, bands = 3, frac = 0.5, threshold = 40): num
   }
   return lit;
 }
+
+/** How many pixels changed by more than `min` (sum over RGB) between two same-sized pictures and, after the change, pass `test`. */
+export function changedPixels(before: Image, after: Image, test: (r: number, g: number, b: number) => boolean = () => true, min = 60): number {
+  let n = 0;
+  for (let y = 0; y < after.height; y++)
+    for (let x = 0; x < after.width; x++) {
+      const [r0, g0, b0] = before.pixel(x, y);
+      const [r1, g1, b1] = after.pixel(x, y);
+      if (Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0) > min && test(r1, g1, b1)) n += 1;
+    }
+  return n;
+}

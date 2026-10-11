@@ -19,6 +19,7 @@ import type { BlockChunk, BlockLayerComponent, BlockType, BrushBlockLayer, Brush
 import { BlockGrid, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers } from '@thirdlight/runtime';
 import { BATCHED_LAYER } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
+import { ringGeometry, ringLine } from './helper-shapes';
 
 export type InstanceBrushMode = 'paint' | 'erase';
 
@@ -57,7 +58,7 @@ export class InstanceBrushTool {
   private target: { entityId: string; mode: InstanceBrushMode; brush: InstanceBrush } | null = null;
   private stroke: { entityId: string; mode: InstanceBrushMode; brush: InstanceBrush; candidates: StrokeCandidates; last: THREE.Vector3 } | null = null;
   private readonly ray = new THREE.Raycaster();
-  private readonly ring: THREE.LineLoop;
+  private readonly ring: THREE.Line;
   private readonly marks = new THREE.Group();
   private readonly ringGeometry: THREE.BufferGeometry;
   private readonly ringMaterial = new THREE.LineBasicMaterial({ color: 0x7fe0a0, depthTest: false, transparent: true, opacity: 0.9 });
@@ -69,13 +70,10 @@ export class InstanceBrushTool {
     private readonly send: (entityId: string, stroke: InstanceStroke) => Promise<boolean>,
   ) {
     this.ray.layers.enable(BATCHED_LAYER);
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i < 48; i++) pts.push(new THREE.Vector3(Math.cos((i / 48) * Math.PI * 2), 0, Math.sin((i / 48) * Math.PI * 2)));
-    this.ringGeometry = new THREE.BufferGeometry().setFromPoints(pts);
-    this.ring = new THREE.LineLoop(this.ringGeometry, this.ringMaterial);
+    this.ringGeometry = ringGeometry('xz');
+    this.ring = ringLine(this.ringGeometry, this.ringMaterial);
     this.ring.renderOrder = 12;
     this.ring.visible = false;
-    this.ring.raycast = () => undefined;
     this.marks.renderOrder = 12;
     deps.scene.add(this.ring, this.marks);
   }
@@ -185,10 +183,9 @@ export class InstanceBrushTool {
       }
     }
     this.stroke!.last.copy(p);
-    const mark = new THREE.LineLoop(this.ringGeometry, this.ringMaterial);
+    const mark = ringLine(this.ringGeometry, this.ringMaterial);
     mark.position.set(p.x, p.y + 0.02, p.z);
     mark.scale.setScalar(s.brush.radius);
-    mark.raycast = () => undefined;
     this.marks.add(mark);
   }
 

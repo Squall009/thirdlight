@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { bakedDecalMaterialName, clipDecal, decalClipGlb } from '@thirdlight/runtime';
 
 import { BATCH_KEY, createAutoBatcher } from './batching';
-import { CLIPPED_DECAL_EMPTY_WAIT_MS, CLIPPED_DECAL_KEY, ClippedDecals, CLIPPED_DECAL_STORE_PREFIX, isDecalSurface, type ClippedDecalStore, type ClippedDecalWorkers } from './clipped-decals';
+import { CLIPPED_DECAL_EMPTY_WAIT_MS, CLIPPED_DECAL_KEY, CLIPPED_DECAL_SETTLE_MS, ClippedDecals, CLIPPED_DECAL_STORE_PREFIX, isDecalSurface, type ClippedDecalStore, type ClippedDecalWorkers } from './clipped-decals';
 import { answerDecalClipJob, type DecalClipJobRequest, type DecalClipReceiverData } from './decal-clip-worker';
 import { DECAL_FADE_ATTRIBUTE } from './decal-material';
 import { digestOf } from './material-graph';
@@ -51,7 +51,7 @@ interface Rig {
   decal(id: string, at: number[], decal: Record<string, unknown>, opts?: { rotation?: number[]; parent?: string; scope?: string | null }): void;
 }
 
-function rig(opts: { workers?: ClippedDecalWorkers | null; store?: ClippedDecalStore | null } = {}): Rig {
+function rig(opts: { workers?: ClippedDecalWorkers | null; store?: ClippedDecalStore | null; surfacesIn?: () => boolean } = {}): Rig {
   const scene = new THREE.Scene();
   const graph = new RenderGraph(scene, () => false);
   const materials = new Map<string, THREE.Material>([['mark', decalMaterial(2)]]);
@@ -67,6 +67,7 @@ function rig(opts: { workers?: ClippedDecalWorkers | null; store?: ClippedDecalS
     workers: opts.workers ?? null,
     store: opts.store ?? null,
     changed: () => undefined,
+    ...(opts.surfacesIn !== undefined ? { surfacesIn: opts.surfacesIn } : {}),
   });
   graph.onSurfaces(clipped);
   return {
@@ -161,6 +162,40 @@ describe('clipped decals', () => {
       r.frame();
       r.frame();
       expect(r.clipped.meshOf('preview')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('hold the start until drawn; nothing under one is final once the surfaces are in and quiet; ready before the first frame counts as before it', () => {
+    let surfacesIn = false;
+    const r = rig({ surfacesIn: () => surfacesIn });
+    // A level without clipped decals never waits.
+    expect(r.clipped.holdsStart()).toBe(false);
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      r.graph.listStatic(floor(8, 0));
+      r.decal('on', [0, 0, 0], {});
+      r.decal('off', [40, 0, 0], {});
+      r.frame();
+      r.frame();
+      expect(r.clipped.meshOf('on')).not.toBeNull();
+      // The second has nothing under it: the start waits while the surfaces may still be coming.
+      expect(r.clipped.holdsStart()).toBe(true);
+      vi.advanceTimersByTime(CLIPPED_DECAL_SETTLE_MS + 1);
+      r.frame();
+      expect(r.clipped.holdsStart()).toBe(true);
+      // The adapter has made every surface and none came for the settle time: final well before the 2 s wait.
+      surfacesIn = true;
+      r.frame();
+      expect(r.clipped.diagnostics()).toMatchObject({ decals: 2, drawn: 1, empty: 1, pending: 0, readyAfterFirstFrameMs: null, firstFrameAtMs: null });
+      expect(r.clipped.holdsStart()).toBe(false);
+      vi.advanceTimersByTime(100);
+      r.clipped.presented();
+      const d = r.clipped.diagnostics();
+      expect(d.readyAfterFirstFrameMs).toBeLessThanOrEqual(-100);
+      expect(d.readyFrames).toBe(0);
+      expect(d.readyMs).toBeLessThan(CLIPPED_DECAL_EMPTY_WAIT_MS);
     } finally {
       vi.useRealTimers();
     }

@@ -30,6 +30,7 @@ import { VERTEX_PAINT_BRUSH_LIMITS, paintPathDabs, paintVertexDabs, type PathGri
 
 import { DAB_STEP, paintVerticesArgs, pathTargetAt, roundDab, strokeBrush, type PaintTarget, type VertexPaintSettings } from '../session/vertex-paint-brush';
 import type { ProjectedEntity } from '../session/projection';
+import { ringGeometry, ringLine } from './helper-shapes';
 
 const RING_PAINT = 0x7fd0ff;
 const RING_ERASE = 0xff7a6a;
@@ -100,14 +101,10 @@ export class VertexPaintTool {
   private view: number | null = null;
 
   constructor(private readonly host: VertexPaintToolHost, private readonly cb: VertexPaintToolCallbacks) {
-    // A closed line strip, not a LineLoop: three's WebGPU renderer draws no line loops.
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 48; i++) pts.push(new THREE.Vector3(Math.cos((i / 48) * Math.PI * 2), Math.sin((i / 48) * Math.PI * 2), 0));
-    this.ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), this.ringMaterial);
+    this.ring = ringLine(ringGeometry('xy'), this.ringMaterial);
     this.ring.name = 'vertex-paint-ring';
     this.ring.renderOrder = 12;
     this.ring.visible = false;
-    this.ring.raycast = () => undefined;
     host.overlay.add(this.ring);
   }
 

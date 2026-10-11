@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { consoleErrors, refusedObjects } from './console-errors';
 import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -83,6 +84,8 @@ const ground = (x: number, z: number, rows = 4): V3 => [ORIGIN[0] + x, ORIGIN[1]
 test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels; one undo step each; the terrain survives a reload', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('terrain-brushes-e2e');
+  // The brush's ring is drawn while the pointer is over the terrain; three logs an error for any object it refuses.
+  const logged = consoleErrors(page);
   await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#7a6040' }], shape: 'full' } });
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [32, 16, 32] } } });
@@ -161,4 +164,5 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => (JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"triangles":0}') as { triangles: number }).triangles, { timeout: 30_000 }).toBe(meshBefore.triangles);
   expect(await chunks(layer)).toBe(hill);
+  expect(refusedObjects(logged)).toEqual([]);
 });

@@ -52,6 +52,11 @@ export const PAINT_COPY_ENTRY_BYTES = 8;
 export const PATH_PAINT_SIDES = ['left', 'right', 'top'] as const;
 export type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
 
+/**
+ * What one painted mesh and one path's paint grid may hold: a mesh's name, its vertices (as many as a model read
+ * decodes, so any mesh the engine draws can be painted), and a path grid's points along and across its path. Bounds of
+ * one record, not a cap on painted objects.
+ */
 export const VERTEX_PAINT_LIMITS = Object.freeze({
   /** Characters of a mesh's name (its node path and primitive). */
   meshKey: 512,

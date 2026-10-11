@@ -178,9 +178,26 @@ An export ships every paint blob the scenes name (`content/sha256/…`, each
 of the size its record says), beside the instance buffers; Play serves them
 the same way.
 
-## Limits
+## Limits and budgets
 
-No cap on painted objects or meshes. A mesh's blob is 4 bytes a vertex (an
-instance set's pool: that times its slots); a path grid's size follows the
-painted length and height. The brush's bounds are in the
-[limits reference](../reference/limits-project-model-2.md#limits-project-model--vertex-paint-stroke).
+No cap on painted objects or meshes; each number below links its constant
+in the generated reference, which holds this build's value.
+
+- **Memory:** a mesh's blob is 4 bytes a vertex (an instance set's pool:
+  that times its slots, and 8 bytes a painted copy in its table); a path
+  grid's size follows the painted length and height (a point every 0.25 m).
+- **One painted mesh** has at most 4,000,000 vertices, one path grid at
+  most 400,000 points along its path
+  ([`VERTEX_PAINT_LIMITS`](../reference/limits-project-model-2.md#limit-vertex-paint-limits)).
+- **One stroke** (one `paintVertices`) carries at most 256 dabs, a radius
+  of 0.01–64 m ([`VERTEX_PAINT_BRUSH_LIMITS`](../reference/limits-project-model-2.md#limit-vertex-paint-brush-limits));
+  a longer drag goes on as the next stroke.
+- **Drawing:** painted copies stay in their instanced draw and a painted
+  static object stays in its merged cell; what paint costs to draw is in
+  [Drawing it](#drawing-it).
+
+Best practice: paint where a material reads it (a `paintTint` standard
+material, the trim shader's grime and wetness, a graph's **Vertex colour
+(paint)**, height-blend weights); generated walls have a vertex about every
+metre along, so paint on them is soft — use a [decal](decals.md) for a sharp
+mark.

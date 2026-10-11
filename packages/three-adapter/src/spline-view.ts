@@ -261,6 +261,12 @@ export class SplineView {
     this.deps.shapeChanged();
   }
 
+  /** Whether a spline is still being read or waits for its paint before it is drawn (its meshes are not in yet). */
+  making(): boolean {
+    for (const r of this.splines.values()) if (r.paint === 'pending' || r.reading !== null) return true;
+    return false;
+  }
+
   diagnostics(): SplineViewDiagnostics {
     let pieces = 0;
     let triangles = 0;

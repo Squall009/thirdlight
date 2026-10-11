@@ -23,6 +23,7 @@ import { isDecalMark } from '@thirdlight/three-adapter';
 
 import { decalPlaceCommand, decalPlacement, turnAboutNormal, type DecalToolSettings } from '../session/decal-place';
 import type { ProjectedEntity } from '../session/projection';
+import { ringGeometry, ringLine } from './helper-shapes';
 
 /** The preview's object id: never a stored id (a NUL lead, as the generators' own objects have). */
 export const DECAL_PREVIEW_ID = '\u0000decal-tool-preview';
@@ -125,7 +126,7 @@ export class DecalTool {
   private press: { x: number; y: number } | null = null;
   private readonly ray = new THREE.Raycaster();
   private readonly group = new THREE.Group();
-  private readonly ring: THREE.LineLoop;
+  private readonly ring: THREE.Line;
   private readonly knob: THREE.Mesh;
   private readonly corner: THREE.Mesh;
   private placed = 0;
@@ -133,10 +134,8 @@ export class DecalTool {
   private readonly gripWorld = { turn: new THREE.Vector3(), size: new THREE.Vector3() };
 
   constructor(private readonly host: DecalToolHost, private readonly cb: DecalToolCallbacks) {
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i < 64; i++) pts.push(new THREE.Vector3(Math.cos((i / 64) * Math.PI * 2), Math.sin((i / 64) * Math.PI * 2), 0));
     const lineMat = new THREE.LineBasicMaterial({ color: RING_COLOR, depthTest: false, transparent: true });
-    this.ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), lineMat);
+    this.ring = ringLine(ringGeometry('xy', 64), lineMat);
     const gripMat = new THREE.MeshBasicMaterial({ color: RING_COLOR, depthTest: false, transparent: true });
     this.knob = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), gripMat);
     this.corner = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.6), gripMat);

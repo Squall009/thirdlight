@@ -35,6 +35,7 @@
  * fades out.
  */
 import { multiPieceGlb } from './multi-piece-glb';
+import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { expect, type Locator, type Page } from './pw';
 import { frameOn } from './rooms-drawing';
@@ -465,6 +466,11 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   });
   await undo();
   await expect.poll(async () => (await entity(projected))!.components.decal!.size, { message: 'the scale undone' }).toEqual([1.2, 1, 0.5]);
+  // The selected decal's ring (read against the picture once it is deselected, at the end).
+  await page.mouse.move(box.x + 20, box.y + box.height - 20);
+  await page.waitForTimeout(250);
+  const withRing = decodePng((await shot()).png);
+  const ringAt = await Promise.all(Array.from({ length: 24 }, (_, i) => (i / 24) * Math.PI * 2).map(async (t) => (await sceneViewProjector(view))([TOOL_AT[0] + r * Math.cos(t), TOOL_AT[1], TOOL_AT[2] + r * Math.sin(t)])));
 
   // Stamps: Shift+click twice; each a decal of its own with a seeded turn and a size between 0.75 and 1.25 of the tool's.
   const stamps: string[] = [];
@@ -519,6 +525,26 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await selectOther();
   await greenAt(TOOL_READS[0]!, 'the placed projected decal');
   await greenAt(TOOL_READS[1]!, 'the placed clipped decal');
+  const ringSeen = ringOn(withRing, decodePng((await shot()).png), ringAt);
+  expect(ringSeen, `the decal ring drawn (${what}): ${ringSeen} of ${ringAt.length} points`).toBeGreaterThanOrEqual(16);
   console.log(`decal tool ${what}: projected preview drawn ${previewMs} ms after the pointer came; clipped preview cut ${clippedMs} ms after`);
   return { projected, clipped };
+}
+
+/** How many of the ring's points show its yellow (changed from the picture without it) within 3 px. */
+function ringOn(withRing: Image, without: Image, points: readonly ({ x: number; y: number } | null)[]): number {
+  let seen = 0;
+  for (const p of points) {
+    if (p === null) continue;
+    let hit = false;
+    for (let y = Math.round(p.y) - 3; y <= Math.round(p.y) + 3 && !hit; y++)
+      for (let x = Math.round(p.x) - 3; x <= Math.round(p.x) + 3 && !hit; x++) {
+        if (x < 0 || y < 0 || x >= withRing.width || y >= withRing.height) continue;
+        const [r1, g1, b1] = withRing.pixel(x, y);
+        const [r0, g0, b0] = without.pixel(x, y);
+        hit = Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0) > 60 && r1 > b1 + 60 && g1 > b1 + 30;
+      }
+    if (hit) seen += 1;
+  }
+  return seen;
 }

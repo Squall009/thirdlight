@@ -97,7 +97,10 @@ import { makePng } from '../../tests/e2e/png-make';
 /** The corner shading `--vertex-ao` gives the layer. */
 const LEVEL_VERTEX_AO = 0.6;
 
-type ClippedDiag = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null; readyAfterFirstFrameMs: number | null };
+type ClippedDiag = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null; readyAfterFirstFrameMs: number | null; firstFrameAtMs?: number | null };
+
+/** When all clipped decals were drawn against the first frame presented (negative: before it, the start's present waited). */
+const afterFirst = (ms: number | null | undefined): string => (ms === null || ms === undefined ? '- ms after the first frame' : ms <= 0 ? `${(-ms).toFixed(0)} ms before the first frame` : `${ms.toFixed(0)} ms after the first frame`);
 
 /** The clipped decals of an export loaded, then loaded again in the same browser profile: what each visit clipped or found, and when all were drawn. */
 async function clippedReload(browser: import('@playwright/test').Browser, url: string): Promise<string> {
@@ -114,7 +117,7 @@ async function clippedReload(browser: import('@playwright/test').Browser, url: s
     }
     return c;
   };
-  const fmt = (c: ClippedDiag | null): string => (c === null ? '-' : `${c.drawn}/${c.decals} drawn, ready ${c.readyMs?.toFixed(0) ?? '-'} ms (${c.readyAfterFirstFrameMs?.toFixed(0) ?? '-'} ms after the first frame), made ${JSON.stringify(c.made)}`);
+  const fmt = (c: ClippedDiag | null): string => (c === null ? '-' : `${c.drawn}/${c.decals} drawn, ready ${c.readyMs?.toFixed(0) ?? '-'} ms (${afterFirst(c.readyAfterFirstFrameMs)}; first frame ${c.firstFrameAtMs?.toFixed(0) ?? '-'} ms into the page), made ${JSON.stringify(c.made)}`);
   try {
     await page.goto(uncappedUrl(url));
     const first = await visit();
@@ -350,7 +353,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           if (pd !== undefined) log(`level ${kind} ${r} projected decals: ${pd.drawn}/${pd.decals} drawn (${pd.spawned ?? 0} spawned, ${pd.fading ?? 0} fading), index ${pd.cells} cells ${pd.entries} entries (${pd.dropped} over the budget), ${pd.builds} whole builds (last ${pd.buildMs.toFixed(2)} ms), ${pd.updates ?? 0} frames changed in place (last ${(pd.updateMs ?? 0).toFixed(3)} ms), ${Math.round(pd.dataBytes / 1024)} KiB; ${pd.receiverDraws} draws a frame blended them`);
           // Clipped decals (--clipped-decals): drawn, how long until all were, where their meshes came from, a clip's cost.
           const cd = res.scene.clippedDecals as { decals: number; drawn: number; empty: number; pending: number; triangles: number; surfaces: number; made: Record<string, number>; workerMs: { mean: number; max: number }; pageMs: { mean: number; max: number }; readyMs: number | null; readyAfterFirstFrameMs: number | null; readyFrames: number | null; cacheBytes: number } | undefined;
-          if (cd !== undefined) log(`level ${kind} ${r} clipped decals: ${cd.drawn}/${cd.decals} drawn (${cd.empty} on nothing, ${cd.pending} pending), ${cd.triangles} triangles, ready ${cd.readyMs === null ? '-' : cd.readyMs.toFixed(0)} ms after the first was set (${cd.readyAfterFirstFrameMs === null ? '-' : cd.readyAfterFirstFrameMs.toFixed(0)} ms, ${cd.readyFrames ?? '-'} frames after the first frame); made ${JSON.stringify(cd.made)}; a clip on a worker ${cd.workerMs.mean.toFixed(2)} ms (most ${cd.workerMs.max.toFixed(2)}), on the page ${cd.pageMs.mean.toFixed(2)} ms; ${cd.surfaces} surfaces, cache ${Math.round(cd.cacheBytes / 1024)} KiB`);
+          if (cd !== undefined) log(`level ${kind} ${r} clipped decals: ${cd.drawn}/${cd.decals} drawn (${cd.empty} on nothing, ${cd.pending} pending), ${cd.triangles} triangles, ready ${cd.readyMs === null ? '-' : cd.readyMs.toFixed(0)} ms after the first was set (${afterFirst(cd.readyAfterFirstFrameMs)}, ${cd.readyFrames ?? '-'} frames presented); made ${JSON.stringify(cd.made)}; a clip on a worker ${cd.workerMs.mean.toFixed(2)} ms (most ${cd.workerMs.max.toFixed(2)}), on the page ${cd.pageMs.mean.toFixed(2)} ms; ${cd.surfaces} surfaces, cache ${Math.round(cd.cacheBytes / 1024)} KiB`);
           // A second visit (the same browser profile): the clipped decals' meshes come from the player's IndexedDB.
           if (cd !== undefined) log(`level ${kind} ${r} clipped decals, ${await clippedReload(browser, `${site.url}?renderer=${r}${query}`)}`);
           // World streaming (a class that streams): what is resident against the budget, the deciding's main-thread time.

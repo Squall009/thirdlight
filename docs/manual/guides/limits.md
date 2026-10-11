@@ -44,6 +44,14 @@ holds this build's value.
   reference). A budget is never a refusal: the least needed detail is
   dropped first, and a ring that alone needs more is reported once in
   Problems.
+- **Cost budgets of decals.** A spot of a level blends at most 16
+  projected decals ([`DECAL_CELL_BUDGET`](../reference/limits-project-model-1.md#limit-decal-cell-budget));
+  scripts' spawned marks keep the newest 256
+  ([`DECAL_TRANSIENT_BUDGET`](../reference/limits-project-model-1.md#limit-decal-transient-budget)).
+  Neither caps decals in a project; vertex paint has none (4 bytes a painted
+  vertex). Which decal to use where, and what each costs:
+  [Decals](../features/decals.md#limits-and-budgets),
+  [Vertex paint](../features/vertex-paint.md#limits-and-budgets).
 
 Every limit and default of this build, generated from the engine's source:
 [the limits reference](../reference/limits.md#limits-index). Each with its

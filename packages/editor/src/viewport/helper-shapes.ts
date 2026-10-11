@@ -47,3 +47,29 @@ export function lightGizmo(e: ProjectedEntity): THREE.LineSegments {
   lines.userData = { lightKind: l.type };
   return lines;
 }
+
+/**
+ * A unit circle as a closed line strip (its first point repeated at the end), in the XY plane
+ * (a ring facing +Z) or the XZ plane (a ring lying on the ground). Every tool ring is drawn from
+ * this: three's renderer refuses `LineLoop` on both backends (it logs an error each frame and
+ * draws nothing), so a loop must be a `Line` that closes itself.
+ */
+export function ringGeometry(plane: 'xy' | 'xz', segments = 48): THREE.BufferGeometry {
+  const pos = new Float32Array((segments + 1) * 3);
+  for (let i = 0; i <= segments; i++) {
+    const t = ((i % segments) / segments) * Math.PI * 2;
+    pos[i * 3] = Math.cos(t);
+    if (plane === 'xy') pos[i * 3 + 1] = Math.sin(t);
+    else pos[i * 3 + 2] = Math.sin(t);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  return g;
+}
+
+/** A tool ring: a closed `Line` over `ringGeometry` that never takes a click. */
+export function ringLine(geometry: THREE.BufferGeometry, material: THREE.LineBasicMaterial): THREE.Line {
+  const line = new THREE.Line(geometry, material);
+  line.raycast = () => undefined;
+  return line;
+}

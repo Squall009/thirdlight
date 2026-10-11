@@ -117,6 +117,7 @@ import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
+import { consoleErrors, refusedObjects } from './console-errors';
 import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
@@ -253,6 +254,7 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
   be = await startBackend(`layered-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const logged = consoleErrors(page);
 
   // The normal map (tilted toward the image's top), a grey albedo with a mid height, and the ORM (rough, not metal).
   await publishTexture(be, new Uint8Array(makePng(16, 16, () => [128, 204, 230, 255])), 'tilt', 'Tilt');
@@ -364,6 +366,7 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
 
   await trimSheetChecks(page, variant);
   expect(errors).toEqual([]);
+  expect(refusedObjects(logged), 'no object three refuses to draw').toEqual([]);
 });
 
 /** The trim patches in Play: the material's six (four rows, then floor with vertex grime, floor with vertex wetness), the standard material's four. */

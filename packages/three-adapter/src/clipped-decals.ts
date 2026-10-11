@@ -66,7 +66,8 @@ export const CLIPPED_DECAL_WORKER_BYTES = 64 * 1024 * 1024;
 export const CLIPPED_DECAL_SETTLE_MS = 250;
 /**
  * How long after a decal is set an empty result (no surface under it) is not yet taken as its last word (ms):
- * a level's models and chunks arrive over its first second or two.
+ * a level's models and chunks arrive over its first second or two. It ends sooner once the adapter says every
+ * surface it was making is made (`surfacesIn`) and none came or went for {@link CLIPPED_DECAL_SETTLE_MS}.
  */
 export const CLIPPED_DECAL_EMPTY_WAIT_MS = 2000;
 /** Clips the page makes itself in a frame when there are no workers (ms; at least one). */
@@ -107,6 +108,8 @@ export interface ClippedDecalsDeps {
   store?: ClippedDecalStore | null;
   /** Something new to draw. */
   changed(): void;
+  /** Every surface the adapter was making is made (models settled, no block chunk or generated mesh in flight). */
+  surfacesIn?(): boolean;
 }
 
 /** What the clipped decals hold and cost (diagnostics `renderer.clippedDecals`). */
@@ -124,10 +127,15 @@ export interface ClippedDecalsDiagnostics {
   /** Clip time per decal (ms) on the workers and the page: mean and worst. */
   readonly workerMs: { mean: number; max: number };
   readonly pageMs: { mean: number; max: number };
-  /** From the first decal set to all of them drawn, the last time they all were (ms; null: not yet), and from the page's first frame (ms, frames). */
+  /**
+   * From the first decal set to all of them drawn, the last time they all were (ms; null: not yet), and from the
+   * first frame presented (ms, frames presented; negative ms and 0 frames: ready before the first frame, which the
+   * start's present waits for). `firstFrameAtMs`: when that frame was presented (`performance.now()`).
+   */
   readonly readyMs: number | null;
   readonly readyAfterFirstFrameMs: number | null;
   readonly readyFrames: number | null;
+  readonly firstFrameAtMs: number | null;
   readonly cacheBytes: number;
   readonly problems: string[];
 }
@@ -361,10 +369,15 @@ export class ClippedDecals implements SurfaceListener {
   private frameNo = 0;
   private firstSet: number | null = null;
   private readyMs: number | null = null;
-  /** When the first frame was drawn, and the frames and time from it to all decals drawn (the last time they all were). */
+  /** When all were last drawn (`performance.now()`). */
+  private readyAt: number | null = null;
+  /** When the first frame was presented, frames presented since, and the frames and time from it to all decals drawn (the last time they all were). */
   private firstFrameAt: number | null = null;
+  private presentedFrames = 0;
   private readyFrames: number | null = null;
   private readyAfterFirstFrameMs: number | null = null;
+  /** When a surface last came or went (an empty result waits for them to stop). */
+  private lastSurfaceAt = 0;
   private wasReady = false;
   private workersGone = false;
   private disposed = false;
@@ -433,11 +446,13 @@ export class ClippedDecals implements SurfaceListener {
     if (known !== undefined) known.gone = false;
     else this.surfaces.set(o, { mesh: o as THREE.Mesh, box: null, gone: false });
     this.touched.add(o);
+    this.lastSurfaceAt = performance.now();
   }
 
   removed(o: THREE.Object3D): void {
     const s = this.surfaces.get(o);
     if (s === undefined) return;
+    this.lastSurfaceAt = performance.now();
     // With no decal to tell, it just goes.
     if (this.decals.size === 0) {
       this.surfaceGrid.remove(s);
@@ -458,7 +473,6 @@ export class ClippedDecals implements SurfaceListener {
     if (this.disposed) return;
     this.frameNo += 1;
     const now = performance.now();
-    this.firstFrameAt ??= now;
     // Surfaces are placed only once a decal could be told (a level without clipped decals pays nothing more).
     if (this.touched.size > 0 && this.decals.size > 0) {
       for (const o of this.touched) {
@@ -493,7 +507,7 @@ export class ClippedDecals implements SurfaceListener {
     if (this.emptyWait.size > 0) {
       for (const rec of this.emptyWait) {
         if (!this.decals.has(rec.id) || rec.key !== '') this.emptyWait.delete(rec);
-        else if (this.noWait.has(rec.id) || now - rec.since >= CLIPPED_DECAL_EMPTY_WAIT_MS) {
+        else if (this.emptyIsFinal(rec, now)) {
           this.emptyWait.delete(rec);
           this.show(rec, null, '', 'page');
         }
@@ -522,6 +536,26 @@ export class ClippedDecals implements SurfaceListener {
     if (this.decals.has(entityId)) this.placedIds.add(entityId);
   }
 
+  /**
+   * Whether the start's first present waits for the clipped decals: some are loaded and not all drawn yet (being
+   * clipped, or waiting for the surfaces under them). A level without clipped decals never waits.
+   */
+  holdsStart(): boolean {
+    return !this.disposed && this.decals.size > 0 && this.pendingCount() > 0;
+  }
+
+  /** A frame was presented (the first one starts the clock their readiness is measured from). */
+  presented(): void {
+    this.presentedFrames += 1;
+    if (this.firstFrameAt !== null) return;
+    const now = performance.now();
+    this.firstFrameAt = now;
+    if (this.readyAt !== null && this.wasReady) {
+      this.readyAfterFirstFrameMs = this.readyAt - now;
+      this.readyFrames = 0;
+    }
+  }
+
   diagnostics(): ClippedDecalsDiagnostics {
     let drawn = 0;
     let empty = 0;
@@ -546,6 +580,7 @@ export class ClippedDecals implements SurfaceListener {
       readyMs: this.readyMs,
       readyAfterFirstFrameMs: this.readyAfterFirstFrameMs,
       readyFrames: this.readyFrames,
+      firstFrameAtMs: this.firstFrameAt,
       cacheBytes: this.cacheBytes,
       problems: [...this.problems],
     };
@@ -567,13 +602,21 @@ export class ClippedDecals implements SurfaceListener {
     return n;
   }
 
+  /** Whether nothing under the decal is its last word: at once for a preview, else once the surfaces stopped coming. */
+  private emptyIsFinal(rec: DecalRec, now: number): boolean {
+    if (this.noWait.has(rec.id) || now - rec.since >= CLIPPED_DECAL_EMPTY_WAIT_MS) return true;
+    return this.deps.surfacesIn?.() === true && now - this.lastSurfaceAt >= CLIPPED_DECAL_SETTLE_MS;
+  }
+
   private settle(now: number): void {
     const ready = this.decals.size > 0 && this.pendingCount() === 0;
     if (ready && !this.wasReady && this.firstSet !== null) {
       this.readyMs = now - this.firstSet;
-      this.readyFrames = this.frameNo;
+      this.readyAt = now;
+      // Before the first present: counted then (as a time before it).
+      this.readyFrames = this.firstFrameAt === null ? null : this.presentedFrames;
       this.readyAfterFirstFrameMs = this.firstFrameAt === null ? null : now - this.firstFrameAt;
-      perfMark(CLIPPED_DECALS_READY_MARK, { ms: this.readyMs, frames: this.frameNo, afterFirstFrameMs: this.readyAfterFirstFrameMs, decals: this.decals.size });
+      perfMark(CLIPPED_DECALS_READY_MARK, { ms: this.readyMs, frames: this.presentedFrames, afterFirstFrameMs: this.readyAfterFirstFrameMs, decals: this.decals.size });
     }
     this.wasReady = ready;
   }
@@ -642,7 +685,7 @@ export class ClippedDecals implements SurfaceListener {
     if (key === '') {
       // Nothing under it yet, so soon after it was set: the level's surfaces may still be arriving (a model
       // loading, a chunk being meshed). It counts as settled only once the wait is over with still nothing there.
-      if (!this.noWait.has(rec.id) && performance.now() - rec.since < CLIPPED_DECAL_EMPTY_WAIT_MS) {
+      if (!this.emptyIsFinal(rec, performance.now())) {
         this.dropMesh(rec);
         rec.shown = null;
         this.emptyWait.add(rec);
@@ -756,6 +799,9 @@ export class ClippedDecals implements SurfaceListener {
     this.jobs.delete(m.job);
     if (m.ok) {
       this.arrived(j.job.key, m.mesh, 'worker', m.ms);
+      // The worker takes its next clip now, not at the next frame: a level's thousand clips would otherwise go at
+      // the frame rate times the jobs a worker may hold, seconds for what takes the workers a fraction of one.
+      this.dispatch();
       this.deps.changed();
       return;
     }

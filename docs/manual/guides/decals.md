@@ -86,8 +86,11 @@ By hand, or to set what the tool does not:
    projected decal unless their decal layers are set.
 
 Overlapping decals blend lowest **sortOrder** first. A spot covered by more
-than 16 decals keeps the 16 highest sort orders (the overlap budget); spread
-dense marks out or merge them into one image.
+than 16 decals
+([`DECAL_CELL_BUDGET`](../reference/limits-project-model-1.md#limit-decal-cell-budget),
+the overlap budget) keeps the highest sort orders; spread dense marks out or
+merge them into one image. Which kind suits which mark:
+[Which decal for which mark](../features/decals.md#which-decal-for-which-mark).
 
 ```json
 { "op": "createEntity", "args": { "sceneId": "scene-main", "kind": "group", "name": "Puddle",
@@ -145,7 +148,9 @@ Bullet holes, footprints and scorch marks come and go while the game runs:
    Pass `entityId` (with `position` and `normal` in that object's space) to
    stick the mark to an object that moves; `scale` sizes it, `lifetime`
    (seconds) fades it out by itself.
-3. Let the budget clean up: past 256 spawned marks the oldest fade out, so
+3. Let the budget clean up: past 256 spawned marks
+   ([`DECAL_TRANSIENT_BUDGET`](../reference/limits-project-model-1.md#limit-decal-transient-budget))
+   the oldest fade out, so
    a script never has to count them. `ctx.decals.remove(handle)` fades one
    out sooner.
 

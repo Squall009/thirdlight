@@ -37,12 +37,14 @@ import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test, type Locator, type Page } from './pw';
+import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
-import { decodePng, type Image } from './png';
+import { consoleErrors, refusedObjects } from './console-errors';
+import { changedPixels, decodePng, type Image } from './png';
 import { inspector } from './ui';
+import { fit, frame, paintDrag, paintState, select, sceneProjector, setPaint, strokeDone, view, type PaintState, type Projector } from './vertex-paint-drive';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -124,7 +126,6 @@ async function setState(set: string): Promise<{ buffer: string; count: number; c
   return { ...inst, copies };
 }
 
-const view = (page: Page): Locator => page.locator('canvas.tl-viewport');
 /** TL_INSTANCE_BRUSH_DIR=<dir> keeps the pictures the test compares. */
 const keep = (name: string, png: Buffer): void => {
   const dir = process.env['TL_INSTANCE_BRUSH_DIR'];
@@ -132,47 +133,6 @@ const keep = (name: string, png: Buffer): void => {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${name}.png`), png);
 };
-type Projector = (p: readonly [number, number, number]) => { x: number; y: number } | null;
-/** World → canvas pixel from the Scene view's published view-projection (the brush publishes it while on). */
-async function sceneProjector(page: Page): Promise<Projector> {
-  const m = JSON.parse((await view(page).getAttribute('data-view-proj'))!) as number[];
-  const box = (await view(page).boundingBox())!;
-  return ([x, y, z]) => {
-    const w = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!;
-    if (w <= 0) return null;
-    return { x: (((m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) / w + 1) / 2) * box.width, y: ((1 - (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w) / 2) * box.height };
-  };
-}
-async function select(page: Page, id: string): Promise<void> {
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
-  await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveAttribute('data-entity-id', id);
-}
-/** Frame `id` (F). */
-async function frame(page: Page, id: string): Promise<void> {
-  await select(page, id);
-  const box = (await view(page).boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.keyboard.press('f');
-  await page.waitForTimeout(300);
-}
-/** With the brush on (the view's projection published): zoom out until the points are well inside the view. */
-async function fit(page: Page, points: readonly (readonly [number, number, number])[]): Promise<void> {
-  const box = (await view(page).boundingBox())!;
-  const inside = async (): Promise<boolean> => {
-    const project = await sceneProjector(page);
-    return points.every((p) => {
-      const s = project(p);
-      return s !== null && s.x > box.width * 0.15 && s.x < box.width * 0.85 && s.y > box.height * 0.15 && s.y < box.height * 0.85;
-    });
-  };
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < 40 && !(await inside()); i++) {
-    await page.mouse.wheel(0, 300);
-    await page.waitForTimeout(80);
-  }
-  expect(await inside(), 'the stroke is in view').toBe(true);
-  await page.mouse.move(0, 0);
-}
 async function setBrush(page: Page, values: Record<string, string>): Promise<void> {
   for (const [k, v] of Object.entries(values)) {
     const field = inspector(page).getByLabel(`instance brush ${k}`, { exact: true });
@@ -226,20 +186,6 @@ function copiesSeen(before: Image, after: Image, project: Projector, copies: Cop
 
 // ---- Vertex paint (the Vertex paint window and the Scene view's paint mode) ----
 
-type PaintState = { armed: boolean; stroking: boolean; strokes: number; last: { entityId: string; target: string; dabs: number; previewMs: number; latencyMs: number | null; commandMs: number | null; ok: boolean | null; code?: string } | null; watch: { id: string; frames: number; gaps: number } | null; view: number | null };
-async function paintState(page: Page): Promise<PaintState | null> {
-  return JSON.parse((await view(page).getAttribute('data-vertex-paint')) ?? 'null') as PaintState | null;
-}
-async function setPaint(page: Page, values: Record<string, string>): Promise<void> {
-  for (const [k, v] of Object.entries(values)) {
-    const field = page.getByLabel(`vertex paint ${k}`, { exact: true });
-    if ((await field.evaluate((el) => el.tagName)) === 'SELECT') await field.selectOption(v);
-    else {
-      await field.fill(v);
-      await field.blur();
-    }
-  }
-}
 /** The mean of a 7 × 7 patch's brightest channel around a world point in a picture (null: off the picture). */
 function patch(img: Image, project: Projector, p: readonly [number, number, number]): number | null {
   const s = project(p);
@@ -260,34 +206,6 @@ async function sceneShot(page: Page, name: string): Promise<Image> {
   const png = await view(page).screenshot();
   keep(name, png);
   return decodePng(png);
-}
-/**
- * A paint stroke across world points (the pointer down at `from`, moved to `to`); `during` runs with the button
- * still down (the preview's picture), then the release.
- */
-async function paintDrag(page: Page, from: readonly [number, number, number], to: readonly [number, number, number], during?: () => Promise<void>): Promise<void> {
-  const project = await sceneProjector(page);
-  const box = (await view(page).boundingBox())!;
-  const a = project(from)!;
-  const b = project(to)!;
-  // In the view and clear of the tool window floating over it.
-  const win = await page.getByLabel('vertex paint tool').boundingBox();
-  const covered = (p: { x: number; y: number }): boolean => win !== null && box.x + p.x >= win.x - 8 && box.y + p.y >= win.y - 40;
-  for (const p of [a, b]) expect(p.x > 4 && p.x < box.width - 4 && p.y > 4 && p.y < box.height - 4 && !covered(p), `paint point in view ${JSON.stringify(p)}`).toBe(true);
-  await page.mouse.move(box.x + a.x, box.y + a.y);
-  await page.mouse.down();
-  for (let i = 1; i <= 12; i++) await page.mouse.move(box.x + a.x + ((b.x - a.x) * i) / 12, box.y + a.y + ((b.y - a.y) * i) / 12);
-  if (during !== undefined) await during();
-  await page.mouse.up();
-}
-/** The stroke answered and its stored paint drawn in place of the preview. */
-async function strokeDone(page: Page, strokes: number): Promise<NonNullable<PaintState['last']>> {
-  let st: PaintState | null = null;
-  await expect.poll(async () => {
-    st = await paintState(page);
-    return st !== null && st.strokes === strokes && st.last?.ok === true && st.last.latencyMs !== null;
-  }, { timeout: 20_000, message: `the stroke stored and drawn (${JSON.stringify(await paintState(page))})` }).toBe(true);
-  return (st as unknown as PaintState).last!;
 }
 const component = async (id: string, name: string): Promise<Record<string, unknown> | undefined> => ((await query('queryEntity', { entityId: id }))['entity'] as { components: Record<string, Record<string, unknown> | undefined> }).components[name];
 
@@ -310,8 +228,18 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   await frame(page, ids.platform);
   await fit(page, [[PLATFORM_AT[0] - 3, CAP_Y, PLATFORM_AT[2] - 3], [PLATFORM_AT[0] + 3, CAP_Y, PLATFORM_AT[2] + 3]]);
   const project = await sceneProjector(page);
-  const before = patch(await sceneShot(page, 'paint-before'), project, cap)!;
+  const beforeShot = await sceneShot(page, 'paint-before');
+  const before = patch(beforeShot, project, cap)!;
   expect(before, 'the white cap').toBeGreaterThan(110);
+  // The brush's ring follows the pointer over the cap.
+  {
+    const box = (await view(page).boundingBox())!;
+    const at = project(cap)!;
+    await page.mouse.move(box.x + at.x, box.y + at.y);
+    await page.waitForTimeout(250);
+    expect(changedPixels(beforeShot, decodePng(await view(page).screenshot()), (r, _g, b) => b > r + 40), 'the vertex paint ring drawn').toBeGreaterThan(60);
+    await page.mouse.move(0, 0);
+  }
   let mid: number | null = null;
   await paintDrag(page, [PLATFORM_AT[0] - 1, CAP_Y, PLATFORM_AT[2]], [PLATFORM_AT[0] + 1, CAP_Y, PLATFORM_AT[2]], async () => {
     await page.waitForTimeout(150);
@@ -518,6 +446,7 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   be = await startBackend(`instance-brush-${randomBytes(4).toString('hex')}`);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const logged = consoleErrors(page);
   const { set, layer, platform, room } = await buildScene();
   const original = await setState(set);
   const cameraFov = Number((((await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { components: Record<string, { fovY?: number }> }[]).find((e) => e.components['virtualCamera'] !== undefined)!.components['virtualCamera']!.fovY) ?? 60);
@@ -542,6 +471,16 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   const sceneBeforePng = await view(page).screenshot();
   keep('scene-before', sceneBeforePng);
   const sceneBefore = decodePng(sceneBeforePng);
+  // The brush's ring is drawn under the pointer (a closed line: three draws no LineLoop and logs an error for one).
+  {
+    const box = (await view(page).boundingBox())!;
+    const at = (await sceneProjector(page))([-18, TOP_Y, -16])!;
+    await page.mouse.move(box.x + at.x, box.y + at.y);
+    await page.waitForTimeout(300);
+    const ring = changedPixels(sceneBefore, decodePng(await view(page).screenshot()), (r, g, b) => g > r + 30 && g > b);
+    expect(ring, 'the instance brush ring drawn').toBeGreaterThan(60);
+    await page.mouse.move(box.x + box.width + 40, box.y + box.height / 2);
+  }
 
   // One stroke along the block-layer top: one paintInstances (its request kept for MCP).
   let sent: Record<string, unknown> | null = null;
@@ -657,6 +596,7 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   await vertexPaint(page, { set, layer, platform, room }, playBefore.img, fresh);
   await vertexPaintWebgl2(page, { platform });
   expect(errors).toEqual([]);
+  expect(refusedObjects(logged), 'no object three refuses to draw').toEqual([]);
 });
 
 test('paintInstances over MCP: no surface drops onto the block layer, erase, one undo each, a stroke too large refused with its reason', async () => {

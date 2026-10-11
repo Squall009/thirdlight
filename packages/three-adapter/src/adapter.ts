@@ -515,7 +515,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // (the room is part of a batch's key).
   graph.setMembership(bothMemberships(archHost.rooms, bothMemberships(batcher, viewCull)));
   // Clipped decals: cut from the surfaces the graph holds, on the generator's workers, kept with its chunks' store.
-  const clipped = opts.clippedDecals !== false ? new ClippedDecals({ node: (id) => graph.nodeFor(id) ?? null, dress: (mesh, id) => materialLibrary?.apply(mesh, { '*': id }, null) ?? null, workers: architecture, store: opts.architectureStore ?? null, changed: () => opts.onChange?.() }) : null;
+  const clipped = opts.clippedDecals !== false ? new ClippedDecals({ node: (id) => graph.nodeFor(id) ?? null, dress: (mesh, id) => materialLibrary?.apply(mesh, { '*': id }, null) ?? null, workers: architecture, store: opts.architectureStore ?? null, changed: () => opts.onChange?.(), surfacesIn: () => startModelsIn && !blockView.meshing() && !architecture.making() && !splines.making() }) : null;
   graph.onSurfaces(clipped);
   // A measurement reads their diagnostics from the scene (as the projected decals').
   if (clipped !== null) scene.userData[CLIPPED_DECALS_KEY] = { diagnostics: () => clipped.diagnostics() };
@@ -1240,7 +1240,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (precompileRunning(now)) return true;
     if (precompileWanted === null || camera === null) return false;
     // The first present waits for the start scenes' models (at most PRECOMPILE_WAIT_MS).
-    if (precompileWanted === 'start' && !startModelsIn) {
+    // A level with clipped decals also waits for them: they are cut from the surfaces as those arrive.
+    if (precompileWanted === 'start' && (!startModelsIn || clipped?.holdsStart() === true)) {
       startHeldSince ??= now;
       if (now - startHeldSince < PRECOMPILE_WAIT_MS) return true;
     }
@@ -1552,6 +1553,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lastFrameSkipped = true;
       return { ok: true };
     }
+    clipped?.presented();
     const frameInfo = (renderer as { info?: { render?: { drawCalls: number; triangles: number } } }).info?.render ?? { drawCalls: 0, triangles: 0 };
     const drawsBefore = frameInfo.drawCalls;
     const trianglesBefore = frameInfo.triangles;

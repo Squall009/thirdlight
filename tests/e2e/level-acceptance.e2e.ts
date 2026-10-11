@@ -45,12 +45,25 @@
  * room — one drawn alone (red), a batch of four copies of one mesh (one red,
  * one blue, two white: still one instanced draw), a merged static pair (one
  * red), and an instance set of three (the middle copy red: still one draw);
+ * (the pair's other block and the kerb's west half are painted blue in the
+ * editor, below);
  * the shed's front wall painted with grime (G) over the trim sheet, which
  * stays when the swap makes its facade anew; and a kerb (a spline's strip)
  * painted red along its east half. (At this distance generated meshes draw
  * their far levels, whose vertices are fewer: paint shows at those
  * vertices, so the strokes cover whole faces.) Play's diagnostics count the painted
  * draws: the batch's and the set's copies stay in two instanced draws.
+ *
+ * Decals of every kind, one yellow decal material: projected decals mark
+ * the road (terrain), a free corner of the paving (blocks), the building's
+ * facade right of its door (generated architecture: the mark stays when the
+ * swap makes the wall anew) and the prop's top; a mesh decal (a thin box
+ * wearing the decal material) lies on the paving. The clipped corner mark
+ * is drawn before the first frame (the start's first present waits for it),
+ * in Play and the export.
+ * Strokes from the editor's Vertex paint window too: the merged pair's
+ * second block and the kerb's west half painted blue with the brush (a
+ * merged static object and a spline, each picked under the pointer).
  *
  * Each feature is read where the fixed camera sees it (world points projected
  * through its view), the scatter by colour over the whole frame; Play's
@@ -74,6 +87,7 @@ import { makePng } from './png-make';
 import { expectRendererBackend } from './renderer-variants';
 import { frameShareNear, projectWith, serveDir, type CameraView, type V3 } from './frame-reading';
 import { BACKENDS, cmd, query, relay, useBackend } from './terrain-cdlod-steps';
+import { fit, frame as frameEntity, paintDrag, paintState, setPaint, strokeDone } from './vertex-paint-drive';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -149,6 +163,19 @@ const SHED = { x: [6, 10], z: [-7, -4] } as const;
 const WALL_PAINT_AT: V3 = [(SHED.x[0] + SHED.x[1]) / 2, BASE + 1.5, SHED.z[1]];
 const KERB = { at: [-2, BASE, -3.2] as V3, half: 3, width: 2, spot: 1.5 } as const;
 
+/** The projected decals (centres; each faces down onto its surface but the facade's): the road on the terrain, the paving, the facade, the prop's top. */
+const DECAL_ROAD: [number, number] = [30, -20];
+const DECAL_PAVING: V3 = [3, BASE, -3.5];
+const DECAL_FACADE: V3 = [0.5, BASE + 1.5, HOUSE.z[1] + 0.12];
+const DECAL_PROP: V3 = [PROP_AT[0], PROP_AT[1] + 0.5, PROP_AT[2]];
+/** The mesh decal: a thin box on the paving between the merged pair and the prop. */
+const MESH_DECAL_AT: V3 = [-9.9, BASE, -3];
+/** Down: a decal box's −Z along world −Y. */
+const DOWN = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+/** The editor's strokes: across the merged pair's second block's top, along the kerb's west half. */
+const EDITOR_PAIR_STROKE: [V3, V3] = [[PAINT_PAIR_X[1] - 0.2, BASE + 0.7, PAINT_ROW_Z], [PAINT_PAIR_X[1] + 0.2, BASE + 0.7, PAINT_ROW_Z]];
+const EDITOR_KERB_STROKE: [V3, V3] = [[KERB.at[0] - KERB.half + 0.4, BASE + 0.05, KERB.at[2]], [KERB.at[0] - 0.6, BASE + 0.05, KERB.at[2]]];
+
 // ---- The camera: over the area's south side, looking north across it to the horizon.
 const CAM_POS: V3 = [0, 16, 30];
 const PITCH = (-22 * Math.PI) / 180;
@@ -184,6 +211,8 @@ const isPaintRed: Pred = (r, g, b) => r > 90 && g < 0.4 * r && b < 0.4 * r;
 const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.5 * b && g < 0.5 * b;
 const isPaintPlain: Pred = (r, g, b) => Math.min(r, g, b) > 90 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 const isGrime: Pred = (r, g, b) => r > 20 && r < 150 && g <= 1.1 * r && g >= 0.55 * r && b <= r && b >= 0.4 * r;
+/** The decals' yellow (lit, in the light or the shade). */
+const isDecalYellow: Pred = (r, g, b) => r > 80 && g > 0.7 * r && g < 1.2 * r && b < 0.6 * Math.min(r, g);
 /** The corner mark's orange, lit or in the shade of the room's east face (dim, red well over green and blue). */
 const isOrange: Pred = (r, g, b) => r > 30 && r - g > 25 && g < 0.6 * r && b < 0.35 * r;
 
@@ -245,11 +274,14 @@ interface Built {
   architecture: string;
   outlines: unknown;
   /** Terrain heights (world y) at the points the frames read on it. */
-  heights: { ramp: number; road: number[]; far: number };
+  heights: { ramp: number; road: number[]; far: number; decal: number };
+  /** The merged pair's second block and the kerb (painted in the editor). */
+  pair: string;
+  kerb: string;
 }
 
 /** The vertex paint (see the header): the blocks, their material, the kerb, and the strokes. */
-async function paintThings(shed: string): Promise<void> {
+async function paintThings(shed: string): Promise<{ pair: string; kerb: string }> {
   // One file, a piece each: the lone block, the batch's (and the set's) and the merged pair's are three meshes.
   const piece = (name: string): { name: string; lods: [number, number, number][]; colors: [number, number, number][] } => ({ name, lods: [[0.7, 0.7, 0.7]], colors: [[1, 1, 1]] });
   await publishBytes(be!, multiPieceGlb([piece('solo'), piece('block'), piece('pair')], { centred: true }), 'model', 'acc-paint', 'Paint blocks');
@@ -282,6 +314,24 @@ async function paintThings(shed: string): Promise<void> {
   await cmd('setComponent', { entityId: kerb, component: 'spline', value: { points: [{ at: [-KERB.half, 0, 0] }, { at: [KERB.half, 0, 0] }], width: KERB.width, mesh: { step: 0.5, offset: 0.05 } } });
   await cmd('setComponent', { entityId: kerb, component: 'materials', value: { spline: 'acc-tint' } });
   await stroke(kerb, [KERB.at[0] + KERB.spot, BASE + 0.05, KERB.at[2]], RED, 2, { path: 'spline', side: 'top' });
+  return { pair: pair[1]!, kerb };
+}
+
+/** The decals of every kind but the clipped one (see the header), in one yellow decal material; `roadY` the terrain under the road's decal. */
+async function decalThings(roadY: number): Promise<void> {
+  await publishTexture(be!, new Uint8Array(makePng(64, 64, () => [235, 205, 20, 255])), 'acc-yellow', 'Yellow mark');
+  await cmd('setMaterial', { material: { materialId: 'acc-yellow', name: 'Yellow mark', shader: 'decal', params: {}, textures: { map: 'acc-yellow' } } });
+  const projected = async (name: string, at: readonly number[], size: number[], rotation: readonly number[] = DOWN): Promise<void> => {
+    await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, static: true, transform: { position: [...at], rotation: [...rotation] }, components: { decal: { size, mode: 'projected', material: 'acc-yellow' } } });
+  };
+  await projected('Road mark', [DECAL_ROAD[0], roadY, DECAL_ROAD[1]], [3, 3, 2]);
+  await projected('Paving mark', DECAL_PAVING, [1.4, 1.4, 0.6]);
+  // Facing the wall: the box's −Z into it (world −z), the wall's face at the box's middle.
+  await projected('Facade mark', DECAL_FACADE, [1.2, 1.2, 0.8], [0, 0, 0, 1]);
+  await projected('Prop mark', DECAL_PROP, [0.8, 0.8, 0.4]);
+  // The mesh decal: its own box mesh (with a uv set) drawn with the decal material.
+  await publishBytes(be!, multiPieceGlb([{ name: 'mark', lods: [[1, 0.02, 1]], colors: [[1, 1, 1]] }], { centred: true, texturePng: makePng(4, 4, () => [255, 255, 255, 255]) }), 'model', 'acc-mesh-mark', 'Mesh mark');
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Mesh mark', static: true, transform: { position: [...MESH_DECAL_AT] }, model: { asset: { assetId: 'acc-mesh-mark' }, piece: 'mark' }, components: { materials: { '*': 'acc-yellow' } } });
 }
 
 async function buildLevel(): Promise<Built> {
@@ -421,14 +471,15 @@ async function buildLevel(): Promise<Built> {
   await cmd('setMaterial', { material: { materialId: 'acc-mark', name: 'Corner mark', shader: 'decal', params: {}, textures: { map: 'acc-mark' } } });
   const d = CORNER_DECAL;
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Corner mark', static: true, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal: { size: [...d.size], mode: 'clipped', material: 'acc-mark', edgeFade: [...d.edgeFade] } } });
-  await paintThings(shed);
+  const painted = await paintThings(shed);
   await cmd('setInput', { input: { actions: [{ name: 'restyle', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: RESTYLE_KEY }] }, { name: 'enterDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ENTER_KEY }] }] } });
   await publishScript(be!, 'acc-level', LEVEL_SCRIPT, architecture);
 
   const at = async (pts: [number, number][]): Promise<number[]> => ((await query('queryTerrain', { entityId: ground, points: pts }))['points'] as { height: number }[]).map((p) => p.height);
-  const [ramp, road0, road1, far] = await at([RAMP_LOOK, [30, -10], [30, -30], FAR_GROUND]);
+  const [ramp, road0, road1, far, decal] = await at([RAMP_LOOK, [30, -10], [30, -30], FAR_GROUND, DECAL_ROAD]);
+  await decalThings(decal!);
   const stored = ((await query('queryEntity', { entityId: architecture })) as { entity: { components: { architecture: unknown } } }).entity.components.architecture;
-  return { ground, architecture, outlines: stored, heights: { ramp: ramp!, road: [road0!, road1!], far: far! } };
+  return { ground, architecture, outlines: stored, heights: { ramp: ramp!, road: [road0!, road1!], far: far!, decal: decal! }, ...painted };
 }
 
 type Reads = Record<string, number>;
@@ -476,10 +527,15 @@ function judgeLevel(img: Image, b: Built): Judged {
     terrainCover: countNear(img, isWhite, TERRAIN_COVER_FROM_Z),
     blockCover: countNear(img, isLavender),
     ...judgeArchitecture(img, isSheetA, near),
+    // The projected decals on the terrain, the paving and the prop; the mesh decal on the paving.
+    decalRoad: near('road mark', [DECAL_ROAD[0], b.heights.decal, DECAL_ROAD[1]], isDecalYellow),
+    decalPaving: near('paving mark', DECAL_PAVING, isDecalYellow, 6),
+    decalProp: near('prop mark', [DECAL_PROP[0], DECAL_PROP[1], DECAL_PROP[2] + 0.1], isDecalYellow, 4),
+    decalMesh: near('mesh mark', [MESH_DECAL_AT[0], BASE + 0.02, MESH_DECAL_AT[2]], isDecalYellow, 4),
   };
   // The tufts: lit ground passes the white test in a few dozen pixels with no tuft at all (23–35 measured with the tufts
   // dark), the tufts in thousands; the bound sits between.
-  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') || k.startsWith('clip') || k.startsWith('paint') ? 0.3 : 0.5);
+  const min = (k: string): number => (k === 'terrainCover' ? 400 * s * s : /Posts|Bushes|Cover/.test(k) ? 20 * s * s : k === 'liveDoor' || k === 'rampartCorner' || k.startsWith('arch') || k.startsWith('clip') || k.startsWith('paint') || k.startsWith('decal') ? 0.3 : 0.5);
   return { reads, ok: Object.entries(reads).every(([k, v]) => v >= min(k)), note: note() };
 }
 
@@ -497,6 +553,8 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
     clipFront: near('mark front', [ROOM.x[1] - 0.4, BASE + 1.5, ROOM.z[1] + 0.12], isOrange, 4),
     // (The east face is seen nearly edge-on: a few pixels wide.)
     clipSide: near('mark side', [ROOM.x[1] + 0.11, BASE + 1.5, ROOM.z[1] - 0.3], isOrange, 2),
+    // The projected mark on the facade (on the wall made anew by the swap too).
+    decalFacade: near('facade mark', DECAL_FACADE, isDecalYellow, 6),
   };
 }
 
@@ -509,12 +567,12 @@ function judgePaint(near: (label: string, p: V3, t: Pred, size?: number) => numb
     paintBatchBlue: near('batch blue', top(PAINT_BATCH_X[1]), isPaintBlue, 4),
     paintBatchPlain: near('batch plain', top(PAINT_BATCH_X[3]), isPaintPlain, 4),
     paintMergedRed: near('merged red', top(PAINT_PAIR_X[0]), isPaintRed, 4),
-    paintMergedPlain: near('merged plain', top(PAINT_PAIR_X[1]), isPaintPlain, 4),
+    paintMergedBlue: near('merged blue (editor)', top(PAINT_PAIR_X[1]), isPaintBlue, 4),
     paintCopyRed: near('copy red', top(PAINT_SET.at[0], PAINT_SET.at[2]), isPaintRed, 4),
     paintCopyPlain: near('copy plain', top(PAINT_SET.at[0] + PAINT_SET.copies[2], PAINT_SET.at[2]), isPaintPlain, 4),
     paintWall: near('wall grime', [WALL_PAINT_AT[0], WALL_PAINT_AT[1], SHED.z[1] + 0.12], isGrime, 6),
     paintKerb: near('kerb red', [KERB.at[0] + KERB.half - 0.3, BASE + 0.06, KERB.at[2]], isPaintRed, 4),
-    paintKerbPlain: near('kerb plain', [KERB.at[0] - KERB.half + 0.3, BASE + 0.06, KERB.at[2]], isPaintPlain, 4),
+    paintKerbBlue: near('kerb blue (editor)', [KERB.at[0] - KERB.half + 0.3, BASE + 0.06, KERB.at[2]], isPaintBlue, 4),
   };
 }
 
@@ -572,6 +630,33 @@ async function archTimes(target: Page | ReturnType<ReturnType<Page['frameLocator
   });
 }
 
+/** The editor's Vertex paint window: blue (channels B, then A) brushed across the merged pair's block and along the kerb's west half. */
+async function editorStrokes(page: Page, b: Built): Promise<void> {
+  await page.goto(be!.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await page.getByRole('button', { name: 'paint', exact: true }).click();
+  await expect(page.getByLabel('vertex paint tool')).toBeVisible();
+  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(true);
+  let strokes = 0;
+  const brush = async (entityId: string, [from, to]: [V3, V3], radius: string, what: string): Promise<void> => {
+    await setPaint(page, { radius, strength: '1', falloff: 'constant' });
+    await frameEntity(page, entityId);
+    await fit(page, [from, to]);
+    for (const channel of ['2', '3']) {
+      await setPaint(page, { channel });
+      await paintDrag(page, from, to);
+      const t = await strokeDone(page, (strokes += 1));
+      expect(t.entityId, `${what}: the stroke's object`).toBe(entityId);
+      console.log(`editor stroke on ${what} (channel ${channel}): ${JSON.stringify(t)}`);
+    }
+  };
+  await brush(b.pair, EDITOR_PAIR_STROKE, '0.6', 'the merged pair');
+  await brush(b.kerb, EDITOR_KERB_STROKE, '1.2', 'the kerb');
+  const paintOf = async (id: string): Promise<unknown> => ((await query('queryEntity', { entityId: id }))['entity'] as { components: Record<string, unknown> }).components['vertexPaint'];
+  expect(await paintOf(b.pair), 'the merged block painted').toBeDefined();
+  expect(JSON.stringify(await paintOf(b.kerb)), 'the kerb painted on its path').toContain('spline');
+}
+
 async function press(page: Page, code: string): Promise<void> {
   await page.keyboard.down(code);
   await page.waitForTimeout(200);
@@ -585,6 +670,7 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
   useBackend(be);
   const built = await buildLevel();
   if (process.env['ACC_BUILD_ONLY'] === '1') return;
+  await editorStrokes(page, built);
 
   for (const renderer of BACKENDS) {
     await page.goto(be.editorUrl.replace('#', `&renderer=${renderer}#`));
@@ -610,7 +696,7 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
       return s.status === 200 ? Buffer.from(String(s.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64') : null;
     };
     // The corner's clipped decal, clipped at load from the room's chunk.
-    type Clipped = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null };
+    type Clipped = { decals: number; drawn: number; pending: number; made: Record<string, number>; readyMs: number | null; readyAfterFirstFrameMs: number | null };
     let clipped: Clipped | undefined;
     await expect
       .poll(async () => {
@@ -623,6 +709,12 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
         throw e;
       });
     console.log(`${renderer} Play clipped decals: ${JSON.stringify(clipped ?? null)}`);
+    // Drawn before the first frame: the start's first present waited for it.
+    expect(clipped!.readyAfterFirstFrameMs, `${renderer} Play: the clipped decal ready before the first frame`).toBeLessThanOrEqual(0);
+    type Projected = { decals: number; drawn: number; unplaced: number; dropped: number };
+    const projected = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { projectedDecals?: Projected } } }).diagnostics?.renderer?.projectedDecals;
+    console.log(`${renderer} Play projected decals: ${JSON.stringify(projected ?? null)}`);
+    expect(projected).toMatchObject({ decals: 4, drawn: 4, unplaced: 0, dropped: 0 });
     // Painted copies stay in their instanced draws: the batch's four (two painted) and the set's three (one painted) are two draws.
     type Paint = { alone: number; merged: number; instancedDraws: number; instances: number; paintedInstances: number; attributeBytes: number; streamBytes: number };
     type Painted = { vertexPaint?: Paint; splines?: { painted: number; paintPending: number }; architecture?: { painted: number; paintPending: number } };
@@ -678,6 +770,10 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
         await expectRendererBackend(c, renderer);
         const shot = async (): Promise<Buffer> => c.screenshot();
         await until(shot, (img) => judgeLevel(img, built), `${renderer} export level`);
+        // The clipped decal was drawn before the first frame (its ready mark says so: no time after a first frame).
+        const ready = await game.evaluate(() => (performance.getEntriesByType('mark') as PerformanceMark[]).filter((m) => m.name === 'tl:decal:clip-ready').map((m) => m.detail as { afterFirstFrameMs: number | null; frames: number }));
+        console.log(`${renderer} export clipped ready: ${JSON.stringify(ready)}`);
+        expect(ready[0], `${renderer} export: the clipped decal ready before the first frame`).toMatchObject({ afterFirstFrameMs: null, frames: 0 });
         const marks = await archTimes(game);
         console.log(`${renderer} export architecture: ${JSON.stringify(marks)}`);
         // Shipped: drawn as they are, nothing generated.

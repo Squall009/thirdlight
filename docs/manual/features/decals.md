@@ -1,18 +1,71 @@
 # Decals
 
-> **Growing.** This page grows as decals are built. What exists now: the
-> data — the decal component, decal layers, decal materials and the decal
-> cells of trim sheets save, reopen, travel through MCP and ship with an
-> export — the [decal pages](#decal-pages) (Play and the export put the
-> decal materials' images on texture arrays), [mesh decals](#mesh-decals),
-> [projected decals](#projected-decals), which draw, follow moving objects
-> and can be [spawned by scripts](#decals-spawned-by-scripts),
-> [clipped decals](#clipped-decals), and the Scene view's
-> [Decal tool](#the-decal-tool). How-to: [Decals](../guides/decals.md).
+Three kinds: [mesh decals](#mesh-decals) (a mesh drawn over a surface),
+[projected decals](#projected-decals) (a box that marks every surface in
+it, channel by channel) and [clipped decals](#clipped-decals) (a mesh cut
+from the surfaces in a box at load). The data — the decal component, decal
+layers, decal materials and the decal cells of trim sheets — saves,
+reopens, travels through MCP and ships with an export; the
+[decal pages](#decal-pages) put the decal materials' images on texture
+arrays; the Scene view's [Decal tool](#the-decal-tool) places them; scripts
+[spawn](#decals-spawned-by-scripts) short-lived ones. How-to:
+[Decals](../guides/decals.md). For colour and weights painted on a mesh's
+vertices see [Vertex paint](vertex-paint.md).
 
 Decals put the detail that breaks up repetition — dirt, cracks, stains,
 leaks, signs, puddles, scorch marks — on the surfaces of a level without new
 unique textures.
+
+## Which decal for which mark
+
+| The mark | Use | Why |
+|---|---|---|
+| A wet patch, a scratch or crack in the normal only, a change of roughness or metalness | projected | Only a projected decal blends one channel into the surface before it is lit; mesh and clipped decals blend their own lit colour over it. |
+| A mark on terrain | projected | Terrain's levels of detail change its surface with distance, so a clipped mesh would float or sink; a projected decal follows the pixel. |
+| Many static marks on blocks, walls, generated architecture and props: dirt, stains, signs, leaks | clipped | Clipped once at load (cached), merged into the static cells: one draw per cell per decal material, and no receiving shader changes. A pixel pays only where a mark is. |
+| A mark modelled with the asset (a sign on a crate, a painted stripe) | mesh | Its geometry ships in the model file and draws the same way as a clipped mark. |
+| Marks left during play (bullet holes, footprints, scorch) | spawned (projected) | A script spawns them from a prefab; the transient budget keeps the newest. |
+| A mark on a character | mesh, parented to a bone | A world projector slides over a moving skin; skinned models take no projected decal by default. |
+
+- **Projected decals cost per receiver, not per decal:** every draw a
+  projected decal's box reaches wears a shader with the decal steps and is
+  checked on the CPU each frame. Many projected decals spread over a level
+  reach most of its draws (see [Limits and budgets](#limits-and-budgets)).
+  For static marks that need no per-channel blending, prefer clipped ones.
+- **Keep overlaps low.** Stacked projected decals cost every pixel they
+  share; past the overlap budget the lowest sort orders drop. Merge a dense
+  cluster into one image, or spread it out.
+- **Clipped and mesh decals blend in order, not per channel.** Use
+  `multiply` for a stain that darkens what is under it, `add` for a glow,
+  `blend` otherwise.
+
+## Limits and budgets
+
+None of them caps how many decals or painted objects a project holds; each
+is a cost per spot, per frame or per step. Each number links its constant
+in the generated reference, which holds this build's value.
+
+- **Overlap:** a cell of the projected decals' index lists at most 16
+  decals ([`DECAL_CELL_BUDGET`](../reference/limits-project-model-1.md#limit-decal-cell-budget));
+  past it the highest sort orders stay and the dropped ones are counted
+  (`renderer.projectedDecals.dropped`, Play's `decal_overlap` problem).
+- **Spawned decals:** at most 256 kept at once
+  ([`DECAL_TRANSIENT_BUDGET`](../reference/limits-project-model-1.md#limit-decal-transient-budget));
+  a spawn past it fades the oldest out. A spawn's scale and lifetime are
+  clamped to [`DECAL_SPAWN_LIMITS`](../reference/limits-runtime.md#limit-decal-spawn-limits).
+- **The component:** a box side up to 1000 m, sort orders −1000 to 1000
+  and the fades' ranges ([`DECAL_LIMITS`](../reference/limits-project-model-1.md#limit-decal-limits));
+  a new decal's values are [`DECAL_DEFAULTS`](../reference/limits-project-model-1.md#limit-decal-defaults).
+- **Decal pages:** composed pages up to 2048²
+  ([`DECAL_PAGE_LIMITS`](../reference/limits-project-model-1.md#limit-decal-page-limits)),
+  counted against the project's texture budget (default
+  [512 MiB](../reference/limits-project-model-2.md#limit-texture-budget-default-mb)).
+- **Clipped meshes** are kept in a memory cache of a fixed size and, in an
+  exported game, in the player's browser; neither is a limit on decals.
+
+What each kind costs on this engine's test host (Iris Xe, 1080p, uncapped,
+one test level) is in the cost line of [mesh](#mesh-decals),
+[projected](#projected-decals) and [clipped](#clipped-decals) decals.
 
 ## The decal component
 
@@ -125,7 +178,8 @@ How it draws:
 - **Draws:** decal meshes are batched like other meshes (copies of one mark
   mesh are one instanced draw) and static ones merge into the static cells:
   one draw per cell per decal material and sort order. 1,000 static mesh
-  decals of one material on the test level add 1–2 draws.
+  decals of one material on the test level (Iris Xe, 1080p) add 1 draw,
+  the scene pass +0.25 ms GPU and the main thread about +0.1 ms a frame.
 - **Images:** Play and the export draw a decal material from the decal
   pages (its own textures and sheet cell are not loaded there); the Scene
   view draws its own textures or the sheet's cell directly, in the same
@@ -182,8 +236,9 @@ How a pixel takes it:
 - A pixel of a reached object finds its decals through a **world grid**: a
   cell lists the decals reaching into it. A pixel under no decal reads one
   value and goes on.
-- **The overlap budget:** a cell lists at most 16 decals (the
-  `DECAL_CELL_BUDGET` limit), so no pixel blends more than 16. Past it the
+- **The overlap budget:** a cell lists at most 16 decals
+  ([`DECAL_CELL_BUDGET`](../reference/limits-project-model-1.md#limit-decal-cell-budget)),
+  so no pixel blends more than that. Past it the
   cell keeps the highest sort orders and drops the rest there; Play
   diagnostics count the dropped entries (`renderer.projectedDecals.dropped`).
   It is a cost per spot, not a cap: a level may hold any number of decals,
@@ -199,7 +254,7 @@ How a pixel takes it:
 - Measured on this engine's test host (Iris Xe, 1080p, uncapped), 200
   decals spread over a test level's ground, walls and props (they reach 226
   of its 238 scene draws): the scene pass +0.6 ms GPU, the main thread
-  +0.35 ms (WebGPU) and +0.45 ms (WebGL 2) a frame, 2 more shaders; table
+  +0.35–0.4 ms (WebGPU) and +0.45–0.6 ms (WebGL 2) a frame, 2 more shaders; table
   and grid 368 KiB. With 20 of them moving and 30 spawned a second (about
   500 in all, 30 fading at a time): the changes 0.4–0.7 ms a frame (about
   50 decals changed), the frame as with 200 still decals. Without projected
@@ -256,6 +311,12 @@ only, or a mark on terrain.
   marks moving together (a mark parented to the cart it is on) are never
   clipped again for the motion. The component stores the projector, never
   the triangles.
+- **Ready before the first frame:** a game's first picture waits for the
+  start scenes' clipped decals, as it waits for their models: they are cut
+  while the level's surfaces arrive, and a decal with nothing under it is
+  settled as soon as every surface is in. A level without clipped decals
+  does not wait. A scene loaded later (a transition, streaming) shows its
+  clipped decals a moment after the scene itself.
 - **On workers, cached:** each clip is a job for generated architecture's
   worker pool; a big model's vertices cross to a worker once for all the
   marks on it. A clip is kept by a hash of everything it is made from (the
@@ -284,19 +345,19 @@ only, or a mark on terrain.
 - **Cost** (this engine's test host, Iris Xe, 1080p, uncapped; 1,000
   clipped decals over a test level's ground, walls and props, 881 with
   something under them, 39k triangles): 4 more draws, the scene pass
-  +0.5 ms GPU on WebGPU, the main thread +0.35–0.4 ms a frame on both
-  renderers; a clip 0.25 ms on average on a worker (14 ms the worst, a big
-  prop); all drawn about 2.7 s after the first frame (the level's models
-  and chunks arrive first), and on a second visit, every mesh found in the
-  browser's storage, about 1.9 s after it (a decal with nothing under it
-  waits 2 s before it counts as settled). A still frame does no clipping
-  work.
+  +0.5–0.6 ms GPU on WebGPU, the main thread +0.35–0.4 ms a frame on both
+  renderers; a clip 0.3 ms on average on a worker (10 ms the worst, a big
+  prop); all drawn 1.3–1.4 s after the first was set, before the first
+  frame, which comes about 0.9 s later than it would without them; on a
+  second visit (every mesh from the browser's storage) the same. A still
+  frame does no clipping work.
 - **Diagnostics:** Play's `renderer.clippedDecals` — `decals`, `drawn`,
   `empty` (nothing under them), `pending`, `triangles`, `surfaces` (what
   they may be cut from), `made` (meshes clipped on a `worker` or the `page`,
   found in `memory` or the `store`), `workerMs` and `pageMs` (a clip's mean
   and worst), `readyMs` (from the first decal set to all drawn),
-  `readyAfterFirstFrameMs` and `readyFrames` (the same from the first frame),
+  `readyAfterFirstFrameMs` and `readyFrames` (the same from the first frame
+  shown: negative and 0 when they were drawn before it), `firstFrameAtMs`,
   `cacheBytes` and `problems`. Performance marks `tl:decal:clip` (each
   decal's first mesh: `{decal, ms, where}`) and `tl:decal:clip-ready`.
   `?decals=off` leaves clipped decals out too.
@@ -354,8 +415,9 @@ const mark = ctx.decals.spawn('scorch', { position: hit.point, normal: hit.norma
   **transient budget** needs its place. `ctx.decals.remove(handle)` fades
   one out now, `ctx.decals.remove(objectId)` every decal spawned on that
   object.
-- **The transient budget** (`DECAL_TRANSIENT_BUDGET`, 256): the most
-  spawned decals kept at once. A spawn past it starts the oldest spawned
+- **The transient budget**, 256 decals
+  ([`DECAL_TRANSIENT_BUDGET`](../reference/limits-project-model-1.md#limit-decal-transient-budget)):
+  the most spawned decals kept at once. A spawn past it starts the oldest spawned
   decal fading out, so a long fight keeps the newest marks and never costs
   more than this many. Authored decals never count, and a spawn is never
   refused for it. A script may spawn at most

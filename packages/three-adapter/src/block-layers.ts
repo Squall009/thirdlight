@@ -724,6 +724,13 @@ export class BlockLayerView {
     }
   }
 
+  /** Whether chunks wait to be meshed, are on a worker, or wait to be swapped in. */
+  meshing(): boolean {
+    if (this.results.length > 0) return true;
+    for (const layer of this.layers.values()) if (layer.dirty.size > 0 || layer.pending.size > 0) return true;
+    return false;
+  }
+
   diagnostics(): BlockLayerViewDiagnostics {
     let chunks = 0;
     let meshes = 0;
