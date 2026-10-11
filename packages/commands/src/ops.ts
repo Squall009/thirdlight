@@ -274,6 +274,8 @@ export interface OpSuccess {
   createdId?: string;
   /** A cross-scene move's second scene as it now is. */
   otherScene?: { sceneId: string; scene: SceneDocument };
+  /** Components the op wrote besides its own change (already in `scene`), recorded for undo and redo. */
+  follows?: import('./follow-ops').ComponentFollow[];
 }
 
 export type OpOutcome =

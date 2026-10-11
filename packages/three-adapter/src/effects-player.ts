@@ -478,7 +478,12 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     },
     request(req, objectOf) {
       if (req.op === 'stop') {
-        for (const rec of playing) if ((req.handle > 0 && rec.handle === req.handle) || (req.handle === 0 && req.entityId !== null && rec.entityId === req.entityId)) stopSpawning(rec);
+        // No handle and no entity: a run restart stops every script play, and forgets its handle (the new run counts from 1 again).
+        const all = req.handle === 0 && req.entityId === null;
+        for (const rec of playing) {
+          if (all ? rec.handle > 0 : (req.handle > 0 && rec.handle === req.handle) || (req.handle === 0 && req.entityId !== null && rec.entityId === req.entityId)) stopSpawning(rec);
+          if (all) rec.handle = 0;
+        }
         return;
       }
       // An entity's component signal: restart its own play.

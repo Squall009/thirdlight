@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DECAL_CELL_BUDGET, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS } from '@thirdlight/runtime';
 
-import { decalRowsAt, type DecalIndex } from './decal-index';
+import { DECAL_ROW_TEXELS, decalRowsAt, type DecalIndex } from './decal-index';
 import { createDecalProjectors, type DecalRequestLike } from './decal-projectors';
 import { createMaterialLibrary } from './material-library';
 import { ProjectedDecals, projectedDecalsOf } from './projected-decals';
@@ -164,6 +164,58 @@ describe('the decal host changing in place', () => {
     expect(h.observe().dropped).toBeGreaterThan(0);
     h.beforeFrame(renderer, [spawnAt(102, 0)]);
     expect(problems).toEqual(['decal_overlap']);
+    h.dispose();
+  });
+});
+
+describe('the channels a projected decal sets', () => {
+  it('only those it has an image or a value for: no tint without a colour, no ORM from an emissive mask alone', async () => {
+    const tex = testTexture();
+    const library = createMaterialLibrary({ loadTexture: async () => tex });
+    library.setMaterials([
+      { materialId: 'crack', name: 'crack', shader: 'decal', params: {}, textures: { normalMap: 'tex' } },
+      { materialId: 'wet', name: 'wet', shader: 'decal', params: { roughness: 0.1 }, textures: {} },
+      { materialId: 'rune', name: 'rune', shader: 'decal', params: { emissive: '#40c0ff', emissiveIntensity: 3 }, textures: { emissiveMap: 'tex' } },
+      { materialId: 'grime', name: 'grime', shader: 'decal', params: {}, textures: { ormMap: 'tex' } },
+      { materialId: 'paint', name: 'paint', shader: 'decal', params: { color: '#c02020' }, textures: {} },
+      { materialId: 'stain', name: 'stain', shader: 'decal', params: {}, textures: { map: 'tex' } },
+    ]);
+    const scene = new THREE.Scene();
+    const h = createDecalProjectors({ scene, materialOf: (k, id) => library.projectedDecal!(k, id) });
+    const ids = ['crack', 'wet', 'rune', 'grime', 'paint', 'stain'];
+    for (const id of ids) library.projectedDecal!(`probe:${id}`, id);
+    await settle();
+    ids.forEach((id, k) => {
+      const node = new THREE.Object3D();
+      node.position.set(k * 10, 0, 0);
+      scene.add(node);
+      h.set(id, node, { size: [1, 1, 1], material: id });
+    });
+    h.beforeFrame(renderer);
+    expect(h.observe().drawn).toBe(ids.length);
+    const data = projectedDecalsOf(scene)!.data.image.data as Float32Array;
+    // Albedo, normal, roughness, metalness, occlusion, emission (a row's texels 5 and 6).
+    const opacity = (k: number): number[] => [...data.subarray(k * DECAL_ROW_TEXELS * 4 + 20, k * DECAL_ROW_TEXELS * 4 + 26)].map((v) => (v > 0 ? 1 : 0));
+    expect(opacity(0)).toEqual([0, 1, 0, 0, 0, 0]);
+    expect(opacity(1)).toEqual([0, 0, 1, 0, 0, 0]);
+    expect(opacity(2)).toEqual([0, 0, 0, 0, 0, 1]);
+    expect(opacity(3)).toEqual([0, 0, 1, 1, 1, 0]);
+    expect(opacity(4)).toEqual([1, 0, 0, 0, 0, 0]);
+    expect(opacity(5)).toEqual([1, 0, 0, 0, 0, 0]);
+    h.dispose();
+  });
+});
+
+describe('the normal fade at its largest angle', () => {
+  it('marks every facing, back faces too, as the clipper keeps them', async () => {
+    const { h, scene } = await host();
+    const node = new THREE.Object3D();
+    scene.add(node);
+    h.set('all', node, { size: [1, 1, 1], material: 'stain', normalFade: 180 });
+    h.beforeFrame(renderer);
+    const data = projectedDecalsOf(scene)!.data.image.data as Float32Array;
+    // The shader's smoothstep(fade, full, facing) is 1 for any facing in −1…1.
+    expect(data[27]!).toBeLessThan(-1);
     h.dispose();
   });
 });

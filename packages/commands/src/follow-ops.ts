@@ -1,10 +1,12 @@
 /**
- * Components the project host writes because of a command, in the same
- * transaction: a terrain shaped again by the splines the command added,
- * moved, changed or removed, and a spline's made mesh and pieces.
+ * Components written because of a command, in the same transaction: a
+ * terrain shaped again by the splines the command added, moved, changed or
+ * removed, a spline's made mesh and pieces (the project host's), and a baked
+ * decal's object turning into a model of the baked file (the publish's own).
  *
- * The host plans these after the command's own change (it reads and
- * publishes blobs, which the pure layer cannot), then hands them here: the
+ * The host plans its follow-ups after the command's own change (it reads and
+ * publishes blobs, which the pure layer cannot), then hands them here; an op
+ * that writes components besides its own change returns them with it. The
  * scene takes the new values, the history entry keeps each component's
  * value before and after, and the change names them so clients take the new
  * values. Undo puts the "before" values back ahead of the command's own
@@ -14,10 +16,13 @@
 import { gateResultState } from './ops';
 import type { CommandState, HistoryEntry, MutationSuccess, SceneDocument } from './types';
 
-/** One component the host wrote with a command (null: absent). */
+/** The components a follow-up can write. */
+export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model';
+
+/** One component written with a command (null: absent). */
 export interface ComponentFollow {
   entityId: string;
-  component: 'terrain' | 'spline';
+  component: FollowedComponent;
   restore: unknown;
   next: unknown;
 }
@@ -25,7 +30,7 @@ export interface ComponentFollow {
 /** What a change names of its follow-ups (clients take the values). */
 export interface FollowChange {
   entityId: string;
-  component: 'terrain' | 'spline';
+  component: FollowedComponent;
   next: unknown;
 }
 
@@ -50,9 +55,10 @@ export function withFollows<S extends SceneDocument>(scene: S, follows: readonly
   return { ...scene, entities } as unknown as S;
 }
 
-/** The change with its follow-ups named. */
+/** The change with its follow-ups named (after any it names already: an op's own come before the host's). */
 export function withFollowChange<C>(change: C, follows: readonly ComponentFollow[]): C {
-  return { ...change, follows: follows.map((f): FollowChange => ({ entityId: f.entityId, component: f.component, next: f.next })) };
+  const named = (change as { follows?: readonly FollowChange[] }).follows ?? [];
+  return { ...change, follows: [...named, ...follows.map((f): FollowChange => ({ entityId: f.entityId, component: f.component, next: f.next }))] };
 }
 
 /**

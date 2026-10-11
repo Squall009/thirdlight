@@ -12,6 +12,7 @@
  * Pure: no DOM, no I/O, no Node builtins.
  */
 
+import type { CommandError } from '@thirdlight/commands';
 import { REQUEST_ID_RE } from '@thirdlight/protocol';
 
 /** The origin of a command. */
@@ -55,7 +56,44 @@ export type MutationResponse =
       /** A whole-document check: its first rule (message, path) and how many rules refused. */
       details?: { message?: string; path?: string }[];
       detailCount?: number;
+      /** Where in the request the refusal points and the (bounded) value found there: a panel acts on what was refused by these, never by the message's words. */
+      path?: string;
+      found?: unknown;
     };
+
+/** The first rule of a refusal's details (its message and path) and the count of all of them. */
+function ruleDetails(details: readonly unknown[], count: number | undefined): { details: { message?: string; path?: string }[]; detailCount: number } {
+  const first = details[0] as { message?: unknown; path?: unknown } | undefined;
+  const view: { message?: string; path?: string } = {};
+  if (typeof first?.message === 'string') view.message = first.message;
+  if (typeof first?.path === 'string') view.path = first.path;
+  return { details: first === undefined ? [] : [view], detailCount: count ?? details.length };
+}
+
+/** A backend refusal (its `error`, and a folder import's report beside it) as the panels read it. */
+export function refusalResponse(error: CommandError, folderImport?: import('./folder-upload').FolderImportView): Extract<MutationResponse, { ok: false }> {
+  // `limits_exceeded` carries the declared bound (limit/current/max)
+  // so the UI can surface the exact rejected limit
+  // instead of a generic message.
+  const details = error as { limit?: string; current?: number; max?: number; sourceDigest?: string; behaviorId?: string; diagnostics?: import('./behavior-publication').CompileDiagnosticView[] };
+  return {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    ...(details.limit !== undefined ? { limit: details.limit } : {}),
+    ...(details.current !== undefined ? { current: details.current } : {}),
+    ...(details.max !== undefined ? { max: details.max } : {}),
+    // The digest to acknowledge / the dependent script that failed and why.
+    ...(typeof details.sourceDigest === 'string' ? { sourceDigest: details.sourceDigest } : {}),
+    ...(typeof details.behaviorId === 'string' ? { behaviorId: details.behaviorId } : {}),
+    ...(Array.isArray(details.diagnostics) ? { diagnostics: details.diagnostics } : {}),
+    // A whole-document check's rules: the first one (what and where) and how many there are, for the panels.
+    ...(error.details !== undefined ? ruleDetails(error.details, error.detailCount) : {}),
+    ...(typeof error.path === 'string' ? { path: error.path } : {}),
+    ...(error.found !== undefined ? { found: error.found } : {}),
+    ...(folderImport !== undefined ? { folderImport } : {}),
+  };
+}
 
 /** A transport-level outcome for a command the browser sent. */
 export type CommandOutcome =

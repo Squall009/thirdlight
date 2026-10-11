@@ -62,7 +62,7 @@ import { TerrainTileStore } from './terrain-tile-store';
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
-import { vertexPaintDiagnostics } from './vertex-paint-draw';
+import { reportPaintStreamOverflow, vertexPaintDiagnostics } from './vertex-paint-draw';
 import { paintOnlyChange } from './vertex-paint-update';
 import { PaintChannelView } from './vertex-paint-channel-view';
 import { PATH_PAINT_ENTITY_KEY } from './vertex-paint-paths-view';
@@ -180,7 +180,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary?.projectedDecal !== undefined && opts.projectedDecals !== false
       ? createDecalProjectors({ scene, materialOf: (holder, id) => materialLibrary.projectedDecal!(holder, id), holdPages: (holder, id) => (id === null ? decalPages?.remove(holder) : decalPages?.set(holder, id)), ...(decalOptions.onProblem !== undefined ? { onProblem: decalOptions.onProblem } : {}), onChange: () => opts.onChange?.() })
       : null;
-  materialLibrary?.onDefinitions?.(() => {
+  // A painted draw past the device's largest texture is drawn unpainted: the host's Problems say so.
+  const paintOverflow = typeof opts.vertexPaint === 'object' && opts.vertexPaint.onProblem !== undefined ? reportPaintStreamOverflow(opts.vertexPaint.onProblem) : null;
+  // A library the host keeps (the editor's) outlives this adapter: its listener goes with the adapter.
+  const stopDefinitions = materialLibrary?.onDefinitions?.(() => {
     decalPages?.refresh();
     projectors?.refresh();
   });
@@ -1701,6 +1704,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    paintOverflow?.();
     channelView?.dispose();
     for (const rec of animatorPlayers.values()) rec.player.dispose();
     effects?.dispose();
@@ -1753,6 +1757,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     entityResources.clear();
     stopReassigned?.();
+    stopDefinitions?.();
     stopCellUv?.();
     batcher?.dispose();
     viewCull.dispose();

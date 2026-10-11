@@ -80,6 +80,49 @@ describe('the decal index changing in place', () => {
     expect(rebuilds).toBeLessThan(5);
   });
 
+  it('large authored decals, then many small spawns: the cells follow the sizes as a whole build sizes them', () => {
+    // Ten 4 m puddles on the floor, then bullet holes (0.15 m) spawned one by one in a cluster on a wall.
+    const r = rng(11);
+    const boxes: (DecalBox | undefined)[] = Array.from({ length: 10 }, (_, k) => ({ min: [k * 9 - 2, -0.25, -2], max: [k * 9 + 2, 0.25, 2], sortOrder: 0 }));
+    const seq = boxes.map((_, i) => i);
+    const grid = new DecalGrid(DECAL_CELL_BUDGET);
+    grid.build(boxes, seq);
+    let rebuilds = 0;
+    for (let k = 0; k < 60; k++) {
+      const x = 20 + (k % 12) * 0.2 + r() * 0.05;
+      const y = 1 + Math.floor(k / 12) * 0.2;
+      const i = boxes.length;
+      boxes[i] = { min: [x - 0.075, y - 0.075, 9.95], max: [x + 0.075, y + 0.075, 10.05], sortOrder: 0 };
+      seq[i] = i;
+      if (!grid.set(i, boxes[i], seq[i])) {
+        rebuilds += 1;
+        grid.build(boxes, seq);
+      }
+    }
+    const whole = new DecalGrid(DECAL_CELL_BUDGET);
+    whole.build(boxes, seq);
+    // Sized as a whole build sizes them (within the quarter octave the counts tell apart), dropping what it drops.
+    const near = (a: readonly number[], b: readonly number[]): boolean => a.every((v, k) => Math.abs(Math.log2(v / b[k]!)) <= 0.25 + 1e-9);
+    expect(near(grid.cell, whole.cell), `${grid.cell} vs ${whole.cell}`).toBe(true);
+    expect(grid.dropped).toBe(whole.dropped);
+    expect(grid.droppedDecals).toBe(whole.droppedDecals);
+    // What each lookup draws: every decal whose box holds the point, in drawing order.
+    for (const p of probes(boxes, r)) {
+      const holds = (g: DecalGrid): number[] => decalRowsAt(g.view(), p).filter((k) => [0, 1, 2].every((a) => boxes[k]!.min[a]! <= [p.x, p.y, p.z][a]! && [p.x, p.y, p.z][a]! <= boxes[k]!.max[a]!));
+      expect(holds(grid), JSON.stringify(p)).toEqual(holds(whole));
+    }
+    // The sizes changed once or twice on the way, not at every spawn.
+    expect(rebuilds).toBeLessThan(6);
+    // Taken out again: back to cells sized for the puddles.
+    for (let i = 10; i < boxes.length; i++) {
+      boxes[i] = undefined;
+      if (!grid.set(i, undefined)) grid.build(boxes, seq);
+    }
+    const puddles = new DecalGrid(DECAL_CELL_BUDGET);
+    puddles.build(boxes, seq);
+    expect(near(grid.cell, puddles.cell), `${grid.cell} vs ${puddles.cell}`).toBe(true);
+  });
+
   it('a moved decal leaves its old cells and enters its new ones, keeping the drawing order', () => {
     const grid = new DecalGrid(DECAL_CELL_BUDGET);
     grid.build([box(0, 0, 0, 1, 5), box(0.2, 0, 0, 1, -3), box(9, 0, 0, 1, 0)]);

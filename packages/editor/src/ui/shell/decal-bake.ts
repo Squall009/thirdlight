@@ -9,15 +9,17 @@
  *   material is named `<decal material>_decal`, and the asset's material map
  *   names the decal material for it (the model draws as a mesh decal of that
  *   material in every placement).
- * - Everything goes through the paths every edit takes: the import (stage,
- *   inspect, one `publishAsset`), `setAssetOptions` for the material map, and
- *   `setComponent` for the model and for the decal's removal.
+ * - The bake goes through the import every model takes (stage, inspect,
+ *   `publishAsset`), as one command: the publish's `bakeDecal` names the
+ *   object, and the backend sets the material map and swaps the object's
+ *   decal for the model in the same change. A refusal leaves nothing behind,
+ *   and one undo takes the whole bake back (MCP bakes the same way).
  *
  * What a baked model keeps of the decal: its material and fades. Its sort
  * order is the material's (a mesh has no component to carry its own).
  */
 import type * as THREE from 'three';
-import { bakedDecalMaterialName, DECAL_FADE_GLTF_ATTRIBUTE, decalClipGlb } from '@thirdlight/runtime';
+import { DECAL_FADE_GLTF_ATTRIBUTE, decalClipGlb } from '@thirdlight/runtime';
 
 import { makeAssetId } from '../../session/client-core';
 import { publishArgsFromProposal, utcSecondTimestamp } from '../../session/asset-browser';
@@ -57,18 +59,10 @@ export async function bakeClippedDecal(c: SessionClient, entityId: string, mesh:
   if (!staged.ok) return { ok: false, message: `Bake to model: the import refused the mesh (${staged.error.message}).` };
   const args = publishArgsFromProposal(staged.proposal, target, utcSecondTimestamp(), 'model');
   if (!args.ok) return { ok: false, message: `Bake to model: ${args.error.message}` };
-  const steps: [string, unknown][] = [
-    ['publishAsset', args.args],
-    ['setAssetOptions', { assetId: target.assetId, materials: { [bakedDecalMaterialName(decal.material)]: decal.material } }],
-    ['setComponent', { entityId, component: 'model', value: { asset: { assetId: target.assetId } } }],
-    ['setComponent', { entityId, component: 'decal', value: null }],
-  ];
-  for (const [op, a] of steps) {
-    const res = await c.command(op, a, c.projection.revision);
-    if (!res.ok) {
-      const r = res.response as { code?: string; message?: string };
-      return { ok: false, message: `Bake to model: ${op} was refused (${r.message ?? r.code ?? 'no response'}).` };
-    }
+  const res = await c.command('publishAsset', { ...args.args, bakeDecal: { entityId } }, c.projection.revision);
+  if (!res.ok) {
+    const r = res.response as { code?: string; message?: string };
+    return { ok: false, message: `Bake to model was refused (${r.message ?? r.code ?? 'no response'}).` };
   }
   return { ok: true, assetId: target.assetId };
 }

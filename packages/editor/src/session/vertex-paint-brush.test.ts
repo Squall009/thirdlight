@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { paintVerticesArgs, pathTargetAt, strokeBrush, VERTEX_PAINT_DEFAULTS, vertexPaintSettingsError, withoutMeshPaint } from './vertex-paint-brush';
+import { paintVerticesArgs, pathTargetAt, stalePaintOf, strokeBrush, VERTEX_PAINT_DEFAULTS, vertexPaintSettingsError, withoutMeshPaint } from './vertex-paint-brush';
 
 describe('vertex paint brush settings', () => {
   it('takes the shared brush bounds and names what is wrong', () => {
@@ -63,5 +63,13 @@ describe('stale paint taken off one mesh', () => {
     const paint = { copies: 'c'.repeat(64), painted: 1, slots: 1, meshes: [rec('A#0'), rec('B#0')] };
     expect(withoutMeshPaint({ instances: { buffer: 'x', count: 3, paint } }, 'B#0')).toEqual({ component: 'instances', value: { paint: { ...paint, meshes: [rec('A#0')] } } });
     expect(withoutMeshPaint({ instances: { buffer: 'x', count: 3, paint: { ...paint, meshes: [rec('A#0')] } } }, 'A#0')).toEqual({ component: 'instances', value: { paint: null } });
+  });
+});
+
+describe('a refused stroke over stale paint', () => {
+  it('is known by its code and the mesh found, whatever the message says', () => {
+    expect(stalePaintOf('m', { code: 'vertex_paint_stale', found: 'Body/Hull#0', message: 'any words' })).toEqual({ entityId: 'm', mesh: 'Body/Hull#0', message: 'any words' });
+    expect(stalePaintOf('m', { code: 'field_value', found: 'Body/Hull#0', message: "mesh Body/Hull#0's paint was made for other vertices" })).toBeNull();
+    expect(stalePaintOf('m', { code: 'vertex_paint_stale' })).toBeNull();
   });
 });

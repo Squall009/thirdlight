@@ -35,6 +35,7 @@ import {
 } from './content-ops';
 import { createHistory, executeRedo, executeUndo, recordForwardEdit } from './history';
 import { withFootprintChunks, writeFootprints } from './footprint-ops';
+import { withFollowChange } from './follow-ops';
 import {
   applyCreateEntities,
   applyCreateEntity,
@@ -187,6 +188,11 @@ function completeForward<S extends SceneDocument>(
     inverse: applied.inverse,
   };
   if (fp !== null && fp.ok && fp.scene !== null) entry.footprints = fp.layers;
+  // Components the op wrote besides its own change: the entry undoes and redoes them with it, and clients take them from the change.
+  if (applied.follows !== undefined && applied.follows.length > 0) {
+    entry.follows = applied.follows;
+    applied = { ...applied, change: withFollowChange(applied.change, applied.follows) };
+  }
   const history = recordForwardEdit(state.history, entry);
   const nextState = { ...state, scene: applied.scene, history } as CommandState<S>;
   if (applied.content !== undefined) nextState.content = applied.content;

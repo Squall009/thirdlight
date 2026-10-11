@@ -109,11 +109,17 @@ bytes a vertex. Copies that are not painted cost nothing, so a set of
 thousands of copies with a few painted stays small.
 
 A copy is addressed by its place in the set's buffer. When the buffer
-changes, the table follows the copies in the same change: copies the
+changes, the table follows each copy in the same change by what it is (its
+place, turn and scale, bit for bit), wherever it now sits: copies the
 instance brush erases or the editor deletes lose their paint and the others
-keep theirs; moved, turned or scaled copies keep their paint; copies added
-at the end start unpainted. A buffer that is not the old one edited (a new
-scatter, an import) drops the paint; undo brings it back.
+keep theirs, also when copies are added or the order changes; new copies
+start unpainted. A copy that changed loses its paint, since from the
+buffers alone a moved copy cannot be told from another put in its place: a
+new scatter of the same count keeps no paint, and paint never lands on an
+unrelated copy. Moving one copy with the Scene view's gizmo keeps its
+paint (the editor sends the table with the move); over MCP, send the set's
+`paint` with the new `buffer` to keep it as it is. Undo brings dropped
+paint back.
 
 ## Generated meshes
 
@@ -126,6 +132,9 @@ face looking up or down (`top`: a road surface, a wall's top). Faces within
 lengthened or given another profile keeps its paint where it was painted;
 vertices that come out where there was no paint stay unpainted. Generated
 walls have a vertex about every metre along, so paint on them is soft.
+Path space is measured from the object's own position: generated meshes
+are drawn at it, without its rotation, scale or parent, and the brush, the
+backend and the drawing all read paint the same way.
 
 Paint names its path by key: an outline, a building or a sweep element of
 the object's `architecture` (`outline:<id>`, `building:<id>`,
@@ -167,8 +176,11 @@ material that meets paint); a scene without paint draws exactly as it did.
 `?paint=off` on a game page draws without paint, to compare its cost.
 
 A painted draw's stream holds up to 4096 × 8192 painted vertices (its
-painted copies × the mesh's vertices); past that the draw is drawn without
-paint. Diagnostics (`renderer.vertexPaint`) count the painted draws alone
+painted copies × the mesh's vertices; fewer rows where the device's
+largest texture is smaller); past that the draw is drawn without paint and
+the Problems panel says so (`vertex_paint_overflow`). Impostors and the
+far levels a model swaps to without its painted meshes draw unpainted.
+Diagnostics (`renderer.vertexPaint`) count the painted draws alone
 and merged, the instanced draws reading a stream with their copies, and
 the GPU bytes.
 

@@ -158,8 +158,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
    * Edit an instance set's copies — the new copy list is
    * published through the buffer route (the one `tl_instance_buffer` uses)
    * and stored with one `setComponent instances` (one undo step).
+   * `inPlace`: every copy stays at its address (one moved): the set's vertex
+   * paint is carried as it is, since the backend, seeing only the buffers,
+   * would take the moved copy for another and drop its paint.
    */
-  const editCopies = async (entityId: string, what: string, make: (floats: Float32Array) => Float32Array | string): Promise<boolean> => {
+  const editCopies = async (entityId: string, what: string, make: (floats: Float32Array) => Float32Array | string, inPlace = false): Promise<boolean> => {
     const c = clientRef.current;
     const inst = c?.projection.getEntity(entityId)?.instances;
     if (!c || inst === undefined) return false;
@@ -178,7 +181,8 @@ export function useSceneEditing(deps: SceneEditingDeps) {
       setNotice(`${what} failed: ${published.error.message}`);
       return false;
     }
-    const r = await c.setComponent(entityId, 'instances', { buffer: published.digest, count: published.count }, c.projection.revision);
+    const paint = inPlace ? (c.projection.getEntity(entityId)?.components['instances'] as { paint?: unknown } | undefined)?.paint : undefined;
+    const r = await c.setComponent(entityId, 'instances', { buffer: published.digest, count: published.count, ...(paint !== undefined ? { paint } : {}) }, c.projection.revision);
     if (!r.ok && (r.response as { code?: string }).code === 'no_change') return true;
     reportFailure(what, r);
     return r.ok;
@@ -190,7 +194,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
   });
   editCopiesRef.current = {
     transform: async (entityId, index, t) => {
-      await editCopies(entityId, 'Move copy', (f) => withCopy(f, index, t));
+      await editCopies(entityId, 'Move copy', (f) => withCopy(f, index, t), true);
     },
     // One instance-brush stroke: one paintInstances (the backend makes the copies; one undo step).
     paint: async (entityId, stroke) => {

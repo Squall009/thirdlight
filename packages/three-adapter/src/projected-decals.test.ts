@@ -80,7 +80,9 @@ describe('the decal index', () => {
     // One huge decal among small ones makes the cells larger rather than reaching into millions.
     const huge = buildDecalIndex([row([0, 0, 0]), row([3, 0, 0]), row([0, 0, 0], 0, 400)], DECAL_CELL_BUDGET);
     expect(huge.entries).toBeLessThanOrEqual(16 * 3);
-    expect(decalRowsAt(huge, { x: 150, y: 0, z: 150 })).toEqual([2]);
+    // Its cells (counted from the world's origin) are the small ones' too: a pixel there walks all three, the boxes decide.
+    expect(decalRowsAt(huge, { x: 150, y: 0, z: 150 })).toContain(2);
+    expect(huge.cells).toBeLessThanOrEqual(8);
   });
 
   it('finds every decal\'s cell through the hash table, probing past taken slots', () => {

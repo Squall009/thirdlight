@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useState, type JSX } from 'react';
 import { BRUSH_FALLOFFS, VERTEX_PAINT_BRUSH_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
 
-import { PAINT_CHANNEL_NAMES, VERTEX_PAINT_DEFAULTS, vertexPaintSettingsError, withoutMeshPaint, type VertexPaintSettings } from '../../session/vertex-paint-brush';
+import { PAINT_CHANNEL_NAMES, VERTEX_PAINT_DEFAULTS, stalePaintOf, vertexPaintSettingsError, withoutMeshPaint, type VertexPaintSettings } from '../../session/vertex-paint-brush';
 import type { ClientRef, SetNotice, ViewportRef } from '../shell/commands';
 
 const KEY = 'thirdlight.vertexPaint.v1';
@@ -81,10 +81,11 @@ export function useVertexPaintTool(deps: VertexPaintToolDeps): VertexPaintToolSt
         if (c === null) return { ok: false, message: 'not connected' };
         const r = await c.command('paintVertices', args, c.projection.revision);
         if (r.ok) return { ok: true };
-        const res = r.response as { code?: string; message?: string; found?: unknown; details?: { message?: string }[] };
+        const res = r.response as { code?: string; message?: string; found?: unknown };
         const message = res.message ?? res.code ?? 'the stroke was refused';
         // Paint made for a model's earlier vertices: offered for removal (the backend names the mesh).
-        if (typeof res.found === 'string' && /#\d+$/.test(res.found) && /other vertices/.test(message)) setStale({ entityId: String(args['entityId']), mesh: res.found, message });
+        const stale = stalePaintOf(String(args['entityId']), res);
+        if (stale !== null) setStale(stale);
         return { ok: false, ...(res.code !== undefined ? { code: res.code } : {}), message };
       },
       refused: (m) => setNotice(`Vertex paint: ${m}`),

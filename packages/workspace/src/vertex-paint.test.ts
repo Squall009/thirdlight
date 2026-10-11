@@ -131,6 +131,8 @@ describe('paintVertices', () => {
       expect(rows[0]!.message).toMatch(/Plate#0's vertices moved/);
       const refused = command(service, 'paintVertices', { entityId: id, dabs: [[10, 0.5, 0]], brush: BRUSH });
       expect(refused.error?.message).toMatch(/made for other vertices/);
+      // By a code of its own and the mesh as found (the editor offers to remove that paint by these).
+      expect(refused.error).toMatchObject({ code: 'vertex_paint_stale', path: '/args/entityId', found: 'Plate#0' });
       // Removed by hand, the mesh paints again (and fits).
       ok(service, 'setComponent', { entityId: id, component: 'vertexPaint', value: null });
       ok(service, 'paintVertices', { entityId: id, dabs: [[10, 0.5, 0]], brush: BRUSH });

@@ -235,9 +235,11 @@ export interface SceneAdapterOptions {
   /**
    * Vertex paint (`vertexPaint`, an instance set's `paint`) drawn on models,
    * instance copies and generated meshes (`vertex-paint-draw.ts`; default
-   * true). False: none drawn (`?paint=off`, a diagnostic comparison).
+   * true). False: none drawn (`?paint=off`, a diagnostic comparison). With
+   * `onProblem`: drawn, and a set or batch whose painted copies pass the
+   * GPU's largest texture is reported (`vertex_paint_overflow`).
    */
-  vertexPaint?: boolean;
+  vertexPaint?: boolean | { readonly onProblem?: (code: string, message: string) => void };
   /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;

@@ -93,6 +93,7 @@ describe('public surface', () => {
       'animation_role_ambiguous',
       'animation_skin_unsupported',
       'animation_root_motion',
+      'vertex_paint_stale',
     ]);
     expect(MAX_REVISION).toBe(2 ** 53 - 1);
   });

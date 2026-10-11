@@ -1508,6 +1508,14 @@ export interface PublishAssetArgs {
   extractTextures?: boolean;
   /** Model only: the texture asset each image of this version was extracted into (absent: none). */
   textures?: Record<string, string>;
+  /**
+   * Model create only ("Bake to model"): the object whose clipped decal this
+   * model was cut from. In the same change (one undo) the asset's material
+   * map names the decal's material for the file's `<material>_decal`
+   * material, and the object's `decal` component is replaced by a `model` of
+   * this asset. Refused unless the object carries a clipped decal and no model.
+   */
+  bakeDecal?: { entityId: string };
 }
 
 /** `publishBehavior` args. */

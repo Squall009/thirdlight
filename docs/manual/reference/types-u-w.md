@@ -1,8 +1,29 @@
-# Types (UpdateEntityArgs to WindConfig)
+# Types (UiWorldAnchor to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-world-anchor"></a>
+### UiWorldAnchor
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+/** Follow a world point or an entity (projected through the rendered camera each frame). */
+interface UiWorldAnchor {
+  entity?: UiBindable<string>;
+  point?: [number, number, number];
+  /** World offset from the entity or point (m). */
+  offset?: [number, number, number];
+  /** Keep it on screen at the edge while the target is off screen (else it hides). */
+  clamp?: boolean;
+  /** px from the screen edge when clamped. */
+  margin?: number;
+  /** A child widget shown only while clamped, turned towards the target (`--tl-angle`). */
+  indicator?: string;
+}
+```
 
 <a id="type-update-entity-args"></a>
 ### UpdateEntityArgs

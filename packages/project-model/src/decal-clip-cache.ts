@@ -19,7 +19,7 @@
  * Pure: no three.js, no I/O.
  */
 import { hashText64 } from './arch-math';
-import { DECAL_CLIP_VERSION, type DecalClipMesh } from './decal-clip';
+import { DECAL_CLIP_VERSION, decalClipSettings, type DecalClipMesh } from './decal-clip';
 
 /** Two 32-bit lanes over a run of 32-bit words (cyrb53's mixing, as `hashText64` does for text). */
 class WordHash {
@@ -105,10 +105,12 @@ export function decalClipKey(projector: DecalClipKeyProjector, receivers: readon
   };
   nums(projector.matrix, 16);
   nums(projector.size, 3);
-  parts.push(bits(projector.normalFade));
-  nums(projector.edgeFade, 2);
-  nums(projector.rect, 4);
-  parts.push(bits(projector.lift));
+  // The values the clipper uses, not the fields as given: a default or a limit that changes changes the key.
+  const c = decalClipSettings(projector);
+  parts.push(bits(c.normalFade), c.allFacings ? 'all' : '', bits(c.fullMarkShare));
+  nums(c.edgeFade, 2);
+  nums(c.rect, 4);
+  parts.push(bits(c.lift));
   for (const r of receivers) {
     parts.push(`|${r.geometry}`);
     nums(r.matrix, 16);

@@ -49,7 +49,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DECAL_LAYERS_ALL } from '@thirdlight/runtime';
+import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/runtime';
 
 import { DECAL_HASH, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH } from './decal-index';
 import type { N } from './effects-tsl';
@@ -498,12 +498,11 @@ const attached = new WeakMap<object, ProjectedDecals>();
 export function attachProjectedDecals(scene: THREE.Object3D, decals: ProjectedDecals | null): void {
   if (decals === null) attached.delete(scene);
   else attached.set(scene, decals);
-  lastScene = null;
+  attachments += 1;
 }
 
-/** The scene drawn last and its decals: every draw of a pass asks, the scene rarely changes. */
-let lastScene: THREE.Object3D | null = null;
-let lastDecals: ProjectedDecals | undefined;
+/** Counts attachments: a renderer's kept answer for its last scene is read again after any. */
+let attachments = 0;
 
 /** The decals attached to `scene` (null: none). */
 export function projectedDecalsOf(scene: THREE.Object3D): ProjectedDecals | null {
@@ -679,8 +678,8 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
           const facing = smoothstep(fades.z, fades.w, dot(ng, normalize(m2.xyz)));
           // 0 at the box's front (+Z, where it projects from), 1 at its back.
           const depth = float(0.5).sub(q.z);
-          const edge = saturate(depth.div(max(ends.x, 1e-4))).mul(saturate(float(1).sub(depth).div(max(ends.y, 1e-4))));
-          const far = select(ends.z.greaterThan(0), float(1).sub(smoothstep(ends.z.mul(0.8), ends.z, distance)), float(1));
+          const edge = saturate(depth.div(max(ends.x, DECAL_FADE.edgeMin))).mul(saturate(float(1).sub(depth).div(max(ends.y, DECAL_FADE.edgeMin))));
+          const far = select(ends.z.greaterThan(0), float(1).sub(smoothstep(ends.z.mul(DECAL_FADE.distanceStartShare), ends.z, distance)), float(1));
           const w = (layerOk === null ? facing.mul(edge).mul(far) : select(layerOk, facing.mul(edge).mul(far), float(0))).toVar('tlDecalWeight');
           If(w.greaterThan(0), () => {
             const rect = rowTexel(n, row, 3);
@@ -833,10 +832,16 @@ type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE
 export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn }): void {
   installProjectedDecalSteps();
   const base = renderer.renderObject;
+  // The scene this renderer drew last and its decals (every draw of a pass asks; the scene rarely changes). Kept per
+  // renderer, so a disposed renderer's scene is not held by the next one's draws.
+  let lastScene: THREE.Object3D | null = null;
+  let lastDecals: ProjectedDecals | undefined;
+  let seen = -1;
   renderer.renderObject = function renderObjectWithDecals(this: unknown, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) {
-    if (scene !== lastScene) {
+    if (scene !== lastScene || seen !== attachments) {
       lastScene = scene;
       lastDecals = attached.get(scene);
+      seen = attachments;
     }
     const d = scene.overrideMaterial === null ? lastDecals : undefined;
     if (d !== undefined && receives(material) && d.hits(object)) {

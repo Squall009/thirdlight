@@ -32,7 +32,7 @@
  * spawn sticks to an object with follows the object and goes with it.
  */
 import * as THREE from 'three/webgpu';
-import { DECAL_CELL_BUDGET, DECAL_DEFAULTS, DECAL_LAYERS_ALL, DECAL_LIMITS, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS, decalLayersOf } from '@thirdlight/runtime';
+import { DECAL_CELL_BUDGET, DECAL_DEFAULTS, DECAL_FADE, DECAL_LAYERS_ALL, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS, decalEdgeFade, decalLayersOf, decalNormalFade } from '@thirdlight/runtime';
 
 import { DecalGrid, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH, packDecalRow, type DecalRow } from './decal-index';
 import { createDecalViewPages, DECAL_VIEW_PAGE_SIZE, type DecalViewPages } from './decal-view-pages';
@@ -243,13 +243,16 @@ export function createDecalProjectors(o: {
       max[2] = Math.max(max[2], corner.z);
     }
     const op = d.opacity ?? {};
-    const fade = Math.min(DECAL_LIMITS.normalFadeMax, Math.max(DECAL_LIMITS.normalFadeMin, num(d.normalFade, DECAL_DEFAULTS.normalFade)));
+    const fade = decalNormalFade(d.normalFade);
     const m = e.material as (THREE.Material & { color?: THREE.Color; emissive?: THREE.Color; emissiveIntensity?: number; roughness?: number; metalness?: number; normalScale?: THREE.Vector2 }) | null;
     const glow = rgb(m?.emissive);
     const gi = num(m?.emissiveIntensity, 0);
     const scale = Math.abs(num(m?.normalScale?.x, 1));
+    const hasAlbedo = place.layers[0] >= 0 || s.params['color'] !== undefined;
     const hasNormal = place.layers[1] >= 0;
+    // The ORM set may carry only an emissive mask: roughness, metalness and occlusion then come from values or not at all.
     const hasOrm = place.layers[2] >= 0;
+    const hasOrmImage = hasOrm && s.ormImage;
     return {
       worldToBox,
       min,
@@ -258,16 +261,18 @@ export function createDecalProjectors(o: {
       layers: [place.layers[0], place.layers[1], place.layers[2]],
       footprint: place.footprint,
       opacity: [
-        num(op.albedo, 1),
-        // A channel the decal has no image (or set value) for is left alone (a stain does not flatten the normal map or the ORM under it).
+        // A channel the decal has no image (or set value) for is left alone: a stain does not flatten the normal map or
+        // the ORM under it, and a wet patch (roughness only) or a crack (normal only) does not paint its tint.
+        hasAlbedo ? num(op.albedo, 1) : 0,
         hasNormal ? num(op.normal, 1) : 0,
-        hasOrm || s.params['roughness'] !== undefined ? num(op.roughness, 1) : 0,
-        hasOrm || s.params['metalness'] !== undefined ? num(op.metalness, 1) : 0,
-        hasOrm ? num(op.occlusion, 1) : 0,
+        hasOrmImage || s.params['roughness'] !== undefined ? num(op.roughness, 1) : 0,
+        hasOrmImage || s.params['metalness'] !== undefined ? num(op.metalness, 1) : 0,
+        hasOrmImage ? num(op.occlusion, 1) : 0,
         hasOrm && gi > 0 && Math.max(...glow) > 0 ? num(op.emission, 1) : 0,
       ],
-      normalFadeCos: [Math.cos(fade * RAD), Math.cos(fade * 0.8 * RAD)],
-      edgeFade: [num(d.edgeFade?.[0], DECAL_DEFAULTS.edgeFade[0]), num(d.edgeFade?.[1], DECAL_DEFAULTS.edgeFade[1])],
+      // At the largest angle every facing is marked, back faces too (as the clipper keeps them): below any cosine.
+      normalFadeCos: fade.all ? [-3, -2] : [Math.cos(fade.degrees * RAD), Math.cos(fade.degrees * DECAL_FADE.fullMarkShare * RAD)],
+      edgeFade: decalEdgeFade(d.edgeFade),
       fadeDistance: Math.max(0, num(d.fadeDistance, 0)),
       layerMask: decalLayersOf(d.layers) || DECAL_LAYERS_ALL,
       // A spawned decal fading out fades its whole mark (every channel goes with the material's opacity).
@@ -307,7 +312,8 @@ export function createDecalProjectors(o: {
   const releaseRow = (e: Entry): void => {
     if (e.row < 0) return;
     if (decals !== null && !dirty) {
-      grid.set(e.row, undefined);
+      // A removal can leave the cells sized for decals that are gone: then the grid is built again.
+      if (!grid.set(e.row, undefined)) dirty = true;
       decals.setBox(e.row, undefined);
       pending = true;
     }
@@ -451,6 +457,8 @@ export function createDecalProjectors(o: {
       }
       if (!writeRow(e, s, place)) return false;
     }
+    // A removal above asked for a build.
+    if (dirty) return false;
     decals.setUses(uses);
     return true;
   };

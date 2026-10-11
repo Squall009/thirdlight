@@ -696,7 +696,7 @@ export class RuntimeInstance implements Runtime {
   private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
   /** Effect and decal requests for the renderer (presentation only, never part of the simulation). */
-  private readonly presentation = new PresentationRequests({ stepIndex: () => this.stepIndex, prefab: (id) => this.prefabs.get(id) });
+  private readonly presentation = new PresentationRequests({ stepIndex: () => this.stepIndex, prefab: (id) => this.prefabs.get(id), problem: (code, message) => this.problem(code, message) });
 
   /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
   private readonly kept = new KeptObjects();

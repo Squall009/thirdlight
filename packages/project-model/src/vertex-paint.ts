@@ -14,9 +14,9 @@
  *   (`vertexPaintMismatches`), so paint never lands on the wrong vertices.
  * - an instance set's `paint`: a sparse table (copy address → paint slot)
  *   and a slot pool per mesh (the pool's slots one after another). A copy's
- *   address is its place in the set's buffer; when the buffer loses copies
- *   the table follows them (`copyIndexMap`), so painting thousands of
- *   copies costs only the ones painted.
+ *   address is its place in the set's buffer; when the buffer changes the
+ *   table follows each copy by what it is (`copyIndexMap`), so painting
+ *   thousands of copies costs only the ones painted.
  * - generated meshes (architecture outlines, buildings and sweeps, splines):
  *   `vertexPaint.paths`, a grid per path side in path space (metres along
  *   the path × height up a wall face, or across a top face) every
@@ -359,48 +359,65 @@ export function copySlot(t: CopyTable, copy: number): number {
 
 /**
  * Where each copy of an instance set went when its buffer changed (old
- * address → new, −1: gone), or null when the new buffer is not the old one
- * edited (its paint would land on unrelated copies).
- * - The same count: every copy kept its place (copies moved, turned or scaled keep their paint).
- * - Fewer: the new copies are the old ones with some taken out (the brush's erase, a deleted copy).
- * - More: the old copies come first, the new ones after (the brush's paint, an added copy).
+ * address → new, −1: gone). A copy is followed by what it is (its floats,
+ * bit for bit), wherever it now sits: copies taken out (the brush's erase, a
+ * deleted copy), added (anywhere) or reordered keep their paint. A copy that
+ * changed (moved, turned, scaled, or replaced by another) loses it: from the
+ * buffers alone a moved copy cannot be told from a copy taken out and
+ * another put in its place, and paint must never land on an unrelated copy
+ * (a new scatter of the same count keeps none). An editor that moves a copy
+ * in place says so by carrying the paint table in its change.
  */
-export function copyIndexMap(before: Float32Array, after: Float32Array, floatsPerCopy: number): Int32Array | null {
+export function copyIndexMap(before: Float32Array, after: Float32Array, floatsPerCopy: number): Int32Array {
   const n = Math.floor(before.length / floatsPerCopy);
   const m = Math.floor(after.length / floatsPerCopy);
   const map = new Int32Array(n).fill(-1);
+  const b = new Uint32Array(before.buffer, before.byteOffset, n * floatsPerCopy);
+  const a = new Uint32Array(after.buffer, after.byteOffset, m * floatsPerCopy);
+  const hash = (v: Uint32Array, i: number): number => {
+    let h = 0x811c9dc5;
+    for (let k = 0; k < floatsPerCopy; k++) h = Math.imul(h ^ v[i * floatsPerCopy + k]!, 0x01000193);
+    return h >>> 0;
+  };
   const same = (i: number, j: number): boolean => {
-    for (let k = 0; k < floatsPerCopy; k++) if (!Object.is(before[i * floatsPerCopy + k], after[j * floatsPerCopy + k])) return false;
+    for (let k = 0; k < floatsPerCopy; k++) if (b[i * floatsPerCopy + k] !== a[j * floatsPerCopy + k]) return false;
     return true;
   };
-  if (m === n) {
-    for (let i = 0; i < n; i++) map[i] = i;
-    return map;
+  // The new copies by content, each list in address order (alike copies are matched in order).
+  const byHash = new Map<number, number[]>();
+  for (let j = 0; j < m; j++) {
+    const h = hash(a, j);
+    const l = byHash.get(h);
+    if (l === undefined) byHash.set(h, [j]);
+    else l.push(j);
   }
-  if (m > n) {
-    for (let i = 0; i < n; i++) {
-      if (!same(i, i)) return null;
+  const taken = new Uint8Array(m);
+  for (let i = 0; i < n; i++) {
+    // Most edits leave a copy where it was: that address first.
+    if (i < m && taken[i] === 0 && same(i, i)) {
       map[i] = i;
+      taken[i] = 1;
+      continue;
     }
-    return map;
+    for (const j of byHash.get(hash(b, i)) ?? []) {
+      if (taken[j] === 0 && same(i, j)) {
+        map[i] = j;
+        taken[j] = 1;
+        break;
+      }
+    }
   }
-  // Fewer: walk both in order; an old copy that is not the next new one was taken out.
-  let j = 0;
-  for (let i = 0; i < n && j < m; i++) {
-    if (same(i, j)) map[i] = j++;
-  }
-  return j === m ? map : null;
+  return map;
 }
 
-/** The table after the copies moved (`map` from {@link copyIndexMap}): gone copies leave it, their slots free. */
+/** The table after the copies moved (`map` from {@link copyIndexMap}): gone copies leave it, their slots free; kept in address order. */
 export function remapCopyTable(t: CopyTable, map: Int32Array): CopyTable {
-  const copies: number[] = [];
-  const slots: number[] = [];
+  const kept: [number, number][] = [];
   for (let i = 0; i < t.copies.length; i++) {
     const to = map[t.copies[i]!];
     if (to === undefined || to < 0) continue;
-    copies.push(to);
-    slots.push(t.slots[i]!);
+    kept.push([to, t.slots[i]!]);
   }
-  return { copies: Uint32Array.from(copies), slots: Uint32Array.from(slots) };
+  kept.sort((x, y) => x[0] - y[0]);
+  return { copies: Uint32Array.from(kept, (k) => k[0]), slots: Uint32Array.from(kept, (k) => k[1]) };
 }

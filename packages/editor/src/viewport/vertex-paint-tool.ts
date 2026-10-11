@@ -26,7 +26,7 @@
  */
 import * as THREE from 'three';
 import type { VertexPaintPreview } from '@thirdlight/three-adapter';
-import { VERTEX_PAINT_BRUSH_LIMITS, paintPathDabs, paintVertexDabs, type PathGrid, type PaintVec3 } from '@thirdlight/runtime';
+import { VERTEX_PAINT_BRUSH_LIMITS, paintPathDabs, paintVertexDabs, pathPaintPoint, type PathGrid, type PaintVec3 } from '@thirdlight/runtime';
 
 import { DAB_STEP, paintVerticesArgs, pathTargetAt, roundDab, strokeBrush, type PaintTarget, type VertexPaintSettings } from '../session/vertex-paint-brush';
 import type { ProjectedEntity } from '../session/projection';
@@ -225,7 +225,7 @@ export class VertexPaintTool {
       if (c['model'] !== undefined) return { entityId: id, target: { kind: 'model' }, point: h.point.clone() };
       if (c['architecture'] !== undefined || c['spline'] !== undefined) {
         const n = this.normalOf(h);
-        const local = [h.point.x - e.position[0]!, h.point.y - e.position[1]!, h.point.z - e.position[2]!];
+        const local = pathPaintPoint(e.position, [h.point.x, h.point.y, h.point.z]);
         const path = pathTargetAt(c as Parameters<typeof pathTargetAt>[0], local, n === null ? [0, 1, 0] : [n.x, n.y, n.z]);
         if (path === null) continue;
         return { entityId: id, target: { kind: 'path', ...path }, point: h.point.clone() };
@@ -297,7 +297,7 @@ export class VertexPaintTool {
       for (const m of pv.meshes) changed += paintVertexDabs(m.points, m.values, [dab], brush);
       if (changed > 0) pv.show();
     } else if (pv?.kind === 'path') {
-      const local: PaintVec3 = [dab[0] - pv.origin[0], dab[1] - pv.origin[1], dab[2] - pv.origin[2]];
+      const local = pathPaintPoint(pv.origin, dab);
       const t = cur.target as Extract<PaintTarget, { kind: 'path' }>;
       const r = paintPathDabs(cur.grid, pv.frame, t.side, [local], brush);
       if (r.changed > 0) {

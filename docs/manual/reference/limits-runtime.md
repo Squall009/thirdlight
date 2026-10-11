@@ -129,6 +129,7 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 |---|---|---|
 | <a id="limit-decal-spawn-limits"></a>`DECAL_SPAWN_LIMITS` | `{"scaleMin":0.01,"scaleMax":100,"lifetimeMax":3600}` | A spawned decal's scale and lifetime (seconds) are clamped to these. |
 | <a id="limit-effect-max-queued-requests"></a>`EFFECT_MAX_QUEUED_REQUESTS` | `256` | Requests kept for a renderer that does not take them (headless): the newest this many of each kind. |
+| <a id="limit-presentation-max-requests-per-step"></a>`PRESENTATION_MAX_REQUESTS_PER_STEP` | `32` | Effect plays and decal spawns a script may ask for in one step, each (more are refused: a loop gone wrong never floods the renderer). |
 
 <a id="limits-runtime--primitives"></a>
 ## `primitives.ts`

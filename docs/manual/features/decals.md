@@ -179,7 +179,7 @@ How it draws:
   mesh are one instanced draw) and static ones merge into the static cells:
   one draw per cell per decal material and sort order. 1,000 static mesh
   decals of one material on the test level (Iris Xe, 1080p) add 1 draw,
-  the scene pass +0.25 ms GPU and the main thread about +0.1 ms a frame.
+  the scene pass +0.21–0.23 ms GPU and the main thread about +0.1 ms a frame.
 - **Images:** Play and the export draw a decal material from the decal
   pages (its own textures and sheet cell are not loaded there); the Scene
   view draws its own textures or the sheet's cell directly, in the same
@@ -203,12 +203,16 @@ How a pixel takes it:
   way the box projects.
 - **Channels.** Each channel blends by the image's alpha × the material's
   opacity × the component's opacity for that channel × the fades. A channel
-  the material has no image for is left alone: a decal with only a colour
-  image keeps the surface's normal map, roughness and occlusion; one with
-  only a normal map (albedo opacity 0) bends the light and keeps the colour.
-  Roughness and metalness also blend when the material sets them as values.
-  Emission adds the material's `emissive` × `emissiveIntensity` where the
-  ORM image's emissive mask is set.
+  the material has no image (or value) for is left alone: a decal with only
+  a colour image keeps the surface's normal map, roughness and occlusion;
+  one with only a normal map (a crack) bends the light and keeps the colour;
+  one with only a roughness value (a wet patch) changes the shine alone.
+  The colour blends where the material has a colour image or sets `color`;
+  roughness and metalness where it has an ORM image or sets them as values;
+  occlusion only from an ORM image. Emission adds the material's `emissive`
+  × `emissiveIntensity` where the emissive mask is set; an emissive image
+  alone (a glowing rune) leaves the roughness, metalness and occlusion as
+  they were.
 - **Normals.** The decal's normal map is read in a frame made from the
   surface's own facing and the box's X axis, and bends the surface's normal
   (its own normal map stays under it).
@@ -218,7 +222,9 @@ How a pixel takes it:
 - **Layers.** The decal's `layers` and the object's `decalLayers` must share
   one (a per-object value: no extra shader per mask).
 - **Order.** Overlapping decals blend lowest `sortOrder` first, so the
-  higher one is on top.
+  higher one is on top. Across kinds, projected decals always lie under
+  mesh and clipped decals, whatever the sort orders: they are blended into
+  the surface's material, before any transparent surface is drawn.
 - **Mips.** Reads take their mip level from how the surface spreads on
   screen, capped at the image's safe level on its page, so a far decal
   never takes in its neighbours' pixels.
@@ -253,7 +259,7 @@ How a pixel takes it:
   decals.
 - Measured on this engine's test host (Iris Xe, 1080p, uncapped), 200
   decals spread over a test level's ground, walls and props (they reach 226
-  of its 238 scene draws): the scene pass +0.6 ms GPU, the main thread
+  of its 238 scene draws): the scene pass +0.62 ms GPU, the main thread
   +0.35–0.4 ms (WebGPU) and +0.45–0.6 ms (WebGL 2) a frame, 2 more shaders; table
   and grid 368 KiB. With 20 of them moving and 30 spawned a second (about
   500 in all, 30 fading at a time): the changes 0.4–0.7 ms a frame (about
@@ -301,7 +307,16 @@ only, or a mark on terrain.
 - **Fades:** faces turned past `normalFade` from the projector are left
   out, the rest fade over its last fifth; `edgeFade` fades the mark near the
   box's ends; the component's **albedo opacity** scales the whole mark.
-  `fadeDistance` and the other channels' opacities are the projected mode's.
+  `fadeDistance` and the other channels' opacities act on projected decals
+  only. At the largest `normalFade` (180°) both kinds mark every facing,
+  back faces too.
+- **Still surfaces.** Clipped decals mark surfaces that stay put. A surface
+  that keeps moving through a still decal's box (a door swinging, a mover)
+  is left out of the mark while it moves, and the Problems panel says so
+  once; once it has been still for a second it is marked again. A decal
+  carried with the surface it marks (both under one moving parent) is
+  never cut again for the motion. For marks on moving things, use a
+  projected decal.
 - **Order:** the component's `sortOrder` is added to its material's.
 - **When it is made:** when the scene loads, and again when a surface under
   it changes — a block chunk re-meshed, a generated object made again (a
@@ -336,9 +351,10 @@ only, or a mark on terrain.
   per-vertex fade as the custom attribute `_DECAL_FADE`, which the model
   import accepts; its one material named `<decal material>_decal`), maps
   the decal material to it in the asset's materials, and puts the model on
-  the decal's object in place of the decal component — four ordinary
-  commands (the import's `publishAsset`, `setAssetOptions`, `setComponent`
-  model, `setComponent` decal removed). The model draws as a mesh decal of
+  the decal's object in place of the decal component — all in one command
+  (the import's `publishAsset` with `bakeDecal: {entityId}`; over MCP,
+  upload the GLB and publish it the same way): one undo step takes the
+  whole bake back, and a refused bake changes nothing. The model draws as a mesh decal of
   the same material in the same place; edit the file by hand from there. It
   is no longer clipped again when the surfaces change, and the component's
   sort order is not kept (the material's applies).
@@ -421,10 +437,14 @@ const mark = ctx.decals.spawn('scorch', { position: hit.point, normal: hit.norma
   decal fading out, so a long fight keeps the newest marks and never costs
   more than this many. Authored decals never count, and a spawn is never
   refused for it. A script may spawn at most
-  `PRESENTATION_REQUESTS_PER_STEP` (32) decals in one fixed step; more return 0.
+  32 decals in one fixed step
+  ([`PRESENTATION_MAX_REQUESTS_PER_STEP`](../reference/limits-runtime.md#limit-presentation-max-requests-per-step));
+  more return 0, and the Problems panel says so once a Play.
 - **Presentation only.** Spawned decals are drawn by the page and never
   reach the simulation: they are not saved, not part of the run's state, and
-  a replay is the same with or without them. A run restart clears them.
+  a replay is the same with or without them. A run restart clears them,
+  and the handles count from 1 again in each run, so a script that keeps
+  one computes the same in every run.
   The decal pages of a spawned decal's material load with its first spawn
   (a scene decal of the same material keeps them loaded).
 - **Visual scripts:** the **Spawn decal** and **Remove decal** nodes.

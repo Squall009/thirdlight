@@ -953,7 +953,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Clipped decals too (an export keeps their meshes with the architecture's chunks between visits).
           clippedDecals: decalsFromUrl(pageSearch()),
           // Vertex paint drawn unless the page says ?paint=off (a diagnostic comparison).
-          vertexPaint: paintFromUrl(pageSearch()),
+          vertexPaint: paintFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

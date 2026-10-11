@@ -9,10 +9,12 @@
  * An instance set's paint addresses copies by their place in the set's
  * buffer, so a change of the buffer (the instance brush's erase, a copy
  * deleted in the editor, MCP's `setComponent instances`) carries the paint
- * table along in the same change (`copyIndexMap`): copies taken out lose
- * their paint, the others keep theirs. A buffer that is not the old one
- * edited drops the paint (it would land on unrelated copies); undo brings it
- * back.
+ * table along in the same change (`copyIndexMap`): each copy keeps its
+ * paint wherever it now sits as long as it is the same copy, bit for bit;
+ * copies taken out or changed lose theirs (a changed copy cannot be told
+ * from another put in its place: a new scatter of the same count keeps no
+ * paint). A change that carries `paint` itself (the editor moving one copy
+ * in place) is taken as it says. Undo brings dropped paint back.
  *
  * A model's painted meshes are read from its version's file once and kept by
  * the file's digest (a brush sends many strokes over one model).
@@ -91,7 +93,6 @@ export function followCopyPaint(core: Core, s: ProjectSession, paint: InstancePa
     nextBytes = r.bytes;
   }
   const map = copyIndexMap(floatsOf(old.bytes, before.count), floatsOf(nextBytes, after.count), INSTANCE_FLOATS);
-  if (map === null) return { ok: true, paint: null, blobs: [] };
   const t = read(paint.copies);
   if (!t.ok) return t;
   const table = t.bytes.byteLength === paint.painted * PAINT_COPY_ENTRY_BYTES ? decodeCopyTable(t.bytes) : null;

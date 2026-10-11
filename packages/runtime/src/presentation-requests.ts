@@ -5,7 +5,10 @@
  * recorded in step order and taken by the adapter each frame; nothing in the
  * simulation depends on them, so they are not part of its digest and a
  * replay is the same with or without a renderer taking them. Handles count
- * up for the whole play, so a renderer never confuses two of them.
+ * from 1 in every run: a script may keep one in its state, and a restarted
+ * run must compute what the first one did. The restart's own request (a
+ * clear, a stop of every script effect) comes first in the queue, so the
+ * renderer has let go of the old run's handles before a new one arrives.
  *
  * A spawned decal is the decal of a prefab (its first object carrying a
  * `decal` component), resolved here so the page needs no prefab table: the
@@ -19,11 +22,16 @@ import type { BehaviorDecals, BehaviorEffects, DecalRequest, EffectRequest } fro
 /** Requests kept for a renderer that does not take them (headless): the newest this many of each kind. */
 export const EFFECT_MAX_QUEUED_REQUESTS = 256;
 /** Effect plays and decal spawns a script may ask for in one step, each (more are refused: a loop gone wrong never floods the renderer). */
-export const PRESENTATION_REQUESTS_PER_STEP = 32;
+export const PRESENTATION_MAX_REQUESTS_PER_STEP = 32;
 /** A spawned decal's scale and lifetime (seconds) are clamped to these. */
 export const DECAL_SPAWN_LIMITS = { scaleMin: 0.01, scaleMax: 100, lifetimeMax: 3600 } as const;
 
 const EFFECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** The problem a script's refused plays and spawns report. */
+export const PRESENTATION_REFUSED = 'presentation_requests_refused';
+
+/** A stop of every script effect (a run restart's): no handle, no entity. */
+export const isStopAll = (r: Pick<EffectRequest, 'op' | 'handle' | 'entityId'>): boolean => r.op === 'stop' && r.handle === 0 && r.entityId === null;
 
 const finite3 = (v: readonly unknown[] | undefined, d: Vec3): [number, number, number] => {
   const out: [number, number, number] = [d[0], d[1], d[2]];
@@ -61,7 +69,7 @@ export function prefabDecal(prefab: PrefabDefinition | undefined): DecalComponen
 export class PresentationRequests {
   private effectQueue: EffectRequest[] = [];
   private decalQueue: DecalRequest[] = [];
-  /** The last handles handed out (never reset while the game runs: handles stay unique). */
+  /** The last handles handed out in this run. */
   private effectHandle = 0;
   private decalHandle = 0;
   /** The step the per-step counts are for, and the counts. */
@@ -69,7 +77,18 @@ export class PresentationRequests {
   private plays = 0;
   private spawns = 0;
 
-  constructor(private readonly host: { readonly stepIndex: () => number; readonly prefab: (id: string) => PrefabDefinition | undefined }) {}
+  constructor(private readonly host: { readonly stepIndex: () => number; readonly prefab: (id: string) => PrefabDefinition | undefined; readonly problem?: (code: string, message: string) => void }) {}
+
+  /** Keep the newest of a queue nobody takes; a run's first request (what clears the last run's) stays first. */
+  private static trim<T extends { readonly op: string; readonly handle: number; readonly entityId: string | null }>(q: T[], isReset: (r: T) => boolean): void {
+    if (q.length <= EFFECT_MAX_QUEUED_REQUESTS) return;
+    const cut = q.splice(0, q.length - EFFECT_MAX_QUEUED_REQUESTS);
+    for (let k = cut.length - 1; k >= 0; k--) {
+      if (!isReset(cut[k]!)) continue;
+      q.unshift(cut[k]!);
+      break;
+    }
+  }
 
   /** Record an effect request (a script's, an effect component's signal); returns a play's handle. */
   pushEffect(r: Omit<EffectRequest, 'stepIndex' | 'handle'> & { handle?: number }): number {
@@ -77,13 +96,13 @@ export class PresentationRequests {
     const req: EffectRequest = Object.freeze({ ...r, handle, stepIndex: this.host.stepIndex() + 1, position: Object.freeze([r.position[0], r.position[1], r.position[2]]) as unknown as readonly [number, number, number] });
     this.effectQueue.push(req);
     // Nobody takes them (no renderer, e.g. a headless run): keep only the newest.
-    if (this.effectQueue.length > EFFECT_MAX_QUEUED_REQUESTS) this.effectQueue.splice(0, this.effectQueue.length - EFFECT_MAX_QUEUED_REQUESTS);
+    PresentationRequests.trim(this.effectQueue, isStopAll);
     return handle;
   }
 
   private pushDecal(r: Omit<DecalRequest, 'stepIndex'>): void {
     this.decalQueue.push(Object.freeze({ ...r, stepIndex: this.host.stepIndex() + 1 }));
-    if (this.decalQueue.length > EFFECT_MAX_QUEUED_REQUESTS) this.decalQueue.splice(0, this.decalQueue.length - EFFECT_MAX_QUEUED_REQUESTS);
+    PresentationRequests.trim(this.decalQueue, (q) => q.op === 'clear');
   }
 
   /** Whether one more request of a kind fits this step (and counts it). */
@@ -94,7 +113,12 @@ export class PresentationRequests {
       this.plays = 0;
       this.spawns = 0;
     }
-    if (this[kind] >= PRESENTATION_REQUESTS_PER_STEP) return false;
+    if (this[kind] >= PRESENTATION_MAX_REQUESTS_PER_STEP) {
+      // Once a Play (the host keeps one line per code): a loop asking for more than a step allows is told, not ignored.
+      if (this[kind] === PRESENTATION_MAX_REQUESTS_PER_STEP) this.host.problem?.(PRESENTATION_REFUSED, `more than ${PRESENTATION_MAX_REQUESTS_PER_STEP} ${kind === 'plays' ? 'ctx.effects.play' : 'ctx.decals.spawn'} calls in one step (step ${step}): the rest returned 0 and were not shown`);
+      this[kind] += 1;
+      return false;
+    }
     this[kind] += 1;
     return true;
   }
@@ -155,10 +179,18 @@ export class PresentationRequests {
     },
   });
 
-  /** A new run: the decals the last one left are cleared (its scripts hold no handle to them). */
+  /**
+   * A new run: the decals the last one left are cleared and its script
+   * effects stopped (its scripts hold no handle to them), and handles count
+   * from 1 again.
+   */
   restartRun(): void {
     this.decalQueue = [];
+    this.effectQueue = [];
+    this.decalHandle = 0;
+    this.effectHandle = 0;
     this.pushDecal({ op: 'clear', handle: 0, prefabId: '', entityId: null, decal: null, position: [0, 0, 0], rotation: [0, 0, 0, 1], lifetime: 0 });
+    this.pushEffect({ op: 'stop', effectId: '', handle: 0, entityId: null, position: [0, 0, 0], params: null, source: 'script' });
   }
 
   /** The effect requests since the last call, in the order they were made. */

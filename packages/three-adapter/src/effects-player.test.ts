@@ -136,6 +136,27 @@ describe('effect player (CPU executor on WebGL 2)', () => {
     p.dispose();
   });
 
+  it('a run restart stops every script play and forgets its handle: the new run\'s handle 1 is its own', () => {
+    const scene = new THREE.Scene();
+    const p = createEffectsPlayer({ scene, defs: [FOUNTAIN], loadTexture: async () => null });
+    p.setRenderer(stubRenderer().r, 'webgl2');
+    const cam = camera();
+    p.request(play('fountain', 1), () => undefined);
+    for (let k = 0; k < 10; k++) p.update(1 / 30, cam);
+    // The restart's stop: no handle, no entity.
+    p.request({ op: 'stop', effectId: '', handle: 0, entityId: null, position: [0, 0, 0], params: null, source: 'script' }, () => undefined);
+    for (let k = 0; k < 45; k++) p.update(1 / 30, cam);
+    expect(p.diagnostics().playing).toBe(0);
+    // The new run's handle 1 is a play of its own: stopping it ends it.
+    p.request(play('fountain', 1), () => undefined);
+    p.update(1 / 30, cam);
+    expect(p.diagnostics().playing).toBe(1);
+    p.request({ op: 'stop', effectId: '', handle: 1, entityId: null, position: [0, 0, 0], params: null, source: 'script' }, () => undefined);
+    for (let k = 0; k < 45; k++) p.update(1 / 30, cam);
+    expect(p.diagnostics().playing).toBe(0);
+    p.dispose();
+  });
+
   it('pools a finished one-shot and reuses it for the next play of that effect', () => {
     const scene = new THREE.Scene();
     const p = createEffectsPlayer({ scene, defs: [BURST], loadTexture: async () => null });

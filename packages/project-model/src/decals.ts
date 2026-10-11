@@ -110,6 +110,39 @@ export const DECAL_DEFAULTS = {
   sortOrder: 0,
 } as const;
 
+/**
+ * The fades every decal kind shares: the projected decals' shader and row
+ * data and the clipper read the same numbers.
+ */
+export const DECAL_FADE = {
+  /** The share of the normal fade's angle marked fully (the mark fades out over the rest of it). */
+  fullMarkShare: 0.8,
+  /** The least edge fade, a share of the box depth (a sharp edge, never a division by nothing). */
+  edgeMin: 1e-4,
+  /** The share of `fadeDistance` where the distance fade starts. */
+  distanceStartShare: 0.8,
+} as const;
+
+/**
+ * A decal's normal fade as every kind applies it: the angle (degrees,
+ * clamped to its limits) and whether every facing is marked (the largest
+ * angle: back faces too).
+ */
+export function decalNormalFade(normalFade: number | undefined): { degrees: number; all: boolean } {
+  const v = typeof normalFade === 'number' && Number.isFinite(normalFade) ? normalFade : DECAL_DEFAULTS.normalFade;
+  const degrees = Math.min(DECAL_LIMITS.normalFadeMax, Math.max(DECAL_LIMITS.normalFadeMin, v));
+  return { degrees, all: degrees >= DECAL_LIMITS.normalFadeMax };
+}
+
+/** A decal's edge fades [front, back] as every kind applies them (defaults filled in, never below {@link DECAL_FADE}'s least). */
+export function decalEdgeFade(edgeFade: readonly number[] | undefined): [number, number] {
+  const at = (k: 0 | 1): number => {
+    const v = edgeFade?.[k];
+    return Math.max(DECAL_FADE.edgeMin, typeof v === 'number' && Number.isFinite(v) ? v : DECAL_DEFAULTS.edgeFade[k]);
+  };
+  return [at(0), at(1)];
+}
+
 /** Per-channel opacities (absent: 1, the material's own opacity). */
 export type DecalOpacity = Partial<Record<DecalChannel, number>>;
 

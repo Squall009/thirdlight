@@ -23,11 +23,11 @@ import {
   copySlot,
   decodeCopyTable,
   encodeCopyTable,
-  invert,
   multiply,
   paintIsEmpty,
   paintPathDabs,
   pathPaintFrame,
+  pathPaintPoint,
   paintVertexDabs,
   transformPoints,
   vertexPaintStrokeError,
@@ -113,7 +113,9 @@ function meshesFor(content: ContentDocument | undefined, asset: { assetId?: unkn
 /** Refuse painting over a mesh whose paint was made for other vertices (a reimport changed them). */
 function staleError(r: VertexPaintMesh, m: PaintableMesh): { ok: false; error: CommandError } | null {
   if (r.vertices === m.vertices && r.positions === m.positions) return null;
-  return refuse('/args/entityId', r.mesh, `mesh ${r.mesh}'s paint was made for other vertices (the model was reimported); remove that paint first (setComponent vertexPaint without it), or undo the reimport`);
+  // A code of its own: the editor offers to remove that paint by it (and the mesh, `found`).
+  const refused = refuse('/args/entityId', r.mesh, `mesh ${r.mesh}'s paint was made for other vertices (the model was reimported); remove that paint first (setComponent vertexPaint without it), or undo the reimport`);
+  return { ok: false, error: { ...refused.error, code: 'vertex_paint_stale' } };
 }
 
 const blobOf = (bytes: Uint8Array, reads: VertexPaintReads, out: VertexPaintBlob[]): string => {
@@ -134,7 +136,7 @@ export function planVertexPaint(scene: SceneDocument, content: ContentDocument |
   if (entity === undefined) return { ok: false, error: entityNotFound(args.entityId) };
   const toWorld = worldMatrix(byId as unknown as ReadonlyMap<string, HierarchyNode>, args.entityId);
   const c = entity.components;
-  if (args.path !== undefined) return planPathPaint(entity, toWorld, args, reads);
+  if (args.path !== undefined) return planPathPaint(entity, args, reads);
   if (c['instances'] !== undefined) return planCopyPaint(entity, content, toWorld, args, reads);
   if (c['model'] !== undefined) {
     if (args.copy !== undefined) return refuse('/args/copy', args.copy, 'copy paints an instance set; this object is a model');
@@ -284,17 +286,14 @@ function planCopyPaint(entity: SceneEntity, content: ContentDocument | undefined
   return { ok: true, prepared: { entityId: args.entityId, component: 'instances', value: { paint } }, blobs, changed };
 }
 
-function planPathPaint(entity: SceneEntity, toWorld: number[], args: PaintVerticesArgs, reads: VertexPaintReads): Planned {
+function planPathPaint(entity: SceneEntity, args: PaintVerticesArgs, reads: VertexPaintReads): Planned {
   const c = entity.components;
   if (c['architecture'] === undefined && c['spline'] === undefined) return refuse('/args/path', args.path, 'path paints generated architecture or a spline; this object has neither');
   const frame = pathPaintFrame(c, args.path!);
   if (frame === null) return refuse('/args/path', args.path, `the object has no path "${args.path}"`);
-  const toLocal = invert(toWorld);
-  if (toLocal === null) return refuse('/args/entityId', args.entityId, 'the object is scaled to nothing');
-  const dabs: PaintVec3[] = args.dabs.map((d) => {
-    const p = transformPoints(Float32Array.from(d), toLocal);
-    return [p[0]!, p[1]!, p[2]!];
-  });
+  // Drawn at its own position alone (the page's frame), so a dab is offset by that, whatever its parent, rotation or scale.
+  const origin = (c['transform'] as { position?: readonly number[] } | undefined)?.position;
+  const dabs: PaintVec3[] = args.dabs.map((d) => pathPaintPoint(origin, d));
   const current = c['vertexPaint'] as VertexPaintComponent | undefined;
   const grids = [...(current?.paths ?? [])];
   const at = grids.findIndex((g) => g.path === args.path && g.side === args.side);

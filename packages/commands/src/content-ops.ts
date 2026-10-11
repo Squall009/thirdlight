@@ -76,6 +76,7 @@ import {
   validateAnimationRolesShape,
   validateV3ComponentValue,
 } from './v3';
+import { decalBakeFollows, planDecalBake } from './decal-bake-ops';
 import type {
   AcknowledgeBehaviorTrustArgs,
   AcknowledgeBehaviorTrustChange,
@@ -260,9 +261,13 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     }
   }
 
+  // A decal baked to this model: checked in full before anything is applied.
+  const bake = args.bakeDecal === undefined ? null : planDecalBake(input.scene, args, args.bakeDecal);
+  if (bake !== null && !bake.ok) return bake;
+
   const version = existing !== null ? existing.currentVersion + 1 : 1;
   const versionRecord = assetVersionRecord(args, version, input.revision);
-  const record: CommandAssetRecord =
+  const published: CommandAssetRecord =
     existing !== null
       ? (() => {
           const { extractTextures: _setting, textures: _images, ...rest } = deepClone(existing) as CommandAssetRecord;
@@ -275,6 +280,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
           };
         })()
       : createdAssetRecord(args, input.revision);
+  const record: CommandAssetRecord = bake === null ? published : ({ ...published, materials: bake.plan.materials } as CommandAssetRecord);
   const assets = [
     ...catalog.assets.filter((a) => a.assetId !== args.assetId),
     record,
@@ -321,6 +327,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     nextEntities = [...input.scene.entities];
     nextEntities[index] = cloned;
   }
+  if (bake !== null) nextEntities = bake.plan.entities;
   const resultScene = {
     ...input.scene,
     revision: input.scene.revision + 1,
@@ -350,7 +357,13 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   };
   return {
     ok: true,
-    op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'publishAsset', assetId: args.assetId, restore: previous } },
+    op: {
+      scene: gate.scene,
+      content: gate.content,
+      change,
+      inverse: { kind: 'publishAsset', assetId: args.assetId, restore: previous },
+      ...(bake === null ? {} : { follows: decalBakeFollows(bake.plan, gate.scene) }),
+    },
   };
 }
 

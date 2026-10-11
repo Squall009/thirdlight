@@ -62,8 +62,51 @@ const paintBases = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 
 /** Texels a row of a paint stream (under WebGPU's default largest side, 8192, and what WebGL 2 GPUs take in practice). */
 export const PAINT_STREAM_WIDTH = 4096;
-/** Rows a paint stream may have (WebGPU's default largest texture side): past it the draw goes unpainted. */
+/**
+ * Rows a paint stream may have until the renderer says what its device
+ * takes (WebGPU's default largest texture side, which three asks for): past
+ * the device's largest side the draw goes unpainted and is reported.
+ */
 export const PAINT_STREAM_ROWS_MAX = 8192;
+
+/** The rows the page's device takes (its largest texture side; 0: not even one row of {@link PAINT_STREAM_WIDTH}). */
+let deviceRows = PAINT_STREAM_ROWS_MAX;
+const overflowListeners = new Set<(message: string) => void>();
+
+/**
+ * Read the largest texture side of the renderer's device (once it is
+ * initialised): WebGPU's device limit, WebGL 2's MAX_TEXTURE_SIZE (which may
+ * be as low as 2048 or as high as 16384). Every page draws on one GPU.
+ */
+export function setPaintStreamDevice(backend: { readonly isWebGLBackend?: boolean; readonly gl?: { readonly MAX_TEXTURE_SIZE: number; getParameter(p: number): unknown }; readonly device?: { readonly limits?: { readonly maxTextureDimension2D?: number } } | null } | null | undefined): void {
+  const side = backend?.isWebGLBackend === true && typeof backend.gl?.getParameter === 'function' ? backend.gl.getParameter(backend.gl.MAX_TEXTURE_SIZE) : backend?.device?.limits?.maxTextureDimension2D;
+  if (typeof side !== 'number' || !(side > 0)) return;
+  deviceRows = side < PAINT_STREAM_WIDTH ? 0 : side;
+}
+
+/** The rows a stream may have on this page's device. */
+export function paintStreamRowsMax(): number {
+  return deviceRows;
+}
+
+/** The Problems code of a paint stream that does not fit the device. */
+export const PAINT_STREAM_OVERFLOW = 'vertex_paint_overflow';
+
+/**
+ * Report the paint streams that do not fit the device (a set or batch whose
+ * painted copies × vertices pass its largest texture; that draw goes
+ * unpainted) to `onProblem`, each case once. Returns the unsubscribe.
+ */
+export function reportPaintStreamOverflow(onProblem: (code: string, message: string) => void): () => void {
+  const said = new Set<string>();
+  const listener = (message: string): void => {
+    if (said.has(message)) return;
+    said.add(message);
+    onProblem(PAINT_STREAM_OVERFLOW, message);
+  };
+  overflowListeners.add(listener);
+  return () => overflowListeners.delete(listener);
+}
 
 /** An instanced draw's paint: its slots' runs, 4 bytes a vertex, as a data texture. */
 export interface PaintStream {
@@ -80,9 +123,14 @@ export interface PaintStream {
 /** A stream of `slots` runs of `vertices` (the bytes one after another), or null when it would not fit a texture. */
 export function paintStream(bytes: Uint8Array, vertices: number, slots: number): PaintStream | null {
   const texels = vertices * slots;
-  if (vertices <= 0 || slots <= 0 || bytes.length < texels * 4) return null;
+  if (vertices <= 0 || slots <= 0) return null;
   const rows = Math.ceil(texels / PAINT_STREAM_WIDTH);
-  if (rows > PAINT_STREAM_ROWS_MAX) return null;
+  if (rows > deviceRows) {
+    const message = `vertex paint of ${slots} painted copies of a ${vertices}-vertex mesh needs ${rows} rows of ${PAINT_STREAM_WIDTH} texels, past the ${deviceRows} this GPU takes: that draw goes unpainted; paint fewer copies of it, or a mesh with fewer vertices`;
+    for (const l of overflowListeners) l(message);
+    return null;
+  }
+  if (bytes.length < texels * 4) return null;
   const data = new Uint8Array(rows * PAINT_STREAM_WIDTH * 4);
   data.set(bytes.subarray(0, texels * 4));
   const texture = new THREE.DataTexture(data, PAINT_STREAM_WIDTH, rows, THREE.RGBAFormat, THREE.UnsignedByteType);

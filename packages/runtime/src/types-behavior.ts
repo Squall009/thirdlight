@@ -498,7 +498,7 @@ export interface EffectRequest {
   readonly op: 'play' | 'stop';
   /** play: the project effect; stop by entity: '' . */
   readonly effectId: string;
-  /** play: the new play's handle (> 0); stop: the handle stopped (0 = every play on `entityId`). */
+  /** play: the new play's handle (> 0); stop: the handle stopped (0 = every play on `entityId`; 0 without an entity: every script play, a run restart's). */
   readonly handle: number;
   /** The entity it plays on (it follows the entity), or null (at `position` in world space). */
   readonly entityId: string | null;

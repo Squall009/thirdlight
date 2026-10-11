@@ -11,17 +11,21 @@
  *
  * Pure: arrays in, bytes out.
  */
-import { BRUSH_FALLOFFS, brushFalloff, paintPoint, type BrushFalloff } from './paint-brush';
+import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintPoint, type BrushFalloff } from './paint-brush';
 import { PATH_PAINT_SIDES, VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, isPathPaintKey, type PathPaintSide } from './vertex-paint';
 
 export type PaintVec3 = [number, number, number];
 
-/** The vertex brush's bounds: a stroke fits one command. */
+/**
+ * The vertex brush's bounds: a stroke fits one command. Strength is the
+ * shared brush's blend per dab (its bound is that brush's); the radius is
+ * metres in the world, not the block brush's cells, so it is bounded here.
+ */
 export const VERTEX_PAINT_BRUSH_LIMITS = Object.freeze({
   dabs: 256,
   /** Metres. */
   radius: Object.freeze({ min: 0.01, max: 64 }),
-  strengthMax: 1,
+  strengthMax: PAINT_BRUSH_LIMITS.strengthMax,
 });
 
 export interface VertexPaintBrush {

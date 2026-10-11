@@ -797,6 +797,17 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   }, { timeout: 30_000, message: 'the wall decal baked to a model' }).toBe('true true');
   const bakedAsset = (baked as Baked | null)!.components.model!.asset!.assetId!;
   console.log(`clipped decal ${variant} baked to model ${bakedAsset}`);
+  // One command: the asset's material map came with it, and one Undo takes the whole bake back (the decal again, no
+  // model, no asset); Redo bakes it again.
+  const bakedAssets = (): Promise<{ assets?: { assetId: string; materials?: Record<string, string> }[] }> => query('queryAssets', { ids: [bakedAsset], includeVersions: false }) as never;
+  expect((await bakedAssets()).assets?.[0]?.materials).toEqual({ 'mat-pd-green_decal': 'mat-pd-green' });
+  await menu(page, 'Edit', 'Undo');
+  await expect.poll(async () => {
+    const e = ((await query('queryEntity', { entityId: decalSetup.clippedWallId })) as { entity: Baked }).entity;
+    return `${e.components.decal !== undefined} ${e.components.model === undefined} ${(await bakedAssets()).assets?.length ?? 0}`;
+  }, { timeout: 10_000, message: 'one undo takes the bake back' }).toBe('true true 0');
+  await menu(page, 'Edit', 'Redo');
+  await expect.poll(async () => ((await query('queryEntity', { entityId: decalSetup.clippedWallId })) as { entity: Baked }).entity.components.model?.asset?.assetId, { timeout: 10_000, message: 'redo bakes it again' }).toBe(bakedAsset);
   await page.locator('.tl-hierarchy__filter').fill('');
   // The terrain tile selected again (its gizmo away from the reads): the baked object's gizmo stood over the wall's mark.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
@@ -896,7 +907,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const decalPages = renderer['decals'] as { decals: number; pages: number; layers: number; bytes: number; onGpu: number } | undefined;
   const budget = renderer['textures'] as { budgetBytes: number; fixedBytes: number } | undefined;
   console.log(`decal pages ${variant} Play: ${JSON.stringify(decalPages ?? null)}; textures ${budget?.fixedBytes ?? '-'} fixed of a ${budget?.budgetBytes ?? '-'} byte budget`);
-  expect(decalPages).toMatchObject({ decals: decalCount + 1, pages: 2, layers: 3, onGpu: 2 });
+  // Every decal holds its pages but the wet one (a roughness value, no image); the cell's decal one more.
+  expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 3, onGpu: 2 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
   expectCulled(renderer['rooms'] as never);

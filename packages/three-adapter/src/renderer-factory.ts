@@ -37,6 +37,7 @@ import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
+import { setPaintStreamDevice } from './vertex-paint-draw';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
 export type RendererPreferenceSource = 'default' | 'setting' | 'url';
@@ -528,6 +529,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
         installBuildMarks(r);
         // A re-bake's new objects reuse the builds of the ones they replace (after the WebGL 2 release above).
         buildReuse = installBuildReuse(r, buildKeepFromUrl(pageSearch()));
+        // Vertex paint streams are as tall as this device's textures can be (see vertex-paint-draw.ts).
+        setPaintStreamDevice(r.backend as Parameters<typeof setPaintStreamDevice>[0]);
         const onGpu = r.backend.isWebGPUBackend === true;
         publish({
           backend: onGpu ? 'webgpu' : 'webgl2',

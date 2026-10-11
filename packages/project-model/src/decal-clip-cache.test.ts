@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { clipDecal, DECAL_CLIP_VERSION } from './decal-clip';
+import { clipDecal, DECAL_CLIP_LIFT, DECAL_CLIP_VERSION, decalClipSettings } from './decal-clip';
+import { DECAL_DEFAULTS, DECAL_FADE, DECAL_LIMITS } from './decals';
 import { decalClipGeometryHash, decalClipKey, decodeDecalClipMesh, encodeDecalClipMesh, sortDecalClipReceivers } from './decal-clip-cache';
 
 const ID = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -77,5 +78,19 @@ describe('clipped decal cache', () => {
     expect(decalClipKey(p, [r1])).not.toBe(key);
     // The same key run to run.
     expect(decalClipKey(p, [r1, r2])).toBe(key);
+  });
+});
+
+describe('a clip key and the clipper agree on defaults', () => {
+  it('an absent fade keys as its default, a value past a limit as the limit: the key holds what the clipper uses', () => {
+    const r = [{ geometry: 'g', matrix: ID }];
+    const base = { matrix: ID, size: [1, 1, 1] };
+    const k = (p: Record<string, unknown>): string => decalClipKey({ ...base, ...p }, r);
+    expect(k({})).toBe(k({ normalFade: DECAL_DEFAULTS.normalFade, edgeFade: [...DECAL_DEFAULTS.edgeFade], rect: [0, 0, 1, 1], lift: DECAL_CLIP_LIFT }));
+    expect(k({ normalFade: 500 })).toBe(k({ normalFade: DECAL_LIMITS.normalFadeMax }));
+    expect(k({ edgeFade: [0, 0] })).toBe(k({ edgeFade: [DECAL_FADE.edgeMin, DECAL_FADE.edgeMin] }));
+    expect(k({ normalFade: 45 })).not.toBe(k({}));
+    // What the clipper reads is what the key reads.
+    expect(decalClipSettings({})).toMatchObject({ normalFade: DECAL_DEFAULTS.normalFade, edgeFade: DECAL_DEFAULTS.edgeFade, fullMarkShare: DECAL_FADE.fullMarkShare, lift: DECAL_CLIP_LIFT });
   });
 });

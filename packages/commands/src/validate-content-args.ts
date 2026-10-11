@@ -58,9 +58,9 @@ export function validatePublishAssetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishAssetArgs> | { ok: false; error: CommandError } {
   const KNOWN =
-    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), packedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only), extractTextures (model, optional), generateLods (model, optional), textures (model, optional)';
+    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), packedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only), extractTextures (model, optional), generateLods (model, optional), textures (model, optional), bakeDecal (model create, optional)';
   for (const key of Object.keys(args)) {
-    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'packedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation', 'extractTextures', 'generateLods', 'textures'].includes(key)) {
+    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'packedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation', 'extractTextures', 'generateLods', 'textures', 'bakeDecal'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -271,6 +271,20 @@ export function validatePublishAssetArgs(
       return { ok: false, error: fieldType('/args/animation/roles', animation['roles'], 'object { idle, run, airborne }') };
     }
     out.animation = animation as unknown as PublishAssetArgs['animation'];
+  }
+  // A clipped decal baked to the new model; what it names is the op's to check against the scene.
+  if (args['bakeDecal'] !== undefined) {
+    if (args['mode'] !== 'create' || args['kind'] !== 'model') {
+      return { ok: false, error: fieldUnexpected('/args/bakeDecal', 'bakeDecal', KNOWN, 'bakeDecal is permitted only on a model create (kind "model")') };
+    }
+    const bake = args['bakeDecal'];
+    if (!isPlainObject(bake)) return { ok: false, error: fieldType('/args/bakeDecal', bake, 'object { entityId }') };
+    for (const key of Object.keys(bake)) {
+      if (key !== 'entityId') return { ok: false, error: fieldUnexpected(`/args/bakeDecal/${key}`, key, 'entityId') };
+    }
+    if (bake['entityId'] === undefined) return { ok: false, error: fieldMissing('/args/bakeDecal/entityId', 'entityId') };
+    if (typeof bake['entityId'] !== 'string') return { ok: false, error: fieldType('/args/bakeDecal/entityId', bake['entityId'], 'string (entity ID)') };
+    out.bakeDecal = { entityId: bake['entityId'] };
   }
   return { ok: true, args: out };
 }

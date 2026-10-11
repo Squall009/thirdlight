@@ -283,6 +283,12 @@ export interface DecalSource {
   readonly images: DecalImages;
   readonly place: DecalPlace;
   readonly params: Readonly<Record<string, unknown>>;
+  /**
+   * Whether the material has an occlusion/roughness/metalness image. Its ORM
+   * page set may hold only an emissive mask (white in R, G, B): those
+   * channels are then not the decal's to set.
+   */
+  readonly ormImage: boolean;
 }
 
 /** The images, place and parameters of a built decal material (null: not one). */
@@ -609,7 +615,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     refresh = installDecalNodes(m, p, images, place, multiply);
     installDecalDraw(m, { blend, sortOrder: decalSortOrder(p['sortOrder']) });
     // Projected decals read the same images and place (decal-projectors.ts): filled in as they arrive.
-    m.userData[DECAL_SOURCE_KEY] = { images, place, params: p } satisfies DecalSource;
+    const ormImage = def.decal !== undefined ? sheet?.textures['ormMap'] !== undefined : def.textures['ormMap'] !== undefined;
+    m.userData[DECAL_SOURCE_KEY] = { images, place, params: p, ormImage } satisfies DecalSource;
     return m;
   }
 

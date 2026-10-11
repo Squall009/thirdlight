@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, PRESENTATION_REQUESTS_PER_STEP, registerSimulationModule, type DecalRequest, type Runtime } from './index';
+import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, PRESENTATION_MAX_REQUESTS_PER_STEP, registerSimulationModule, type DecalRequest, type Runtime } from './index';
 
 const DT = 1 / 120;
 const at = (x: number, y: number, z = 0): { position: number[]; rotation: number[]; scale: number[] } => ({ position: [x, y, z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
@@ -131,7 +131,7 @@ describe('ctx.decals', () => {
     expect(requests[1]!.lifetime).toBe(0);
   });
 
-  it(`refuses more than ${PRESENTATION_REQUESTS_PER_STEP} spawns a step and is deterministic; a restart clears the run's decals`, () => {
+  it(`refuses more than ${PRESENTATION_MAX_REQUESTS_PER_STEP} spawns a step and is deterministic; a restart clears the run's decals`, () => {
     const script = (ctx: DecalCtx, h: number[]): void => {
       if (ctx.stepIndex === 2) for (let i = 0; i < 40; i++) h.push(ctx.decals.spawn('scorch', { position: [i, 0, 0] }));
     };
@@ -139,16 +139,29 @@ describe('ctx.decals', () => {
     const b = run(script);
     expect(b.handles).toEqual(a.handles);
     expect(b.requests).toEqual(a.requests);
-    expect(a.handles.filter((x) => x > 0)).toHaveLength(PRESENTATION_REQUESTS_PER_STEP);
-    expect(a.requests.filter((r) => r.op === 'spawn')).toHaveLength(PRESENTATION_REQUESTS_PER_STEP);
-    // A restart: the decals the run left go (spawns not taken yet go with them); handles keep counting.
+    expect(a.handles.filter((x) => x > 0)).toHaveLength(PRESENTATION_MAX_REQUESTS_PER_STEP);
+    expect(a.requests.filter((r) => r.op === 'spawn')).toHaveLength(PRESENTATION_MAX_REQUESTS_PER_STEP);
+    // Past the count: one Problems line for the Play, not a silent 0.
+    expect(a.rt.takeProblems!().filter((p) => p.code === 'presentation_requests_refused')).toHaveLength(1);
+    // A restart: the decals the run left go (spawns not taken yet go with them), and handles count from 1 again
+    // (a script that keeps one computes in the new run what it computed in the first).
     const restarted = run((ctx, h) => {
       if (ctx.stepIndex === 2) h.push(ctx.decals.spawn('scorch'));
       if (ctx.stepIndex === 10) ctx.lifecycle.restart();
       if (ctx.stepIndex === 20) h.push(ctx.decals.spawn('scorch'));
     });
     expect(restarted.requests.map((r) => r.op)).toEqual(['clear', 'spawn']);
-    expect(restarted.handles).toEqual([1, 2]);
+    expect(restarted.handles).toEqual([1, 1]);
+  });
+
+  it('a restart\'s clear stays first in a queue nobody takes, however many spawns follow it', () => {
+    const { requests } = run((ctx) => {
+      if (ctx.stepIndex === 2) ctx.lifecycle.restart();
+      if (ctx.stepIndex > 4) for (let i = 0; i < PRESENTATION_MAX_REQUESTS_PER_STEP; i++) ctx.decals.spawn('scorch');
+    });
+    expect(requests.length).toBeGreaterThan(200);
+    expect(requests[0]!.op).toBe('clear');
+    expect(requests.slice(1).every((r) => r.op === 'spawn')).toBe(true);
   });
 
   it('spawning decals changes nothing the simulation computes', () => {

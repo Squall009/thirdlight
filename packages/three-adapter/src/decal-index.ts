@@ -27,7 +27,8 @@
  * decals would reach into more than {@link DECAL_INDEX_ENTRIES_PER_DECAL}
  * cells each on average (a few huge decals among small ones). A cell lists
  * at most the overlap budget (project-model `DECAL_CELL_BUDGET`): past it the
- * lowest sort orders are dropped there and counted.
+ * lowest sort orders are dropped there and counted. The grid's corner is the
+ * decals' lowest corner at the build.
  *
  * The index changes in place ({@link DecalGrid}): a decal added, moved or
  * removed rewrites only the lists of the cells it left and entered, so a
@@ -37,11 +38,19 @@
  * A cell left empty gives its slot back, the cells probed past it moving up
  * into the gap (linear probing's deletion), so a decal travelling across a
  * level leaves no trail of slots that would lengthen the lookups.
- * The layout (the corner, the cell size, the table's size, the room for
- * lists) is chosen when the grid is built, with room to spare; a change it
- * cannot take (the table past {@link DECAL_SLOTS_FULL} full, the lists out of
- * room, a decal reaching into far more cells than the cells were sized for)
- * asks for a new build. Pure: no three.js.
+ * The layout (the cell size, the table's size, the room for lists) is
+ * chosen when the grid is built, with room to spare; a change it cannot take
+ * (the table past {@link DECAL_SLOTS_FULL} full, the lists out of room, a
+ * decal reaching into far more cells than the cells were sized for) asks for
+ * a new build. So does a change after which a whole build would size the
+ * cells otherwise (the decals' median extent moved to another quarter
+ * octave, or the average reach crossed the doubling rule either way): a level of
+ * 4 m puddles that then takes many 0.15 m bullet holes must not keep cells
+ * sized for the puddles, where the holes would pile into one cell's list past
+ * the overlap budget and be dropped. The sizes are kept as per-axis counts of
+ * extents by quarter octave and the reach sums at the cell size and at half of
+ * it, so the test costs a few dozen reads a change, not a pass over the
+ * decals. Pure: no three.js.
  */
 
 /** Texels a line of the table and index textures. */
@@ -155,10 +164,20 @@ export const DECAL_SLOTS_FULL = 3 / 8;
 const CELLS_PER_DECAL_MAX = 4 * DECAL_INDEX_ENTRIES_PER_DECAL;
 /** Cell coordinates stay exact in a float texel (2^24). */
 const COORD_MAX = 1 << 23;
+/** The smallest cell (2^this m). */
+const CELL_MIN_LOG2 = -4;
+/** Steps an octave of extents is counted in: a cell within 9 % of the median extent (a coarser step makes longer lists to walk). */
+const EXTENT_STEPS = 4;
+/** Extents are counted from {@link CELL_MIN_LOG2} up 32 octaves (2^27 m: past any level). */
+const EXTENT_BUCKETS = 32 * EXTENT_STEPS;
 
-const median = (v: number[]): number => {
-  v.sort((a, b) => a - b);
-  return v[Math.floor(v.length / 2)]!;
+/** The step (from {@link CELL_MIN_LOG2}) nearest an extent. */
+const extentBucket = (e: number): number => Math.min(EXTENT_BUCKETS - 1, Math.max(0, Math.round((Math.log2(Math.max(e, 1e-9)) - CELL_MIN_LOG2) * EXTENT_STEPS)));
+/** The cells a box reaches into at cell size `cell` (corner at the origin). */
+const reachOf = (b: DecalBox, cell: readonly number[], o: readonly number[]): number => {
+  let n = 1;
+  for (let a = 0; a < 3; a++) n *= Math.floor((b.max[a]! - o[a]!) / cell[a]!) - Math.floor((b.min[a]! - o[a]!) / cell[a]!) + 1;
+  return n;
 };
 const pow2 = (n: number): number => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
 
@@ -206,6 +225,18 @@ export class DecalGrid {
   private readonly free = new Map<number, number[]>();
   /** The decals the budget leaves out of a cell: in how many cells. */
   private readonly cutCounts = new Map<number, number>();
+  /** Live decals' extents per axis, counted by step; the median step the last build sized the cells by. */
+  private readonly extents = [new Int32Array(EXTENT_BUCKETS), new Int32Array(EXTENT_BUCKETS), new Int32Array(EXTENT_BUCKETS)];
+  private live = 0;
+  private medianAtBuild: [number, number, number] = [0, 0, 0];
+  /** Doublings past the median the last build took, and how many of them only kept coordinates exact. */
+  private doublings = 0;
+  private doublingsForCoords = 0;
+  /** Each row's reach at the cell size and at half of it, and their sums over the live decals. */
+  private reachHere: number[] = [];
+  private reachBelow: number[] = [];
+  private sumHere = 0;
+  private sumBelow = 0;
   private dirtyLo = Infinity;
   private dirtyHi = 0;
 
@@ -248,34 +279,44 @@ export class DecalGrid {
     this.clear();
     const live: number[] = [];
     boxes.forEach((b, i) => (b !== undefined ? live.push(i) : undefined));
+    for (const i of live) this.count(boxes[i]!, 1);
     if (live.length === 0) return;
+    this.medianAtBuild = this.medians();
+    let far = 0;
     const lo = [Infinity, Infinity, Infinity];
-    const hi = [-Infinity, -Infinity, -Infinity];
-    const cell: [number, number, number] = [0, 0, 0];
-    for (let a = 0; a < 3; a++) {
-      const extents: number[] = [];
-      for (const i of live) {
-        const r = boxes[i]!;
-        lo[a] = Math.min(lo[a]!, r.min[a]!);
-        hi[a] = Math.max(hi[a]!, r.max[a]!);
-        extents.push(r.max[a]! - r.min[a]!);
-      }
-      cell[a] = Math.max(0.05, median(extents));
-    }
+    for (const i of live) for (let a = 0; a < 3; a++) lo[a] = Math.min(lo[a]!, boxes[i]!.min[a]!);
     this.origin = [lo[0]!, lo[1]!, lo[2]!];
-    const reach = (r: DecalBox): number => [0, 1, 2].reduce((n, a) => n * (Math.floor((r.max[a]! - lo[a]!) / cell[a]!) - Math.floor((r.min[a]! - lo[a]!) / cell[a]!) + 1), 1);
-    // Coordinates stay exact in a float texel and the cells per decal bounded.
-    const fits = (): boolean => [0, 1, 2].every((a) => (hi[a]! - lo[a]!) / cell[a]! < COORD_MAX / 2) && live.reduce((n, i) => n + reach(boxes[i]!), 0) <= DECAL_INDEX_ENTRIES_PER_DECAL * live.length;
-    while (!fits()) for (let a = 0; a < 3; a++) cell[a] = cell[a]! * 2;
+    for (const i of live) for (let a = 0; a < 3; a++) far = Math.max(far, Math.abs(boxes[i]!.min[a]! - lo[a]!), Math.abs(boxes[i]!.max[a]! - lo[a]!));
+    // The cells start at the exact median extent per axis (the counts by step only tell when it has moved on).
+    const base = [0, 1, 2].map((a) => {
+      const v = live.map((i) => boxes[i]!.max[a]! - boxes[i]!.min[a]!).sort((x, y) => x - y);
+      return Math.max(2 ** CELL_MIN_LOG2, v[Math.floor(v.length / 2)]!);
+    });
+    const at = (k: number): number[] => base.map((c) => c * 2 ** k);
+    // Coordinates stay exact in a float texel, then the cells per decal bounded.
+    let k = 0;
+    while (base.some((c) => far / (c * 2 ** k) >= COORD_MAX / 2)) k += 1;
+    this.doublingsForCoords = k;
+    const sum = (cell: number[]): number => live.reduce((n, i) => n + reachOf(boxes[i]!, cell, this.origin), 0);
+    while (sum(at(k)) > DECAL_INDEX_ENTRIES_PER_DECAL * live.length) k += 1;
+    this.doublings = k;
+    const cell = at(k) as [number, number, number];
     this.cell = cell;
+    const half = cell.map((c) => c / 2);
+    for (const i of live) {
+      this.reachHere[i] = reachOf(boxes[i]!, cell, this.origin);
+      this.reachBelow[i] = k > this.doublingsForCoords ? reachOf(boxes[i]!, half, this.origin) : 0;
+      this.sumHere += this.reachHere[i]!;
+      this.sumBelow += this.reachBelow[i]!;
+    }
     // Each cell's decals in drawing order (rows placed lowest order first, so every list is appended to in order).
     const order = [...live].sort((a, b) => this.before(a, b));
     const lists = new Map<string, { at: [number, number, number]; rows: number[] }>();
     for (const i of order) {
-      for (const at of this.cellsOf(boxes[i]!, Infinity)!) {
-        const k = `${at[0]},${at[1]},${at[2]}`;
-        const l = lists.get(k);
-        if (l === undefined) lists.set(k, { at, rows: [i] });
+      for (const c of this.cellsOf(boxes[i]!, Infinity)!) {
+        const key = `${c[0]},${c[1]},${c[2]}`;
+        const l = lists.get(key);
+        if (l === undefined) lists.set(key, { at: c, rows: [i] });
         else l.rows.push(i);
       }
     }
@@ -305,12 +346,24 @@ export class DecalGrid {
     this.boxes[i] = box;
     if (seq !== undefined) this.seq[i] = seq;
     else this.seq[i] ??= i;
+    if (old !== undefined) {
+      this.count(old, -1);
+      this.sumHere -= this.reachHere[i] ?? 0;
+      this.sumBelow -= this.reachBelow[i] ?? 0;
+    }
+    this.reachHere[i] = 0;
+    this.reachBelow[i] = 0;
     if (box === undefined) {
       for (const c of before) this.leave(c, i);
       this.rowCells[i] = undefined;
-      return true;
+      return this.sized();
     }
-    if (this.mask === 0) return false;
+    this.count(box, 1);
+    this.reachHere[i] = reachOf(box, this.cell, this.origin);
+    this.reachBelow[i] = this.doublings > this.doublingsForCoords ? reachOf(box, this.cell.map((c) => c / 2), this.origin) : 0;
+    this.sumHere += this.reachHere[i]!;
+    this.sumBelow += this.reachBelow[i]!;
+    if (this.mask === 0 || !this.sized()) return false;
     const at = this.cellsOf(box, CELLS_PER_DECAL_MAX);
     if (at === null) return false;
     const reorder = old !== undefined && old.sortOrder !== box.sortOrder;
@@ -339,10 +392,57 @@ export class DecalGrid {
     return true;
   }
 
+  /**
+   * Whether a whole build of the live decals would size the cells as they
+   * are: the same median step per axis, and the same number of
+   * doublings (the reach at this size within the average, at half of it
+   * past it).
+   */
+  private sized(): boolean {
+    if (this.live === 0) return true;
+    const m = this.medians();
+    if (m.some((b, a) => b !== this.medianAtBuild[a])) return false;
+    const most = DECAL_INDEX_ENTRIES_PER_DECAL * this.live;
+    return this.sumHere <= most && (this.doublings === this.doublingsForCoords || this.sumBelow > most);
+  }
+
+  /** Count `b`'s extents in (or, `by` −1, out of) the live decals'. */
+  private count(b: DecalBox, by: 1 | -1): void {
+    this.live += by;
+    for (let a = 0; a < 3; a++) this.extents[a]![extentBucket(b.max[a]! - b.min[a]!)]! += by;
+  }
+
+  /** The median extent's step per axis, the element a sort would put at half the count. */
+  private medians(): [number, number, number] {
+    const out: [number, number, number] = [0, 0, 0];
+    const at = Math.floor(this.live / 2);
+    for (let a = 0; a < 3; a++) {
+      const h = this.extents[a]!;
+      let seen = 0;
+      for (let b = 0; b < EXTENT_BUCKETS; b++) {
+        seen += h[b]!;
+        if (seen > at) {
+          out[a] = b;
+          break;
+        }
+      }
+    }
+    return out;
+  }
+
   /** No decals: one empty slot. */
   private clear(): void {
     this.cells.clear();
     this.rowCells = [];
+    for (const h of this.extents) h.fill(0);
+    this.live = 0;
+    this.reachHere = [];
+    this.reachBelow = [];
+    this.sumHere = 0;
+    this.sumBelow = 0;
+    this.doublings = 0;
+    this.doublingsForCoords = 0;
+    this.origin = [0, 0, 0];
     this.free.clear();
     this.cutCounts.clear();
     this.entries = 0;

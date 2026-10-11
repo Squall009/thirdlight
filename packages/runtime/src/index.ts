@@ -178,7 +178,7 @@ export {
 } from './registry';
 export { interpolateTransformInto } from './interp';
 export { cameraBlendOf, interpolateCameraPose, type CameraPoseLike } from './camera-brain';
-export { DECAL_SPAWN_LIMITS, PRESENTATION_REQUESTS_PER_STEP, prefabDecal } from './presentation-requests';
+export { DECAL_SPAWN_LIMITS, PRESENTATION_MAX_REQUESTS_PER_STEP, prefabDecal } from './presentation-requests';
 export { catchUpSteps, DROP_THROUGH_STEPS, EFFECT_MAX_QUEUED_REQUESTS, MAX_CATCHUP_SECONDS, SETTLE_PREROLL_STEPS, engineTimingSteps } from './runtime';
 export { instantiateRuntime } from './runtime-instantiate';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
@@ -272,6 +272,7 @@ export {
   normalizedPositionScale,
   paintPositionsHash,
   pathPaintFrame,
+  pathPaintPoint,
   samplePathPaint,
   type CopyTable,
   type InstancePaint,
@@ -518,6 +519,10 @@ export {
   DECAL_TRANSIENT_BUDGET,
   DECAL_TRANSIENT_FADE_SECONDS,
   DECAL_DEFAULTS,
+  // The fades every decal kind applies alike (decals.ts).
+  DECAL_FADE,
+  decalNormalFade,
+  decalEdgeFade,
   DECAL_LAYERS_ALL,
   DECAL_MODES,
   decalLayersOf,

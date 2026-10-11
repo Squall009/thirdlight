@@ -253,6 +253,46 @@ describe('clipped decals', () => {
     expect(r2.clipped.diagnostics().made.page).toBe(2);
   });
 
+  it('a surface that keeps moving under a still decal is left out while it moves: a clip or two, no start held, taken in again once still', () => {
+    vi.useFakeTimers({ toFake: ['performance'] });
+    try {
+      const r = rig();
+      r.graph.listStatic(floor(8, 0));
+      r.graph.addEntity('mover', null);
+      r.graph.world.setLocal('mover', [0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+      r.graph.update();
+      const plate = floor(2, 0.2, 'batch');
+      plate.name = 'plate';
+      r.graph.nodeFor('mover')!.add(plate);
+      r.decal('d1', [0, 0, 0], {});
+      r.frame();
+      r.frame();
+      expect(r.clipped.diagnostics().made.page).toBe(1);
+      // Three seconds of frames with the plate sliding to and fro inside the box.
+      for (let f = 1; f <= 180; f++) {
+        vi.advanceTimersByTime(1000 / 60);
+        r.graph.world.setLocal('mover', [0.2 * Math.sin(f / 5), 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+        r.frame();
+        if (f === 90) expect(r.clipped.holdsStart()).toBe(false);
+      }
+      const d = r.clipped.diagnostics();
+      expect(d.made.page).toBeLessThanOrEqual(3);
+      expect(d.pending).toBe(0);
+      expect(d.problems.filter((p) => p.includes('keeps moving'))).toHaveLength(1);
+      // The floor alone under the mark while the plate moves.
+      expect(ys(r.clipped.meshOf('d1')!)).toEqual([0.001]);
+      // It stops: once still a while, the mark is cut from it again.
+      for (let f = 0; f < 90; f++) {
+        vi.advanceTimersByTime(1000 / 60);
+        r.frame();
+      }
+      expect(ys(r.clipped.meshOf('d1')!).sort((a, b) => a - b)).toEqual([0.001, 0.201]);
+      expect(r.clipped.diagnostics().made.page).toBe(d.made.page + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('an exported game finds its clips in the store on a second visit', async () => {
     const kept = new Map<string, Uint8Array>();
     const store: ClippedDecalStore = { get: async (k) => kept.get(k) ?? null, put: (k, b) => void kept.set(k, b) };

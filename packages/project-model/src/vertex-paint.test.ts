@@ -178,17 +178,33 @@ describe('the copy table', () => {
     expect([copySlot(back, 7), copySlot(back, 3)]).toEqual([0, -1]);
     expect(decodeCopyTable(encodeCopyTable({ copies: Uint32Array.from([3, 2]), slots: Uint32Array.from([0, 1]) }))).toBeNull();
   });
-  it('follows copies taken out, keeps them through moves and additions, drops paint on an unrelated buffer', () => {
+  it('follows each copy by what it is: taken out, added or reordered copies keep their paint, changed ones lose it', () => {
     const before = copies(0, 1, 2, 3, 4);
     const t = { copies: Uint32Array.from([1, 3, 4]), slots: Uint32Array.from([0, 1, 2]) };
-    const out = copyIndexMap(before, copies(0, 2, 4), 10)!;
+    const out = copyIndexMap(before, copies(0, 2, 4), 10);
     expect([...out]).toEqual([0, -1, 1, -1, 2]);
     const moved = remapCopyTable(t, out);
     expect([...moved.copies, ...moved.slots]).toEqual([2, 2]);
-    expect([...copyIndexMap(before, copies(9, 1, 2, 3, 4), 10)!]).toEqual([0, 1, 2, 3, 4]);
-    expect([...copyIndexMap(before, copies(0, 1, 2, 3, 4, 5, 6), 10)!]).toEqual([0, 1, 2, 3, 4]);
-    expect(copyIndexMap(before, copies(0, 7), 10)).toBeNull();
-    expect(copyIndexMap(before, copies(9, 1, 2, 3, 4, 5), 10)).toBeNull();
+    expect([...copyIndexMap(before, copies(0, 1, 2, 3, 4, 5, 6), 10)]).toEqual([0, 1, 2, 3, 4]);
+    // The first copy changed (moved, or another in its place): it alone loses its paint.
+    expect([...copyIndexMap(before, copies(9, 1, 2, 3, 4), 10)]).toEqual([-1, 1, 2, 3, 4]);
+    // One taken out and another added, the count the same: the others follow to their new addresses.
+    const swapped = copyIndexMap(before, copies(0, 2, 3, 4, 7), 10);
+    expect([...swapped]).toEqual([0, -1, 1, 2, 3]);
+    const table = remapCopyTable(t, swapped);
+    expect([...table.copies, ...table.slots]).toEqual([2, 3, 1, 2]);
+    expect(decodeCopyTable(encodeCopyTable(table))).not.toBeNull();
+    // Reordered: kept, the table in address order.
+    const back = remapCopyTable(t, copyIndexMap(before, copies(4, 3, 2, 1, 0), 10));
+    expect([...back.copies, ...back.slots]).toEqual([0, 1, 3, 2, 1, 0]);
+  });
+
+  it('a new scatter of the same count keeps no paint (it would land on unrelated copies)', () => {
+    const before = copies(0, 1, 2, 3, 4);
+    const t = { copies: Uint32Array.from([0, 2, 4]), slots: Uint32Array.from([0, 1, 2]) };
+    const map = copyIndexMap(before, copies(10, 11, 12, 13, 14), 10);
+    expect([...map]).toEqual([-1, -1, -1, -1, -1]);
+    expect(remapCopyTable(t, map).copies.length).toBe(0);
   });
 });
 

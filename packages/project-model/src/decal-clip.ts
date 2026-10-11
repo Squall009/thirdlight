@@ -40,7 +40,7 @@
  * Pure: no three.js, no I/O.
  */
 import { DEG, detSinCos } from './arch-math';
-import { DECAL_DEFAULTS, DECAL_LIMITS } from './decals';
+import { DECAL_FADE, decalEdgeFade, decalNormalFade } from './decals';
 
 /**
  * The clipper's output version. Any change to what the same inputs make
@@ -173,6 +173,25 @@ const POLY_MAX = 32;
  * Clip the receivers' triangles inside the decal's box (see the module
  * comment). An empty mesh when nothing is inside.
  */
+/**
+ * What the clipper makes of a projector's optional fields: defaults filled in
+ * and limits applied. A clip's cache key is made of these, so a changed
+ * default, limit or fade share makes new keys (never a stale mesh from an
+ * exported game's store).
+ */
+export function decalClipSettings(projector: Pick<DecalClipProjector, 'normalFade' | 'edgeFade' | 'rect' | 'lift'>): { normalFade: number; allFacings: boolean; fullMarkShare: number; edgeFade: [number, number]; rect: [number, number, number, number]; lift: number } {
+  const n = decalNormalFade(projector.normalFade);
+  const rect = projector.rect;
+  return {
+    normalFade: n.degrees,
+    allFacings: n.all,
+    fullMarkShare: DECAL_FADE.fullMarkShare,
+    edgeFade: decalEdgeFade(projector.edgeFade),
+    rect: [finite(rect?.[0], 0), finite(rect?.[1], 0), finite(rect?.[2], 1), finite(rect?.[3], 1)],
+    lift: finite(projector.lift, DECAL_CLIP_LIFT),
+  };
+}
+
 export function clipDecal(projector: DecalClipProjector, receivers: readonly DecalClipReceiver[]): DecalClipMesh {
   const c = new Clipper(projector);
   if (c.ok) for (const r of receivers) c.receiver(r);
@@ -252,19 +271,14 @@ class Clipper {
     this.sx = Math.max(1e-9, finite(projector.size[0], 1));
     this.sy = Math.max(1e-9, finite(projector.size[1], 1));
     this.sz = Math.max(1e-9, finite(projector.size[2], 1));
-    const fadeDeg = Math.min(DECAL_LIMITS.normalFadeMax, Math.max(DECAL_LIMITS.normalFadeMin, finite(projector.normalFade, DECAL_DEFAULTS.normalFade)));
-    this.edgeFront = Math.max(1e-4, finite(projector.edgeFade?.[0], DECAL_DEFAULTS.edgeFade[0]));
-    this.edgeBack = Math.max(1e-4, finite(projector.edgeFade?.[1], DECAL_DEFAULTS.edgeFade[1]));
-    const rect = projector.rect;
-    this.u0 = finite(rect?.[0], 0);
-    this.v0 = finite(rect?.[1], 0);
-    this.u1 = finite(rect?.[2], 1);
-    this.v1 = finite(rect?.[3], 1);
-    this.lift = finite(projector.lift, DECAL_CLIP_LIFT);
+    const r = decalClipSettings(projector);
+    [this.edgeFront, this.edgeBack] = r.edgeFade;
+    [this.u0, this.v0, this.u1, this.v1] = r.rect;
+    this.lift = r.lift;
     const sc: [number, number] = [0, 0];
-    this.fadeCos = detSinCos(fadeDeg * DEG, sc)[1];
-    this.fullCos = detSinCos(fadeDeg * 0.8 * DEG, sc)[1];
-    this.keepAll = fadeDeg >= DECAL_LIMITS.normalFadeMax;
+    this.fadeCos = detSinCos(r.normalFade * DEG, sc)[1];
+    this.fullCos = detSinCos(r.normalFade * DECAL_FADE.fullMarkShare * DEG, sc)[1];
+    this.keepAll = r.allFacings;
     this.signD = detSign(this.D);
     this.ok = invertAffine(this.D, this.Di);
     const { Di, W } = this;

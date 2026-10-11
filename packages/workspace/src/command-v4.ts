@@ -492,8 +492,9 @@ function targetSceneV4(
     return { ok: true, sceneId: explicit };
   }
   if (op === 'publishAsset') {
-    const anim = args['animation'] as { entityId?: unknown } | undefined;
-    return { ok: true, sceneId: anim !== undefined ? sceneOf(anim.entityId) : null };
+    // An animated reimport and a decal bake also edit an object: its scene carries the publish.
+    const on = (args['animation'] ?? args['bakeDecal']) as { entityId?: unknown } | undefined;
+    return { ok: true, sceneId: on !== undefined ? sceneOf(on.entityId) : null };
   }
   if ('entityId' in args) return { ok: true, sceneId: sceneOf(args['entityId']) ?? primarySceneIdV4(state) };
   return { ok: true, sceneId: null };

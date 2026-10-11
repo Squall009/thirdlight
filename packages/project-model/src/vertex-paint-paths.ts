@@ -100,6 +100,17 @@ export function splinePathFrame(c: SplineComponent): PathFrame {
   };
 }
 
+/**
+ * A point the brush touched, in the world the page draws, as path space
+ * reads it. Architecture and splines are drawn at the object's own
+ * `transform.position`: a parent, the rotation and the scale are not applied
+ * (their descriptors say so), so the backend's stroke, the editor's brush and
+ * preview, and the drawn paint all take a point there by this one offset.
+ */
+export function pathPaintPoint(position: readonly number[] | undefined, p: readonly number[]): PaintVec3 {
+  return [(p[0] ?? 0) - (position?.[0] ?? 0), (p[1] ?? 0) - (position?.[1] ?? 0), (p[2] ?? 0) - (position?.[2] ?? 0)];
+}
+
 /** The path a key names on an object (its architecture's outline, building or element, or its spline), or null. */
 export function pathOfKey(components: { architecture?: Pick<ArchitectureComponent, 'outlines' | 'buildings' | 'elements'>; spline?: SplineComponent }, key: string): ArchitecturePath | SplineComponent | null {
   if (key === 'spline') return components.spline ?? null;

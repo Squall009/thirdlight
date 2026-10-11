@@ -7,6 +7,7 @@ import {
   adoptRevision,
   isDuplicateResponse,
   decideRetry,
+  refusalResponse,
   type CommandOutcome,
   type MutationResponse,
 } from './envelope';
@@ -91,5 +92,13 @@ describe('envelope — ack-loss retry discipline', () => {
     const d = decideRetry('req-same', conflict, false);
     expect(d.retry).toBe(false);
     expect(d.reason).toContain('gesture');
+  });
+});
+describe('envelope — a refusal as the panels read it', () => {
+  it('keeps where the refusal points and what it found there, with the bounds and the first rule', () => {
+    const r = refusalResponse({ code: 'vertex_paint_stale', cls: 'validation', path: '/args/entityId', found: 'Body/Hull#0', expected: 'a stroke the object can take', message: 'stale' });
+    expect(r).toEqual({ ok: false, code: 'vertex_paint_stale', message: 'stale', path: '/args/entityId', found: 'Body/Hull#0' });
+    const limits = refusalResponse({ code: 'limits_exceeded', cls: 'validation', message: 'too many', limit: 'x', current: 3, max: 2, details: [{ message: 'first', path: '/a' }, { message: 'second' }] } as never);
+    expect(limits).toMatchObject({ limit: 'x', current: 3, max: 2, details: [{ message: 'first', path: '/a' }], detailCount: 2 });
   });
 });

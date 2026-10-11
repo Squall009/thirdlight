@@ -31,6 +31,13 @@
  *   node's child and follows it; a decal and the surface it marks moving
  *   together keep their key (receivers are placed relative to the decal), so
  *   a mark on a moving platform is never clipped again for the motion.
+ * - **Still surfaces only.** Clipped decals are for static marks. A surface
+ *   that keeps moving under a still decal (a door swinging, a mover passing
+ *   through its box) is left out of the mark while it moves (a Problems line
+ *   says so once per decal: a projected decal follows moving surfaces), and
+ *   taken in again once it has been still for {@link CLIPPED_DECAL_MOVING_MS}.
+ *   So a mover costs a decal at most a clip or two, never one every settle
+ *   time for as long as it moves, and never keeps the start waiting.
  * - **Rooms.** A static mark is in the room its projector looks from (the
  *   side of the surfaces it marks), so a mark across a room's outside corner
  *   is drawn with the outside.
@@ -70,6 +77,17 @@ export const CLIPPED_DECAL_SETTLE_MS = 250;
  * surface it was making is made (`surfacesIn`) and none came or went for {@link CLIPPED_DECAL_SETTLE_MS}.
  */
 export const CLIPPED_DECAL_EMPTY_WAIT_MS = 2000;
+/**
+ * A surface whose place relative to a decal changed twice within this (ms), and which itself moved, is a moving
+ * surface to that decal: left out of its mark until it is still again. One change (an edit, a door opened once) is
+ * clipped as usual.
+ */
+export const CLIPPED_DECAL_MOVING_MS = 1000;
+/**
+ * The longest the start's first present waits for clipped decals (ms from the first one set): a level whose clips
+ * take longer (a slow device, thousands of them) shows its first frame and draws the rest as they come.
+ */
+export const CLIPPED_DECAL_START_HOLD_MS = 5000;
 /** Clips the page makes itself in a frame when there are no workers (ms; at least one). */
 const PAGE_CLIP_BUDGET_MS = 4;
 /** The key prefix of clipped meshes in the store (it is shared with generated architecture's chunks). */
@@ -284,6 +302,8 @@ interface Surface {
   box: THREE.Box3 | null;
   /** Let go of by the render graph (dropped at the next frame, once the decals it reached are told). */
   gone: boolean;
+  /** When it last moved (`performance.now()`). */
+  movedAt: number;
 }
 
 interface Receiver {
@@ -318,6 +338,10 @@ interface DecalRec {
   /** When it was set (its first mesh's time is measured from it), and whether it has been drawn since. */
   readonly since: number;
   everShown: boolean;
+  /** Each receiver's place relative to the decal at the last look, and when that last changed. */
+  rel: Map<Surface, { place: string; changedAt: number }>;
+  /** Surfaces left out of the mark while they move. */
+  readonly movers: Set<Surface>;
 }
 
 const v3 = new THREE.Vector3();
@@ -349,6 +373,8 @@ export class ClippedDecals implements SurfaceListener {
   /** Decal entities whose node was placed since the last frame, and decals to look at again. */
   private readonly placedIds = new Set<string>();
   private readonly dirtyRecs = new Set<DecalRec>();
+  /** Decals leaving out a surface while it moves (looked at again once it is still). */
+  private readonly withMovers = new Set<DecalRec>();
   /** Decals with nothing under them yet, still in their empty wait. */
   private readonly emptyWait = new Set<DecalRec>();
   /** Decals whose empty result is final at once (the editor's placement preview: the surfaces it moves over are all there). */
@@ -397,7 +423,7 @@ export class ClippedDecals implements SurfaceListener {
     }
     let rec = this.decals.get(id);
     if (rec === undefined) {
-      rec = { id, decal, scope, matrix: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), box: new THREE.Box3(), dirty: true, dirtySince: performance.now(), touched: -1, key: null, shown: null, mesh: null, undo: null, since: performance.now(), everShown: false };
+      rec = { id, decal, scope, matrix: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), box: new THREE.Box3(), dirty: true, dirtySince: performance.now(), touched: -1, key: null, shown: null, mesh: null, undo: null, since: performance.now(), everShown: false, rel: new Map(), movers: new Set() };
       this.decals.set(id, rec);
       if (!this.noWait.has(id)) this.firstSet ??= rec.since;
     } else {
@@ -444,7 +470,7 @@ export class ClippedDecals implements SurfaceListener {
     if (this.disposed || !isDecalSurface(o)) return;
     const known = this.surfaces.get(o);
     if (known !== undefined) known.gone = false;
-    else this.surfaces.set(o, { mesh: o as THREE.Mesh, box: null, gone: false });
+    else this.surfaces.set(o, { mesh: o as THREE.Mesh, box: null, gone: false, movedAt: Number.NEGATIVE_INFINITY });
     this.touched.add(o);
     this.lastSurfaceAt = performance.now();
   }
@@ -465,7 +491,11 @@ export class ClippedDecals implements SurfaceListener {
   }
 
   moved(o: THREE.Object3D): void {
-    if (this.decals.size > 0 && this.surfaces.has(o)) this.touched.add(o);
+    if (this.decals.size === 0) return;
+    const s = this.surfaces.get(o);
+    if (s === undefined) return;
+    s.movedAt = performance.now();
+    this.touched.add(o);
   }
 
   /** Once a frame before the draw (after the world matrices): follow moved decals and changed surfaces, clip what changed. */
@@ -479,7 +509,7 @@ export class ClippedDecals implements SurfaceListener {
         const s = this.surfaces.get(o);
         if (s === undefined) continue;
         // The decals its old and new places reach are looked at again.
-        if (s.box !== null) this.touchNear(s.box);
+        if (s.box !== null) this.touchNear(s.box, s);
         if (s.gone) {
           this.surfaceGrid.remove(s);
           this.surfaces.delete(o);
@@ -487,7 +517,7 @@ export class ClippedDecals implements SurfaceListener {
         }
         s.box = this.worldBox(s.mesh);
         this.surfaceGrid.set(s, s.box);
-        if (s.box !== null) this.touchNear(s.box);
+        if (s.box !== null) this.touchNear(s.box, s);
       }
       this.touched.clear();
     }
@@ -503,6 +533,17 @@ export class ClippedDecals implements SurfaceListener {
         this.dirty(rec);
       }
       this.placedIds.clear();
+    }
+    // Decals with a surface left out while it moved: looked at again once it has been still a while.
+    if (this.withMovers.size > 0) {
+      for (const rec of this.withMovers) {
+        if (!this.decals.has(rec.id) || rec.movers.size === 0) this.withMovers.delete(rec);
+        else if ([...rec.movers].every((m) => m.gone || now - m.movedAt >= CLIPPED_DECAL_MOVING_MS)) {
+          this.withMovers.delete(rec);
+          this.dirty(rec);
+        }
+      }
+      if (this.withMovers.size > 0) this.deps.changed();
     }
     if (this.emptyWait.size > 0) {
       for (const rec of this.emptyWait) {
@@ -541,7 +582,8 @@ export class ClippedDecals implements SurfaceListener {
    * clipped, or waiting for the surfaces under them). A level without clipped decals never waits.
    */
   holdsStart(): boolean {
-    return !this.disposed && this.decals.size > 0 && this.pendingCount() > 0;
+    if (this.disposed || this.decals.size === 0 || (this.firstSet !== null && performance.now() - this.firstSet >= CLIPPED_DECAL_START_HOLD_MS)) return false;
+    return this.pendingCount() > 0;
   }
 
   /** A frame was presented (the first one starts the clock their readiness is measured from). */
@@ -628,9 +670,10 @@ export class ClippedDecals implements SurfaceListener {
     this.wasReady = false;
   }
 
-  private touchNear(box: THREE.Box3): void {
+  /** Look again at the decals whose boxes meet `box` (a surface's place): not those that leave `s` out while it moves. */
+  private touchNear(box: THREE.Box3, s: Surface): void {
     this.decalGrid.near(box, (rec) => {
-      if (!rec.box.intersectsBox(box)) return;
+      if (!rec.box.intersectsBox(box) || rec.movers.has(s)) return;
       this.dirty(rec);
       rec.touched = this.frameNo;
     });
@@ -659,17 +702,38 @@ export class ClippedDecals implements SurfaceListener {
     frame.compose(v3, q4, UNIT).invert();
     const found: Receiver[] = [];
     const seen = new Set<string>();
+    const now = performance.now();
+    const places = new Map<Surface, { place: string; changedAt: number }>();
     this.surfaceGrid.near(rec.box, (s) => {
       if (s.box === null || !s.box.intersectsBox(rec.box) || (objectDecalLayers(s.mesh) & layers) === 0) return;
       const g = dataOf(s.mesh.geometry);
       if (g === null) return;
       rel.multiplyMatrices(frame, s.mesh.matrixWorld);
       const matrix = Array.from(rel.elements, placed);
-      const tag = `${g.hash}:${matrix.join(',')}`;
+      // Moving under the decal: its place relative to it changed again soon after the last change, and it moved itself
+      // (a decal moved over still surfaces, or riding along with its surface, is clipped as usual).
+      const place = matrix.join(',');
+      const was = rec.rel.get(s);
+      const changed = was !== undefined && was.place !== place;
+      const entry = { place, changedAt: changed ? now : (was?.changedAt ?? Number.NEGATIVE_INFINITY) };
+      places.set(s, entry);
+      const moving = now - s.movedAt < CLIPPED_DECAL_MOVING_MS && (rec.movers.has(s) || (changed && now - was!.changedAt < CLIPPED_DECAL_MOVING_MS));
+      if (moving) {
+        if (!rec.movers.has(s)) {
+          rec.movers.add(s);
+          this.withMovers.add(rec);
+          this.problems.add(`clipped decal ${rec.id}: a surface under it keeps moving (${s.mesh.name || 'unnamed'}); it is left out of the mark while it moves (clipped decals mark still surfaces; a projected decal follows moving ones)`);
+        }
+        return;
+      }
+      rec.movers.delete(s);
+      const tag = `${g.hash}:${place}`;
       if (seen.has(tag)) return;
       seen.add(tag);
       found.push({ geometry: g.hash, matrix, g });
     });
+    rec.rel = places;
+    for (const m of rec.movers) if (!places.has(m)) rec.movers.delete(m);
     const sx = placed(s3.x), sy = placed(s3.y), sz = placed(s3.z);
     const c = rec.decal;
     const projector: DecalClipProjector = {

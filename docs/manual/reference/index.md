@@ -29,8 +29,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command op arguments](ops-detail.md) | 79 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DeclaredProperty)](types-a-d.md) | 76 sections |
 | [Types (DeleteEntityArgs to PropertyBounds)](types-d-p.md) | 101 sections |
-| [Types (PropertyDeclaration to UiWorldAnchor)](types-p-u.md) | 93 sections |
-| [Types (UpdateEntityArgs to WindConfig)](types-u-w.md) | 7 sections |
+| [Types (PropertyDeclaration to UiWidgetType)](types-p-u.md) | 92 sections |
+| [Types (UiWorldAnchor to WindConfig)](types-u-w.md) | 8 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
@@ -70,7 +70,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
-| [MCP tools (part 2, from tl_command: Scene looks, quality levels and environment presets)](mcp-tools-2.md) | `tl_content_job`, `tl_content_query` |
-| [MCP tools (part 3, from tl_content_upload)](mcp-tools-3.md) | 14 sections |
+| [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 21 sections |
+| [MCP tools (part 3, from tl_command: Timelines)](mcp-tools-3.md) | 18 sections |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

@@ -72,7 +72,8 @@ const DECALS = [
   { name: 'Decal on a prop', at: [256, 1, 27] as V3, size: [0.9, 0.9, 1], rotation: DOWN, material: 'mat-pd-green' },
   { name: 'Decal on a wall', at: [245, 1, WALL_Z] as V3, size: [1.4, 1.4, 1], rotation: [0, 0, 0, 1], material: 'mat-pd-green' },
   { name: 'Decal off layer 2', at: [259, 1, 27] as V3, size: [0.9, 0.9, 1], rotation: DOWN, material: 'mat-pd-green', layers: 1 },
-  { name: 'Normal-only decal', at: [247, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-bump', opacity: { albedo: 0 } },
+  { name: 'Normal-only decal', at: [247, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-bump' },
+  { name: 'Roughness-only decal', at: [257, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-wet' },
 ] as const;
 
 /** Tilted 45° down toward the camera: the box's −Z meets a block's top and its front (+Z) face alike. */
@@ -96,6 +97,7 @@ export const DECAL_READS = {
   masked: [259.15, 1, 27.15] as V3,
   bumped: [247.3, 0, 33.3] as V3,
   bumpClean: [252, 0, 33.3] as V3,
+  wet: [257.3, 0, 33.3] as V3,
 } as const;
 
 /** The clipped decals' reads: the edge's top and front over the block taken away, its front on the block beside it, the wall, a clean front. */
@@ -171,6 +173,8 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
   await publish.texture(new Uint8Array(makePng(64, 64, () => [40, 200, 60, 255])), 'pd-green');
   await cmd('setMaterial', { material: { materialId: 'mat-pd-green', name: 'Green mark', shader: 'decal', params: {}, textures: { map: 'pd-green' } } });
   await cmd('setMaterial', { material: { materialId: 'mat-pd-bump', name: 'Bump mark', shader: 'decal', params: {}, textures: { normalMap: 'tilt' } } });
+  // A wet patch: a roughness value alone (no image, no colour).
+  await cmd('setMaterial', { material: { materialId: 'mat-pd-wet', name: 'Wet mark', shader: 'decal', params: { roughness: 0.05 }, textures: {} } });
   for (const d of DECALS) {
     const decal = { size: [...d.size], material: d.material, ...('layers' in d ? { layers: d.layers } : {}), ...('opacity' in d ? { opacity: d.opacity } : {}) };
     await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: d.name, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal } });
@@ -213,6 +217,18 @@ export const isDecalGreen = (c: Rgb): boolean => c[1]! > 40 && c[1]! > c[0]! * 1
 /** Two readings of one colour at another brightness: their channel shares within 0.05. */
 const sameShares = (a: Rgb, b: Rgb): boolean => sum(a) > 0 && sum(b) > 0 && a.every((v, k) => Math.abs(v / sum(a) - b[k]! / sum(b)) < 0.05);
 
+/**
+ * A wet (glossy) patch on the terrain against the bare terrain: the
+ * terrain's colour (channel shares within 0.05) at about its brightness
+ * (0.8–1.25 ×). A decal without a colour that painted its white tint there
+ * would wash the terrain out (brighter, the shares evened out). How much
+ * the shine changes depends on the light and the view: not judged.
+ */
+export const wetLook = (wet: Rgb, clean: Rgb): boolean => {
+  const r = sum(wet) / Math.max(1, sum(clean));
+  return sameShares(wet, clean) && r >= 0.8 && r <= 1.25;
+};
+
 export interface DecalJudgement {
   readonly colours: Record<keyof typeof DECAL_READS, Rgb>;
   readonly bad: string[];
@@ -224,7 +240,9 @@ export interface DecalJudgement {
  * the prop and the wall, the clean terrain and wall beside them not green
  * (the wall its row's hue), the prop outside the decal's layer not green,
  * and the normal-only decal changing the terrain's light (brightness off by
- * 8 % or more; 15 % on this host) but not its colour.
+ * 8 % or more; 15 % on this host) but not its colour. The roughness-only
+ * decal paints no tint ({@link wetLook}): neither decal has a colour of its
+ * own, so neither may whiten the terrain under it.
  */
 export function judgeDecals(read: (p: V3) => Rgb, rowHue: (slot: string, c: Rgb) => boolean, only?: readonly (keyof typeof DECAL_READS)[]): DecalJudgement {
   const colours = Object.fromEntries(Object.entries(DECAL_READS).map(([k, p]) => [k, read(p)])) as Record<keyof typeof DECAL_READS, Rgb>;
@@ -237,6 +255,7 @@ export function judgeDecals(read: (p: V3) => Rgb, rowHue: (slot: string, c: Rgb)
     ['wallClean', rowHue('lower_wall', colours.wallClean)],
     ['masked', !isDecalGreen(colours.masked) && sum(colours.masked) > 30],
     ['bumped', sameShares(colours.bumped, colours.bumpClean) && Math.abs(sum(colours.bumped) / sum(colours.bumpClean) - 1) >= 0.08],
+    ['wet', wetLook(colours.wet, colours.bumpClean)],
   ];
   const bad = checks.filter(([k, ok]) => !ok && (only === undefined || only.includes(k))).map(([k]) => k);
   return { colours, bad, ok: bad.length === 0 };

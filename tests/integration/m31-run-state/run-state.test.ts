@@ -5,7 +5,8 @@
  * starts a conversation with a voiced line, plays timelines (one on start,
  * one early, one late) and asks for an older handle's state before it
  * exists again, plays a sound, counts with timers, draws random numbers,
- * adds to a counter, writes the UI model and reads the save play time.
+ * adds to a counter, writes the UI model, reads the save play time, and
+ * keeps the handles of a decal it spawned and an effect it played.
  *
  * Compared per run step: what the script saw (its log) and the runtime's
  * own per-run states (conversation, timelines, audio, saves, UI model,
@@ -49,7 +50,7 @@ const AUTO = { timelineId: 'auto', name: 'Auto', duration: 0.1, playOnStart: tru
 /** Logs what it sees every 6 of its steps (a restart starts the script over, so its count starts at 0). */
 const DIRECTOR = `
 export default {
-  instantiate() { return { n: 0, run: -1, conv: 0, early: 0, late: 0, sound: 0, ticks: 0 }; },
+  instantiate() { return { n: 0, run: -1, conv: 0, early: 0, late: 0, sound: 0, ticks: 0, mark: 0, fx: 0 }; },
   step(s, ctx) {
     if (ctx.phase !== 'intent') return;
     if (s.n === 0) { s.run = ctx.save.get('runs') ?? 0; ctx.save.set('runs', s.run + 1); }
@@ -58,6 +59,7 @@ export default {
     if (n === 7) ctx.dialogue.set('met', true);
     if (n === 10) s.early = ctx.timeline.play('short');
     if (n === 12) s.sound = ctx.audio.play('sfx-a');
+    if (n === 14) { s.mark = ctx.decals.spawn('scorch', { position: [0, 0, 0] }); s.fx = ctx.effects.play('spark'); }
     if (n === 150) s.late = ctx.timeline.play('short');
     if (n === 0) ctx.timers.every('tick', 0.05);
     if (ctx.timers.fired('tick')) s.ticks += 1;
@@ -67,7 +69,7 @@ export default {
     if (n % 6 !== 0 || n > 230) return;
     const key = 'run' + s.run + '.' + Math.floor(n / 60);
     const log = ctx.save.get(key) ?? [];
-    log.push([n, s.conv, ctx.dialogue.isRunning(), ctx.dialogue.get('met'), s.early, s.late, ctx.timeline.state(3), ctx.timeline.state(s.early), s.sound, s.ticks, roll, ctx.game.counter('score'), ctx.saves.playSeconds()]);
+    log.push([n, s.conv, ctx.dialogue.isRunning(), ctx.dialogue.get('met'), s.early, s.late, ctx.timeline.state(3), ctx.timeline.state(s.early), s.sound, s.ticks, roll, ctx.game.counter('score'), ctx.saves.playSeconds(), s.mark, s.fx]);
     ctx.save.set(key, log);
   },
 };
@@ -87,6 +89,8 @@ function snapshot(): Any {
     scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }],
     timelines: [SHORT, AUTO],
     audioDurations: { 'vo-hello': 600, 'sfx-a': 300 },
+    // A scorch mark scripts spawn (its handle is kept in the script's state).
+    prefabs: [{ prefabId: 'scorch', displayName: 'Scorch', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'mark-0001', components: { transform: T([0, 0, 0]), decal: { size: [0.5, 0.5, 0.2], material: 'mat-scorch' } } }] }],
     dialogue: dialogueForRuntime({ dialogues: [TALK], speakers: [{ speakerId: 'host', name: 'Host' }], dialogueSettings: { textSpeed: 60, autoDelay: 0.25 } } as Any),
   };
 }
@@ -132,6 +136,8 @@ describe('every run of a play starts as the first', () => {
       expect([last[4], last[5], last[8]]).toEqual([2, 3, 2]); // the voice took sound handle 1
       expect(last[9]).toBeGreaterThan(30);
       expect(last[12]).toBeGreaterThan(1.8);
+      // A decal spawn's and an effect play's handles: the first of their run.
+      expect(last.slice(13)).toEqual([1, 1]);
       // Before the late play, handle 3 is no timeline in any run.
       expect(logs[0]!.find((r: Any[]) => r[0] === 144)![6]).toBeNull();
       expect(logs[1], 'run 2 as seen by the script').toEqual(logs[0]);

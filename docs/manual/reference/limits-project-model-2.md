@@ -274,7 +274,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-vertex-paint-brush-limits"></a>`VERTEX_PAINT_BRUSH_LIMITS` | `{"dabs":256,"radius":{"min":0.01,"max":64},"strengthMax":1}` | The vertex brush's bounds: a stroke fits one command. |
+| <a id="limit-vertex-paint-brush-limits"></a>`VERTEX_PAINT_BRUSH_LIMITS` | `{"dabs":256,"radius":{"min":0.01,"max":64},"strengthMax":1}` | The vertex brush's bounds: a stroke fits one command. Strength is the shared brush's blend per dab (its bound is that brush's); the radius is metres in the world, not the block brush's cells, so it is bounded here. |
 
 <a id="limits-project-model--vertex-paint"></a>
 ## `vertex-paint.ts`

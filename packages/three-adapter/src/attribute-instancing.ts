@@ -553,11 +553,14 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   mesh.userData[VIEW_CULL_KEY] = handle;
   if (options.raycast === true) {
     // Like `InstancedMesh.raycast`: each drawn instance is hit as the source geometry at its matrix
-    // (the hit names the instance: `instanceId`, and this mesh as its object).
+    // (the hit names the instance: `instanceId`, and this mesh as its object). Its normals are turned
+    // by the instance's matrix into this mesh's space, as any hit's are in its object's: this mesh
+    // has no `getMatrixAt` a picker would know to apply, so a copy's rotation would be lost.
     const probe = new THREE.Mesh(source, material);
     const hits: THREE.Intersection[] = [];
     const world = new THREE.Matrix4();
     const bound = new THREE.Sphere();
+    const turn = new THREE.Matrix3();
     mesh.raycast = (raycaster, intersects) => {
       const n = Math.min(capacity, handle.count);
       if (n === 0 || geometry.boundingSphere === null || geometry.boundingSphere.isEmpty()) return;
@@ -568,7 +571,10 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
         if (filter !== undefined && !filter.includes(i)) continue;
         probe.matrixWorld = world.multiplyMatrices(mesh.matrixWorld, tmpMatrix.fromArray(array, i * 16));
         probe.raycast(raycaster, hits);
+        if (hits.length > 0) turn.getNormalMatrix(tmpMatrix);
         for (const h of hits) {
+          h.face?.normal.applyMatrix3(turn).normalize();
+          h.normal?.applyMatrix3(turn).normalize();
           h.instanceId = i;
           h.object = mesh;
           intersects.push(h);

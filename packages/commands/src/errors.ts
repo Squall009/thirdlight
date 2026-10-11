@@ -84,6 +84,8 @@ export const ERROR_CODES = [
   'animation_role_ambiguous',
   'animation_skin_unsupported',
   'animation_root_motion',
+  // A vertex paint stroke over paint made for a model's earlier vertices (`found`: the mesh).
+  'vertex_paint_stale',
 ] as const;
 
 export type CommandErrorCode = (typeof ERROR_CODES)[number];

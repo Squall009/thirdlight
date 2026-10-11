@@ -15,6 +15,7 @@
  *
  * Pure: no DOM, no three.js.
  */
+import type { CommandErrorCode } from '@thirdlight/commands';
 import type { ArchitectureComponent, PathPaintSide, SplineComponent } from '@thirdlight/project-model';
 import { BRUSH_FALLOFFS, VERTEX_PAINT_BRUSH_LIMITS, VERTEX_PAINT_BYTES, newPathPlace, pathPaintFrame, pathSideOf, type BrushFalloff, type PaintVec3, type VertexPaintBrush } from '@thirdlight/runtime';
 
@@ -124,4 +125,13 @@ export function withoutMeshPaint(components: Record<string, unknown>, mesh: stri
     return { component: 'instances', value: { paint: meshes.length > 0 ? { ...inst.paint, meshes } : null } };
   }
   return null;
+}
+
+/** The backend's refusal of a stroke over paint made for a model's earlier vertices (it names the mesh as `found`). */
+export const STALE_PAINT_CODE: CommandErrorCode = 'vertex_paint_stale';
+
+/** A refused stroke's stale mesh paint, offered for removal (null: refused for another reason). */
+export function stalePaintOf(entityId: string, refusal: { code?: string; message?: string; found?: unknown }): { entityId: string; mesh: string; message: string } | null {
+  if (refusal.code !== STALE_PAINT_CODE || typeof refusal.found !== 'string') return null;
+  return { entityId, mesh: refusal.found, message: refusal.message ?? refusal.code };
 }
