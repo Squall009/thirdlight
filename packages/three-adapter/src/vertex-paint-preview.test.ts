@@ -40,6 +40,10 @@ describe('a paint change is told apart from any other', () => {
     expect(paintOnlyChange(doc({ model }), doc({ model }, { static: true }))).toBe(false);
     expect(paintOnlyChange(doc({ model }), doc({ model }, { parentId: 'p' }))).toBe(false);
     expect(paintOnlyChange(undefined, doc({ model }))).toBe(false);
+    // A new document equal by value, paint and all: the host wants the object made again (its asset's options or a
+    // material changed, which the document does not hold).
+    expect(paintOnlyChange(doc({ model, vertexPaint: paintA }), doc({ model, vertexPaint: paintA }))).toBe(false);
+    expect(paintOnlyChange(doc({ model }), doc({ model }))).toBe(false);
     // An object that draws no paint (a box) is realized again whatever changed.
     expect(paintOnlyChange(doc({ box: { size: [1, 1, 1] } }), doc({ box: { size: [1, 1, 1] }, vertexPaint: paintA }))).toBe(false);
   });

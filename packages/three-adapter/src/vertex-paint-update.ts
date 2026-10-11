@@ -28,9 +28,11 @@ function withoutPaint(instances: unknown): unknown {
 
 /**
  * Whether `after` differs from `before` only in its vertex paint (its
- * `vertexPaint`, an instance set's `paint`): every other component, its
- * parent, tags and flags the same. A document that changed nothing else but
- * its transform counts too (transforms reach the adapter on their own).
+ * `vertexPaint`, an instance set's `paint`): the paint changed, every other
+ * component, its parent, tags and flags the same (a transform changed with
+ * it is followed apart from the document). A new document equal by value is
+ * no paint change: a host hands one over to have the object made again for
+ * what the document does not hold (its asset's options, a material).
  */
 export function paintOnlyChange(before: PaintDocLike | undefined, after: PaintDocLike | undefined): boolean {
   if (before === undefined || after === undefined || before.id !== after.id) return false;
@@ -46,6 +48,8 @@ export function paintOnlyChange(before: PaintDocLike | undefined, after: PaintDo
     if (PAINT_KEYS.has(k)) continue;
     if (!same(a[k], b[k])) return false;
   }
+  const paintOf = (c: Readonly<Record<string, unknown>>): unknown => [c['vertexPaint'], (c['instances'] as { paint?: unknown } | undefined)?.paint];
+  if (same(paintOf(a), paintOf(b))) return false;
   // An instance set's buffer, asset or chunking changed: its copies are made again.
   if ((a['instances'] === undefined) !== (b['instances'] === undefined)) return false;
   if (a['instances'] !== undefined && !same(withoutPaint(a['instances']), withoutPaint(b['instances']))) return false;
