@@ -502,6 +502,17 @@ export interface SceneAdapter {
   clippedDecalMesh?(entityId: string): THREE.Mesh | null;
   /** A clipped decal whose empty result is final at once (false: the editor's placement preview) or after the level's surfaces arrive (true, the default). */
   clippedDecalWaits?(entityId: string, wait: boolean): void;
+  /**
+   * The vertex paint brush (an editing host): a stroke's preview on an
+   * object — a placed model's meshes, one copy of an instance set, one side
+   * of a generated object's path — drawn at once and kept until the stored
+   * stroke is drawn (vertex-paint-preview.ts). Null: nothing drawn to paint.
+   */
+  paintPreview?(entityId: string, target: import('./vertex-paint-preview').PaintPreviewTarget): import('./vertex-paint-preview').VertexPaintPreview | null;
+  /** The object a drawn mesh's vertex paint belongs to (a model or set: its entity; generated architecture or a spline: theirs), or null. */
+  paintOwnerOf?(object: THREE.Object3D): string | null;
+  /** Show one vertex paint channel (0–3: R, G, B, A) as grey over the view; null: the materials again. */
+  paintChannelView?(channel: number | null): void;
   /** The host's material library changed a material in place: the lightmapped copies follow it. */
   materialsChanged?(): void;
   /** Bring the scene set, transforms, world matrices and hidden objects up to date now, without drawing. */

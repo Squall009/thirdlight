@@ -335,6 +335,8 @@ export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
 export { DECALS_URL_PARAM, decalsFromUrl } from './projected-decals';
 export { PAINT_URL_PARAM, paintFromUrl } from './vertex-paint-draw';
+export type { MeshPaintPreview, PaintPreviewMesh, PaintPreviewTarget, PathPaintPreview, VertexPaintPreview } from './vertex-paint-preview';
+export { paintOnlyChange } from './vertex-paint-update';
 export { isDecalMark } from './clipped-decals';
 export type { DecalProjectorsObservation } from './decal-projectors';
 // Local lights per vertex: an object's or material's mode, a light's importance.

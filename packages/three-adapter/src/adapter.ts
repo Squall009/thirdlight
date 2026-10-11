@@ -63,6 +63,9 @@ import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMateria
 import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
 import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
 import { vertexPaintDiagnostics } from './vertex-paint-draw';
+import { paintOnlyChange } from './vertex-paint-update';
+import { PaintChannelView } from './vertex-paint-channel-view';
+import { PATH_PAINT_ENTITY_KEY } from './vertex-paint-paths-view';
 import { type ArchitectureComponent, type BlockLayerComponent, type BlockLayerData, type BlockType, type GridRenderChange, type SplineComponent, type TerrainComponent } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
@@ -612,6 +615,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const o of hung) holder.add(o);
     }
   };
+  /** An entity whose vertex paint alone changed: what it draws stays, its paint is swapped once read (vertex-paint-update.ts). */
+  const repaintInPlace = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
+    const before = entityDocs.get(e.id)?.components as { spline?: SplineComponent; architecture?: ArchitectureComponent } | undefined;
+    entityDocs.set(e.id, e);
+    const c = e.components as { spline?: SplineComponent; architecture?: ArchitectureComponent };
+    const at = e.components.transform.position;
+    // The generator's input is the one drawn (equal by value): only the paint is new.
+    if (c.spline !== undefined) splines.set(e.id, before?.spline ?? c.spline, at, pathPaintOf(e.components));
+    if (c.architecture !== undefined) architecture.set(e.id, before?.architecture ?? c.architecture, at, pathPaintOf(e.components));
+    const refs = modelRefsOf([e]);
+    realization?.updatePaint(e.id, { meshes: refs.paints.get(e.id), instances: refs.instances.get(e.id) });
+  };
   const releaseEntity = (id: string): void => {
     if (docLayers.delete(id)) blockView.removeLayer(id);
     terrains.removeTerrain(id);
@@ -723,6 +738,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lodTuning: graph.lodTuning,
       // A copy dragged in place: the shadowed lamps near it draw their maps again.
       copiesMoved: (spheres) => archHost.rooms.noteMoved(spheres),
+      // Painted again in place (stored paint, a brush's preview): batches and merged cells take the new paint.
+      onRepainted: (entityId: string) => {
+        regroupEntity(entityId);
+        opts.onChange?.();
+      },
       onAttached: (entityId: string, root: THREE.Object3D) => {
         // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
         applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
@@ -814,6 +834,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
   let disposed = false;
+  /** The paint tool's channel view (made the first time it is shown). */
+  let channelView: PaintChannelView | null = null;
   /** The previous frame's `performance.now()` for the clamped
    *  role-controller delta (the adapter derives `deltaSeconds` from the
    *  host clock, guarded). The first frame uses 0 (a fresh anchor
@@ -1060,7 +1082,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
       const next = new Map(entities.map((e) => [e.id, e]));
       const gone = new Set<string>();
-      for (const id of rec.ids) if (next.get(id) !== entityDocs.get(id)) gone.add(id);
+      for (const id of rec.ids) {
+        const doc = next.get(id);
+        if (doc === entityDocs.get(id)) continue;
+        if (doc !== undefined && opts.vertexPaint !== false && paintOnlyChange(entityDocs.get(id), doc)) repaintInPlace(doc);
+        else gone.add(id);
+      }
       if (gone.size > 0) {
         for (const id of gone) lightmaps?.release(id);
         realization?.removeEntities(gone);
@@ -1672,6 +1699,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
+    channelView?.dispose();
     for (const rec of animatorPlayers.values()) rec.player.dispose();
     effects?.dispose();
     effectTextures?.releaseHolder('effects');
@@ -1878,6 +1906,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     pickables: () => graph.pickables(),
     clippedDecalMesh: (entityId) => clipped?.meshOf(entityId) ?? null,
     clippedDecalWaits: (entityId, wait) => clipped?.waitForSurfaces(entityId, wait),
+    paintPreview(entityId, target) {
+      if (disposed || opts.vertexPaint === false) return null;
+      if ('path' in target) return target.path === 'spline' ? splines.paintPreview(entityId, target.side) : architecture.paintPreview(entityId, target.path, target.side);
+      return realization?.paintPreview(entityId, target.copy) ?? null;
+    },
+    paintOwnerOf(object): string | null {
+      for (let o: THREE.Object3D | null = object; o !== null; o = o.parent) if (typeof o.userData[PATH_PAINT_ENTITY_KEY] === 'string') return o.userData[PATH_PAINT_ENTITY_KEY] as string;
+      return api.entityOf?.(object) ?? null;
+    },
+    paintChannelView: (channel) => (channelView ??= new PaintChannelView(scene)).set(channel),
     attachOverlay(entityId, object): void {
       let hung = overlays.get(entityId);
       if (hung === undefined) overlays.set(entityId, (hung = new Set()));

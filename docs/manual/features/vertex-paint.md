@@ -1,11 +1,10 @@
 # Vertex paint
 
-> **Growing.** This page grows as vertex paint is built. What exists now:
-> the data and the command — paint on placed models, instance copies and
-> generated meshes (architecture and splines) is stored, undone, checked
-> against reimports, reached through MCP and shipped with an export — and
-> its drawing: materials read it in the Scene view, Play and the export.
-> Not yet: the editor's paint brush (strokes come over MCP for now).
+Paint on placed models, instance copies and generated meshes
+(architecture and splines) is painted in the Scene view's
+[paint mode](#painting-in-the-scene-view) or over MCP, stored, undone,
+checked against reimports, drawn in the Scene view, Play and the export,
+and shipped with an export. How-to: [Vertex paint](../guides/vertex-paint.md).
 
 Vertex paint puts per-vertex values on meshes — colour, grime, wetness,
 blend weights for a height blend — without new textures. Each painted
@@ -20,8 +19,8 @@ the foliage shader's wind, the trim shader's occlusion, grime and wetness).
 ## Painting: `paintVertices`
 
 One brush stroke is one [`paintVertices`](../reference/ops-detail.md#op-paintVertices)
-command and one undo step. The editor's brush (coming) and MCP send the
-same command; the backend turns the stroke into bytes, so both get the same
+command and one undo step. The editor's brush and MCP send the same
+command; the backend turns the stroke into bytes, so both get the same
 result.
 
 ```json
@@ -52,6 +51,37 @@ What the stroke paints depends on the object:
 
 A stroke that reaches nothing is refused with `no_change`. Painting back to
 zero removes what it stored; when nothing is left the component goes too.
+
+## Painting in the Scene view
+
+**Window → Vertex paint** (or the toolbar's **paint** button) opens the
+paint window over the Scene view; while it is open the Scene view is in
+paint mode:
+
+- a left drag on a placed model, a copy of an instance set, generated
+  architecture or a spline paints that object (Alt+drag still orbits; a
+  drag that starts on anything else orbits or selects as usual);
+- the window holds the brush: **Paint** / **Erase**, **radius** in metres,
+  **strength**, **falloff**, **channel** (R, G, B, A);
+- a ring shows the brush on the surface under the pointer;
+- the paint is drawn while the button is still down (the page paints a
+  copy of the object's paint with the backend's own brush and the GPU
+  draws it at once), and the release sends the stroke as one
+  `paintVertices` — one undo step; the object keeps that drawing until the
+  stored paint replaces it, so it never blinks or goes missing;
+- what a drag paints is fixed when it starts: the model's meshes; the copy
+  under the pointer (only that copy); or, on generated architecture, the
+  path nearest the point and the side the face looks to (left or right of
+  travel, or a face looking up or down); dabs land only on that object;
+- **channel view** shows one channel as grey over the whole Scene view
+  (white: full, black: unpainted), for paint a material reads only faintly
+  (grime, wetness, blend weights);
+- Esc drops a stroke in progress (nothing is stored).
+
+A stroke over a mesh whose paint was made for its earlier vertices (a
+reimport changed them) is refused; the window shows why and offers
+**Remove its stale paint** (one `setComponent`), after which the mesh can
+be painted again. The settings are remembered per browser.
 
 ## Models
 

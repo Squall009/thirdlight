@@ -32,8 +32,9 @@ import { STATIC_CASTER_KEY } from './shadow-casters';
 import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
 import type { ModelInstance } from './visual';
 import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
-import { pathPaintAttribute, pathPaintSignature, PathPaintReader } from './vertex-paint-paths-view';
-import type { PathPaintGrid, PathPaintSource } from '@thirdlight/runtime';
+import { pathPaintAttribute, pathPaintSignature, PathPaintOverrides, PathPaintReader, PATH_PAINT_ENTITY_KEY, resamplePathPaint } from './vertex-paint-paths-view';
+import type { PathPaintPreview } from './vertex-paint-preview';
+import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/runtime';
 
 /** Screen rows a level's error is measured against (1080p): it switches where its error is under one of them. */
 const LOD_REFERENCE_ROWS = 1080;
@@ -123,6 +124,8 @@ export class SplineView {
   private plain: THREE.MeshStandardMaterial | null = null;
   private water: THREE.MeshStandardMaterial | null = null;
   private readonly paintReader: PathPaintReader;
+  /** Brush strokes drawn over splines' stored paint before they are stored. */
+  private readonly overrides = new PathPaintOverrides();
 
   constructor(private readonly deps: SplineViewDeps) {
     this.paintReader = new PathPaintReader(deps.read);
@@ -142,6 +145,8 @@ export class SplineView {
     rec.origin = o;
     rec.paintGrids = paint;
     rec.paintSig = pathPaintSignature(paint);
+    // A held brush preview gives way to the stored paint (drawn from it once read).
+    this.overrides.stored(id, rec.paintSig);
     if (had === undefined || rec.paintSig !== paintBefore || curveBefore !== component) this.readPaint(id, rec);
     this.splines.set(id, rec);
     if (coverBefore || component.scatter !== undefined) this.pushCover();
@@ -181,12 +186,43 @@ export class SplineView {
   private readPaint(id: string, rec: Rec): void {
     const sig = rec.paintSig;
     const curve = rec.component;
-    const got = this.paintReader.sources({ spline: curve }, rec.paintGrids, () => {
-      if (this.splines.get(id) !== rec || rec.paintSig !== sig || rec.component !== curve || this.disposed) return;
-      this.readPaint(id, rec);
-      if (rec.made !== null && rec.madeDigest === rec.component.data) this.build(id, rec);
-    });
+    const got = this.paintReader.sources(
+      { spline: curve },
+      rec.paintGrids,
+      () => {
+        if (this.splines.get(id) !== rec || rec.paintSig !== sig || rec.component !== curve || this.disposed) return;
+        this.readPaint(id, rec);
+        if (rec.made !== null && rec.madeDigest === rec.component.data) this.build(id, rec);
+      },
+      this.overrides.of(id),
+    );
     rec.paint = got;
+  }
+
+  /**
+   * A brush stroke on a spline's `side`: its preview drawn over the stored
+   * paint (null: not drawn yet, its paint being read).
+   */
+  paintPreview(id: string, side: PathPaintSide): PathPaintPreview | null {
+    const rec = this.splines.get(id);
+    if (rec === undefined || rec.leaving || rec.built === null || rec.paint === 'pending' || this.disposed) return null;
+    const frame = pathPaintFrame({ spline: rec.component }, 'spline');
+    if (frame === null) return null;
+    const g = rec.paintGrids?.find((x) => x.path === 'spline' && x.side === side);
+    return this.overrides.begin(id, rec.paintSig, 'spline', side, frame, rec.origin, g === undefined ? null : this.paintReader.grid(g), () => this.redrawPaint(id));
+  }
+
+  /** A spline's drawn pieces sampled again with its paint as it is now (a preview's grid over the stored). */
+  private redrawPaint(id: string): void {
+    const rec = this.splines.get(id);
+    if (rec === undefined || rec.built === null || this.disposed) return;
+    const got = this.paintReader.sources({ spline: rec.component }, rec.paintGrids, () => undefined, this.overrides.of(id));
+    if (got === 'pending') return;
+    rec.paint = got;
+    const pieces: THREE.Mesh[] = [];
+    for (const lod of rec.built.root.children) if ((lod as THREE.LOD).isLOD === true) lod.traverse((o) => void ((o as THREE.Mesh).isMesh === true && pieces.push(o as THREE.Mesh)));
+    resamplePathPaint(rec.built.root, pieces, got);
+    this.deps.changed();
   }
 
   /** Drop the splines released and not set again (call once a frame, before the draw). */
@@ -195,6 +231,7 @@ export class SplineView {
     for (const [id, rec] of [...this.splines]) {
       if (!rec.leaving) continue;
       this.splines.delete(id);
+      this.overrides.drop(id);
       this.drop(rec);
       cover ||= rec.component.scatter !== undefined;
     }
@@ -291,6 +328,7 @@ export class SplineView {
     if (templates.some((t) => t !== null && t.t === null)) return;
     const root = new THREE.Group();
     root.name = `spline:${id}`;
+    root.userData[PATH_PAINT_ENTITY_KEY] = id;
     root.position.set(...rec.origin);
     const geometries: THREE.BufferGeometry[] = [];
     let triangles = 0;

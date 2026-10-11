@@ -67,8 +67,9 @@ import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
 import { perfMark } from './perf-marks';
 import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
-import { pathPaintAttribute, pathPaintSignature, PathPaintReader } from './vertex-paint-paths-view';
-import type { PathPaintGrid, PathPaintSource } from '@thirdlight/runtime';
+import { pathPaintAttribute, pathPaintSignature, PathPaintOverrides, PathPaintReader, PATH_PAINT_ENTITY_KEY, resamplePathPaint } from './vertex-paint-paths-view';
+import type { PathPaintPreview } from './vertex-paint-preview';
+import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/runtime';
 
 /** At most this many generator workers (the block mesher, the simulation, the page and the GPU process want cores too). */
 export const ARCHITECTURE_WORKERS_MAX = 2;
@@ -298,6 +299,8 @@ export class ArchitectureView {
   private previewing: ArchitecturePreview | null = null;
   /** Path paint grids read by digest. */
   private readonly paintReader: PathPaintReader;
+  /** Brush strokes drawn over objects' stored paint before they are stored. */
+  private readonly overrides = new PathPaintOverrides();
   /** Who sends jobs of another kind to these workers (clipped decals), and hears their replies. */
   private side: { reply(worker: number, message: unknown): void; failed(): void } | null = null;
 
@@ -389,6 +392,8 @@ export class ArchitectureView {
     rec.origin = o;
     rec.paintGrids = paint;
     rec.paintSig = pathPaintSignature(paint);
+    // A held brush preview gives way to the stored paint (drawn from it once read).
+    this.overrides.stored(id, rec.paintSig);
     // The paths it samples are the component's: read again when either changed.
     if (rec.paintSig !== paintBefore || pathsBefore !== component) this.readPaint(id, rec);
     this.expand(id, rec);
@@ -453,11 +458,16 @@ export class ArchitectureView {
   private readPaint(id: string, rec: Rec): void {
     const sig = rec.paintSig;
     const raw = rec.raw;
-    const got = this.paintReader.sources({ architecture: raw }, rec.paintGrids, () => {
-      if (this.recs.get(id) !== rec || rec.paintSig !== sig || rec.raw !== raw || this.disposed) return;
-      this.readPaint(id, rec);
-      this.deps.changed();
-    });
+    const got = this.paintReader.sources(
+      { architecture: raw },
+      rec.paintGrids,
+      () => {
+        if (this.recs.get(id) !== rec || rec.paintSig !== sig || rec.raw !== raw || this.disposed) return;
+        this.readPaint(id, rec);
+        this.deps.changed();
+      },
+      this.overrides.of(id),
+    );
     rec.paint = got;
     if (got === 'pending') return;
     // Chunks drawn with other paint, or waiting for this one: drawn again from what was made.
@@ -469,6 +479,37 @@ export class ArchitectureView {
         this.ready.push({ id, ck, key: ch.key, chunk: ch.builtChunk });
       }
     }
+  }
+
+  /**
+   * A brush stroke on `path`'s `side` of an object: its preview drawn over the
+   * object's stored paint (null: the object is not drawn yet, its paint is
+   * being read, or it has no such path).
+   */
+  paintPreview(id: string, path: string, side: PathPaintSide): PathPaintPreview | null {
+    const rec = this.recs.get(id);
+    if (rec === undefined || rec.leaving || rec.paint === 'pending' || this.disposed) return null;
+    const frame = pathPaintFrame({ architecture: rec.raw }, path);
+    if (frame === null) return null;
+    const g = rec.paintGrids?.find((x) => x.path === path && x.side === side);
+    return this.overrides.begin(id, rec.paintSig, path, side, frame, rec.origin, g === undefined ? null : this.paintReader.grid(g), () => this.redrawPaint(id));
+  }
+
+  /** An object's drawn meshes sampled again with its paint as it is now (a preview's grid over the stored). */
+  private redrawPaint(id: string): void {
+    const rec = this.recs.get(id);
+    if (rec === undefined || this.disposed) return;
+    const got = this.paintReader.sources({ architecture: rec.raw }, rec.paintGrids, () => undefined, this.overrides.of(id));
+    if (got === 'pending') return;
+    rec.paint = got;
+    for (const ch of rec.chunks.values()) {
+      const b = ch.built;
+      if (b === null) continue;
+      const meshes: THREE.Mesh[] = [];
+      b.generated.traverse((o) => void ((o as THREE.Mesh).isMesh === true && meshes.push(o as THREE.Mesh)));
+      resamplePathPaint(b.group, meshes, got);
+    }
+    this.deps.changed();
   }
 
   /** An object was released: it goes at the next {@link update} unless set again first. */
@@ -526,6 +567,7 @@ export class ArchitectureView {
     for (const [id, rec] of this.recs) {
       if (!rec.leaving) continue;
       this.recs.delete(id);
+      this.overrides.drop(id);
       this.deps.rooms?.(id, rec.origin, rec.raw, null);
       for (const c of rec.chunks.values()) if (c.built !== null) this.dropBuilt(c.built);
       for (const b of rec.stale) this.dropBuilt(b);
@@ -1057,6 +1099,7 @@ export class ArchitectureView {
     const decalLayers = decalLayersField(rec.component.decalLayers);
     const group = new THREE.Group();
     group.name = `architecture:${id}:${ck}`;
+    group.userData[PATH_PAINT_ENTITY_KEY] = id;
     group.position.set(...rec.origin);
     const centre = new THREE.Vector3((ch.cx + 0.5) * size, 0, (ch.cz + 0.5) * size);
     // The generated meshes apart from the kit copies: the object's materials (its `*` too) are for the slots the

@@ -67,8 +67,9 @@ import {
   type VisualResourceStore,
   createVisualResourceStore,
 } from './visual';
-import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
+import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetPaint, type InstanceSetStats } from './instancing';
 import { applyModelPaint, instancePaintDigests, instanceSetPaint, modelPaintDigests } from './vertex-paint-models';
+import { copyMatrixOf, copyPreview, modelPreviewMeshes, PreviewLife, relayout, swapInPreview, type MeshPaintPreview } from './vertex-paint-preview';
 import type { InstancePaint, VertexPaintMesh } from '@thirdlight/runtime';
 import type { LodTuning } from './lod-switch';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
@@ -255,6 +256,8 @@ export interface ModelsRealizationContext {
   readonly resources?: ResourceManager;
   /** A model instance (or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
   readonly onAttached?: (entityId: string, root: THREE.Object3D) => void;
+  /** An attached model's meshes now draw other paint (stored or a brush's preview): batches and merged cells group them again. */
+  readonly onRepainted?: (entityId: string, root: THREE.Object3D) => void;
   /** The entity holders (the adapter's `objects` map entries); `null` when
    * the entity has no holder (defensive: the entity is skipped). */
   readonly holderFor: (entityId: string) => THREE.Object3D | null;
@@ -305,6 +308,14 @@ export interface ModelsRealization {
   hold?(assetIds: Iterable<string>, bufferDigests: Iterable<string>): { readonly ready: Promise<void>; release(): void };
   /** The entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
+  /**
+   * An entity's vertex paint changed and nothing else (its model's meshes,
+   * its instance set's `paint`): it keeps what it draws until the new paint
+   * is read, then only the paint is swapped (vertex-paint-update.ts).
+   */
+  updatePaint(entityId: string, paint: { readonly meshes?: readonly VertexPaintMesh[] | undefined; readonly instances?: InstanceSetRef | undefined }): void;
+  /** A brush stroke's preview on an attached model, or on one copy of an instance set (null: nothing drawn to paint). */
+  paintPreview(entityId: string, copy?: number): MeshPaintPreview | null;
   /**
    * Put an attached model's (or instance set's) materials on again from its
    * mapping now (a material swap); returns its root, or null when nothing is
@@ -568,6 +579,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   };
   /** Whether an entity's paint is still being read (it is drawn once it is in, or could not be read). */
   const paintPending = (entityId: string): boolean => paintDigestsOf(entityId).some((d) => bufferLoads.has(d));
+  /** Attached entities whose stored paint changed in place, drawn again once it is read. */
+  const repaintWaiting = new Set<string>();
+  /** Brush previews drawn on attached models and sets (vertex-paint-preview.ts). */
+  const previews = new Map<string, PaintPreviewRec>();
   /** The instance options for an entity: its piece and the asset's vertex-colour mode. */
   /** An entity's material mapping (the asset's default under its own). */
   const mappingFor = (entityId: string, assetId: string): Record<string, string> | null => {
@@ -930,17 +945,18 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
    * model (sharing its geometry and materials), placed by the buffer's
    * transforms times the mesh's own offset inside the model.
    */
-  function attachInstanceSet(entityId: string, ref: InstanceSetRef): void {
+  function attachInstanceSet(entityId: string, ref: InstanceSetRef, paintOf?: (template: THREE.Object3D) => SetPaint | null): void {
     if (disposed || attachedSets.has(entityId)) return;
     const resource = readyResource(ref.assetId);
     const floats = buffers.get(ref.buffer);
     const holder = ctx.holderFor(entityId);
-    if (resource === undefined || floats === undefined || holder === null || paintPending(entityId)) return;
+    // A brush preview draws from what the set drew, not from stored paint still being read.
+    if (resource === undefined || floats === undefined || holder === null || (paintOf === undefined && paintPending(entityId))) return;
     const created = resource.createInstance(instanceOptions(ref.assetId, ref.piece));
     if (created.ok === false) return;
     const template = created.instance;
     const setPaint = setPaintOf(ref);
-    const painted = setPaint !== undefined ? instanceSetPaint(template.root, setPaint, paintBlob) : null;
+    const painted = paintOf !== undefined ? paintOf(template.root) : setPaint !== undefined ? instanceSetPaint(template.root, setPaint, paintBlob) : null;
     const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, {
       chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS,
       density: ref.density ?? instanceDensityOf(undefined),
@@ -966,7 +982,157 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     } catch {
       /* best effort */
     }
-    attachedSets.delete(set.entityId);
+    if (attachedSets.get(set.entityId) === set) attachedSets.delete(set.entityId);
+  }
+
+  /**
+   * An attached set drawn again with other paint (its stored paint, or a
+   * brush's preview): the new set is attached before the old one goes, so no
+   * frame lacks its copies. False: nothing attached, or it could not be built
+   * (the old one stays).
+   */
+  function replaceInstanceSet(entityId: string, paintOf?: (template: THREE.Object3D) => SetPaint | null): boolean {
+    const old = attachedSets.get(entityId);
+    const ref = instanceEntities.get(entityId);
+    if (old === undefined || ref === undefined) return false;
+    attachedSets.delete(entityId);
+    attachInstanceSet(entityId, ref, paintOf);
+    if (!attachedSets.has(entityId)) {
+      attachedSets.set(entityId, old);
+      return false;
+    }
+    disposeInstanceSet(old);
+    return true;
+  }
+
+  /** An attached model drawn with its stored paint again (a brush preview being painted stays on top). */
+  function repaintModel(entityId: string): void {
+    const rec = attached.get(entityId);
+    if (rec === undefined || rec.disposed) return;
+    const p = previews.get(entityId);
+    p?.remove();
+    const drew = new Map<THREE.Mesh, THREE.BufferGeometry>();
+    rec.instance.root.traverse((o) => void ((o as THREE.Mesh).isMesh === true && drew.set(o as THREE.Mesh, (o as THREE.Mesh).geometry)));
+    rec.undoPaint?.();
+    rec.undoPaint = applyModelPaint(rec.instance.root, modelPaint.get(entityId) ?? [], paintBlob);
+    for (const [mesh, before] of drew) relayout(mesh, before);
+    if (p !== undefined) {
+      if (p.life.repainted()) previews.delete(entityId);
+      else p.apply();
+    }
+    ctx.onRepainted?.(entityId, rec.instance.root);
+  }
+
+  function repaintSet(entityId: string): void {
+    const p = previews.get(entityId);
+    if (p !== undefined && !p.life.repainted()) {
+      // The brush is still painting: the stored paint goes under its preview.
+      p.apply();
+      return;
+    }
+    previews.delete(entityId);
+    replaceInstanceSet(entityId);
+  }
+
+  /** Entities whose stored paint changed in place and is read now: drawn with it. */
+  function settleRepaints(): void {
+    for (const id of [...repaintWaiting]) {
+      if (paintPending(id)) continue;
+      repaintWaiting.delete(id);
+      if (attached.has(id)) repaintModel(id);
+      else if (attachedSets.has(id)) repaintSet(id);
+    }
+  }
+
+  /** Drop an entity's brush preview without drawing anything again (it goes with what it was drawn on). */
+  function forgetPreview(entityId: string): void {
+    const p = previews.get(entityId);
+    if (p === undefined) return;
+    previews.delete(entityId);
+    p.life.finish();
+  }
+
+  function endPreview(entityId: string, p: PaintPreviewRec, keep: boolean): Promise<void> {
+    if (previews.get(entityId) !== p || p.life.state === 'gone') return p.life.gone;
+    if (keep) {
+      if (p.life.state === 'live') p.life.state = 'held';
+      return p.life.gone;
+    }
+    previews.delete(entityId);
+    p.remove();
+    p.life.finish();
+    const root = attached.get(entityId)?.instance.root;
+    if (root !== undefined) ctx.onRepainted?.(entityId, root);
+    return p.life.gone;
+  }
+
+  function modelPreview(entityId: string): MeshPaintPreview | null {
+    const rec = attached.get(entityId);
+    if (rec === undefined || rec.disposed) return null;
+    // What is drawn now is where the stroke starts (a held preview's paint included), then the held one goes.
+    const meshes = modelPreviewMeshes(rec.instance.root);
+    const old = previews.get(entityId);
+    if (old !== undefined) {
+      previews.delete(entityId);
+      old.remove();
+      old.life.finish();
+    }
+    if (meshes.length === 0) return null;
+    let swap = swapInPreview(meshes);
+    const life = new PreviewLife();
+    const p: PaintPreviewRec = {
+      life,
+      apply: () => {
+        swap = swapInPreview(meshes);
+      },
+      remove: () => swap.undo(),
+      show: () => swap.show(),
+    };
+    previews.set(entityId, p);
+    ctx.onRepainted?.(entityId, rec.instance.root);
+    return { kind: 'meshes', meshes: meshes.map((m) => m.item), show: () => life.state === 'live' && p.show(), end: (keep) => endPreview(entityId, p, keep) };
+  }
+
+  function copyPreviewOf(entityId: string, copy: number): MeshPaintPreview | null {
+    const set = attachedSets.get(entityId);
+    const ref = instanceEntities.get(entityId);
+    const floats = ref === undefined ? undefined : buffers.get(ref.buffer);
+    const holder = ctx.holderFor(entityId);
+    if (set === undefined || ref === undefined || floats === undefined || holder === null || copy < 0 || copy >= ref.count) return null;
+    const local = copyMatrixOf(floats, copy);
+    if (local === null) return null;
+    const world = holder.matrixWorld.clone().multiply(local);
+    // The stroke starts from the copy's paint as drawn (a held preview's included).
+    const drawn = set.paint?.paint ?? null;
+    const first = copyPreview(set.template.root, drawn, copy, world);
+    if (first === null) return null;
+    first.dispose();
+    const values = new Map(first.items.map((it) => [it.mesh, it.values]));
+    const cur: { shown: ReturnType<typeof copyPreview> } = { shown: null };
+    /** The copy's preview over `under` (the paint drawn when the stroke starts; 'stored': the set's stored paint). */
+    const paintOf = (under: InstanceSetPaint | null | 'stored') => (template: THREE.Object3D): SetPaint | null => {
+      const setPaint = setPaintOf(instanceEntities.get(entityId));
+      const stored = under === 'stored' && setPaint !== undefined ? instanceSetPaint(template, setPaint, paintBlob) : null;
+      const made = copyPreview(template, under === 'stored' ? (stored?.paint ?? null) : under, copy, world, values);
+      cur.shown = made;
+      if (made === null) {
+        stored?.dispose();
+        return null;
+      }
+      return { paint: made.paint, dispose: () => (made.dispose(), stored?.dispose()) };
+    };
+    const old = previews.get(entityId);
+    if (!replaceInstanceSet(entityId, paintOf(drawn)) || cur.shown === null) return null;
+    if (old !== undefined) old.life.finish();
+    const life = new PreviewLife();
+    const p: PaintPreviewRec = {
+      life,
+      apply: () => void replaceInstanceSet(entityId, paintOf('stored')),
+      remove: () => void replaceInstanceSet(entityId),
+      show: () => cur.shown?.show(),
+    };
+    previews.set(entityId, p);
+    return { kind: 'meshes', meshes: [...values].map(([mesh, v]) => ({ mesh, values: v, points: first.items.find((it) => it.mesh === mesh)!.points })), show: () => life.state === 'live' && p.show(), end: (keep) => endPreview(entityId, p, keep) };
   }
 
   function ensureBuffer(digest: string): void {
@@ -983,12 +1149,14 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
           for (const [entityId, ref] of instanceEntities) if (ref.buffer === digest || instancePaintDigests(setPaintOf(ref)).includes(digest)) attachInstanceSet(entityId, ref);
         }
         attachPainted(digest);
+        settleRepaints();
         notifyHolds();
       },
       () => {
         bufferLoads.delete(digest);
         // Paint that cannot be read is not drawn; its model is.
         attachPainted(digest);
+        settleRepaints();
         notifyHolds();
       },
     );
@@ -1008,7 +1176,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   function disposeAttached(rec: AttachedModel): void {
     if (rec.disposed) return;
     rec.disposed = true;
-    // The painted geometries go before the instance (they share its geometry's attributes).
+    // A brush preview and the painted geometries go before the instance (they share its geometry's attributes).
+    previews.get(rec.entityId)?.remove();
+    forgetPreview(rec.entityId);
     rec.undoPaint?.();
     rec.undoPaint = null;
     // A glow's own material copies go first (the material undo below restores the shared ones).
@@ -1095,6 +1265,23 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       if (!made.ok) return null;
       blockInstances.set(key, made.instance);
       return made.instance;
+    },
+    updatePaint(entityId, paint): void {
+      if (disposed || !paintOn) return;
+      if (modelEntities.has(entityId)) {
+        if (paint.meshes !== undefined && paint.meshes.length > 0) modelPaint.set(entityId, paint.meshes);
+        else modelPaint.delete(entityId);
+      }
+      if (paint.instances !== undefined && instanceEntities.has(entityId)) instanceEntities.set(entityId, paint.instances);
+      for (const d of paintDigestsOf(entityId)) ensureBuffer(d);
+      repaintWaiting.add(entityId);
+      settleRepaints();
+      // The blobs the old paint read are let go (an undo reads them again).
+      for (const digest of [...buffers.keys()]) if (!bufferInUse(digest)) buffers.delete(digest);
+    },
+    paintPreview(entityId, copy) {
+      if (disposed || !paintOn) return null;
+      return copy === undefined ? modelPreview(entityId) : copyPreviewOf(entityId, copy);
     },
     reapplyMaterials(entityId: string) {
       const rec = attached.get(entityId);
@@ -1210,6 +1397,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (rec !== undefined) disposeAttached(rec);
         const set = attachedSets.get(id);
         if (set !== undefined) disposeInstanceSet(set);
+        forgetPreview(id);
+        repaintWaiting.delete(id);
         modelEntities.delete(id);
         modelAnimationEntities.delete(id);
         instanceEntities.delete(id);
@@ -1308,5 +1497,22 @@ interface AttachedInstanceSet {
   readonly built: BuiltInstanceSet;
   undoMaterials?: (() => void) | null;
   /** Its copies' paint streams (null: none drawn). */
-  readonly paint: { dispose(): void } | null;
+  readonly paint: SetPaint | null;
+}
+
+/** What an instance set's draws read of its paint, and how it is freed. */
+interface SetPaint {
+  readonly paint: InstanceSetPaint;
+  dispose(): void;
+}
+
+/** A brush preview on an attached model or set (vertex-paint-preview.ts). */
+interface PaintPreviewRec {
+  readonly life: PreviewLife;
+  /** Draw it over what the entity draws now (again, after its stored paint was drawn under it). */
+  apply(): void;
+  /** Take it off: the entity's stored paint is drawn. */
+  remove(): void;
+  /** Draw the brush's values as they are now. */
+  show(): void;
 }

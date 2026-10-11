@@ -67,6 +67,8 @@ import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 import { TerrainEditor, type TerrainEditorCallbacks } from './terrain-editor';
 import { DecalTool, decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
 import type { DecalToolSettings } from '../session/decal-place';
+import { VertexPaintTool, type VertexPaintToolCallbacks } from './vertex-paint-tool';
+import type { VertexPaintSettings } from '../session/vertex-paint-brush';
 import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
 import type { ProbeBakeHost } from './probe-bake-inputs';
@@ -164,6 +166,8 @@ export class Viewport {
   private readonly decalTool: DecalTool;
   /** Where the Decal tool's placements and grip edits go (set with the tool's settings). */
   private decalCb: DecalToolCallbacks | null = null;
+  private readonly paintTool: VertexPaintTool;
+  private paintCb: VertexPaintToolCallbacks | null = null;
   /** Which helpers the Scene view draws (the Gizmos menu). */
   private gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false };
   /** The probe debug view while the Gizmos menu shows it (over the probe light it was made for). */
@@ -264,6 +268,23 @@ export class Viewport {
         resize: (id, d) => decalCb()?.resize(id, d) ?? Promise.resolve(false),
         refused: (m) => decalCb()?.refused(m),
       },
+    );
+
+    this.paintTool = new VertexPaintTool(
+      {
+        overlay: this.overlay,
+        camera: this.camera,
+        canvas: () => this.root,
+        hits: (x, y) => this.castScene(x, y),
+        ownerOf: (o) => this.adapter.paintOwnerOf?.(o) ?? null,
+        entity: (id) => (this.hierarchyFlags.get(id)?.active === false || this.hierarchyFlags.get(id)?.locked === true ? null : (this.synced.get(id) ?? null)),
+        copyOf: (id, h) => (h.instanceId === undefined ? null : (this.adapter.instanceSet?.(id)?.copyOf(h.object, h.instanceId) ?? null)),
+        preview: (id, t) => this.adapter.paintPreview?.(id, t.kind === 'copy' ? { copy: t.copy } : t.kind === 'path' ? { path: t.path, side: t.side } : {}) ?? null,
+        drawn: (id) => this.drawnMeshes(id).length > 0 || (this.adapter.pickables?.() ?? []).some((o) => this.adapter.paintOwnerOf?.(o) === id),
+        channelView: (c) => (this.adapter.paintChannelView?.(c), this.requestRender()),
+        requestRender: () => this.requestRender(),
+      },
+      { stroke: (args) => this.paintCb?.stroke(args) ?? Promise.resolve({ ok: false, message: 'the Scene view is not connected' }), refused: (m) => this.paintCb?.refused(m) },
     );
 
     this.snapping = options.snapping ?? (() => false);
@@ -1104,6 +1125,7 @@ export class Viewport {
     this.helpers.scaleGrips();
     this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));
     this.decalTool.frame();
+    this.paintTool.frame();
     // The selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
     const setId = this.selectedId !== null && this.synced.get(this.selectedId)?.instances !== undefined ? this.selectedId : null;
     this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
@@ -1124,7 +1146,7 @@ export class Viewport {
     const animated = this.assets.materialLibrary.animated();
     // While the block tools are on, the view-projection matrix (tests map cells to the screen).
     const terrain = adapter.terrainDiagnostics?.() ?? null;
-    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || this.decalTool.armed() || terrain !== null) {
+    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || this.decalTool.armed() || this.paintTool.armed() || terrain !== null) {
       this.camera.updateMatrixWorld();
       const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
@@ -1258,7 +1280,7 @@ export class Viewport {
       this.render();
       return true;
     }
-    if (this.instanceBrush.cancel() || this.decalTool.cancel()) {
+    if (this.instanceBrush.cancel() || this.decalTool.cancel() || this.paintTool.cancel()) {
       this.orbit.enabled = true;
       return true;
     }
@@ -1402,7 +1424,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) || this.decalTool.armed() ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) || this.decalTool.armed() || this.paintTool.armed() ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1509,7 +1531,7 @@ export class Viewport {
     this.root.removeEventListener('pointerleave', this.onPointerLeave);
   }
 
-  private onPointerLeave = (): void => (this.instanceBrush.leave(), this.decalTool.leave());
+  private onPointerLeave = (): void => (this.instanceBrush.leave(), this.decalTool.leave(), this.paintTool.leave());
 
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
@@ -1520,6 +1542,14 @@ export class Viewport {
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
+    // The paint tool takes a press on something it paints (only then: a press elsewhere still orbits, picks or edits).
+    if (this.paintTool.pointerDown(e)) {
+      e.stopImmediatePropagation();
+      this.downAt = null;
+      this.orbit.enabled = false;
+      this.root.setPointerCapture(e.pointerId);
+      return;
+    }
     // Armed block tools take the left button (the gizmo stands aside while they are armed); the Decal tool, opened over them, wins.
     if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerDown(e)))) {
       e.stopImmediatePropagation();
@@ -1578,6 +1608,10 @@ export class Viewport {
   }
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.paintTool.pointerMove(e)) {
+      e.stopImmediatePropagation();
+      return;
+    }
     if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerMove(e)))) {
       e.stopImmediatePropagation();
       return;
@@ -1603,6 +1637,12 @@ export class Viewport {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    // A stroke's release is the tool's alone (its press never reached the orbit controls).
+    if (this.paintTool.pointerUp(e)) {
+      e.stopImmediatePropagation();
+      this.orbit.enabled = true;
+      return;
+    }
     if (!this.decalTool.armed() && ((this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) || (this.terrainEditorInst !== null && this.terrainEditorInst.pointerUp(e)))) {
       e.stopImmediatePropagation();
       this.orbit.enabled = true;
@@ -1701,6 +1741,13 @@ export class Viewport {
     this.decalTool.arm(settings, sceneId);
     this.setSelected(this.selectedId);
     this.requestRender();
+  }
+
+  /** The vertex paint mode armed with these settings, its strokes sent through `cb` (null: off; the gizmo stands aside while it is on). */
+  setVertexPaintTool(settings: VertexPaintSettings | null, cb: VertexPaintToolCallbacks | null): void {
+    this.paintCb = cb;
+    this.paintTool.arm(settings);
+    this.setSelected(this.selectedId);
   }
 
   /** Every instance-brush stroke sent so far has been answered. */
@@ -1938,6 +1985,7 @@ export class Viewport {
     disposeOrbitControls(this.orbit);
     this.instanceBrush.dispose();
     this.decalTool.dispose();
+    this.paintTool.dispose();
     this.adapter.dispose();
   }
 }

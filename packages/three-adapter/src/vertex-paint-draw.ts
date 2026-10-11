@@ -51,6 +51,12 @@ export { PAINT_SLOT_ATTRIBUTE };
 export const PAINT_STREAM_KEY = '__tlPaintStream';
 /** `mesh.userData[PAINT_MESH_KEY]`: a model mesh's name as vertex paint stores it (its node's path and primitive). */
 export const PAINT_MESH_KEY = '__tlPaintMesh';
+/**
+ * `mesh.userData[PAINT_PREVIEW_KEY]`: the mesh draws a brush stroke's paint
+ * before it is stored, so it is drawn alone (never batched or merged): its
+ * paint changes with every dab and only its own attribute is rewritten.
+ */
+export const PAINT_PREVIEW_KEY = '__tlPaintPreview';
 /** Each painted geometry's model geometry (what batches and merged cells group it by); not in `userData`, which a clone would serialize. */
 const paintBases = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 

@@ -1,5 +1,5 @@
 /**
- * The Window menu's floating tool windows (Lighting, Environment, Decals): which are
+ * The Window menu's floating tool windows (Lighting, Environment, Decals, Vertex paint): which are
  * open, in which order they stack, and where each stands, remembered per
  * browser like the dock sizes (presentation only, never project data).
  *
@@ -9,17 +9,18 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 
-export type ToolWindowId = 'lighting' | 'environment' | 'decals';
+export type ToolWindowId = 'lighting' | 'environment' | 'decals' | 'paint';
 
 /** The tool windows in the order the Window menu lists them. */
 export const TOOL_WINDOWS: ReadonlyArray<{ id: ToolWindowId; label: string }> = [
   { id: 'lighting', label: 'Lighting' },
   { id: 'environment', label: 'Environment' },
   { id: 'decals', label: 'Decals' },
+  { id: 'paint', label: 'Vertex paint' },
 ];
 
 /** Windows that arm a Scene view tool while open: never reopened by a reload (the tool would take the next click unasked). */
-const ARMS_A_TOOL: readonly ToolWindowId[] = ['decals'];
+const ARMS_A_TOOL: readonly ToolWindowId[] = ['decals', 'paint'];
 
 /** A window's box in the work area (px from its top-left corner). */
 export interface ToolWindowPlace {

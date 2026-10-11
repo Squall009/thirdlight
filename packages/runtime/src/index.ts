@@ -254,10 +254,18 @@ export { WorldMatrices } from './world-matrices';
 export type { BehaviorSockets } from './types';
 // The rig reader (hosts and the editor read the node names the game resolves sockets on).
 export { glbHasSkins, readModelRig, rigNodeNames, type ModelRig } from '@thirdlight/project-model';
-// Vertex paint as the renderer draws it: meshes named and checked as the backend stored them, copy slots, path paint sampled onto generated vertices.
+// Vertex paint as the renderer draws it: meshes named and checked as the backend stored them, copy slots, path paint sampled onto generated vertices;
+// and the brush the editor previews a stroke with (the backend applies the same dabs).
 export {
   PATH_PAINT_SIDES,
+  VERTEX_PAINT_BRUSH_LIMITS,
   VERTEX_PAINT_BYTES,
+  newPathPlace,
+  paintPathDabs,
+  paintVertexDabs,
+  pathSideOf,
+  type PaintVec3,
+  type VertexPaintBrush,
   copySlot,
   decodeCopyTable,
   modelNodePaths,
@@ -267,6 +275,7 @@ export {
   samplePathPaint,
   type CopyTable,
   type InstancePaint,
+  type PathFrame,
   type PathGrid,
   type PathPaintGrid,
   type PathPaintSide,

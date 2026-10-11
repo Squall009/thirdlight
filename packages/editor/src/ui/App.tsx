@@ -89,6 +89,7 @@ import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
 import { useDecalTool } from './tools/DecalToolPanel';
+import { useVertexPaintTool } from './tools/VertexPaintPanel';
 import type { ReportFailure } from './shell/commands';
 
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
@@ -725,6 +726,8 @@ function EditorApp(): JSX.Element {
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
   // The Decal tool is armed while its window floats over the Scene view.
   const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
+  // The vertex paint mode likewise, while its window floats over the Scene view.
+  const paintTool = useVertexPaintTool({ clientRef, viewportRef, armed: toolWindows.isOpen('paint') && centerTab === 'scene' && !windowOpen && !settingsWindow.open, setNotice });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
 
@@ -1017,6 +1020,8 @@ function EditorApp(): JSX.Element {
         onToggleSnapping={() => setSnapping((v) => !v)}
         decalTool={toolWindows.isOpen('decals')}
         onToggleDecalTool={() => (toolWindows.isOpen('decals') ? toolWindows.close('decals') : showToolWindow('decals'))}
+        paintTool={toolWindows.isOpen('paint')}
+        onTogglePaintTool={() => (toolWindows.isOpen('paint') ? toolWindows.close('paint') : showToolWindow('paint'))}
         lighting={lightingMode}
         onToggleLighting={() => {
           const next = lightingMode === 'game' ? 'editor' : 'game';
@@ -1198,6 +1203,7 @@ function EditorApp(): JSX.Element {
           docCmds={docCmds}
           bake={bake}
           decalTool={decalTool}
+          paintTool={paintTool}
           entities={entities}
           sceneHeaders={sceneHeaders}
           activateScene={(sceneId) => void sceneAction({ kind: 'activate', sceneId })}

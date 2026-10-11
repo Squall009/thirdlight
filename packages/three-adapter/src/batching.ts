@@ -66,7 +66,7 @@ import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
 import { createStaticMerger, MERGE_BACKGROUND_BUDGET_MS, MERGE_QUIET_MS, staticScopeOf, type StaticMergeDiagnostics, type StaticMerger } from './static-merge';
-import { meshPaintOf, paintBaseOf, paintStream, PAINT_STREAM_KEY, type PaintStream } from './vertex-paint-draw';
+import { meshPaintOf, paintBaseOf, paintStream, PAINT_PREVIEW_KEY, PAINT_STREAM_KEY, type PaintStream } from './vertex-paint-draw';
 import { VIEW_CULL_KEY, type ViewCuller } from './view-cull';
 
 /** The layer batched members move to (cameras draw layer 0 only; pickers enable this one). */
@@ -141,6 +141,7 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mesh.userData[OVERRIDES_KEY] !== undefined) return 'per-object material parameters';
   // Values a script set on this object (per-object uniforms, its own data texture).
   if (mesh.userData[RUNTIME_VALUES_KEY] !== undefined) return 'run-time material parameters';
+  if (mesh.userData[PAINT_PREVIEW_KEY] === true) return 'vertex paint preview';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;

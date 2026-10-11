@@ -59,6 +59,7 @@ use and why.
   - [Material graphs](guides/material-graphs.md)
   - [Trim sheets](guides/trim-sheets.md)
   - [Decals](guides/decals.md)
+  - [Vertex paint](guides/vertex-paint.md)
   - [Effects](guides/effects.md)
   - [The animator](guides/animator.md)
   - [Cameras](guides/cameras.md)
@@ -85,9 +86,9 @@ use and why.
 
 [Features](features/index.md) holds the full description of each feature
 area, one page per area: everything a feature does, its settings and its
-edge cases. Growing now: [Decals](features/decals.md) (the data exists;
-drawing follows) and [Vertex paint](features/vertex-paint.md) (the data and
-the command exist; drawing and the editor's brush follow).
+edge cases. Growing now: [Decals](features/decals.md) and
+[Vertex paint](features/vertex-paint.md) (painted in the Scene view or over
+MCP and drawn; the phase's acceptance follows).
 
 ## Reference
 
