@@ -473,3 +473,37 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   footprints) need an effects-graph output (an effect system that leaves
   decals). The plan gives prefabs and a transient budget only; an effect's
   output could call the same spawn path later.
+- 2026-10-11, phase end: full gate `--both-renderers` (22 min against the
+  15 min budget, D181; e2e 15.8 min on 3 workers; memory peak 7.0 GB, at the
+  cap) red on four real failures, each failing alone too: a document equal
+  by value taken for a paint-only change (material instances, foliage wind,
+  model-piece vertex colours never redrawn) and the adapter's material-library
+  listener never released (each swapped-out adapter kept alive); fixed in
+  32.14 part B, fast gate green with the four files. `project-upgrade`
+  failed once and passed alone (watch, D241). Independent review (fresh
+  read-only agent and its sub-reviews, `~/.cache/thirdlight-phase32/review.md`;
+  the clipped-decal sub-review never reported, its Mediums were checked by
+  the main reviewer):
+  - **High, fixed in 32.14 A:** the incremental decal index kept a stale
+    cell size, so small spawned decals were dropped with false overlap
+    problems.
+  - **Medium, fixed in 32.14 A:** decals without an albedo image painted
+    their tint over the whole box; emissive-only decals overwrote roughness
+    and metalness; spawn and effect handles kept counting across restarts
+    (D234 closed); a same-count instance buffer kept paint on other copies;
+    Bake to model was four commands (now one, one undo); moving surfaces
+    kept clipped decals waiting (now left out while moving, start waits at
+    most 5 s); path paint used another frame on the backend than the page.
+  - **Low:** the cheap ones fixed; the rest D242–D246 (D247 watch).
+  - **Clean:** the paint slot in the instance matrix's fourth row (every
+    page-side reader uses the affine array); decal layers and skinned
+    models; page reference counts; the D238 pick bounds; clipper
+    determinism; boundaries; limits defined once, no per-project caps; the
+    private three hooks on the checklist; 22 of 22 sampled manual claims.
+  - **Owner look:** how every decal kind and the paint look; the §7
+    defaults (in-material projected decals, the start waiting for clipped
+    decals, one data-texture paint path, GLB `*_decal` materials, the faster
+    UASTC level); the open misses D236 (projected decals' main thread) and
+    D239 (clipped scene pass); whether effects should leave decals; the
+    gate's 3 workers at the memory cap and its 22 min.
+
