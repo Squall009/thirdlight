@@ -371,4 +371,25 @@ describe('terrain field', () => {
     expect(field.heightAt(100 - 1, -50)).toBeNull();
     expect(field.memory()).toEqual({ tiles: 4, bytes: 4 * 17 * 17 * 2 + 32 });
   });
+
+  it('marches a ray only through the tiles: an unbounded ray that misses returns at once, one that hits finds the same point', () => {
+    const field = new TerrainField(COMP, [100, 5, -50], flat());
+    const ground = 5 + terrainHeightOf(COMP.heightRange, terrainFlatStep(COMP.heightRange));
+    const norm = (v: number[]): number[] => v.map((c) => c / Math.hypot(...v));
+    // Into the sky, along the ground beside the tiles, and away from them: none, with no end to the ray.
+    const misses: [number[], number[]][] = [[[116, 20, -34], norm([1, 0.3, 0.2])], [[90, ground + 1, -60], norm([-1, 0, 0])], [[0, 30, 0], norm([-1, -0.1, -1])]];
+    const t0 = performance.now();
+    for (const [o, d] of misses) expect(field.raycast(o, d, Infinity)).toBeNull();
+    expect(performance.now() - t0).toBeLessThan(100);
+    // From far off the tiles down onto them: the distance of a bounded ray, and the ground's height.
+    const o = [60, 40, -70];
+    const d = norm([116 - 60, ground - 40, -34 + 70]);
+    const unbounded = field.raycast(o, d, Infinity)!;
+    const bounded = field.raycast(o, d, 1000)!;
+    expect(unbounded.distance).toBeCloseTo(bounded.distance, 6);
+    expect(unbounded.point[1]).toBeCloseTo(ground, 3);
+    expect(unbounded.point[0]).toBeCloseTo(116, 1);
+    // Starting inside the box over the tiles.
+    expect(field.raycast([110, ground + 2, -40], norm([1, -1, 0]), Infinity)!.point[0]).toBeCloseTo(112, 2);
+  });
 });

@@ -89,7 +89,10 @@ export class TerrainField {
    * Where a ray (world origin, unit direction) first meets the surface
    * within `maxDistance`, or null: marched in steps of a quarter sample
    * along its horizontal path, then refined by halving (picking in the
-   * editor reads this; the game's rays hit the colliders).
+   * editor reads this; the game's rays hit the colliders). Only the part of
+   * the ray inside the loaded tiles' box (their extent, the height range) is
+   * marched: a picking ray is unbounded (`far` = Infinity), and one that
+   * misses the ground would otherwise step forever.
    */
   raycast(origin: readonly number[], dir: readonly number[], maxDistance: number): { distance: number; point: [number, number, number] } | null {
     const [ox, oy, oz] = [origin[0]!, origin[1]!, origin[2]!];
@@ -107,10 +110,13 @@ export class TerrainField {
       const t = (h - oy) / dy;
       return t >= 0 && t <= maxDistance ? { distance: t, point: [ox, h, oz] } : null;
     }
-    let prev = 0;
-    let prevAbove = above(0);
-    for (let t = step; t <= maxDistance + step * 0.5; t += step) {
-      const now = Math.min(t, maxDistance);
+    const span = this.span(origin, dir, maxDistance);
+    if (span === null) return null;
+    const [enter, exit] = span;
+    let prev = enter;
+    let prevAbove = above(enter);
+    for (let t = enter + step; t <= exit + step * 0.5; t += step) {
+      const now = Math.min(t, exit);
       const a = above(now);
       if (a === false && prevAbove === true) {
         let lo = prev;
@@ -126,6 +132,37 @@ export class TerrainField {
       prevAbove = a;
     }
     return null;
+  }
+
+  /** The distances along a ray between which it is inside the loaded tiles' box, clamped to [0, maxDistance] (null: it never is). */
+  private span(origin: readonly number[], dir: readonly number[], maxDistance: number): [number, number] | null {
+    if (this.tiles.size === 0) return null;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const key of this.tiles.keys()) {
+      const [tx, tz] = key.split(',').map(Number) as [number, number];
+      x0 = Math.min(x0, tx);
+      x1 = Math.max(x1, tx + 1);
+      z0 = Math.min(z0, tz);
+      z1 = Math.max(z1, tz + 1);
+    }
+    const w = this.n * this.spacing;
+    const lo = [this.origin[0] + x0 * w, this.origin[1] + this.range[0]!, this.origin[2] + z0 * w];
+    const hi = [this.origin[0] + x1 * w, this.origin[1] + this.range[1]!, this.origin[2] + z1 * w];
+    let enter = 0;
+    let exit = maxDistance;
+    for (let a = 0; a < 3; a++) {
+      const o = origin[a]!;
+      const d = dir[a]!;
+      if (Math.abs(d) < 1e-12) {
+        if (o < lo[a]! || o > hi[a]!) return null;
+        continue;
+      }
+      const ta = (lo[a]! - o) / d;
+      const tb = (hi[a]! - o) / d;
+      enter = Math.max(enter, Math.min(ta, tb));
+      exit = Math.min(exit, Math.max(ta, tb));
+    }
+    return enter <= exit && Number.isFinite(exit) ? [enter, exit] : null;
   }
 
   /** Whether a world point is over a hole (false off the terrain). */

@@ -762,6 +762,15 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await cmd('setInput', { input: { actions: [...PLANS_ACTIONS, decalSetup.action] } });
   const sceneView = page.locator('canvas.tl-viewport');
   await frameDecals(page, sceneView, decalSetup.focusId);
+  // A click on empty sky (the terrain tile under the selection, its ray missing the ground) deselects at once: a picking
+  // ray has no end, and the terrain's pick once marched along it forever.
+  const viewBox = (await sceneView.boundingBox())!;
+  const clickedAt = Date.now();
+  await page.mouse.click(viewBox.x + 20, viewBox.y + viewBox.height - 20);
+  await expect(sceneView).toHaveAttribute('data-selection-outline', '', { timeout: 2_000 });
+  const clickMs = Date.now() - clickedAt;
+  console.log(`empty Scene view click ${variant}: deselected in ${clickMs} ms`);
+  expect(clickMs).toBeLessThan(200);
   const sceneShot = async (): Promise<{ png: Buffer; read: (p: readonly [number, number, number]) => readonly number[] }> => {
     const project = await sceneViewProjector(sceneView);
     const png = await sceneView.screenshot();
