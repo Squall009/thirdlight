@@ -35,6 +35,7 @@ The pages, and the Deployment sections each took:
 | [terrain.md](terrain.md) | Terrain, Terrain edit layers, stamps and erosion, Rule scatter and ground cover, Splines | done |
 | [architecture.md](architecture.md) | Generated architecture, Architecture styles and presets, Rooms and paths, Rooms drive culling and lighting, Buildings, Floor plans and furnishing | done |
 | [decals.md](decals.md) | — (new: the decal component, decal layers, decal materials, trim sheet decal cells) | growing |
+| [vertex-paint.md](vertex-paint.md) | — (new: vertex paint on models, instance copies and generated meshes; the paintVertices command) | growing |
 | [streaming.md](streaming.md) | World streaming | done |
 | [performance.md](performance.md) | Performance | done |
 | [ui.md](ui.md) | Project UI (UI documents), The UI document editor | done |

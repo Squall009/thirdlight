@@ -157,6 +157,7 @@ One model placed many times (grass, rocks, trees), stored as a binary transform 
 | `densityStart` | number |  | 0.0001 – 1, step 0.001 | **Thinning starts at.** Copies start thinning out where they cover less than this share of the screen height (absent: 0.02). |
 | `densityEnd` | number |  | 0.0001 – 1, step 0.001 | **Thinnest at.** Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: 0.005). |
 | `densityMin` | number |  | 0 – 1, step 0.05 | **Thinnest density.** The share of copies drawn where they are smallest (1 or absent: no thinning; new sets from the scatter dialog start at 0.25). |
+| `paint` | JSON: `InstancePaint` ([InstancePaint](types-d-p.md#type-instance-paint)) |  |  | **Vertex paint.** The painted copies: {copies, painted, slots, meshes}: copies the SHA-256 of a table of (copy address, slot) entries, a copy's address its place in the buffer; per mesh a pool of slots, each 4 bytes (R, G, B, A) a vertex. Absent: no copy is painted (written by paintVertices; the table follows the copies when the brush or an edit takes some out). (written by a tool) |
 
 <a id="component-fogVolume"></a>
 ## fogVolume — Fog volume
@@ -240,6 +241,22 @@ Scene-view handles:
 | Handle | Kind | Edits | Space | Shown when |
 |---|---|---|---|---|
 | Size | box3 | size → `size` | local (follows transform) |  |
+
+<a id="component-vertexPaint"></a>
+## vertexPaint — Vertex paint
+
+Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its materials read it (colour, grime, wetness, blend weights). Painted with paintVertices.
+
+- Category: Rendering
+- Added: by a tool: paintVertices (the vertex paint brush)
+- On prefab objects: no
+- Rule: meshes need the object's model component
+- Rule: paths need the object's architecture or spline component
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `meshes` | JSON: `VertexPaintMesh[]` ([VertexPaintMesh](types-u-w.md#type-vertex-paint-mesh)) |  |  | **Meshes.** A model's painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch). (written by a tool) |
+| `paths` | JSON: `PathPaintGrid[]` ([PathPaintGrid](types-d-p.md#type-path-paint-grid)) |  |  | **Paths.** Generated architecture's or a spline's paint in path space, which survives regeneration: [{path, side, origin, size, paint}]: path outline:<id>, building:<id>, element:<id> or spline; side left, right (wall faces) or top (faces looking up or down); a grid of points 0.25 m apart along the path and up or across it, origin and size in points; paint the SHA-256 of 4 bytes a point. (written by a tool) |
 
 <a id="component-blockLayer"></a>
 ## blockLayer — Block layer

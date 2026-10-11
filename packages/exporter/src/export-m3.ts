@@ -360,7 +360,7 @@ export async function exportProjectM3(
   // numbers; the piece assets are named in the scene file) and generated architecture's shipped meshes (numbers, and
   // the material slots, model ids and element ids the scene file names).
   for (const b of closure.bufferArtifacts) {
-    if (isTerrainTileBlob(b.bytes) || isTerrainOverviewBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes) || isArchitectureBlob(b.bytes)) {
+    if (closure.rawBuffers.has(b.digest) || isTerrainTileBlob(b.bytes) || isTerrainOverviewBlob(b.bytes) || isScatterBlob(b.bytes) || isSplineMadeBlob(b.bytes) || isArchitectureBlob(b.bytes)) {
       if (digestBytes(b.bytes) !== b.digest) return fail('export_bundle_forbidden_content', 'internal', `terrain tile ${b.path} does not match its digest`);
       continue;
     }
@@ -527,7 +527,7 @@ async function writeOutput(
       }
       for (const d of decodersNeeded([{ bytes, contentType: a.contentType }])) decoders.add(d);
       assetBytes += n;
-    } else if (n % 40 !== 0 && (head === null || !(isTerrainTileBlob(head) || isTerrainOverviewBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head) || isArchitectureBlob(head)))) {
+    } else if (n % 40 !== 0 && !closure.rawBuffers.has(a.digest) && (head === null || !(isTerrainTileBlob(head) || isTerrainOverviewBlob(head) || isScatterBlob(head) || isSplineMadeBlob(head) || isArchitectureBlob(head)))) {
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its size (${a.path})`);
     }
     entries.push({ path: a.path, digest: a.digest, byteLength: n });

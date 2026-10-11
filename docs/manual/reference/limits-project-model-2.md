@@ -269,6 +269,20 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-name-max"></a>`NAME_MAX` | `128` |  |
 | <a id="limit-name-min"></a>`NAME_MIN` | `1` |  |
 
+<a id="limits-project-model--vertex-paint-stroke"></a>
+## `vertex-paint-stroke.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-vertex-paint-brush-limits"></a>`VERTEX_PAINT_BRUSH_LIMITS` | `{"dabs":256,"radius":{"min":0.01,"max":64},"strengthMax":1}` | The vertex brush's bounds: a stroke fits one command. |
+
+<a id="limits-project-model--vertex-paint"></a>
+## `vertex-paint.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-vertex-paint-limits"></a>`VERTEX_PAINT_LIMITS` | `{"meshKey":512,"vertices":4000000,"along":400000,"across":4000}` |  |
+
 <a id="limits-project-model--world-streaming"></a>
 ## `world-streaming.ts`
 

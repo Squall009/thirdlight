@@ -86,7 +86,8 @@ use and why.
 [Features](features/index.md) holds the full description of each feature
 area, one page per area: everything a feature does, its settings and its
 edge cases. Growing now: [Decals](features/decals.md) (the data exists;
-drawing follows).
+drawing follows) and [Vertex paint](features/vertex-paint.md) (the data and
+the command exist; drawing and the editor's brush follow).
 
 ## Reference
 

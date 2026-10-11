@@ -104,6 +104,7 @@ interface MutationFailure {
 | [`moveEntities`](ops-detail.md#op-moveEntities) | MoveEntitiesArgs |  |
 | [`moveResources`](ops-detail.md#op-moveResources) | MoveResourcesArgs |  |
 | [`paintInstances`](ops-detail.md#op-paintInstances) | PaintInstancesArgs |  |
+| [`paintVertices`](ops-detail.md#op-paintVertices) | PaintVerticesArgs |  |
 | [`pasteEntities`](ops-detail.md#op-pasteEntities) | PasteEntitiesArgs |  |
 | [`publishAsset`](ops-detail.md#op-publishAsset) | PublishAssetArgs | `assets` |
 | [`publishBehavior`](ops-detail.md#op-publishBehavior) | PublishBehaviorArgs | `behaviors` |

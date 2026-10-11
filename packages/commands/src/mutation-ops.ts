@@ -119,6 +119,8 @@ export type V3MutationOp =
   | 'createFolder'
   // An instance set painted or erased with the brush (one stroke, one undo)
   | 'paintInstances'
+  // An object's vertices painted with the vertex brush (one stroke, one undo)
+  | 'paintVertices'
   // An object's collider made from its model file (one undo)
   | 'colliderFromModel'
   // A terrain's tiles sculpted, painted, cut, imported or converted (one edit, one undo)

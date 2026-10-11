@@ -7,8 +7,8 @@
  */
 
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
-import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
-import type { ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
+import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
+import type { InstancePaint, ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
@@ -25,6 +25,7 @@ import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { scriptsNaming } from './script-names';
 import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type StrokeBuffer } from './instance-strokes';
+import { followCopyPaint, prepareVertexPaint, publishPaintBlobs, verifyPaintBlobs } from './vertex-paint-host';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
 import { SCENE_ROUTED_ARG, SCENE_ROUTED_CREATES } from './scene-routing';
@@ -201,11 +202,42 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   }
   // A brush stroke: its copies planned here from the set's buffer and the scene; the new buffer is published once the command passed.
   let strokeBuffer: StrokeBuffer | null = null;
+  // Vertex paint blobs a passed command names (a stroke's paint, a painted set's table carried along).
+  const paintBlobs: VertexPaintBlob[] = [];
   if (op === 'paintInstances') {
     const prepared = prepareInstanceStroke(core, s, carrier, commandState.content, args);
     if (!prepared.ok) return failRequest(request, prepared.error);
     commandState.preparedInstanceStroke = prepared.prepared;
     strokeBuffer = prepared.buffer;
+    const set = carrier.entities.find((e) => e.id === prepared.prepared.entityId)?.components.instances;
+    if (set !== undefined) {
+      const followed = followCopyPaint(core, s, set.paint, set, { buffer: prepared.prepared.buffer, count: prepared.prepared.count, bytes: prepared.buffer.bytes });
+      if (!followed.ok) return failRequest(request, followed.error);
+      if (followed.paint !== undefined) commandState.preparedInstanceStroke = { ...prepared.prepared, paint: followed.paint as unknown as Record<string, unknown> | null };
+      paintBlobs.push(...followed.blobs);
+    }
+  }
+  // An edit of a painted set's buffer from elsewhere (copies deleted or moved): its paint table follows the copies.
+  const setValue = args['value'] as Record<string, unknown> | null | undefined;
+  if (op === 'setComponent' && args['component'] === 'instances' && setValue !== null && typeof setValue === 'object' && typeof setValue['buffer'] === 'string' && !('paint' in setValue)) {
+    const set = carrier.entities.find((e) => e.id === args['entityId'])?.components.instances;
+    if (set !== undefined) {
+      const count = typeof setValue['count'] === 'number' ? setValue['count'] : set.count;
+      const followed = followCopyPaint(core, s, set.paint, set, { buffer: setValue['buffer'], count });
+      if (!followed.ok) return failRequest(request, followed.error);
+      if (followed.paint !== undefined) {
+        const value: Record<string, unknown> = { ...setValue, paint: followed.paint as InstancePaint | null };
+        pureRequest = { ...(pureRequest as object), args: { ...((pureRequest as { args: Record<string, unknown> }).args), value } };
+      }
+      paintBlobs.push(...followed.blobs);
+    }
+  }
+  // A vertex paint stroke: planned here from the model's file and the stored paint; its blobs are published once the command passed.
+  if (op === 'paintVertices') {
+    const prepared = prepareVertexPaint(core, s, carrier, commandState.content, args);
+    if (!prepared.ok) return failRequest(request, prepared.error);
+    commandState.preparedVertexPaint = prepared.prepared;
+    paintBlobs.push(...prepared.blobs);
   }
   // A terrain edit: the tiles it reaches read and planned here; its new tiles are published once the command passed.
   let terrainBlobs: TerrainBlob[] = [];
@@ -280,6 +312,9 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
     if (!v.ok) return refuse(v.error);
   }
+  // Vertex paint a change names (a setComponent, an undo, a stroke's own): stored blobs of the size the paint says.
+  const paintError = verifyPaintBlobs(s, carrier.entities as never, resultScene.entities as never, new Set(paintBlobs.map((b) => b.digest)));
+  if (paintError !== null) return refuse(paintError);
   // Terrain tiles a change names (a setComponent, an undo, an edit's own): stored tile blobs of the terrain's size.
   const tileError = verifyTerrainTiles(core, s, carrier.entities, resultScene.entities, terrainBlobs) ?? verifySplineData(core, s, carrier.entities as never, resultScene.entities as never, terrainBlobs);
   if (tileError !== null) return refuse(tileError);
@@ -314,6 +349,8 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     const unpublished = publishStrokeBuffer(core, s, strokeBuffer);
     if (unpublished !== null) return refuse(unpublished);
   }
+  const unpublishedPaint = publishPaintBlobs(core, s, paintBlobs);
+  if (unpublishedPaint !== null) return refuse(unpublishedPaint);
   const unpublishedTiles = publishTerrainBlobs(core, s, terrainBlobs);
   if (unpublishedTiles !== null) return refuse(unpublishedTiles);
   // The acknowledgement names the edited scene (the editor

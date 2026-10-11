@@ -838,6 +838,10 @@ export {
 export * from './probe-grids';
 // Decals: the component, decal layers and decal materials' trim sheet cells.
 export * from './decals';
+// Vertex paint: the component, instance sets' paint, strokes and paint in path space.
+export * from './vertex-paint';
+export * from './vertex-paint-stroke';
+export * from './vertex-paint-paths';
 // A small seeded generator (the editor's decal stamps draw their turns and sizes from it, as the generators do).
 export { seededRandom } from './arch-math';
 // Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
@@ -1723,4 +1727,4 @@ export { playChecks, type PlayCheck } from './play-checks';
 export { COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES, canonicalShape, colliderShapeParts, colliderShapePoints, spansVolume } from './collider-shapes';
 // Collider shapes made from geometry, and a model's collision parts read from its file.
 export { boxFromBounds, colliderFromTriangles, convexFromPoints, convexHull2, hullPoints, polygonFromPoints, roundMm, type GeometryCollider } from './collider-geometry';
-export { MODEL_COLLIDER_KINDS, collisionPartPolygons, sceneColliderPoints, validateModelColliderTable, modelColliderShape, modelCollisionParts, readModelGeometry, type ModelColliderKind, type ModelColliderTable, type ModelCollisionPart, type ModelGeometry, type ModelGeometryPrimitive } from './model-collision';
+export { MODEL_COLLIDER_KINDS, MODEL_READ_LIMITS, modelNodeSegments, collisionPartPolygons, sceneColliderPoints, validateModelColliderTable, modelColliderShape, modelCollisionParts, readModelGeometry, type ModelColliderKind, type ModelColliderTable, type ModelCollisionPart, type ModelGeometry, type ModelGeometryPrimitive } from './model-collision';

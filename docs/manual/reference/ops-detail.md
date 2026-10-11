@@ -528,6 +528,18 @@ interface PaintInstancesArgs extends InstanceStroke {
 }
 ```
 
+<a id="op-paintVertices"></a>
+## paintVertices
+
+Arguments (`args`):
+
+```ts
+/** `paintVertices` args: the object and one stroke. */
+interface PaintVerticesArgs extends VertexPaintStroke {
+  entityId: string;
+}
+```
+
 <a id="op-pasteEntities"></a>
 ## pasteEntities
 

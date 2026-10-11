@@ -71,6 +71,9 @@ import {
   SCRIPT_LIBRARY_LIMITS,
   SCULPT_LIMITS,
   INSTANCE_BRUSH_LIMITS,
+  PATH_PAINT_CELL,
+  PATH_PAINT_REACH,
+  VERTEX_PAINT_BRUSH_LIMITS,
   TERRAIN_BRUSH_LIMITS,
   INSTANCE_BRUSH_REACH,
   TEXTURE_BUDGET_DEFAULT_MB,
@@ -160,6 +163,12 @@ export const TOOL_DETAILS = {
     `surface (the editor sends it: per candidate in that order [y, nx, nz] or null, up to ${INSTANCE_BRUSH_LIMITS.samples}) names the surface itself. ` +
     `erase removes the copies within the radius across and ${INSTANCE_BRUSH_REACH} radii up and down of any dab (a set keeps one copy). ` +
     'The copies stay in the set\'s chunks. ' +
+    'paintVertices {entityId, dabs: [[x, y, z] world points, ' + `1-${VERTEX_PAINT_BRUSH_LIMITS.dabs}], brush: {radius (${VERTEX_PAINT_BRUSH_LIMITS.radius.min}-${VERTEX_PAINT_BRUSH_LIMITS.radius.max} m in the world), strength (0-1], channel (0-3: R, G, B, A), falloff?: smooth|linear|constant, erase?}, ` +
+    'mesh? ("Node/Path#primitive": one mesh of the model), copy? (an instance set: the copy\'s place in its buffer), path? + side? (generated architecture "outline:<id>", "building:<id>", "element:<id>", or "spline"; side left|right|top)} ' +
+    'paints 4 bytes a vertex beside the mesh, never the model\'s COLOR_0 (what a channel means is the material\'s): one stroke, one command, one undo. Each dab moves the vertices within the radius toward 255 (erase: toward 0) by strength × falloff. ' +
+    'A model stores per mesh a blob tied to its vertex count and position hash (component vertexPaint.meshes); a reimport that changes a mesh keeps the paint but does not draw it (Problems: paint_mismatch) and refuses strokes over it until that paint is removed (setComponent vertexPaint). ' +
+    'An instance set keeps a copy table and a slot pool (instances.paint), following the copies when the brush or an edit takes some out. ' +
+    `Generated meshes keep paint per path side in path space (vertexPaint.paths: a grid every ${PATH_PAINT_CELL} m along × up a wall face or across a top face, faces within ${PATH_PAINT_REACH} m of the path), so it survives regeneration. ` +
     'A terrain is setComponent "terrain" {tileSamples: 17|33|65|129|257|513|1025 (2^n+1 samples a tile side), spacing (m between samples), heightRange: [low, high] (m above the object; 16-bit steps), ' +
     'tiles: [{x, z, data?}], lodDistance? m, collision?, macroDistance? m (past it, tiles are drawn from a baked top-down albedo and normal per tile: two texture reads instead of the material\'s), rules? (see bake), streaming? {render m, collision? m, scatter? m, hysteresis? m} (Play and the export keep only the tiles within these rings of the camera and its characters, the rest drawn from an overview the build makes; a blockLayer takes the same plus live? m for its chunks and live blocks; absent: everything loaded)} (the object\'s position is the min corner of tile [0, 0]; a tile without data is flat at 0 m; data digests are written by editTerrain). ' +
     `editTerrain {entityId, kind, ...} is one edit, one undo: kind raise|lower|smooth|flatten|noise with dabs [[x, z] world points, 1-${TERRAIN_BRUSH_LIMITS.dabs}], radius (m), strength (raise/lower/noise: m at the centre; smooth/flatten: blend 0-1], ` +

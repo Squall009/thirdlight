@@ -68,6 +68,7 @@ import { validateImportAssetsArgs, type ImportAssetsArgs } from './import-assets
 import { validateSetAddressArgs, validateSetLabelsArgs, type SetAddressArgs, type SetLabelsArgs } from './loadable-ops';
 import { validateImportResourcesArgs, type ImportResourcesArgs } from './import-resources';
 import { validatePaintInstancesArgs, type PaintInstancesArgs } from './instance-stroke-ops';
+import { validatePaintVerticesArgs, type PaintVerticesArgs } from './vertex-paint-ops';
 import { validateColliderFromModelArgs, type ColliderFromModelArgs } from './collider-model-ops';
 import { validateEditTerrainArgs, type EditTerrainArgs } from './terrain-ops';
 import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs, type CreateFolderArgs, type MoveResourcesArgs, type RenameFolderArgs } from './move-ops';
@@ -209,6 +210,8 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   'createFolder',
   // The instance brush (one stroke)
   'paintInstances',
+  // The vertex paint brush (one stroke)
+  'paintVertices',
   'colliderFromModel',
   // A terrain edit (one stroke, import or conversion)
   'editTerrain',
@@ -1344,6 +1347,7 @@ export type ValidatedOpArgs =
   | { op: 'renameFolder'; args: RenameFolderArgs }
   | { op: 'createFolder'; args: CreateFolderArgs }
   | { op: 'paintInstances'; args: PaintInstancesArgs }
+  | { op: 'paintVertices'; args: PaintVerticesArgs }
   | { op: 'colliderFromModel'; args: ColliderFromModelArgs }
   | { op: 'editTerrain'; args: EditTerrainArgs };
 
@@ -1492,6 +1496,11 @@ export function validateOpArgs(
       const r = validatePaintInstancesArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'paintInstances', args: r.args } };
+    }
+    case 'paintVertices': {
+      const r = validatePaintVerticesArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'paintVertices', args: r.args } };
     }
     case 'colliderFromModel': {
       const r = validateColliderFromModelArgs(args);

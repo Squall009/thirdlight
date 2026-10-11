@@ -71,6 +71,8 @@ export interface InstancesComponent {
   localLights?: LocalLightMode;
   /** The decal layers projected decals mark the copies in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** The copies' vertex paint: a sparse copy → slot table and a slot pool per mesh (vertex-paint.ts; absent: none painted). */
+  paint?: import('./vertex-paint').InstancePaint;
   /** Density falloff: the screen size where copies start thinning, where they reach `densityMin`, and that share (absent: `model-lod.ts` defaults). */
   densityStart?: number;
   densityEnd?: number;
@@ -186,6 +188,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   probeVolume?: import('./probe-grids').ProbeVolumeComponent;
   /** v4 only: a decal: a box that marks the surfaces inside it. */
   decal?: import('./decals').DecalComponent;
+  /** v4 only: vertex paint on the object's model meshes or its generated mesh's paths. */
+  vertexPaint?: import('./vertex-paint').VertexPaintComponent;
   /** v4 only: a heightfield of tiles (their data are blobs named by digest). */
   terrain?: import('./terrain').TerrainComponent;
   /** v4 only: a curve through points (roads, rivers, rails) and what is made along it. */

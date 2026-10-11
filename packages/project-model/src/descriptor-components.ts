@@ -25,6 +25,7 @@ import {
 import { EFFECT_LIMITS } from './effects';
 import { blockLayer } from './block-descriptors';
 import { decalLayersField } from './decal-descriptor';
+import { instancePaintField } from './vertex-paint-descriptor';
 import { MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS } from './materials';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
@@ -663,6 +664,7 @@ export const instances: ComponentDescriptor = {
     num('densityStart', 'Thinning starts at', `Copies start thinning out where they cover less than this share of the screen height (absent: ${INSTANCE_DENSITY_START_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
     num('densityEnd', 'Thinnest at', `Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: ${INSTANCE_DENSITY_END_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),
     num('densityMin', 'Thinnest density', `The share of copies drawn where they are smallest (1 or absent: no thinning; new sets from the scatter dialog start at ${INSTANCE_DENSITY_MIN_NEW}).`, { min: 0, max: 1, step: 0.05 }),
+    instancePaintField,
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],

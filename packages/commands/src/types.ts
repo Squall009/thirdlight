@@ -250,7 +250,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: generated architecture (parameters; geometry made at load). */
   | 'architecture'
   /** v4 scenes only: a decal (a projector box; a clipped one's mesh is made at load). */
-  | 'decal';
+  | 'decal'
+  /** v4 scenes only: vertex paint on a model's meshes or a generated mesh's paths (written by paintVertices). */
+  | 'vertexPaint';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =
@@ -1325,6 +1327,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedMoves?: PreparedMoves;
   /** The host's planned and published stroke (`paintInstances` reads only this). */
   preparedInstanceStroke?: import('./instance-stroke-ops').PreparedInstanceStroke;
+  /** The host's planned and published vertex paint (`paintVertices` reads only this). */
+  preparedVertexPaint?: import('./vertex-paint-ops').PreparedVertexPaint;
   /** The host's collider shape made from the object's model (`colliderFromModel` reads only this). */
   preparedModelCollider?: import('./collider-model-ops').PreparedModelCollider;
   /** The host's planned and published terrain edit (`editTerrain` reads only this). */

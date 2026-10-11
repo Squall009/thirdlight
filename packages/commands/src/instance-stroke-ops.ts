@@ -42,6 +42,8 @@ export interface PreparedInstanceStroke {
   entityId: string;
   buffer: string;
   count: number;
+  /** A painted set's paint after the stroke took copies out (their entries gone, the rest renumbered; null: none left). */
+  paint?: Record<string, unknown> | null;
 }
 
 export function validatePaintInstancesArgs(args: Record<string, unknown>): { ok: true; args: PaintInstancesArgs } | { ok: false; error: CommandError } {
@@ -106,7 +108,7 @@ export function applyPaintInstances(input: OpInput, args: PaintInstancesArgs, pr
     return { ok: false, error: fieldValue('/args', undefined, 'a stroke the host prepared', 'paintInstances runs through the project host, which reads and writes the set\'s copies') };
   }
   if (!Number.isInteger(prepared.count) || prepared.count < 1) return { ok: false, error: fieldValue('/args', prepared.count, 'copies', 'the stroke left no copies') };
-  return applySetComponent(input, { entityId: args.entityId, component: 'instances', value: { buffer: prepared.buffer, count: prepared.count } });
+  return applySetComponent(input, { entityId: args.entityId, component: 'instances', value: { buffer: prepared.buffer, count: prepared.count, ...(prepared.paint !== undefined ? { paint: prepared.paint } : {}) } });
 }
 
 /** The bytes of a buffer as copies (a copy, aligned, of whole copies only). */

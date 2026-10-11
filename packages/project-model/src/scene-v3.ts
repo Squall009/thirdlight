@@ -20,6 +20,7 @@ import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { canonicalDecal, validateDecalComponent, type DecalComponent } from './decals';
+import { canonicalInstancePaint, canonicalVertexPaint, validateInstancePaint, validateVertexPaintComponent, type InstancePaint, type VertexPaintComponent } from './vertex-paint';
 import { canonicalTerrain, validateTerrainComponent, type TerrainComponent } from './terrain';
 import { canonicalSpline, validateSplineComponent, type SplineComponent } from './spline';
 import { canonicalArchitecture, validateArchitectureComponent, type ArchitectureComponent } from './architecture';
@@ -142,8 +143,9 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal'];
-// `decal` (a box that marks the surfaces inside it) last.
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint'];
+// `vertexPaint` (paint on a model's meshes or a generated mesh's paths) last.
+// `decal` (a box that marks the surfaces inside it) before it.
 // `terrain`, `spline` and `architecture` (level geometry) before it.
 // `probeVolume` (a box the probe bake fills with probes) before it.
 // `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) before it.
@@ -257,7 +259,7 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
  */
 
 /** The keys of an `instances` component. */
-const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers']);
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers', 'paint']);
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
@@ -301,6 +303,8 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   }
   const lodPerCopy = c['lodPerCopy'];
   if (lodPerCopy !== undefined && typeof lodPerCopy !== 'boolean') errors.push(fieldValue(`${path}/lodPerCopy`, lodPerCopy, 'a boolean', 'lodPerCopy: each copy picks its own level of detail'));
+  // The copies' vertex paint (vertex-paint.ts; absent: none painted).
+  validateInstancePaint(c['paint'], `${path}/paint`, errors);
   for (const k of Object.keys(c)) {
     if (!INSTANCES_KEYS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...INSTANCES_KEYS].join(', ')));
   }
@@ -803,6 +807,13 @@ function validateEntityComponentsV3(
   if (comps['probeVolume'] !== undefined) validateProbeVolumeComponent(comps['probeVolume'], `${path}/probeVolume`, errors);
   // A decal (any entity may carry one: it marks the surfaces around it, its own included).
   if (comps['decal'] !== undefined) validateDecalComponent(comps['decal'], `${path}/decal`, errors);
+  // Vertex paint: a model's meshes, or the paths of the object's architecture or spline.
+  const vp = comps['vertexPaint'];
+  if (vp !== undefined) {
+    validateVertexPaintComponent(vp, `${path}/vertexPaint`, errors);
+    if (isPlainObject(vp) && vp['meshes'] !== undefined && comps['model'] === undefined) errors.push(componentMissing(`${path}/vertexPaint/meshes`, 'model', 'painted meshes are a model\'s: the object needs its model component'));
+    if (isPlainObject(vp) && vp['paths'] !== undefined && comps['architecture'] === undefined && comps['spline'] === undefined) errors.push(componentMissing(`${path}/vertexPaint/paths`, 'architecture or spline', 'painted paths are generated architecture\'s or a spline\'s: the object needs one'));
+  }
   if (comps['terrain'] !== undefined) {
     validateTerrainComponent(comps['terrain'], `${path}/terrain`, errors);
     // A terrain is level geometry of its own: no model, body or other level geometry on the same object.
@@ -1101,8 +1112,9 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['spline'] !== undefined) components.spline = canonicalSpline(comps['spline'] as SplineComponent);
   if (comps['architecture'] !== undefined) components.architecture = canonicalArchitecture(comps['architecture'] as ArchitectureComponent);
   if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
+  if (comps['vertexPaint'] !== undefined) components.vertexPaint = canonicalVertexPaint(comps['vertexPaint'] as VertexPaintComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1119,6 +1131,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
       ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
       ...(typeof i.decalLayers === 'number' ? { decalLayers: i.decalLayers } : {}),
+      ...(i.paint !== undefined ? { paint: canonicalInstancePaint(i.paint) } : {}),
     };
   }
   const name = e['name'];
@@ -1347,7 +1360,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   // The scene's block-layer cells and regions.
   if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors, merged);
   // The scene's look (sky, fog, post, wind).
-  if (version === 4 && doc['environment'] !== undefined) validateSceneEnvironment(doc['environment'], '/environment', errors as never);
+  if (version === 4 && doc['environment'] !== undefined) validateSceneEnvironment(doc['environment'], '/environment', errors);
   if (errors.length > 0) return { errors };
   const canonical = canonicalSceneV3(doc, entities as unknown[], version);
   checkFolderHierarchy(canonical, errors);

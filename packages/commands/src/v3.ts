@@ -13,7 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CONTROLLER_FIELDS, DECAL_FIELDS, validateDecalComponent } from '@thirdlight/project-model';
+import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, validateDecalComponent, validateVertexPaintComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -47,7 +47,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie', 'lightMask', 'shadowCasterMask', 'importance'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers'],
+  instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers', 'paint'],
   // Free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
@@ -87,6 +87,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   spline: SPLINE_FIELDS,
   architecture: ARCHITECTURE_FIELDS,
   decal: DECAL_FIELDS,
+  vertexPaint: VERTEX_PAINT_FIELDS,
 };
 
 /**
@@ -164,6 +165,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'architecture',
   // v4 scenes only.
   'decal',
+  'vertexPaint',
 ];
 
 /** Every component `setComponent` may address. */
@@ -264,6 +266,9 @@ export function validateV3ComponentValue(
       break;
     case 'decal':
       validateDecalComponent(value, path, errors as unknown as Parameters<typeof validateDecalComponent>[2]);
+      break;
+    case 'vertexPaint':
+      validateVertexPaintComponent(value, path, errors as unknown as Parameters<typeof validateVertexPaintComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

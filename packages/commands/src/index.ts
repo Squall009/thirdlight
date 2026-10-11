@@ -252,6 +252,7 @@ export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withLayerData }
 export type { FootprintChunks } from './footprint-ops';
 export type { BlockChunkSwap, BlockLayerPatch, BlockRegionSwap } from './block-patch';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';
+export { planVertexPaint, validatePaintVerticesArgs, type PaintVerticesArgs, type PreparedVertexPaint, type VertexPaintBlob, type VertexPaintReads } from './vertex-paint-ops';
 export { planModelCollider, validateColliderFromModelArgs, type ColliderFromModelArgs, type PreparedModelCollider } from './collider-model-ops';
 export { EDIT_TERRAIN_KEYS, EDIT_TERRAIN_KINDS, planTerrainEdit, terrainTilesAfter, validateEditTerrainArgs, type EditTerrainArgs, type EditTerrainKind, type PreparedTerrainEdit, type TerrainEditPlan, type TerrainScatterRead, type TerrainTileRead } from './terrain-ops';
 export { SPLINE_REBAKE_PIECE, blockedArea, planTerrainSplineRebake, splineBandRects, splineRebakeRects, type TerrainLayerReads, type TerrainSplinePlan } from './terrain-spline-ops';

@@ -22,7 +22,7 @@
  * bytes are linked into the bundle by the caller.
  */
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
-import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type DialogueSpeaker } from '@thirdlight/project-model';
+import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type DialogueDocument, type DialogueSettings, type DialogueSpeaker, type InstancePaint, type VertexPaintComponent } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
@@ -324,6 +324,8 @@ export interface ContentClosureM3 {
   assetFiles: readonly ClosureFileArtifact[];
   /** With `locate`: the instance-set buffers found on disk. */
   bufferFiles: readonly ClosureFileArtifact[];
+  /** Buffers that are plain bytes of the size their record says (vertex paint), checked by digest and size like instance buffers. */
+  rawBuffers: ReadonlySet<string>;
   /**
    * With `locate`: the streamed textures, each shipped as its parts (the
    * KTX2 cut by mip level, in file order) instead of its whole file.
@@ -545,6 +547,8 @@ interface DerivedCapture {
   readonly sceneRows: readonly ManifestSceneRow[];
   /** The instance buffers the scenes name (read or located per build). */
   readonly buffers: readonly { digest: string; byteLength: number }[];
+  /** Which of them are vertex paint (plain bytes of their records' size). */
+  readonly rawBuffers: readonly string[];
   /** The block layers' chunk data the scene files name (made by the build, block-chunk-data.ts). */
   readonly blockData: readonly ClosureArtifact[];
   /** Whether that chunk data is gzip-compressed (a build with the other choice derives again). */
@@ -996,6 +1000,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   const bufferArtifacts: ClosureArtifact[] = [];
   const bufferFiles: ClosureFileArtifact[] = [];
   const buffers = new Map<string, number>(derived !== null ? derived.buffers.map((b) => [b.digest, b.byteLength] as const) : []);
+  const rawBuffers = new Set<string>(derived !== null ? derived.rawBuffers : []);
   // The block layers' cells leave the scene files as binary chunk data (the same blob for a layer two files name).
   const packer = blockDataPacker(hash, input.gzip);
   // Streamed terrains ship an overview (every tile at its coarsest level), made from their tiles' stored blobs.
@@ -1010,7 +1015,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
     for (const doc of input.scenes) {
-      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number }; terrain?: { tiles: { data?: string; scatter?: string }[] }; spline?: { data?: string } } }[] };
+      const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number; paint?: InstancePaint }; terrain?: { tiles: { data?: string; scatter?: string }[] }; spline?: { data?: string }; vertexPaint?: VertexPaintComponent } }[] };
       let packed: unknown;
       try {
         packed = packScene(withoutHandMadeTiles(doc));
@@ -1034,11 +1039,16 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
         // What a spline made (its meshes and pieces' copies), drawn by the page and collided by the simulation.
         const made = e.components.spline?.data;
         if (made !== undefined && !buffers.has(made)) buffers.set(made, TERRAIN_TILE_SIZE_OF_BLOB);
+        // Vertex paint (a model's meshes, a generated mesh's paths, a set's copy table and pools), each of the size its record says.
+        for (const b of [...vertexPaintBlobs(e.components.vertexPaint), ...instancePaintBlobs(inst?.paint)]) {
+          if (!buffers.has(b.digest)) buffers.set(b.digest, b.byteLength);
+          rawBuffers.add(b.digest);
+        }
       }
     }
   }
   for (const [digest, byteLength] of [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    const badSize = (found: number): { ok: false; error: ContentClosureError } => ({ ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `instance buffer ${digest.slice(0, 12)}… holds ${found} bytes, not ${byteLength} (count × 40)` } });
+    const badSize = (found: number): { ok: false; error: ContentClosureError } => ({ ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `buffer ${digest.slice(0, 12)}… holds ${found} bytes, not ${byteLength} (an instance set: count × 40; vertex paint: the size its record says)` } });
     const sized = byteLength !== TERRAIN_TILE_SIZE_OF_BLOB;
     if (locate) {
       const at = service.locateSourceBlob(projectId, digest);
@@ -1131,7 +1141,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   for (const a of blockData) if (!buffers.has(a.digest)) bufferArtifacts.push(a);
   let remember: DerivedCapture | null = null;
   if (derived === null && contentKey !== null && identities !== null) {
-    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), blockData, gzip: input.gzip !== undefined, sceneBytes, sceneDigest, terrainOverviews };
+    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), rawBuffers: [...rawBuffers], blockData, gzip: input.gzip !== undefined, sceneBytes, sceneDigest, terrainOverviews };
     derivedCaptures.set(contentKey, remember);
   }
 
@@ -1294,6 +1304,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       bufferArtifacts,
       assetFiles,
       bufferFiles,
+      rawBuffers,
       streamedTextures,
       decoders: [...decoders].sort(),
       contentFileArtifacts,

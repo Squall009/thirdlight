@@ -53,6 +53,12 @@ export interface ModelGeometryPrimitive {
   positions: Vec3Tuple[];
   /** Index triples into `positions` (empty for points and lines). */
   triangles: Vec3Tuple[];
+  /** The node's path from the scene root (`modelNodePath`): what vertex paint names a mesh by. */
+  node: string;
+  /** The primitive's index in its node's mesh. */
+  primitive: number;
+  /** POSITION as stored (the node's own space, before its matrix): what vertex paint's position hash reads. */
+  local: readonly number[];
 }
 
 export interface ModelGeometry {
@@ -62,7 +68,8 @@ export interface ModelGeometry {
 }
 
 /** Bounds on what one read decodes (the importer's caps keep stored files far below them). */
-const READ_LIMITS = Object.freeze({ depth: 256, positions: 4_000_000 });
+export const MODEL_READ_LIMITS = Object.freeze({ depth: 256, positions: 4_000_000 });
+const READ_LIMITS = MODEL_READ_LIMITS;
 
 /** Column-major 4×4 of a node (its matrix, else T·R·S). */
 function nodeMatrix(def: Json): number[] {
@@ -168,6 +175,22 @@ function trianglesOf(mode: number, indices: readonly number[]): Vec3Tuple[] {
   return out.filter((t) => t[0] !== t[1] && t[1] !== t[2] && t[0] !== t[2]);
 }
 
+/**
+ * The path segments of sibling nodes: each its sanitized name (`node<index>`
+ * when it has none), the second and later siblings of one name with `~1`,
+ * `~2`, … So a path names one node and survives a re-export that keeps the
+ * names, whatever order the file lists its nodes in.
+ */
+export function modelNodeSegments(siblings: readonly { index: number; name: string }[]): string[] {
+  const seen = new Map<string, number>();
+  return siblings.map(({ index, name }) => {
+    const base = name !== '' ? name : `node${index}`;
+    const k = seen.get(base) ?? 0;
+    seen.set(base, k + 1);
+    return k === 0 ? base : `${base}~${k}`;
+  });
+}
+
 /** Read a model's mesh primitives in root space. Never throws. */
 export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
   const chunks = glbChunks(bytes);
@@ -181,7 +204,7 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
   const primitives: ModelGeometryPrimitive[] = [];
   const skipped: string[] = [];
   let positionsRead = 0;
-  const visit = (index: number, parent: readonly number[], depth: number, ctx: { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean }, seen: Set<number>): void => {
+  const visit = (index: number, parent: readonly number[], depth: number, ctx: { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean }, seen: Set<number>, path: string): void => {
     if (depth > READ_LIMITS.depth || seen.has(index)) return;
     const def = nodes[index];
     if (!isObj(def)) return;
@@ -231,15 +254,21 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
           }
           indices = idx.data.filter((i) => Number.isInteger(i) && i >= 0 && i < count);
         } else indices = Array.from({ length: count }, (_, i) => i);
-        primitives.push({ ...here, positions, triangles: trianglesOf(mode, indices) });
+        primitives.push({ ...here, positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data });
       });
     }
-    for (const k of Array.isArray(def['children']) ? (def['children'] as unknown[]) : []) if (typeof k === 'number') visit(k, world, depth + 1, here, seen);
+    visitAll(Array.isArray(def['children']) ? (def['children'] as unknown[]) : [], world, depth + 1, here, seen, `${path}/`);
   };
-  if (isObj(scene)) {
-    const seen = new Set<number>();
-    for (const n of Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : []) if (typeof n === 'number') visit(n, IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false }, seen);
-  }
+  const visitAll = (list: readonly unknown[], parent: readonly number[], depth: number, ctx: { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean }, seen: Set<number>, prefix: string): void => {
+    const segments = modelNodeSegments(list.map((k) => {
+      const def = typeof k === 'number' ? nodes[k] : undefined;
+      return { index: typeof k === 'number' ? k : -1, name: isObj(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
+    }));
+    list.forEach((k, i) => {
+      if (typeof k === 'number') visit(k, parent, depth, ctx, seen, `${prefix}${segments[i]!}`);
+    });
+  };
+  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false }, new Set<number>(), '');
   if (positionsRead > READ_LIMITS.positions) return { ok: false, message: `the model holds over ${READ_LIMITS.positions} vertices; its collision geometry is not read` };
   return { ok: true, geometry: { primitives, skipped } };
 }

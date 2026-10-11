@@ -8,7 +8,7 @@ What the engine offers, generated from its source: the objects, components and c
 |---|---|
 | [Objects and components](objects.md) | Object fields, Components, Scene-view handle kinds |
 | [Components: Object](components-object.md) | transform — Transform, socketAttach — Socket |
-| [Components: Rendering (part 1)](components-rendering-1.md) | 13 sections |
+| [Components: Rendering (part 1)](components-rendering-1.md) | 14 sections |
 | [Components: Rendering (part 2)](components-rendering-2.md) | architecture — Architecture |
 | [Components: Physics](components-physics.md) | collider — Collider, controller — Player controller |
 | [Components: Camera](components-camera.md) | virtualCamera — Virtual camera, cameraPath — Camera path, cameraRegion — Camera region |
@@ -26,11 +26,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 78 sections |
+| [Command op arguments](ops-detail.md) | 79 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DeclaredProperty)](types-a-d.md) | 76 sections |
-| [Types (DeleteEntityArgs to PublishAssetAnimation)](types-d-p.md) | 101 sections |
-| [Types (PublishAssetArgs to UpdateEntityArgs)](types-p-u.md) | 88 sections |
-| [Types (V3OwnedComponent to WindConfig)](types-v-w.md) | 3 sections |
+| [Types (DeleteEntityArgs to PropertyBounds)](types-d-p.md) | 101 sections |
+| [Types (PropertyDeclaration to UiWorldAnchor)](types-p-u.md) | 93 sections |
+| [Types (UpdateEntityArgs to WindConfig)](types-u-w.md) | 7 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
@@ -65,8 +65,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `errors.ts`, `ops.ts`, `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
-| [Limits and defaults: project-model (part 2, from `model-lod.ts`)](limits-project-model-2.md) | 30 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 37 sections |
+| [Limits and defaults: project-model (part 2, from `model-lod.ts`)](limits-project-model-2.md) | 32 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |

@@ -366,3 +366,10 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |
 | <a id="limit-max-material-slots"></a>`MAX_MATERIAL_SLOTS` | `32` | Most material slots one object or asset maps. |
 | <a id="limit-sky-rotation-max"></a>`SKY_ROTATION_MAX` | `360` | The largest turn a sky's `rotation` takes either way (degrees; one full turn). |
+
+<a id="limits-project-model--model-collision"></a>
+## `model-collision.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-model-read-limits"></a>`MODEL_READ_LIMITS` | `{"depth":256,"positions":4000000}` | Bounds on what one read decodes (the importer's caps keep stored files far below them). |

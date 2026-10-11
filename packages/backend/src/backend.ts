@@ -19,6 +19,7 @@
 import { audioPlaybackProblems } from './audio-gaps';
 import { createScriptNameChecker } from './script-name-problems';
 import { createBlockProblemChecker } from './block-problems';
+import { createPaintProblemChecker } from './paint-problems';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -447,6 +448,7 @@ export function createBackend(
     scriptNames.loaded(projectId);
     heldImages.loaded(projectId);
     blockProblems.loaded(projectId);
+    paintProblems.loaded(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -585,6 +587,8 @@ export function createBackend(
   const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
   // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
   const blockProblems = createBlockProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
+  // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
+  const paintProblems = createPaintProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Models still holding images when the project extracts every model's: extracted where their files are, the rest listed.
   const heldImages = createHeldImagesChecker({ service, extract: assetFiles.extractModels, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
 
@@ -672,6 +676,7 @@ export function createBackend(
     scriptNames.changed(projectId, change);
     heldImages.changed(projectId, change);
     blockProblems.changed(projectId, change);
+    paintProblems.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
@@ -1395,6 +1400,7 @@ export function createBackend(
           scriptNames.loaded(projectId);
           heldImages.loaded(projectId);
           blockProblems.loaded(projectId);
+          paintProblems.loaded(projectId);
           // The missing asset files (the first page; the missing-files route pages them).
           const missing = missingFiles.firstPage(projectId);
           const list = problems.get(projectId) ?? [];

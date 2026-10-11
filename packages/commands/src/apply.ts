@@ -69,6 +69,7 @@ import { applySetAddress, applySetLabels } from './loadable-ops';
 import { applyImportResources } from './import-resources';
 import { applyMoveResources } from './move-ops';
 import { applyPaintInstances } from './instance-stroke-ops';
+import { applyPaintVertices } from './vertex-paint-ops';
 import { applyColliderFromModel } from './collider-model-ops';
 import { applyEditTerrain } from './terrain-ops';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
@@ -315,6 +316,12 @@ export function applyMutation<S extends SceneDocument>(
       const r = applyPaintInstances(input, va.validated.args, state.preparedInstanceStroke);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'paintInstances', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'paintVertices': {
+      // One vertex paint stroke: the paint the host planned and published, stored in one change (one undo).
+      const r = applyPaintVertices(input, va.validated.args, state.preparedVertexPaint);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'paintVertices', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'colliderFromModel': {
       // The collider the host made from the object's model file, stored as one setComponent change (one undo).

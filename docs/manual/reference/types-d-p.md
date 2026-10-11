@@ -1,4 +1,4 @@
-# Types (DeleteEntityArgs to PublishAssetAnimation)
+# Types (DeleteEntityArgs to PropertyBounds)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -904,6 +904,24 @@ interface InstanceBrush {
 }
 ```
 
+<a id="type-instance-paint"></a>
+### InstancePaint
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+/** An instance set's paint (`instances.paint`). */
+interface InstancePaint {
+  /** SHA-256 of the copy table: `painted` entries (copy address, slot), u32 little-endian, in address order. */
+  copies: string;
+  painted: number;
+  /** Slots in each mesh's pool (some may be free). */
+  slots: number;
+  /** Per mesh, its pool: `slots` runs of 4 bytes a vertex. */
+  meshes: VertexPaintMesh[];
+}
+```
+
 <a id="type-instance-stroke"></a>
 ### InstanceStroke
 
@@ -1450,6 +1468,27 @@ Declared in `packages/project-model/src/block-grid.ts`.
 type PaintTarget = 'tops' | 'walls' | 'both';
 ```
 
+<a id="type-paint-vec3"></a>
+### PaintVec3
+
+Declared in `packages/project-model/src/vertex-paint-stroke.ts`.
+
+```ts
+type PaintVec3 = [number, number, number];
+```
+
+<a id="type-paint-vertices-args"></a>
+### PaintVerticesArgs
+
+Declared in `packages/commands/src/vertex-paint-ops.ts`.
+
+```ts
+/** `paintVertices` args: the object and one stroke. */
+interface PaintVerticesArgs extends VertexPaintStroke {
+  entityId: string;
+}
+```
+
 <a id="type-partial-transform-args"></a>
 ### PartialTransformArgs
 
@@ -1486,6 +1525,45 @@ interface PasteEntitiesArgs {
   /** Added to the positions of the copies placed in world space. */
   offset?: [number, number, number];
 }
+```
+
+<a id="type-path-paint-sides"></a>
+### PATH_PAINT_SIDES
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+/** The sides of a path its paint is kept for: the faces to the left and right of travel, and the faces looking up or down. */
+const PATH_PAINT_SIDES: readonly ["left", "right", "top"];
+```
+
+<a id="type-path-paint-grid"></a>
+### PathPaintGrid
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+/** One side of one path's paint: a grid of points {@link PATH_PAINT_CELL} m apart. */
+interface PathPaintGrid {
+  /** The path: `outline:<id>`, `building:<id>`, `element:<id>` (architecture) or `spline`. */
+  path: string;
+  side: PathPaintSide;
+  /** The grid's first point, in cells: along the path, and up (left/right) or across (top). */
+  origin: [number, number];
+  /** Points along and up/across. */
+  size: [number, number];
+  /** SHA-256 of the grid: 4 bytes a point, rows (up/across) of points along. */
+  paint: string;
+}
+```
+
+<a id="type-path-paint-side"></a>
+### PathPaintSide
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
 ```
 
 <a id="type-pointer-axis-name"></a>
@@ -1593,84 +1671,5 @@ Declared in `packages/project-model/src/types-v2.ts`.
 interface PropertyBounds {
   min: Vec3;
   max: Vec3;
-}
-```
-
-<a id="type-property-declaration"></a>
-### PropertyDeclaration
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-interface PropertyDeclaration {
-  properties: DeclaredProperty[];
-}
-```
-
-<a id="type-property-override"></a>
-### PropertyOverride
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** One declared-property override at instantiation. */
-interface PropertyOverride {
-  localId: string;
-  key: string;
-  value: PropertyValue;
-}
-```
-
-<a id="type-property-type"></a>
-### PropertyType
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-type PropertyType =
-  | 'number'
-  | 'boolean'
-  | 'string'
-  | 'enum'
-  | 'vec3'
-  | 'entityRef'
-  | 'assetRef';
-```
-
-<a id="type-property-value"></a>
-### PropertyValue
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-/** Seven-type property value vocabulary. */
-type PropertyValue =
-  | number
-  | boolean
-  | string
-  | [number, number, number]
-  | null;
-```
-
-<a id="type-property-visibility"></a>
-### PropertyVisibility
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-/** Declared-property visibility (Unity-like public/private). */
-type PropertyVisibility = 'public' | 'private';
-```
-
-<a id="type-publish-asset-animation"></a>
-### PublishAssetAnimation
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** The version-local mapping moved with a reimport. */
-interface PublishAssetAnimation {
-  entityId: string;
-  roles: ModelAnimationRolesValue;
 }
 ```

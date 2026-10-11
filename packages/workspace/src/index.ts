@@ -91,3 +91,4 @@ export { literalsIn, scriptNamedAssets, scriptsNaming } from './script-names';
 export { SCRIPT_NAMED_LABEL } from './upgrade-loadable';
 // A block layer's level checks (the backend's Problems after block edits).
 export { layerLevelChecks, type BlockCheckContent, type BlockLayerCheck } from './block-checks';
+export { paintMismatches, type PaintMeshCache, type PaintMismatchRow } from './paint-checks';

@@ -1,8 +1,87 @@
-# Types (PublishAssetArgs to UpdateEntityArgs)
+# Types (PropertyDeclaration to UiWorldAnchor)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-property-declaration"></a>
+### PropertyDeclaration
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+interface PropertyDeclaration {
+  properties: DeclaredProperty[];
+}
+```
+
+<a id="type-property-override"></a>
+### PropertyOverride
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** One declared-property override at instantiation. */
+interface PropertyOverride {
+  localId: string;
+  key: string;
+  value: PropertyValue;
+}
+```
+
+<a id="type-property-type"></a>
+### PropertyType
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+type PropertyType =
+  | 'number'
+  | 'boolean'
+  | 'string'
+  | 'enum'
+  | 'vec3'
+  | 'entityRef'
+  | 'assetRef';
+```
+
+<a id="type-property-value"></a>
+### PropertyValue
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+/** Seven-type property value vocabulary. */
+type PropertyValue =
+  | number
+  | boolean
+  | string
+  | [number, number, number]
+  | null;
+```
+
+<a id="type-property-visibility"></a>
+### PropertyVisibility
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+/** Declared-property visibility (Unity-like public/private). */
+type PropertyVisibility = 'public' | 'private';
+```
+
+<a id="type-publish-asset-animation"></a>
+### PublishAssetAnimation
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** The version-local mapping moved with a reimport. */
+interface PublishAssetAnimation {
+  entityId: string;
+  roles: ModelAnimationRolesValue;
+}
+```
 
 <a id="type-publish-asset-args"></a>
 ### PublishAssetArgs
@@ -1550,27 +1629,5 @@ interface UiWorldAnchor {
   margin?: number;
   /** A child widget shown only while clamped, turned towards the target (`--tl-angle`). */
   indicator?: string;
-}
-```
-
-<a id="type-update-entity-args"></a>
-### UpdateEntityArgs
-
-Declared in `packages/commands/src/entity-types.ts`.
-
-```ts
-/** `updateEntity` args: at least one field besides `entityId` (`parentId` null = make root). */
-interface UpdateEntityArgs {
-  entityId: string;
-  name?: string;
-  parentId?: string | null;
-  active?: boolean;
-  visible?: boolean;
-  locked?: boolean;
-  static?: boolean;
-  /** The object (with its children and scripts) survives scene loads, unloads and reloads. */
-  keepLoaded?: boolean;
-  /** The entity's own tags, by name (replaces the whole set; [] clears). */
-  tags?: string[];
 }
 ```

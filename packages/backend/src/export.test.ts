@@ -238,6 +238,23 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       expect(shipped.materials.find((m) => m.materialId === 'mat-sheet')!.trim!.cells).toEqual(sheet.cells);
       const scene3 = JSON.parse(readFileSync(join(ctx.exportRoot, body3.outputDir, 'scene.json'), 'utf8')) as { entities: Array<{ name?: string; components: Record<string, unknown> }> };
       expect(scene3.entities.find((e) => e.name === 'Crack')!.components['decal']).toEqual(decal);
+
+      // --- vertex paint: a painted wall's path grid ships as a plain blob of its size beside the scene ---
+      const created = await fetch(`${ctx.base}/api/v1/projects/${PROJECT}/commands`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${AUTH_TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ op: 'createEntity', projectId: PROJECT, requestId: `req-${hex(32)}`, expectedRevision: revision, args: { sceneId: 'scene-main', kind: 'group', name: 'Wall', components: { architecture: { elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } } } } }, origin: { kind: 'mcp', clientId: 'export-e2e' } }),
+      });
+      const made = (await created.json()) as { ok: boolean; revision: number; createdId: string };
+      expect(made.ok, JSON.stringify(made)).toBe(true);
+      revision = made.revision;
+      await command('paintVertices', { entityId: made.createdId, path: 'element:wall', side: 'right', dabs: [[3, 1, 0]], brush: { radius: 0.5, strength: 1, channel: 1 } });
+      const res4 = await fetch(`${ctx.base}/api/v1/admin/projects/${PROJECT}/export`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' }, body: '{}' });
+      const body4 = (await res4.json()) as { ok: boolean; outputDir: string };
+      expect(body4.ok, JSON.stringify(body4)).toBe(true);
+      const scene4 = JSON.parse(readFileSync(join(ctx.exportRoot, body4.outputDir, 'scene.json'), 'utf8')) as { entities: Array<{ name?: string; components: Record<string, unknown> }> };
+      const grid = (scene4.entities.find((e) => e.name === 'Wall')!.components['vertexPaint'] as { paths: { paint: string; size: [number, number] }[] }).paths[0]!;
+      expect(statSync(join(ctx.exportRoot, body4.outputDir, 'content', 'sha256', grid.paint)).size).toBe(grid.size[0] * grid.size[1] * 4);
     },
     240000,
   );

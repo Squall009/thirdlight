@@ -29,6 +29,8 @@ const API_ONLY: Readonly<Record<string, string>> = {
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
   createEntities:
     'bulk creation for build scripts and agents (up to 1024 objects in one revision); the editor creates objects one at a time (createEntity, pasteEntities, instantiatePrefab, a folder with children)',
+  paintVertices:
+    "vertex paint strokes from agents and scripts until the Scene view's paint brush sends them (the editor's vertex paint mode is the next step); one stroke, one undo",
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
