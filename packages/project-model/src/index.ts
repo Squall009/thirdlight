@@ -885,6 +885,7 @@ export {
   type MaterialParameterValue,
   type MaterialValue,
   MAX_MATERIAL_SLOTS,
+  MATERIAL_LAYER_NAME_MAX,
   validateEnvironment,
   validateQualityLevels,
   validateMaterialMapping,

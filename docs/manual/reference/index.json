@@ -597,6 +597,7 @@
 "limit.MANIFEST_CONTENT_FILE_MAX_BYTES": {"page":"limits-project-model-1.md","section":"limits-project-model--manifest"},
 "limit.MATERIAL_DATA_MAX": {"page":"limits-project-model-1.md","section":"limits-project-model--material-graph-kinds"},
 "limit.MATERIAL_EXTRA_LAYERS_MAX": {"page":"limits-project-model-1.md","section":"limits-project-model--materials"},
+"limit.MATERIAL_LAYER_NAME_MAX": {"page":"limits-project-model-1.md","section":"limits-project-model--materials"},
 "limit.MAX_ANIMATOR_LAYERS": {"page":"limits-project-model-1.md","section":"limits-project-model--animator"},
 "limit.MAX_ASSET_VERSIONS": {"page":"limits-project-model-1.md","section":"limits-project-model--content-limits"},
 "limit.MAX_AUDIO_VERSIONS": {"page":"limits-project-model-1.md","section":"limits-project-model--content-limits"},

@@ -440,6 +440,9 @@ export const BIPLANAR_EXTRA_READS = 3;
 /** The texture reads a pixel of the layered template (three per layer). */
 export const TEMPLATE_READS = 12;
 
+/** The layered template's three texture-array parameters (the layer palette reads and fills the albedo's slots). */
+export const LAYERED_TEXTURES = { albedo: 'albedoHeight', normals: 'normals', orm: 'orm' } as const;
+
 /** The number of layers of the layered template (the four components of its weights). */
 export const TEMPLATE_LAYERS = 4;
 /** Metres from the camera a biplanar layer reads both planes within (past it: the plane the ground faces most). */
@@ -472,9 +475,9 @@ export const BIPLANAR_DISTANCE = 60;
 export function layeredMaterial(materialId: string, name: string): MaterialDef {
   const b = new GraphBuilder([]);
   const out = b.add('output', 'pbr');
-  const albedoArr = b.textureParam('albedoHeight');
-  const normalArr = b.textureParam('normals');
-  const ormArr = b.textureParam('orm');
+  const albedoArr = b.textureParam(LAYERED_TEXTURES.albedo);
+  const normalArr = b.textureParam(LAYERED_TEXTURES.normals);
+  const ormArr = b.textureParam(LAYERED_TEXTURES.orm);
   // The projection is the material's own (private): the compile reads it, so a layer that never leaves the top reads once.
   const setting = (key: (typeof LAYER_SETTINGS)[number]['key']): Out => {
     const s = LAYER_SETTINGS.find((x) => x.key === key)!;

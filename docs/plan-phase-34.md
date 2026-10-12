@@ -181,6 +181,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 | 34.4 | Done 2026-10-12: the edit-mode shell (`ui/editmode/`: registry `EDIT_MODES`, `EditModeShell`, `EditModeHeader`, `ToolRail`, `StatusHints`, `ViewportChrome`, one key map `session/edit-keys.ts`); the live canvas lent with input (`borrow(host, 'edit')`); isolation in the adapter (`isolation-view.ts`, a sweep of the scene's drawables: 11 swept, 6 hidden in the e2e scene); the terrain is the first mode, its old panel split by rail mode as the interim column. e2e: `editor-window.e2e.ts` extended (layout sizes, isolation and Context pixels, rail keys, a stroke and undo/redo, MCP rename and hole, Play aside and back, Esc, Inspector and Scene-view double-click entries, delete closes); `terrain-cdlod-steps.ts` drives the editor. Enter/leave to first frame 8.7–13.5 ms over 3 rounds each (target ≤ 150 ms), 37 programs before and after (no rebuild); small e2e scene, WebGPU, Iris Xe, 1920×1080 — a large level unmeasured. Fast gate green (10 min). |
 | 34.5 | Done 2026-10-12: one `BrushSettings` (`session/brush.ts`: size across, strength, opacity, falloff + curve hardness, spacing, invert, height step; per editor and tool in localStorage, invert not kept), one `SliderField` (stamp/erode fields moved onto it), `BrushPanel`, `FalloffPicker`, shared `Section`/`Toggle`/`Segmented`; one cursor (`viewport/brush-cursor.ts`: ring + dark halo, dashed half-strength ring, fill, dot; `BrushHud`) for the terrain and block editors; brush keys in `edit-keys.ts` (`[ ]`, Shift, F/Shift+F drag, X, Ctrl) listed per mode. Opacity is a per-stroke coverage in `paint-brush.ts` (additive `opacity`, `hardness` on `editTerrain` paint, `editBlocks` paint, `paintVertices`); the GPU preview keeps a per-tile byte coverage. vitest: brush 5, paint-brush 7, terrain-ops +2; e2e: `editor-window` keys/F/X, `terrain-cdlod` on the new fields (+1.7 s on editor-window). |
 | 34.6 | Done 2026-10-12: fractal value-noise mask (`value-noise.ts`, the terrain hash; scale, contrast, threshold, octaves 1–5, seed), additive `mask` on every paint command and the sculpt kinds, anchored to the target; masked GPU passes are their own variants (built when the mask turns on); `NoiseMask` with a live swatch; the cursor's fill shows the mask. Masked + 50 % opacity stroke, preview vs stored: weight ≤ 1 byte on WebGPU and WebGL 2, dab preview ≤ 1.1 ms a frame, commit 19 / 51 ms (targets: in the frame, p95 ≤ 100 ms). Seam-free: the same bytes per sample with 33² tiles as with one 65² tile (vitest). e2e: a masked stroke's pixels differ from the unmasked one, undo. Fast gate green (9 min; village p50 5.6 / 4.8 ms). |
+| 34.7 | Done 2026-10-12: `ui/palette/` — `LayerPalette` (tiles: the slot texture's backend thumbnail, number, name, sub line; picked = brush ring; 1–9 keys; drop target), `LayerPicker` (chip + compact palette in a popover beside the column), `MaterialLayers` (the Paint column's Layers section: material chip, picked-layer line, **Layer settings…** popover, **Set up material**), `LayerSettings.tsx` moved here (the material document's table and the popover's `LayerFields` share `session/layer-palette.ts`). Additive `layerNames` on materials; `setMaterial {material, assign: {entityId}}` = one undo step. Material rules pick their layer with `LayerPicker`. Thumbnail of a 64² PNG texture: 128 px PNG well under 64 KB (asserted ≤ 64 KB), read once per texture version (the tile cache). e2e: `editor-window` (stand-ins, key pick, Set up + one undo/redo, drop, picker, name + tiling, paint the material's layer 2: stored index and pixels), `terrain-cdlod` (palette tile, rules' picker). The editor-window terrain test takes 7.6 s in the gate (terrain-cdlod 2.9 min, both renderers). Fast gate green (rendering's dynamic-resolution step failed once, passed on rerun; village p50 5.6 / 4.7 ms within its limits). Screenshots looked at against 02/03 (owner look pending): the paint column, the settings popover and the rules picker. |
 
 ## 7. Decision log
 
@@ -208,9 +209,12 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   palette entries; the brush is the brand amber, erase red, state and selection stay blue; frame is Home
   because F is the brush resize; Esc cancels a stroke, then a popover, then leaves the mode; the decal atlas is
   a drawer in the decal editor's view; the kit editor is an editor-window document with the normal Inspector.
-- Open: whether "Set up material" may send two commands as one history
-  entry or needs a combined command. Decided in 34.7 against
-  `docs/architecture/commands`.
+- Decided (34.7): "Set up material" is **one command**, not two sent as one history entry. There is no
+  `docs/architecture/commands` and no batch or grouping in the history (`commands/src/history.ts`: one entry per
+  command); the history does have *follow-ups* (components a command writes besides its own change, undone ahead
+  of its inverse: the spline/decal ones). `setMaterial` takes an additive `assign: {entityId}` that puts the
+  material on that object's `materials` "*" slot (other slots kept) as such a follow-up (`'materials'` added to
+  the followed components). MCP gets the same argument (tool docs).
 - 2026-10-12 (34.3) — The tool registry is a list in priority order, not one "active tool": today several tools can
   be armed at once (vertex paint over block tools, the Decal tool over both) and their old precedence is kept. A
   release goes first to the tool whose gesture it ends, then to a tool that acts on a plain click (the Decal tool
@@ -260,3 +264,25 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     tiles on release. For 35's layered surface material.
   - Not yet on the kit: the vertex paint and instance brush panels and rings (35.5), block paint's panel (36.5); their
     commands take `opacity`, `mask`, `hardness` now.
+- 2026-10-12 (34.7) — The layer palette. Defaults chosen, owner to confirm:
+  - **Layers are numbered from 1 on screen** (badges, "Layer 3", the rules' chip; the mockup's), the stored index is
+    one less. The old rule hint "where none applies, layer 0" says "the first layer" for terrains.
+  - **Without a layered material** the tiles are the four stand-in colours named "Layer 1–4" with "no material" as
+    their sub line (the full "Layer 1 (no material)" truncated in a 3-column tile), under a brand-coloured note with
+    **Set up material** first. The new material is called "<object> layers".
+  - **The project window is under the edit mode** (the shell makes the default view inert, as the editor window
+    does), so a texture cannot be dragged in from it while the mode is open. Tiles take drops anyway (from a future
+    docked project window, and the test drives a real drop event), and a click on an empty slot or **Add layer**
+    picks the texture in a popover — the path that works today. Whether the project window should stay usable
+    beside an edit mode is the owner's call.
+  - **Thumbnails** are the backend's texture tile thumbnails (`content/thumbnails/:digest?asset=`), read through
+    the one `TileThumbnails` cache: a texture imported as a plain image or encoded to KTX2 from one has a picture;
+    a KTX2 imported as is, or a prebuilt texture array, has none (the backend has no image to make one from and
+    the editor draws none itself) — those tiles show their number and name only.
+  - **A material instance** shows its parent's layers and edits nothing (open the parent from the chip); a
+    **prebuilt array** shows its layers (`image.layers`) and takes names and settings but no textures.
+  - **Layer settings** in the popover are sliders; a value is stored once the control rests 250 ms (a drag is one
+    command). The table in the material document stays for editing all layers at once.
+  - Not done here: Erase/Blur/Fill paint tools and the rules' cards and live preview (34.8), the palette in vertex
+    paint (35) and blocks (36). The slots' normal and ORM arrays are not filled from the palette (the albedo's only).
+

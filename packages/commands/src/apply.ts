@@ -422,7 +422,7 @@ export function applyMutation<S extends SceneDocument>(
       const a = va.validated.args as Record<string, unknown>;
       const r =
         va.validated.op === 'setMaterial'
-          ? applySetMaterial(input, a as { material: MaterialDef })
+          ? applySetMaterial(input, a as { material: MaterialDef; assign?: { entityId: string } })
           : va.validated.op === 'deleteMaterial'
             ? applyDeleteMaterial(input, a as { materialId: string })
             : applySetEnvironment(input, a as { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string });

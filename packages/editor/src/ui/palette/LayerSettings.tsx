@@ -1,21 +1,31 @@
 /**
- * The layer table of a layered material (the height-blended layers
- * template): one row per per-layer setting (tiling in metres, normal
- * strength, height contrast and offset), one column per layer. Layers 1-4
- * are the components of the setting's vec4 parameter; a terrain draws any
- * number of layers, and the columns past the fourth ("add layer") are the
- * parameter's `extraLayers` (a layer without its own column takes column
- * L % 4's values). A change is one `setMaterial` of the parameter. Shown when
- * the material has any of the settings as a vec4 parameter (objects and
- * instances override the first four like any public parameter).
+ * A layered material's per-layer settings (the height-blended layers
+ * template's tiling in metres, normal strength, height contrast and offset,
+ * projection), edited two ways from one set of rules (`layer-palette.ts`):
+ *
+ * - `LayerSettings`: the material document's table — one row per setting,
+ *   one column per layer. Layers 1-4 are the components of the setting's
+ *   vec4 parameter; a terrain draws any number of layers, and the columns
+ *   past the fourth ("add layer") are the parameter's `extraLayers` (a layer
+ *   without its own column takes column L % 4's values). Shown when the
+ *   material has any of the settings as a vec4 parameter.
+ * - `LayerFields`: one layer's settings and its palette name, as the layer
+ *   palette's popover shows them in the edit modes.
+ *
+ * A change is one `setMaterial` (objects and instances override the first
+ * four like any public parameter).
  *
  * Browser-only (React).
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
+import { MATERIAL_LAYER_NAME_MAX } from '@thirdlight/project-model/limits';
 import { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/runtime';
 
+import { layerSetting, layerSettingValue, withLayerName, withLayerSetting } from '../../session/layer-palette';
 import { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_SETTINGS, TEMPLATE_LAYERS, TEMPLATE_READS } from '../../session/material-graph';
+import { SliderField } from '../brush/SliderField';
+import { Segmented } from '../editmode/controls';
 
 type Setting = (typeof LAYER_SETTINGS)[number];
 
@@ -131,11 +141,7 @@ function ReadCost({ material, columns }: { material: MaterialDef; columns: numbe
 }
 
 /** A per-layer parameter's value for a layer (past its own columns: column L % 4's). */
-function layerValue(param: MaterialParameter, layer: number, fill: number): number {
-  const four = param.default as number[];
-  if (layer < TEMPLATE_LAYERS) return four[layer] ?? fill;
-  return param.extraLayers?.[layer - TEMPLATE_LAYERS] ?? four[layer % TEMPLATE_LAYERS] ?? fill;
-}
+const layerValue = layerSettingValue;
 
 /** A per-layer parameter with only its first `count` extra layers. */
 function trimmed(x: MaterialParameter, count: number): MaterialParameter {
@@ -157,4 +163,96 @@ function LayerCell({ label, title, value, min, onCommit }: { label: string; titl
     if (v !== value) onCommit(v);
   };
   return <input className="tl-input tl-input--num" aria-label={label} title={title} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
+}
+
+/** How each setting's slider runs in the popover (its own units; typing may go past the track to the setting's limits). */
+const FIELD_RANGES: Readonly<Record<(typeof LAYER_SETTINGS)[number]['key'], { min: number; max: number; step: number; unit?: string; log?: boolean; limit?: [number, number] }>> = {
+  layerTiling: { min: 0.25, max: 64, step: 0.05, unit: 'm', log: true, limit: [LAYER_SETTINGS[0].min, 10_000] },
+  layerNormalStrength: { min: 0, max: 2, step: 0.05, limit: [-10, 10] },
+  layerContrast: { min: 0, max: 4, step: 0.05, limit: [-100, 100] },
+  layerOffset: { min: -1, max: 1, step: 0.01, limit: [-100, 100] },
+  layerProjection: { min: 0, max: 2, step: 1 },
+};
+
+/** Milliseconds a slider rests before its value is stored (a drag is one command, not one per frame). */
+const SETTLE_MS = 250;
+
+/**
+ * One layer's settings and palette name. Values show at once and are stored
+ * as one `setMaterial` once the control rests; edits made in quick
+ * succession build on each other, not on the material as last shown.
+ */
+export function LayerFields({ material, layer, textureName, onSave }: { material: MaterialDef; layer: number; textureName: string | null; onSave: (m: MaterialDef) => void }): JSX.Element {
+  // The edits not shown back by the project yet, by setting key (and "name").
+  const [draft, setDraft] = useState<Record<string, number | string>>({});
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<Record<string, number | string>>({});
+  const latest = useRef(material);
+  latest.current = material;
+  const save = useRef(onSave);
+  save.current = onSave;
+  const flush = (): void => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    let m = latest.current;
+    for (const [k, v] of Object.entries(pending.current)) m = k === 'name' ? withLayerName(m, layer, String(v)) : withLayerSetting(m, k as (typeof LAYER_SETTINGS)[number]['key'], layer, Number(v));
+    pending.current = {};
+    save.current(m);
+  };
+  useEffect(() => () => {
+    if (timer.current !== null) flush();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- stores what is still waiting when the popover closes
+  }, []);
+  // A value the material shows now is no longer a draft.
+  useEffect(() => {
+    setDraft((d) => {
+      const next = { ...d };
+      for (const k of Object.keys(next)) {
+        const shown = k === 'name' ? (material.layerNames?.[layer] ?? '') : layerSetting(material, k as (typeof LAYER_SETTINGS)[number]['key'], layer);
+        if (shown === next[k] && pending.current[k] === undefined) delete next[k];
+      }
+      return next;
+    });
+  }, [material, layer]);
+  const set = (key: string, value: number | string, now = false): void => {
+    pending.current = { ...pending.current, [key]: value };
+    setDraft((d) => ({ ...d, [key]: value }));
+    if (timer.current !== null) clearTimeout(timer.current);
+    if (now) flush();
+    else timer.current = setTimeout(flush, SETTLE_MS);
+  };
+  const name = String(draft['name'] ?? material.layerNames?.[layer] ?? '');
+  return (
+    <div className="tl-layer-fields" role="group" aria-label={`layer ${layer + 1} settings`}>
+      <label className="tl-slider tl-slider--text" title="The layer's name in the palette (empty: its texture's name).">
+        <span className="tl-slider__label">Name</span>
+        <input
+          className="tl-input"
+          aria-label={`layer ${layer + 1} name`}
+          maxLength={MATERIAL_LAYER_NAME_MAX}
+          placeholder={textureName ?? `Layer ${layer + 1}`}
+          value={name}
+          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+          onBlur={(e) => e.target.value.trim() !== (material.layerNames?.[layer] ?? '') && set('name', e.target.value.trim(), true)}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        />
+      </label>
+      {LAYER_SETTINGS.map((s) => {
+        const shown = layerSetting(material, s.key, layer);
+        if (shown === null) return null;
+        const value = Number(draft[s.key] ?? shown);
+        if ('options' in s) {
+          return (
+            <div key={s.key} className="tl-slider" title={s.title}>
+              <span className="tl-slider__label">Projection</span>
+              <Segmented small aria={`layer ${layer + 1} projection`} value={value} options={s.options.map((o) => ({ id: o.value, label: o.label }))} onChange={(v) => set(s.key, v, true)} />
+            </div>
+          );
+        }
+        const r = FIELD_RANGES[s.key];
+        const label = s.label.replace(/ \(m\)$/, '');
+        return <SliderField key={s.key} label={label.charAt(0).toUpperCase() + label.slice(1)} aria={`layer ${layer + 1} ${s.label}`} value={value} min={r.min} max={r.max} step={r.step} {...(r.unit !== undefined ? { unit: r.unit } : {})} {...(r.log === true ? { log: true } : {})} {...(r.limit !== undefined ? { limit: r.limit } : {})} hint={s.title} onChange={(v) => set(s.key, v)} />;
+      })}
+    </div>
+  );
 }

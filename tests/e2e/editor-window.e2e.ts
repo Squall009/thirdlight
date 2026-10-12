@@ -22,6 +22,8 @@ import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
 import { decodePng } from './png';
+import { makePng } from './png-make';
+import { publishTexture } from './painted-layers';
 import { editMode, editModeTab, editorPane, editorTab, editorWindow, inspector, menu, openEditor, projectWindow } from './ui';
 
 let be: E2EBackend;
@@ -446,7 +448,14 @@ async function editModeChecks(page: Page): Promise<void> {
   // ---- Paint through noise: the same stroke with the mask on leaves ground unpainted where the unmasked one covers it all; undo.
   await page.keyboard.press('Shift+Digit2');
   await expect(canvas).toHaveAttribute('data-terrain-tool', 'paint');
-  await mode.getByRole('radio', { name: 'layer 1', exact: true }).click();
+  // No material yet: the palette shows the stand-in colours, named so, with Set up first; a number key picks a layer.
+  const layers = mode.getByRole('radiogroup', { name: 'layers', exact: true });
+  await expect(mode.getByRole('button', { name: 'set up material' })).toBeVisible();
+  expect(await layers.getByRole('radio').evaluateAll((els) => els.map((e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim()))).toEqual([1, 2, 3, 4].map((n) => `${n} Layer ${n} no material`));
+  await expect(hints).toContainText('Layer');
+  await page.keyboard.press('2');
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true })).toHaveAttribute('aria-checked', 'true');
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/palette-none.png` });
   const fill = async (label: string, v: number): Promise<void> => {
     const f = mode.getByLabel(label, { exact: true });
     await f.fill(String(v));
@@ -504,6 +513,8 @@ async function editModeChecks(page: Page): Promise<void> {
   expect(meanDiff(masked, before), 'the masked stroke painted something').toBeGreaterThan(4);
   await page.keyboard.press('Control+z');
   await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'the masked stroke undone' }).toBeGreaterThan(0.6);
+  await noise.getByLabel('paint through noise').uncheck();
+  await paletteChecks(page, hill, paintStroke, patch, meanDiff);
   await editModeTab(page, 'Sculpt');
 
   // ---- MCP edits reach the open mode: a rename in the header, a hole in the lent view.
@@ -546,6 +557,101 @@ async function editModeChecks(page: Page): Promise<void> {
   // Deleting the terrain (an MCP edit) closes its editor.
   await cmd('deleteEntity', { entityId: hill });
   await expect(mode).toHaveCount(0, { timeout: 15_000 });
+}
+
+/** A texture from a tiled pattern of two colours (its thumbnail shows the pattern). */
+function patternPng(a: readonly [number, number, number], b: readonly [number, number, number]): Uint8Array {
+  return new Uint8Array(makePng(64, 64, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [a[0], a[1], a[2], 255] : [b[0], b[1], b[2], 255])));
+}
+
+/**
+ * The layer palette on the terrain without a material: Set up material (one command, one undo for the material and
+ * its assignment), a texture dropped into a slot and one picked for an empty slot (their backend thumbnails load,
+ * under 64 KB), a layer named and its tiling set in the settings popover (Esc closes the popover, not the mode),
+ * then a layer picked by its number key and painted (the stored index, the picture changes).
+ */
+async function paletteChecks(page: Page, hill: string, paintStroke: () => Promise<void>, patch: () => Promise<ReturnType<typeof decodePng>>, meanDiff: (a: ReturnType<typeof decodePng>, b: ReturnType<typeof decodePng>) => number): Promise<void> {
+  const mode = editMode(page);
+  const layers = mode.getByRole('radiogroup', { name: 'layers', exact: true });
+  const revision = async (): Promise<number> => Number((await query('queryProject'))['revision']);
+  const mats = async (): Promise<{ materialId: string; name: string; layerNames?: string[]; parameters?: { key: string; default: unknown }[] }[]> => (await query('queryGameConfig'))['materials'] as never;
+  const mapping = async (): Promise<unknown> => (((await query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[]).find((e) => e.id === hill)?.components['materials'] ?? null);
+  await publishTexture(be, patternPng([70, 150, 50], [40, 110, 30]), 'tex-grass', 'Meadow grass');
+  await publishTexture(be, patternPng([140, 95, 55], [105, 70, 40]), 'tex-dirt', 'Forest dirt');
+
+  // ---- Set up material: the template made and given to the terrain in one command; one undo takes both away.
+  const rev0 = await revision();
+  await mode.getByRole('button', { name: 'set up material' }).click();
+  await expect.poll(revision, { timeout: 15_000, message: 'set up stored' }).toBe(rev0 + 1);
+  const made = (await mats()).find((m) => m.name === 'Hill B layers' || m.name === 'Hill layers')!;
+  expect(made, 'a layered material made').toBeDefined();
+  expect(await mapping()).toEqual({ '*': made.materialId });
+  await expect(mode.getByRole('button', { name: 'open material' })).toHaveText(made.name);
+  expect(await layers.getByRole('radio').locator('.tl-ptile__name').allTextContents()).toEqual(['Layer 1', 'Layer 2', 'Layer 3', 'Layer 4']);
+  await page.keyboard.press('Control+z');
+  await expect.poll(mapping, { timeout: 15_000, message: 'undo: the assignment gone' }).toBeNull();
+  expect((await mats()).some((m) => m.materialId === made.materialId), 'undo: the material gone with it').toBe(false);
+  await expect(mode.getByRole('button', { name: 'set up material' })).toBeVisible();
+  await mode.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect.poll(mapping, { timeout: 15_000, message: 'redo: both back' }).toEqual({ '*': made.materialId });
+  // The page has the material back too (the drop below needs its palette).
+  await expect(mode.getByRole('button', { name: 'open material' })).toHaveText(made.name);
+  const albedo = async (): Promise<unknown> => (await mats()).find((m) => m.materialId === made.materialId)?.parameters?.find((x) => x.key === 'albedoHeight')?.default;
+
+  // ---- A texture dropped from the project window onto layer 1 goes into its slot; its thumbnail is the backend's.
+  const drop = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.setData('application/x-thirdlight-asset', JSON.stringify({ assetId: 'tex-grass', kind: 'texture' }));
+    return dt;
+  });
+  await layers.getByRole('radio', { name: 'layer 1', exact: true }).dispatchEvent('drop', { dataTransfer: drop });
+  await expect.poll(albedo, { timeout: 15_000, message: 'the dropped texture in slot 1' }).toEqual(['tex-grass', '', '', '']);
+  const thumb = layers.getByRole('radio', { name: 'layer 1', exact: true }).locator('.tl-ptile__thumb');
+  await expect(thumb).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });
+  await expect(layers.getByRole('radio', { name: 'layer 1', exact: true }).locator('.tl-ptile__name')).toHaveText('Meadow grass');
+  const bytes = await thumb.locator('img').evaluate(async (img: HTMLImageElement) => (img.naturalWidth > 0 ? (await (await fetch(img.src)).blob()).size : 0));
+  expect(bytes, 'a thumbnail loaded').toBeGreaterThan(0);
+  expect(bytes, 'a thumbnail is at most 64 KB').toBeLessThanOrEqual(64 * 1024);
+
+  // ---- An empty slot picks its texture in a popover beside the column.
+  await layers.getByRole('radio', { name: 'layer 2', exact: true }).click();
+  const chooser = page.getByRole('dialog', { name: 'choose layer texture' });
+  await chooser.getByLabel('layer 2 texture').selectOption('tex-dirt');
+  await expect.poll(albedo, { timeout: 15_000, message: 'the picked texture in slot 2' }).toEqual(['tex-grass', 'tex-dirt', '', '']);
+  await expect(chooser).toHaveCount(0);
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true }).locator('.tl-ptile__thumb')).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });
+
+  // ---- The picked layer's name and settings in the popover (one command once a field rests); Esc closes only it.
+  await mode.getByRole('button', { name: 'layer settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'layer settings' });
+  await settings.getByLabel('layer 2 name').fill('Dirt path');
+  await settings.getByLabel('layer 2 name').press('Enter');
+  await expect.poll(async () => (await mats()).find((m) => m.materialId === made.materialId)?.layerNames, { timeout: 15_000 }).toEqual(['', 'Dirt path']);
+  const tiling = settings.getByLabel('layer 2 tiling (m)', { exact: true });
+  await tiling.fill('3');
+  await tiling.blur();
+  await expect.poll(async () => (await mats()).find((m) => m.materialId === made.materialId)?.parameters?.find((x) => x.key === 'layerTiling')?.default, { timeout: 15_000 }).toEqual([1, 3, 1, 1]);
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/palette-settings.png` });
+  await page.keyboard.press('Escape');
+  await expect(settings).toHaveCount(0);
+  await expect(mode, 'Esc closed the popover, not the mode').toBeVisible();
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true }).locator('.tl-ptile__name')).toHaveText('Dirt path');
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true }).locator('.tl-ptile__sub')).toHaveText('tiling 3 m');
+
+  // ---- Paint the material's layer 2 (picked by its key): the stored layer index is 1 and the ground's picture changes.
+  await page.keyboard.press('1');
+  await expect(layers.getByRole('radio', { name: 'layer 1', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('2');
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true })).toHaveAttribute('aria-checked', 'true');
+  const at: [number, number] = [-9, -5];
+  const layersAt = async (): Promise<number[]> => ((await query('queryTerrain', { entityId: hill, points: [at] }))['points'] as { layers: number[] }[])[0]!.layers;
+  // The terrain draws the slots' textures (the backend assembles the array); give it a moment to arrive.
+  await page.waitForTimeout(1500);
+  const before = await patch();
+  await paintStroke();
+  await expect.poll(layersAt, { timeout: 15_000, message: 'the painted layer stored' }).toContain(1);
+  await expect.poll(async () => meanDiff(await patch(), before), { timeout: 30_000, message: 'the painted dirt drawn' }).toBeGreaterThan(4);
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/palette-paint.png` });
 }
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {

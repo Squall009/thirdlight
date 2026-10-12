@@ -1171,6 +1171,13 @@ interface MaterialDef {
    * on the materials it hands the runtime; a project never stores one.
    */
   decalPage?: DecalPageRef;
+  /**
+   * A layered material's names for its texture-array layers, shown in the
+   * layer palette (index i = array layer i). "" or past the list's end: the
+   * name of the texture in that layer's slot. Absent: every layer named by
+   * its texture. A material instance uses its root's names.
+   */
+  layerNames?: string[];
 }
 ```
 

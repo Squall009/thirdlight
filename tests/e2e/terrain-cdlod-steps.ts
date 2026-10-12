@@ -1170,7 +1170,8 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
 
   // ---- paint: layer 2 (blue) over the red ground.
   await pickTool(page, 'Paint');
-  await terrainPanel(page).getByRole('radio', { name: 'layer 2' }).click();
+  // The material's third layer (index 2): its palette tile, named from 1.
+  await terrainPanel(page).getByRole('radiogroup', { name: 'layers', exact: true }).getByRole('radio', { name: 'layer 3', exact: true }).click();
   await setNumber(page, 'brush size', 2.4);
   await setNumber(page, 'brush strength', 60);
   await terrainPanel(page).getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
@@ -1389,7 +1390,11 @@ export async function materialRules(page: Page, ground: string, blocks: string):
     await f.fill(String(value));
     await f.blur();
   };
-  await fill(rules, 'rule 1 layer', STEEP_RULE.layer);
+  // The rule's layer from the palette by its picture (layer index 3 is the palette's fourth).
+  await rules.getByRole('button', { name: 'rule 1 layer', exact: true }).click();
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/rules-picker.png` });
+  await page.getByRole('dialog', { name: 'rule 1 layer choices' }).getByRole('radio', { name: `layer ${STEEP_RULE.layer + 1}`, exact: true }).click();
+  await expect(rules.getByRole('button', { name: 'rule 1 layer', exact: true })).toHaveAttribute('data-layer', String(STEEP_RULE.layer));
   await fill(rules, 'rule 1 slope min', STEEP_RULE.slope.min);
   await fill(rules, 'rule 1 slope fade', 1);
   const rev0 = Number((await query('queryProject')).revision);

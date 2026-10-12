@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { GraphData } from './graph';
-import { materialParameterValueError } from './materials';
+import { canonicalMaterials, materialParameterValueError, MATERIAL_LAYER_NAME_MAX, resolveMaterialInstances, validateMaterials, type MaterialDef } from './materials';
 import { materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
 
 const graph = (target: { type: string; data?: Record<string, string> }, key = 'tex'): GraphData => ({
@@ -62,5 +62,27 @@ describe('texture slots', () => {
     expect(out.map((m) => m.parameters[0]!.default)).toEqual(['arr-xy', 'arr-xz', 'arr']);
     expect(out[2]).toBe(plain);
     expect(materialSlotTextureRefs({ parameters: a.parameters, values: { tex: ['q', ''] } })).toEqual(['q', 'x', 'y']);
+  });
+});
+
+describe('layer names', () => {
+  const base = { materialId: 'mat-l', name: 'Layers', shader: 'standard' as const, params: {}, textures: {} };
+  const errorsOf = (m: Record<string, unknown>): string[] => {
+    const errors: { path: string }[] = [];
+    validateMaterials([m as unknown as MaterialDef], '', errors as never);
+    return errors.map((e) => e.path);
+  };
+  it('takes a name or "" per layer, refuses other values and names on an instance', () => {
+    expect(errorsOf({ ...base, layerNames: ['Grass', '', 'Rock'] })).toEqual([]);
+    expect(errorsOf({ ...base, layerNames: ['x'.repeat(MATERIAL_LAYER_NAME_MAX + 1)] })).toEqual(['/0/layerNames']);
+    expect(errorsOf({ ...base, layerNames: [3] })).toEqual(['/0/layerNames']);
+    expect(errorsOf({ ...base, layerNames: 'Grass' })).toEqual(['/0/layerNames']);
+    expect(errorsOf({ materialId: 'mat-i', name: 'Instance', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-l', layerNames: ['Grass'] })).toContain('/0/layerNames');
+  });
+  it('stores no trailing "" names (absent when none is left) and an instance draws with its root\'s', () => {
+    expect(canonicalMaterials([{ ...base, layerNames: ['Grass', '', 'Rock', '', ''] }])[0]!.layerNames).toEqual(['Grass', '', 'Rock']);
+    expect('layerNames' in canonicalMaterials([{ ...base, layerNames: ['', ''] }])[0]!).toBe(false);
+    const resolved = resolveMaterialInstances([{ ...base, layerNames: ['Grass'] }, { materialId: 'mat-i', name: 'Instance', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-l' }]);
+    expect(resolved.find((m) => m.materialId === 'mat-i')!.layerNames).toEqual(['Grass']);
   });
 });

@@ -17,7 +17,7 @@ export function useTileUrl(summary: AssetView | undefined, piece: string | null,
 }
 
 /** The picture URL and whether it is still being read or made. */
-function useTile(summary: AssetView | undefined, piece: string | null, thumbnails: TileThumbnails | null): { url: string | null; pending: boolean } {
+export function useTile(summary: AssetView | undefined, piece: string | null, thumbnails: TileThumbnails | null): { url: string | null; pending: boolean } {
   const [url, setUrl] = useState<string | null>(null);
   const [done, setDone] = useState('');
   const v = summary?.versions?.find((x) => x.version === summary.currentVersion);

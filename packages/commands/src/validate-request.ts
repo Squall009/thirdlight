@@ -1566,7 +1566,14 @@ export function validateOpArgs(
     case 'setEnvironment': {
       const key = op === 'setMaterial' ? 'material' : op === 'deleteMaterial' ? 'materialId' : 'environment';
       // setEnvironment {sceneId, environment}: that scene's look; without sceneId the project's quality and presets.
-      for (const k of Object.keys(args)) if (k !== key && !(op === 'setEnvironment' && k === 'sceneId')) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, op === 'setEnvironment' ? 'environment, sceneId' : key) };
+      for (const k of Object.keys(args)) if (k !== key && !(op === 'setEnvironment' && k === 'sceneId') && !(op === 'setMaterial' && k === 'assign')) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, op === 'setEnvironment' ? 'environment, sceneId' : op === 'setMaterial' ? 'material, assign' : key) };
+      // setMaterial {material, assign: {entityId}}: the material also goes on that object (one undo step).
+      if (op === 'setMaterial' && args['assign'] !== undefined) {
+        const assign = args['assign'];
+        if (!isPlainObject(assign)) return { ok: false, error: fieldType('/args/assign', assign, 'object ({ entityId })') };
+        for (const k of Object.keys(assign)) if (k !== 'entityId') return { ok: false, error: fieldUnexpected(`/args/assign/${pointerSegment(k)}`, k, 'entityId') };
+        if (typeof assign['entityId'] !== 'string') return { ok: false, error: fieldType('/args/assign/entityId', assign['entityId'], 'string (an object id)') };
+      }
       if (op === 'setEnvironment' && args['sceneId'] !== undefined && typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (scene id)') };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {

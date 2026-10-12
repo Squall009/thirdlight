@@ -708,6 +708,8 @@ const MATERIAL_BASES: J[] = [
   ]),
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
+  // A layered material naming its layers for the palette.
+  [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
   // A graph material with an exposed parameter.
   [
     {

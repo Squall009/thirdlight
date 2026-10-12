@@ -361,6 +361,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-height-fog-defaults"></a>`HEIGHT_FOG_DEFAULTS` | `{"density":0.02,"color":"#c8d2dc","height":0,"falloff":0.05,"start":0,"inscatterExponent":8}` | What an absent height fog field means (the renderer and the preset blend read these); a new height fog starts at `density` and `color`. |
 | <a id="limit-height-fog-limits"></a>`HEIGHT_FOG_LIMITS` | `{"density":1,"height":10000,"falloff":10,"start":10000,"inscatterExponentMin":1,"inscatterExponentMax":64}` | The height fog's ranges (the validator and the descriptor share them). |
 | <a id="limit-material-extra-layers-max"></a>`MATERIAL_EXTRA_LAYERS_MAX` | `252` | Layers past a vec4's four a per-layer setting holds values for: every layer a terrain sample can name. |
+| <a id="limit-material-layer-name-max"></a>`MATERIAL_LAYER_NAME_MAX` | `64` | Longest layer name (`MaterialDef.layerNames`). |
 | <a id="limit-max-fog-volumes"></a>`MAX_FOG_VOLUMES` | `16` | Fog volumes per scene: the fog shader reads them from a fixed-size uniform array. |
 | <a id="limit-max-material-instance-depth"></a>`MAX_MATERIAL_INSTANCE_DEPTH` | `8` | The longest chain of instances (an instance of an instance of … a material), resolved at build and in the renderer per material. |
 | <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |

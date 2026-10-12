@@ -17,6 +17,7 @@ import type { ReactNode } from 'react';
 import type { KeyHint } from '../../session/edit-keys';
 import type { EffectiveEntityFlags } from '../../session/hierarchy';
 import type { ProjectedEntity } from '../../session/projection';
+import type { PaletteHost } from '../palette/MaterialLayers';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import { terrainMode } from './terrain-mode';
 import type { RailItem } from './ToolRail';
@@ -29,6 +30,8 @@ export interface EditModeHost {
   flags: (entityId: string) => EffectiveEntityFlags | undefined;
   /** The project's block layers (a conversion's sources). */
   blockLayers: readonly { entityId: string; name: string }[];
+  /** What the layer palette reads and sends (materials, thumbnails, commands). */
+  palette: PaletteHost;
 }
 
 /** One mode of an editor's rail. */

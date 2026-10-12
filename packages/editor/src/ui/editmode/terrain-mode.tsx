@@ -8,7 +8,7 @@
 import { terrainTileSize, type TerrainComponent } from '@thirdlight/runtime';
 
 import type { BrushUse } from '../../session/brush';
-import { brushKeyHints } from '../../session/edit-keys';
+import { brushKeyHints, PALETTE_KEYS, paletteKeyHint } from '../../session/edit-keys';
 import { TERRAIN_INVERT_LABELS, TERRAIN_MODES, terrainToolUses, type TerrainMode } from '../../session/terrain-brush';
 import type { ProjectedEntity } from '../../session/projection';
 import { TerrainPanel } from '../TerrainPanel';
@@ -36,7 +36,8 @@ function tileExtent(c: TerrainComponent): { x0: number; x1: number; z0: number; 
 function modeKeys(m: TerrainMode): ReturnType<typeof brushKeyHints> {
   const uses = new Set<BrushUse>(m.tools.flatMap((t) => [...terrainToolUses(t)]));
   const first = m.tools.find((t) => TERRAIN_INVERT_LABELS[t] !== undefined);
-  return brushKeyHints([...uses], first !== undefined ? TERRAIN_INVERT_LABELS[first] : undefined);
+  // Paint picks its layer from the palette by number.
+  return [...(m.tools.includes('paint') ? paletteKeyHint(PALETTE_KEYS, 'Layer') : []), ...brushKeyHints([...uses], first !== undefined ? TERRAIN_INVERT_LABELS[first] : undefined)];
 }
 
 export const terrainMode: EditModeKind = {
@@ -75,6 +76,9 @@ export const terrainMode: EditModeKind = {
         blockLayers={host.blockLayers}
         run={host.terrain.terrainRun}
         stage={host.terrain.stageFile}
+        entityName={entity.name}
+        mapping={entity.components['materials'] as Readonly<Record<string, string>> | undefined}
+        palette={host.palette}
       />
     );
   },

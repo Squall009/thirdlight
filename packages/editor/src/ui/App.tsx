@@ -78,7 +78,7 @@ import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
 import { useAssetsWindow } from './shell/useAssetsWindow';
 import { useItemActions } from './project/useItemActions';
-import type { ProjectItem } from '../session/project-items';
+import { freeItemId, type ProjectItem } from '../session/project-items';
 import { useAssetActions } from './shell/useAssetActions';
 import { useLightingBake } from './shell/useLightingBake';
 import { useScripting } from './shell/useScripting';
@@ -1019,7 +1019,18 @@ function EditorApp(): JSX.Element {
     />
   );
   /** What the edit modes read from the app. */
-  const editModeHost: EditModeHost = { terrain: terrainTools, flags: (id) => hierarchyFlags.get(id), blockLayers: blocks.blockRows };
+  const editModeHost: EditModeHost = {
+    terrain: terrainTools,
+    flags: (id) => hierarchyFlags.get(id),
+    blockLayers: blocks.blockRows,
+    palette: {
+      thumbnails: tileThumbnails,
+      materials,
+      run: terrainTools.terrainRun,
+      newMaterialId: (name) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())),
+      openMaterial: (id) => openDocument('material', id),
+    },
+  };
 
   return (
     <CatalogProvider catalog={sessionClient?.catalog ?? null} asset={assetSummary}>

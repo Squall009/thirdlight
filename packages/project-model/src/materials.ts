@@ -19,6 +19,7 @@ import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, 
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
+import { MAX_TEXTURE_LAYERS } from './content-limits';
 import { MATERIAL_LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
 import { TERRAIN_LAYER_MAX } from './terrain-tile';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
@@ -216,7 +217,17 @@ export interface MaterialDef {
    * on the materials it hands the runtime; a project never stores one.
    */
   decalPage?: DecalPageRef;
+  /**
+   * A layered material's names for its texture-array layers, shown in the
+   * layer palette (index i = array layer i). "" or past the list's end: the
+   * name of the texture in that layer's slot. Absent: every layer named by
+   * its texture. A material instance uses its root's names.
+   */
+  layerNames?: string[];
 }
+
+/** Longest layer name (`MaterialDef.layerNames`). */
+export const MATERIAL_LAYER_NAME_MAX = 64;
 
 /** An exposed parameter of a graph material. */
 export interface MaterialParameter {
@@ -444,12 +455,12 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     }
     for (const k of Object.keys(m)) {
       if (build && k === 'decalPage') continue;
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal', 'layerNames'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal, layerNames');
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
       if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
-      for (const k of ['graph', 'parameters', 'trim', 'decal'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
+      for (const k of ['graph', 'parameters', 'trim', 'decal', 'layerNames'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
     }
     // Shape here; "values only on an instance" with the whole list (validateMaterialInstances).
     if (m['values'] !== undefined) validateMaterialInstanceValues(m['values'], `${p}/values`, errors);
@@ -506,6 +517,11 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
         if (!slots.includes(k)) err(errors, 'field_unexpected', `${p}/textures/${k}`, `shader "${shader}" has no texture slot "${k}"`, k, slots.join(', '));
         else if (typeof v !== 'string' || !ID_RE.test(v)) err(errors, 'id_invalid', `${p}/textures/${k}`, 'a texture slot names a texture asset id', v);
       }
+    }
+    // The layer palette's names: one per texture-array layer, "" for the slot texture's name.
+    const names = m['layerNames'];
+    if (names !== undefined && (!Array.isArray(names) || names.length > MAX_TEXTURE_LAYERS || !names.every((n) => n === '' || shortText(n, MATERIAL_LAYER_NAME_MAX)))) {
+      err(errors, 'field_value', `${p}/layerNames`, `layerNames is a list of at most ${MAX_TEXTURE_LAYERS} names (1-${MATERIAL_LAYER_NAME_MAX} characters, or "" for the layer's texture name)`, names);
     }
     // A graph material.
     if (m['parameters'] !== undefined) validateMaterialParameters(m['parameters'], `${p}/parameters`, errors);
@@ -638,6 +654,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
     ...(root.graph !== undefined ? { graph: root.graph } : {}),
     ...(root.trim !== undefined ? { trim: root.trim } : {}),
     ...(root.decal !== undefined ? { decal: root.decal } : {}),
+    ...(root.layerNames !== undefined ? { layerNames: root.layerNames } : {}),
   };
 }
 
@@ -675,6 +692,14 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
   }));
 }
 
+/** A layer name list without its trailing "" names. */
+function layerNamesKept(names: readonly string[] | undefined): string[] {
+  if (names === undefined) return [];
+  let n = names.length;
+  while (n > 0 && names[n - 1] === '') n--;
+  return names.slice(0, n);
+}
+
 /** Canonical order: ascending materialId; params and textures by key. */
 export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] {
   const sortKeys = <T>(o: Record<string, T>): Record<string, T> => Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k] as T]));
@@ -698,6 +723,8 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       ...(m.decal !== undefined ? { decal: { sheet: m.decal.sheet, cell: m.decal.cell } } : {}),
       // A build's (manifests only).
       ...(m.decalPage !== undefined ? { decalPage: canonicalDecalPageRef(m.decalPage) } : {}),
+      // Trailing "" names say nothing (the texture's name shows): dropped, and an empty list with them.
+      ...(layerNamesKept(m.layerNames).length > 0 ? { layerNames: layerNamesKept(m.layerNames) } : {}),
     }));
 }
 

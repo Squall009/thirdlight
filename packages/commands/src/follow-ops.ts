@@ -17,7 +17,7 @@ import { gateResultState } from './ops';
 import type { CommandState, HistoryEntry, MutationSuccess, SceneDocument } from './types';
 
 /** The components a follow-up can write. */
-export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model';
+export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model' | 'materials';
 
 /** One component written with a command (null: absent). */
 export interface ComponentFollow {

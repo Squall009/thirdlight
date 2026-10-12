@@ -28,7 +28,7 @@ import { stringsIn, useTextureIds } from '../catalog/catalog-context';
 import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
 import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
-import { LayerSettings } from './LayerSettings';
+import { LayerSettings } from '../palette/LayerSettings';
 
 export interface MaterialDocumentProps {
   materialId: string;

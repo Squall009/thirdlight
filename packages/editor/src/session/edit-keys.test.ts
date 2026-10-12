@@ -1,7 +1,7 @@
 /** The edit modes' key map: Esc, Home, C, Shift+number within the rail, nothing with Ctrl/Alt/Meta. */
 import { describe, expect, it } from 'vitest';
 
-import { editKeyAction, sharedKeyHints, type EditKeyEvent } from './edit-keys';
+import { editKeyAction, paletteKeyHint, paletteKeyIndex, sharedKeyHints, type EditKeyEvent } from './edit-keys';
 
 const key = (k: string, more: Partial<EditKeyEvent> = {}): EditKeyEvent => ({ key: k, code: '', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...more });
 
@@ -31,5 +31,19 @@ describe('editKeyAction', () => {
     expect(sharedKeyHints(7)[0]).toEqual({ keys: ['Shift', '1–7'], label: 'Mode' });
     expect(sharedKeyHints(1).some((h) => h.label === 'Mode')).toBe(false);
     expect(sharedKeyHints(1).at(-1)).toEqual({ keys: ['Esc'], label: 'Done' });
+  });
+});
+
+describe('paletteKeyIndex', () => {
+  const k = (code: string, mods: Partial<Record<'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey', boolean>> = {}) => ({ key: code.slice(-1), code, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...mods });
+  it('picks entries 1–9 with plain digits, leaving Shift (modes) and chords alone', () => {
+    expect(paletteKeyIndex(k('Digit1'))).toBe(0);
+    expect(paletteKeyIndex(k('Digit9'))).toBe(8);
+    expect(paletteKeyIndex(k('Digit0'))).toBeNull();
+    expect(paletteKeyIndex(k('Digit2', { shiftKey: true }))).toBeNull();
+    expect(paletteKeyIndex(k('Digit2', { ctrlKey: true }))).toBeNull();
+    expect(paletteKeyHint(5, 'Layer')).toEqual([{ keys: ['1–5'], label: 'Layer' }]);
+    expect(paletteKeyHint(12, 'Layer')).toEqual([{ keys: ['1–9'], label: 'Layer' }]);
+    expect(paletteKeyHint(0, 'Layer')).toEqual([]);
   });
 });

@@ -15,7 +15,7 @@
  */
 
 import { canonicalAnimators, canonicalInput, validateAnimatorController, validateInput, type AnimatorController, type InputConfig } from '@thirdlight/project-model';
-import { canonicalEnvironment, canonicalLighting, canonicalSceneEnvironment, GRAPH_KINDS, graphDocumentsContext, sceneEnvironmentIsEmpty, validateEnvironment, validateLightingBake, validateMaterials, validateSceneEnvironment, type EnvironmentConfig, type GraphDocument, type LightingBake, type MaterialDef, type ModelErrorV2, type SceneEnvironment } from '@thirdlight/project-model';
+import { canonicalEnvironment, canonicalLighting, canonicalSceneEnvironment, GRAPH_KINDS, graphDocumentsContext, sceneEnvironmentIsEmpty, validateEnvironment, validateLightingBake, validateMaterials, validateSceneEnvironment, type EnvironmentConfig, type GraphDocument, type LightingBake, MATERIAL_SLOT_ALL, type MaterialDef, type ModelErrorV2, type SceneEnvironment } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -47,7 +47,36 @@ function commit(
   return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse } };
 }
 
-export function applySetMaterial(input: OpInput, args: { material: MaterialDef }): OpOutcome {
+/**
+ * `setMaterial {material, assign: {entityId}}`: the material is also put on
+ * that object for all of its materials (its `materials` component's "*"
+ * slot, other slots kept) in the same transaction, so making a material for
+ * an object and giving it to the object is one undo step (the terrain
+ * editor's "Set up material"). The component is a follow-up of the change:
+ * undo puts the object's mapping back before the material goes.
+ */
+export interface SetMaterialAssign {
+  entityId: string;
+}
+
+export function applySetMaterial(input: OpInput, args: { material: MaterialDef; assign?: SetMaterialAssign }): OpOutcome {
+  const out = setMaterialOnly(input, args);
+  if (!out.ok || args.assign === undefined) return out;
+  const entityId = args.assign.entityId;
+  type AnyEntity = { id: string; components: Record<string, unknown> };
+  const entity = (out.op.scene.entities as unknown as AnyEntity[]).find((e) => e.id === entityId);
+  if (entity === undefined) return { ok: false, error: fieldValue('/args/assign/entityId', entityId, 'an object of the edited scene', 'no object with this id in the edited scene') };
+  const restore = entity.components['materials'] ?? null;
+  const next = { ...((restore as Record<string, string> | null) ?? {}), [MATERIAL_SLOT_ALL]: args.material.materialId };
+  const entities = (out.op.scene.entities as unknown as AnyEntity[]).map((e) => (e.id === entityId ? { ...e, components: { ...e.components, materials: next } } : e));
+  const resultScene = { ...out.op.scene, entities };
+  const gate = gateResultState({ scene: input.scene, content: contentOf(input.content), manifest: input.manifest }, resultScene, out.op.content);
+  if (!gate.ok) return gate;
+  const stored = (gate.scene.entities as unknown as AnyEntity[]).find((e) => e.id === entityId)?.components['materials'] ?? null;
+  return { ok: true, op: { ...out.op, scene: gate.scene, content: gate.content, follows: [{ entityId, component: 'materials', restore: restore === null ? null : deepClone(restore), next: deepClone(stored) }] } };
+}
+
+function setMaterialOnly(input: OpInput, args: { material: MaterialDef }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const errors: ModelErrorV2[] = [];
   // A graph material's calls resolve against the project's material functions.

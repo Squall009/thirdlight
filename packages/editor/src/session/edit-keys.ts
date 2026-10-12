@@ -96,3 +96,19 @@ export function brushKeyHints(uses: readonly BrushUse[], invert = 'Invert'): Key
   if (uses.includes('invert')) out.push({ keys: ['X'], label: `Paint / ${invert.toLowerCase()}` }, { keys: ['Ctrl'], label: invert });
   return out;
 }
+
+/** The most palette entries a number key reaches (1 … 9). */
+export const PALETTE_KEYS = 9;
+
+/** The palette entry a key picks (0-based; null: not a palette key): a plain digit 1–9, read by its physical key. */
+export function paletteKeyIndex(e: EditKeyEvent): number | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const digit = /^Digit([1-9])$/.exec(e.code);
+  return digit === null ? null : Number(digit[1]) - 1;
+}
+
+/** The status line's entry for a palette of `count` entries (none for an empty one). */
+export function paletteKeyHint(count: number, label: string): KeyHint[] {
+  const n = Math.min(count, PALETTE_KEYS);
+  return n < 1 ? [] : [{ keys: [n === 1 ? '1' : `1–${n}`], label }];
+}

@@ -31,11 +31,13 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import { EROSION_LIMITS, HEIGHTMAP_FORMATS, TERRAIN_LAYER_MAX, TERRAIN_STAMP_MODES, TERRAIN_TILE_COORD_MAX, terrainTileSize, type HeightmapFormat, type TerrainComponent, type TerrainStampMode } from '@thirdlight/runtime';
+import { EROSION_LIMITS, HEIGHTMAP_FORMATS, TERRAIN_STAMP_MODES, TERRAIN_TILE_COORD_MAX, terrainTileSize, type HeightmapFormat, type TerrainComponent, type TerrainStampMode } from '@thirdlight/runtime';
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 import { DEFAULT_BRUSH, brushRadius, brushStore } from '../session/brush';
 import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_BOUNDS, TERRAIN_BRUSH_UI, TERRAIN_INVERT_LABELS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, terrainToolUses, type ErodeToolState, type StampToolState, type TerrainBrushState, type TerrainMode, type TerrainToolId } from '../session/terrain-brush';
 import { BrushPanel } from './brush/BrushPanel';
+import { LayerPicker } from './palette/LayerPalette';
+import { MaterialLayers, usePalette, type PaletteHost } from './palette/MaterialLayers';
 import { NoiseMask } from './brush/NoiseMask';
 import { SliderField } from './brush/SliderField';
 import { useBrush } from './brush/useBrush';
@@ -62,10 +64,12 @@ interface Props {
   run: (what: string, op: string, args: Record<string, unknown>) => Promise<boolean>;
   /** Stage a file's bytes (its stage id; null: not uploaded). */
   stage: (bytes: Uint8Array) => Promise<string | null>;
+  /** The terrain object's name and material mapping (its palette's material). */
+  entityName: string;
+  mapping: Readonly<Record<string, string>> | undefined;
+  /** What the layer palette needs from the app. */
+  palette: PaletteHost;
 }
-
-/** Layers the picker shows as buttons (any other is typed in). */
-const PICKER_LAYERS = 8;
 
 const clampNum = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
 
@@ -85,6 +89,8 @@ export function TerrainPanel(p: Props): JSX.Element {
   const [source, setSource] = useState('');
   const editor = p.editor;
   const c = p.component;
+  // The layers paint, rules and scatter pick from: the material's, or the stand-in colours it draws without one.
+  const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS);
 
   useEffect(() => {
     editor?.setTarget({ entityId: p.entityId, component: c, locked: p.locked, hidden: p.hidden });
@@ -134,19 +140,7 @@ export function TerrainPanel(p: Props): JSX.Element {
           ))}
         </div>
       </Section>
-      {tool === 'paint' && (
-        <Section title="Layer">
-          <div className="tl-blocks__palette" role="radiogroup" aria-label="terrain layer">
-            {Array.from({ length: PICKER_LAYERS }, (_v, i) => (
-              <button key={i} className={`tl-blocks__type${brush.layer === i ? ' is-active' : ''}`} role="radio" aria-checked={brush.layer === i} aria-label={`layer ${i}`} title={`Layer ${i} (the material's layer ${i}; its colour without a material)`} onClick={() => set({ layer: i })}>
-                <span className="tl-blocks__swatch" style={{ background: TERRAIN_DEFAULT_COLOURS[i % TERRAIN_DEFAULT_COLOURS.length] }} />
-                <span>{i}</span>
-              </button>
-            ))}
-          </div>
-          <SliderField label="Layer" aria="terrain layer number" value={brush.layer} min={0} max={15} limit={[0, TERRAIN_LAYER_MAX]} step={1} hint="Any layer of the material (0-255)." onChange={(v) => set({ layer: Math.round(v) })} />
-        </Section>
-      )}
+      {tool === 'paint' && <MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={brush.layer} onPick={(layer) => set({ layer })} host={p.palette} disabled={p.locked} />}
       <Section title="Brush" aside="Shared by every brush">
         <BrushPanel settings={settings} store={store} uses={uses} preview={mode.id === 'sculpt'} {...(TERRAIN_INVERT_LABELS[tool] !== undefined ? { invert: TERRAIN_INVERT_LABELS[tool] } : {})} />
       </Section>
@@ -212,7 +206,7 @@ export function TerrainPanel(p: Props): JSX.Element {
       {/* The edit layers the heights are combined from: stamps, erosion and the splines over the hand-made ground. */}
       {mode.id === 'stack' && <TerrainLayersPanel entityId={p.entityId} component={c} disabled={p.locked} run={p.run} />}
       {/* Material layers painted by slope, height, cavity and noise (baked into the tiles; hand paint stays over them). */}
-      {mode.id === 'rules' && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
+      {mode.id === 'rules' && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} layerField={(value, onChange, aria) => <LayerPicker layers={palette.layers} value={value} onChange={onChange} aria={aria} title="Layer for this rule" {...(palette.source.kind !== 'none' ? { material: palette.source.material.name } : {})} thumbnails={p.palette.thumbnails} disabled={p.locked} />} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
       {/* Models placed by density, slope, height, layer and noise (baked into the tiles; the Scatter brush's hand edits stay over them). */}
       {mode.id === 'scatter' && <ScatterRulesEditor rules={c.scatter ?? []} blocks={false} disabled={p.locked} onApply={(scatter) => p.run('Bake scatter rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', scatter })} />}
       {mode.id === 'tiles' && importOpen && <HeightmapImport entityId={p.entityId} component={c} run={p.run} stage={p.stage} onDone={() => setImportOpen(false)} />}

@@ -4,7 +4,7 @@
  */
 
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
-import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
+import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT, MAX_TEXTURE_LAYERS } from './content-limits';
 import { SHELL_LIMITS, SHELL_SCREENS, SHELL_SIMULATE } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
@@ -35,7 +35,7 @@ import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
-import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { MODE_LIMITS } from './modes';
@@ -313,6 +313,8 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
     ref('sheet', 'Sheet', 'The trim material whose sheet holds the cell.', 'material', { required: true }),
     str('cell', 'Cell', 'The cell\'s name in the sheet\'s decal cells.', { ...ID, required: true }),
   ], { when: when('shader', 'decal') }),
+  // The layer palette's names of a layered material's texture-array layers.
+  list('layerNames', 'Layer names', `A layered material's names for its texture-array layers, as the layer palette shows them (index i = layer i; "" or past the end: the layer's texture's name). At most ${MAX_TEXTURE_LAYERS}.`, str('*', 'Name', 'The layer\'s name ("": its texture\'s).', { maxLength: MATERIAL_LAYER_NAME_MAX }), { maxItems: MAX_TEXTURE_LAYERS }),
 ]);
 
 // A visual effect (systems of particles, each a graph of kind "effect").

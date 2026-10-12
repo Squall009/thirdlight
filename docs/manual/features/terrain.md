@@ -124,7 +124,7 @@ edited with the editor's Terrain tools.
   metre apart, heights −128 to 384 m, and opens it; its rail's modes are
   Sculpt, Paint, Holes, Material rules, Scatter, Stack and Tiles): Raise, Lower, Smooth, Flatten (to the height where the stroke began),
   Noise (size, seed), Ramp (drag from one end to the other), Paint (pick a
-  layer: eight swatches or any number 0–255) and Holes, with the brush
+  layer from the **layer palette**, below, by a click or its number key 1–9) and Holes, with the brush
   panel every editor shares: Height step (sculpt: metres one dab at full
   strength moves the ground), Size (across), Strength (one dab's share),
   Opacity (paint: one stroke's most), Falloff (smooth, linear, constant, a
@@ -171,6 +171,20 @@ edited with the editor's Terrain tools.
   the coarsest level each tile is one node, so a terrain reaches the horizon
   (put fog there). A sculpt, paint or holes edit uploads only the changed
   tiles again; the sun's cached static shadow is drawn again once.
+- **Layer palette** (the terrain editor's Paint mode; the Material rules
+  pick a rule's layer from it too): the terrain's material's layers as
+  tiles — each layer's albedo picture (its texture's thumbnail), its number
+  and its name (the material's `layerNames` entry, else its texture's name).
+  Without a layered material the tiles are the four stand-in colours and
+  **Set up material** makes one from the height-blended layers template and
+  gives it to the terrain (`setMaterial {material, assign: {entityId}}`: one
+  undo step). Drop a texture on a layer (or click an empty one, or **Add
+  layer**, to pick it): it goes into that layer's slot of the material's
+  albedo array (per-layer slots). **Layer settings…** edits the picked
+  layer's name, tiling, normal strength, height contrast and offset and
+  projection (the material's layer table, one layer at a time). A material
+  whose albedo is a prebuilt array shows its layers without pictures; a
+  material instance shows its parent's layers, changed on the parent.
 - **Material**: give the object a `materials` component with `"*"` naming a
   graph material (a script's material swap reaches it too) — the
   **height-blended layers** template draws any number of the terrain's

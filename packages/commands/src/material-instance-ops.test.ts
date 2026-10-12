@@ -122,4 +122,28 @@ describe('material instances', () => {
     // Now the instance is in use: deleting it is refused like any used material.
     expect(refused(s, 'deleteMaterial', { materialId: 'mi-red' }).code).toBeDefined();
   });
+
+  it('setMaterial with assign makes the material and puts it on the object in one undo step', () => {
+    let s = fresh();
+    const before = s.history.cursor;
+    const r = run(s, 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001' } });
+    expect(r.result.ok, JSON.stringify(r.result)).toBe(true);
+    s = r.state;
+    const change = (r.result as unknown as MutationSuccess).change as unknown as { follows?: { entityId: string; component: string; next: unknown }[] };
+    expect(change.follows).toEqual([{ entityId: 'box-0001', component: 'materials', next: { '*': 'mat-g' } }]);
+    const comp = (st: State): unknown => (st.scene.entities as unknown as { id: string; components: Record<string, unknown> }[]).find((e) => e.id === 'box-0001')!.components['materials'];
+    expect(comp(s)).toEqual({ '*': 'mat-g' });
+    expect(materials(s).map((m) => m.materialId)).toContain('mat-g');
+    expect(s.history.cursor).toBe(before + 1);
+    // One undo takes both away (the mapping first, then the material); redo brings both back.
+    s = ok(s, 'undo', {});
+    expect(comp(s)).toBeUndefined();
+    expect(materials(s).map((m) => m.materialId)).not.toContain('mat-g');
+    s = ok(s, 'redo', {});
+    expect(comp(s)).toEqual({ '*': 'mat-g' });
+    expect(materials(s).map((m) => m.materialId)).toContain('mat-g');
+    // An object that is not in the scene, or a stray field, is refused and changes nothing.
+    expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'nope' } }).path).toBe('/args/assign/entityId');
+    expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slot: 'body' } }).path).toBe('/args/assign/slot');
+  });
 });

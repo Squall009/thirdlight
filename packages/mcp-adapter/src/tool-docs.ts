@@ -243,7 +243,8 @@ export const TOOL_DETAILS = {
     'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
     'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
     'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water|trim|decal, params: {...overrides}, textures: {slot: ' +
-    'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
+    'textureAssetId}}, assign?: {entityId}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); with assign the object also takes it for all of its materials (its materials "*" slot) in the same undo step; ' +
+    'a layered material may name its texture-array layers for the layer palette with layerNames: [name or "" (its texture\'s name), …] (index i = layer i); ' +
     'a trim material carries trim {size, texelDensity, padding, rows, cells? [{name, rect: [x, y, w, h] px}] (decal cells)}; a decal material (params blend: blend|multiply|add, sortOrder -1000..1000, ' +
     'opacity, color, roughness, metalness, normalScale, aoIntensity, emissive, emissiveIntensity) draws its own map/normalMap/ormMap/emissiveMap or decal {sheet: trim materialId, cell: name} (not both). ' +
     'Mesh decals: any mesh wearing a decal material (a model mapped to one with setAssetOptions/materials, a box) draws over the surface under it — transparent, no depth written, no shadow cast, ' +

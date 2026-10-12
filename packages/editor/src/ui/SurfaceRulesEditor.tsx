@@ -13,7 +13,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, TERRAIN_LAYER_MAX, type RuleRange, type SurfaceRule } from '@thirdlight/runtime';
 
 /** The conditions material and scatter rules share (`RuleConditions`). */
@@ -46,6 +46,8 @@ interface Props {
   /** Store the draft (true: stored). */
   onApply: (rules: SurfaceRule[]) => Promise<boolean>;
   disabled?: boolean;
+  /** The rule's layer field (a terrain picks from its layer palette); absent: a number. */
+  layerField?: (value: number, onChange: (layer: number) => void, aria: string) => ReactNode;
 }
 
 export const num = (v: string): number | undefined => {
@@ -135,13 +137,19 @@ export function SurfaceRulesEditor(p: Props): JSX.Element {
       <p className="tl-inspector__hint">
         {p.blocks
           ? 'Layers 0-3 by slope, height, cavity, noise and block type, painted at every vertex when chunks are meshed. Applied in order; where none applies, layer 0. Hand paint stays over them.'
-          : 'Layers by slope, height, cavity and noise, baked into the tiles; a sculpt bakes them again where it moves the ground. Applied in order; where none applies, layer 0. Hand paint stays over them.'}
+          : 'Layers by slope, height, cavity and noise, baked into the tiles; a sculpt bakes them again where it moves the ground. Applied in order; where none applies, the first layer. Hand paint stays over them.'}
       </p>
       {draft.map((r, i) => (
         <fieldset key={i} className="tl-blocks__opts" aria-label={`rule ${i + 1}`}>
-          <label title="The material layer the rule paints.">
-            Layer <input aria-label={`rule ${i + 1} layer`} type="number" className="tl-blocks__num" min={0} max={layerMax} step={1} value={r.layer} onChange={(e) => update(i, (x) => ({ ...x, layer: Math.max(0, Math.min(layerMax, Math.round(num(e.target.value) ?? 0))) }))} />
-          </label>
+          {p.layerField !== undefined ? (
+            <span className="tl-rule-layer" title="The material layer the rule paints.">
+              Layer {p.layerField(r.layer, (layer) => update(i, (x) => ({ ...x, layer: Math.max(0, Math.min(layerMax, layer)) })), `rule ${i + 1} layer`)}
+            </span>
+          ) : (
+            <label title="The material layer the rule paints.">
+              Layer <input aria-label={`rule ${i + 1} layer`} type="number" className="tl-blocks__num" min={0} max={layerMax} step={1} value={r.layer} onChange={(e) => update(i, (x) => ({ ...x, layer: Math.max(0, Math.min(layerMax, Math.round(num(e.target.value) ?? 0))) }))} />
+            </label>
+          )}
           <label title="How much of its layer it gives where every condition holds (0-1).">
             Strength <input aria-label={`rule ${i + 1} strength`} type="number" className="tl-blocks__num" min={0} max={1} step={0.05} value={r.strength ?? 1} onChange={(e) => update(i, (x) => ({ ...x, strength: Math.max(0, Math.min(1, num(e.target.value) ?? 1)) }))} />
           </label>
