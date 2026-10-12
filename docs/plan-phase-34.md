@@ -176,6 +176,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 |---|---|
 | 34.0 | Done 2026-10-12: plans 34–36 and their STATUS/roadmap rows (19a20f40). three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 exists (2026-09-25); the pinned 0.20.0 stays (nothing here depends on it). §3 re-read; it stands. |
 | 34.1 | Done 2026-10-12: one icon order (`COMPONENT_ICONS`, 29 icons) in the descriptors, value variants (light by type, spline → road/river) and a tooltip count; hierarchy rows and billboards share `objectIconFor`. 12 new 96 px WebPs in `public/icons/objects` (47.9 KiB). Billboards were squashed by the aspect (drawn ~½ wide); now square. e2e: `placeholders.e2e.ts` extended (13 types). |
+| 34.2 | Done 2026-10-12, owner look pending: 8 static pages (terrain sculpt/paint/rules, vertex paint + "doesn't read paint" variant, decal editor with atlas drawer, block editor, kit editor) on the editor's own tokens and icons, Studio textures, a three.js stand-in Scene view; screenshots and `SPEC.md` (sizes, components, colours, key map) in `~/.cache/thirdlight-phase34/mockup/` (1.8 MB of JPEG at 1920×1080). |
 
 ## 7. Decision log
 
@@ -194,6 +195,15 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   GPU was in LLM mode), with the kinds prompt; prompts, seeds and job ids are in `tools/icons/editor-icons.tsv`.
   Billboards: `fitSprite` divided the width by the aspect although a distance-free sprite is already projected
   with it, so every billboard drew about half as wide as tall since they were added; fixed (seen in a screenshot).
+- 2026-10-12 (34.2) — Layout mockup made; **owner look pending**; 34.3 onward proceed with it (the owner was
+  asleep; the brief says go on). Contract in `~/.cache/thirdlight-phase34/mockup/SPEC.md`: header 46 px with a
+  brand stripe and Done (Esc), rail 76 px, settings column 340 px, optional detail column 300 px, hints 30 px;
+  menus, toolbar and status bar stay, as with the editor window. Defaults chosen, owner to confirm: the rail
+  holds an editor's modes and a tool grid holds a mode's tools in every editor (the block editor's "grouped
+  rail" is its five groups as modes); modes switch with Shift+number (Unreal's precedent) so number keys pick
+  palette entries; the brush is the brand amber, erase red, state and selection stay blue; frame is Home
+  because F is the brush resize; Esc cancels a stroke, then a popover, then leaves the mode; the decal atlas is
+  a drawer in the decal editor's view; the kit editor is an editor-window document with the normal Inspector.
 - Open: whether "Set up material" may send two commands as one history
   entry or needs a combined command. Decided in 34.7 against
   `docs/architecture/commands`.
