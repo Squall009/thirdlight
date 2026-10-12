@@ -525,6 +525,13 @@ export interface SceneAdapter {
   entityObject?(entityId: string, create?: boolean): THREE.Object3D | null;
   /** The entity a drawn object belongs to (up its logical parents to the entity's node), or null. */
   entityOf?(object: THREE.Object3D): string | null;
+  /**
+   * Draw only these entities' drawables in the view (an editor's edit mode; null: everything). The others
+   * leave the view for the hidden layer: they still cast their shadows and nothing is realized again.
+   */
+  setIsolation?(entityIds: ReadonlySet<string> | null): void;
+  /** What isolation hid at the last frame (zeros while off). */
+  isolationDiagnostics?(): import('./isolation-view').IsolationDiagnostics;
   /** The three.js scene drawn: the listed drawables, the lights, and what a host adds (its overlay group). */
   threeScene?(): THREE.Scene;
   /** What a ray picks among: the scene's drawables, those drawn through batches included (they are out of the scene's children). */

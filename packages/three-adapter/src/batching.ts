@@ -78,6 +78,9 @@ export const BATCH_KEY = '__tlBatch';
 /** What a host puts under {@link BATCH_KEY}. */
 export type BatchHint = true | { readonly geometry: THREE.BufferGeometry; readonly scale: readonly [number, number, number] | readonly number[] };
 
+/** `mesh.userData[ISOLATED_DRAW_KEY]`: the mesh belongs to an object an edit mode isolates (isolation-view.ts): drawn on its own meanwhile. */
+export const ISOLATED_DRAW_KEY = '__tlIsolatedDraw';
+
 /** Where a member's own layer mask is kept while it is batched. */
 const LAYERS_KEY = '__tlBatchLayers';
 
@@ -142,6 +145,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   // Values a script set on this object (per-object uniforms, its own data texture).
   if (mesh.userData[RUNTIME_VALUES_KEY] !== undefined) return 'run-time material parameters';
   if (mesh.userData[PAINT_PREVIEW_KEY] === true) return 'vertex paint preview';
+  // Batches and merged cells draw for several objects: isolation hides them whole.
+  if (mesh.userData[ISOLATED_DRAW_KEY] === true) return 'isolated';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;

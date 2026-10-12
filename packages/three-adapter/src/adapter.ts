@@ -73,6 +73,7 @@ import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
 import { EntityNode, RenderGraph } from './render-graph';
+import { IsolationView } from './isolation-view';
 import {
   createModelsRealization,
   type ModelsRealization,
@@ -456,6 +457,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const node = batcher === null ? undefined : graph.node(id);
     if (node !== undefined) batcher!.touch(node);
   };
+  // An editor's edit mode drawing only the objects it edits.
+  const isolation = new IsolationView({ scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), regroup: (o) => batcher?.touch(o), shadowsChanged: () => staticShadows?.bump() });
   // A block chunk's UVs follow the unit its (re)defined material reads (cells or metres), before it is grouped again.
   const stopCellUv = materialLibrary?.onReassigned?.((root) => void ((root as THREE.Mesh).isMesh === true && syncCellUv(root as THREE.Mesh)));
   // Project materials redefined (an editing host): the meshes wearing them are grouped again.
@@ -1493,6 +1496,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     graph.lodTuning.beginFrame();
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
+    isolation.beforeBatch();
     if (batcher !== null) batcher.update(camera!);
     else {
       scene.updateMatrixWorld();
@@ -1501,6 +1505,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Then what each batch, chunk and merged cell has in view leads its draw, and what the rooms' portals show.
     viewCull.update(camera!);
     archHost.rooms.update(camera!);
+    isolation.sweep();
     lights.budgetShadows(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     terrains.update(viewCull.view, renderer as never);
@@ -1706,6 +1711,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     disposed = true;
     paintOverflow?.();
     channelView?.dispose();
+    isolation.dispose();
     for (const rec of animatorPlayers.values()) rec.player.dispose();
     effects?.dispose();
     effectTextures?.releaseHolder('effects');
@@ -1908,6 +1914,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       else if (typeof o.userData[TERRAIN_ENTITY_KEY] === 'string') return o.userData[TERRAIN_ENTITY_KEY] as string;
       return null;
     },
+    setIsolation(ids): void {
+      if (!disposed && isolation.set(ids)) opts.onChange?.();
+    },
+    isolationDiagnostics: () => isolation.diagnostics(),
     threeScene: () => scene,
     probeLighting: () => probes.light(),
     pickables: () => graph.pickables(),

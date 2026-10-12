@@ -6,6 +6,12 @@
  * Ctrl+Tab), remembered over a reload. Esc or × return to the default view
  * with the selection it had; undo, the change feed and MCP edits reach the
  * open editor. The default view's centre keeps the Scene and Game views only.
+ *
+ * An object's edit mode (a terrain's) takes the same place: a double-click
+ * (Hierarchy, Scene view) or the Inspector's Edit opens it over the work area
+ * with the live Scene view lent to it with input; only the object is drawn
+ * (Context shows the rest, not pickable); its rail, edits, undo, MCP edits,
+ * Play setting it aside and Esc work there.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -15,7 +21,8 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
-import { editorPane, editorTab, editorWindow, inspector, menu, openEditor, projectWindow } from './ui';
+import { decodePng } from './png';
+import { editMode, editModeTab, editorPane, editorTab, editorWindow, inspector, menu, openEditor, projectWindow } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -225,8 +232,8 @@ test('items open in a window over the editor: editor left, the one Inspector rig
 });
 
 // One backend for both: the default view's checks run on the same fresh editor before "Open" is used.
-test('the default view keeps the Scene and Game views and the maximize toggle; "Open" beside an Inspector reference opens the item in the window; Esc returns with the selection', async ({ page }) => {
-  test.setTimeout(90_000);
+test('the default view keeps the Scene and Game views and the maximize toggle; "Open" beside an Inspector reference opens the item in the window; Esc returns with the selection; a terrain\'s edit mode', async ({ page }) => {
+  test.setTimeout(180_000);
   await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {}, graph: { nodes: [{ id: 'output', type: 'pbr', position: [400, 0] }], edges: [] } } });
   await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Mat Plain', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
   const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] }, components: { materials: { '*': 'mat-one' } } }))['createdId']);
@@ -270,7 +277,168 @@ test('the default view keeps the Scene and Game views and the maximize toggle; "
   await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
   await expect(inspector(page).getByRole('combobox', { name: 'shader', exact: true })).toHaveValue('standard');
   await expect(editorWindow(page)).toHaveCount(0);
+  await editModeChecks(page);
 });
+
+/** A screen point of a world point in the Scene view (its view-projection, published while a terrain is drawn). */
+async function screenOf(page: Page, p: readonly [number, number, number]): Promise<{ x: number; y: number }> {
+  const canvas = page.locator('canvas.tl-viewport');
+  const m = JSON.parse((await canvas.getAttribute('data-view-proj'))!) as number[];
+  const b = (await canvas.boundingBox())!;
+  const [x, y, z] = p;
+  const w = m[3]! * x + m[7]! * y + m[11]! * z + m[15]!;
+  const nx = (m[0]! * x + m[4]! * y + m[8]! * z + m[12]!) / w;
+  const ny = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w;
+  return { x: b.x + ((nx + 1) / 2) * b.width, y: b.y + ((1 - ny) / 2) * b.height };
+}
+
+/** The share of red pixels in a square of the page around a world point. */
+async function redNear(page: Page, p: readonly [number, number, number], size = 12): Promise<number> {
+  const s = await screenOf(page, p);
+  const img = decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (r > 60 && r > 2.2 * g && r > 2.2 * b) n += 1;
+  }
+  return n / (img.width * img.height);
+}
+
+/** The share of the terrain's green (its first default layer, lit) in a square of the page around a world point. */
+async function greenNear(page: Page, p: readonly [number, number, number], size = 12): Promise<number> {
+  const s = await screenOf(page, p);
+  const img = decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, b] = img.pixel(x, y);
+    if (g > 40 && g > 1.1 * r && g > 1.3 * b) n += 1;
+  }
+  return n / (img.width * img.height);
+}
+
+/** A point on the marker's top face (away from its size handle in the middle). */
+const MARK: [number, number, number] = [0.5, 2, -0.4];
+
+/** A terrain's edit mode: entered three ways, isolation, Context, the rail, an edit undone, an MCP edit, Play aside and back, Esc. */
+async function editModeChecks(page: Page): Promise<void> {
+  // A flat one-tile terrain round the origin and a red marker standing on it.
+  const hill = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Hill', transform: { position: [-16, 0, -16] } }))['createdId']);
+  await cmd('setComponent', { entityId: hill, component: 'terrain', value: { tileSamples: 33, spacing: 1, heightRange: [-8, 24], tiles: [{ x: 0, z: 0 }] } });
+  await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Marker', box: { size: [2, 2, 2], material: { color: '#ff2020' } }, transform: { position: [0, 1, 0] } });
+  const canvas = page.locator('canvas.tl-viewport');
+  await expect(canvas).toHaveAttribute('data-view-proj', /\[/);
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'the marker drawn' }).toBeGreaterThan(0.6);
+
+  // Selecting the terrain arms nothing: the Inspector offers its editor, no terrain tools.
+  await row(page, hill).click();
+  await expect(inspector(page).getByLabel('terrain tools')).toHaveCount(0);
+  await expect(canvas).not.toHaveAttribute('data-terrain-tool', /\w/);
+
+  // ---- A double-click on its row opens the terrain editor over the work area, the Scene view lent to it.
+  await row(page, hill).dblclick();
+  const mode = editMode(page);
+  await expect(mode).toBeVisible();
+  await expect(mode.getByLabel('edited object')).toHaveText('Hill');
+  await expect(mode.locator('.tl-emh__meta')).toHaveText('1 tile · 1 × 1 · 32 m each');
+  await expect(page.locator('.tl-app__body')).toHaveAttribute('inert', '');
+  await expect(page.locator('.tl-editmode__canvas canvas.tl-viewport')).toHaveAttribute('data-lent', 'edit');
+  // The layout contract: header 46 px, rail 76 px, settings column 340 px, hints 30 px, the work area filled.
+  const area = (await page.locator('.tl-app__workarea').boundingBox())!;
+  const m = (await mode.boundingBox())!;
+  expect([Math.round(m.width - area.width), Math.round(m.height - area.height)]).toEqual([0, 0]);
+  const h = async (sel: string): Promise<{ width: number; height: number }> => (await mode.locator(sel).boundingBox())!;
+  expect(Math.round((await h('.tl-emh')).height)).toBe(46);
+  expect(Math.round((await h('.tl-rail')).width)).toBe(76);
+  expect(Math.round((await h('.tl-editmode__column')).width)).toBe(340);
+  expect(Math.round((await h('.tl-hints')).height)).toBe(30);
+  const view = await h('.tl-editmode__view');
+  const cb = (await canvas.boundingBox())!;
+  expect([Math.round(cb.width), Math.round(cb.height)]).toEqual([Math.round(view.width), Math.round(view.height)]);
+  // Its settings column holds the terrain's tools (Sculpt first), armed in the lent view; the status line says what to do.
+  await expect(mode.getByLabel('terrain tools')).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
+  await expect(mode.getByLabel('edit mode hints')).toContainText('Drag on the ground to shape it.');
+
+  // ---- Isolation: only the terrain is drawn (the marker leaves the picture, its shadow stays); Context shows it again.
+  await expect(canvas).toHaveAttribute('data-isolation', new RegExp(hill));
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'isolated: the marker not drawn' }).toBeLessThan(0.05);
+  expect(Number((await canvas.getAttribute('data-isolated-draws'))!.split(' ')[0]), 'drawables hidden').toBeGreaterThan(0);
+  await expect(mode.getByRole('status', { name: 'isolation' })).toHaveText('Showing Hill only');
+  await page.keyboard.press('c');
+  await expect(mode.getByRole('button', { name: 'Context', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(mode.getByRole('status', { name: 'isolation' })).toContainText('Whole scene');
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context: the marker drawn' }).toBeGreaterThan(0.6);
+  await page.keyboard.press('c');
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context off: isolated again' }).toBeLessThan(0.05);
+
+  // ---- The rail: Shift+number and a click switch modes (Material rules arms no brush).
+  await page.keyboard.press('Shift+Digit2');
+  await expect(mode.getByRole('tab', { name: 'Paint', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'paint');
+  await editModeTab(page, 'Material rules');
+  await expect(mode.getByRole('group', { name: 'material rules' })).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-terrain-tool', '');
+  await editModeTab(page, 'Sculpt');
+
+  // ---- A raise stroke in the lent view: one command, undone with Ctrl+Z.
+  const heightAt = async (): Promise<number> => ((await query('queryTerrain', { entityId: hill, points: [[-4, -3]] }))['points'] as { height: number }[])[0]!.height;
+  const revision = async (): Promise<number> => Number((await query('queryProject'))['revision']);
+  const rev0 = await revision();
+  const h0 = await heightAt();
+  const a = await screenOf(page, [-4.5, 0, -3]);
+  const b = await screenOf(page, [-3.5, 0, -3]);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(revision, { timeout: 30_000, message: 'the stroke stored' }).toBe(rev0 + 1);
+  expect(await heightAt(), 'the ground raised').toBeGreaterThan(h0 + 0.05);
+  await page.keyboard.press('Control+z');
+  await expect.poll(heightAt, { timeout: 30_000, message: 'undone' }).toBe(h0);
+  await mode.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect.poll(heightAt, { timeout: 30_000, message: 'redone from the header' }).toBeGreaterThan(h0 + 0.05);
+
+  // ---- MCP edits reach the open mode: a rename in the header, a hole in the lent view.
+  const holeAt: [number, number, number] = [-12, 0, -11];
+  await expect.poll(() => greenNear(page, holeAt), { timeout: 30_000, message: 'ground where the hole goes' }).toBeGreaterThan(0.6);
+  await cmd('updateEntity', { entityId: hill, name: 'Hill B' });
+  await cmd('editTerrain', { entityId: hill, kind: 'holes', dabs: [[holeAt[0], holeAt[2]]], radius: 2.5 });
+  await expect(mode.getByLabel('edited object')).toHaveText('Hill B');
+  await expect.poll(() => greenNear(page, holeAt), { timeout: 30_000, message: 'the MCP hole drawn in the edit mode' }).toBeLessThan(0.2);
+
+  // ---- Play sets the mode aside (the Game view in front, the default view live) and Stop brings it back.
+  await page.getByTitle('Start an isolated play preview').click();
+  await expect(mode).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator('.tl-tabs--center [role="tab"]', { hasText: 'Game' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.tl-app__body')).not.toHaveAttribute('inert', '');
+  await expect(canvas).toHaveAttribute('data-isolation', '');
+  await page.getByTitle('Stop the play preview').click();
+  await expect(mode).toBeVisible({ timeout: 30_000 });
+  await expect(canvas).toHaveAttribute('data-lent', 'edit');
+  await expect(canvas).toHaveAttribute('data-isolation', new RegExp(hill));
+  await expect(mode.getByRole('tab', { name: 'Sculpt', exact: true })).toHaveAttribute('aria-selected', 'true');
+
+  // ---- Esc leaves: the canvas home again, the selection from before (the terrain, clicked by the double-click).
+  await page.keyboard.press('Escape');
+  await expect(mode).toHaveCount(0);
+  await expect(page.locator('.tl-viewport-host canvas.tl-viewport')).toHaveCount(1);
+  await expect(canvas).not.toHaveAttribute('data-lent', /./);
+  await expect(row(page, hill)).toHaveAttribute('aria-selected', 'true');
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'back in the default view: the marker drawn' }).toBeGreaterThan(0.6);
+
+  // ---- The Inspector's button opens it again; Done closes it. A double-click on the terrain in the Scene view opens it too.
+  await inspector(page).getByRole('button', { name: 'Edit terrain', exact: true }).click();
+  await expect(mode).toBeVisible();
+  await mode.getByRole('button', { name: /^Done/ }).click();
+  await expect(mode).toHaveCount(0);
+  // The ground near the camera, at the bottom of the view (the marker stands in its middle).
+  const home = (await canvas.boundingBox())!;
+  await page.mouse.dblclick(home.x + home.width * 0.3, home.y + home.height * 0.92);
+  await expect(mode).toBeVisible();
+  // Deleting the terrain (an MCP edit) closes its editor.
+  await cmd('deleteEntity', { entityId: hill });
+  await expect(mode).toHaveCount(0, { timeout: 15_000 });
+}
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {
   test.setTimeout(90_000);

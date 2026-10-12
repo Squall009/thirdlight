@@ -1,6 +1,8 @@
 /**
- * A terrain's tools — terrain editing in the Scene view, shown in the
- * Inspector while a terrain is selected (as a block layer's tools are).
+ * A terrain's tools — the terrain editor's settings column, one mode of the
+ * editor's rail at a time (`TERRAIN_MODES`: sculpt, paint, holes, material
+ * rules, scatter, stack, tiles); the tools of the mode are armed in the Scene
+ * view while the editor is in front.
  *
  * - Tools: raise, lower, smooth, flatten, noise, ramp, paint, holes; Ctrl
  *   (or the invert toggle) lowers, erases hand paint or fills holes for one
@@ -29,7 +31,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import { BRUSH_FALLOFFS, EROSION_LIMITS, HEIGHTMAP_FORMATS, TERRAIN_LAYER_MAX, TERRAIN_STAMP_MODES, TERRAIN_TILE_COORD_MAX, terrainTileSize, type BrushFalloff, type HeightmapFormat, type TerrainComponent, type TerrainStampMode } from '@thirdlight/runtime';
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
-import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_UI, TERRAIN_TOOLS, erodeArgs, layersWithStamp, type ErodeToolState, type StampToolState, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
+import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_UI, TERRAIN_TOOLS, erodeArgs, layersWithStamp, type ErodeToolState, type StampToolState, type TerrainBrushState, type TerrainMode, type TerrainToolId } from '../session/terrain-brush';
 import type { TerrainEditor } from '../viewport/terrain-editor';
 import { SurfaceRulesEditor } from './SurfaceRulesEditor';
 import { ScatterRulesEditor } from './ScatterRulesEditor';
@@ -38,7 +40,9 @@ import { RefPicker } from './catalog/RefPicker';
 
 interface Props {
   editor: TerrainEditor | null;
-  /** The tools are in front (the Inspector shows them over the default view; they are armed only then). */
+  /** The mode of the editor's rail shown (its tools, its sections). */
+  mode: TerrainMode;
+  /** The tools are in front (the terrain editor shows them; they are armed only then). */
   visible: boolean;
   entityId: string;
   component: TerrainComponent;
@@ -58,14 +62,13 @@ const PICKER_LAYERS = 8;
 const clampNum = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback);
 
 export function TerrainPanel(p: Props): JSX.Element {
-  const [armed, setArmed] = useState(true);
-  const [tool, setTool] = useState<TerrainToolId>('raise');
+  const mode = p.mode;
+  const [chosen, setTool] = useState<TerrainToolId>(mode.tools[0] ?? 'raise');
+  // The mode's tool (its first until another of its tools is chosen).
+  const tool = mode.tools.includes(chosen) ? chosen : (mode.tools[0] ?? chosen);
   const [brush, setBrush] = useState<TerrainBrushState>(DEFAULT_TERRAIN_BRUSH);
   const [invert, setInvert] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [scatterOpen, setScatterOpen] = useState(false);
-  const [layersOpen, setLayersOpen] = useState(false);
   const [stamp, setStamp] = useState<StampToolState>(DEFAULT_STAMP_TOOL);
   const [erode, setErode] = useState<ErodeToolState>(DEFAULT_ERODE_TOOL);
   const [source, setSource] = useState('');
@@ -86,10 +89,12 @@ export function TerrainPanel(p: Props): JSX.Element {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` is remade each render from the state listed here
   useEffect(() => editor?.setOptions({ tool, brush, invert, place }), [editor, tool, brush, invert, stamp, erode, c, p.entityId, p.locked, p.run]);
+  // A mode without brush tools (rules, tiles) leaves the Scene view's clicks alone.
+  const brushing = mode.tools.length > 0;
   useEffect(() => {
-    editor?.setActive(p.visible && armed);
+    editor?.setActive(p.visible && brushing);
     return () => editor?.setActive(false);
-  }, [editor, p.visible, armed]);
+  }, [editor, p.visible, brushing]);
 
   const size = terrainTileSize(c);
   const metres = tool === 'raise' || tool === 'lower' || tool === 'noise';
@@ -107,12 +112,11 @@ export function TerrainPanel(p: Props): JSX.Element {
         <span className="tl-inspector__hint" aria-label="terrain size">
           {c.tiles.length} tile{c.tiles.length === 1 ? '' : 's'} of {size} m ({c.tileSamples} samples, {c.spacing} m apart), heights {c.heightRange[0]} to {c.heightRange[1]} m
         </span>
-        <label title="Edit the terrain in the Scene view (Alt+drag or the right button orbits)">
-          <input type="checkbox" aria-label="edit terrain" checked={armed} onChange={(e) => setArmed(e.target.checked)} /> Edit terrain
-        </label>
       </div>
+      {brushing && (
+      <>
       <div className="tl-blocks__tools" role="toolbar" aria-label="terrain tool">
-        {TERRAIN_TOOLS.map((t) => (
+        {TERRAIN_TOOLS.filter((t) => mode.tools.includes(t.id)).map((t) => (
           <button key={t.id} className={`tl-btn tl-btn--small${tool === t.id ? ' is-active' : ''}`} aria-pressed={tool === t.id} title={t.title} onClick={() => setTool(t.id)}>
             {t.label}
           </button>
@@ -186,6 +190,9 @@ export function TerrainPanel(p: Props): JSX.Element {
           </label>
         </div>
       )}
+      </>
+      )}
+      {mode.id === 'tiles' && (
       <div className="tl-blocks__opts">
         <button className="tl-btn tl-btn--small" aria-expanded={importOpen} onClick={() => setImportOpen((o) => !o)}>
           Import heightmap…
@@ -205,21 +212,14 @@ export function TerrainPanel(p: Props): JSX.Element {
           Convert
         </button>
       </div>
-      <div className="tl-blocks__opts">
-        <button className="tl-btn tl-btn--small" aria-expanded={rulesOpen} title="Paint the material layers by slope, height, cavity and noise (baked into the tiles; hand paint stays over them)" onClick={() => setRulesOpen((o) => !o)}>
-          Material rules{(c.rules?.length ?? 0) > 0 ? ` (${c.rules!.length})` : ''}…
-        </button>
-        <button className="tl-btn tl-btn--small" aria-expanded={layersOpen} title="The edit layers the heights are combined from: stamps, erosion and the splines over the hand-made ground" onClick={() => setLayersOpen((o) => !o)}>
-          Layers{(c.layers?.length ?? 0) > 0 ? ` (${c.layers!.length})` : ''}…
-        </button>
-        <button className="tl-btn tl-btn--small" aria-expanded={scatterOpen} title="Place models (trees, rocks) by density, slope, height, layer and noise (baked into the tiles; the Scatter brush's hand edits stay over them)" onClick={() => setScatterOpen((o) => !o)}>
-          Scatter rules{(c.scatter?.length ?? 0) > 0 ? ` (${c.scatter!.length})` : ''}…
-        </button>
-      </div>
-      {layersOpen && <TerrainLayersPanel entityId={p.entityId} component={c} disabled={p.locked} run={p.run} />}
-      {rulesOpen && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
-      {scatterOpen && <ScatterRulesEditor rules={c.scatter ?? []} blocks={false} disabled={p.locked} onApply={(scatter) => p.run('Bake scatter rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', scatter })} />}
-      {importOpen && <HeightmapImport entityId={p.entityId} component={c} run={p.run} stage={p.stage} onDone={() => setImportOpen(false)} />}
+      )}
+      {/* The edit layers the heights are combined from: stamps, erosion and the splines over the hand-made ground. */}
+      {mode.id === 'stack' && <TerrainLayersPanel entityId={p.entityId} component={c} disabled={p.locked} run={p.run} />}
+      {/* Material layers painted by slope, height, cavity and noise (baked into the tiles; hand paint stays over them). */}
+      {mode.id === 'rules' && <SurfaceRulesEditor rules={c.rules ?? []} blocks={false} disabled={p.locked} onApply={(rules) => p.run('Bake material rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', rules })} />}
+      {/* Models placed by density, slope, height, layer and noise (baked into the tiles; the Scatter brush's hand edits stay over them). */}
+      {mode.id === 'scatter' && <ScatterRulesEditor rules={c.scatter ?? []} blocks={false} disabled={p.locked} onApply={(scatter) => p.run('Bake scatter rules', 'editTerrain', { entityId: p.entityId, kind: 'bake', scatter })} />}
+      {mode.id === 'tiles' && importOpen && <HeightmapImport entityId={p.entityId} component={c} run={p.run} stage={p.stage} onDone={() => setImportOpen(false)} />}
     </div>
   );
 }

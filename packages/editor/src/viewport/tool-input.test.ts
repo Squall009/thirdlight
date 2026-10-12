@@ -118,5 +118,8 @@ describe('tool router', () => {
     expect(router.anyArmed('x')).toBe(true);
     expect(router.key({} as KeyboardEvent, 'x')).toBe(true);
     expect(rig([a, c]).router.key({} as KeyboardEvent, 'x')).toBe(false);
+    // An edit mode names the tools its keys reach: an armed tool it does not name takes none.
+    expect(router.key({} as KeyboardEvent, 'x', ['b'])).toBe(true);
+    expect(router.key({} as KeyboardEvent, 'x', ['a', 'c'])).toBe(false);
   });
 });

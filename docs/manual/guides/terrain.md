@@ -13,8 +13,16 @@ Use a terrain for open ground that reaches the horizon; use a
 ## Make the terrain
 
 **Editor:** **GameObject → Terrain** makes 2 × 2 tiles of 257 samples a
-metre apart, heights −128 to 384 m, and selects it. Its Inspector shows the
-fields, then the terrain tools.
+metre apart, heights −128 to 384 m, and opens it in the **terrain editor**:
+a full-screen editor on the Scene view that shows only the terrain. Its
+rail on the left holds the modes (**Sculpt**, **Paint**, **Holes**,
+**Material rules**, **Scatter**, **Stack**, **Tiles**; Shift+1 … Shift+7),
+the column on the right the mode's tools, and the line at the bottom what
+to do and the keys. **Context** (C) shows the rest of the scene around it
+(it cannot be picked), **Home** frames the terrain, **Done** (Esc) goes
+back. Later, double-click the terrain in the Hierarchy or the Scene view,
+or press **Edit terrain** in its Inspector. Play sets the editor aside and
+comes back to it.
 
 **API:** [`createEntity`](../reference/ops-detail.md#op-createEntity) with a
 [`terrain`](../reference/components-rendering-1.md#component-terrain)
@@ -30,12 +38,13 @@ scale are not used.
 
 ## Sculpt
 
-**Editor:** tick **Edit terrain**, pick **Raise**, **Lower**, **Smooth**,
-**Flatten**, **Noise** or **Ramp**, set **Radius**, **Strength** and
-**Falloff**, and drag on the ground. Ctrl lowers for one stroke. A stroke is
-previewed on the GPU while you drag and stored as one command when you
-release. **Import heightmap…** lays a 16-bit PNG or RAW file;
-**Stamp** and **Erode** work through edit layers (**Layers…**).
+**Editor:** in the terrain editor's **Sculpt** mode pick **Raise**,
+**Lower**, **Smooth**, **Flatten**, **Noise** or **Ramp**, set **Radius**,
+**Strength** and **Falloff**, and drag on the ground. Ctrl lowers for one
+stroke. A stroke is previewed on the GPU while you drag and stored as one
+command when you release. **Import heightmap…** (the **Tiles** mode) lays a
+16-bit PNG or RAW file; **Stamp** and **Erode** work through edit layers
+(the **Stack** mode).
 
 **API:** [`editTerrain`](../reference/ops-detail.md#op-editTerrain)
 ([`EditTerrainArgs`](../reference/types-d-p.md#type-edit-terrain-args)),
@@ -49,7 +58,7 @@ The answer's `terrain` lists the tiles written and the samples changed.
 
 ## Rule materials
 
-**Editor:** **Material rules…** in the terrain tools: each rule names a
+**Editor:** the terrain editor's **Material rules** mode: each rule names a
 material layer and its conditions (height, slope, cavity, noise, the share
 of an earlier layer); **Apply** bakes them into every tile. **Paint** puts
 hand paint over them.
@@ -71,7 +80,7 @@ layers** template; without one the first four layers show as plain colours.
 
 ## Rule scatter and ground cover
 
-**Editor:** **Scatter rules…** in the terrain tools: each rule places a
+**Editor:** the terrain editor's **Scatter** mode: each rule places a
 model by density, spacing and the same conditions; **Apply** bakes the
 copies. The **Scatter** brush adds or (Ctrl) removes copies by hand. A rule
 marked as ground cover is never stored: it is made round the camera while
@@ -116,8 +125,8 @@ the ground back. Scripts read it as a path with
 
 1. Build the area as a [block layer](block-layers.md) standing on the
    terrain (a courtyard, a village square).
-2. Add a **blocks** edit layer to the terrain. **Editor:** **Layers… → Add
-   blocks layer**. **API:** `setComponent` `{"entityId": "<terrain>",
+2. Add a **blocks** edit layer to the terrain. **Editor:** the terrain
+   editor's **Stack** mode → **Add blocks layer**. **API:** `setComponent` `{"entityId": "<terrain>",
    "component": "terrain", "value": {"layers": [{"id": "courtyard", "kind":
    "blocks", "blend": 8}]}}`
    ([`TerrainBlocksLayer`](../reference/types-p-u.md#type-terrain-blocks-layer)).

@@ -1,8 +1,9 @@
 /**
  * The editor's keyboard shortcuts (tools, frame, delete, undo/redo,
  * duplicate/copy/paste, the block tools' keys) and Shift held to turn
- * snapping off for one gesture. Never while typing into a field; with a
- * the editor window showing only undo/redo stay on.
+ * snapping off for one gesture. Never while typing into a field; with
+ * the editor window or an edit mode showing only undo/redo stay on (an edit
+ * mode has its own key map, `edit-keys.ts`).
  */
 import { useEffect, type MutableRefObject } from 'react';
 import { Gesture } from '../../session/gesture';
@@ -17,6 +18,8 @@ export interface EditorShortcutsDeps {
   gestureRef: MutableRefObject<Gesture | null>;
   shiftRef: MutableRefObject<boolean>;
   workspaceRef: MutableRefObject<WorkspaceState>;
+  /** An edit mode shows over the default view. */
+  editModeShownRef: MutableRefObject<boolean>;
   blockHandlersRef: MutableRefObject<BlockPanelHandlers | null>;
   selectedIdRef: MutableRefObject<string | null>;
   setSelectedId: (id: string | null) => void;
@@ -25,7 +28,7 @@ export interface EditorShortcutsDeps {
 }
 
 export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
-  const { viewportRef, gestureRef, shiftRef, workspaceRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode } = deps;
+  const { viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode } = deps;
   const { undo, redo, del, editRef } = deps.scene;
   // Local snapping is a gesture option: default on, Shift disables it for the
   // gesture in flight (never persisted). Esc cancels the
@@ -35,14 +38,16 @@ export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
       if (e.key === 'Shift') shiftRef.current = true;
       if (e.key === 'Escape' && viewportRef.current?.cancelGesture()) {
         gestureRef.current = null;
+        // Taken: the Esc that cancels a stroke or drag does not also close a window or leave an edit mode.
+        e.preventDefault();
         return;
       }
       // Editor shortcuts — never while typing into a field.
       const t = e.target as HTMLElement | null;
       const typing = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-      // With the editor window showing, the scene's shortcuts (delete,
-      // tools, frame, copy/paste) stay off; undo/redo remain global.
-      const sceneHidden = activeDoc(workspaceRef.current) !== null;
+      // With the editor window or an edit mode showing, the scene's shortcuts
+      // (delete, tools, frame, copy/paste) stay off; undo/redo remain global.
+      const sceneHidden = activeDoc(workspaceRef.current) !== null || editModeShownRef.current;
       if (!typing && sceneHidden && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
         e.preventDefault();
         void (e.key.toLowerCase() === 'z' && !e.shiftKey ? undo() : redo());

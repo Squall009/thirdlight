@@ -12,6 +12,8 @@ interface Props {
   onProjects: () => void;
   gizmoMode: GizmoMode;
   onGizmoMode: (mode: GizmoMode) => void;
+  /** An edit mode shows: its tools own the Scene view (the transform tools and the tool windows stand aside). */
+  editing?: boolean;
   playing: boolean;
   /** The local snapping gesture option (never persisted). */
   snapping: boolean;
@@ -47,7 +49,7 @@ export function Toolbar(p: Props): JSX.Element {
       </button>
       <div className="tl-toolbar__group" role="radiogroup" aria-label="Transform tool">
         {TOOLS.map((t) => (
-          <button key={t.mode} role="radio" aria-checked={p.gizmoMode === t.mode} className={`tl-btn tl-btn--tool${p.gizmoMode === t.mode ? ' is-active' : ''}`} onClick={() => p.onGizmoMode(t.mode)} title={t.title}>
+          <button key={t.mode} role="radio" aria-checked={p.gizmoMode === t.mode} disabled={p.editing === true} className={`tl-btn tl-btn--tool${p.gizmoMode === t.mode ? ' is-active' : ''}`} onClick={() => p.onGizmoMode(t.mode)} title={t.title}>
             <img className="tl-btn__icon" src={t.icon} alt="" aria-hidden="true" />
           </button>
         ))}
@@ -61,12 +63,12 @@ export function Toolbar(p: Props): JSX.Element {
           snap{p.snapping ? ': on' : ': off'}
         </button>
         {p.onToggleDecalTool !== undefined && (
-          <button className={p.decalTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.decalTool === true} onClick={p.onToggleDecalTool} title="Decal tool: click a surface in the Scene view to place a decal, Shift+click to stamp more">
+          <button className={p.decalTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.decalTool === true} disabled={p.editing === true} onClick={p.onToggleDecalTool} title="Decal tool: click a surface in the Scene view to place a decal, Shift+click to stamp more">
             decal
           </button>
         )}
         {p.onTogglePaintTool !== undefined && (
-          <button className={p.paintTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.paintTool === true} onClick={p.onTogglePaintTool} title="Vertex paint: drag on a model, an instance copy, a generated wall or a spline in the Scene view to paint its vertices">
+          <button className={p.paintTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.paintTool === true} disabled={p.editing === true} onClick={p.onTogglePaintTool} title="Vertex paint: drag on a model, an instance copy, a generated wall or a spline in the Scene view to paint its vertices">
             paint
           </button>
         )}

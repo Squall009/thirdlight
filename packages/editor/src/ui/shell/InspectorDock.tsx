@@ -30,7 +30,6 @@ import { SURFACE_PRESET_NAMES, type SurfacePresetName } from '../../session/medi
 import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { BlocksPanel } from '../BlocksPanel';
-import { TerrainPanel } from '../TerrainPanel';
 import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
 import type { ItemActions } from '../project/useItemActions';
@@ -48,9 +47,8 @@ import type { ProjectSettings } from './useProjectSettings';
 import type { DocumentState } from '../workspace/useDocumentState';
 import type { DocumentCommands } from '../workspace/useDocumentCommands';
 import type { AnimatorTools } from './useAnimatorTools';
-import type { ArchitectureComponent, GraphOp, TerrainComponent } from '@thirdlight/project-model';
+import type { ArchitectureComponent, GraphOp } from '@thirdlight/project-model';
 import type { BlockLayers } from './useBlockLayers';
-import type { TerrainTools } from './useTerrainTools';
 import type { PlaySession } from './usePlaySession';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
@@ -69,7 +67,6 @@ export interface InspectorDockProps {
   entity: EntityEditing;
   scene: SceneEditing;
   blocks: BlockLayers;
-  terrain: TerrainTools;
   play: PlaySession;
   entities: ProjectedEntity[];
   selected: ProjectedEntity | null;
@@ -100,6 +97,8 @@ export interface InspectorDockProps {
   select: (id: string) => void;
   /** The Scene view is in front (a block layer's tools are armed only then). */
   sceneInFront: boolean;
+  /** The selection's edit mode: its button's label and what opens it (null: none). */
+  editMode: { label: string; enter: () => void } | null;
 }
 
 /** Generated architecture in the Inspector: presets' sliders preview in the Scene view while dragged and are stored on release. */
@@ -330,6 +329,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   return (
     <Inspector
       entity={selected}
+      editAction={props.editMode}
       gizmoMode={gizmoMode}
       onGizmoMode={setGizmoMode}
       declarations={declarations}
@@ -441,20 +441,6 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                   component={selected.components['architecture'] as ArchitectureComponent}
                   onChange={(next) => void setArchitecture(selected.id, next)}
                   onDerive={(base) => void derivePreset(selected.id, base)}
-                />
-              ),
-              // The selected terrain's tools: they edit it in the Scene view.
-              terrain: (
-                <TerrainPanel
-                  editor={props.terrain.terrainEditor}
-                  visible={props.placement === 'dock' && props.sceneInFront}
-                  entityId={selected.id}
-                  component={selected.components['terrain'] as TerrainComponent}
-                  locked={hierarchyFlags.get(selected.id)?.locked === true}
-                  hidden={hierarchyFlags.get(selected.id)?.active === false}
-                  blockLayers={blockRows}
-                  run={props.terrain.terrainRun}
-                  stage={props.terrain.stageFile}
                 />
               ),
               // A clipped decal's mesh written as a model asset placed on the object instead (decal-bake.ts).

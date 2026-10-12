@@ -388,3 +388,28 @@ export async function showView(page: Page, view: 'Scene' | 'Game'): Promise<void
 export function viewTab(page: Page, view: 'Scene' | 'Game'): Locator {
   return centreTabs(page).getByRole('tab', { name: view, exact: true });
 }
+
+/** An object's edit mode over the work area (its header, rail, the lent Scene view, settings column), while it shows. */
+export function editMode(page: Page): Locator {
+  return page.getByRole('region', { name: 'edit mode', exact: true });
+}
+
+/** Open the selected object's edit mode with the Inspector's button under its name ("Edit terrain"). */
+export async function enterEditMode(page: Page, action: string): Promise<void> {
+  await inspector(page).getByRole('button', { name: action, exact: true }).click();
+  await expect(editMode(page)).toBeVisible();
+}
+
+/** Leave an open edit mode (Done); nothing when none is open. */
+export async function leaveEditMode(page: Page): Promise<void> {
+  if ((await editMode(page).count()) === 0) return;
+  await editMode(page).getByRole('button', { name: /^Done/ }).click();
+  await expect(editMode(page)).toHaveCount(0);
+}
+
+/** Show a mode of the open edit mode's rail ("Sculpt", "Material rules"). */
+export async function editModeTab(page: Page, name: string): Promise<void> {
+  const tab = editMode(page).getByRole('tablist', { name: 'editor modes' }).getByRole('tab', { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+}

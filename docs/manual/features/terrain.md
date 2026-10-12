@@ -111,16 +111,18 @@ edited with the editor's Terrain tools.
   [World streaming](streaming.md)).
 - **Picking** in the Scene view reads the terrain's heights (click to select
   it; drops land on it).
-- **Terrain tools** (the Inspector of a selected terrain, beside where a
-  block layer shows its Blocks tools; **GameObject → Terrain** makes a new
-  one: 2 × 2 tiles of 257 samples a metre apart, heights −128 to 384 m):
-  Raise, Lower, Smooth, Flatten (to the height where the stroke began),
+- **Terrain tools** (the **terrain editor**: a full-screen edit mode on the
+  Scene view that draws only the terrain, opened by a double-click on it in
+  the Hierarchy or the Scene view or by **Edit terrain** in its Inspector;
+  **GameObject → Terrain** makes a new one, 2 × 2 tiles of 257 samples a
+  metre apart, heights −128 to 384 m, and opens it; its rail's modes are
+  Sculpt, Paint, Holes, Material rules, Scatter, Stack and Tiles): Raise, Lower, Smooth, Flatten (to the height where the stroke began),
   Noise (size, seed), Ramp (drag from one end to the other), Paint (pick a
   layer: eight swatches or any number 0–255) and Holes; Radius (m),
   Strength (metres for raise, lower and noise; a 0–1 blend for the others)
   and Falloff. Ctrl (or the Lower / erase / fill toggle) lowers, takes hand
-  paint back or fills holes for one stroke. **Edit terrain** arms the tools:
-  a left drag sculpts (Alt+drag or the right button orbits), Esc drops the
+  paint back or fills holes for one stroke. In a mode with a brush a left
+  drag sculpts (Alt+drag or the right button orbits), Esc drops the
   stroke in flight. The cursor is a ring laid on the ground under the
   pointer. A stroke is previewed on the GPU while the pointer is held — each
   dab changes the drawn tiles' textures in place before the next frame, no
@@ -249,7 +251,7 @@ edited with the editor's Terrain tools.
 ## Terrain edit layers, stamps and erosion
 
 A terrain's heights are a stack of **edit layers** combined offline over the
-ground as sculpted by hand. The Terrain tools' **Layers…** list shows it top
+ground as sculpted by hand. The terrain editor's **Stack** mode lists it top
 first, the hand-made ground (**Base**: what Raise, Lower, Smooth, Flatten,
 Noise and Ramp edit) at the bottom.
 

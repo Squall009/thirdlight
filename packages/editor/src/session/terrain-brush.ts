@@ -42,6 +42,30 @@ export const TERRAIN_TOOLS: readonly { id: TerrainToolId; label: string; title: 
   { id: 'erode', label: 'Erode', title: 'Click to erode the square under the brush (its side twice the radius) into an erosion layer' },
 ]);
 
+/** The terrain editor's modes (its tool rail): what each shows, its tools and its one-line hint. */
+export type TerrainModeId = 'sculpt' | 'paint' | 'holes' | 'rules' | 'scatter' | 'stack' | 'tiles';
+
+export interface TerrainMode {
+  readonly id: TerrainModeId;
+  readonly label: string;
+  /** The rail's glyph (ui/editmode/glyphs.tsx). */
+  readonly glyph: string;
+  /** The brush tools it arms (none: the mode edits through its panel only). */
+  readonly tools: readonly TerrainToolId[];
+  /** What to do, in one sentence (the status line). */
+  readonly hint: string;
+}
+
+export const TERRAIN_MODES: readonly TerrainMode[] = Object.freeze([
+  { id: 'sculpt', label: 'Sculpt', glyph: 'sculpt', tools: ['raise', 'lower', 'smooth', 'flatten', 'noise', 'ramp'], hint: 'Drag on the ground to shape it.' },
+  { id: 'paint', label: 'Paint', glyph: 'paint', tools: ['paint'], hint: 'Drag on the ground to paint the chosen layer.' },
+  { id: 'holes', label: 'Holes', glyph: 'holes', tools: ['holes'], hint: 'Drag on the ground to cut holes; hold Ctrl to fill them.' },
+  { id: 'rules', label: 'Material rules', glyph: 'rules', tools: [], hint: 'Add rules that paint layers by slope, height and noise, then apply them.' },
+  { id: 'scatter', label: 'Scatter', glyph: 'scatter', tools: ['scatter'], hint: 'Add scatter rules and apply them; drag to place a rule\'s copies, hold Ctrl to take them off.' },
+  { id: 'stack', label: 'Stack', glyph: 'stack', tools: ['stamp', 'erode'], hint: 'Click the ground to place a stamp or erode the square under the brush.' },
+  { id: 'tiles', label: 'Tiles', glyph: 'tiles', tools: [], hint: 'Import a heightmap onto the tiles, or lay a block layer\'s surface onto them.' },
+]);
+
 /** The brush's settings (one set for every tool; each reads its own). */
 export interface TerrainBrushState {
   /** Metres. */

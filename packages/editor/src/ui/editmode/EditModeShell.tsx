@@ -1,0 +1,146 @@
+/**
+ * The edit-mode shell: the frame every edit mode shares.
+ *
+ * It takes the work area over as the editor window does (the menus, the
+ * toolbar and the status bar stay; the default view under it takes no
+ * input): the header (what is edited, Context, undo, Done), the rail of the
+ * editor's modes on the left, the live Scene view in the middle — its own
+ * canvas, lent with input, never a second renderer — the mode's settings
+ * column on the right and the status line with its hints and keys.
+ *
+ * While it shows, the view draws only the edited object (Context: the rest
+ * too, not pickable), and the keys of the one key map (`edit-keys.ts`) work:
+ * Esc leaves (after a stroke in flight is cancelled), C toggles Context,
+ * Home frames the object, Shift+number picks a mode; other keys go to the
+ * mode's Scene-view tools. Edits are the same commands as anywhere else, so
+ * undo, MCP edits and the change feed reach the mode as they reach the rest.
+ *
+ * Browser-only (React).
+ */
+import { useEffect, useRef, type JSX, type RefObject } from 'react';
+
+import { editKeyAction, sharedKeyHints } from '../../session/edit-keys';
+import type { Viewport } from '../../viewport/viewport';
+import { iconSrc, iconTitle, objectIconFor, type IconTable } from '../../viewport/icons';
+import type { SceneViewLending } from '../shell/useSceneViewLending';
+import { isTyping } from '../workspace/EditorWindow';
+import { EditModeHeader } from './EditModeHeader';
+import type { EditModeHost } from './modes';
+import { StatusHints } from './StatusHints';
+import { ToolRail } from './ToolRail';
+import type { EditMode } from './useEditMode';
+import { ViewportChrome } from './ViewportChrome';
+
+export interface EditModeShellProps {
+  mode: EditMode;
+  host: EditModeHost;
+  sceneView: SceneViewLending;
+  viewportRef: RefObject<Viewport | null>;
+  icons: IconTable;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
+  /** The editor's message over the view (a refused edit), as the Scene view shows it; null: none. */
+  notice: string | null;
+  onDismissNotice: () => void;
+}
+
+/** The shell while a mode shows (rendered only then). */
+export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
+  const { state, entity, kind } = p.mode;
+  const viewHost = useRef<HTMLDivElement | null>(null);
+  const latest = useRef(p);
+  latest.current = p;
+
+  // The Scene view's canvas, lent with input while the shell shows.
+  useEffect(() => {
+    const el = viewHost.current;
+    if (el === null) return undefined;
+    const release = latest.current.sceneView.borrow(el, 'edit');
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => latest.current.sceneView.resize()) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      release();
+    };
+  }, []);
+
+  // Only the edited object drawn (the rest too with Context), and only it hit.
+  const entityId = state?.entityId ?? null;
+  const context = state?.context ?? false;
+  useEffect(() => {
+    if (entityId === null) return undefined;
+    p.viewportRef.current?.setIsolation({ ids: [entityId], context });
+    return () => p.viewportRef.current?.setIsolation(null);
+  }, [entityId, context, p.viewportRef]);
+
+  // The key map (after the Scene view's own Esc cancelled a stroke, which marks the key taken).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const { mode, viewportRef } = latest.current;
+      const k = mode.kind;
+      if (e.defaultPrevented || k === undefined || mode.state === null || isTyping(e.target)) return;
+      if (document.querySelector('[aria-modal="true"]') !== null) return;
+      const action = editKeyAction(e, k.rail.length);
+      if (action === null) {
+        if (viewportRef.current?.toolKey(e, k.tools) === true) e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      if (action.kind === 'done') mode.leave();
+      else if (action.kind === 'context') mode.toggleContext();
+      else if (action.kind === 'mode') mode.setMode(k.rail[action.index]!.id);
+      else if (mode.entity !== undefined) viewportRef.current?.frameEntity(mode.entity.id, k.bounds?.(mode.entity) ?? undefined);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  if (state === null || entity === undefined || kind === undefined) return null;
+  const rail = kind.rail.find((r) => r.id === state.mode) ?? kind.rail[0]!;
+  const icon = objectIconFor(entity, p.icons);
+  return (
+    <section className="tl-editmode" aria-label="edit mode" data-edit-mode={kind.kind} data-entity-id={entity.id}>
+      <EditModeHeader
+        icon={iconSrc(icon.kind)}
+        iconTitle={iconTitle(icon)}
+        editorLabel={kind.label}
+        objectName={entity.name}
+        {...(kind.meta !== undefined ? { meta: kind.meta(entity) } : {})}
+        context={state.context}
+        onContext={p.mode.toggleContext}
+        canUndo={p.canUndo}
+        canRedo={p.canRedo}
+        onUndo={p.onUndo}
+        onRedo={p.onRedo}
+        onDone={p.mode.leave}
+      />
+      <div className="tl-editmode__body">
+        <ToolRail items={kind.rail} active={rail.id} onPick={p.mode.setMode} />
+        <div className="tl-editmode__view">
+          {/* Empty for React: the Scene view's canvas is put here (and taken back) by the editor. */}
+          <div className="tl-editmode__canvas" ref={viewHost} />
+          <ViewportChrome objectName={entity.name} context={state.context} />
+          {p.notice !== null && (
+            <div className="tl-notice" role="alert">
+              <span>{p.notice}</span>
+              <button className="tl-btn tl-btn--small" onClick={p.onDismissNotice}>
+                dismiss
+              </button>
+            </div>
+          )}
+        </div>
+        <aside className="tl-editmode__column" aria-label="edit mode settings">
+          <div className="tl-editmode__column-head">
+            <b>{rail.label}</b>
+          </div>
+          <div className="tl-editmode__column-body" key={entity.id}>
+            {kind.column({ entity, mode: rail.id, host: p.host })}
+          </div>
+        </aside>
+      </div>
+      <StatusHints tool={rail.label} text={rail.hint} keys={[...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length)]} />
+    </section>
+  );
+}

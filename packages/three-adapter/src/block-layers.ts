@@ -95,6 +95,7 @@ import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { perfMark } from './perf-marks';
+import { VIEW_OWNER_KEY } from './isolation-view';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -532,6 +533,7 @@ export class BlockLayerView {
     if (layer === undefined) {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
+      group.userData[VIEW_OWNER_KEY] = entityId;
       this.root.add(group);
       const grid = BlockGrid.from(component, data);
       layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false, ring: null, held: new Set(), outside: new Set(), bytes: new Map(), streamAt: null, streamDirty: true, chunkList: null };

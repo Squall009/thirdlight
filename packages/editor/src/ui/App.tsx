@@ -71,6 +71,9 @@ import { useEditorDialogs } from './shell/useEditorDialogs';
 import { EditorDialogs } from './shell/EditorDialogs';
 import { useCuePreview } from './shell/useCuePreview';
 import { useSceneViewLending } from './shell/useSceneViewLending';
+import { EditModeShell } from './editmode/EditModeShell';
+import { editModeFor, type EditModeHost } from './editmode/modes';
+import { useEditMode } from './editmode/useEditMode';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
 import { useAssetsWindow } from './shell/useAssetsWindow';
@@ -222,7 +225,11 @@ function EditorApp(): JSX.Element {
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
   const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
   const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
-  const terrainTools = useTerrainTools({ clientRef, viewportRef, reportFailure, setNotice, select: setSelectedId });
+  /** Opens an object's edit mode (set once the edit mode's hook below is made; false: the object has none). */
+  const enterEditModeRef = useRef<(entityId: string, kind?: string) => boolean>(() => false);
+  /** An edit mode shows (the default view's shortcuts stand aside). */
+  const editModeShownRef = useRef(false);
+  const terrainTools = useTerrainTools({ clientRef, viewportRef, reportFailure, setNotice, created: (id) => void (enterEditModeRef.current(id, 'terrain') || setSelectedId(id)) });
   const modelFilesRef = useRef<ModelFiles | null>(null);
   const shiftRef = useRef(false);
   const snappingRef = useRef(true);
@@ -437,6 +444,7 @@ function EditorApp(): JSX.Element {
         viewFailed = failures;
         showFailures();
       },
+      onDoublePick: (entityId) => void enterEditModeRef.current(entityId),
     }, { assets: sceneAssets, snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
@@ -648,7 +656,11 @@ function EditorApp(): JSX.Element {
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
   const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
-  useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
+  useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
+  // An object's full-screen editor on the Scene view (terrain): set aside while the Scene view is not in front.
+  const editMode = useEditMode({ entities, selection, setSelection, workspaceDispatch, closeSettings, sceneInFront: centerTab === 'scene' && !windowOpen && !settingsWindow.open });
+  enterEditModeRef.current = editMode.enter;
+  editModeShownRef.current = editMode.shown;
 
   const dialogs = useEditorDialogs({ clientRef, play, createEntityAt: sceneEditing.createEntityAt });
   const resync = useCallback(() => {
@@ -725,9 +737,9 @@ function EditorApp(): JSX.Element {
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
   // The Decal tool is armed while its window floats over the Scene view.
-  const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
+  const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
   // The vertex paint mode likewise, while its window floats over the Scene view.
-  const paintTool = useVertexPaintTool({ clientRef, viewportRef, armed: toolWindows.isOpen('paint') && centerTab === 'scene' && !windowOpen && !settingsWindow.open, setNotice });
+  const paintTool = useVertexPaintTool({ clientRef, viewportRef, armed: toolWindows.isOpen('paint') && centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown, setNotice });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
 
@@ -894,6 +906,8 @@ function EditorApp(): JSX.Element {
   const tagUsage = tagUsageMemo;
   /** The components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
+  /** The selection's edit mode (the Inspector's Edit button). */
+  const selectedEditMode = editModeFor(selected);
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
@@ -976,7 +990,6 @@ function EditorApp(): JSX.Element {
       entity={entityEditing}
       scene={sceneEditing}
       blocks={blocks}
-      terrain={terrainTools}
       play={playSession}
       entities={entities}
       selected={selected}
@@ -1002,8 +1015,11 @@ function EditorApp(): JSX.Element {
       tileThumbnails={tileThumbnails}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
+      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id) }}
     />
   );
+  /** What the edit modes read from the app. */
+  const editModeHost: EditModeHost = { terrain: terrainTools, flags: (id) => hierarchyFlags.get(id), blockLayers: blocks.blockRows };
 
   return (
     <CatalogProvider catalog={sessionClient?.catalog ?? null} asset={assetSummary}>
@@ -1015,6 +1031,7 @@ function EditorApp(): JSX.Element {
         onProjects={() => { window.location.search = ''; }}
         gizmoMode={gizmoMode}
         onGizmoMode={setGizmoMode}
+        editing={editMode.shown}
         playing={playing}
         snapping={snapping}
         onToggleSnapping={() => setSnapping((v) => !v)}
@@ -1038,7 +1055,7 @@ function EditorApp(): JSX.Element {
       />
       <div className="tl-app__workarea" ref={workareaRef}>
       {/* Under the editor window the default view keeps its state but takes no input. */}
-      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen || settingsWindow.open}>
+      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen || settingsWindow.open || editMode.shown}>
         <div className="tl-app__main">
           <div className="tl-app__row">
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
@@ -1050,6 +1067,7 @@ function EditorApp(): JSX.Element {
           selectedIds={selection.ids}
           primaryId={selection.primary}
           onSelect={(ids, primary) => setSelection({ ids, primary })}
+          onActivate={(id) => editMode.enter(id)}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId, sceneId) => void move(ids, parentId, beforeId, sceneId)}
           icons={iconTable}
@@ -1193,7 +1211,23 @@ function EditorApp(): JSX.Element {
         {windowOpen ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
       </div>
       {/* Scene settings float over the Scene view while it is in front (the editor window, Project Settings and the Game view set them aside). */}
-      {centerTab === 'scene' && !windowOpen && !settingsWindow.open && (
+      {/* An object's edit mode over the work area, the Scene view lent to it. */}
+      {editMode.shown && (
+        <EditModeShell
+          mode={editMode}
+          host={editModeHost}
+          sceneView={sceneView}
+          viewportRef={viewportRef}
+          icons={iconTable}
+          canUndo={ui.undoDepth > 0}
+          canRedo={ui.redoDepth > 0}
+          onUndo={() => void sceneEditing.undo()}
+          onRedo={() => void sceneEditing.redo()}
+          notice={notice}
+          onDismissNotice={() => setNotice(null)}
+        />
+      )}
+      {centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown && (
         <SceneToolWindows
           tools={toolWindows}
           area={workareaRef}

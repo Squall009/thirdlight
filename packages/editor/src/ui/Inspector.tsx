@@ -32,6 +32,8 @@ export type PatchRebase = (current: Record<string, unknown>) => Record<string, u
 
 interface Props {
   entity: ProjectedEntity | null;
+  /** The object's edit mode, opened by the button under its name (null: it has none). */
+  editAction?: { label: string; enter: () => void } | null;
   gizmoMode: GizmoMode;
   onGizmoMode: (m: GizmoMode) => void;
   /** The component descriptors (null until the first game query answered). */
@@ -216,7 +218,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   );
 }
 
-export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
+export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -270,6 +272,11 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
             }}
           />
           <div className="tl-inspector__kind">{entity.kind}{selectionCount > 1 ? ` · ${selectionCount} selected` : ''}</div>
+          {editAction !== undefined && editAction !== null && (
+            <button type="button" className="tl-btn tl-btn--edit-mode" title={`${editAction.label}: a full-screen editor on the Scene view (or double-click the object)`} onClick={editAction.enter}>
+              {editAction.label}
+            </button>
+          )}
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
           <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
           {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}

@@ -1,7 +1,8 @@
 /**
  * The terrain e2e's backend helpers, fixtures and checks (`terrain-cdlod.e2e.ts` runs them against its one backend,
  * handed over with `useBackend`): the terrain and its objects built through commands, the frame checks, the Play
- * walks and streaming, and the editor's terrain tools, rules and scatter driven through the page.
+ * walks and streaming, and the editor's terrain tools, rules and scatter driven through the page (the terrain editor, an
+ * edit mode on the lent Scene view: its rail's modes hold the tools).
  */
 import { randomBytes } from 'node:crypto';
 
@@ -15,7 +16,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
-import { closeEditor, editorPane, menu, openEditor, openWindow } from './ui';
+import { closeEditor, editModeTab, editorPane, enterEditMode, leaveEditMode, menu, openEditor, openWindow } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 import { count, frameShareNear, meanDiff, projectWith, share, type CameraView, type V3 } from './frame-reading';
 
@@ -331,7 +332,7 @@ export function expectRiver(img: Image, cam: CameraView, what: string): void {
 export async function roadHandle(page: Page, ground: string, road: string): Promise<void> {
   type Grip = { component: string; kind: string; handle: string; x: number; y: number };
   const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${road}"]`).click();
+  await clickRow(page, road);
   await page.keyboard.press('f');
   const gripOf = async (handle: string): Promise<Grip | undefined> => (JSON.parse((await page.locator('canvas[data-size-handles]').getAttribute('data-size-handles')) ?? '[]') as Grip[]).find((g) => g.component === 'spline' && g.kind === 'spline' && g.handle === handle);
   await expect.poll(async () => (await gripOf('p2')) !== undefined, { timeout: 30_000, message: 'the road\'s point grips' }).toBe(true);
@@ -390,15 +391,15 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
   const corners: V3[] = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([dx, dz]) => [STAMP_AT[0] + dx! * ERODE_RADIUS, handMade, STAMP_AT[1] + dz! * ERODE_RADIUS]);
   const figures: Record<string, unknown> = {};
   // The view framed on the road (beside the mountain), then the terrain's tools.
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${road}"]`).click();
+  await clickRow(page, road);
   await page.keyboard.press('f');
   await page.waitForTimeout(400);
   await selectEntity(page, ground);
   await zoomedOutTo(page, [centre, ...corners, [STAMP_AT[0], handMade + STAMP_HEIGHT, STAMP_AT[1]]], async () => {
     if (viaEditor) {
-      await terrainPanel(page).getByRole('button', { name: /^Layers/ }).click();
+      await editModeTab(page, 'Stack');
       const list = terrainPanel(page).getByRole('group', { name: 'terrain layers' });
-      await terrainTool(page, 'Stamp').click();
+      await pickTool(page, 'Stamp');
       const opts = terrainPanel(page).getByRole('group', { name: 'stamp options' });
       await opts.getByLabel('stamp heightmap', { exact: true }).selectOption('e2e-cone');
       await opts.getByLabel('stamp height', { exact: true }).fill(String(STAMP_HEIGHT));
@@ -428,7 +429,7 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
         return (figures['flankMagenta'] = best);
       }, { timeout: 30_000, message: `${renderer} Scene view: the stamped mountain's steep flanks painted by the rules` }).toBeGreaterThan(0.5);
       // The Erode tool: the square round the mountain, one command (eroded on the backend's worker).
-      await terrainTool(page, 'Erode').click();
+      await pickTool(page, 'Erode');
       const erodeOpts = terrainPanel(page).getByRole('group', { name: 'erode options' });
       await erodeOpts.getByLabel('erode droplets', { exact: true }).fill('2');
       await erodeOpts.getByLabel('erode passes', { exact: true }).fill('20');
@@ -453,8 +454,7 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       await list.getByLabel('layer erosion on', { exact: true }).click();
       await expect.poll(() => height(...probe), { timeout: 30_000, message: 'erosion on' }).toBe(eroded);
       await blocksLayer(list, ground, plaza);
-      await terrainTool(page, 'Raise').click();
-      await terrainPanel(page).getByRole('button', { name: /^Layers/ }).click();
+      await pickTool(page, 'Raise');
     }
     // The pictures with the layers on, then each layer off: the channels, then the mountain, leave the frame.
     // The square round the eroded area as the view sees it (whatever the zoom).
@@ -727,11 +727,29 @@ export type PreviewDiff = { samples: number; stepsMax: number; stepsDiffering: n
 export type StrokeInfo = { serial: number; tool: string; dabs: number; commitMs: number | null; stored: boolean | null; preview?: { active: boolean; settling: boolean; dabs: number; passes: number; tiles: number; msMax: number; msMean: number; frames: number; msMaxAfterFirst: number; settleMs: number | null; diff: PreviewDiff | null } };
 export const strokeInfo = async (page: Page): Promise<StrokeInfo | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stroke')) ?? 'null') as StrokeInfo | null;
 export const terrainPanel = (page: Page) => page.getByLabel('terrain tools');
-export const terrainTool = (page: Page, name: string) => terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name, exact: true });
-export async function selectEntity(page: Page, id: string): Promise<void> {
+/** The terrain editor's rail mode that holds each tool. */
+const TOOL_MODES: Readonly<Record<string, string>> = { Raise: 'Sculpt', Lower: 'Sculpt', Smooth: 'Sculpt', Flatten: 'Sculpt', Noise: 'Sculpt', Ramp: 'Sculpt', Paint: 'Paint', Holes: 'Holes', Scatter: 'Scatter', Stamp: 'Stack', Erode: 'Stack' };
+/** Pick a terrain tool: its mode on the terrain editor's rail, then the tool. */
+export async function pickTool(page: Page, name: string): Promise<void> {
+  await editModeTab(page, TOOL_MODES[name]!);
+  await terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name, exact: true }).click();
+}
+/** Click an object's row in the Hierarchy (an open edit mode is left first: the Hierarchy is under it). */
+export async function clickRow(page: Page, id: string): Promise<void> {
+  await leaveEditMode(page);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
+}
+/** Open the selected terrain's editor, its brush armed (Sculpt). */
+export async function openTerrainEditor(page: Page): Promise<void> {
+  await enterEditMode(page, 'Edit terrain');
+  await editModeTab(page, 'Sculpt');
   await expect(terrainPanel(page)).toBeVisible();
   await expect(viewport(page)).toHaveAttribute('data-terrain-tool', /\w/);
+}
+/** Select a terrain and open its editor. */
+export async function selectEntity(page: Page, id: string): Promise<void> {
+  await clickRow(page, id);
+  await openTerrainEditor(page);
 }
 export async function setNumber(page: Page, label: string, value: number): Promise<void> {
   const f = terrainPanel(page).getByLabel(label, { exact: true });
@@ -1114,7 +1132,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   const rev0 = Number((await query('queryProject')).revision);
 
   // ---- raise: a short drag, the ground up where it went.
-  await terrainTool(page, 'Raise').click();
+  await pickTool(page, 'Raise');
   await expect(viewport(page)).toHaveAttribute('data-terrain-tool', 'raise');
   await setNumber(page, 'terrain radius', 1.5);
   await setNumber(page, 'terrain strength', 0.4);
@@ -1136,7 +1154,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   expect(raisePx.previewVsStored, `${renderer} raise: the stored tiles drawn as the preview was ${JSON.stringify(raisePx)}`).toBeLessThan(Math.max(2, raisePx.previewVsBefore / 3));
 
   // ---- paint: layer 2 (blue) over the red ground.
-  await terrainTool(page, 'Paint').click();
+  await pickTool(page, 'Paint');
   await terrainPanel(page).getByRole('radio', { name: 'layer 2' }).click();
   await setNumber(page, 'terrain radius', 1.2);
   await setNumber(page, 'terrain blend', 0.6);
@@ -1153,12 +1171,12 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
 
   // ---- noise, smooth and a ramp over the raised ground: their previews against the stored tiles.
   const others: Record<string, PreviewDiff> = {};
-  await terrainTool(page, 'Noise').click();
+  await pickTool(page, 'Noise');
   await setNumber(page, 'noise size', 1.5);
   others['noise'] = (await terrainStroke(page, [[raiseAt[0], raiseAt[1], raiseAt[2] - 0.4], [raiseAt[0], raiseAt[1], raiseAt[2] + 0.4]], raiseAt, 40)).info.preview!.diff!;
-  await terrainTool(page, 'Smooth').click();
+  await pickTool(page, 'Smooth');
   others['smooth'] = (await terrainStroke(page, [[raiseAt[0] - 0.5, raiseAt[1], raiseAt[2]], [raiseAt[0] + 0.5, raiseAt[1], raiseAt[2]]], raiseAt, 40)).info.preview!.diff!;
-  await terrainTool(page, 'Ramp').click();
+  await pickTool(page, 'Ramp');
   others['ramp'] = (await terrainStroke(page, [[raiseAt[0] - 1, raiseAt[1], raiseAt[2] + 1], [raiseAt[0] + 1, raiseAt[1], raiseAt[2] - 1]], raiseAt, 40, false)).info.preview!.diff!;
   for (const [kind, d] of Object.entries(others)) {
     expect(d.samples, `${renderer} ${kind}: compared`).toBeGreaterThan(20);
@@ -1167,7 +1185,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   }
 
   // ---- holes: one click, the sky through it.
-  await terrainTool(page, 'Holes').click();
+  await pickTool(page, 'Holes');
   await setNumber(page, 'terrain radius', 1);
   const holeAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt]));
   const hole = await terrainStroke(page, [holeAt], holeAt, 16);
@@ -1190,7 +1208,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   await expect.poll(() => height(raiseAt[0], raiseAt[2]), { timeout: 30_000 }).toBe(h0);
 
   if (first) {
-    // ---- a new terrain from the GameObject menu: selected, its tools show (then undone).
+    // ---- a new terrain from the GameObject menu: its editor opens (then undone: the editor closes).
     const newRows = page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: /^Terrain$/ }) });
     await menu(page, 'GameObject', 'Terrain');
     await expect(terrainPanel(page).getByLabel('terrain size')).toContainText('4 tiles of 256 m');
@@ -1206,6 +1224,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
     const raw = new Uint8Array(33 * 33 * 2);
     const v = Math.round(((10 - RANGE[0]) / (RANGE[1] - RANGE[0])) * 65535);
     for (let i = 0; i < 33 * 33; i++) new DataView(raw.buffer).setUint16(i * 2, v, true);
+    await editModeTab(page, 'Tiles');
     await terrainPanel(page).getByRole('button', { name: 'Import heightmap…' }).click();
     const dialog = page.getByRole('dialog', { name: 'import heightmap' });
     await dialog.getByLabel('heightmap file').setInputFiles({ name: 'patch.raw', mimeType: 'application/octet-stream', buffer: Buffer.from(raw) });
@@ -1225,6 +1244,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
     await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] } } });
     await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 8, 3, 8], cell: { block: 'stone' } }] });
     await selectEntity(page, big);
+    await editModeTab(page, 'Tiles');
     await terrainPanel(page).getByLabel('convert source').selectOption(layer);
     const bigAt: [number, number] = [BIG_ORIGIN[0] + 104, BIG_ORIGIN[2] + 104];
     const bigHeight = async (): Promise<number> => ((await query('queryTerrain', { entityId: big, points: [bigAt] }))['points'] as { height: number }[])[0]!.height;
@@ -1237,14 +1257,16 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   }
 
   // ---- a 64 m raise on the 1,025² tile: the preview's cost per frame and the page's frames while dragging, the commit.
-  await selectEntity(page, big);
+  // Framed on the tile's corner from the default view (F focuses there), then its editor.
+  await clickRow(page, big);
   await page.keyboard.press('f');
+  await openTerrainEditor(page);
   const box = (await viewport(page).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   // Out to about 130 m from the tile's corner (the view looks down at it from +x +z).
   for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 500);
   await page.waitForTimeout(300);
-  await terrainTool(page, 'Raise').click();
+  await pickTool(page, 'Raise');
   await setNumber(page, 'terrain radius', 64);
   await setNumber(page, 'terrain strength', 0.5);
   // Two loops of 15 m round a point of the tile the view sees (all in view), projected to the screen.
@@ -1317,7 +1339,7 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   type Point = { layers: number[]; weights: number[] };
   const layersAt = async (p: [number, number]): Promise<Point> => ((await query('queryTerrain', { entityId: ground, points: [p] }))['points'] as Point[])[0]!;
   await selectEntity(page, ground);
-  await terrainPanel(page).getByRole('button', { name: /^Material rules/ }).click();
+  await editModeTab(page, 'Material rules');
   const rules = terrainPanel(page).getByRole('group', { name: 'material rules' });
   await rules.getByRole('button', { name: 'add rule' }).click();
   const fill = async (scope: typeof rules, label: string, value: number): Promise<void> => {
@@ -1343,7 +1365,7 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   expect((await layersAt(RAMP_MID)).layers).toEqual([STEEP_RULE.layer]);
 
   // The block layer's Rules: the same slope rule.
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${blocks}"]`).click();
+  await clickRow(page, blocks);
   await openWindow(page, 'Blocks');
   const panel = page.getByLabel('blocks panel');
   await expect(panel.getByLabel('block layer')).toHaveValue(blocks);
@@ -1433,7 +1455,7 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   // The disc the rules read (layer 2, green), painted now: the first renderer's tools ran on the ground as it was.
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [GROVE], radius: GROVE_RADIUS, strength: 1, falloff: 'constant', layer: 1 });
   await selectEntity(page, ground);
-  await terrainPanel(page).getByRole('button', { name: /^Scatter rules/ }).click();
+  await editModeTab(page, 'Scatter');
   const rules = terrainPanel(page).getByRole('group', { name: 'scatter rules' });
   // Posts: on the disc (layer 2's share over 0.5), on ground gentler than 30°.
   await rules.getByRole('button', { name: 'add scatter rule' }).click();
@@ -1483,12 +1505,12 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   // The Scatter brush (Ctrl: take off) over a patch of the disc: no post left there; undone, they are back. The view
   // frames a marker on the disc first (the tools left it over the far tile), and the marker goes before the stroke.
   const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Grove', transform: { position: [GROVE[0], (await surface(ground, ...GROVE))[1] + 1, GROVE[1]] }, box: { size: [6, 2, 6], material: { color: '#00ff00' } } }))['createdId']);
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${marker}"]`).click();
+  await clickRow(page, marker);
   await page.keyboard.press('f');
   await page.waitForTimeout(300);
   await cmd('deleteEntity', { entityId: marker });
   await selectEntity(page, ground);
-  await terrainTool(page, 'Scatter').click();
+  await pickTool(page, 'Scatter');
   await expect(terrainPanel(page).getByLabel('scatter brush rule')).toHaveValue('posts');
   await setNumber(page, 'terrain radius', 1.5);
   const center = await visibleSpot(page, ground, posts.slice(0, 12).map((c) => [c.x, c.z] as [number, number]));
@@ -1504,10 +1526,10 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'the brush took the posts off' }).toBe(0);
   await cmd('undo', {});
   await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'undone: the posts are back' }).toBe(near(posts));
-  await terrainTool(page, 'Raise').click();
+  await pickTool(page, 'Raise');
 
   // The terrace's Scatter: posts on its flat tops (rows 2), none over its sloped cell (0, 1, 0).
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${terrace}"]`).click();
+  await clickRow(page, terrace);
   await openWindow(page, 'Blocks');
   const panel = page.getByLabel('blocks panel');
   await expect(panel.getByLabel('block layer')).toHaveValue(terrace);
@@ -1537,5 +1559,5 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
     expect(y, 'a post on the flat tops').toBeCloseTo(2, 3);
   }
 
-  await page.locator('.tl-hierarchy__list li[data-entity-id="' + ground + '"]').click();
+  await clickRow(page, ground);
 }

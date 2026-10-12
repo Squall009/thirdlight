@@ -61,6 +61,8 @@ interface Props {
   selectedIds: readonly string[];
   primaryId: string | null;
   onSelect: (ids: string[], primary: string | null) => void;
+  /** A double-click on a row opens the object's edit mode (true: it has one); else the row is renamed. */
+  onActivate?: (id: string) => boolean;
   onRename: (id: string, name: string) => void;
   onMove: (ids: string[], parentId: string | null, beforeId: string | null, sceneId?: string) => void;
   /** The open scenes (absent: a single-scene project, one plain tree). */
@@ -149,7 +151,8 @@ function itemAt(tops: Float64Array, y: number): number {
 interface RowHandlers {
   click: (ev: MouseEvent<HTMLLIElement>, id: string) => void;
   contextMenu: (ev: MouseEvent<HTMLLIElement>, id: string) => void;
-  startRename: (id: string, name: string) => void;
+  /** A double-click: the object's edit mode, else a rename. */
+  activate: (id: string, name: string) => void;
   dragStart: (ev: DragEvent<HTMLLIElement>, id: string) => void;
   dragEnd: () => void;
   dragOver: (ev: DragEvent<HTMLLIElement>, id: string) => void;
@@ -187,7 +190,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
       className={['tl-row', selected ? 'is-selected' : '', primary ? 'is-primary' : '', inactive ? 'is-inactive' : '', dropClass].join(' ').replace(/\s+/g, ' ').trim()}
       onClick={(ev) => handlers.current.click(ev, r.id)}
       onContextMenu={(ev) => handlers.current.contextMenu(ev, r.id)}
-      onDoubleClick={() => handlers.current.startRename(r.id, e.name)}
+      onDoubleClick={() => handlers.current.activate(r.id, e.name)}
       draggable={draft === null}
       onDragStart={(ev) => handlers.current.dragStart(ev, r.id)}
       onDragEnd={() => handlers.current.dragEnd()}
@@ -252,7 +255,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
   );
 });
 
-export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS, contextMenu }: Props): JSX.Element {
+export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onActivate, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS, contextMenu }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
   /** Where the context menu shows (null: closed). */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
@@ -472,7 +475,9 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
       }
       setMenuAt({ x: ev.clientX, y: ev.clientY });
     },
-    startRename: (id, name) => setRenaming({ id, draft: name }),
+    activate: (id, name) => {
+      if (onActivate?.(id) !== true) setRenaming({ id, draft: name });
+    },
     dragStart: (ev, id) => {
       // Dragging a selected row drags the whole selection.
       const ids = selected.has(id) ? draggedRoots(entities, selectedIds) : [id];

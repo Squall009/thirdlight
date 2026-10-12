@@ -178,6 +178,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 | 34.1 | Done 2026-10-12: one icon order (`COMPONENT_ICONS`, 29 icons) in the descriptors, value variants (light by type, spline → road/river) and a tooltip count; hierarchy rows and billboards share `objectIconFor`. 12 new 96 px WebPs in `public/icons/objects` (47.9 KiB). Billboards were squashed by the aspect (drawn ~½ wide); now square. e2e: `placeholders.e2e.ts` extended (13 types). |
 | 34.2 | Done 2026-10-12, owner look pending: 8 static pages (terrain sculpt/paint/rules, vertex paint + "doesn't read paint" variant, decal editor with atlas drawer, block editor, kit editor) on the editor's own tokens and icons, Studio textures, a three.js stand-in Scene view; screenshots and `SPEC.md` (sizes, components, colours, key map) in `~/.cache/thirdlight-phase34/mockup/` (1.8 MB of JPEG at 1920×1080). |
 | 34.3 | Done 2026-10-12: `viewport.ts` 1,987 → 1,777 lines; pointer routing, Esc and tool arming moved to `viewport/tool-input.ts` (440): a `SceneTool` interface (press/move/release/click/leave/cancel/key, armed) and a `ToolRouter` the viewport asks first (priority paint → block → terrain → decal → handles → brush; Esc in its old order). No behaviour change; router order covered in vitest (`tool-input.test.ts`, 7 tests); fast gate green with block-editor, instance-brush, terrain-brushes, handles, window-tools, and layered-material (decal tool) alone. |
+| 34.4 | Done 2026-10-12: the edit-mode shell (`ui/editmode/`: registry `EDIT_MODES`, `EditModeShell`, `EditModeHeader`, `ToolRail`, `StatusHints`, `ViewportChrome`, one key map `session/edit-keys.ts`); the live canvas lent with input (`borrow(host, 'edit')`); isolation in the adapter (`isolation-view.ts`, a sweep of the scene's drawables: 11 swept, 6 hidden in the e2e scene); the terrain is the first mode, its old panel split by rail mode as the interim column. e2e: `editor-window.e2e.ts` extended (layout sizes, isolation and Context pixels, rail keys, a stroke and undo/redo, MCP rename and hole, Play aside and back, Esc, Inspector and Scene-view double-click entries, delete closes); `terrain-cdlod-steps.ts` drives the editor. Enter/leave time: unverified on the target (see §7). |
 
 ## 7. Decision log
 
@@ -213,3 +214,25 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   release goes first to the tool whose gesture it ends, then to a tool that acts on a plain click (the Decal tool
   places on click, after a handle drag or brush stroke has had its release). `SceneTool.key` and `ToolRouter.key`
   exist for the edit-mode shell's key map; no tool takes keys yet (34.4 wires them).
+- 2026-10-12 (34.4) — The edit-mode shell. Defaults chosen, owner to confirm:
+  - **The terrain's interim column is its old panel split by rail mode** (Sculpt, Paint, Holes, Material rules, Scatter,
+    Stack, Tiles), not a placeholder: every tool and rule editor works from the editor; 34.8 rebuilds the column with
+    the brush kit and the palette. "Settings" (tile size, spacing, …) stays in the Inspector until then.
+  - **Isolation hides the others from the shadows too.** First built as the cut-aways do (still casting), the
+    screenshot showed the shadows of objects that were not drawn on the terrain — confusing. `view-hidden.ts` now has
+    reasons that also leave the shadow cameras (isolation); the cached static shadow is drawn again once on entering
+    and once on leaving. Lights stay switched on (no programs rebuilt).
+  - **Context shows the rest as drawn, not faded.** A faded ghost needs a second pass in the adapter (or a material
+    change on every object, which rebuilds programs); the rest is unpickable and the chip says "Whole scene · only X
+    can be picked". The faded look is left for the owner's call.
+  - **No fly camera:** the Scene view has none; the mode has what it has (orbit, pan, zoom) plus Home to frame.
+    Entering keeps the camera (a test or a user framed it on purpose).
+  - **Entering clears the selection, Done restores it**; the mode stays open while the Game view, the editor window or
+    Project Settings is in front (Play sets it aside) and closes by itself when its object is gone or loses what it
+    edits. A double-click on a Hierarchy row opens the object's mode when it has one, else renames as before (rename a
+    terrain in the Inspector). Notices show over the lent view.
+  - **Tools:** a mode names the router's `SceneTool`s its keys reach (`ToolRouter.key(e, sel, names)`); the terrain's is
+    the existing `terrain` tool.
+  - Found: an MCP tile change while the terrain brush is armed stops the terrain drawing (predates the shell) — D248,
+    for 34.8.
+

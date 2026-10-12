@@ -22,11 +22,12 @@ export interface TerrainToolsDeps {
   viewportRef: ViewportRef;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
-  select: (id: string) => void;
+  /** A new terrain was made: its editor opens. */
+  created: (id: string) => void;
 }
 
 export function useTerrainTools(deps: TerrainToolsDeps) {
-  const { clientRef, viewportRef, reportFailure, setNotice, select } = deps;
+  const { clientRef, viewportRef, reportFailure, setNotice, created } = deps;
   const [terrainEditor, setTerrainEditor] = useState<TerrainEditor | null>(null);
 
   /** The Scene view's terrain tools (made once with the session's client). */
@@ -71,7 +72,7 @@ export function useTerrainTools(deps: TerrainToolsDeps) {
     return s.stageId;
   }, [clientRef, setNotice]);
 
-  /** A new terrain object (selected, so its tools show). */
+  /** A new terrain object, opened in the terrain editor. */
   const createTerrain = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
@@ -79,9 +80,10 @@ export function useTerrainTools(deps: TerrainToolsDeps) {
     const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: [-half, 0, -half] } }, c.projection.revision);
     if (!res.ok || res.createdId === undefined) return reportFailure('New terrain', res);
     const id = res.createdId;
-    reportFailure('New terrain', await c.command('setComponent', { entityId: id, component: 'terrain', value: NEW_TERRAIN }, c.projection.revision));
-    select(id);
-  }, [clientRef, reportFailure, select]);
+    const set = await c.command('setComponent', { entityId: id, component: 'terrain', value: NEW_TERRAIN }, c.projection.revision);
+    if (!set.ok) return reportFailure('New terrain', set);
+    created(id);
+  }, [clientRef, reportFailure, created]);
 
   return { terrainEditor, makeTerrainEditor, terrainRun, stageFile, createTerrain };
 }

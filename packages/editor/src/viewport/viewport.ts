@@ -31,6 +31,7 @@ import {
   createProbeDebugView,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
+  drawOwner,
   pageSearch,
   rendererMemory,
   type EffectComponentLike,
@@ -100,6 +101,15 @@ export interface ViewportCallbacks {
   onRendererChange?: (info: RendererInfo) => void;
   /** The placements' model files that failed to load or build (the editor shows them in Problems). */
   onModelFailures?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
+  /** An object was double-clicked (no tool armed, no edit mode open): its edit mode, if it has one, opens. */
+  onDoublePick?: (entityId: string) => void;
+}
+
+/** An edit mode's isolation: the objects it edits, and whether the rest of the scene is shown as context. */
+export interface ViewIsolation {
+  readonly ids: readonly string[];
+  /** The rest drawn too (still not pickable). */
+  readonly context: boolean;
 }
 
 const GROUND_SIZE = 20;
@@ -152,6 +162,8 @@ export class Viewport {
   private readonly overlay = new THREE.Group();
   private readonly entityOverlays: EntityOverlays;
   private selectedId: string | null = null;
+  /** An edit mode's isolation (the edited objects and their descendants), null while none is open. */
+  private isolation: { ids: ReadonlySet<string>; given: ViewIsolation } | null = null;
   /** Effective flags from the last sync (inactive = hidden, locked = not pickable/movable). */
   private hierarchyFlags: ReadonlyMap<string, EffectiveEntityFlags> = new Map();
   private folderIds = new Set<string>();
@@ -874,7 +886,12 @@ export class Viewport {
     if (scene === undefined) return [];
     // The drawables (those drawn through batches too; the batches' own meshes stand for objects picked themselves) — not the view's overlay group.
     const targets = (this.adapter.pickables?.() ?? scene.children).filter((o) => o !== this.overlay && o.userData['tlBatch'] !== true);
-    return this.raycaster.intersectObjects(targets, true).filter((h) => h.object.visible);
+    const hits = this.raycaster.intersectObjects(targets, true).filter((h) => h.object.visible);
+    // In an edit mode only the edited objects are hit (the rest, shown as context or not, is never picked or painted).
+    const iso = this.isolation;
+    if (iso === null) return hits;
+    const entityOf = (o: THREE.Object3D): string | null => this.adapter.entityOf?.(o) ?? null;
+    return hits.filter((h) => iso.ids.has(drawOwner(h.object, entityOf) ?? ''));
   }
 
   /**
@@ -1029,9 +1046,60 @@ export class Viewport {
     this.visibility.setHidden(on);
   }
 
-  /** The canvas is lent to a preview pane (seen whatever the centre view shows). */
+  /** The canvas is lent to a preview pane or an edit mode (seen whatever the centre view shows). */
   setLent(on: boolean): void {
     this.visibility.setLent(on);
+  }
+
+  /**
+   * An edit mode's isolation (null: none). Only the edited objects and their
+   * descendants are drawn (with `context`, the rest too); nothing else is hit
+   * by a click or a tool, the gizmo, the selection outline and the other
+   * objects' helpers stand aside.
+   */
+  setIsolation(iso: ViewIsolation | null): void {
+    if (iso === null && this.isolation === null) return;
+    const ids = new Set<string>();
+    if (iso !== null) for (const id of iso.ids) for (const x of this.subtreeIds(id)) ids.add(x);
+    this.isolation = iso === null ? null : { ids, given: iso };
+    this.applyIsolation();
+    this.helpers.sync(this.helperEntities());
+    this.setSelected(this.selectedId);
+  }
+
+  /** The adapter draws as the isolation says (again after a renderer backend change). */
+  private applyIsolation(): void {
+    const iso = this.isolation;
+    this.adapter.setIsolation?.(iso === null || iso.given.context ? null : iso.ids);
+    this.root.setAttribute('data-isolation', iso === null ? '' : JSON.stringify({ ids: [...iso.given.ids], context: iso.given.context }));
+    this.requestRender();
+  }
+
+  /** The entities whose helpers are drawn: the shown ones, only the edited ones in an edit mode. */
+  private helperEntities(): ProjectedEntity[] {
+    const iso = this.isolation;
+    return this.projected.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false && (iso === null || iso.ids.has(e.id)));
+  }
+
+  /** A key for the Scene view's armed tools (only those named, when given); true when one took it. */
+  toolKey(e: KeyboardEvent, names?: readonly string[]): boolean {
+    return this.tools.router.key(e, this.selectedId, names);
+  }
+
+  /**
+   * Frame an object from the current view direction: `localBox` (its own
+   * frame; a terrain's tiles and height range) or else the meshes it draws.
+   */
+  frameEntity(id: string, localBox?: { min: readonly number[]; max: readonly number[] }): void {
+    this.adapter.sync?.();
+    const world = this.worldOf(id);
+    if (world === null) return;
+    let box: THREE.Box3;
+    if (localBox !== undefined) {
+      box = new THREE.Box3(new THREE.Vector3(...(localBox.min as [number, number, number])), new THREE.Vector3(...(localBox.max as [number, number, number]))).applyMatrix4(world);
+    } else box = this.boundsOf(this.subtreeIds(id), () => true);
+    if (box.isEmpty()) return this.focus(id);
+    this.fitBox(box);
   }
 
   // ---- Frames ------------------------------------------------------------
@@ -1106,6 +1174,11 @@ export class Viewport {
     this.tools.afterFrame();
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
+    // An edit mode's isolation: drawables hidden and swept at this frame (tests and the perf check read it).
+    if (this.isolation !== null) {
+      const d = adapter.isolationDiagnostics?.();
+      if (d !== undefined) this.root.setAttribute('data-isolated-draws', `${d.hidden} ${d.swept}`);
+    }
     // The renderer's live resource counts after the frame (the leak tests read them).
     const live = adapter.currentRenderer?.() ?? null;
     if (live !== null) this.root.setAttribute('data-memory', JSON.stringify(rendererMemory(live)));
@@ -1167,6 +1240,7 @@ export class Viewport {
     this.helpers.setCanvas(next);
     this.rendererInfoNow = { requested: preference, source, backend: null, api: null, state: 'initialising', reason: 'choosing a backend', recoveries: 0 };
     this.adapter = this.makeAdapter(next);
+    this.applyIsolation();
     this.lookApplied = null;
     this.applyLightingMode();
     if (this.environmentSet) this.setEnvironment(this.environmentValue);
@@ -1266,7 +1340,7 @@ export class Viewport {
     // The helper overlay syncs from the SAME projection pass
     // (an inactive entity's helpers are hidden like the entity).
     // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
-    const shown = entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false);
+    const shown = this.helperEntities();
     this.adapter.sync?.();
     if (helpers || structural || selectionTouched) this.helpers.sync(shown);
     else this.helpers.setEntities(shown);
@@ -1347,7 +1421,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.tools.router.anyArmed(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.tools.router.anyArmed(id) || this.isolation !== null ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1387,7 +1461,7 @@ export class Viewport {
     this.selectionOutline?.dispose();
     this.selectionOutline = null;
     const id = this.selectedId;
-    const box = id === null || this.hierarchyFlags.get(id)?.active === false ? null : this.boundsOf([id], () => true);
+    const box = id === null || this.hierarchyFlags.get(id)?.active === false || this.isolation !== null ? null : this.boundsOf([id], () => true);
     // Which entity wears the outline (tests read it).
     this.root.setAttribute('data-selection-outline', box === null || box.isEmpty() ? '' : id!);
     if (box === null || box.isEmpty()) return;
@@ -1444,6 +1518,7 @@ export class Viewport {
     this.root.addEventListener('pointerup', this.onPointerUp, { capture: true });
     this.root.addEventListener('contextmenu', this.onContextMenu);
     this.root.addEventListener('pointerleave', this.onPointerLeave);
+    this.root.addEventListener('dblclick', this.onDoubleClick);
   }
 
   private unbindCanvasEvents(): void {
@@ -1452,11 +1527,19 @@ export class Viewport {
     this.root.removeEventListener('pointerup', this.onPointerUp, { capture: true });
     this.root.removeEventListener('contextmenu', this.onContextMenu);
     this.root.removeEventListener('pointerleave', this.onPointerLeave);
+    this.root.removeEventListener('dblclick', this.onDoubleClick);
   }
 
   private onPointerLeave = (): void => this.tools.router.leave();
 
   private onContextMenu = (e: Event): void => e.preventDefault();
+
+  /** A double-click on an object opens its edit mode (never while a tool owns the clicks or a mode is open). */
+  private onDoubleClick = (e: MouseEvent): void => {
+    if (e.button !== 0 || this.isolation !== null || this.tools.router.anyArmed(this.selectedId)) return;
+    const id = this.pick(e.clientX, e.clientY);
+    if (id !== null) this.cb.onDoublePick?.(id);
+  };
   private onWindowResize = (): void => this.resize();
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -1476,8 +1559,8 @@ export class Viewport {
     this.downAt = null;
     // A tool's gesture ends (its press never reached the orbit controls), or a tool acts on the click.
     if (this.tools.router.pointerUp(e)) return;
-    // A left click (no drag, not on a gizmo handle) picks or deselects.
-    if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null) return;
+    // A left click (no drag, not on a gizmo handle) picks or deselects; in an edit mode its tools own the clicks.
+    if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null || this.isolation !== null) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
     // With an instance set selected, a click on one of its copies selects that copy.
     const sel = this.selectedId;
@@ -1727,6 +1810,11 @@ export class Viewport {
       if (e.kind === 'box') box.union(this.boundsOf([e.id], () => true));
     }
     if (box.isEmpty()) return;
+    this.fitBox(box);
+  }
+
+  /** The camera backed off along its view direction until `box` fills the view. */
+  private fitBox(box: THREE.Box3): void {
     const center = box.getCenter(new THREE.Vector3());
     const radius = Math.max(2, box.getSize(new THREE.Vector3()).length() / 2);
     const distance = radius / Math.sin((this.camera.fov * Math.PI) / 360);

@@ -147,9 +147,9 @@ export class ToolRouter {
     return false;
   }
 
-  /** A key for the armed tools (the first that takes it); true when one did. */
-  key(e: KeyboardEvent, selectedId: string | null): boolean {
-    return this.tools.some((t) => t.key !== undefined && t.armed(selectedId) && t.key(e));
+  /** A key for the armed tools (the first that takes it; only the named ones when given, an edit mode's); true when one did. */
+  key(e: KeyboardEvent, selectedId: string | null, names?: readonly string[]): boolean {
+    return this.tools.some((t) => t.key !== undefined && (names === undefined || names.includes(t.name)) && t.armed(selectedId) && t.key(e));
   }
 }
 

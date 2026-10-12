@@ -43,6 +43,7 @@ import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { perfMark } from './perf-marks';
+import { VIEW_OWNER_KEY } from './isolation-view';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
@@ -691,6 +692,7 @@ export class ScatterView {
     if (g === undefined) {
       const root = new THREE.Group();
       root.name = `scatter:${src.id}:${c.group}`;
+      root.userData[VIEW_OWNER_KEY] = src.id;
       root.position.set(...src.origin);
       root.updateMatrixWorld(true);
       g = { key: c.group, root, dirty: new Set(), stale: false, gens: new Map(), builds: new Map(), shown: false, sets: [], near: [] };
@@ -1058,6 +1060,7 @@ export class ScatterView {
       const undress = this.deps.dress?.(set.group, n.rule.asset.assetId) ?? null;
       const root = new THREE.Group();
       root.name = `scatter-shadow:${src.id}:${key}`;
+      root.userData[VIEW_OWNER_KEY] = src.id;
       root.position.set(...src.origin);
       root.add(set.group);
       root.updateMatrixWorld(true);
