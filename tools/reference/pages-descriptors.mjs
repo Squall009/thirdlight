@@ -33,7 +33,10 @@ function componentSection(c) {
   if (c.legacy === true) facts.push('- Legacy: kept working for old data, not offered for new objects');
   if (c.requiresAnyOf !== undefined) facts.push(`- Needs one of ${c.requiresAnyOf.components.map((n) => ref(`component-${n}`, code(n))).join(', ')} on the same object: ${c.requiresAnyOf.reason}`);
   for (const e of c.excludes) facts.push(`- Cannot share an object with ${ref(`component-${e.component}`, code(e.component))}: ${e.reason}`);
-  if (c.icon !== undefined) facts.push(`- Icon: ${c.icon}`);
+  if (c.icon !== undefined) {
+    const by = [...new Set((c.iconVariants ?? []).map((v) => `${v.icon} as ${v.label}`))];
+    facts.push(`- Icon: ${by.length > 0 ? `${by.join(', ')}, else ${c.icon}` : c.icon}${c.iconCount !== undefined ? ` (its tooltip counts ${c.iconCount.many})` : ''}`);
+  }
   if (c.rules !== undefined) for (const r of c.rules) facts.push(`- Rule: ${r}`);
   if (c.value.type === 'object' && c.value.rules !== undefined) for (const r of c.value.rules) facts.push(`- Rule: ${r}`);
   let body = `${c.tooltip}\n\n${facts.join('\n')}\n\n${fieldTable(c.value)}`;

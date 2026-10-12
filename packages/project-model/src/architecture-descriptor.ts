@@ -47,6 +47,7 @@ export const architecture: ComponentDescriptor = {
   ]),
   add: { kind: 'menu', value: NEW_VALUE },
   handles: [],
+  icon: 'building',
   excludes: ['blockLayer', 'terrain', 'spline'].map((c) => ({ component: c, reason: 'generated architecture is its own object beside the level geometry' })),
   prefab: false,
 };

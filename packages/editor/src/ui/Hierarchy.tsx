@@ -43,7 +43,7 @@ import {
 import type { ProjectedEntity } from '../session/projection';
 import { ContextMenu } from './ContextMenu';
 import type { MenuEntry } from './MenuBar';
-import { iconKindFor, iconSrc, type IconTable } from '../viewport/icons';
+import { iconSrc, iconTitle, objectIconFor, type IconTable } from '../viewport/icons';
 import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../session/placement';
 
 interface Props {
@@ -213,7 +213,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
       {e.kind === 'folder' ? (
         <span className="tl-row__folder" aria-hidden="true" />
       ) : (
-        <img className="tl-row__icon" src={e.kind === 'box' || e.kind === 'model' ? `./icons/${ROW_ICON[e.kind]}.png` : iconSrc(iconKindFor(e, icons))} alt="" aria-hidden="true" />
+        <RowIcon e={e} icons={icons} />
       )}
       <span className={`tl-row__kind tl-row__kind--${e.kind}`}>{e.kind}</span>
       {draft !== null ? (
@@ -713,5 +713,9 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
   );
 }
 
-/** The icon file per entity kind (see packages/editor/public/icons). */
-const ROW_ICON: Record<string, string> = { box: 'box', light: 'sun', model: 'model', entity: 'empty' };
+/** What a row's object is: the icon the Scene view's billboard shows too, with a tooltip naming the type. */
+function RowIcon({ e, icons }: { e: ProjectedEntity; icons: IconTable }): JSX.Element {
+  const icon = objectIconFor(e, icons);
+  const title = iconTitle(icon);
+  return <img className="tl-row__icon" src={iconSrc(icon.kind)} alt="" aria-hidden="true" title={title} data-icon={icon.kind} />;
+}

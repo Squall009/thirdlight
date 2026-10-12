@@ -82,6 +82,7 @@ export const model: ComponentDescriptor = {
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
+  icon: 'model',
   excludes: [
     { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
@@ -108,6 +109,7 @@ export const box: ComponentDescriptor = {
   ]),
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
+  icon: 'box',
   excludes: [
     { component: 'terrain', reason: 'a terrain is its own level geometry' },
     { component: 'blockLayer', reason: 'a block layer is its own level geometry' },
@@ -143,6 +145,7 @@ export const prefab: ComponentDescriptor = {
   ]),
   add: { kind: 'tool', tool: 'instantiatePrefab' },
   handles: [],
+  icon: 'prefab',
   excludes: [],
   prefab: false,
 };
@@ -573,6 +576,15 @@ export const light: ComponentDescriptor = {
     { kind: 'cone', label: 'Cone', bind: { direction: 'direction', angle: 'angle', range: 'range' }, space: 'local', when: when('type', 'spot'), follows: 'rotation' },
     { kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local', when: when('type', 'point') },
   ],
+  // The menu's default type; the variants name each type's own icon.
+  icon: 'point',
+  iconVariants: [
+    { icon: 'sun', label: 'Directional light', when: [{ path: 'type', in: ['directional'] }] },
+    { icon: 'ambient', label: 'Ambient light', when: [{ path: 'type', in: ['ambient'] }] },
+    { icon: 'spot', label: 'Spot light', when: [{ path: 'type', in: ['spot'] }] },
+    { icon: 'hemisphere', label: 'Hemisphere light', when: [{ path: 'type', in: ['hemisphere'] }] },
+    { icon: 'point', label: 'Point light', when: [{ path: 'type', in: ['point'] }] },
+  ],
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
   prefab: false,
   rules: [
@@ -668,6 +680,8 @@ export const instances: ComponentDescriptor = {
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
   handles: [],
+  icon: 'instances',
+  iconCount: { path: 'count', one: 'copy', many: 'copies' },
   excludes: [
     { component: 'terrain', reason: 'a terrain is its own level geometry' },
     ...['box', 'model', 'collider', 'controller', 'modelAnimation', 'playerSpawn', 'light'].map((c) => ({ component: c, reason: 'an instance set is one model placed many times, with nothing of its own' })),
@@ -726,6 +740,7 @@ export const effectComponent: ComponentDescriptor = {
   ]),
   add: { kind: 'pick', value: {}, pick: ['effectId'] },
   handles: [],
+  icon: 'effect',
   excludes: [],
   prefab: true,
 };
@@ -765,7 +780,7 @@ export const probeVolume: ComponentDescriptor = {
   // A room-to-courtyard sized box: easy to see and resize over the part of a level that needs its own probes.
   add: { kind: 'menu', value: { size: [16, 6, 16] } },
   create: [{ label: 'Probe volume', menu: 'Light' }],
-  icon: 'fog',
+  icon: 'probes',
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
   prefab: false,

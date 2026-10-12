@@ -124,11 +124,11 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   // No genre components were made.
   for (const e of all) for (const c of ['gameZone', 'pickup', 'enemy']) expect(e.components[c], `${e.name} ${c}`).toBeUndefined();
 
-  // The hierarchy rows show the descriptors' icons (artwork files, or the SVG glyph of the newer kinds).
+  // The hierarchy rows show the descriptors' icons.
   const icon = (name: string) => page.locator(`.tl-hierarchy__list li[data-entity-id="${one(name).id}"] img.tl-row__icon`);
   await expect(icon('Spawn point')).toHaveAttribute('src', /spawn\.png$/);
   await expect(icon('Scene transition')).toHaveAttribute('src', /sensor\.png$/);
-  await expect(icon('Hitbox')).toHaveAttribute('src', /^data:image\/svg\+xml/);
+  await expect(icon('Hitbox')).toHaveAttribute('src', /objects\/hitbox\.webp$/);
   await expect(icon('Camera track')).toHaveAttribute('src', /camera\.png$/);
 });
 

@@ -33,7 +33,7 @@ import {
   createEntries,
   withOtherScene,
 } from './descriptor-fields';
-import { iconKindFor, iconTableOf } from '../viewport/icons';
+import { iconKindFor, iconTableOf, iconTitle, objectIconFor } from '../viewport/icons';
 
 const base = { label: 'L', tooltip: 't' };
 const f = <T extends FieldDescriptor = FieldDescriptor>(x: Record<string, unknown>): T => ({ ...base, ...x }) as unknown as T;
@@ -316,11 +316,22 @@ describe('create entries and icons from the descriptors', () => {
     handleRoles: {},
     entity: obj('entity'),
     content: [],
-    icons: ['spawn', 'patrol', 'hitbox'],
+    icons: ['spawn', 'point', 'spot', 'river', 'road', 'spline', 'patrol', 'hitbox', 'model'],
     components: [
       comp('hitbox', { icon: 'hitbox', create: [{ label: 'Hitbox', menu: 'Gameplay', dimension: 2 }, { label: 'Hitbox', menu: 'Gameplay', value: { a: 3 }, dimension: 3 }] }),
       comp('patrol', { icon: 'patrol', create: [{ label: 'Walker', menu: 'Gameplay', box: { size: [1, 2, 1], color: '#123456' }, with: { hitbox: { a: 2 } } }] }),
       comp('trigger', { create: [{ label: 'Go', value: { t: { scene: '' } }, otherScene: ['t/scene'] }] }),
+      comp('model', { label: 'Model', icon: 'model' }),
+      comp('light', { label: 'Light', icon: 'point', iconVariants: [{ icon: 'spot', label: 'Spot light', when: [{ path: 'type', in: ['spot'] }] }] }),
+      comp('spline', {
+        label: 'Spline',
+        icon: 'spline',
+        iconVariants: [
+          { icon: 'river', label: 'River', when: [{ path: 'mesh.kind', in: ['water'] }] },
+          { icon: 'road', label: 'Road', when: [{ path: 'mesh' }] },
+        ],
+        iconCount: { path: 'points', one: 'point', many: 'points' },
+      }),
     ],
   } as unknown as DescriptorRegistry;
 
@@ -335,12 +346,22 @@ describe('create entries and icons from the descriptors', () => {
     expect((go.args['components'] as Record<string, { t: { scene: string } }>)['trigger']!.t.scene).toBe('');
   });
 
-  it('an object shows the most specific icon its components name', () => {
+  it('an object shows the most specific icon its components name, by value, with a tooltip naming the type', () => {
     const table = iconTableOf(reg);
-    expect(table.map((r) => r.icon)).toEqual(['patrol', 'hitbox']);
-    expect(iconKindFor({ kind: 'group', components: { hitbox: {}, patrol: {} } }, table)).toBe('patrol');
-    expect(iconKindFor({ kind: 'group', components: { hitbox: {} } }, table)).toBe('hitbox');
-    expect(iconKindFor({ kind: 'group', components: {} }, table)).toBe('empty');
-    expect(iconKindFor({ kind: 'group', light: { type: 'spot' }, components: { hitbox: {} } }, table)).toBe('spot');
+    expect(table.map((r) => r.component)).toEqual(['light', 'spline', 'patrol', 'hitbox', 'model']);
+    expect(iconKindFor({ components: { hitbox: {}, patrol: {} } }, table)).toBe('patrol');
+    expect(iconKindFor({ components: { hitbox: {} } }, table)).toBe('hitbox');
+    expect(iconKindFor({ components: {} }, table)).toBe('empty');
+    // The light reads its type; one light's icon beats its other components'.
+    expect(iconKindFor({ components: { light: { type: 'spot' }, hitbox: {} } }, table)).toBe('spot');
+    expect(objectIconFor({ components: { light: { type: 'point' } } }, table)).toEqual({ kind: 'point', label: 'Light', count: null });
+    // A spline by its mesh: water is a river, any other mesh a road, none a plain spline; the tooltip counts its points.
+    const spline = (v: Record<string, unknown>) => objectIconFor({ components: { spline: { points: [{}, {}, {}], ...v }, model: {} } }, table);
+    expect(spline({ mesh: { kind: 'water' } })).toEqual({ kind: 'river', label: 'River', count: '3 points' });
+    expect(spline({ mesh: {} }).kind).toBe('road');
+    expect(iconTitle(spline({}))).toBe('Spline · 3 points');
+    expect(iconTitle(objectIconFor({ components: { model: {} } }, table))).toBe('Model');
+    expect(iconTitle(objectIconFor({ components: { spline: { points: [{}] } } }, table))).toBe('Spline · 1 point');
   });
+
 });

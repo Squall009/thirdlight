@@ -3,12 +3,14 @@
  * 256 px PNG (tools/icons/editor-icons.tsv says which prompt and seed made
  * it) is cropped to what it draws, squared, scaled down to the size the
  * editor shows it at (twice the CSS size, for high-density screens) and
- * written as a WebP with alpha into packages/editor/public/icons/{kinds,actions}.
+ * written as a WebP with alpha into packages/editor/public/icons/{kinds,actions,objects}.
  * The browser does the scaling and the encoding (Chromium's canvas), so the
  * repo needs no image library. Prints each file's size and the total.
  *
- *   node tools/icons/pack-editor-icons.mjs <raw dir>
+ *   node tools/icons/pack-editor-icons.mjs <raw dir> [group]
  *
+ * With a group (kind, action, object) only that group's rows are packed, so
+ * adding icons needs only their own raw files.
  * `<raw dir>/<name>.png` per row of the table; a row whose `source` column
  * names a file under packages/editor/public/icons/ packs that file instead
  * (the object icons reused for their kinds).
@@ -24,12 +26,15 @@ import { browserLaunchEnv } from '../../tests/e2e/browser-env.mjs';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ICONS = join(REPO, 'packages', 'editor', 'public', 'icons');
 /** Shipped pixel size per group: kinds show at up to ~50 CSS px (project tiles; 16–32 in tabs and headers), actions at 16. */
-const SIZE = { kind: 96, action: 32 };
+const SIZE = { kind: 96, action: 32, object: 96 };
+/** The folder each group ships in; objects are the hierarchy rows' and Scene view billboards' art (drawn at up to ~70 px). */
+const DIR = { kind: 'kinds', action: 'actions', object: 'objects' };
 /** Alpha at or below this is background haze the generator leaves; it is cleared before cropping. */
 const HAZE = 8;
 
 const raw = process.argv[2];
-if (raw === undefined) throw new Error('usage: node tools/icons/pack-editor-icons.mjs <raw dir>');
+if (raw === undefined) throw new Error('usage: node tools/icons/pack-editor-icons.mjs <raw dir> [group]');
+const only = process.argv[3];
 
 const rows = readFileSync(join(REPO, 'tools', 'icons', 'editor-icons.tsv'), 'utf8')
   .split('\n')
@@ -37,7 +42,8 @@ const rows = readFileSync(join(REPO, 'tools', 'icons', 'editor-icons.tsv'), 'utf
   .map((l) => {
     const [name, group, source] = l.split('\t');
     return { name, group, source: source !== undefined && source !== '' && source !== '-' ? source : null };
-  });
+  })
+  .filter((r) => only === undefined || r.group === only);
 
 const browser = await chromium.launch({ env: browserLaunchEnv() });
 const page = await browser.newPage();
@@ -101,13 +107,13 @@ for (const r of rows) {
     { png, size, haze: HAZE },
   );
   if (!dataUrl.startsWith('data:image/webp')) throw new Error('this Chromium cannot encode WebP');
-  const dir = join(ICONS, r.group === 'kind' ? 'kinds' : 'actions');
+  const dir = join(ICONS, DIR[r.group]);
   mkdirSync(dir, { recursive: true });
   const out = join(dir, `${r.name}.webp`);
   writeFileSync(out, Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'));
   const bytes = statSync(out).size;
   total += bytes;
-  console.log(`${r.group === 'kind' ? 'kinds' : 'actions'}/${r.name}.webp\t${size}x${size}\t${bytes} B`);
+  console.log(`${DIR[r.group]}/${r.name}.webp\t${size}x${size}\t${bytes} B`);
 }
 await browser.close();
 console.log(`total\t${rows.length} files\t${total} B (${(total / 1024).toFixed(1)} KiB)`);

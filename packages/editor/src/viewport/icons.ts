@@ -1,75 +1,61 @@
 /**
- * Viewport placeholder icons: cameras, lights, spawns and empty entities are
- * drawn as screen-sized billboards with a kind icon (a rounded backing disc
- * for legibility, a ring when selected). The artwork is inline SVG rendered
- * to textures once per kind; swapping the SVG strings for image files is the
- * only change needed to use generated icons later.
+ * Object icons: what an object is, shown on its hierarchy row and as its
+ * Scene view billboard (cameras, lights, spawns and other objects without a
+ * mesh are screen-sized billboards with a rounded backing disc for
+ * legibility and a ring when selected). Which icon an object shows comes
+ * from the component descriptors, so a component added to the engine names
+ * its own icon and its place in the one priority order.
  */
 import * as THREE from 'three';
-import type { DescriptorRegistry } from '@thirdlight/project-model';
+import type { ComponentIcon, DescriptorRegistry, IconCondition, IconCount, IconVariant } from '@thirdlight/project-model';
 
-export type IconKind =
-  | 'camera'
-  | 'sun'
-  | 'ambient'
-  | 'spawn'
-  | 'empty'
-  // Lights by type, sound, fog, sky.
-  | 'point'
-  | 'spot'
-  | 'hemisphere'
-  | 'audio'
-  | 'fog'
-  | 'sky'
-  // The component icons the descriptors name (`ComponentDescriptor.icon`).
-  | 'mover'
-  | 'switch'
-  | 'sensor'
-  | 'collectible'
-  | 'patrol'
-  | 'hitbox'
-  | 'health';
+export type IconKind = ComponentIcon | 'empty';
 
-const GLYPHS: Record<IconKind, { color: string; body: string }> = {
-  camera: {
-    color: '#f2b544',
-    body: '<rect x="14" y="22" width="26" height="20" rx="4" fill="none" stroke="C" stroke-width="4"/><path d="M40 28l10-5v18l-10-5z" fill="C"/><circle cx="27" cy="32" r="5" fill="none" stroke="C" stroke-width="3"/>',
-  },
-  sun: {
-    color: '#ffe27a',
-    body: '<circle cx="32" cy="32" r="8" fill="C"/><g stroke="C" stroke-width="4" stroke-linecap="round"><path d="M32 12v6M32 46v6M12 32h6M46 32h6M18 18l4 4M42 42l4 4M46 18l-4 4M18 46l4-4"/></g>',
-  },
-  ambient: {
-    color: '#ffe27a',
-    body: '<circle cx="32" cy="32" r="14" fill="none" stroke="C" stroke-width="3" opacity=".55"/><circle cx="32" cy="32" r="8" fill="C" opacity=".85"/><circle cx="32" cy="32" r="20" fill="none" stroke="C" stroke-width="2" opacity=".3"/>',
-  },
-  spawn: {
-    color: '#6fe0b2',
-    body: '<path d="M22 14v38" stroke="C" stroke-width="4" stroke-linecap="round"/><path d="M24 16h20l-6 8 6 8H24z" fill="C"/>',
-  },
-  empty: {
-    color: '#9aa3b2',
-    body: '<g stroke="C" stroke-width="3.5" stroke-linecap="round"><path d="M32 14v36M14 32h36"/></g><circle cx="32" cy="32" r="5" fill="none" stroke="C" stroke-width="3"/>',
-  },
-  // Fallbacks (the generated artwork normally replaces them).
-  point: { color: '#ffe27a', body: '<circle cx="32" cy="28" r="10" fill="C"/><rect x="27" y="38" width="10" height="8" rx="2" fill="C"/>' },
-  spot: { color: '#ffe27a', body: '<path d="M26 14h12l10 36H16z" fill="C" opacity=".8"/>' },
-  hemisphere: { color: '#8fd3ff', body: '<path d="M14 32a18 18 0 0 1 36 0z" fill="C"/><path d="M14 34a18 18 0 0 0 36 0z" fill="#7cc26b"/>' },
-  audio: { color: '#4fd1c5', body: '<path d="M16 26h8l10-8v28l-10-8h-8z" fill="C"/><path d="M40 24a10 10 0 0 1 0 16" fill="none" stroke="C" stroke-width="3"/>' },
-  collectible: { color: '#f2c230', body: '<circle cx="32" cy="32" r="14" fill="C"/>' },
-  mover: { color: '#ffa53a', body: '<rect x="14" y="36" width="36" height="10" rx="2" fill="C"/><path d="M18 26h28M18 26l5-4M18 26l5 4M46 26l-5-4M46 26l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
-  switch: { color: '#ff5a5a', body: '<ellipse cx="32" cy="36" rx="16" ry="8" fill="C"/>' },
-  sensor: { color: '#3ad7ff', body: '<rect x="14" y="14" width="36" height="36" fill="none" stroke="C" stroke-width="3" stroke-dasharray="5 4"/>' },
-  fog: { color: '#c8d6e5', body: '<path d="M16 26h32M12 34h40M18 42h28" stroke="C" stroke-width="4" stroke-linecap="round"/>' },
-  sky: { color: '#8fd3ff', body: '<circle cx="36" cy="26" r="9" fill="#ffd54a"/><ellipse cx="28" cy="38" rx="14" ry="8" fill="#ffffff"/>' },
-  // A body walking back and forth; a burst in a box (contacts); a cross (health).
-  patrol: { color: '#b07cf2', body: '<rect x="22" y="24" width="20" height="18" rx="5" fill="C"/><path d="M12 48h40M12 48l5-4M12 48l5 4M52 48l-5-4M52 48l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
-  hitbox: { color: '#ff7a59', body: '<rect x="14" y="14" width="36" height="36" rx="3" fill="none" stroke="C" stroke-width="3"/><path d="M32 20l3 8 8-3-5 7 7 4-8 1 1 8-6-6-6 6 1-8-8-1 7-4-5-7 8 3z" fill="C"/>' },
-  health: { color: '#5fd47a', body: '<path d="M26 14h12v12h12v12H38v12H26V38H14V26h12z" fill="C"/>' },
+/** The artwork per icon (served next to the editor page; see tools/icons/editor-icons.tsv for how each was made). */
+export const ICON_FILES: Readonly<Record<IconKind, string>> = {
+  camera: './icons/camera.png',
+  spawn: './icons/spawn.png',
+  sun: './icons/sun.png',
+  ambient: './icons/ambient.png',
+  point: './icons/light-point.png',
+  spot: './icons/light-spot.png',
+  hemisphere: './icons/light-hemisphere.png',
+  terrain: './icons/objects/terrain.webp',
+  blocks: './icons/objects/blocks.webp',
+  building: './icons/objects/building.webp',
+  river: './icons/objects/river.webp',
+  road: './icons/objects/road.webp',
+  spline: './icons/objects/spline.webp',
+  decal: './icons/objects/decal.webp',
+  instances: './icons/objects/instances.webp',
+  probes: './icons/objects/probes.webp',
+  fog: './icons/fog.png',
+  effect: './icons/kinds/effect.webp',
+  audio: './icons/audio-source.png',
+  patrol: './icons/objects/patrol.webp',
+  mover: './icons/mover.png',
+  switch: './icons/switch.png',
+  collectible: './icons/collectible.png',
+  sensor: './icons/sensor.png',
+  hitbox: './icons/objects/hitbox.webp',
+  health: './icons/objects/health.webp',
+  prefab: './icons/prefab.png',
+  model: './icons/model.png',
+  box: './icons/box.png',
+  empty: './icons/empty.png',
 };
 
-/** Which component shows which icon, most specific first (from the descriptors). */
-export type IconTable = readonly { readonly component: string; readonly icon: IconKind }[];
+/** One component that gives an object its icon: its own icon and type name, the variants by value, the tooltip's count. */
+export interface IconRow {
+  readonly component: string;
+  readonly icon: IconKind;
+  readonly label: string;
+  readonly variants: readonly IconVariant[];
+  readonly count?: IconCount;
+}
+
+/** The components that name an icon, in the registry's icon order (most specific first). */
+export type IconTable = readonly IconRow[];
 
 /** The icon table of a descriptor registry: components with an icon, in the registry's icon order. */
 export function iconTableOf(reg: DescriptorRegistry | null): IconTable {
@@ -80,74 +66,81 @@ export function iconTableOf(reg: DescriptorRegistry | null): IconTable {
     return i < 0 ? order.length : i;
   };
   return reg.components
-    .filter((c) => c.icon !== undefined && (GLYPHS as Record<string, unknown>)[c.icon] !== undefined)
-    .map((c) => ({ component: c.name, icon: c.icon as IconKind }))
+    .filter((c) => c.icon !== undefined && ICON_FILES[c.icon] !== undefined)
+    .map((c) => ({
+      component: c.name,
+      icon: c.icon as IconKind,
+      label: c.label,
+      variants: (c.iconVariants ?? []).filter((v) => ICON_FILES[v.icon] !== undefined),
+      ...(c.iconCount !== undefined ? { count: c.iconCount } : {}),
+    }))
     .sort((a, b) => rank(a.icon) - rank(b.icon));
 }
 
-/**
- * The icon an entity shows (Scene view billboards, hierarchy
- * rows): lights by type, a camera, else the icon its
- * components' descriptors name (the table's first match), else a plain
- * empty object.
- */
-export function iconKindFor(
-  e: {
-    kind: string;
-    light?: { type: string };
-    components?: Readonly<Record<string, unknown>>;
-  },
-  table: IconTable,
-): IconKind {
-  if (e.light !== undefined) {
-    const t = e.light.type;
-    return t === 'directional' ? 'sun' : t === 'ambient' ? 'ambient' : t === 'point' ? 'point' : t === 'spot' ? 'spot' : 'hemisphere';
+function valueAt(v: unknown, path: string): unknown {
+  let cur = v;
+  for (const key of path.split('.')) {
+    if (typeof cur !== 'object' || cur === null) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
   }
-  const comps = e.components ?? {};
-  for (const row of table) if (comps[row.component] !== undefined) return row.icon;
-  return 'empty';
+  return cur;
 }
 
-function svgFor(kind: IconKind, selected: boolean): string {
-  const g = GLYPHS[kind];
-  const ring = selected ? '<circle cx="32" cy="32" r="29" fill="none" stroke="#4c8dff" stroke-width="4"/>' : '';
-  return (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128">' +
-    '<circle cx="32" cy="32" r="26" fill="#14171c" fill-opacity=".82"/>' +
-    g.body.replace(/C/g, g.color) +
-    ring +
-    '</svg>'
-  );
+function conditionHolds(value: unknown, c: IconCondition): boolean {
+  const at = valueAt(value, c.path);
+  if (c.in === undefined) return at !== undefined && at !== null;
+  return c.in.includes(at as never);
+}
+
+function countOf(value: unknown, c: IconCount): string | null {
+  const at = valueAt(value, c.path);
+  const n = Array.isArray(at) ? at.length : typeof at === 'number' ? at : typeof at === 'object' && at !== null ? Object.keys(at).length : 0;
+  return n > 0 ? `${n} ${n === 1 ? c.one : c.many}` : null;
+}
+
+/** What an object shows: its icon, the type name and (when its component counts something) the count. */
+export interface ObjectIcon {
+  readonly kind: IconKind;
+  readonly label: string;
+  readonly count: string | null;
+}
+
+/**
+ * The icon an object shows (Scene view billboards, hierarchy rows): the
+ * first component of the table it carries, by that component's value
+ * variants, else a plain empty object.
+ */
+export function objectIconFor(e: { components?: Readonly<Record<string, unknown>> }, table: IconTable): ObjectIcon {
+  const comps = e.components ?? {};
+  for (const row of table) {
+    const value = comps[row.component];
+    if (value === undefined) continue;
+    const count = row.count !== undefined ? countOf(value, row.count) : null;
+    for (const v of row.variants) if (v.when.every((c) => conditionHolds(value, c))) return { kind: v.icon, label: v.label, count };
+    return { kind: row.icon, label: row.label, count };
+  }
+  return { kind: 'empty', label: 'Empty object', count: null };
+}
+
+/** The icon kind alone (see `objectIconFor`). */
+export function iconKindFor(e: { components?: Readonly<Record<string, unknown>> }, table: IconTable): IconKind {
+  return objectIconFor(e, table).kind;
+}
+
+/** The tooltip naming an object's type ("Terrain · 4 tiles"). */
+export function iconTitle(icon: ObjectIcon): string {
+  return icon.count !== null ? `${icon.label} · ${icon.count}` : icon.label;
+}
+
+/** An icon as an image source. */
+export function iconSrc(kind: IconKind): string {
+  return ICON_FILES[kind];
 }
 
 const cache = new Map<string, THREE.Texture>();
 
-/** The icon artwork files (served next to the editor page); the SVG glyph is the fallback (and the only art of the newer kinds). */
-export const ICON_FILES: Partial<Record<IconKind, string>> = {
-  camera: './icons/camera.png',
-  sun: './icons/sun.png',
-  ambient: './icons/ambient.png',
-  spawn: './icons/spawn.png',
-  empty: './icons/empty.png',
-  point: './icons/light-point.png',
-  spot: './icons/light-spot.png',
-  hemisphere: './icons/light-hemisphere.png',
-  audio: './icons/audio-source.png',
-  collectible: './icons/collectible.png',
-  mover: './icons/mover.png',
-  switch: './icons/switch.png',
-  sensor: './icons/sensor.png',
-  fog: './icons/fog.png',
-  sky: './icons/sky.png',
-};
-
-/** An icon as an image source (its artwork file, else its SVG glyph). */
-export function iconSrc(kind: IconKind): string {
-  return ICON_FILES[kind] ?? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, false))}`;
-}
-
 /** Draw the disc, the artwork and (when selected) the ring onto a canvas. */
-function compose(size: number, art: HTMLImageElement | null, kind: IconKind, selected: boolean): HTMLCanvasElement {
+function compose(size: number, art: HTMLImageElement | null, selected: boolean): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = size;
   c.height = size;
@@ -157,12 +150,10 @@ function compose(size: number, art: HTMLImageElement | null, kind: IconKind, sel
   g.beginPath();
   g.arc(32 * u, 32 * u, 26 * u, 0, Math.PI * 2);
   g.fill();
+  // Missing artwork (a failed load) still leaves the disc, so the object stays visible and pickable.
   if (art !== null) {
     const inset = 14 * u;
     g.drawImage(art, inset, inset, size - 2 * inset, size - 2 * inset);
-  } else {
-    // Fallback glyph (the SVG string) — drawn through an image element by the caller.
-    void kind;
   }
   if (selected) {
     g.strokeStyle = '#4c8dff';
@@ -182,9 +173,7 @@ function loadArt(kind: IconKind): Promise<HTMLImageElement | null> {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    const file = ICON_FILES[kind];
-    if (file === undefined) return resolve(null);
-    img.src = file;
+    img.src = ICON_FILES[kind];
   });
   artwork.set(kind, p);
   return p;
@@ -202,21 +191,9 @@ export function iconTexture(kind: IconKind, selected: boolean, onLoad?: () => vo
   tex.colorSpace = THREE.SRGBColorSpace;
   cache.set(key, tex);
   void loadArt(kind).then((art) => {
-    if (art !== null) {
-      const composed = compose(128, art, kind, selected);
-      canvas.getContext('2d')!.drawImage(composed, 0, 0);
-      tex.needsUpdate = true;
-      onLoad?.();
-      return;
-    }
-    // No artwork file: draw the inline SVG glyph instead.
-    const img = new Image();
-    img.onload = () => {
-      canvas.getContext('2d')!.drawImage(img, 0, 0, 128, 128);
-      tex.needsUpdate = true;
-      onLoad?.();
-    };
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, selected))}`;
+    canvas.getContext('2d')!.drawImage(compose(128, art, selected), 0, 0);
+    tex.needsUpdate = true;
+    onLoad?.();
   });
   return tex;
 }
@@ -233,9 +210,13 @@ export function makeIconSprite(kind: IconKind, onLoad?: () => void): THREE.Sprit
   return sprite;
 }
 
-/** Keep an icon square on screen for the current viewport aspect. */
-export function fitSprite(sprite: THREE.Sprite, aspect: number): void {
-  sprite.scale.set(ICON_SCREEN_SIZE / aspect, ICON_SCREEN_SIZE, 1);
+/**
+ * Size an icon billboard. A sprite that ignores distance is square in view
+ * space and the projection applies the aspect, so equal sides stay square on
+ * screen at any viewport shape.
+ */
+export function fitSprite(sprite: THREE.Sprite): void {
+  sprite.scale.set(ICON_SCREEN_SIZE, ICON_SCREEN_SIZE, 1);
 }
 
 /** Swap an icon sprite between its normal and selected artwork. */

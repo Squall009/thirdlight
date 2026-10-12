@@ -341,11 +341,18 @@ The Scene view's camera turns around a point in front of it:
 
 ## Icons and gizmos
 
-The Scene view and the hierarchy show what an object is: its light type
-(directional, ambient, point, spot, hemisphere), or the icon its
-components' descriptors name (a spawn, an audio source, a fog
-volume, a patrol, a mover, a switch, a collectible, a trigger, a hitbox or
-health; the most specific wins). The **Gizmos** menu turns the helpers on and off: icons,
+The Scene view and the hierarchy show what an object is, with the same
+icon in both: a camera, a spawn, a light by its type (directional,
+ambient, point, spot, hemisphere), a terrain, a block layer, architecture,
+a spline (a road when it has a mesh, a river when its mesh is water or it
+carves a channel), a decal, an instance set, a probe volume, a fog volume,
+an effect, an audio source, a patrol, a mover, a switch, a collectible, a
+trigger, a hitbox, health, a prefab copy, a model or a box. An object with
+several of these shows the first in that order (what it is before what it
+does before what it is made of); one with none shows the empty-object
+cross. Hover a row's icon for its type, with a count where the type has
+one ("Terrain · 4 tiles", "Road · 5 points", "Instance set · 200
+copies"). The **Gizmos** menu turns the helpers on and off: icons,
 light ranges (point spheres, spot cones), **collider outlines** (off until
 turned on: every collider — a kit piece's `_COL` shape too; one-way
 platforms in a softer green; the selected object's own colliders, every

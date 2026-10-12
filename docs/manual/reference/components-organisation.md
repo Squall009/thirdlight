@@ -12,6 +12,7 @@ Which prefab (and which of its entities) this object was placed from.
 - Category: Organisation
 - Added: by a tool: instantiatePrefab
 - On prefab objects: no
+- Icon: prefab
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

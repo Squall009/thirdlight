@@ -1,9 +1,10 @@
-# The editor icon registry's art (packages/editor/src/session/item-icons.ts), packed by pack-editor-icons.mjs.
+# The editor icon registry's art (packages/editor/src/session/item-icons.ts; objects: viewport/icons.ts), packed by pack-editor-icons.mjs.
 # Generated with the Studio (Qwen-Image, transparent, 256x256, 20 steps, project thirdlight) in the style of
 # generate-phase9-icons.sh: kinds "A flat minimalist UI icon: <thing>. Simple bold vector shapes, <colours>, soft rounded
 # edges, no text, no letters, no drop shadow, centered, the icon fills most of the frame, on a plain background.";
 # actions "A flat minimalist UI toolbar icon: <thing>. One simple bold glyph, <colours>, thick rounded strokes, ..." (same tail).
 # A source names a phase-9 object icon reused for its kind (no prompt).
+# Objects (the hierarchy rows and Scene view billboards) used the kinds prompt on the Studio's container backend (Qwen-Image Turbo, 8 steps); alpha cleaned with tools/png-alpha-clean.py.
 # name	group	source	seed	job	thing	colours
 model	kind	model.png	-	-	-	-
 audio	kind	audio.png	-	-	-	-
@@ -52,3 +53,15 @@ open	action	-	42	a808a8c3-4a10-4965-923b-f25ff5c32878	a square with an arrow poi
 move	action	move.png	-	-	-	-
 rotate	action	rotate.png	-	-	-	-
 scale	action	scale.png	-	-	-	-
+terrain	object	-	7	4b929702-9d40-43fe-a260-1b63e2f91d8b	an isometric square block of land, green grass on top with two rounded hills, brown soil on the cut sides, a terrain tile	grass green and earth brown
+blocks	object	-	42	0d377782-aa75-43d2-9803-474c0aa506a3	a stair-stepped pile of six small stone cubes, three on the bottom, two in the middle, one on top, a voxel block grid	slate grey and light stone blue
+building	object	-	42	b622239d-2f74-4d55-90d8-6cc9864487d1	a simple small house building with a pitched roof, a door and two windows, front view	warm terracotta roof and cream walls
+spline	object	-	42	c4ab711e-28ea-47c2-9329-b7b424c3d114	a smooth S-shaped curve line with three round control point dots on it, a bezier spline path (thick rounded strokes)	violet curve with white dots
+road	object	-	7	106d5494-6857-4093-bb5e-601f23914618	a winding road curving away into the distance, light grey asphalt with a dashed yellow centre line and white edges (no landscape)	light silver grey road, bright yellow dashes
+river	object	-	42	5a784b09-f755-4304-8540-15b7fa551886	three wavy horizontal water waves stacked, a flowing river (thick rounded strokes)	bright water blue and light cyan
+decal	object	-	42	6430e2cb-d4ba-4bdc-973e-056209c36e39	a square sticker decal with a star printed on it, its bottom right corner peeling up and curled over	hot pink sticker with white star
+instances	object	-	42	7562c12e-add6-451a-98e9-651fb877b28f	a cluster of five small identical round pine trees of different sizes scattered together, many copies of one object (no ground)	forest green trees with brown trunks
+probes	object	-	7	ee6cce57-f408-4f1e-bad0-d34b429447d9	nine solid round yellow balls arranged in a neat three by three grid inside a thin rounded square outline, light probes (no glow, no fill inside the square)	warm yellow balls, mint green outline
+patrol	object	-	42	4ba0196b-04cd-41ab-b757-8004be1955a9	a cute round slime monster walking with a curved arrow looping back and forth beneath it, a patrolling enemy	purple monster with white eyes, light violet arrow
+hitbox	object	-	42	0141dcc0-7dfa-4d8f-9e51-153ce2720e41	a jagged comic impact burst star inside a square frame, a hit box	orange red burst and coral frame
+health	object	-	42	d0b30f8c-967a-4114-be2a-43a1aabab096	a plump rounded heart with a small white plus sign on it, health	bright green heart

@@ -174,7 +174,8 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 
 | Item | Status |
 |---|---|
-| 34.0 | — |
+| 34.0 | Done 2026-10-12: plans 34–36 and their STATUS/roadmap rows (19a20f40). three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 exists (2026-09-25); the pinned 0.20.0 stays (nothing here depends on it). §3 re-read; it stands. |
+| 34.1 | Done 2026-10-12: one icon order (`COMPONENT_ICONS`, 29 icons) in the descriptors, value variants (light by type, spline → road/river) and a tooltip count; hierarchy rows and billboards share `objectIconFor`. 12 new 96 px WebPs in `public/icons/objects` (47.9 KiB). Billboards were squashed by the aspect (drawn ~½ wide); now square. e2e: `placeholders.e2e.ts` extended (13 types). |
 
 ## 7. Decision log
 
@@ -182,6 +183,17 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   (full-screen editors, block kits and trim sheets, terrain, vertex paint).
   The vertex paint editor moved to 35 because its channel labels come from
   35's layered surface material.
+- 2026-10-12 (34.1) — Icons: the plan's "probe grid, reflection probe, light layer volume and UI" are not object
+  components in the engine (probe grids are baked data, reflection probes and light-layer volumes do not exist,
+  UI documents are content, not objects); the probe volume, effect, prefab copy, model and box got icons instead, and
+  patrol, hitbox and health (SVG glyphs until now) got generated art. Order (default chosen, owner to confirm):
+  what an object is (camera, spawn, light, level geometry, volumes, effect, audio) before what it does (gameplay)
+  before what it is made of (prefab, model, box) — so a box with a mover shows the mover. Value variants are data
+  on the descriptor (`iconVariants`, dot-path conditions), not editor special cases; the light's type switch in
+  `iconKindFor` is gone. The 12 new icons came from the Studio's container backend (Qwen-Image Turbo, 8 steps; the
+  GPU was in LLM mode), with the kinds prompt; prompts, seeds and job ids are in `tools/icons/editor-icons.tsv`.
+  Billboards: `fitSprite` divided the width by the aspect although a distance-free sprite is already projected
+  with it, so every billboard drew about half as wide as tall since they were added; fixed (seen in a screenshot).
 - Open: whether "Set up material" may send two commands as one history
   entry or needs a combined command. Decided in 34.7 against
   `docs/architecture/commands`.

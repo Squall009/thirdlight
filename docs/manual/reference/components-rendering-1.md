@@ -16,6 +16,7 @@ Shows an imported 3D model (a whole file or one named piece of it).
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a block layer is its own level geometry
 - Cannot share an object with [`box`](#component-box): an object shows one model or box
 - Cannot share an object with [`instances`](#component-instances): an instance set places its own model many times
+- Icon: model
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -40,6 +41,7 @@ A simple coloured box (blocking out a level, placeholders).
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a block layer is its own level geometry
 - Cannot share an object with [`model`](#component-model): an object shows one model or box
 - Cannot share an object with [`instances`](#component-instances): an instance set places its own model many times
+- Icon: box
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -95,6 +97,7 @@ Plays a visual effect (particles) from this object. Visual only: it never change
 - Category: Rendering
 - Added: from "+ Add component" after picking `effectId` (the rest starts as `{}`)
 - On prefab objects: yes
+- Icon: effect
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -139,6 +142,7 @@ One model placed many times (grass, rocks, trees), stored as a binary transform 
 - Cannot share an object with [`playerSpawn`](components-gameplay.md#component-playerSpawn): an instance set is one model placed many times, with nothing of its own
 - Cannot share an object with [`light`](components-lighting.md#component-light): an instance set is one model placed many times, with nothing of its own
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a block layer is its own level geometry
+- Icon: instances (its tooltip counts copies)
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -194,7 +198,7 @@ A box the probe bake fills with light probes (Lighting window → Bake probes). 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"size":[16,6,16]}`
 - On prefab objects: no
-- Icon: fog
+- Icon: probes
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -217,6 +221,7 @@ A box that marks the surfaces inside it with a decal material (dirt, cracks, sta
 - Category: Rendering
 - Added: from "+ Add component" after picking `material` (the rest starts as `{"size":[1,1,1]}`)
 - On prefab objects: yes
+- Icon: decal
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -274,6 +279,7 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 - Cannot share an object with [`terrain`](#component-terrain): a block layer is its own level geometry
 - Cannot share an object with [`spline`](#component-spline): a block layer is its own level geometry
 - Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a block layer is its own level geometry
+- Icon: blocks
 - Rule: A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.
 
 | Field | Type | Default | Range | Description |
@@ -332,6 +338,7 @@ A heightfield of square tiles for landscape reaching the horizon, sculpted, pain
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a terrain is its own level geometry
 - Cannot share an object with [`spline`](#component-spline): a terrain is its own level geometry
 - Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a terrain is its own level geometry
+- Icon: terrain (its tooltip counts tiles)
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -365,6 +372,7 @@ A curve through points, each with its own width and roll: roads, paths and river
 - Cannot share an object with [`blockLayer`](#component-blockLayer): a spline is its own object beside the level geometry it shapes
 - Cannot share an object with [`terrain`](#component-terrain): a spline is its own object beside the level geometry it shapes
 - Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a spline is its own object beside the level geometry it shapes
+- Icon: river as River, road as Road, else spline (its tooltip counts points)
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

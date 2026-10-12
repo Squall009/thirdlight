@@ -221,7 +221,7 @@ export class Viewport {
     });
     this.source.setCamera(this.camera);
     this.overlay.name = 'scene-view-overlays';
-    this.entityOverlays = new EntityOverlays({ adapter: () => this.adapter, aspect: () => this.camera.aspect, requestRender: () => this.requestRender() });
+    this.entityOverlays = new EntityOverlays({ adapter: () => this.adapter, requestRender: () => this.requestRender() });
     this.adapter = this.makeAdapter(canvas);
     this.raycaster.layers.enable(BATCHED_LAYER);
 
@@ -1952,12 +1952,8 @@ export class Viewport {
   resize(): void {
     const w = Math.max(1, this.root.clientWidth || this.root.width);
     const h = Math.max(1, this.root.clientHeight || this.root.height);
-    const aspect = w / h;
-    const refit = Math.abs(aspect - this.camera.aspect) > 1e-6;
-    this.camera.aspect = aspect;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    // Icons stay square on screen (the adapter sizes its canvas and renderer each frame).
-    if (refit) this.entityOverlays.refit();
     this.requestRender();
   }
 

@@ -34,6 +34,8 @@ export const terrain: ComponentDescriptor = {
   ]),
   add: { kind: 'tool', tool: 'terrain commands (editTerrain)' },
   handles: [],
+  icon: 'terrain',
+  iconCount: { path: 'tiles', one: 'tile', many: 'tiles' },
   excludes: ['model', 'box', 'collider', 'controller', 'instances', 'blockLayer', 'spline', 'architecture'].map((c) => ({ component: c, reason: 'a terrain is its own level geometry' })),
   prefab: false,
 };

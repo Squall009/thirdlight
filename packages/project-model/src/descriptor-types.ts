@@ -314,8 +314,65 @@ export type ComponentAdd =
  * carries several components with icons, the one earliest in this list wins
  * (the most specific first).
  */
-export const COMPONENT_ICONS = ['camera', 'spawn', 'audio', 'fog', 'patrol', 'mover', 'switch', 'collectible', 'sensor', 'hitbox', 'health'] as const;
+export const COMPONENT_ICONS = [
+  // What an object is: a camera, a spawn, a light by type, level geometry.
+  'camera',
+  'spawn',
+  'sun',
+  'ambient',
+  'point',
+  'spot',
+  'hemisphere',
+  'terrain',
+  'blocks',
+  'building',
+  'river',
+  'road',
+  'spline',
+  'decal',
+  'instances',
+  'probes',
+  'fog',
+  'effect',
+  'audio',
+  // What it does in the game.
+  'patrol',
+  'mover',
+  'switch',
+  'collectible',
+  'sensor',
+  'hitbox',
+  'health',
+  // What it is made from: a prefab copy, a model, a box (the most general last).
+  'prefab',
+  'model',
+  'box',
+] as const;
 export type ComponentIcon = (typeof COMPONENT_ICONS)[number];
+
+/** A condition on the component's value at a dot path (`mesh.kind`); without `in` it holds when a value is there. */
+export interface IconCondition {
+  readonly path: string;
+  readonly in?: readonly DescriptorScalar[];
+}
+
+/**
+ * An icon the component shows instead of its own `icon` when every condition
+ * holds (a light by its type, a spline that carries water). The first
+ * variant that matches wins; its `label` names the type in the tooltip.
+ */
+export interface IconVariant {
+  readonly icon: ComponentIcon;
+  readonly label: string;
+  readonly when: readonly IconCondition[];
+}
+
+/** The count a tooltip adds to the type ("Terrain · 4 tiles"): a list's length, a map's size or a number at `path`. */
+export interface IconCount {
+  readonly path: string;
+  readonly one: string;
+  readonly many: string;
+}
 
 /**
  * A GameObject menu entry that creates a new object carrying the
@@ -371,6 +428,10 @@ export interface ComponentDescriptor {
   readonly create?: readonly CreateEntryDescriptor[];
   /** The object's icon (see `COMPONENT_ICONS`). */
   readonly icon?: ComponentIcon;
+  /** Icons by the component's value, tried in order before `icon`. */
+  readonly iconVariants?: readonly IconVariant[];
+  /** The count the object's tooltip shows beside its type. */
+  readonly iconCount?: IconCount;
 }
 
 export interface ContentBlockDescriptor {

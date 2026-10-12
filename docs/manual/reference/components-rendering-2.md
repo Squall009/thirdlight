@@ -15,6 +15,7 @@ Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load fr
 - Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): generated architecture is its own object beside the level geometry
 - Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): generated architecture is its own object beside the level geometry
 - Cannot share an object with [`spline`](components-rendering-1.md#component-spline): generated architecture is its own object beside the level geometry
+- Icon: building
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

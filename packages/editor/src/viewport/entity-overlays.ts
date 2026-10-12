@@ -8,8 +8,7 @@
  * entity's world matrix, hides with it, and stays on when the adapter
  * realizes the entity again. The adapter places the group's drawables with
  * their offset baked when the group is attached, so a change of an
- * overlay's own transform (an icon refitted to a new aspect) attaches the
- * group again.
+ * overlay's own drawables attaches the group again.
  *
  * Browser-only (three.js).
  */
@@ -49,8 +48,6 @@ interface Built {
 
 export interface EntityOverlayHost {
   adapter(): SceneAdapter | null;
-  /** The view's aspect (icons stay square on screen). */
-  aspect(): number;
   requestRender(): void;
 }
 
@@ -130,18 +127,6 @@ export class EntityOverlays {
     this.selectedId = id;
     const now = id === null ? undefined : this.built.get(id);
     if (now?.icon) setSpriteSelected(now.icon, true, () => this.host.requestRender());
-  }
-
-  /** The view's aspect changed: icons are refitted, and their groups attached again (their offsets are baked). */
-  refit(): void {
-    const aspect = this.host.aspect();
-    const adapter = this.host.adapter();
-    for (const [id, b] of this.built) {
-      if (b.icon === null) continue;
-      fitSprite(b.icon, aspect);
-      adapter?.detachOverlay?.(id, b.group);
-      adapter?.attachOverlay?.(id, b.group);
-    }
   }
 
   /** A new adapter (another renderer backend): every group is attached to it. */
@@ -228,7 +213,7 @@ export class EntityOverlays {
     sprite.name = e.id;
     sprite.userData['iconKind'] = kind;
     sprite.visible = this.gizmos.icons;
-    fitSprite(sprite, this.host.aspect());
+    fitSprite(sprite);
     if (this.selectedId === e.id) setSpriteSelected(sprite, true, () => this.host.requestRender());
     group.add(sprite);
     return sprite;

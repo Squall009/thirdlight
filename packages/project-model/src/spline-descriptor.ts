@@ -95,6 +95,14 @@ export const spline: ComponentDescriptor = {
     { label: 'River', menu: 'Level', value: { points: POINTS_NEW, width: 10, terrain: { shape: 'carve', depth: 2, falloff: 6 }, scatter: { margin: 2 }, mesh: { kind: 'water', offset: -0.3 } }, dimension: 3 },
   ],
   handles: [{ kind: 'spline', label: 'Spline', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
+  icon: 'spline',
+  // A water mesh or a carved channel is a river; any other mesh is a road (the menu's two presets).
+  iconVariants: [
+    { icon: 'river', label: 'River', when: [{ path: 'mesh.kind', in: ['water'] }] },
+    { icon: 'river', label: 'River', when: [{ path: 'terrain.shape', in: ['carve'] }] },
+    { icon: 'road', label: 'Road', when: [{ path: 'mesh' }] },
+  ],
+  iconCount: { path: 'points', one: 'point', many: 'points' },
   excludes: ['blockLayer', 'terrain', 'architecture'].map((c) => ({ component: c, reason: 'a spline is its own object beside the level geometry it shapes' })),
   prefab: false,
 };

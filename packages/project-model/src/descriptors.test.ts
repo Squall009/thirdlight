@@ -1031,8 +1031,8 @@ describe('descriptor registry', () => {
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
     // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB; the declared types of JSON values, about 0.6 KB;
     // decals — the component, decal layers on every drawn object, the decal material and trim cells — about 10 KB;
-    // vertex paint — the component and an instance set's paint — about 2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(327_000);
+    // vertex paint — the component and an instance set's paint — about 2 KB; object icons by type and their counts, about 1.2 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(328_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
@@ -1097,10 +1097,29 @@ describe('descriptor registry', () => {
     expect(errorsOf((e) => validateInput(block('input').default, '', e))).toEqual([]);
   });
 
+  it('a light names its icon by type and the spline menu presets their own icons', () => {
+    const comp = (name: string) => DESCRIPTORS.components.find((c) => c.name === name)!;
+    // The variant whose conditions hold on a value (the editor resolves dot paths the same way).
+    const at = (v: unknown, path: string): unknown => path.split('.').reduce<unknown>((o, k) => (typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[k] : undefined), v);
+    const iconOf = (name: string, v: unknown) => comp(name).iconVariants?.find((x) => x.when.every((c) => (c.in === undefined ? at(v, c.path) !== undefined : c.in.includes(at(v, c.path) as never))))?.icon ?? comp(name).icon;
+    const light = comp('light').value;
+    const types = light.type === 'object' ? light.fields.find((f) => f.key === 'type') : undefined;
+    const icons = (types?.type === 'enum' ? types.options : []).map((o) => iconOf('light', { type: o.value }));
+    expect(icons).toHaveLength(5);
+    expect(new Set(icons).size, 'one icon per light type').toBe(icons.length);
+    expect(Object.fromEntries(comp('spline').create!.map((e) => [e.label, iconOf('spline', e.value)]))).toEqual({ Spline: 'spline', Road: 'road', River: 'river' });
+    for (const c of DESCRIPTORS.components) if (c.iconCount !== undefined) expect(c.value.type === 'object' && c.value.fields.some((f) => f.key === c.iconCount!.path), `${c.name} count path`).toBe(true);
+  });
+
   it('create menu entries fit their descriptors, validate and name known icons', () => {
     let entries = 0;
     for (const c of DESCRIPTORS.components) {
       if (c.icon !== undefined) expect(COMPONENT_ICONS, `${c.name} icon`).toContain(c.icon);
+      for (const v of c.iconVariants ?? []) {
+        expect(c.icon, `${c.name}: variants refine an icon`).toBeDefined();
+        expect(COMPONENT_ICONS, `${c.name} variant ${v.label}`).toContain(v.icon);
+        expect(v.when.length, `${c.name} variant ${v.label}: conditions`).toBeGreaterThan(0);
+      }
       for (const e of c.create ?? []) {
         entries += 1;
         expect(c.add.kind === 'menu' || e.value !== undefined, `${c.name} ${e.label}: a value`).toBe(true);
