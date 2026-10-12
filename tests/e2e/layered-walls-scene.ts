@@ -6,7 +6,8 @@
  * editor's layer table: layer 1 follows trim sheet A (the test sheet: the
  * wall's lower_wall row is magenta), layer 2 trim sheet B (a second sheet on
  * the same rows, all cyan) — both read at the wall's own UVs — and layers 3
- * and 4 are moss (green) and rust (orange), world-projected; the table then
+ * and 4 are moss (green) and rust (orange), world-projected with a normal
+ * map (read in the frame the wall's pixels derive: it has no tangents); the table then
  * says the twelve texture reads a pixel costs. The wall (one swept face,
  * 10 m long, 2.4 m tall, facing +z) is painted with one stroke per channel,
  * each at its own place along it: R (layer 2), G (layer 3), B (layer 4) and
@@ -84,6 +85,8 @@ export async function makeLayeredWall(page: Page, be: E2EBackend, cmd: Cmd, trim
   await publishTexture(be, new Uint8Array(makePng(w, h, () => [...TRIM_B, 255])), 'trim-b', 'Trim B sheet');
   await publishTexture(be, new Uint8Array(makePng(16, 16, () => [...MOSS, 255])), 'moss', 'Moss');
   await publishTexture(be, new Uint8Array(makePng(16, 16, () => [...RUST, 255])), 'rust', 'Rust');
+  // A normal map on the tiling layers (world-projected on the wall's side: read in the frame its pixels derive).
+  await publishTexture(be, new Uint8Array(makePng(16, 16, () => [128, 140, 240, 255])), 'bumps', 'Bumps');
   // Sheet B on sheet A's rows as they stand (one row table for every trim layer).
   const rows = ((await materials(be)) as unknown as { materialId: string; trim?: unknown }[]).find((x) => x.materialId === trimId)?.trim ?? TEST_TRIM_SHEET;
   await cmd('setMaterial', { material: { materialId: 'mat-trim-b', name: 'Trim B', shader: 'trim', params: {}, textures: { map: 'trim-b' }, trim: rows } });
@@ -110,7 +113,7 @@ export async function makeLayeredWall(page: Page, be: E2EBackend, cmd: Cmd, trim
   await expect.poll(() => param('layerProjection')).toEqual([3, 3, 1, 1]);
   // The tiling layers' colours (the palette's drop, as its command) and a metre's tiling.
   const m = (await materials(be)).find((x) => x.materialId === materialId)!;
-  const parameters = (m.parameters ?? []).map((p) => (p.key === 'albedoHeight' ? { ...p, default: ['trim-sheet', 'trim-b', 'moss', 'rust'] } : p));
+  const parameters = (m.parameters ?? []).map((p) => (p.key === 'albedoHeight' ? { ...p, default: ['trim-sheet', 'trim-b', 'moss', 'rust'] } : p.key === 'normals' ? { ...p, default: ['', '', 'bumps', 'bumps'] } : p));
   await cmd('setMaterial', { material: { ...m, parameters } });
   await expect.poll(() => param('albedoHeight')).toEqual(['trim-sheet', 'trim-b', 'moss', 'rust']);
   await expect(doc.getByLabel('texture reads')).toContainText('Texture reads a pixel: 12.');

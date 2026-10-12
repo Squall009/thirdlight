@@ -1433,13 +1433,22 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const sx = xFacing.select(T.vec2(dx.z, dx.y.negate()), T.vec2(dx.x, dx.y.negate())).div(scale);
         const sy = xFacing.select(T.vec2(dy.z, dy.y.negate()), T.vec2(dy.x, dy.y.negate())).div(scale);
         const main = sampleGrad(t, useSide.select(uvSide, uvTop), useSide.select(sx, tx), useSide.select(sy, ty), layer);
+        // A world direction in the surface's tangent frame (the one the output's normal is read in). The world tangent
+        // is a varying of the mesh's tangent attribute: a mesh without one (a generated wall, a model's own unwrap) takes
+        // the frame its pixels derive instead, in view space; a surface placing its own vertices sets its tangent.
+        const inSurfaceFrame = (w: N, nw: N): N =>
+          T.Fn((builder: { geometry?: THREE.BufferGeometry }) => {
+            if (env.surface !== undefined || builder.geometry?.hasAttribute('tangent') === true) return T.vec3(T.dot(w, T.tangentWorld), T.dot(w, T.bitangentWorld), T.dot(w, nw));
+            const v = T.cameraViewMatrix.mul(T.vec4(w, 0)).xyz;
+            return T.vec3(T.dot(v, T.tangentView), T.dot(v, T.bitangentView), T.dot(v, T.normalView));
+          })();
         // A side-projected normal map turned into the surface's frame: the map's +x along the plane's u, its +y (up in
         // the image: v runs down the wall) world up.
         const frameOf = (c: N, side: N): N => {
           const tp = decodeIn(c, false);
           const u = xFacing.select(T.vec3(0, 0, 1), T.vec3(1, 0, 0));
           const w = u.mul(tp.x).add(T.vec3(0, 1, 0).mul(tp.y)).add(n.mul(tp.z));
-          return side.select(T.vec3(T.dot(w, T.tangentWorld), T.dot(w, T.bitangentWorld), T.dot(w, n)), decode(c));
+          return side.select(inSurfaceFrame(w, n), decode(c));
         };
         // Biplanar near the camera: the other plane's share of the slope, and its read — only taken (a branch) where it shows.
         if (!biplanar) return outputs(main, normalMap ? frameOf(main, useSide) : decode(main));

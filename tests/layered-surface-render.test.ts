@@ -116,6 +116,14 @@ describe('the layered surface', () => {
     expect(textureReads(plain.slots.color)).toEqual([{ array: false, grad: false }]);
   });
 
+  it('a world layer\'s side-projected normal map on a mesh without tangents reads the frame its pixels derive (no tangent varying to divide by zero)', async () => {
+    const m = layeredMaterial('mat-walls', 'Walls');
+    const walls = { ...m, parameters: m.parameters!.map((p) => (p.key === 'normals' ? { ...p, default: 'tex' } : p.key === 'albedoHeight' ? { ...p, default: 'tex' } : p.key === 'layerProjection' ? { ...p, default: [3, 1, 1, 1] } : p)) } as unknown as MaterialDefLike;
+    const { text } = await digests(walls, { plain: [], tangents: ['tangent'] });
+    expect(text['plain']).not.toContain('v_tangentWorld');
+    expect(text['tangents']).toContain('v_tangentWorld');
+  });
+
   it('a layer the material does not use reads no texture and reports nothing', () => {
     const graph: MaterialGraphLike = {
       nodes: [n('out', 'pbr'), n('layer', 'float', { value: -1 }), n('s', 'projectedSample', { texture: 'gone', absent: 'black' })],
