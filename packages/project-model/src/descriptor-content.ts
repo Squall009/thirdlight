@@ -315,6 +315,8 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   ], { when: when('shader', 'decal') }),
   // The layer palette's names of a layered material's texture-array layers.
   list('layerNames', 'Layer names', `A layered material's names for its texture-array layers, as the layer palette shows them (index i = layer i; "" or past the end: the layer's texture's name). At most ${MAX_TEXTURE_LAYERS}.`, str('*', 'Name', 'The layer\'s name ("": its texture\'s).', { maxLength: MATERIAL_LAYER_NAME_MAX }), { maxItems: MAX_TEXTURE_LAYERS }),
+  // The trim sheets a layered material's layers follow (layered-surface.ts).
+  list('layerSheets', 'Trim sheets', `Per layer, the trim material whose rows the layer follows ("": none). At most ${MAX_TEXTURE_LAYERS}.`, str('*', 'Sheet', 'A trim material id.', { maxLength: 64 }), { maxItems: MAX_TEXTURE_LAYERS }),
 ]);
 
 // A visual effect (systems of particles, each a graph of kind "effect").

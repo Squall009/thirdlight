@@ -513,6 +513,11 @@ export {
   MAX_POLYGON_VERTICES,
   // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
   trimMaxFootprint,
+  // The layered surface the renderer draws trim materials and layered walls as (layered-surface.ts).
+  LAYER_NOT_READ,
+  layerSheetRows,
+  trimSurfaceMaterial,
+  UV_SOURCES,
   type TrimSheet,
   // A decal material's sheet cell where a view draws the sheet itself, and the decals' sort-order range (decal-pages.ts, decals.ts).
   decalSheetCellSampling,

@@ -11,6 +11,7 @@ import { architectureChunkInput, architectureChunkKeys, architectureStylesOf, en
 
 import { answerArchitectureJob, runArchitectureWorker, type ArchitectureJobReply } from './architecture-worker';
 import { ARCHITECTURE_CHUNK_MARK, ArchitectureView, type ArchitectureViewDeps } from './architecture-view';
+import { TRIM_DATA_ATTRIBUTE } from './material-graph';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { LayeredPointLight, lightsObject, ROOM_KEY } from './light-layers';
 import { RoomCulling, ROOM_AT_KEY } from './room-culling';
@@ -94,7 +95,7 @@ function drawn(root: THREE.Object3D): string[] {
     const m = o as THREE.Mesh;
     if (m.isMesh !== true) return;
     const g = m.geometry;
-    out.push(`${m.name}:${['position', 'normal', 'uv', 'color'].map((n) => digest(g.getAttribute(n)!.array as ArrayBufferView)).join('|')}|${digest(g.getIndex()!.array as Uint32Array)}`);
+    out.push(`${m.name}:${['position', 'normal', 'uv', TRIM_DATA_ATTRIBUTE].map((n) => digest(g.getAttribute(n)!.array as ArrayBufferView)).join('|')}|${digest(g.getIndex()!.array as Uint32Array)}`);
   });
   return out.sort();
 }

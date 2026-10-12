@@ -224,8 +224,9 @@ edited in the editor's **terrain editor** (below).
   shows the picked layer's three textures — colour (with the height in
   alpha), normal map, ORM — each picked in the browser (a normal or ORM slot
   can be emptied; a layer without one borrows the first layer's that has
-  one), and its name, tiling, normal strength, height contrast and offset
-  and projection (the material's layer table, one layer at a time). A material
+  one), and its name, tiling, normal strength, height contrast and offset,
+  UV source and trim sheet (the material's layer table, one layer at a time;
+  see [Layered surface](material-graphs.md#layered-surface)). A material
   whose albedo is a prebuilt array shows its layers without pictures; a
   material instance shows its parent's layers, changed on the parent.
 - **Material**: give the object a `materials` component with `"*"` naming a

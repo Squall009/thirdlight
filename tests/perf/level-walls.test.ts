@@ -3,16 +3,17 @@
  * is the plan it was; above 0 the buildings stand on the area's free ground
  * (clear of the rooms, of each other and of the camera's view ahead), expand
  * with the engine's starters without a problem, and wear the one wall
- * material; the variants the engine can't draw yet are refused rather than
- * built as something else.
+ * material: the trim shader for one layer, the layered surface over two trim
+ * sheets (and moss and rust) for two and four, painted by strokes on every
+ * building's outside.
  */
 import { describe, expect, it } from 'vitest';
 
-import { architectureStylesOf, expandArchitecture, type ArchitectureComponent } from '@thirdlight/project-model';
+import { architectureStylesOf, expandArchitecture, layeredForDraw, materialGraphContext, TRIM_GROUP_KEY, validateMaterials, type ArchitectureComponent, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { levelPlan, LEVEL_SPEC } from '../../tools/perf/level';
 import { NO_LEVEL_MARKS } from '../../tools/perf/level-marks';
-import { layeredWallsNotBuilt, NO_LAYERED_WALLS, parseLayeredWalls, wallLayerTextures, WALL_LAYER_SETS, WALL_MATERIAL, WALL_TILING_TEXTURE, type LayeredWallsOptions } from '../../tools/perf/level-walls';
+import { layeredWallMaterial, NO_LAYERED_WALLS, parseLayeredWalls, wallLayerTextures, wallSheetMaterial, wallStrokes, WALL_LAYER_SETS, WALL_MATERIAL, WALL_TILING_TEXTURE, type LayeredWallsOptions } from '../../tools/perf/level-walls';
 
 const plan = (walls: LayeredWallsOptions = NO_LAYERED_WALLS, kind: 'area' | 'landscape' = 'area'): ReturnType<typeof levelPlan> => levelPlan(kind, undefined, 0, false, false, 'none', false, 0, false, 0, 0, 'on', false, 0, true, true, false, NO_LEVEL_MARKS, walls);
 const flags = (o: Record<string, string>) => (f: string): string | undefined => o[f];
@@ -93,17 +94,55 @@ describe('the level walls switch', () => {
     expect(() => plan({ buildings: 400, layers: 1 })).toThrow(/free ground holds \d+ buildings, not 400/);
   });
 
-  it('builds one trim layer today and refuses the blends that wait for the layered surface material', () => {
-    expect(layeredWallsNotBuilt(NO_LAYERED_WALLS)).toBeNull();
-    expect(layeredWallsNotBuilt({ buildings: 24, layers: 1 })).toBeNull();
-    expect(layeredWallsNotBuilt({ buildings: 24, layers: 2 })).toMatch(/layered surface material/);
-    expect(layeredWallsNotBuilt({ buildings: 24, layers: 4 })).toMatch(/layered surface material/);
+  it('blends two and four layers with the layered surface: trim layers on their sheets\' rows, tiling layers in the world, two arrays per map', () => {
     // Every variant starts from the same base sheet; four adds two tiling layers and wetness.
     expect(WALL_LAYER_SETS[1].layers.map((l) => l.kind)).toEqual(['trim']);
     expect(WALL_LAYER_SETS[2].layers.map((l) => l.kind)).toEqual(['trim', 'trim']);
     expect(WALL_LAYER_SETS[4].layers.map((l) => l.kind)).toEqual(['trim', 'trim', 'tiling', 'tiling']);
     expect(WALL_LAYER_SETS[4].wetness).toBe(true);
     for (const n of [2, 4] as const) expect(WALL_LAYER_SETS[n].layers[0]).toEqual(WALL_LAYER_SETS[1].layers[0]);
+    const four = layeredWallMaterial(WALL_LAYER_SETS[4].layers);
+    const errors: ModelErrorV2[] = [];
+    validateMaterials([four], '', errors, materialGraphContext(four.parameters, undefined));
+    expect(errors).toEqual([]);
+    expect(four.materialId).toBe(WALL_MATERIAL);
+    expect(four.layerSheets).toEqual([wallSheetMaterial(WALL_LAYER_SETS[4].layers[0]!), wallSheetMaterial(WALL_LAYER_SETS[4].layers[1]!), '', '']);
+    const value = (m: typeof four, key: string): unknown => m.parameters!.find((p) => p.key === key)?.default;
+    expect(value(four, 'layerProjection')).toEqual([3, 3, 1, 1]);
+    expect(value(four, 'layerTiling')).toEqual([1, 1, 2, 1.5]);
+    // Drawn: the sheets (1024²) in one array per map, moss and rust (512²) in another.
+    const drawn = layeredForDraw(four);
+    expect(value(drawn, TRIM_GROUP_KEY('albedoHeight'))).toEqual(['level-walls-trim-a-albedo', 'level-walls-trim-b-albedo']);
+    expect(value(drawn, 'albedoHeight')).toEqual(['level-walls-moss-albedo', 'level-walls-rust-albedo']);
+    // Two layers: both trim, one array per map, two layers read.
+    const two = layeredForDraw(layeredWallMaterial(WALL_LAYER_SETS[2].layers));
+    expect(value(two, 'albedoHeight')).toEqual(['level-walls-trim-a-albedo', 'level-walls-trim-b-albedo']);
+    expect(two.parameters!.some((p) => p.key === TRIM_GROUP_KEY('albedoHeight'))).toBe(false);
+  });
+
+  it('paints the blends on every building\'s outside: the second sheet for two layers, moss, rust and wetness too for four', () => {
+    const origin = [-50, 0, -50] as const;
+    expect(wallStrokes(plan({ buildings: 24, layers: 1 }).walls!, origin)).toEqual([]);
+    const two = wallStrokes(plan({ buildings: 24, layers: 2 }).walls!, origin);
+    expect(two).toHaveLength(24);
+    expect(new Set(two.map((s) => s.brush.channel))).toEqual(new Set([0]));
+    const w4 = plan({ buildings: 24, layers: 4 }).walls!;
+    const four = wallStrokes(w4, origin);
+    expect(four).toHaveLength(24 * 4);
+    expect(new Set(four.map((s) => s.brush.channel))).toEqual(new Set([0, 1, 2, 3]));
+    for (const s of four) {
+      expect(s.side).toBe('left');
+      expect(s.path).toMatch(/^building:house-\d+$/);
+      const b = w4.buildings[Number(s.path.split('-')[1])]!;
+      // On the building's outline (world), at or above its ground.
+      for (const [x, y, z] of s.dabs) {
+        expect(x - origin[0]).toBeGreaterThanOrEqual(b.box[0]);
+        expect(x - origin[0]).toBeLessThanOrEqual(b.box[2]);
+        expect(z - origin[2]).toBeGreaterThanOrEqual(b.box[1]);
+        expect(z - origin[2]).toBeLessThanOrEqual(b.box[3]);
+        expect(y).toBeGreaterThanOrEqual(b.ground);
+      }
+    }
   });
 
   it('makes a layer\'s textures at its size, the same every time, different per layer', () => {

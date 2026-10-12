@@ -220,3 +220,49 @@ Rules for every item:
     that mixes its own layers by the weights gets no warning (paint picks its layers by number).
   - The reference keeps the data key in its per-parameter rows ("The kit shader's …"); only the shader enum's text
     names Atlas surface — the descriptor registry is at its size budget.
+- 2026-10-12 (35.3) — The layered surface. Defaults chosen, owner to confirm:
+  - **One layout = one graph**, not a second shader: the layered template (and its graph builder) moved from the
+    editor into project-model (`layered-surface.ts`, value subpath for the editor), compiled by the material graph
+    compiler like any graph. The `trim` shader draws as that layout (`trimSurfaceMaterial`, made in the material
+    library at draw time): one mesh-UV layer of the sheet plus a grime colour layer mixed by the old grime mask. The
+    stored material stays `shader: "trim"` (generator, decal cells, Inspector unchanged; no format change).
+  - **Pixels**: the trim strips read exactly as the trim shader's on both renderers (recorded before, asserted ±3 in
+    `layered-material.e2e.ts` on the GPU host). Generated architecture also matches: the old shader multiplied the
+    sheet by the colour of the material it was put over — on generated walls the generator's grey stand-in
+    `#9a968c` (an accident, but the look projects have); kept as a per-object value of the graph's `color` when the
+    trim material sets none. A fresh layered surface on architecture shows the sheet's own colour (brighter).
+  - **UV sources** `top`, `world`, `biplanar`, `mesh UVs` (= `geometry`). `world` and `slope` are one projection —
+    the world plane the surface faces most, from the world position — so no mesher writes a UV1: no attribute bytes,
+    works on merged statics, models and generated meshes alike, stable on all that stands still (a moving prop's world
+    layers slide: give it mesh-UV layers). Mesh-UV layers ignore tiling; with a row table they read with the trim
+    shader's footprint cap and centroid UV.
+  - **Weights**: a new Layer weights node — stored weights (COLOR_0 beside COLOR_1, a terrain's), else vertex paint as
+    layers (base 1 − clamp(R+G+B), R/G/B layers 2–4, A wetness), else an unpainted model's own COLOR_0, else layer 1.
+    Generated architecture now keeps its trim data (occlusion, wall-paint grime and wetness) in its own attribute
+    `tlTrimData` instead of COLOR_0, so a model's vertex colours (the painted-terrain GLB) stay weights; trim data adds
+    its grime to layer 2, its wetness, and its occlusion to the AO. The trim material reads it through a new Vertex
+    colour set `trim` (that attribute, else COLOR_0).
+  - **Template wiring bug**: fixed in the compile, so stored layered materials get it too: a Vertex colour node that is
+    layer weights (`first`) or their wetness (COLOR_1 `zero`) reads the vertex paint where the mesh stores no weights.
+    Unpainted meshes build the programs they did (vitest digests recorded at `e19307ec`: plain, stored, own colours).
+  - **Paint meaning**: new layered surfaces use R/G/B = layers 2–4, A = wetness; a trim material keeps G grime,
+    B wetness (an absent new field keeps the old look, and Skyforge paints that way). **Games, read-only**: Sprout — no
+    `vertexPaint`, `paintVertices` or `paintTint`. Skyforge Tactics — `scene-shatterfall-camp`: the infirmary
+    (architecture, `sf-trim-b`) has path paint G 0.65 and B 0.5 (`tools/showcase/paint_and_decals.py`); the march
+    tent wears `sf-prop-trim` (standard, `paintTint`). Nothing breaks: trim keeps its meaning, paintTint is untouched.
+    Moving the infirmary to a layered surface would need its strokes repainted (G → R, B → A) — the game's call.
+  - **Only used layers**: for a material with a mesh-UV layer, up to its last filled colour slot (`layeredForDraw`):
+    the reads past it take a "not read" layer (−1) and their weights are masked. Terrain, block ground and tiling-only
+    materials read all four as before (a terrain's slots map to per-pixel layers; every stored material keeps its
+    program).
+  - **Size groups by UV source**: the used mesh-UV (trim) layers and the rest each get their own slot list of every
+    array (`albedoHeight@trim` …), a draw-time graph rewrite inside `withAssembledSlots`/`materialTextureSlotSets`, so
+    assembly, export and runtime are unchanged and a map has at most two arrays. A group's textures share a size (the
+    assembler's rule, as before).
+  - **Row table**: `layerSheets` (per layer, a trim material id; additive on schema 7). The first sheet's rows feed the
+    compile's cap and the generator (`trimSheetOfMaterial`); sheets with other rows are a backend problem listing the
+    rows; a build writes the rows onto the runtime material (`trim`), so the sheets need not ship. Picking a sheet in
+    the layer table or Layer settings fills the layer's textures and sets mesh UVs.
+  - The descriptor registry stays under its 328 000-character budget by a one-line `layerSheets` description.
+  - Left for 35.5: a palette gesture to drop a layer (lists keep four slots; a trim material's empty trailing slots are
+    simply not read).

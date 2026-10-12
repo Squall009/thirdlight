@@ -50,7 +50,8 @@ Implicit conversions:
 - Colour (`color`): A constant colour (sRGB, converted to linear) and an alpha.
 - Time (`time`): Seconds since the game started (scaled by the game clock).
 - UV (`uv`): A texture coordinate set of the mesh.
-- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.
+- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture's, else the mesh's COLOR_0.
+- Layer weights (`layerWeights`): What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion: generated architecture's baked corner shading (its trim data: R occlusion, G grime — added to layer 2 — B wetness); 0 elsewhere. Feed the weights to a Height blend.
 - Position (`position`): The surface position in object, world or view space.
 - Normal (`normal`): The surface normal in object, world or view space.
 - View direction (`viewDirection`): The direction from the surface to the camera (normalized).
@@ -182,7 +183,7 @@ Fields:
 <a id="node-material--vertex-color"></a>
 ### Vertex colour (`vertexColor`)
 
-A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.
+A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture's, else the mesh's COLOR_0.
 
 Outputs:
 
@@ -195,7 +196,18 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `absent` | Without the set | enum | `"white"` | `white`, `zero`, `first` |
-| `set` | Set | enum | `"COLOR_0"` | `COLOR_0`, `COLOR_1`, `paint` |
+| `set` | Set | enum | `"COLOR_0"` | `COLOR_0`, `COLOR_1`, `paint`, `trim` |
+
+<a id="node-material--layer-weights"></a>
+### Layer weights (`layerWeights`)
+
+What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion: generated architecture's baked corner shading (its trim data: R occlusion, G grime — added to layer 2 — B wetness); 0 elsewhere. Feed the weights to a Height blend.
+
+Outputs:
+
+- `weights` (vec4)
+- `wetness` (float)
+- `occlusion` (float)
 
 <a id="node-material--position"></a>
 ### Position (`position`)
@@ -926,7 +938,7 @@ Fields:
 - Sample texture (`sampleTexture`): Reads a texture (its field, or a texture wire such as a parameter) at a UV; of a texture array, the given layer.
 - Normal map (`normalMap`): Reads a tangent-space normal map (of a texture array, the given layer) and scales its strength (feeds a surface normal).
 - Triplanar (`triplanar`): Projects a texture (of a texture array, the given layer) along the three axes and blends by the normal (no UVs needed).
-- Projected sample (`projectedSample`): Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface's frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).
+- Projected sample (`projectedSample`): Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Mode 3: the mesh's own UVs as made (a trim sheet's strips, a model's unwrap), scale not applied; on a layered material with trim sheets the read keeps its mip level inside the sheet's rows. Layer −1 reads nothing (what it gives without a texture: a layer the material does not use). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface's frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).
 - Height blend (`heightBlend`): Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). Contrast and offset reshape each layer's height first (height − 0.5) × contrast + 0.5 + offset, one component per layer: a contrast above 1 makes a layer's peaks and cracks stand further apart, an offset lifts the whole layer over the others. A layer of weight 0 never shows. Unwired, the weights are the object's vertex paint where it is painted (R, G, B, A: one layer each; an unpainted vertex shows the first layer), else (1, 0, 0, 0). Feed the weights to Weighted mix nodes.
 - Flipbook (`flipbook`): The UV of one frame of a grid of frames (connect Time × frames per second to play it).
 - Noise (`noise`): Procedural noise: value, gradient (Perlin-like) or Voronoi (distance to the nearest cell, and a random value per cell).
@@ -1020,7 +1032,7 @@ Fields:
 <a id="node-material--projected-sample"></a>
 ### Projected sample (`projectedSample`)
 
-Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface's frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).
+Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Mode 3: the mesh's own UVs as made (a trim sheet's strips, a model's unwrap), scale not applied; on a layered material with trim sheets the read keeps its mip level inside the sheet's rows. Layer −1 reads nothing (what it gives without a texture: a layer the material does not use). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface's frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).
 
 Inputs:
 

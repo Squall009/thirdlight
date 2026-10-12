@@ -23,7 +23,7 @@ import type { MaterialDef } from '@thirdlight/project-model';
 import { materialReads } from '@thirdlight/project-model/material-reads';
 
 import type { Catalog } from '../../session/catalog';
-import { paintableMaterial, paletteLayers, paletteSource, standInLayers, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
+import { paintableMaterial, paletteLayers, paletteSource, standInLayers, trimSheetMaterials, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
 import { LAYERED_TEXTURES, TEMPLATE_LAYERS } from '../../session/material-graph';
 import { matchingTexture, textureSetQuery } from '../../session/texture-sets';
 import type { TileThumbnails } from '../../viewport/thumbnails';
@@ -227,7 +227,7 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
       {settings !== null && source.kind === 'layered' && (
         <Popover anchor={settings} onClose={() => setSettings(null)} aria="layer settings" title={`Layer ${p.active + 1}${picked !== undefined ? ` · ${picked.name}` : ''}`} aside={m.name}>
           {slotted && <LayerTextures material={m} layer={p.active} thumbnails={p.host.thumbnails} disabled={!editable} onPick={(key, id) => put(p.active, id, key)} />}
-          <LayerFields key={p.active} material={m} layer={p.active} textureName={picked?.texture != null ? (p.palette.names.get(picked.texture) ?? null) : null} onSave={(x) => save(x)} />
+          <LayerFields key={p.active} material={m} layer={p.active} textureName={picked?.texture != null ? (p.palette.names.get(picked.texture) ?? null) : null} sheets={trimSheetMaterials(p.host.materials)} onSave={(x) => save(x)} />
         </Popover>
       )}
     </Section>

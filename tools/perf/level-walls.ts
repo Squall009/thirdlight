@@ -15,16 +15,19 @@
  *
  * The walls wear one material, from `WALL_LAYER_SETS`: the layers a variant
  * blends, each a trim sheet (rows mapped by the generator's UVs) or a tiling
- * texture (moss, rust: tiled in metres), plus wetness. One layer is today's
- * trim shader on a 1024² sheet in the starter row layout (albedo with height
- * in alpha, normal, ORM): the baseline. The 2- and 4-layer variants are the
- * layered surface material's; until that material exists they are refused at
- * build time (`layeredWallsNotBuilt`) rather than measured as something else.
+ * texture (moss, rust: tiled in metres), plus wetness. One layer is the trim
+ * shader on a 1024² sheet in the starter row layout (albedo with height in
+ * alpha, normal, ORM): the baseline. The 2- and 4-layer variants are the
+ * layered surface (`layeredWallMaterial`): its trim layers follow a trim
+ * material per sheet (mesh UVs, the sheet's rows), its tiling layers are
+ * world-projected; each building's outside is painted with the strokes the
+ * variant blends by (`wallStrokes`): the second sheet on the ground course,
+ * moss at the corners' feet, rust under the eaves, a wet north face.
  *
  * Pure: the placements and textures are a function of the seed and the
  * options, from a generator of their own.
  */
-import { defaultTrimSheet, type TrimSheet } from '@thirdlight/project-model';
+import { defaultTrimSheet, LAYERED_TEXTURES, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES, type MaterialDef, type TrimSheet } from '@thirdlight/project-model';
 
 import { makePng } from '../../tests/e2e/png-make';
 import { prng, type EntityValue } from './generate';
@@ -184,10 +187,70 @@ export function wallEntities(w: LayeredWalls, origin: readonly [number, number, 
   ];
 }
 
-/** Why a variant can't be built yet (null: it can): the engine part it waits for. */
-export function layeredWallsNotBuilt(o: LayeredWallsOptions): string | null {
-  if (o.buildings === 0 || o.layers === 1) return null;
-  return `--wall-layers ${o.layers}: walls blending ${o.layers} layers need the layered surface material, which the engine does not have yet (today's trim shader draws one layer)`;
+/** A layer's three texture assets. */
+export function wallLayerIds(layer: WallLayer): { map: string; normalMap: string; ormMap: string } {
+  return { map: `level-walls-${layer.id}-albedo`, normalMap: `level-walls-${layer.id}-normal`, ormMap: `level-walls-${layer.id}-orm` };
+}
+
+/** The trim material a trim layer of a variant follows (its sheet's rows and textures). */
+export const wallSheetMaterial = (layer: WallLayer): string => `${WALL_MATERIAL}-${layer.id}`;
+
+/**
+ * The wall material of a 2- or 4-layer variant: the layered surface with one
+ * slot per layer — trim layers at the mesh's UVs following their sheet's trim
+ * material, tiling layers world-projected at their tiling.
+ */
+export function layeredWallMaterial(layers: readonly WallLayer[]): MaterialDef {
+  const m = layeredMaterial(WALL_MATERIAL, 'Level walls');
+  const four = (f: (l: WallLayer) => number, fill: number): number[] => Array.from({ length: TEMPLATE_LAYERS }, (_, i) => (layers[i] !== undefined ? f(layers[i]!) : fill));
+  const slots = (key: 'map' | 'normalMap' | 'ormMap'): string[] => layers.map((l) => wallLayerIds(l)[key]);
+  const parameters = (m.parameters ?? []).map((p) => {
+    if (p.key === LAYERED_TEXTURES.albedo) return { ...p, default: slots('map') };
+    if (p.key === LAYERED_TEXTURES.normals) return { ...p, default: slots('normalMap') };
+    if (p.key === LAYERED_TEXTURES.orm) return { ...p, default: slots('ormMap') };
+    if (p.key === 'layerProjection') return { ...p, default: four((l) => (l.kind === 'trim' ? UV_SOURCES.geometry : UV_SOURCES.world), 0) };
+    if (p.key === 'layerTiling') return { ...p, default: four((l) => (l.kind === 'tiling' ? l.tiling : 1), 1) };
+    return p;
+  });
+  return { ...m, parameters, layerSheets: layers.map((l) => (l.kind === 'trim' ? wallSheetMaterial(l) : '')) };
+}
+
+/** One paint stroke on a building's outside (`paintVertices` args less the object). */
+export interface WallStroke {
+  path: string;
+  side: 'left';
+  dabs: [number, number, number][];
+  brush: { radius: number; strength: number; channel: number; falloff: 'smooth' };
+}
+
+/**
+ * The strokes a variant blends by on every building's outside (the outline's
+ * left of travel; world points): the second sheet (R) along the ground course,
+ * then for four layers moss (G) at the corners' feet, rust (B) under the eaves
+ * of the top storey and wetness (A) over the north face. One layer: none.
+ */
+export function wallStrokes(w: LayeredWalls, origin: readonly [number, number, number]): WallStroke[] {
+  if (w.options.layers === 1) return [];
+  const out: WallStroke[] = [];
+  w.buildings.forEach((b, i) => {
+    const [x0, z0, x1, z1] = b.box;
+    const at = (x: number, y: number, z: number): [number, number, number] => [origin[0] + x, b.ground + y, origin[2] + z];
+    const corners: [number, number][] = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+    /** Points every metre round the outline at a height. */
+    const round = (y: number): [number, number, number][] => corners.flatMap(([ax, az], k) => {
+      const [bx, bz] = corners[(k + 1) % 4]!;
+      const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az)));
+      return Array.from({ length: n }, (_, q) => at(ax + ((bx - ax) * q) / n, y, az + ((bz - az) * q) / n));
+    });
+    const stroke = (channel: number, radius: number, dabs: [number, number, number][]): void => void out.push({ path: `building:house-${i}`, side: 'left', dabs, brush: { radius, strength: 0.9, channel, falloff: 'smooth' } });
+    stroke(0, 0.9, round(0.5));
+    if (w.options.layers === 4) {
+      stroke(1, 1.3, corners.map(([x, z]) => at(x, 0.3, z)));
+      stroke(2, 0.8, round(b.storeys * 3 - 0.4));
+      stroke(3, 1.2, Array.from({ length: x1 - x0 + 1 }, (_, q) => at(x0 + q, 1.2, z0)));
+    }
+  });
+  return out;
 }
 
 /** The counts a run logs and reports (absent at 0). */

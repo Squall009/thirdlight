@@ -93,7 +93,8 @@ export const SHADER_TYPE_WGSL: Readonly<Record<string, string>> = {
   kit: '83a0897a5b6be10d',
   water: '588fd2ffeda77232',
   unlit: '6c19ec5d6d3f2a86',
-  trim: 'f247953ef4436cd6',
+  // The trim material draws as a layered surface (a graph): its program is the graph's, its pixels the shader's.
+  trim: '67e7a99af8a145f6',
 };
 
 const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });

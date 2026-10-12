@@ -22,6 +22,7 @@ import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/th
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
+import { trimSheetMaterials } from '../../session/layer-palette';
 import { materialPortContext, parameterDefault, TEMPLATE_LAYERS } from '../../session/material-graph';
 import { declarationLabels } from '../../session/material-defaults';
 import { slotProblemInput } from '../../session/texture-slots';
@@ -118,7 +119,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
       )}
       <div className="tl-animator-doc__main">
         <div className="tl-animator-doc__side">
-          <LayerSettings material={m} onSave={p.onSave} />
+          <LayerSettings material={m} sheets={trimSheetMaterials(p.materials)} onSave={p.onSave} />
           <ParameterEditor material={m} onSave={p.onSave} />
         </div>
         <div className="tl-animator-doc__graph">

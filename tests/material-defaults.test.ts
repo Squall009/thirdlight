@@ -35,10 +35,10 @@ describe('the New material defaults', () => {
     expect(materialDefault('atlas').make('a', 'A').shader).toBe('kit');
     expect(materialDefault('nope').key).toBe('standard');
   });
-  it('declares what each is for: the layered surface reads layer weights with height in alpha, the decal draws as a decal', () => {
+  it('declares what each is for: the layered surface reads layer weights, paint and vertex occlusion with height in alpha, the decal draws as a decal', () => {
     const layered = materialDefault('layered').make('l', 'L');
     expect(layered.graph).toBeDefined();
-    expect(materialDeclaration(layered)).toMatchObject({ layerWeights: true, alphaIsHeight: true, vertexAO: false, alphaIsOpacity: false, writesDecal: false });
+    expect(materialDeclaration(layered)).toMatchObject({ layerWeights: true, vertexPaint: true, alphaIsHeight: true, vertexAO: true, alphaIsOpacity: false, writesDecal: false });
     expect(declarationLabels(materialDefault('decal').make('d', 'D'))).toEqual(['draws as a decal', 'albedo alpha = opacity']);
     expect(declarationLabels(materialDefault('standard').make('s', 'S'))).toEqual([]);
   });

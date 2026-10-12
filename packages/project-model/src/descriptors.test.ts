@@ -710,6 +710,8 @@ const MATERIAL_BASES: J[] = [
   [{ materialId: 'mat-a', name: 'Decal', shader: 'decal', params: {}, textures: {}, decal: { sheet: 'mat-t', cell: 'sign' } }],
   // A layered material naming its layers for the palette.
   [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, layerNames: ['Grass', 'Dirt'] }],
+  // A layered material whose first layer follows a trim sheet.
+  [{ materialId: 'mat-l', name: 'Layers', shader: 'standard', params: {}, textures: {}, graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] }, layerSheets: ['mat-t', ''] }],
   // A graph material with an exposed parameter.
   [
     {

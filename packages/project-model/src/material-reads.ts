@@ -9,16 +9,19 @@
  * comes from, through material-function calls (into the function's graph and
  * back out through its inputs):
  * - `layerWeights`: a Height blend or Weighted mix whose weights come from a
- *   vertex colour set or vertex paint — or a Height blend with its weights
- *   unwired, which reads the paint;
- * - `vertexPaint`: a Vertex colour node on the paint set, or such an unwired
- *   Height blend;
- * - `vertexAO`: a surface output's occlusion fed from COLOR_0;
+ *   vertex colour set, vertex paint or the Layer weights node — or a Height
+ *   blend with its weights unwired, which reads the paint;
+ * - `vertexPaint`: a Vertex colour node on the paint set, the Layer weights
+ *   node (it reads the paint where a mesh stores no weights), a Vertex colour
+ *   node that is layer weights ("first") or their wetness (COLOR_1 "zero") —
+ *   both read the paint where a mesh stores none — or an unwired Height blend;
+ * - `vertexAO`: a surface output's occlusion fed from COLOR_0, trim data or
+ *   the Layer weights' occlusion;
  * - `alphaIsHeight`: a Height blend's heights fed from a texture's alpha;
  * - `alphaIsOpacity`: a surface output's opacity or alpha clip fed from a
  *   texture's alpha;
  * - `writesDecal`: a surface output drawn as a decal;
- * - `trimRows`: never (a graph has no row table).
+ * - `trimRows`: a layered material naming trim sheets (`layerSheets`).
  * Only nodes that reach an output count. Mix weights select between values
  * and are not the value: a walk for occlusion, height or opacity does not
  * follow them (the layered template's occlusion is mixed by painted weights,
@@ -71,8 +74,14 @@ function frameOf(graph: GraphData, call: Frame['call'], depth: number): Frame {
 type Source = (node: GraphNode, port: string) => boolean;
 
 const vertexColourSet = (n: GraphNode): string => String(n.data?.['set'] ?? 'COLOR_0');
-const isVertexData: Source = (n) => n.type === 'vertexColor';
-const isColour0: Source = (n) => n.type === 'vertexColor' && vertexColourSet(n) === 'COLOR_0';
+const isVertexData: Source = (n) => n.type === 'vertexColor' || n.type === 'layerWeights';
+const isColour0: Source = (n, port) => (n.type === 'vertexColor' && (vertexColourSet(n) === 'COLOR_0' || vertexColourSet(n) === 'trim')) || (n.type === 'layerWeights' && port === 'occlusion');
+/** A Vertex colour node that reads the paint where the mesh stores none: layer weights ("first") and the wetness beside them (COLOR_1 "zero"). */
+const readsPaintWhereUnstored = (n: GraphNode): boolean => {
+  const absent = String(n.data?.['absent'] ?? 'white');
+  const set = vertexColourSet(n);
+  return (set === 'COLOR_0' && absent === 'first') || (set === 'COLOR_1' && absent === 'zero');
+};
 const isAlpha: Source = (n, port) => SAMPLE_TYPES.has(n.type) && (port === 'a' || port === 'rgba');
 
 /** A Height blend with nothing wired into its weights: it reads the object's paint itself. */
@@ -157,7 +166,8 @@ export function graphDeclaration(graph: GraphData, functions?: readonly GraphDoc
   const live = liveNodes(root, functions);
   const d: Record<MaterialDeclarationKey, boolean> = { ...NONE };
   for (const { frame, node } of live) {
-    if (node.type === 'vertexColor' && vertexColourSet(node) === 'paint') d.vertexPaint = true;
+    if (node.type === 'vertexColor' && (vertexColourSet(node) === 'paint' || readsPaintWhereUnstored(node))) d.vertexPaint = true;
+    if (node.type === 'layerWeights') d.vertexPaint = true;
     if (node.type === 'heightBlend' || node.type === 'weightedMix') {
       if (unwiredWeights(frame, node)) {
         d.layerWeights = true;
@@ -202,7 +212,10 @@ export function shaderDeclaration(m: Pick<MaterialDef, 'shader' | 'params'>): Ma
 /** What a material reads and writes: its graph's (inferred) or its shader's (the table); an instance as its root draws. */
 export function materialDeclaration(material: MaterialDef, context: MaterialReadsContext = {}): MaterialDeclaration {
   const m = material.instanceOf !== undefined && context.materials !== undefined ? (resolveMaterial(context.materials, material.materialId) ?? material) : material;
-  return m.graph !== undefined ? graphDeclaration(m.graph, context.functions) : shaderDeclaration(m);
+  if (m.graph === undefined) return shaderDeclaration(m);
+  // A layered material naming trim sheets reads their rows.
+  const d = graphDeclaration(m.graph, context.functions);
+  return (m.layerSheets ?? []).some((id) => id !== '') ? { ...d, trimRows: true } : d;
 }
 
 /** Whether a material reads (or writes) one of its declarations — the check editors make before they paint or place. */

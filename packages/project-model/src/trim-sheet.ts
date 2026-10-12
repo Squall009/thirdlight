@@ -40,10 +40,11 @@
  * gutter in the image (the designer repeats their edges), not the rows'
  * padding.
  *
- * Vertex colours (COLOR_0) on trim meshes are data: R occlusion (0 open,
- * 1 fully occluded), G grime weight, B wetness; A is unused. A mesh without
- * them reads (0, 0, 0, 1): clean, dry, unoccluded. The material blends them
- * with no texture read of their own.
+ * Trim data on trim meshes: R occlusion (0 open, 1 fully occluded), G grime
+ * weight, B wetness; A is unused — generated architecture's in an attribute
+ * of its own (the renderer's `TRIM_DATA_ATTRIBUTE`), a model's in COLOR_0. A
+ * mesh without them reads (0, 0, 0, 1): clean, dry, unoccluded. The material
+ * blends them with no texture read of their own.
  *
  * Pure data rules, no I/O: the editor, the backend's padding check, the
  * renderer and the generator share them (`@thirdlight/project-model/trim-sheet`).

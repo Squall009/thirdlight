@@ -118,6 +118,8 @@ import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
 import { consoleErrors, refusedObjects } from './console-errors';
+import { expectLayeredWall, fmtLayeredWall, makeLayeredWall } from './layered-walls-scene';
+import { gpuAvailable } from './browser-env.mjs';
 import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
@@ -377,6 +379,16 @@ const STANDARD_AT = [200.3, 0, 0] as const;
 const EYE = [200, 1.2, 1.5] as const;
 const PITCH = (-12 * Math.PI) / 180;
 const FOV_Y = 50;
+/**
+ * The trim strips as the trim shader drew them on the GPU host, both renderers alike (the four rows near, the floor
+ * plain, with vertex grime, with vertex wetness): the layered surface the trim material draws as since gives these.
+ */
+const TRIM_SHADER_PIXELS = {
+  near: [[179, 62, 53], [82, 156, 61], [35, 75, 182], [168, 87, 167]],
+  plain: [179, 62, 53],
+  grime: [55, 47, 38],
+  wet: [141, 23, 19],
+} as const;
 /** Distances along the strips the patches are read at (metres from their near edge): near, middle, far. */
 const TRIM_DEPTHS = [4, 10, 30] as const;
 
@@ -817,6 +829,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const tool = await driveDecalTool(page, sceneView, query, () => menu(page, 'Edit', 'Undo'), selectTile, sceneShot, variant);
   const decalCount = decalSetup.decals - 1 + 2;
   const clippedCount = decalSetup.clipped - 1 + 1;
+  // A generated wall wearing the layered surface: two trim sheets, moss and rust, painted, and wetness (layered-walls-scene.ts).
+  const layeredWall = await makeLayeredWall(page, be!, cmd, trimId);
+  const wallReading = await expectLayeredWall(page, sceneView, layeredWall.wallId, keep, `${variant} Scene view`);
+  console.log(`layered wall ${variant} Scene view: ${fmtLayeredWall(wallReading)}`);
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
@@ -824,6 +840,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
   await expectRendererBackend(canvas, variant);
   let reading = '';
+  let seen: { near: number[][]; plain: number[]; grime: number[]; wet: number[] } | null = null;
   const judge = (img: Image): { trimClean: boolean; standardBleeds: boolean; grime: boolean; wet: boolean } => {
     const read = (corner: readonly number[], i: number, depth: number): [number, number, number] => colourAt(img, onPlay([corner[0]! + stripPatchCentre(i), 0, corner[2]! - depth], img.width, img.height));
     const trim = TRIM_DEPTHS.map((d) => [0, 1, 2, 3].map((i) => read(TRIM_AT, i, d)));
@@ -835,6 +852,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     const fmt = (c: readonly number[]): string => c.map((v) => v.toFixed(0)).join(',');
     reading = `trim ${trim.map((row, k) => `${TRIM_DEPTHS[k]} m: ${row.map(fmt).join(' ')}`).join('; ')} | standard ${standard.map((row, k) => `${TRIM_DEPTHS[k]} m: ${row.map(fmt).join(' ')}`).join('; ')} | plain ${fmt(plain)} grime ${fmt(grimed)} wet ${fmt(wet)}`;
     const near = trim[0]!;
+    seen = { near, plain, grime: grimed, wet };
     return {
       // Each patch its row's hue near, and the same colour at every distance.
       trimClean: near.every((c, i) => rowHue(TRIM_PATCHES[i]!.slot, c)) && trim.every((row) => row.every((c, i) => sameColour(c, near[i]!))),
@@ -861,6 +879,13 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       throw e;
     });
   console.log(`trim strips ${variant}: ${reading}`);
+  // The trim material draws as a layered surface with the trim shader's pixels: the readings it gave on this GPU.
+  if (gpuAvailable()) {
+    const s = seen as { near: number[][]; plain: number[]; grime: number[]; wet: number[] } | null;
+    const off = (a: readonly number[], b: readonly number[]): number => Math.max(...a.map((v, k) => Math.abs(v - b[k]!)));
+    const worst = Math.max(...TRIM_SHADER_PIXELS.near.map((c, i) => off(c, s!.near[i]!)), off(TRIM_SHADER_PIXELS.plain, s!.plain), off(TRIM_SHADER_PIXELS.grime, s!.grime), off(TRIM_SHADER_PIXELS.wet, s!.wet));
+    expect(worst, `the trim strips against the trim shader's pixels (${reading})`).toBeLessThanOrEqual(3);
+  }
   // The architecture: generated on the workers, each part its row's colour.
   let arch: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
   await expect.poll(async () => (arch = readArchitecture(decodePng(await canvas.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the Play picture of the architecture' }).toBe(true);

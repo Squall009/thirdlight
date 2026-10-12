@@ -96,7 +96,7 @@ import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LE
 import { editModeRuns, maskedDabRuns, type DabRun, type EditModeRun } from './level-editmode';
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
-import { layeredWallsNotBuilt, parseLayeredWalls, type LayeredWallsOptions } from './level-walls';
+import { parseLayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
@@ -303,8 +303,6 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   if (anyLevelMarks(marks) && kinds.includes('interior')) throw new Error('--decals, --mesh-decals, --clipped-decals and --painted mark the outdoor classes\' area, not the interior');
   const walls = parseLayeredWalls(get);
   if (walls.buildings > 0 && kinds.includes('interior')) throw new Error('--layered-walls builds on the outdoor classes\' area, not the interior');
-  const wallsRefused = layeredWallsNotBuilt(walls);
-  if (wallsRefused !== null) throw new Error(wallsRefused);
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');

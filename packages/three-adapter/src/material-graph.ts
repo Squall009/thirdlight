@@ -61,8 +61,8 @@ import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
-import { paintNode, withPaint } from './vertex-paint-draw';
-import { localLightModeOf, TEXTURE_ABSENT_VALUES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent } from '@thirdlight/runtime';
+import { buildPaintSource, paintNode, withPaint } from './vertex-paint-draw';
+import { LAYER_NOT_READ, localLightModeOf, TEXTURE_ABSENT_VALUES, trimMaxFootprint, UV_SOURCES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent, type TrimSheet } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
 type N = any;
@@ -413,6 +413,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   time: { inputs: [], outputs: [P('time', 'float')] },
   uv: { inputs: [], outputs: [P('uv', 'vec2')] },
   vertexColor: { inputs: [], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3'), P('alpha', 'float')] },
+  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float')] },
   position: { inputs: [], outputs: [P('position', 'vec3')] },
   normal: { inputs: [], outputs: [P('normal', 'vec3')] },
   viewDirection: { inputs: [], outputs: [P('direction', 'vec3')] },
@@ -708,7 +709,25 @@ export const LIGHTING_TYPES: ReadonlySet<string> = new Set(['mainLight', 'lightS
  * Compile a material graph to TSL slot nodes. Pure (no GPU): the result's
  * nodes go on a node material (`buildGraphMaterial`) or are inspected by tests.
  */
-export function compileMaterialGraph(input: { graph: MaterialGraphLike; parameters?: readonly MaterialParameterLike[] }, env: GraphCompileEnv): CompiledMaterialGraph {
+/**
+ * The vertex attribute generated architecture keeps its trim data in (the
+ * trim sheet's convention: R occlusion, G grime, B wetness), apart from
+ * COLOR_0, which a mesh's own vertex colours (layer weights, a tint) use.
+ */
+export const TRIM_DATA_ATTRIBUTE = 'tlTrimData';
+
+/**
+ * The vertex paint as a layered surface's weights: layer 1 (the base) is what
+ * the others leave, 1 − (R + G + B) clamped; R, G and B are layers 2–4.
+ */
+const paintLayers = (p: N): N => T.vec4(T.float(1).sub(T.saturate(p.x.add(p.y).add(p.z))), p.x, p.y, p.z);
+
+/**
+ * `trim`: the row table a layered material's mesh-UV layers keep their reads
+ * inside (a trim material's own; a layered material's trim sheets'). Absent:
+ * mesh-UV layers read the full mip chain.
+ */
+export function compileMaterialGraph(input: { graph: MaterialGraphLike; parameters?: readonly MaterialParameterLike[]; trim?: TrimSheet }, env: GraphCompileEnv): CompiledMaterialGraph {
   const parameters = input.parameters ?? [];
   const problems: GraphProblem[] = [];
   const textures = new Set<string>();
@@ -856,19 +875,50 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     return { t: port.t, n: constant(d ?? 0, port.t) };
   };
   const connected = (scope: Scope, nodeId: string, portId: string): boolean => scope.incoming.get(nodeId)?.has(portId) === true;
+  /** The value wired into a port when it is a Float constant (undefined: anything else). */
+  const constantOf = (scope: Scope, nodeId: string, portId: string): number | undefined => {
+    const e = scope.incoming.get(nodeId)?.get(portId);
+    const n = e === undefined ? undefined : scope.byId.get(e.from.node);
+    return n?.type === 'float' ? numOf(field(n, 'value'), 0) : undefined;
+  };
+  /**
+   * The mesh's UV0 interpolated at a covered sample (centroid): with MSAA a
+   * strip far away covers part of a pixel, and at the pixel's centre outside
+   * it v would run past its row's bounds into the neighbours. One per compile.
+   */
+  let centroidUv: N = null;
+  const meshUv = (): N => (centroidUv ??= T.varying(T.uv(0), 'vTrimUv').setInterpolation('perspective', 'centroid'));
+  /**
+   * A read at the mesh's own UVs; with the material's row table, its
+   * derivatives shortened so the longer spans at most the sheet's safe
+   * footprint (level-0 texels): the GPU then never picks a mip level deep
+   * enough for a texel to straddle two rows. Textures sample without
+   * anisotropy (the engine's default), so the footprint is the level.
+   */
+  const rowSafeRead = (t: THREE.Texture, uv: N, layer: N): N => {
+    const rows = input.trim;
+    if (rows === undefined) return sample(t, uv, 'fragment', layer);
+    const size = T.vec2(rows.size[0], rows.size[1]);
+    const dx = T.dFdx(uv);
+    const dy = T.dFdy(uv);
+    const longest = T.max(T.length(dx.mul(size)), T.length(dy.mul(size)));
+    const k = T.min(T.float(1), T.float(trimMaxFootprint(rows)).div(T.max(longest, 1e-6)));
+    return sampleGrad(t, uv, dx.mul(k), dy.mul(k), layer);
+  };
   /**
    * The values a Projected sample's mode can take, when the graph fixes them:
    * unwired (its default), or a component of a Split of a private parameter
-   * (objects cannot override it) — that component's value and, on a surface
+   * (objects cannot override it), or a constant — that component's value and, on a surface
    * that draws more layers through each slot, the values of the layers drawn
    * in that slot (`extraLayers` at L % 4). Null: anything (a public parameter,
    * any other wire). A mode that can only be 0 compiles to the plain read.
    */
   const modesOf = (scope: Scope, nodeId: string): Set<number> | null => {
-    const round = (x: number): number => Math.max(0, Math.min(2, Math.round(x)));
+    const round = (x: number): number => Math.max(0, Math.min(UV_SOURCES.geometry, Math.round(x)));
     const e = scope.incoming.get(nodeId)?.get('mode');
     if (e === undefined) return new Set([0]);
     const split = scope.byId.get(e.from.node);
+    if (split?.type === 'float') return new Set([round(numOf(field(split, 'value'), 0))]);
     const k = ['x', 'y', 'z', 'w'].indexOf(e.from.port);
     if (split?.type !== 'split' || k < 0) return null;
     const pe = scope.incoming.get(split.id)?.get('in');
@@ -1069,15 +1119,61 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           return { rgba: { t: 'vec4', n: paint }, rgb: { t: 'vec3', n: paint.xyz }, alpha: { t: 'float', n: paint.w } };
         }
         const absent = str(field(node, 'absent'), 'white');
+        const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
+        if (str(field(node, 'set'), 'COLOR_0') === 'trim') {
+          // Trim data: generated architecture's own attribute, else COLOR_0 (a model made for a trim sheet).
+          const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(TRIM_DATA_ATTRIBUTE) === true ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : builder.geometry?.hasAttribute('color') === true ? T.attribute('color', 'vec4') : missing()))();
+          return { rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, alpha: { t: 'float', n: c.w } };
+        }
         // COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
         const name = str(field(node, 'set'), 'COLOR_0') === 'COLOR_1' ? 'color_1' : 'color';
-        const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
         if (env.surface !== undefined) {
           const own = env.surface.vertexColor(name) ?? missing();
           return { rgba: { t: 'vec4', n: own }, rgb: { t: 'vec3', n: own.xyz }, alpha: { t: 'float', n: own.w } };
         }
-        const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(name) === true ? T.attribute(name, 'vec4') : missing()))();
+        const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => {
+          const own = builder.geometry?.hasAttribute(name) === true ? T.attribute(name, 'vec4') : missing();
+          // Layer weights ("first") and the wetness beside them (COLOR_1 "zero") where the mesh stores none take the
+          // vertex paint: its layers (base 1 − (R + G + B)) and its A. An unpainted mesh builds what it did.
+          if (builder.geometry?.hasAttribute('color_1') === true) return own;
+          if (absent === 'first' && name === 'color') return withPaint(own, (_own: N, paint: N) => paintLayers(paint));
+          if (absent === 'zero' && name === 'color_1') return withPaint(own, (_own: N, paint: N) => T.vec4(paint.w, 0, 0, 1));
+          return own;
+        })();
         return { rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, alpha: { t: 'float', n: c.w } };
+      }
+      case 'layerWeights': {
+        if (env.surface !== undefined) {
+          // A terrain's per-pixel weights (and its wetness where it keeps one); no vertex occlusion.
+          const w = env.surface.vertexColor('color') ?? T.vec4(1, 0, 0, 0);
+          const wet = env.surface.vertexColor('color_1');
+          return { weights: { t: 'vec4', n: w }, wetness: { t: 'float', n: wet !== null ? wet.x : T.float(0) }, occlusion: { t: 'float', n: T.float(0) } };
+        }
+        type B = { geometry?: THREE.BufferGeometry };
+        const has = (b: B, attr: string): boolean => b.geometry?.hasAttribute(attr) === true;
+        // Stored weights: a painted block layer's COLOR_0 beside its wetness in COLOR_1.
+        const stored = (b: B): boolean => has(b, 'color') && has(b, 'color_1');
+        // Generated architecture's trim data (R occlusion, G grime, B wetness).
+        const trimData = (b: B): N | null => (has(b, TRIM_DATA_ATTRIBUTE) ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : null);
+        const weights = T.Fn((b: B) => {
+          if (stored(b)) return T.attribute('color', 'vec4');
+          const data = trimData(b);
+          const painted = buildPaintSource(b) !== null;
+          // A mesh's own vertex colours, unpainted, are its weights.
+          if (!painted && has(b, 'color')) return T.attribute('color', 'vec4');
+          if (data === null && !painted) return T.vec4(1, 0, 0, 0);
+          const p = painted ? paintNode() : T.vec4(0, 0, 0, 0);
+          return paintLayers(data === null ? p : T.vec4(T.min(p.x.add(data.y), 1), p.y, p.z, p.w));
+        })();
+        const wetness = T.Fn((b: B) => {
+          if (stored(b)) return T.attribute('color_1', 'vec4').x;
+          const data = trimData(b);
+          const painted = buildPaintSource(b) !== null;
+          if (!painted) return data === null ? T.float(0) : data.z;
+          return data === null ? paintNode().w : T.max(paintNode().w, data.z);
+        })();
+        const occlusion = T.Fn((b: B) => trimData(b)?.x ?? T.float(0))();
+        return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion } };
       }
       case 'position': {
         const space = str(field(node, 'space'), 'world');
@@ -1280,8 +1376,10 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       }
       case 'projectedSample': {
         const normalMap = str(field(node, 'decode'), 'color') === 'normal';
-        const t = textureFor(scope, node, inp, !normalMap, normalMap ? 'a flat normal' : undefined);
         const outputs = (c: N, normal: N): Record<string, Val> => ({ rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, r: { t: 'float', n: c.x }, g: { t: 'float', n: c.y }, b: { t: 'float', n: c.z }, a: { t: 'float', n: c.w }, normal: { t: 'vec3', n: normal } });
+        // A layer the material does not use (or a group with no texture there): no read, what it gives without one.
+        if (constantOf(scope, node.id, 'layer') === LAYER_NOT_READ) return outputs(absentValue(node), T.vec3(0, 0, 1));
+        const t = textureFor(scope, node, inp, !normalMap, normalMap ? 'a flat normal' : undefined);
         if (t === null) return outputs(absentValue(node), T.vec3(0, 0, 1));
         // As the Normal map node: decode, scale xy by the strength; read in the mesh's own frame, the green turned
         // around where that frame comes from its texture coordinates (normalGreenSign).
@@ -1293,12 +1391,18 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const decode = (c: N): N => decodeIn(c, true);
         const layer = v(inp['layer']);
         const scale = v(inp['scale']);
+        const modes = modesOf(scope, node.id);
+        // The mesh's own UVs as made (trim strips, a model's unwrap): never tiled, inside the sheet's rows.
+        const meshUvs = modes !== null && modes.size === 1 && modes.has(UV_SOURCES.geometry);
         if (stage === 'vertex') {
-          const c = sample(t, v(inp['uv']).div(scale), stage, layer);
+          const c = sample(t, meshUvs ? v(inp['uv']) : v(inp['uv']).div(scale), stage, layer);
+          return outputs(c, decode(c));
+        }
+        if (meshUvs) {
+          const c = rowSafeRead(t, connected(scope, node.id, 'uv') || env.surface !== undefined ? v(inp['uv']) : meshUv(), layer);
           return outputs(c, decode(c));
         }
         // Only the top read where the mode can only be 0 (the cost of a plain read); no biplanar branch where it is never 2.
-        const modes = modesOf(scope, node.id);
         if (modes !== null && modes.size === 1 && modes.has(0)) {
           const c = sample(t, v(inp['uv']).div(scale), stage, layer);
           return outputs(c, decode(c));
@@ -1707,7 +1811,7 @@ function compileView(g: MaterialGraphLike): unknown {
  * wires — moving a node changes nothing), the parameters, and every material
  * function it reaches (with their interface order, which is by position).
  */
-export function materialGraphCanonical(def: { graph: MaterialGraphLike; parameters?: readonly MaterialParameterLike[] }, fn: (id: string) => MaterialFunctionLike | null): string {
+export function materialGraphCanonical(def: { graph: MaterialGraphLike; parameters?: readonly MaterialParameterLike[]; trim?: TrimSheet }, fn: (id: string) => MaterialFunctionLike | null): string {
   const reached = new Map<string, unknown>();
   const walk = (g: MaterialGraphLike, depth: number): void => {
     if (depth > MAX_CALL_DEPTH) return;
@@ -1726,7 +1830,8 @@ export function materialGraphCanonical(def: { graph: MaterialGraphLike; paramete
     }
   };
   walk(def.graph, 0);
-  return canonical({ graph: compileView(def.graph), parameters: def.parameters ?? [], functions: Object.fromEntries(reached) });
+  // The row table only where there is one, so every other graph keeps its text (and its digest).
+  return canonical({ graph: compileView(def.graph), parameters: def.parameters ?? [], functions: Object.fromEntries(reached), ...(def.trim !== undefined ? { trim: def.trim } : {}) });
 }
 
 /** A short digest of a canonical text (FNV-1a, two 32-bit lanes, hex). */

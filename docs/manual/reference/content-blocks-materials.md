@@ -162,6 +162,7 @@ Project materials.
 | `materials[].decal.sheet` | material id |  |  | **Sheet.** The trim material whose sheet holds the cell. (required) |
 | `materials[].decal.cell` | string, id, 1–64 chars |  |  | **Cell.** The cell's name in the sheet's decal cells. (required; format id) |
 | `materials[].layerNames` | list of string, ≤ 64 chars, ≤ 256 items |  |  | **Layer names.** A layered material's names for its texture-array layers, as the layer palette shows them (index i = layer i; "" or past the end: the layer's texture's name). At most 256. |
+| `materials[].layerSheets` | list of string, ≤ 64 chars, ≤ 256 items |  |  | **Trim sheets.** Per layer, the trim material whose rows the layer follows ("": none). At most 256. |
 
 <a id="content-animators"></a>
 ## animators — Animator controllers

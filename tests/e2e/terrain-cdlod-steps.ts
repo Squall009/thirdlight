@@ -1574,18 +1574,18 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   await tiling.blur();
   const tilingParam = async (): Promise<unknown> => ((await materials(be!)).find((m) => m.materialId === 'mat-terrain')?.parameters as { key: string; extraLayers?: number[] }[] | undefined)?.find((x) => x.key === 'layerTiling')?.extraLayers ?? null;
   await expect.poll(tilingParam, { timeout: 15_000 }).toEqual([2]);
-  // Layer 4 (index 3) projected by slope; then biplanar, whose cost the table states.
+  // Layer 4 (index 3) world-projected (the plane it faces most: by slope on the ground); then biplanar, whose cost the table states.
   const projectionParam = async (): Promise<unknown> => ((await materials(be!)).find((m) => m.materialId === 'mat-terrain')?.parameters ?? []).find((x) => x.key === 'layerProjection')?.default ?? null;
   await expect(doc.getByLabel('texture reads')).toHaveText('Texture reads a pixel: 12.');
-  await doc.getByLabel('layer 4 projection', { exact: true }).selectOption('by slope');
+  await doc.getByLabel('layer 4 UV source', { exact: true }).selectOption('world');
   await expect.poll(projectionParam, { timeout: 15_000 }).toEqual([0, 0, 0, 1]);
-  await doc.getByLabel('layer 4 projection', { exact: true }).selectOption('biplanar');
+  await doc.getByLabel('layer 4 UV source', { exact: true }).selectOption('biplanar');
   await expect.poll(projectionParam, { timeout: 15_000 }).toEqual([0, 0, 0, 2]);
   await expect(doc.getByLabel('texture reads')).toContainText('within 60 m, 3 more for it (1 biplanar layer: up to 15)');
   await closeEditor(page);
 }
 
-/** Layer 3's projection (0 top, 1 by slope, 2 biplanar) and tiling (m) on the terrain's material. */
+/** Layer 3's UV source (0 top, 1 world — by slope on the ground —, 2 biplanar) and tiling (m) on the terrain's material. */
 export async function setLayer3(mode: number, tiling: number): Promise<void> {
   const m = (await materials(be!)).find((x) => x.materialId === 'mat-terrain')!;
   const parameters = (m.parameters ?? []).map((p) => {

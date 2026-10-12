@@ -60,9 +60,9 @@ submenu, an empty graph (a **PBR output**) or a
 built-in template: *standard*, *foliage wind*, *atlas surface*, *unlit*
 or *water* (the shader types as graphs, with their defaults), *river
 (spline water)* (flow along a spline's water mesh, foam at its banks and in
-the shallows, soft shores), or *height-blended layers (painted terrain)* — four layers from texture arrays,
-weighted by vertex colours (a painted block layer's paint, or a mesh's own:
-trim sheets blending clean → dirt → moss). Any shader
+the shallows, soft shores), or *height-blended layers (painted terrain)* — the
+[layered surface](#layered-surface): four layers from texture arrays,
+blended by stored weights or vertex paint. Any shader
 material's **Customize (convert to graph)** rebuilds it as a graph that looks the same:
 its values and textures wired in, and for foliage, atlas surface and water their wind,
 UV period / macro normal and water values as public exposed parameters
@@ -280,8 +280,14 @@ interpolates the coordinates at the centroid (a far strip covering part of a
 multisampled pixel never reads past its row). Textures are sampled without
 anisotropy.
 
+A trim material draws as a [layered surface](#layered-surface) with one
+layer — the sheet at the mesh's UVs, inside its rows — and a layer of grime
+colour: the same three reads and the same pixels as before.
+
 The mesh's COLOR_0 is data: **R occlusion** (0 open), **G grime**, **B
-wetness** (a mesh without it is clean and dry). The material blends them
+wetness** (a mesh without it is clean and dry). On a trim material the
+vertex paint keeps the meaning it was painted with: its **G** adds to the
+grime and its **B** to the wetness. The material blends them
 with no texture read of its own: grime takes the **grimeColor** and roughens
 (crevices of the ORM's occlusion first; **grime** scales it), wetness — the
 vertex's or the material's **wetness**, the larger, plus the scene's —
@@ -303,3 +309,50 @@ MCP: `setMaterial {material: {shader: "trim", textures: {map, normalMap,
 ormMap}, trim: {size, texelDensity, padding, rows: [{slot, top, bottom,
 texelDensity?, tileV?}]}}}`; `POST …/content/textures/trim-check {texture,
 trim}` is the padding check.
+
+## Layered surface
+
+One material layout for terrain, block ground and walls, generated
+architecture, splines and painted props: the **Layered surface** default
+(Create → Material) and the *height-blended layers* template are the same
+graph. It blends up to four layers (a terrain draws more) by their heights;
+each layer is a texture set — colour with the **height in alpha**, normal
+map, ORM — with its own settings in the material's layer table (and each
+edit mode's **Layer settings…**):
+
+- **UV source**: **top** (the mesh's metre UVs: terrain and block ground,
+  seen from above), **world** (the world plane the surface faces most: from
+  above on the ground, from the side on walls and cliffs — tiling layers
+  such as moss and rust on buildings; it stays put on what stands still, a
+  moving prop's world layers slide), **biplanar** (top and side blended by
+  the slope, two reads near the camera), or **mesh UVs** (the mesh's own
+  UVs as made: a trim sheet's strips on generated walls, a model's unwrap;
+  no tiling);
+- **trim sheet**: the trim material a layer follows — picking one puts the
+  sheet's textures in the layer and sets mesh UVs; the layer then reads
+  inside the sheet's rows (no bleeding at a distance), and generated walls
+  wearing the material lay their strips on those rows. Every sheet a
+  material names shares one row table: sheets whose rows differ are a
+  problem that lists the rows;
+- tiling (metres per repeat), normal strength, height contrast and offset.
+
+**What blends them**: a terrain's and a painted block layer's stored
+weights; on anything else the **vertex paint** — layer 1 is the base (what
+the others leave, 1 − (R + G + B)), **R**, **G** and **B** are layers 2–4,
+and **A** is the wetness (an unpainted model's own vertex colours are its
+weights). Generated architecture's own vertex data adds its
+grime to layer 2 and its wetness, and its baked corner shading darkens the
+indirect light (**occlusion**). Wetness — painted, the **wetness**
+parameter or the scene's — pools in the low parts first, darkens and
+smooths the surface and flattens the normal maps.
+
+**Cost**: three texture reads per layer used. A material with a mesh-UV
+layer draws only up to its last filled colour slot (two trim sheets: six
+reads), and its trim layers and its tiling layers each get arrays of their
+own, so a 512² moss is never stored at a 1024² sheet's size. A terrain or a
+material of tiling layers only reads all four. The layer table states the
+reads.
+
+MCP: the material is a graph material (`layerSheets: [<trim material id>,
+…]` per layer, `""` for none); paint with `paintVertices` (`channel` 0–3:
+R, G, B, A).

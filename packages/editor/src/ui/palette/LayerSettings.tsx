@@ -1,7 +1,8 @@
 /**
- * A layered material's per-layer settings (the height-blended layers
- * template's tiling in metres, normal strength, height contrast and offset,
- * projection), edited two ways from one set of rules (`layer-palette.ts`):
+ * A layered material's per-layer settings (the layered surface's tiling in
+ * metres, normal strength, height contrast and offset, UV source, and the
+ * trim sheet a layer follows), edited two ways from one set of rules
+ * (`layer-palette.ts`):
  *
  * - `LayerSettings`: the material document's table — one row per setting,
  *   one column per layer. Layers 1-4 are the components of the setting's
@@ -20,10 +21,11 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_LAYER_NAME_MAX } from '@thirdlight/project-model/limits';
+import { layeredDrawnLayers } from '@thirdlight/project-model/texture-slots';
 import { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/runtime';
 
-import { layerSetting, layerSettingValue, withLayerName, withLayerSetting } from '../../session/layer-palette';
-import { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_SETTINGS, TEMPLATE_LAYERS, TEMPLATE_READS } from '../../session/material-graph';
+import { layerSetting, layerSettingValue, layerSheet, withLayerName, withLayerSetting, withLayerSheet } from '../../session/layer-palette';
+import { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_READS, LAYER_SETTINGS, TEMPLATE_LAYERS, UV_SOURCES } from '../../session/material-graph';
 import { useSettledEdits } from '../brush/settle';
 import { SliderField } from '../brush/SliderField';
 import { Segmented } from '../editmode/controls';
@@ -39,7 +41,29 @@ function layerParams(m: MaterialDef): { setting: Setting; param: MaterialParamet
   });
 }
 
-export function LayerSettings({ material, onSave }: { material: MaterialDef; onSave: (m: MaterialDef) => void }): JSX.Element | null {
+/** The trim sheet picker's choices: none, then the project's trim materials by name. */
+function SheetSelect({ material, layer, sheets, aria, onSave }: { material: MaterialDef; layer: number; sheets: readonly MaterialDef[]; aria: string; onSave: (m: MaterialDef) => void }): JSX.Element {
+  const own = layerSheet(material, layer);
+  return (
+    <select
+      aria-label={aria}
+      title="The trim sheet the layer follows: it reads the mesh's own UVs (generated walls lay their strips on the sheet's rows) and wears the sheet's textures"
+      value={own ?? ''}
+      onChange={(e) => onSave(withLayerSheet(material, layer, sheets.find((x) => x.materialId === e.target.value) ?? null))}
+    >
+      <option value="">none</option>
+      {own !== null && !sheets.some((x) => x.materialId === own) && <option value={own}>{own} (not a trim sheet)</option>}
+      {sheets.map((x) => (
+        <option key={x.materialId} value={x.materialId}>
+          {x.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** `sheets`: the project's trim sheets a layer may follow (none: no trim sheet row). */
+export function LayerSettings({ material, sheets = [], onSave }: { material: MaterialDef; sheets?: readonly MaterialDef[]; onSave: (m: MaterialDef) => void }): JSX.Element | null {
   // Cells committed here that the project has not shown back yet: a save starts from the material as
   // shown plus these, so cells committed in quick succession all count.
   const pending = useRef(new Map<string, { key: string; layer: number; value: number }>());
@@ -108,6 +132,16 @@ export function LayerSettings({ material, onSave }: { material: MaterialDef; onS
               ))}
             </tr>
           ))}
+          {sheets.length > 0 && rows.some((r) => r.setting.key === 'layerProjection') && (
+            <tr>
+              <th scope="row" title="The trim sheet each layer follows (its rows and textures)">
+                trim sheet
+              </th>
+              {layers.map((i) => (
+                <td key={i}>{i < TEMPLATE_LAYERS ? <SheetSelect material={material} layer={i} sheets={sheets} aria={`layer ${i + 1} trim sheet`} onSave={onSave} /> : null}</td>
+              ))}
+            </tr>
+          )}
         </tbody>
       </table>
       <ReadCost material={material} columns={columns} />
@@ -125,18 +159,21 @@ export function LayerSettings({ material, onSave }: { material: MaterialDef; onS
   );
 }
 
-/** The texture reads a pixel costs: the template's, and what its biplanar layers add near the camera. */
+/** The texture reads a pixel costs: three for each layer drawn (a material with a trim layer draws only those it uses), and what its biplanar layers add near the camera. */
 function ReadCost({ material, columns }: { material: MaterialDef; columns: number }): JSX.Element | null {
   const projection = material.parameters?.find((p) => p.key === 'layerProjection' && p.type === 'vec4' && Array.isArray(p.default));
   if (projection === undefined) return null;
-  const biplanar = Array.from({ length: columns }, (_, i) => layerValue(projection, i, 0)).filter((v) => v === 2).length;
+  const drawn = layeredDrawnLayers(material);
+  const reads = LAYER_READS * drawn;
+  const biplanar = Array.from({ length: Math.min(columns, drawn < TEMPLATE_LAYERS ? drawn : columns) }, (_, i) => layerValue(projection, i, 0)).filter((v) => v === 2).length;
   const near = material.parameters?.find((p) => p.key === 'biplanarDistance')?.default;
   const metres = typeof near === 'number' ? near : BIPLANAR_DISTANCE;
+  const used = drawn < TEMPLATE_LAYERS ? ` (${drawn} layer${drawn === 1 ? '' : 's'} in use)` : '';
   return (
     <p className="tl-inspector__hint" aria-label="texture reads">
       {biplanar === 0
-        ? `Texture reads a pixel: ${TEMPLATE_READS}.`
-        : `Texture reads a pixel: ${TEMPLATE_READS}; where a biplanar layer shows both planes within ${metres} m, ${BIPLANAR_EXTRA_READS} more for it (${biplanar} biplanar layer${biplanar === 1 ? '' : 's'}: up to ${TEMPLATE_READS + BIPLANAR_EXTRA_READS * Math.min(biplanar, TEMPLATE_LAYERS)}).`}
+        ? `Texture reads a pixel: ${reads}${used}.`
+        : `Texture reads a pixel: ${reads}${used}; where a biplanar layer shows both planes within ${metres} m, ${BIPLANAR_EXTRA_READS} more for it (${biplanar} biplanar layer${biplanar === 1 ? '' : 's'}: up to ${reads + BIPLANAR_EXTRA_READS * Math.min(biplanar, TEMPLATE_LAYERS)}).`}
     </p>
   );
 }
@@ -172,14 +209,14 @@ const FIELD_RANGES: Readonly<Record<(typeof LAYER_SETTINGS)[number]['key'], { mi
   layerNormalStrength: { min: 0, max: 2, step: 0.05, limit: [-10, 10] },
   layerContrast: { min: 0, max: 4, step: 0.05, limit: [-100, 100] },
   layerOffset: { min: -1, max: 1, step: 0.01, limit: [-100, 100] },
-  layerProjection: { min: 0, max: 2, step: 1 },
+  layerProjection: { min: 0, max: 3, step: 1 },
 };
 
 /**
  * One layer's settings and palette name. Values show at once and are stored
  * as one `setMaterial` once the control rests (`useSettledEdits`).
  */
-export function LayerFields({ material, layer, textureName, onSave }: { material: MaterialDef; layer: number; textureName: string | null; onSave: (m: MaterialDef) => void }): JSX.Element {
+export function LayerFields({ material, layer, textureName, sheets = [], onSave }: { material: MaterialDef; layer: number; textureName: string | null; sheets?: readonly MaterialDef[]; onSave: (m: MaterialDef) => void }): JSX.Element {
   const edits = useSettledEdits(material, (m) => onSave(m));
   const shownMaterial = edits.value;
   // The name as typed, stored when the field is left.
@@ -205,6 +242,12 @@ export function LayerFields({ material, layer, textureName, onSave }: { material
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
       </label>
+      {sheets.length > 0 && layer < TEMPLATE_LAYERS && (
+        <label className="tl-slider tl-slider--text" title="The trim sheet the layer follows: it reads the mesh's own UVs (generated walls lay their strips on the sheet's rows) and wears the sheet's textures">
+          <span className="tl-slider__label">Trim sheet</span>
+          <SheetSelect material={shownMaterial} layer={layer} sheets={sheets} aria={`layer ${layer + 1} trim sheet`} onSave={(m) => edits.edit('sheet', 'Trim sheet', () => m, true)} />
+        </label>
+      )}
       {LAYER_SETTINGS.map((s) => {
         const shown = layerSetting(shownMaterial, s.key, layer);
         if (shown === null) return null;
@@ -212,13 +255,15 @@ export function LayerFields({ material, layer, textureName, onSave }: { material
         if ('options' in s) {
           return (
             <div key={s.key} className="tl-slider" title={s.title}>
-              <span className="tl-slider__label">Projection</span>
-              <Segmented small aria={`layer ${layer + 1} projection`} value={value} options={s.options.map((o) => ({ id: o.value, label: o.label }))} onChange={(v) => set(s.key, v, true)} />
+              <span className="tl-slider__label">UV source</span>
+              <Segmented small aria={`layer ${layer + 1} UV source`} value={value} options={s.options.map((o) => ({ id: o.value, label: o.label }))} onChange={(v) => set(s.key, v, true)} />
             </div>
           );
         }
         const r = FIELD_RANGES[s.key];
         const label = s.label.replace(/ \(m\)$/, '');
+        // A mesh-UV layer keeps the mesh's own UVs: no tiling to set.
+        if (s.key === 'layerTiling' && layerSetting(shownMaterial, 'layerProjection', layer) === UV_SOURCES.geometry) return null;
         return <SliderField key={s.key} label={label.charAt(0).toUpperCase() + label.slice(1)} aria={`layer ${layer + 1} ${s.label}`} value={value} min={r.min} max={r.max} step={r.step} {...(r.unit !== undefined ? { unit: r.unit } : {})} {...(r.log === true ? { log: true } : {})} {...(r.limit !== undefined ? { limit: r.limit } : {})} hint={s.title} onChange={(v) => set(s.key, v)} />;
       })}
     </div>

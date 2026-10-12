@@ -53,17 +53,21 @@ describe('height-blended layers', () => {
     validateMaterials([m], '', errors, materialGraphContext(m.parameters, undefined));
     expect(errors).toEqual([]);
     expect(canonicalMaterials(canonicalMaterials([m]))).toEqual(canonicalMaterials([m]));
-    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerProjection:vec4', 'biplanarDistance:float', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float']);
+    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerProjection:vec4', 'biplanarDistance:float', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float', 'occlusion:float']);
     // Per-layer settings: one vec4 each, every layer filled alike (the editor's layer table edits the components).
     for (const s of LAYER_SETTINGS) expect(m.parameters!.find((p) => p.key === s.key)!.default).toEqual([s.fill, s.fill, s.fill, s.fill]);
     const types = m.graph!.nodes.map((n) => n.type);
-    for (const t of ['heightBlend', 'weightedMix', 'vertexColor', 'projectedSample']) expect(types).toContain(t);
+    for (const t of ['heightBlend', 'weightedMix', 'layerWeights', 'projectedSample']) expect(types).toContain(t);
     // Twelve texture reads (three arrays × four layers), as with one shared value: per-layer values are uniforms (a
     // biplanar layer reads its second plane only near the camera, inside a branch).
     expect(types.filter((t) => t === 'projectedSample').length).toBe(12);
     // Each layer reads at its own tiling and projection (UV0 at the top); the blend takes the contrast and offset; metres, not cells.
     const edgeInto = (node: string, port: string) => m.graph!.edges.find((e) => e.to.node === node && e.to.port === port);
     const into = (node: string, port: string): string | undefined => edgeInto(node, port)?.from.node;
+    // The weights, the wetness and the vertex occlusion come from the Layer weights node (stored weights or paint, per mesh).
+    expect(into('heightBlend', 'weights')).toBe('layerWeights');
+    expect(into('wet', 'a')).toBe('layerWeights');
+    expect(into('vertexOcclusion', 'a')).toBe('layerWeights');
     expect(new Set(['albedo1', 'albedo2', 'albedo3', 'albedo4'].map((id) => edgeInto(id, 'scale')?.from.port)).size).toBe(4);
     expect(edgeInto('normal2', 'scale')).toEqual({ ...edgeInto('albedo2', 'scale')!, id: edgeInto('normal2', 'scale')!.id, to: { node: 'normal2', port: 'scale' } });
     for (const i of [1, 2, 3, 4]) for (const id of [`albedo${i}`, `normal${i}`, `orm${i}`]) {

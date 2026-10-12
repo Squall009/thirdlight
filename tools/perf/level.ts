@@ -94,7 +94,7 @@ import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } fro
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
 import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, COPY_STROKE_RADIUS, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINT_STROKE_RADIUS, PAINTED_MATERIAL, type LevelMarks, type LevelMarksOptions } from './level-marks';
-import { layeredWalls, layeredWallsNotBuilt, wallCounts, wallEntities, wallLayerTextures, wallTrimSheet, NO_LAYERED_WALLS, WALL_LAYER_SETS, WALL_MATERIAL, type LayeredWalls, type LayeredWallsOptions } from './level-walls';
+import { layeredWallMaterial, layeredWalls, wallCounts, wallEntities, wallLayerIds, wallLayerTextures, wallSheetMaterial, wallStrokes, wallTrimSheet, NO_LAYERED_WALLS, WALL_LAYER_SETS, WALL_MATERIAL, type LayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -853,18 +853,38 @@ async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string
   }
 }
 
-/** The wall material and its textures: refused first when the variant waits for an engine part (level-walls.ts). */
+/** The wall material and its textures: the trim shader on one sheet, or the layered surface over the variant's layers (level-walls.ts). */
 async function publishWalls(be: PerfBackend, projectId: string, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, seed: number, w: LayeredWalls): Promise<void> {
-  const refused = layeredWallsNotBuilt(w.options);
-  if (refused !== null) throw new Error(refused);
-  // One layer: today's trim shader on the base sheet.
-  const [base] = WALL_LAYER_SETS[1].layers;
-  const t = wallLayerTextures(base!, seed);
-  const ids = { map: `level-walls-${base!.id}-albedo`, normalMap: `level-walls-${base!.id}-normal`, ormMap: `level-walls-${base!.id}-orm` };
-  await publishFileVia(be, projectId, cmd, { assetId: ids.map, kind: 'texture', displayName: ids.map, bytes: t.albedo });
-  await publishFileVia(be, projectId, cmd, { assetId: ids.normalMap, kind: 'texture', displayName: ids.normalMap, bytes: t.normal });
-  await publishFileVia(be, projectId, cmd, { assetId: ids.ormMap, kind: 'texture', displayName: ids.ormMap, bytes: t.orm });
-  await cmd('setMaterial', { material: { materialId: WALL_MATERIAL, name: 'Level walls', shader: 'trim', params: {}, textures: ids, trim: wallTrimSheet() } });
+  const layers = WALL_LAYER_SETS[w.options.layers].layers;
+  for (const layer of layers) {
+    const t = wallLayerTextures(layer, seed);
+    const ids = wallLayerIds(layer);
+    await publishFileVia(be, projectId, cmd, { assetId: ids.map, kind: 'texture', displayName: ids.map, bytes: t.albedo });
+    await publishFileVia(be, projectId, cmd, { assetId: ids.normalMap, kind: 'texture', displayName: ids.normalMap, bytes: t.normal });
+    await publishFileVia(be, projectId, cmd, { assetId: ids.ormMap, kind: 'texture', displayName: ids.ormMap, bytes: t.orm });
+  }
+  // One layer: the trim shader on the base sheet.
+  if (w.options.layers === 1) {
+    await cmd('setMaterial', { material: { materialId: WALL_MATERIAL, name: 'Level walls', shader: 'trim', params: {}, textures: wallLayerIds(layers[0]!), trim: wallTrimSheet() } });
+    return;
+  }
+  // The sheets the trim layers follow, then the layered surface over them all.
+  for (const layer of layers) if (layer.kind === 'trim') await cmd('setMaterial', { material: { materialId: wallSheetMaterial(layer), name: `Level walls ${layer.id}`, shader: 'trim', params: {}, textures: wallLayerIds(layer), trim: wallTrimSheet() } });
+  await cmd('setMaterial', { material: layeredWallMaterial(layers) });
+}
+
+/** The strokes the walls' layers blend by, one command each (level-walls.ts `wallStrokes`). */
+async function paintWalls(p: ReturnType<PerfBackend['project']>, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, w: LayeredWalls, log: (s: string) => void): Promise<void> {
+  if (w.options.layers === 1) return;
+  const all = (await p.query('queryEntities', { limit: 2000, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
+  const walls = all.find((e) => (e.components['architecture'] as { buildings?: unknown[] } | undefined)?.buildings !== undefined);
+  if (walls === undefined) throw new Error('level: the walls object was not created');
+  const position = (walls.components['transform'] as { position?: [number, number, number] } | undefined)?.position ?? [0, 0, 0];
+  const strokes = wallStrokes(w, position);
+  const wallsId = walls.id;
+  const t = performance.now();
+  for (const s of strokes) await cmd('paintVertices', { entityId: wallsId, ...s });
+  log(`level: ${strokes.length} wall paint strokes in ${Math.round(performance.now() - t)} ms`);
 }
 
 export async function buildLevel(be: PerfBackend, projectId: string, plan: LevelPlan, log: (s: string) => void = () => undefined): Promise<LevelBuild> {
@@ -1023,6 +1043,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     log(`level ${plan.kind}: scatter baked into ${baked?.scatter?.length ?? 0} tiles in ${Math.round(performance.now() - ts)} ms (the command's round trip)`);
   }
   if (plan.marks !== undefined) await paintMarks(p, cmd, plan, plan.marks, log);
+  if (plan.walls !== undefined) await paintWalls(p, cmd, plan.walls, log);
   log(`level ${plan.kind}: ${JSON.stringify(plan.counts)}`);
 
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position, rotation: plan.camera.rotation } });

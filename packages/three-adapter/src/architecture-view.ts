@@ -13,7 +13,8 @@
  *   left out) where they differ; kit copies as instance sets of their models.
  *   The meshes stand still and cast into the cached static shadow map.
  *   They wear the object's materials for their slots (`architecture` or
- *   `*`): the trim material reads the generator's COLOR_0 (baked AO). Kit
+ *   `*`): the trim material reads the generator's trim data (baked AO,
+ *   wall paint's grime and wetness: `TRIM_DATA_ATTRIBUTE`). Kit
  *   copies wear their models' own.
  * - An export that ships meshes names its blob (`baked`): its chunks are
  *   drawn as they are, nothing is generated.
@@ -55,6 +56,7 @@ import {
   type CutawayZone,
 } from '@thirdlight/runtime';
 
+import { TRIM_DATA_ATTRIBUTE } from './material-graph';
 import { answerArchitectureJob, type ArchitectureJobReply, type ArchitectureJobRequest } from './architecture-worker';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { splitByCutaway } from './block-cutaway-view';
@@ -1129,7 +1131,7 @@ export class ArchitectureView {
         position: new THREE.BufferAttribute(l.positions, 3),
         normal: new THREE.BufferAttribute(l.normals, 3),
         uv: new THREE.BufferAttribute(l.uvs, 2),
-        color: new THREE.BufferAttribute(l.colors, 4, true),
+        [TRIM_DATA_ATTRIBUTE]: new THREE.BufferAttribute(l.colors, 4, true),
       };
       // Its vertices' path paint (positions are in the object's frame), when some reaches them.
       const painted = paint === null ? null : pathPaintAttribute(paint, l.positions, l.normals);

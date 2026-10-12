@@ -12,7 +12,8 @@
     "./trim-sheet": "./src/trim-sheet.ts",
     "./material-reads": "./src/material-reads.ts",
     "./meshopt": "./src/meshopt.ts",
-    "./decal-clip-glb": "./src/decal-clip-glb.ts"
+    "./decal-clip-glb": "./src/decal-clip-glb.ts",
+    "./layered-surface": "./src/layered-surface.ts"
   },
   "sideEffects": false
 }

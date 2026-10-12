@@ -15,8 +15,8 @@ Every graph kind the engine registers, with its node catalogue.
 | [Visual script](graph-behavior-1.md) | `behavior` | 433 | behavior |
 | [Script function](graph-behavior-function-1.md) | `behavior-function` | 420 | behavior |
 | [Shared script function](graph-behavior-library-1.md) | `behavior-library` | 419 | standalone |
-| [Material graph](graph-material.md) | `material` | 73 | material |
-| [Material function](graph-material-function.md) | `material-function` | 69 | standalone |
+| [Material graph](graph-material.md) | `material` | 74 | material |
+| [Material function](graph-material-function.md) | `material-function` | 70 | standalone |
 | [Particle system](graph-effect.md) | `effect` | 65 | effect |
 | [Dialogue](graph-dialogue.md) | `dialogue` | 11 | dialogue |
 | [Architecture style](graph-architecture-style.md) | `architecture-style` | 20 | standalone |

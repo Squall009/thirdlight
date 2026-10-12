@@ -224,9 +224,11 @@ export const NODE_SIDE_ALLOWED = {
     // The shared PNG decoder (pure; texture sources for KTX2 encoding and
     // packing), the model's limits and the trim-sheet rules (a sheet image's
     // padding checked against its row table) and the texture-slot rules (an
-    // empty slot's constant layer read from its layer-list entry) are the
-    // project-model values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots'] },
+    // empty slot's constant layer read from its layer-list entry, a layered
+    // material drawn with only the layers it uses) and the layered surface's
+    // row rules (its trim sheets share one table) are the project-model
+    // values the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
@@ -347,7 +349,9 @@ export const NODE_SIDE_ALLOWED = {
     // trim table editor checks and splits rows as the model does. What a
     // material reads (the shader table and the graph inference): the editors
     // that paint warn of a material that would draw nothing, as one check.
-    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads'] },
+    // The layered surface (its template and graph builder): the editor makes
+    // the very material the renderer draws trim materials as.
+    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads', 'layered-surface'] },
   },
 };
 

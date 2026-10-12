@@ -12,8 +12,11 @@
  *   the built-in templates (every shader type, pixel-tested against
  *   the shader rendering).
  */
-import type { GraphContext, GraphData, GraphDocument, GraphEdge, GraphKindDef, GraphNode, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
-import { WET_ALBEDO_SCALE, WET_ROUGHNESS } from '@thirdlight/project-model/limits';
+import type { GraphContext, GraphData, GraphDocument, GraphKindDef, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
+import { GraphBuilder, layeredMaterial, type GraphOut } from '@thirdlight/project-model/layered-surface';
+
+// The layered surface is project-model's (the renderer draws trim materials as one): the editor's names for it.
+export { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_READS, LAYER_SETTINGS, LAYERED_TEXTURES, layeredMaterial, TEMPLATE_LAYERS, TEMPLATE_READS, UV_SOURCES } from '@thirdlight/project-model/layered-surface';
 
 /** The port type a parameter feeds into a graph (a colour is a vec3) — project-model `materialParameterPortType`. */
 export function parameterPortType(type: string): string | null {
@@ -75,80 +78,7 @@ export function parameterDefault(type: MaterialParameter['type']): MaterialParam
 export const CONVERTIBLE_SHADERS: readonly string[] = ['standard', 'foliage', 'kit', 'unlit', 'water'];
 
 type Data = Record<string, number | string | boolean | number[]>;
-type Out = readonly [string, string];
-
-/** Builds a graph node by node; `layout` places the nodes in columns by their distance to the outputs. */
-class GraphBuilder {
-  readonly nodes: GraphNode[] = [];
-  readonly edges: GraphEdge[] = [];
-  readonly parameters: MaterialParameter[];
-  private readonly taken: Set<string>;
-  constructor(existing: readonly MaterialParameter[]) {
-    this.parameters = [...existing];
-    this.taken = new Set(existing.map((p) => p.key));
-  }
-  add(id: string, type: string, data: Data = {}): string {
-    let unique = id;
-    for (let i = 2; this.nodes.some((n) => n.id === unique); i++) unique = `${id}${i}`;
-    this.nodes.push({ id: unique, type, position: [0, 0], ...(Object.keys(data).length > 0 ? { data } : {}) });
-    return unique;
-  }
-  wire(from: Out, to: string, toPort: string): void {
-    this.edges.push({ id: `w${this.edges.length + 1}`, from: { node: from[0], port: from[1] }, to: { node: to, port: toPort } });
-  }
-  /** A binary maths node over two outputs (or constants). */
-  op(type: string, id: string, a: Out, b: Out): Out {
-    const n = this.add(id, type);
-    this.wire(a, n, 'a');
-    this.wire(b, n, 'b');
-    return [n, 'out'];
-  }
-  float(id: string, value: number): Out {
-    return [this.add(id, 'float', { value }), 'value'];
-  }
-  color(id: string, color: string): Out {
-    return [this.add(id, 'color', color !== '#ffffff' ? { color } : {}), 'rgb'];
-  }
-  /**
-   * A public exposed parameter of the template (objects may override it), or
-   * the plain constant when the material already declares that key for
-   * something else.
-   */
-  param(key: string, type: 'float' | 'vec2' | 'vec4' | 'color', value: number | number[] | string, visibility: 'public' | 'private' = 'public'): Out {
-    if (this.taken.has(key)) return type === 'float' ? this.float(key, value as number) : type === 'color' ? this.color(key, value as string) : [this.add(key, type, { value: value as number[] }), 'value'];
-    this.taken.add(key);
-    this.parameters.push({ key, type, default: value, ...(visibility === 'private' ? { visibility } : {}) });
-    return [this.add(key, 'parameter', { key }), 'value'];
-  }
-  /** A public texture parameter (a texture array for the layered template); '' = none yet. */
-  textureParam(key: string, value = ''): Out {
-    this.taken.add(key);
-    this.parameters.push({ key, type: 'texture', default: value });
-    return [this.add(key, 'parameter', { key }), 'value'];
-  }
-  layout(): void {
-    // Column = the longest path from the node to an output (outputs in column 0, on the right).
-    const outgoing = new Map<string, string[]>();
-    for (const e of this.edges) outgoing.set(e.from.node, [...(outgoing.get(e.from.node) ?? []), e.to.node]);
-    const depth = new Map<string, number>();
-    const depthOf = (id: string, seen: Set<string>): number => {
-      const have = depth.get(id);
-      if (have !== undefined) return have;
-      if (seen.has(id)) return 0;
-      seen.add(id);
-      const d = Math.max(0, ...(outgoing.get(id) ?? []).map((t) => depthOf(t, seen) + 1));
-      depth.set(id, d);
-      return d;
-    };
-    const rows = new Map<number, number>();
-    for (const n of this.nodes) {
-      const d = depthOf(n.id, new Set());
-      const r = rows.get(d) ?? 0;
-      rows.set(d, r + 1);
-      n.position = [-d * 240, r * 120];
-    }
-  }
-}
+type Out = GraphOut;
 
 /** The value of a shader parameter or the value the renderer draws with when the material leaves it unset (on a box: three's standard material). */
 function valueOf(p: MaterialDef['params'], key: string, drawn: number): number {
@@ -409,161 +339,6 @@ export function templateMaterial(shader: string, materialId: string, name: strin
   const base: MaterialDef = { materialId, name, shader: (CONVERTIBLE_SHADERS.includes(shader) ? shader : 'standard') as MaterialDef['shader'], params: {}, textures: {} };
   const r = convertToGraph(base);
   return r.ok ? r.material : { ...base, graph: newMaterialGraph() };
-}
-
-/**
- * The layered template's per-layer settings: a vec4 parameter each, one
- * component per layer. `min` is the smallest value the editor's layer table
- * takes (a tiling of 0 would repeat endlessly); null: any.
- */
-export const LAYER_SETTINGS = [
-  { key: 'layerTiling', label: 'tiling (m)', title: 'Metres per repeat of the layer\'s textures', fill: 1, min: 0.01 },
-  { key: 'layerNormalStrength', label: 'normal strength', title: 'How strongly the layer\'s normal map bends the light (0: flat)', fill: 1, min: null },
-  { key: 'layerContrast', label: 'height contrast', title: 'Stretches the layer\'s height around its middle: above 1 its peaks and cracks stand further apart in the blend', fill: 1, min: null },
-  { key: 'layerOffset', label: 'height offset', title: 'Lifts the layer\'s height in the blend (it shows over the others sooner)', fill: 0, min: null },
-  {
-    key: 'layerProjection',
-    label: 'projection',
-    title: 'How the layer\'s textures lie on the ground: top (world XZ, stretched on steep slopes), by slope (the world plane it faces most: cliffs without stretching, one read), or biplanar (top and side blended by the slope: two reads within the biplanar distance)',
-    fill: 0,
-    min: 0,
-    options: [
-      { value: 0, label: 'top' },
-      { value: 1, label: 'by slope' },
-      { value: 2, label: 'biplanar' },
-    ],
-  },
-] as const;
-
-/** The extra texture reads a pixel of a biplanar layer pays where both planes show, within the biplanar distance (albedo, normal, ORM). */
-export const BIPLANAR_EXTRA_READS = 3;
-/** The texture reads a pixel of the layered template (three per layer). */
-export const TEMPLATE_READS = 12;
-
-/** The layered template's three texture-array parameters (the layer palette reads and fills the albedo's slots). */
-export const LAYERED_TEXTURES = { albedo: 'albedoHeight', normals: 'normals', orm: 'orm' } as const;
-
-/** The number of layers of the layered template (the four components of its weights). */
-export const TEMPLATE_LAYERS = 4;
-/** Metres from the camera a biplanar layer reads both planes within (past it: the plane the ground faces most). */
-export const BIPLANAR_DISTANCE = 60;
-
-/**
- * The height-blended layers template — a painted terrain (or a
- * trim-sheet mesh blended by its vertex colours): four PBR layers from three
- * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
- * the height in A, colour; `normals`: normal maps; `orm`: occlusion,
- * roughness, metalness, data), layer i sampled at array layer i. A layer
- * (or the whole array) without a normal map reads a flat normal, without an
- * ORM map unoccluded, at the PBR default roughness and not metal. Per layer
- * (the components of {@link LAYER_SETTINGS}' vec4 parameters): its tiling
- * (metres per repeat: block layers' and terrain UVs are metres), its
- * projection (Projected sample nodes: top at UV0, by slope — the world plane
- * the ground faces most, one read — or biplanar, two reads within
- * `biplanarDistance` metres), its normal strength, and its height's contrast
- * and offset in the blend. The weights
- * are COLOR_0 (a painted block layer's paint, a mesh's vertex colours;
- * without them all first layer), shaped by the layers' heights through a
- * Height blend (`blendDepth`); every layer value is a Weighted mix. Wetness —
- * COLOR_1.r (painted) or the `wetness` parameter (rain on this material), the
- * larger, plus the scene's (its Environment wetness) — pools in the low parts
- * of the blended height first (`wetPooling`: 0 even, 1 the cracks fill well
- * before the tops), darkens the albedo and smooths the surface (wet ground:
- * the albedo × 0.55, roughness toward 0.1) and flattens the normal maps
- * (`wetFlatten`). Per-layer values and wetness change no texture reads:
- * twelve samples, as with one shared value — but a biplanar layer reads
- * three more where both its planes show near the camera.
- */
-export function layeredMaterial(materialId: string, name: string): MaterialDef {
-  const b = new GraphBuilder([]);
-  const out = b.add('output', 'pbr');
-  const albedoArr = b.textureParam(LAYERED_TEXTURES.albedo);
-  const normalArr = b.textureParam(LAYERED_TEXTURES.normals);
-  const ormArr = b.textureParam(LAYERED_TEXTURES.orm);
-  // The projection is the material's own (private): the compile reads it, so a layer that never leaves the top reads once.
-  const setting = (key: (typeof LAYER_SETTINGS)[number]['key']): Out => {
-    const s = LAYER_SETTINGS.find((x) => x.key === key)!;
-    return b.param(key, 'vec4', Array.from({ length: TEMPLATE_LAYERS }, () => s.fill), key === 'layerProjection' ? 'private' : 'public');
-  };
-  const layers = [0, 1, 2, 3];
-  const comp = ['x', 'y', 'z', 'w'] as const;
-  // Per layer: its tiling (kept above the smallest the editor takes: a 0 from a script stays finite) and projection.
-  const tiling = b.add('tilingSplit', 'split');
-  b.wire(b.op('max', 'tilingFloor', setting('layerTiling'), b.float('tilingMin', LAYER_SETTINGS[0].min)), tiling, 'in');
-  const projection = b.add('projectionSplit', 'split');
-  b.wire(setting('layerProjection'), projection, 'in');
-  const near: Out = b.param('biplanarDistance', 'float', BIPLANAR_DISTANCE);
-  const strength = b.add('strengthSplit', 'split');
-  b.wire(setting('layerNormalStrength'), strength, 'in');
-  const weights: Out = [b.add('paint', 'vertexColor', { absent: 'first' }), 'rgba'];
-  const wetSplit = b.add('wetSplit', 'split');
-  b.wire([b.add('paintWet', 'vertexColor', { set: 'COLOR_1', absent: 'zero' }), 'rgba'], wetSplit, 'in');
-  const layerNodes = layers.map((i) => b.float(`layer${i + 1}`, i));
-  const layerIndex = (i: number): Out => layerNodes[i]!;
-  /** Layer i of an array, read as its projection says (UV0 ÷ tiling at the top). */
-  const read = (id: string, arr: Out, i: number, data: Record<string, string> = {}): string => {
-    const s = b.add(id, 'projectedSample', data);
-    b.wire(arr, s, 'tex');
-    b.wire([tiling, comp[i]!], s, 'scale');
-    b.wire([projection, comp[i]!], s, 'mode');
-    b.wire(near, s, 'near');
-    b.wire(layerIndex(i), s, 'layer');
-    return s;
-  };
-  const albedos = layers.map((i) => read(`albedo${i + 1}`, albedoArr, i));
-  const heights = b.add('heights', 'combine');
-  comp.forEach((c, i) => b.wire([albedos[i]!, 'a'], heights, c));
-  const blend = b.add('heightBlend', 'heightBlend');
-  b.wire(weights, blend, 'weights');
-  b.wire([heights, 'xyzw'], blend, 'heights');
-  b.wire(b.param('blendDepth', 'float', 0.2), blend, 'depth');
-  b.wire(setting('layerContrast'), blend, 'contrast');
-  b.wire(setting('layerOffset'), blend, 'offset');
-  const mix = (id: string, values: Out[]): Out => {
-    const m = b.add(id, 'weightedMix');
-    ['a', 'b', 'c', 'd'].forEach((port, i) => b.wire(values[i]!, m, port));
-    b.wire([blend, 'weights'], m, 'weights');
-    return [m, 'out'];
-  };
-  const albedo = mix('albedoMix', albedos.map((s) => [s, 'rgb'] as Out));
-  // Wetness: the painted one or the parameter (rain on this material), whichever is larger, plus the scene's.
-  const wetLocal = b.op('max', 'wet', [wetSplit, 'x'], b.param('wetness', 'float', 0));
-  const wetAll = b.add('wetTotal', 'saturate');
-  b.wire(b.op('add', 'wetWithScene', wetLocal, [b.add('sceneWet', 'sceneWetness'), 'wetness']), wetAll, 'in');
-  // Pooling: water fills the low parts of the blended height first (wet + (wet − height) × pooling).
-  const height = b.add('wetHeight', 'dot');
-  b.wire([blend, 'weights'], height, 'a');
-  b.wire([heights, 'xyzw'], height, 'b');
-  const pooled = b.op('multiply', 'wetPool', b.op('subtract', 'wetAboveHeight', [wetAll, 'out'], [height, 'out']), b.param('wetPooling', 'float', 0.5));
-  const wetPixel = b.add('wetPooled', 'saturate');
-  b.wire(b.op('add', 'wetPooledSum', [wetAll, 'out'], pooled), wetPixel, 'in');
-  const wet: Out = [wetPixel, 'out'];
-  // Normal flattening: water fills the bumps, so a wet surface's normal maps fade.
-  const flat = b.add('wetFlat', 'oneMinus');
-  b.wire(b.op('multiply', 'wetFlatAmount', wet, b.param('wetFlatten', 'float', 0.7)), flat, 'in');
-  const normals = layers.map((i) => {
-    const n = read(`normal${i + 1}`, normalArr, i, { decode: 'normal', colorSpace: 'linear' });
-    b.wire(b.op('multiply', `strength${i + 1}`, [strength, comp[i]!], [flat, 'out']), n, 'strength');
-    return [n, 'normal'] as Out;
-  });
-  const orms = layers.map((i) => [read(`orm${i + 1}`, ormArr, i, { colorSpace: 'linear', absent: 'orm' }), 'rgb'] as Out);
-  const orm = b.add('ormSplit', 'split');
-  b.wire(mix('ormMix', orms), orm, 'in');
-  const darken = b.add('wetDarken', 'lerp');
-  b.wire(b.float('dry', 1), darken, 'a');
-  b.wire(b.float('wetAlbedo', WET_ALBEDO_SCALE), darken, 'b');
-  b.wire(wet, darken, 't');
-  b.wire(b.op('multiply', 'wetColour', albedo, [darken, 'out']), out, 'baseColor');
-  const gloss = b.add('wetGloss', 'lerp');
-  b.wire([orm, 'y'], gloss, 'a');
-  b.wire(b.float('wetRoughness', WET_ROUGHNESS), gloss, 'b');
-  b.wire(wet, gloss, 't');
-  b.wire([gloss, 'out'], out, 'roughness');
-  b.wire([orm, 'z'], out, 'metalness');
-  b.wire([orm, 'x'], out, 'ao');
-  b.wire(mix('normalMix', normals), out, 'normal');
-  b.layout();
-  return { materialId, name, shader: 'standard', params: {}, textures: {}, parameters: b.parameters, graph: { nodes: b.nodes, edges: b.edges } };
 }
 
 /**

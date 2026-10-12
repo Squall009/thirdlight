@@ -48,6 +48,10 @@ describe('fixed shaders declare what they read', () => {
     const layered: MaterialDef = { ...shader('standard'), materialId: 'g', graph: graph([node('out', 'pbr'), node('hb', 'heightBlend'), node('mix', 'weightedMix')], [wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor')]) };
     const inst: MaterialDef = { materialId: 'i', name: 'I', shader: 'standard', params: {}, textures: {}, instanceOf: 'g' };
     expect(materialReads(inst, 'layerWeights', { materials: [layered, inst] })).toBe(true);
+    // A layered material following a trim sheet reads its rows (its instance too).
+    expect(materialReads({ ...layered, layerSheets: ['', 'sheet'] }, 'trimRows')).toBe(true);
+    expect(materialReads(inst, 'trimRows', { materials: [{ ...layered, layerSheets: ['sheet'] }, inst] })).toBe(true);
+    expect(materialReads(layered, 'trimRows')).toBe(false);
   });
 });
 
@@ -55,12 +59,24 @@ describe('a graph\'s declarations are inferred from its nodes', () => {
   it('an empty PBR output reads nothing', () => {
     expect(Object.values(graphDeclaration(graph([node('out', 'pbr')], []))).some((x) => x)).toBe(false);
   });
-  it('a Height blend weighted by COLOR_0 reads layer weights, not paint; its heights from albedo alpha make alpha a height', () => {
+  it('a Height blend weighted by COLOR_0 as layer weights reads them, and the paint where a mesh stores none; its heights from albedo alpha make alpha a height', () => {
     const g = graph(
       [node('out', 'pbr'), node('vc', 'vertexColor', { absent: 'first' }), node('alb', 'sampleTexture'), node('h', 'combine'), node('hb', 'heightBlend'), node('mix', 'weightedMix')],
       [wire('vc', 'rgba', 'hb', 'weights'), wire('alb', 'a', 'h', 'x'), wire('h', 'xyzw', 'hb', 'heights'), wire('hb', 'weights', 'mix', 'weights'), wire('alb', 'rgb', 'mix', 'a'), wire('mix', 'out', 'out', 'baseColor')],
     );
-    expect(graphDeclaration(g)).toMatchObject({ layerWeights: true, vertexPaint: false, alphaIsHeight: true, alphaIsOpacity: false, vertexAO: false });
+    expect(graphDeclaration(g)).toMatchObject({ layerWeights: true, vertexPaint: true, alphaIsHeight: true, alphaIsOpacity: false, vertexAO: false });
+    // COLOR_0 that is not layer weights (white without it: a tint) reads no paint.
+    const tint = graph([node('out', 'pbr'), node('vc', 'vertexColor'), node('hb', 'heightBlend'), node('mix', 'weightedMix')], [wire('vc', 'rgba', 'hb', 'weights'), wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor')]);
+    expect(graphDeclaration(tint)).toMatchObject({ layerWeights: true, vertexPaint: false });
+  });
+  it('the Layer weights node: layer weights and paint; its occlusion into the output is vertex occlusion', () => {
+    const g = graph(
+      [node('out', 'pbr'), node('lw', 'layerWeights'), node('hb', 'heightBlend'), node('mix', 'weightedMix')],
+      [wire('lw', 'weights', 'hb', 'weights'), wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor'), wire('lw', 'occlusion', 'out', 'ao')],
+    );
+    expect(graphDeclaration(g)).toMatchObject({ layerWeights: true, vertexPaint: true, vertexAO: true });
+    const wetOnly = graph([node('out', 'pbr'), node('lw', 'layerWeights')], [wire('lw', 'wetness', 'out', 'roughness')]);
+    expect(graphDeclaration(wetOnly)).toMatchObject({ layerWeights: false, vertexPaint: true, vertexAO: false });
   });
   it('a Height blend with its weights unwired reads the paint itself (layer weights and vertex paint)', () => {
     const g = graph([node('out', 'pbr'), node('hb', 'heightBlend'), node('mix', 'weightedMix')], [wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor')]);

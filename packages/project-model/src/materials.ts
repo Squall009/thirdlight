@@ -216,12 +216,8 @@ export const MATERIAL_DECLARATIONS: Readonly<Record<MaterialShader, Readonly<Par
   decal: { writesDecal: true, alphaIsOpacity: true },
 };
 
-/**
- * The wet look (the layered template and the trim material): the albedo darkens by this factor and the
- * roughness goes toward this value as wetness reaches 1.
- */
-export const WET_ALBEDO_SCALE = 0.55;
-export const WET_ROUGHNESS = 0.1;
+// The wet look is the layered surface's (its own module, which the editor and the renderer read too).
+export { WET_ALBEDO_SCALE, WET_ROUGHNESS } from './layered-surface';
 
 export interface MaterialDef {
   materialId: string;
@@ -277,6 +273,18 @@ export interface MaterialDef {
    * its texture. A material instance uses its root's names.
    */
   layerNames?: string[];
+  /**
+   * A layered material's trim sheets: per texture-array layer, the trim
+   * material whose row table that layer's textures follow ("" or past the
+   * end: none). A layer whose UV source is the mesh's own UVs reads its
+   * sheet inside the rows (the row-safe mip limit), and generated
+   * architecture wearing the material lays its strips out on those rows.
+   * Every sheet named must share one row table (a problem lists the rows
+   * that differ). A build writes the table itself (`trim`) onto the material
+   * it hands the runtime, so the sheets need not ship. A material instance
+   * uses its root's.
+   */
+  layerSheets?: string[];
 }
 
 /** Longest layer name (`MaterialDef.layerNames`). */
@@ -508,12 +516,12 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     }
     for (const k of Object.keys(m)) {
       if (build && k === 'decalPage') continue;
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal', 'layerNames'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal, layerNames');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values', 'trim', 'decal', 'layerNames', 'layerSheets'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values, trim, decal, layerNames, layerSheets');
     }
     // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
       if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
-      for (const k of ['graph', 'parameters', 'trim', 'decal', 'layerNames'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
+      for (const k of ['graph', 'parameters', 'trim', 'decal', 'layerNames', 'layerSheets'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
     }
     // Shape here; "values only on an instance" with the whole list (validateMaterialInstances).
     if (m['values'] !== undefined) validateMaterialInstanceValues(m['values'], `${p}/values`, errors);
@@ -527,8 +535,8 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       err(errors, 'field_value', `${p}/shader`, `shader must be one of ${MATERIAL_SHADERS.join(', ')}`, shader);
       return;
     }
-    // A trim material's row table: required on a trim root, refused elsewhere.
-    if (m['trim'] !== undefined && shader !== 'trim') err(errors, 'field_unexpected', `${p}/trim`, 'only a trim material has a row table (trim)', 'trim', 'shader "trim"');
+    // A trim material's row table: required on a trim root, refused elsewhere (but on what a build hands the runtime for a layered material's sheets).
+    if (m['trim'] !== undefined && shader !== 'trim' && !(build && m['layerSheets'] !== undefined)) err(errors, 'field_unexpected', `${p}/trim`, 'only a trim material has a row table (trim)', 'trim', 'shader "trim"');
     else if (shader === 'trim' && m['instanceOf'] === undefined && m['trim'] === undefined) err(errors, 'field_missing', `${p}/trim`, 'a trim material has a row table (trim: {size, texelDensity, padding, rows})', undefined, 'trim');
     else if (m['trim'] !== undefined) {
       for (const e of trimSheetErrors(m['trim'])) {
@@ -575,6 +583,11 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     const names = m['layerNames'];
     if (names !== undefined && (!Array.isArray(names) || names.length > MAX_TEXTURE_LAYERS || !names.every((n) => n === '' || shortText(n, MATERIAL_LAYER_NAME_MAX)))) {
       err(errors, 'field_value', `${p}/layerNames`, `layerNames is a list of at most ${MAX_TEXTURE_LAYERS} names (1-${MATERIAL_LAYER_NAME_MAX} characters, or "" for the layer's texture name)`, names);
+    }
+    // A layered material's trim sheets: one trim material id (or "") per layer (only a graph reads them); that each names a trim material is a problem, not an error (materials come in any order).
+    const sheets = m['layerSheets'];
+    if (sheets !== undefined && m['instanceOf'] === undefined && (!Array.isArray(sheets) || sheets.length > MAX_TEXTURE_LAYERS || !sheets.every((x) => x === '' || (typeof x === 'string' && ID_RE.test(x))))) {
+      err(errors, 'field_value', `${p}/layerSheets`, `layerSheets is a list of at most ${MAX_TEXTURE_LAYERS} trim material ids (or "" for a layer without one)`, sheets);
     }
     // A graph material.
     if (m['parameters'] !== undefined) validateMaterialParameters(m['parameters'], `${p}/parameters`, errors);
@@ -708,6 +721,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
     ...(root.trim !== undefined ? { trim: root.trim } : {}),
     ...(root.decal !== undefined ? { decal: root.decal } : {}),
     ...(root.layerNames !== undefined ? { layerNames: root.layerNames } : {}),
+    ...(root.layerSheets !== undefined ? { layerSheets: root.layerSheets } : {}),
   };
 }
 
@@ -745,7 +759,7 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
   }));
 }
 
-/** A layer name list without its trailing "" names. */
+/** A per-layer list (names, sheets) without its trailing "" entries. */
 function layerNamesKept(names: readonly string[] | undefined): string[] {
   if (names === undefined) return [];
   let n = names.length;
@@ -778,6 +792,7 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       ...(m.decalPage !== undefined ? { decalPage: canonicalDecalPageRef(m.decalPage) } : {}),
       // Trailing "" names say nothing (the texture's name shows): dropped, and an empty list with them.
       ...(layerNamesKept(m.layerNames).length > 0 ? { layerNames: layerNamesKept(m.layerNames) } : {}),
+      ...(layerNamesKept(m.layerSheets).length > 0 ? { layerSheets: layerNamesKept(m.layerSheets) } : {}),
     }));
 }
 

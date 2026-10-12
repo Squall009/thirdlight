@@ -19,7 +19,7 @@ import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_SLOT_ALL } from '@thirdlight/project-model/limits';
 import { isTextureSlots } from '@thirdlight/project-model/texture-slots';
 
-import { LAYER_SETTINGS, LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial } from './material-graph';
+import { LAYER_SETTINGS, LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial, UV_SOURCES } from './material-graph';
 
 /** One tile of the palette. */
 export interface PaletteLayer {
@@ -158,6 +158,40 @@ export function paintableMaterial(old: MaterialDef | null, materialId: string, n
   return old.textures['map'] !== undefined ? withLayerName(m, 0, old.name) : m;
 }
 
+/** The project's trim sheets a layer can follow: its trim materials (roots: an instance draws with its root's rows). */
+export function trimSheetMaterials(materials: readonly MaterialDef[]): MaterialDef[] {
+  return materials.filter((m) => m.shader === 'trim' && m.instanceOf === undefined && m.trim !== undefined);
+}
+
+/** The trim sheet a layer follows (null: none). */
+export function layerSheet(m: MaterialDef, layer: number): string | null {
+  const id = m.layerSheets?.[layer] ?? '';
+  return id === '' ? null : id;
+}
+
+/**
+ * The material with a layer following a trim sheet (null: none): the layer
+ * reads the mesh's own UVs (the sheet's strips on generated walls) and wears
+ * the sheet's colour, normal map and ORM in its slots; generated walls
+ * wearing the material lay their strips on the sheet's rows. Without a sheet
+ * the layer keeps its textures and UV source.
+ */
+export function withLayerSheet(m: MaterialDef, layer: number, sheet: MaterialDef | null): MaterialDef {
+  const sheets = [...(m.layerSheets ?? [])];
+  while (sheets.length <= layer) sheets.push('');
+  sheets[layer] = sheet?.materialId ?? '';
+  let n = sheets.length;
+  while (n > 0 && sheets[n - 1] === '') n--;
+  const { layerSheets: _old, ...rest } = m;
+  let out: MaterialDef = n === 0 ? rest : { ...rest, layerSheets: sheets.slice(0, n) };
+  if (sheet === null) return out;
+  for (const [slot, key] of BASE_LAYER_MAPS) {
+    const id = sheet.textures[slot];
+    if (id !== undefined && id !== '') out = withSlotTexture(out, layer, id, key);
+  }
+  return withLayerSetting(out, 'layerProjection', layer, UV_SOURCES.geometry);
+}
+
 /** The material with a layer's palette name ("" = its texture's name). */
 export function withLayerName(m: MaterialDef, layer: number, name: string): MaterialDef {
   const names = [...(m.layerNames ?? [])];
@@ -187,12 +221,13 @@ export function paletteLayers(m: MaterialDef, nameOf: (textureId: string) => str
   });
 }
 
-/** "tiling 5 m · biplanar": the settings a layer's tile shows under its name. */
+/** "tiling 5 m · biplanar", "mesh UVs": the settings a layer's tile shows under its name. */
 export function layerSub(m: MaterialDef, layer: number): string {
   const tiling = layerSetting(m, 'layerTiling', layer);
   const projection = layerSetting(m, 'layerProjection', layer);
   const parts: string[] = [];
-  if (tiling !== null) parts.push(`tiling ${Number(tiling.toFixed(2))} m`);
+  // A mesh-UV layer keeps the mesh's own UVs: its tiling does not apply.
+  if (tiling !== null && projection !== UV_SOURCES.geometry) parts.push(`tiling ${Number(tiling.toFixed(2))} m`);
   const opt = LAYER_SETTINGS[4].options.find((o) => o.value === projection);
   if (opt !== undefined && opt.value !== 0) parts.push(opt.label);
   return parts.join(' · ');

@@ -14,10 +14,16 @@
  * logged once in the project's problems (`tl_diagnostics`); the current
  * problems are in `tl_diagnostics` (`materialProblems`) and
  * `tl_content_query target="materials"`.
+ *
+ * A layered material's trim sheets (`layerSheets`) are checked beside its
+ * compile: each names a trim material, and all share one row table (its trim
+ * layers read one), else the rows that differ are listed.
  */
 import { createHash } from 'node:crypto';
 
+import { layerSheetMismatches } from '@thirdlight/project-model/layered-surface';
 import { parseFillLayer, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
+import type { TrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { materialGraphCanonical, materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 
 /**
@@ -42,7 +48,7 @@ export interface MaterialRow {
 }
 
 interface ContentLike {
-  readonly materials?: readonly { materialId: string; name?: string; graph?: unknown; parameters?: unknown }[];
+  readonly materials?: readonly { materialId: string; name?: string; shader?: string; graph?: unknown; parameters?: unknown; trim?: TrimSheet; layerSheets?: readonly string[] }[];
   readonly graphs?: readonly { graphId: string; kind: string; name?: string; graph: unknown }[];
   readonly assets?: readonly { assetId: string; kind: string }[];
 }
@@ -92,7 +98,7 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
       });
       const parameters = drawn!.parameters ?? m.parameters;
       const textureIds = sets.length === 0 ? textureSet : new Set([...textureSet, ...sets.filter((set) => set.layers.every((id) => textureSet.has(id) || parseFillLayer(id) !== null)).map(slotArrayId)]);
-      const def = { graph: m.graph, ...(parameters !== undefined ? { parameters } : {}) } as Parameters<typeof materialGraphProblems>[0];
+      const def = { graph: drawn!.graph ?? m.graph, ...(parameters !== undefined ? { parameters } : {}) } as Parameters<typeof materialGraphProblems>[0];
       let problems: readonly MaterialProblem[];
       try {
         const key = createHash('sha256').update(materialGraphCanonical(def, (id) => byId.get(id) ?? null)).update('\u0001').update(texturesKey).digest('hex');
@@ -107,7 +113,8 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
         // A graph the compiler cannot even build is a problem of its own (never a backend failure).
         problems = [{ severity: 'error', message: `the graph could not be compiled: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}` }];
       }
-      rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: true, problems: problems.slice(0, PROBLEMS_PER_MATERIAL) });
+      const sheets = sheetProblems(m, content.materials ?? []);
+      rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: true, problems: [...sheets, ...problems].slice(0, PROBLEMS_PER_MATERIAL) });
     }
     return rows;
   };
@@ -134,6 +141,24 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
       lastRows.delete(projectId);
     },
   };
+}
+
+/** A layered material's trim sheets that name no trim material, or whose rows differ from its first sheet's. */
+function sheetProblems(m: { readonly layerSheets?: readonly string[] }, materials: NonNullable<ContentLike['materials']>): MaterialProblem[] {
+  if (m.layerSheets === undefined) return [];
+  const out: MaterialProblem[] = [];
+  const sheetOf = (id: string): TrimSheet | null => {
+    const s = materials.find((x) => x.materialId === id);
+    return s?.shader === 'trim' && s.trim !== undefined ? s.trim : null;
+  };
+  m.layerSheets.forEach((id, layer) => {
+    if (id !== '' && sheetOf(id) === null) out.push({ severity: 'error', message: `layer ${layer + 1}'s trim sheet "${id}" is not a trim material: its mesh-UV layer reads the whole mip chain, and generated walls fall back to the starter rows` });
+  });
+  const first = m.layerSheets.findIndex((id) => id !== '' && sheetOf(id) !== null);
+  for (const x of layerSheetMismatches(m, sheetOf)) {
+    out.push({ severity: 'error', message: `layer ${x.layer + 1}'s trim sheet "${x.sheet}" has other rows than layer ${first + 1}'s "${m.layerSheets[first]}" (one row table is read for every trim layer): ${x.differ.join(', ')} differ` });
+  }
+  return out;
 }
 
 /** One line for the problems log. */

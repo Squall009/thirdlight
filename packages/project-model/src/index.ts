@@ -933,7 +933,8 @@ export {
 export { graphDeclaration, materialDeclaration, materialReads, shaderDeclaration, type MaterialReadsContext } from './material-reads';
 // Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
 export { fillLayerId, parseFillLayer, textureSlotFill } from './texture-slots';
-export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
+export { hasTextureSlots, isTextureSlots, layeredForDraw, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, TRIM_GROUP_KEY, withAssembledSlots, type TextureSlotSet } from './texture-slots';
+export { BIPLANAR_DISTANCE, LAYER_NOT_READ, LAYER_READS, LAYER_SETTINGS, LAYERED_TEXTURES, layeredMaterial, layerSheetMismatches, layerSheetRows, TEMPLATE_LAYERS, trimSurfaceMaterial, UV_SOURCES, withLayerSheetRows } from './layered-surface';
 
 // Environment presets (named looks scripts switch or blend to).
 export {

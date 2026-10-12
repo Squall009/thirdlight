@@ -31,6 +31,7 @@ import { fillBaseY, fillOutline, fillPolygon, writeFill } from './arch-fill';
 import { openingSpan, writeFrame, writeReveals } from './arch-opening';
 import { profileBounds, resolveProfile, type SweepCut, type SweepFrames, sweepFrames, sweepPointAt, sweepProfile } from './arch-sweep';
 import { CHUNK_SIZE as BLOCK_CHUNK_CELLS } from './block-layers';
+import { layerSheetRows } from './layered-surface';
 import { paintArchitectureColours } from './trim-paint';
 import {
   ARCHITECTURE_AO_DEFAULTS,
@@ -208,14 +209,30 @@ export function architectureSheets(c: Pick<ArchitectureComponent, 'elements'>, m
   return out;
 }
 
-/** A material's row table through its instance chain (an instance draws with its root's), or null when it is no trim material. */
-export function trimSheetOfMaterial(defs: readonly { materialId: string; shader?: string; instanceOf?: string; trim?: TrimSheet }[], materialId: string): TrimSheet | null {
+type SheetDef = { materialId: string; shader?: string; instanceOf?: string; trim?: TrimSheet; layerSheets?: readonly string[] };
+
+/** A material through its instance chain (an instance draws with its root's). */
+function rootOf(defs: readonly SheetDef[], materialId: string): SheetDef | undefined {
   let cur = defs.find((d) => d.materialId === materialId);
   for (let guard = 0; cur?.instanceOf !== undefined && guard < 64; guard++) {
     const parent: string = cur.instanceOf;
     cur = defs.find((d) => d.materialId === parent);
   }
-  return cur?.shader === 'trim' && cur.trim !== undefined ? cur.trim : null;
+  return cur;
+}
+
+/**
+ * A material's row table through its instance chain: a trim material's own,
+ * a layered material's trim sheets' (`layerSheetRows`); null when it has none.
+ */
+export function trimSheetOfMaterial(defs: readonly SheetDef[], materialId: string): TrimSheet | null {
+  const cur = rootOf(defs, materialId);
+  if (cur?.shader === 'trim') return cur.trim ?? null;
+  if (cur?.layerSheets === undefined) return null;
+  return layerSheetRows(cur, (id) => {
+    const sheet = rootOf(defs, id);
+    return sheet?.shader === 'trim' ? (sheet.trim ?? null) : null;
+  });
 }
 
 /**

@@ -137,15 +137,25 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     label: 'Vertex colour',
     category: 'Inputs',
     description:
-      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object\'s vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says.',
+      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object\'s vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture\'s, else the mesh\'s COLOR_0.',
     inputs: [],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
     // White multiplies to no change (a tint); zero means "no effect" for data channels.
     // `set` (a second colour set), `first` (layer weights) and set `paint` (vertex paint) appended; existing graphs keep their meaning.
     fields: [
       { key: 'absent', label: 'Without the set', type: 'enum', options: ['white', 'zero', 'first'], default: 'white' },
-      { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1', 'paint'], default: 'COLOR_0' },
+      { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1', 'paint', 'trim'], default: 'COLOR_0' },
     ],
+  },
+  {
+    // What a layered surface blends by, whatever the mesh stores it in (layered-surface.ts).
+    type: 'layerWeights',
+    label: 'Layer weights',
+    category: 'Inputs',
+    description:
+      'What a layered surface blends by, for any mesh it is on. Weights: a terrain\'s or a painted block layer\'s stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint\'s A. Occlusion: generated architecture\'s baked corner shading (its trim data: R occlusion, G grime — added to layer 2 — B wetness); 0 elsewhere. Feed the weights to a Height blend.',
+    inputs: [],
+    outputs: [port('weights', 'weights', 'vec4'), port('wetness', 'wetness', 'float'), port('occlusion', 'occlusion', 'float')],
   },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'normal', label: 'Normal', category: 'Inputs', description: 'The surface normal in object, world or view space.', inputs: [], outputs: [port('normal', 'normal', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
@@ -376,7 +386,7 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     label: 'Projected sample',
     category: 'Textures',
     description:
-      'Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface\'s frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).',
+      'Reads a texture (of a texture array, the given layer) the way a ground layer wants it, scale metres per repeat. Mode 0: at the UV (on terrain and block tops, world XZ). Mode 1: on the world plane the surface faces most — the top, or the side wall plane on steep ground — one read, no stretching on cliffs (a seam where a slope turns past 45°). Mode 2: biplanar — the top and the side plane blended by the slope (sharpness), two reads, only within near metres of the camera (past it, mode 1). Mode 3: the mesh\'s own UVs as made (a trim sheet\'s strips, a model\'s unwrap), scale not applied; on a layered material with trim sheets the read keeps its mip level inside the sheet\'s rows. Layer −1 reads nothing (what it gives without a texture: a layer the material does not use). Decode normal: reads a tangent-space normal map and turns a side-projected one into the surface\'s frame, scaled by strength. The mode may differ per pixel (a per-layer setting on terrain).',
     inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0'), port('scale', 'scale', 'float', 1), port('mode', 'mode', 'float', 0), port('sharpness', 'sharpness', 'float', 4), port('near', 'near', 'float', 60), port('strength', 'strength', 'float', 1), port('position', 'position', 'vec3', 'positionWorld'), port('normal', 'normal', 'vec3', 'normalWorld'), LAYER_IN],
     outputs: [...SAMPLE_OUTPUTS, port('normal', 'normal', 'vec3')],
     fields: [...SAMPLER_FIELDS, { key: 'decode', label: 'Decode', type: 'enum', options: ['color', 'normal'], default: 'color' }],

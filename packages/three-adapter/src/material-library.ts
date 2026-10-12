@@ -14,9 +14,9 @@
  *   instance, so the detail atlas flows across joins); a macro normal on UV1 is
  *   blended over the detail normal (whiteout). AO stays on its own UV set.
  * - water: a scrolling normal map and a fresnel mix of two colours.
- * - trim: a trim sheet's three maps, each read once with the footprint capped
- *   at the sheet's safe mip level; COLOR_0 as occlusion, grime and wetness
- *   (`trim-material.ts`).
+ * - trim: drawn as the layered surface it is, a graph material
+ *   (project-model `trimSurfaceMaterial`): the sheet's three maps, each read
+ *   once inside its rows; COLOR_0 as occlusion, grime and wetness.
  * - unlit: MeshBasicMaterial.
  *
  * Wind and time are one shared uniform block updated by `tick()`.
@@ -44,7 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { decalSheetCellSampling, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, type TrimSheet } from '@thirdlight/runtime';
+import { decalSheetCellSampling, layerSheetRows, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -69,7 +69,6 @@ import {
   type SamplerLike,
 } from './material-graph';
 import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
-import { installTrimNodes, type TrimTextures } from './trim-material';
 import { decalPageArray, installDecalNodes, type DecalImages, type DecalPlace } from './decal-material';
 import { decalDrawOf, decalOrderOffsetOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
 import { decodeKtx2, isKtx2 } from './ktx2';
@@ -100,8 +99,10 @@ export interface MaterialDefLike {
   readonly instanceOf?: string;
   /** An instance's values for its root graph material's parameters. */
   readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
-  /** A trim material's row table (an instance draws with its root's). */
+  /** A trim material's row table (an instance draws with its root's); on a layered material, a build's copy of its sheets' table. */
   readonly trim?: TrimSheet;
+  /** A layered material's trim sheets, per layer (project-model `layerSheets`; an instance draws with its root's). */
+  readonly layerSheets?: readonly string[];
   /** A decal material's trim sheet cell (an instance draws with its root's). */
   readonly decal?: { readonly sheet: string; readonly cell: string };
   /** A decal material's place on the build's decal pages (project-model `DecalPageRef`; builds only). */
@@ -172,6 +173,7 @@ export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): 
       ...(root.graph !== undefined ? { graph: root.graph } : {}),
       ...(root.trim !== undefined ? { trim: root.trim } : {}),
       ...(root.decal !== undefined ? { decal: root.decal } : {}),
+      ...(root.layerSheets !== undefined ? { layerSheets: root.layerSheets } : {}),
     });
   }
   return out;
@@ -492,7 +494,6 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       m.transparent = false;
     }
     applyAlpha(m, p);
-    if (def.shader === 'trim') return buildTrim(m, def);
     // The file's textures take the material's tiling too (clones: the file's stay as they are).
     if (p['tiling'] !== undefined || p['offset'] !== undefined) {
       for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap'] as const) {
@@ -634,24 +635,6 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       c.needsUpdate = true;
       return c;
     });
-
-  /** A trim material: its three textures read by explicit nodes (`trim-material.ts`), rebuilt as each arrives. */
-  function buildTrim(m: THREE.MeshStandardMaterial, def: MaterialDefLike): THREE.Material {
-    const textures: TrimTextures = { map: null, normalMap: null, ormMap: null };
-    const refresh = installTrimNodes(m, { params: def.params, trim: def.trim, vertexData, sceneWetness: nodeGlobals.wetness }, textures);
-    for (const slot of ['map', 'normalMap', 'ormMap'] as const) {
-      const id = def.textures[slot];
-      if (id === undefined) continue;
-      void texture(id, m).then((t) => {
-        if (t === null || disposed || retired.has(m)) return;
-        textures[slot] = prepared(m, t, slot === 'map', def, 0);
-        refresh();
-        m.needsUpdate = true;
-        options.onChange?.();
-      });
-    }
-    return m;
-  }
 
   function applyAlpha(m: THREE.Material, p: MaterialDefLike['params']): void {
     const mode = p['alphaMode'];
@@ -904,6 +887,24 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    * arrives, not as the compile's empty fallback (white).
    */
   const drawnFor = new Map<string, string>();
+  /**
+   * A trim material (drawn as its layered surface) without a colour of its
+   * own tints by the colour of the material it is put over — a model file's,
+   * or generated architecture's stand-in — as the trim shader did, which
+   * started from that material: the object's own value of the graph's
+   * `color` parameter.
+   */
+  const withSourceTint = (def: MaterialDefLike, src: THREE.Material, own: Readonly<Record<string, number | readonly number[] | string>> | undefined): Readonly<Record<string, number | readonly number[] | string>> | undefined => {
+    if (def.shader !== 'trim' || def.params['color'] !== undefined || !(src instanceof THREE.MeshStandardMaterial) || own?.['color'] !== undefined) return own;
+    const tint = `#${src.color.getHexString()}`;
+    return tint === '#ffffff' ? own : { ...(own ?? {}), color: tint };
+  };
+  /** The row table a graph material's mesh-UV layers keep inside: a trim material's own, a layered material's sheets' (null: none). */
+  const rowsOf = (def: MaterialDefLike): TrimSheet | null =>
+    layerSheetRows(def, (id) => {
+      const sheet = defs.get(id);
+      return sheet?.shader === 'trim' ? (sheet.trim ?? null) : null;
+    });
   const compileEntry = (def: MaterialDefLike, digest: string, surface: GraphSurface | undefined): CompiledMaterialGraph => {
     const sampledNow: THREE.Texture[] = [];
     const paramOf = new Map<string, string>();
@@ -926,7 +927,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       sampledNow.push(t);
       return { assetId: prev, texture: t };
     };
-    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, standIn, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
+    const trim = rowsOf(def);
+    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}), ...(trim !== null ? { trim } : {}) }, { globals: nodeGlobals, texture, standIn, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
     sampledBy.set(compiled, sampledNow);
     return compiled;
   };
@@ -978,7 +980,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   /** The shared compiled material of a graph material (a texture override, or a surface, makes a variant). */
   const graphMaterial = (def: MaterialDefLike, surface?: GraphSurface): GraphEntry => {
-    const canonical = materialGraphCanonical({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, fnOf);
+    const trim = rowsOf(def);
+    const canonical = materialGraphCanonical({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}), ...(trim !== null ? { trim } : {}) }, fnOf);
     const digest = surface === undefined ? digestOf(canonical) : `${digestOf(canonical)}|${surface.key}`;
     const have = graphEntries.get(digest);
     if (have !== undefined && have.canonical === canonical) return have;
@@ -1079,7 +1082,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         const id = mapping === null ? undefined : (mapping[src.name] ?? mapping['*']);
         const def = id === undefined ? undefined : defs.get(id);
         if (def?.graph !== undefined) {
-          const own = overrides?.[def.materialId];
+          const own = withSourceTint(def, src, overrides?.[def.materialId]);
           const live = runtime?.values[def.materialId];
           const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def, surface);
           usedDigests.add(e.digest);
@@ -1155,8 +1158,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       return { ready: Promise.all([...ids].map((id) => texture(id, holder))).then(() => undefined), release: () => holds.releaseHolder(holder) };
     },
     setMaterials(list, fns) {
-      // Instances draw as their resolved material (the editor passes the project's list as is).
-      defs = new Map(resolveMaterialInstancesLike(list).map((d) => [d.materialId, d]));
+      // Instances draw as their resolved material (the editor passes the project's list as is); a trim material as the layered surface it is.
+      defs = new Map(resolveMaterialInstancesLike(list).map((d) => [d.materialId, d.shader === 'trim' && d.graph === undefined ? (trimSurfaceMaterial(d as never) as unknown as MaterialDefLike) : d]));
       if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));
       // Rebuild lazily: drop materials whose definition changed or vanished.
       animatedCount = 0;
@@ -1179,7 +1182,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     trimSheetOf(materialId) {
       const d = defs.get(materialId);
-      return d?.shader === 'trim' && d.trim !== undefined ? d.trim : null;
+      if (d?.shader === 'trim') return d.trim ?? null;
+      return d !== undefined && d.layerSheets !== undefined ? rowsOf(d) : null;
     },
     decalPageOf(materialId) {
       const d = defs.get(materialId);
@@ -1283,7 +1287,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     graphProblems(materialId) {
       const def = defs.get(materialId);
       if (def?.graph === undefined) return null;
-      const canonical = materialGraphCanonical({ graph: def.graph, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, fnOf);
+      const trim = rowsOf(def);
+      const canonical = materialGraphCanonical({ graph: def.graph, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}), ...(trim !== null ? { trim } : {}) }, fnOf);
       return graphEntries.get(digestOf(canonical))?.compiled.problems ?? null;
     },
     dispose() {

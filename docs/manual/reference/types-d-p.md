@@ -1180,6 +1180,18 @@ interface MaterialDef {
    * its texture. A material instance uses its root's names.
    */
   layerNames?: string[];
+  /**
+   * A layered material's trim sheets: per texture-array layer, the trim
+   * material whose row table that layer's textures follow ("" or past the
+   * end: none). A layer whose UV source is the mesh's own UVs reads its
+   * sheet inside the rows (the row-safe mip limit), and generated
+   * architecture wearing the material lays its strips out on those rows.
+   * Every sheet named must share one row table (a problem lists the rows
+   * that differ). A build writes the table itself (`trim`) onto the material
+   * it hands the runtime, so the sheets need not ship. A material instance
+   * uses its root's.
+   */
+  layerSheets?: string[];
 }
 ```
 
