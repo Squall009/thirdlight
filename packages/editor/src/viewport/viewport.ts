@@ -58,17 +58,17 @@ import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarch
 import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { HelperOverlay } from './helper-overlay';
-import { commitValue, type HandleShape } from '../session/handles';
 import { copyAt, type CopyTransform } from '../session/instance-copies';
-import { BrushBlockSurfaces, InstanceBrushTool, type InstanceBrushMode } from './instance-brush';
+import { BrushBlockSurfaces, type InstanceBrushMode } from './instance-brush';
 import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
-import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
-import { TerrainEditor, type TerrainEditorCallbacks } from './terrain-editor';
-import { DecalTool, decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
+import type { BlockEditor, BlockEditorCallbacks } from './block-editor';
+import type { TerrainEditor, TerrainEditorCallbacks } from './terrain-editor';
+import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
 import type { DecalToolSettings } from '../session/decal-place';
-import { VertexPaintTool, type VertexPaintToolCallbacks } from './vertex-paint-tool';
+import type { VertexPaintToolCallbacks } from './vertex-paint-tool';
 import type { VertexPaintSettings } from '../session/vertex-paint-brush';
+import { CLICK_SLOP_PX, ViewportTools } from './tool-input';
 import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
 import type { ProbeBakeHost } from './probe-bake-inputs';
@@ -116,9 +116,6 @@ export interface GizmoTransform {
   scale: number[];
 }
 
-/** A pointer that moved less than this (px) between down and up is a click. */
-const CLICK_SLOP_PX = 4;
-
 /** The game's aspect before the Scene view is told one (16:9, the common screen shape). */
 const DEFAULT_GAME_ASPECT = 16 / 9;
 
@@ -163,11 +160,8 @@ export class Viewport {
   private readonly grid: THREE.GridHelper;
   /** The helper overlay: collider outlines, component areas, the selection's handles. */
   private readonly helpers: HelperOverlay;
-  private readonly decalTool: DecalTool;
-  /** Where the Decal tool's placements and grip edits go (set with the tool's settings). */
-  private decalCb: DecalToolCallbacks | null = null;
-  private readonly paintTool: VertexPaintTool;
-  private paintCb: VertexPaintToolCallbacks | null = null;
+  /** The Scene view's tools; pointer input reaches them before the gizmo and picking. */
+  private readonly tools: ViewportTools;
   /** Which helpers the Scene view draws (the Gizmos menu). */
   private gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false };
   /** The probe debug view while the Gizmos menu shows it (over the probe light it was made for). */
@@ -197,14 +191,8 @@ export class Viewport {
   private readonly synced = new Map<string, ProjectedEntity>();
   /** Frames drawn (render on demand: none while nothing changes). */
   private framesDrawn = 0;
-  /** Armed block tools own the left button: the selection (the layer they edit) gets no gizmo meanwhile. */
-  private blockToolsArmed = false;
-  private terrainToolsArmed = false;
-  /** The instance brush and the block layers it paints on. */
+  /** The block layers the instance brush paints on. */
   private readonly brushSurfaces = new BrushBlockSurfaces();
-  private readonly instanceBrush: InstanceBrushTool;
-  /** The left button went down on a brush stroke (its release ends it, even one the brush gave up). */
-  private brushPressed = false;
   /** The outline around the selection's drawn bounds. */
   private selectionOutline: THREE.Box3Helper | null = null;
 
@@ -230,8 +218,27 @@ export class Viewport {
     this.overlay.add(this.ground);
     this.grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0x333844, 0x23262f);
     this.overlay.add(this.grid);
-    this.instanceBrush = new InstanceBrushTool(
-      {
+    this.helpers = new HelperOverlay(this.overlay, this.camera, canvas);
+    // A `{type: 'model'}` collider is outlined as its model's `_COL` parts once they are read.
+    this.helpers.setModelSource((assetId) => this.assets.files.prepared(assetId), () => (this.stampGizmoCounts(), this.requestRender()));
+    this.snapping = options.snapping ?? (() => false);
+    this.orbit = new OrbitControls(this.camera, canvas);
+    this.tools = new ViewportTools({
+      overlay: this.overlay,
+      camera: this.camera,
+      orbit: this.orbit,
+      helpers: this.helpers,
+      canvas: () => this.root,
+      selectedId: () => this.selectedId,
+      reselect: () => this.setSelected(this.selectedId),
+      gizmoAxis: () => this.gizmo.axis,
+      snapping: () => this.snapping(),
+      requestRender: () => this.requestRender(),
+      blockView: () => this.adapter.blockLayers!(),
+      terrains: () => this.adapter.terrains?.() ?? null,
+      handleEdit: (id, component, value) => this.cb.onHandleEdit?.(id, component, value),
+      refused: (m) => this.cb.onHandleRefused?.(m),
+      brush: {
         scene: this.overlay,
         camera: this.camera,
         canvas: canvas,
@@ -239,17 +246,9 @@ export class Viewport {
         colliders: (exceptId) => this.colliderObjects(exceptId),
         blockRoot: () => this.adapter.blockLayers?.().root ?? null,
         blockLayers: () => this.brushSurfaces.layers(),
-        refused: (message) => this.cb.onHandleRefused?.(message),
       },
-      (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
-    );
-
-    this.helpers = new HelperOverlay(this.overlay, this.camera, canvas);
-    // A `{type: 'model'}` collider is outlined as its model's `_COL` parts once they are read.
-    this.helpers.setModelSource((assetId) => this.assets.files.prepared(assetId), () => (this.stampGizmoCounts(), this.requestRender()));
-    const decalCb = (): DecalToolCallbacks | null => this.decalCb;
-    this.decalTool = new DecalTool(
-      {
+      brushStroke: (entityId, stroke) => this.cb.onBrushStroke?.(entityId, stroke) ?? Promise.resolve(false),
+      decal: {
         overlay: this.overlay,
         camera: this.camera,
         canvas: () => this.root,
@@ -262,16 +261,7 @@ export class Viewport {
         snapping: () => this.snapping(),
         requestRender: () => this.requestRender(),
       },
-      {
-        place: (args) => decalCb()?.place(args) ?? Promise.resolve(null),
-        turn: (id, t) => decalCb()?.turn(id, t) ?? Promise.resolve(false),
-        resize: (id, d) => decalCb()?.resize(id, d) ?? Promise.resolve(false),
-        refused: (m) => decalCb()?.refused(m),
-      },
-    );
-
-    this.paintTool = new VertexPaintTool(
-      {
+      paint: {
         overlay: this.overlay,
         camera: this.camera,
         canvas: () => this.root,
@@ -284,12 +274,7 @@ export class Viewport {
         channelView: (c) => (this.adapter.paintChannelView?.(c), this.requestRender()),
         requestRender: () => this.requestRender(),
       },
-      { stroke: (args) => this.paintCb?.stroke(args) ?? Promise.resolve({ ok: false, message: 'the Scene view is not connected' }), refused: (m) => this.paintCb?.refused(m) },
-    );
-
-    this.snapping = options.snapping ?? (() => false);
-
-    this.orbit = new OrbitControls(this.camera, canvas);
+    });
     this.orbit.target.set(0, 0.5, 0);
     this.orbit.addEventListener('change', () => this.requestRender());
 
@@ -539,66 +524,20 @@ export class Viewport {
     this.requestRender();
   }
 
-  // ---- Block-layer editing ---------------------------------------------
-  private blockEditorInst: BlockEditor | null = null;
-  private orbitButtons: OrbitControls['mouseButtons'] | null = null;
-
+  // ---- Scene-view tools ------------------------------------------------
   /** The block-layer editing tools (created on first use with the App's callbacks). */
   blockEditor(cb?: BlockEditorCallbacks): BlockEditor | null {
-    if (this.blockEditorInst === null && cb !== undefined) {
-      this.blockEditorInst = new BlockEditor(
-        {
-          scene: this.overlay,
-          camera: this.camera,
-          canvas: this.root,
-          requestRender: () => this.requestRender(),
-          view: () => this.adapter.blockLayers!(),
-          armed: (on) => {
-            this.blockToolsArmed = on;
-            this.setSelected(this.selectedId);
-          },
-        },
-        cb,
-      );
-    }
-    return this.blockEditorInst;
+    return this.tools.blockEditor(cb);
   }
-
-  private terrainEditorInst: TerrainEditor | null = null;
 
   /** The terrain tools (created on first use with the App's callbacks). */
   terrainEditor(cb?: TerrainEditorCallbacks): TerrainEditor | null {
-    if (this.terrainEditorInst === null && cb !== undefined) {
-      this.terrainEditorInst = new TerrainEditor(
-        {
-          scene: this.overlay,
-          camera: this.camera,
-          canvas: this.root,
-          requestRender: () => this.requestRender(),
-          terrains: () => this.adapter.terrains?.() ?? null,
-          armed: (on) => {
-            this.terrainToolsArmed = on;
-            this.setSelected(this.selectedId);
-          },
-        },
-        cb,
-      );
-    }
-    return this.terrainEditorInst;
+    return this.tools.terrainEditor(cb);
   }
 
   /** Arm the block tools: a left drag paints (Alt+drag or the right button orbits), clicks pick no objects. */
   setBlockToolsActive(on: boolean): void {
-    const ed = this.blockEditorInst;
-    if (ed === null) return;
-    ed.setActive(on);
-    if (on && this.orbitButtons === null) {
-      this.orbitButtons = { ...this.orbit.mouseButtons };
-      this.orbit.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
-    } else if (!on && this.orbitButtons !== null) {
-      this.orbit.mouseButtons = this.orbitButtons;
-      this.orbitButtons = null;
-    }
+    this.tools.setBlockToolsActive(on);
   }
 
   /**
@@ -1124,8 +1063,7 @@ export class Viewport {
     // Where the handle grips are on screen (tests drag them); grips keep their screen size.
     this.helpers.scaleGrips();
     this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));
-    this.decalTool.frame();
-    this.paintTool.frame();
+    this.tools.frame();
     // The selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
     const setId = this.selectedId !== null && this.synced.get(this.selectedId)?.instances !== undefined ? this.selectedId : null;
     this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
@@ -1146,7 +1084,7 @@ export class Viewport {
     const animated = this.assets.materialLibrary.animated();
     // While the block tools are on, the view-projection matrix (tests map cells to the screen).
     const terrain = adapter.terrainDiagnostics?.() ?? null;
-    if (this.blockEditorInst?.isActive() === true || this.instanceBrush.active(this.selectedId) || this.decalTool.armed() || this.paintTool.armed() || terrain !== null) {
+    if (this.tools.router.anyArmed(this.selectedId) || terrain !== null) {
       this.camera.updateMatrixWorld();
       const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
       this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
@@ -1165,7 +1103,7 @@ export class Viewport {
     // The terrains drawn (tests read the tiles drawn and the nodes selected).
     if (terrain !== null) this.root.setAttribute('data-terrain', JSON.stringify(adapter.terrainDiagnostics?.() ?? terrain));
     else this.root.removeAttribute('data-terrain');
-    this.terrainEditorInst?.afterFrame();
+    this.tools.afterFrame();
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // The renderer's live resource counts after the frame (the leak tests read them).
@@ -1267,23 +1205,8 @@ export class Viewport {
 
   /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
   cancelGesture(): boolean {
-    // A block stroke in flight is dropped (nothing is sent).
-    if (this.blockEditorInst?.cancel() === true || this.terrainEditorInst?.cancel() === true) {
-      this.orbit.enabled = true;
-      return true;
-    }
-    // A handle drag or a brush stroke cancels with nothing stored.
-    if (this.handleDragging) {
-      this.handleDragging = false;
-      this.orbit.enabled = true;
-      this.helpers.cancelHandleDrag();
-      this.render();
-      return true;
-    }
-    if (this.instanceBrush.cancel() || this.decalTool.cancel() || this.paintTool.cancel()) {
-      this.orbit.enabled = true;
-      return true;
-    }
+    // A tool's stroke or drag in flight is dropped (nothing is sent).
+    if (this.tools.router.cancel()) return true;
     if (!this.draggingGizmo || this.gizmoCancelled) return false;
     this.gizmo.reset();
     this.gizmoCancelled = true;
@@ -1351,7 +1274,7 @@ export class Viewport {
     this.outlineDirty = true;
     // A selection that became locked or a folder loses its gizmo.
     if (this.selectedId !== null && !this.draggingGizmo && (selectionTouched || structural)) this.setSelected(this.selectedId);
-    else if (selectionTouched) this.decalTool.setTarget(this.synced.get(this.selectedId ?? '') ?? null);
+    else if (selectionTouched) this.tools.decal.setTarget(this.synced.get(this.selectedId ?? '') ?? null);
     const ms = Math.round((performance.now() - t0) * 100) / 100;
     this.root.setAttribute('data-sync', JSON.stringify({ entities: entities.length, processed: changed.length, removed: removed.size, full, ms }));
     this.render();
@@ -1424,7 +1347,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.blockToolsArmed || this.terrainToolsArmed || this.instanceBrush.active(id) || this.decalTool.armed() || this.paintTool.armed() ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.tools.router.anyArmed(id) ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1435,7 +1358,7 @@ export class Viewport {
       this.gizmoTargetId = null;
     }
     this.helpers.setSelected(id);
-    this.decalTool.setTarget(id === null ? null : (this.synced.get(id) ?? null));
+    this.tools.decal.setTarget(id === null ? null : (this.synced.get(id) ?? null));
     this.stampGizmoCounts();
     this.render();
   }
@@ -1531,148 +1454,28 @@ export class Viewport {
     this.root.removeEventListener('pointerleave', this.onPointerLeave);
   }
 
-  private onPointerLeave = (): void => (this.instanceBrush.leave(), this.decalTool.leave(), this.paintTool.leave());
+  private onPointerLeave = (): void => this.tools.router.leave();
 
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
 
-  /** A handle drag is in flight (the overlay holds the previewed shape). */
-  private handleDragging = false;
-
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
-    // The paint tool takes a press on something it paints (only then: a press elsewhere still orbits, picks or edits).
-    if (this.paintTool.pointerDown(e)) {
-      e.stopImmediatePropagation();
-      this.downAt = null;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      return;
-    }
-    // Armed block tools take the left button (the gizmo stands aside while they are armed); the Decal tool, opened over them, wins.
-    if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerDown(e)))) {
-      e.stopImmediatePropagation();
-      this.downAt = null;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      return;
-    }
-    // The Decal tool's turn and size grips (a press elsewhere may still be its click that places).
-    if (this.decalTool.pointerDown(e)) {
-      e.stopImmediatePropagation();
-      this.downAt = null;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      return;
-    }
-    // A handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
-    const grip = this.helpers.pickHandle(e.clientX, e.clientY);
-    if (grip !== null) {
-      e.stopImmediatePropagation();
-      // A press on a grip is never a click that picks (or deselects) what is under it.
-      this.downAt = null;
-      if (e.altKey && grip.role === 'vertex') {
-        const del = this.helpers.deleteHandlePoint(grip);
-        if (!del.ok) this.cb.onHandleRefused?.(del.message);
-        else this.commitHandle(del.shape);
-        return;
-      }
-      if (!this.helpers.beginHandleDrag(grip)) return;
-      this.handleDragging = true;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      this.requestRender();
-      return;
-    }
-    // The instance brush paints or erases on the selected set (not while the gizmo is under the pointer).
-    if (this.instanceBrush.active(this.selectedId) && !e.altKey && this.gizmo.axis === null && this.instanceBrush.begin(e.clientX, e.clientY)) {
-      e.stopImmediatePropagation();
-      this.brushPressed = true;
-      this.downAt = null;
-      this.orbit.enabled = false;
-      this.root.setPointerCapture(e.pointerId);
-      return;
-    }
+    // A press a tool takes is never a click that picks (or deselects) what is under it.
+    if (this.tools.router.pointerDown(e)) this.downAt = null;
   };
 
-  /** Store a handle shape (one setComponent), or say why it cannot be stored. */
-  private commitHandle(shape: HandleShape): void {
-    const edit = commitValue(shape);
-    if (edit === null) return;
-    if (!edit.ok) {
-      this.cb.onHandleRefused?.(edit.message);
-      return;
-    }
-    this.cb.onHandleEdit?.(shape.entityId, edit.component, edit.value);
-  }
-
   private onPointerMove = (e: PointerEvent): void => {
-    if (this.paintTool.pointerMove(e)) {
-      e.stopImmediatePropagation();
-      return;
-    }
-    if (!this.decalTool.armed() && ((this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerMove(e)) || (this.terrainEditorInst?.isActive() === true && this.terrainEditorInst.pointerMove(e)))) {
-      e.stopImmediatePropagation();
-      return;
-    }
-    if (this.decalTool.pointerMove(e)) {
-      e.stopImmediatePropagation();
-      return;
-    }
-    if (this.handleDragging) {
-      e.stopImmediatePropagation();
-      this.helpers.moveHandleDrag(e.clientX, e.clientY, this.snapping());
-      this.requestRender();
-      return;
-    }
-    if (this.instanceBrush.active(this.selectedId)) {
-      this.instanceBrush.move(e.clientX, e.clientY);
-      if (this.instanceBrush.stroking()) {
-        e.stopImmediatePropagation();
-        return;
-      }
-    }
+    if (this.tools.router.pointerMove(e)) return;
     if (this.draggingGizmo) this.applySnapping();
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    // A stroke's release is the tool's alone (its press never reached the orbit controls).
-    if (this.paintTool.pointerUp(e)) {
-      e.stopImmediatePropagation();
-      this.orbit.enabled = true;
-      return;
-    }
-    if (!this.decalTool.armed() && ((this.blockEditorInst !== null && this.blockEditorInst.pointerUp(e)) || (this.terrainEditorInst !== null && this.terrainEditorInst.pointerUp(e)))) {
-      e.stopImmediatePropagation();
-      this.orbit.enabled = true;
-      return;
-    }
     const down = this.downAt;
     this.downAt = null;
-    if (this.handleDragging) {
-      e.stopImmediatePropagation();
-      this.handleDragging = false;
-      this.orbit.enabled = true;
-      const shape = this.helpers.endHandleDrag();
-      this.requestRender();
-      if (shape !== null) this.commitHandle(shape);
-      return;
-    }
-    if (this.brushPressed) {
-      e.stopImmediatePropagation();
-      this.brushPressed = false;
-      this.orbit.enabled = true;
-      this.instanceBrush.end(e.clientX, e.clientY);
-      return;
-    }
-    // The Decal tool's grip drag ends (its press was the tool's alone), or its click places a decal (it picks nothing).
-    const decal = this.decalTool.pointerUp(e, CLICK_SLOP_PX);
-    if (decal !== null) {
-      if (decal === 'drag') e.stopImmediatePropagation();
-      this.orbit.enabled = true;
-      return;
-    }
+    // A tool's gesture ends (its press never reached the orbit controls), or a tool acts on the click.
+    if (this.tools.router.pointerUp(e)) return;
     // A left click (no drag, not on a gizmo handle) picks or deselects.
     if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
@@ -1730,29 +1533,22 @@ export class Viewport {
 
   /** The instance brush paints or erases on this set (null: off); the gizmo stands aside while it is on. */
   setInstanceBrush(entityId: string | null, mode: InstanceBrushMode, brush: InstanceBrush): void {
-    this.instanceBrush.set(entityId, mode, brush);
-    this.orbit.enabled = true;
-    this.setSelected(this.selectedId);
+    this.tools.setInstanceBrush(entityId, mode, brush);
   }
 
   /** The Decal tool armed with these settings in `sceneId`, its edits sent through `cb` (null: off; the gizmo stands aside while it is on). */
   setDecalTool(settings: DecalToolSettings | null, sceneId: string | null, cb: DecalToolCallbacks | null): void {
-    this.decalCb = cb;
-    this.decalTool.arm(settings, sceneId);
-    this.setSelected(this.selectedId);
-    this.requestRender();
+    this.tools.setDecalTool(settings, sceneId, cb);
   }
 
   /** The vertex paint mode armed with these settings, its strokes sent through `cb` (null: off; the gizmo stands aside while it is on). */
   setVertexPaintTool(settings: VertexPaintSettings | null, cb: VertexPaintToolCallbacks | null): void {
-    this.paintCb = cb;
-    this.paintTool.arm(settings);
-    this.setSelected(this.selectedId);
+    this.tools.setVertexPaintTool(settings, cb);
   }
 
   /** Every instance-brush stroke sent so far has been answered. */
   instanceStrokesSettled(): Promise<unknown> {
-    return this.instanceBrush.settled();
+    return this.tools.brush.settled();
   }
 
   /** The drawn objects that collide (shown and switched on; instance sets and `exceptId` left out): what the brush paints on besides block layers. */
@@ -1958,10 +1754,7 @@ export class Viewport {
   }
 
   dispose(): void {
-    this.blockEditorInst?.dispose();
-    this.blockEditorInst = null;
-    this.terrainEditorInst?.dispose();
-    this.terrainEditorInst = null;
+    this.tools.dispose();
     this.releaseEffectPreview();
     this.copyHighlight?.removeFromParent();
     this.copyHighlight?.dispose();
@@ -1979,9 +1772,6 @@ export class Viewport {
     this.gizmo.detach();
     this.gizmo.dispose();
     disposeOrbitControls(this.orbit);
-    this.instanceBrush.dispose();
-    this.decalTool.dispose();
-    this.paintTool.dispose();
     this.adapter.dispose();
   }
 }

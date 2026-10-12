@@ -177,6 +177,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 | 34.0 | Done 2026-10-12: plans 34–36 and their STATUS/roadmap rows (19a20f40). three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 exists (2026-09-25); the pinned 0.20.0 stays (nothing here depends on it). §3 re-read; it stands. |
 | 34.1 | Done 2026-10-12: one icon order (`COMPONENT_ICONS`, 29 icons) in the descriptors, value variants (light by type, spline → road/river) and a tooltip count; hierarchy rows and billboards share `objectIconFor`. 12 new 96 px WebPs in `public/icons/objects` (47.9 KiB). Billboards were squashed by the aspect (drawn ~½ wide); now square. e2e: `placeholders.e2e.ts` extended (13 types). |
 | 34.2 | Done 2026-10-12, owner look pending: 8 static pages (terrain sculpt/paint/rules, vertex paint + "doesn't read paint" variant, decal editor with atlas drawer, block editor, kit editor) on the editor's own tokens and icons, Studio textures, a three.js stand-in Scene view; screenshots and `SPEC.md` (sizes, components, colours, key map) in `~/.cache/thirdlight-phase34/mockup/` (1.8 MB of JPEG at 1920×1080). |
+| 34.3 | Done 2026-10-12: `viewport.ts` 1,987 → 1,777 lines; pointer routing, Esc and tool arming moved to `viewport/tool-input.ts` (440): a `SceneTool` interface (press/move/release/click/leave/cancel/key, armed) and a `ToolRouter` the viewport asks first (priority paint → block → terrain → decal → handles → brush; Esc in its old order). No behaviour change; router order covered in vitest (`tool-input.test.ts`, 7 tests); fast gate green with block-editor, instance-brush, terrain-brushes, handles, window-tools, and layered-material (decal tool) alone. |
 
 ## 7. Decision log
 
@@ -207,3 +208,8 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 - Open: whether "Set up material" may send two commands as one history
   entry or needs a combined command. Decided in 34.7 against
   `docs/architecture/commands`.
+- 2026-10-12 (34.3) — The tool registry is a list in priority order, not one "active tool": today several tools can
+  be armed at once (vertex paint over block tools, the Decal tool over both) and their old precedence is kept. A
+  release goes first to the tool whose gesture it ends, then to a tool that acts on a plain click (the Decal tool
+  places on click, after a handle drag or brush stroke has had its release). `SceneTool.key` and `ToolRouter.key`
+  exist for the edit-mode shell's key map; no tool takes keys yet (34.4 wires them).

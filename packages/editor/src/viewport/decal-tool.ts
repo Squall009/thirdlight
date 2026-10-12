@@ -246,6 +246,11 @@ export class DecalTool {
     return 'click';
   }
 
+  /** A grip drag is in flight (the release is the tool's alone). */
+  dragging(): boolean {
+    return this.drag !== null;
+  }
+
   /** The pointer left the view: no decal under it. */
   leave(): void {
     if (this.drag === null) this.showPreview(null);
