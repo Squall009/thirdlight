@@ -62,7 +62,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
 import { paintNode, withPaint } from './vertex-paint-draw';
-import { localLightModeOf, WORLD_UV_PERIOD_METRES, type LocalLightMode } from '@thirdlight/runtime';
+import { localLightModeOf, TEXTURE_ABSENT_VALUES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
 type N = any;
@@ -493,11 +493,11 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   normal: { space: 'world' },
   viewDirection: { space: 'world' },
   swizzle: { mask: 'xyz' },
-  sampleTexture: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb' },
+  sampleTexture: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', absent: 'white' },
   sampleData: { address: 'uv' },
   normalMap: { texture: '', wrap: 'repeat', filter: 'linear' },
-  triplanar: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb' },
-  projectedSample: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', decode: 'color' },
+  triplanar: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', absent: 'white' },
+  projectedSample: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', decode: 'color', absent: 'white' },
   flipbook: { columns: 4, rows: 4 },
   noise: { noise: 'gradient' },
   gradient: { shape: 'linear' },
@@ -912,12 +912,18 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     wrap: ((w) => (w === 'clamp' || w === 'mirror' ? w : 'repeat'))(str(field(node, 'wrap'), 'repeat')),
     filter: str(field(node, 'filter'), 'linear') === 'nearest' ? 'nearest' : 'linear',
   });
+  /** What a colour read gives without a texture (its `absent` field; white when the field names nothing known). */
+  const absentOf = (node: MaterialGraphNodeLike): TextureAbsent => {
+    const a = str(field(node, 'absent'), 'white');
+    return a in TEXTURE_ABSENT_VALUES ? (a as TextureAbsent) : 'white';
+  };
+  const absentValue = (node: MaterialGraphNodeLike): N => T.vec4(...TEXTURE_ABSENT_VALUES[absentOf(node)]);
   /** The texture a sampling node reads: its texture wire, else its own field. */
-  const textureFor = (scope: Scope, node: MaterialGraphNodeLike, inp: Record<string, Val>, colour: boolean): THREE.Texture | null => {
+  const textureFor = (scope: Scope, node: MaterialGraphNodeLike, inp: Record<string, Val>, colour: boolean, reads = node.type === 'normalMap' ? 'a flat normal' : absentOf(node) === 'orm' ? 'unoccluded, not metal' : absentOf(node)): THREE.Texture | null => {
     const wired = texOf(inp['tex']);
     const asset = wired !== '' ? wired : str(field(node, 'texture'), '');
     if (asset === '') {
-      problem(scope, node.id, 'warning', 'no texture (set its Texture field or wire a texture in); it reads white');
+      problem(scope, node.id, 'warning', `no texture (set its Texture field or wire a texture in); it reads ${reads}`);
       return null;
     }
     return texNode(scope, node.id, asset, samplerOf(node, colour));
@@ -1215,7 +1221,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       // ---- textures
       case 'sampleTexture': {
         const t = textureFor(scope, node, inp, true);
-        const s = t !== null ? sample(t, v(inp['uv']), stage, v(inp['layer'])) : T.vec4(1, 1, 1, 1);
+        const s = t !== null ? sample(t, v(inp['uv']), stage, v(inp['layer'])) : absentValue(node);
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz }, r: { t: 'float', n: s.x }, g: { t: 'float', n: s.y }, b: { t: 'float', n: s.z }, a: { t: 'float', n: s.w } };
       }
       case 'sampleData': {
@@ -1250,7 +1256,10 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       }
       case 'triplanar': {
         const t = textureFor(scope, node, inp, true);
-        if (t === null) return { rgba: { t: 'vec4', n: T.vec4(1, 1, 1, 1) }, rgb: { t: 'vec3', n: T.vec3(1, 1, 1) } };
+        if (t === null) {
+          const a = absentValue(node);
+          return { rgba: { t: 'vec4', n: a }, rgb: { t: 'vec3', n: a.xyz } };
+        }
         const p = v(inp['position']).mul(v(inp['scale']));
         const w0 = T.pow(T.abs(T.normalize(v(inp['normal']))), T.vec3(v(inp['sharpness'])));
         const w = w0.div(w0.x.add(w0.y).add(w0.z).add(1e-5));
@@ -1260,9 +1269,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       }
       case 'projectedSample': {
         const normalMap = str(field(node, 'decode'), 'color') === 'normal';
-        const t = textureFor(scope, node, inp, !normalMap);
+        const t = textureFor(scope, node, inp, !normalMap, normalMap ? 'a flat normal' : undefined);
         const outputs = (c: N, normal: N): Record<string, Val> => ({ rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, r: { t: 'float', n: c.x }, g: { t: 'float', n: c.y }, b: { t: 'float', n: c.z }, a: { t: 'float', n: c.w }, normal: { t: 'vec3', n: normal } });
-        if (t === null) return outputs(T.vec4(1, 1, 1, 1), T.vec3(0, 0, 1));
+        if (t === null) return outputs(absentValue(node), T.vec3(0, 0, 1));
         // As the Normal map node: decode, scale xy by the strength; read in the mesh's own frame, the green turned
         // around where that frame comes from its texture coordinates (normalGreenSign).
         const decodeIn = (c: N, meshFrame: boolean): N => {

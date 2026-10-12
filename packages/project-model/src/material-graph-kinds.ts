@@ -306,12 +306,30 @@ const VECTOR_NODES: readonly GraphNodeDef[] = [
   },
 ];
 
+/**
+ * What a texture read gives where there is no texture (RGBA, 0–1): `white`
+ * (a colour read's neutral, and what a read without the field gives),
+ * `black`, or `orm` — a packed occlusion/roughness/metalness map's neutral:
+ * unoccluded, the PBR surface's default roughness, not metal. An array of
+ * per-layer slots fills an empty slot with the same value, so a layer left
+ * without its ORM map looks as a material without one does.
+ */
+export const TEXTURE_ABSENT_VALUES = {
+  white: [1, 1, 1, 1],
+  black: [0, 0, 0, 0],
+  orm: [1, 0.8, 0, 0],
+} as const satisfies Record<string, readonly [number, number, number, number]>;
+export type TextureAbsent = keyof typeof TEXTURE_ABSENT_VALUES;
+/** A tangent-space normal map's flat texel (RGBA, 0–1): what a normal read without a texture, or an empty slot of a normal-map array, gives. */
+export const FLAT_NORMAL_TEXEL = [0.5, 0.5, 1, 1] as const;
+
 const SAMPLER_FIELDS: readonly GraphFieldDef[] = [
   TEXTURE_FIELD,
   { key: 'wrap', label: 'Wrap', type: 'enum', options: ['repeat', 'clamp', 'mirror'], default: 'repeat' },
   { key: 'filter', label: 'Filter', type: 'enum', options: ['linear', 'nearest'], default: 'linear' },
   // sRGB for colour images, linear for data (masks, heights, roughness).
   { key: 'colorSpace', label: 'Colour space', type: 'enum', options: ['srgb', 'linear'], default: 'srgb' },
+  { key: 'absent', label: 'Without a texture', type: 'enum', options: Object.keys(TEXTURE_ABSENT_VALUES), default: 'white' },
 ];
 const TEX_IN = port('tex', 'texture', 'texture');
 const SAMPLE_OUTPUTS: readonly GraphPortDef[] = [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('r', 'r', 'float'), port('g', 'g', 'float'), port('b', 'b', 'float'), port('a', 'a', 'float')];

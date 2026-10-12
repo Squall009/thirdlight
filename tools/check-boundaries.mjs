@@ -223,9 +223,10 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'project-model': true },
     // The shared PNG decoder (pure; texture sources for KTX2 encoding and
     // packing), the model's limits and the trim-sheet rules (a sheet image's
-    // padding checked against its row table) are the project-model values
-    // the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet'] },
+    // padding checked against its row table) and the texture-slot rules (an
+    // empty slot's constant layer read from its layer-list entry) are the
+    // project-model values the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.

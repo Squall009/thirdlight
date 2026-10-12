@@ -287,6 +287,8 @@ export {
 // A build's block chunk data, decoded on the game page before a scene reaches the runtime (pure byte decoding).
 export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@thirdlight/project-model';
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).
+// What a texture read gives without a texture (the material compiler's and the slot arrays' one table).
+export { TEXTURE_ABSENT_VALUES, type TextureAbsent } from '@thirdlight/project-model';
 export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
 export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileBytes, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
 // The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.

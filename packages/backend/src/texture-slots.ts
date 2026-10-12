@@ -17,6 +17,8 @@
  */
 import { createHash } from 'node:crypto';
 
+import { parseFillLayer } from '@thirdlight/project-model/texture-slots';
+
 import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspace';
 
 import type { DecalPageRequest, DecalPageResult } from './decal-page-assembly';
@@ -24,7 +26,7 @@ import { readKtx2 } from './ktx2-container';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
-/** One layer: a texture asset's version and its file's digest. */
+/** One layer: a texture asset's version and its file's digest; a constant layer (`fillLayerId`) is its id in all three. */
 export interface SlotLayer {
   readonly assetId: string;
   readonly version: number;
@@ -74,8 +76,10 @@ export function slotArrayKey(layers: readonly SlotLayer[], mode: Ktx2Mode, origi
 interface ResolvedLayers {
   sources: Uint8Array[];
   lossless: (Uint8Array | null)[];
-  /** Per layer: its texture's index in `sources`. */
+  /** Per layer: its texture's index in `sources` (-1: a constant layer). */
   index: number[];
+  /** Per layer: a constant layer's RGBA bytes, null for a texture's. */
+  fills: ([number, number, number, number] | null)[];
   /** Per layer: the digest of the original read in its place, null where none is. */
   originals: (string | null)[];
 }
@@ -88,10 +92,17 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
   /** Read each distinct texture once, verify it and find its lossless original. */
   const resolve = (projectId: string, layers: readonly SlotLayer[]): ResolvedLayers | { ok: false; code: string; message: string } => {
     const at = new Map<string, number>();
-    const out: ResolvedLayers = { sources: [], lossless: [], index: [], originals: [] };
+    const out: ResolvedLayers = { sources: [], lossless: [], index: [], fills: [], originals: [] };
     const originalDigests: (string | null)[] = [];
     let versions: ReturnType<typeof textureVersionsOf> | null = null;
     for (const l of layers) {
+      const fill = parseFillLayer(l.assetId);
+      out.fills.push(fill);
+      if (fill !== null) {
+        out.index.push(-1);
+        out.originals.push(null);
+        continue;
+      }
       let i = at.get(l.assetId);
       if (i === undefined) {
         const read = deps.service.readBlob(projectId, { assetId: l.assetId, version: l.version });
@@ -121,8 +132,11 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
   const make = async (projectId: string, resolved: ResolvedLayers, mode: Ktx2Mode, key: ImportKey, t0: number): Promise<SlotArrayResult> => {
     const encoder = deps.encoder;
     if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
-    // Each layer is the whole RGBA of its texture.
-    const packLayers: PackLayer[] = resolved.index.map((source) => [0, 1, 2, 3].map((channel) => ({ source, channel })) as unknown as PackLayer);
+    // Each layer is the whole RGBA of its texture, or its constant (the size is the textures').
+    const packLayers: PackLayer[] = resolved.index.map((source, l) => {
+      const fill = resolved.fills[l];
+      return (fill !== null && fill !== undefined ? fill.map((value) => ({ value })) : [0, 1, 2, 3].map((channel) => ({ source, channel }))) as unknown as PackLayer;
+    });
     const packed = await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless);
     if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
@@ -137,6 +151,7 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
     stats,
     assemble(projectId, layers, mode) {
       if (layers.length < 1) return Promise.resolve({ ok: false, code: 'field_value', message: 'an array needs at least one layer' });
+      if (layers.every((l) => parseFillLayer(l.assetId) !== null)) return Promise.resolve({ ok: false, code: 'field_value', message: 'an array needs at least one texture layer (its size)' });
       const t0 = deps.now();
       // The originals are part of the key, so they are looked for before the cache.
       const resolved = resolve(projectId, layers);

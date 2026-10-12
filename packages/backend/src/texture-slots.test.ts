@@ -152,6 +152,17 @@ describe('per-layer texture slots: Play and export arrays', () => {
     expect(res.status).toBe(200);
     const k = readKtx2(new Uint8Array(await res.arrayBuffer()))!;
     expect(k.layerCount).toBe(3);
+    // An empty ORM slot's neutral (a constant layer, `#rrggbbaa`) beside textures: the textures' size, its own layer.
+    const filled = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/slots`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ layers: [ids['d-one'], '#ffcc0000', ids['d-two']], mode: 'data' }),
+    });
+    expect(filled.status).toBe(200);
+    const f = readKtx2(new Uint8Array(await filled.arrayBuffer()))!;
+    expect([f.layerCount, f.width]).toEqual([3, 16]);
+    const constantOnly = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/slots`, { method: 'POST', headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ layers: ['#ffcc0000'], mode: 'data' }) });
+    expect(constantOnly.status).toBe(400);
     const bad = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/slots`, { method: 'POST', headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ layers: ['nope'], mode: 'data' }) });
     expect(bad.status).toBe(400);
   });

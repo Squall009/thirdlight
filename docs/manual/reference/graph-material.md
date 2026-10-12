@@ -962,6 +962,7 @@ Fields:
 | `wrap` | Wrap | enum | `"repeat"` | `repeat`, `clamp`, `mirror` |
 | `filter` | Filter | enum | `"linear"` | `linear`, `nearest` |
 | `colorSpace` | Colour space | enum | `"srgb"` | `srgb`, `linear` |
+| `absent` | Without a texture | enum | `"white"` | `white`, `black`, `orm` |
 
 <a id="node-material--normal-map"></a>
 ### Normal map (`normalMap`)
@@ -1014,6 +1015,7 @@ Fields:
 | `wrap` | Wrap | enum | `"repeat"` | `repeat`, `clamp`, `mirror` |
 | `filter` | Filter | enum | `"linear"` | `linear`, `nearest` |
 | `colorSpace` | Colour space | enum | `"srgb"` | `srgb`, `linear` |
+| `absent` | Without a texture | enum | `"white"` | `white`, `black`, `orm` |
 
 <a id="node-material--projected-sample"></a>
 ### Projected sample (`projectedSample`)
@@ -1051,6 +1053,7 @@ Fields:
 | `wrap` | Wrap | enum | `"repeat"` | `repeat`, `clamp`, `mirror` |
 | `filter` | Filter | enum | `"linear"` | `linear`, `nearest` |
 | `colorSpace` | Colour space | enum | `"srgb"` | `srgb`, `linear` |
+| `absent` | Without a texture | enum | `"white"` | `white`, `black`, `orm` |
 | `decode` | Decode | enum | `"color"` | `color`, `normal` |
 
 <a id="node-material--height-blend"></a>

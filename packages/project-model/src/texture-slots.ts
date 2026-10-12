@@ -16,8 +16,13 @@
  * the exported game never needs the backend. The editor's views do the same
  * through the backend's assembly route.
  *
- * - An empty slot ("") takes the first filled slot's texture: an array needs
- *   every layer, and the first slot's texture keeps a join without
+ * - An empty slot ("") of an array read as a normal map is a flat normal,
+ *   and of one whose reading node says what it gives without a texture
+ *   (`absent`: an ORM map's neutral) that value — a constant layer, named in
+ *   the layer list by `fillLayerId` (never an asset id), so a layer left
+ *   without its normal or ORM map looks as a material without one does.
+ *   Any other empty slot takes the first filled slot's texture: an array
+ *   needs every layer, and the first slot's texture keeps a join without
  *   re-encoding possible; a layer nothing paints never shows.
  * - The encoding of the array follows how the graph reads the parameter: a
  *   Normal map node makes it a normal map, a Sample texture or Triplanar
@@ -27,6 +32,7 @@
  */
 import { KTX2_ENCODINGS, MAX_TEXTURE_LAYERS, type Ktx2Encoding } from './content-limits';
 import type { GraphData } from './graph';
+import { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
 import { ID_RE } from './validate';
 
 export { KTX2_ENCODINGS };
@@ -44,10 +50,49 @@ export function textureSlotsError(v: readonly unknown[]): string | null {
   return null;
 }
 
-/** The layers an array is assembled from: each slot's texture, an empty one the first filled slot's (null: none filled). */
-export function textureSlotLayers(slots: readonly string[]): string[] | null {
+/** Marks a constant layer in a layer list (asset ids never hold it). */
+const FILL_PREFIX = '#';
+
+/** The layer-list entry of a constant layer of `rgba` (0–1 per channel): `#rrggbbaa`. */
+export function fillLayerId(rgba: readonly number[]): string {
+  return FILL_PREFIX + [0, 1, 2, 3].map((c) => Math.max(0, Math.min(255, Math.round((rgba[c] ?? 1) * 255))).toString(16).padStart(2, '0')).join('');
+}
+
+/** A constant layer's bytes (RGBA 0–255) from its layer-list entry (null: an asset id). */
+export function parseFillLayer(id: string): [number, number, number, number] | null {
+  if (!/^#[0-9a-f]{8}$/.test(id)) return null;
+  return [0, 1, 2, 3].map((c) => parseInt(id.slice(1 + c * 2, 3 + c * 2), 16)) as [number, number, number, number];
+}
+
+/**
+ * What an empty slot of a parameter's array is (RGBA 0–1), from how the graph
+ * reads it: a flat normal for a normal map, a reading node's `absent` value
+ * where one says it; null — the first filled slot's texture — otherwise.
+ */
+export function textureSlotFill(graph: GraphData | undefined, key: string): readonly number[] | null {
+  if (graph === undefined) return null;
+  const params = new Set(graph.nodes.filter((n) => n.type === 'parameter' && n.data?.['key'] === key).map((n) => n.id));
+  let fill: readonly number[] | null = null;
+  for (const e of graph.edges) {
+    if (!params.has(e.from.node)) continue;
+    const to = graph.nodes.find((n) => n.id === e.to.node);
+    if (to?.type === 'normalMap' || (to?.type === 'projectedSample' && to.data?.['decode'] === 'normal')) return FLAT_NORMAL_TEXEL;
+    const absent = to?.data?.['absent'];
+    if (typeof absent === 'string' && absent in TEXTURE_ABSENT_VALUES) fill ??= TEXTURE_ABSENT_VALUES[absent as keyof typeof TEXTURE_ABSENT_VALUES];
+  }
+  return fill;
+}
+
+/**
+ * The layers an array is assembled from: each slot's texture; an empty one
+ * the constant `fill` (`textureSlotFill`) where given, else the first filled
+ * slot's (null: none filled).
+ */
+export function textureSlotLayers(slots: readonly string[], fill: readonly number[] | null = null): string[] | null {
   const first = slots.find((s) => s !== '');
-  return first === undefined ? null : slots.map((s) => (s === '' ? first : s));
+  if (first === undefined) return null;
+  const empty = fill !== null ? fillLayerId(fill) : first;
+  return slots.map((s) => (s === '' ? empty : s));
 }
 
 /** How the array of a parameter's slots is encoded, from how the material's graph reads the parameter. */
@@ -95,7 +140,7 @@ export function materialTextureSlotSets(materials: readonly SlottedMaterial[]): 
   for (const m of materials) {
     for (const p of m.parameters ?? []) {
       if (p.type !== 'texture' || !isTextureSlots(p.default)) continue;
-      const layers = textureSlotLayers(p.default);
+      const layers = textureSlotLayers(p.default, textureSlotFill(m.graph, p.key));
       if (layers === null) continue;
       const set: TextureSlotSet = { layers, mode: textureSlotMode(m.graph, p.key) };
       const k = textureSlotSetKey(set);
@@ -120,7 +165,7 @@ export function withAssembledSlots<M extends SlottedMaterial>(materials: readonl
     if (!hasTextureSlots([m])) return m;
     const parameters = (m.parameters ?? []).map((p) => {
       if (p.type !== 'texture' || !isTextureSlots(p.default)) return p;
-      const layers = textureSlotLayers(p.default);
+      const layers = textureSlotLayers(p.default, textureSlotFill(m.graph, p.key));
       return { ...p, default: layers === null ? '' : idOf({ layers, mode: textureSlotMode(m.graph, p.key) }) };
     });
     return { ...m, parameters };

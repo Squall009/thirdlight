@@ -17,7 +17,7 @@
  * names them.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
-import { materialTextureSlotSets, textureSlotSetKey, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet } from '@thirdlight/project-model';
+import { materialTextureSlotSets, parseFillLayer, textureSlotSetKey, type Ktx2Encoding, type ManifestAssetInputV2, type TextureSlotSet } from '@thirdlight/project-model';
 
 import type { ClosureDecalPages } from './closure-decal-pages';
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
@@ -102,6 +102,11 @@ export async function closureSlotArrays(o: {
 function slotLayers(set: TextureSlotSet, byId: ReadonlyMap<string, AssetRecordLike>): ClosureSlotLayer[] | string {
   const out: ClosureSlotLayer[] = [];
   for (const assetId of set.layers) {
+    // A constant layer (an empty slot's flat normal or neutral value) is made from its id alone.
+    if (parseFillLayer(assetId) !== null) {
+      out.push({ assetId, version: 0, sourceDigest: assetId });
+      continue;
+    }
     const a = byId.get(assetId);
     if (a === undefined || a.kind !== 'texture') return `texture slot "${assetId}" names no texture asset of the project`;
     const v = a.versions?.find((x) => x.version === a.currentVersion);

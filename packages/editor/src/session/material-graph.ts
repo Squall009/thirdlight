@@ -453,7 +453,9 @@ export const BIPLANAR_DISTANCE = 60;
  * trim-sheet mesh blended by its vertex colours): four PBR layers from three
  * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
  * the height in A, colour; `normals`: normal maps; `orm`: occlusion,
- * roughness, metalness, data), layer i sampled at array layer i. Per layer
+ * roughness, metalness, data), layer i sampled at array layer i. A layer
+ * (or the whole array) without a normal map reads a flat normal, without an
+ * ORM map unoccluded, at the PBR default roughness and not metal. Per layer
  * (the components of {@link LAYER_SETTINGS}' vec4 parameters): its tiling
  * (metres per repeat: block layers' and terrain UVs are metres), its
  * projection (Projected sample nodes: top at UV0, by slope — the world plane
@@ -544,7 +546,7 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
     b.wire(b.op('multiply', `strength${i + 1}`, [strength, comp[i]!], [flat, 'out']), n, 'strength');
     return [n, 'normal'] as Out;
   });
-  const orms = layers.map((i) => [read(`orm${i + 1}`, ormArr, i, { colorSpace: 'linear' }), 'rgb'] as Out);
+  const orms = layers.map((i) => [read(`orm${i + 1}`, ormArr, i, { colorSpace: 'linear', absent: 'orm' }), 'rgb'] as Out);
   const orm = b.add('ormSplit', 'split');
   b.wire(mix('ormMix', orms), orm, 'in');
   const darken = b.add('wetDarken', 'lerp');

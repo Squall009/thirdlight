@@ -723,6 +723,7 @@ export {
   type RigPath,
 } from './model-rig';
 // The material node catalogue (material graphs and material functions).
+export { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES, type TextureAbsent } from './material-graph-kinds';
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // An animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
@@ -922,6 +923,7 @@ export {
   WET_ROUGHNESS,
 } from './materials';
 // Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
+export { fillLayerId, parseFillLayer, textureSlotFill } from './texture-slots';
 export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';
 
 // Environment presets (named looks scripts switch or blend to).

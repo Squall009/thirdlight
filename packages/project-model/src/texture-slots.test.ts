@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphData } from './graph';
 import { canonicalMaterials, materialParameterValueError, MATERIAL_LAYER_NAME_MAX, resolveMaterialInstances, validateMaterials, type MaterialDef } from './materials';
-import { materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
+import { fillLayerId, materialSlotTextureRefs, materialTextureSlotSets, parseFillLayer, parseTextureSlotSetKey, textureSlotFill, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
 
 const graph = (target: { type: string; data?: Record<string, string> }, key = 'tex'): GraphData => ({
   nodes: [
@@ -25,6 +25,24 @@ describe('texture slots', () => {
     expect(materialParameterValueError({ type: 'texture' }, ['A B'])).toMatch(/each slot/);
     expect(textureSlotLayers(['', 'b', '', 'c'])).toEqual(['b', 'b', 'b', 'c']);
     expect(textureSlotLayers(['', ''])).toBeNull();
+  });
+
+  it('an empty slot of a normal map array is a flat normal, of an ORM read its neutral; other empty slots the first filled one', () => {
+    expect(textureSlotFill(graph({ type: 'normalMap' }), 'tex')).toEqual([0.5, 0.5, 1, 1]);
+    expect(textureSlotFill(graph({ type: 'projectedSample', data: { decode: 'normal', colorSpace: 'linear' } }), 'tex')).toEqual([0.5, 0.5, 1, 1]);
+    expect(textureSlotFill(graph({ type: 'projectedSample', data: { colorSpace: 'linear', absent: 'orm' } }), 'tex')).toEqual([1, 0.8, 0, 0]);
+    // Without the field (or for a colour read) nothing changes: the first filled slot's texture.
+    expect(textureSlotFill(graph({ type: 'sampleTexture' }), 'tex')).toBeNull();
+    expect(textureSlotFill(graph({ type: 'sampleTexture', data: { absent: 'nonsense' } }), 'tex')).toBeNull();
+    const orm = textureSlotLayers(['rock_orm', '', 'sand_orm'], [1, 0.8, 0, 0]);
+    expect(orm).toEqual(['rock_orm', '#ffcc0000', 'sand_orm']);
+    expect(parseFillLayer('#ffcc0000')).toEqual([255, 204, 0, 0]);
+    expect(fillLayerId([0.5, 0.5, 1, 1])).toBe('#8080ffff');
+    expect(parseFillLayer('rock_orm')).toBeNull();
+    // The runtime's materials name the array with the constant layer; the template's arrays get theirs.
+    const base = { shader: 'standard' as const, params: {}, textures: {} };
+    const m = { ...base, materialId: 'm', name: 'M', graph: graph({ type: 'normalMap' }), parameters: [{ key: 'tex', type: 'texture' as const, default: ['', 'rock_n'] }] };
+    expect(materialTextureSlotSets([m]).map(textureSlotSetKey)).toEqual(['normal:#8080ffff,rock_n']);
   });
 
   it('the encoding follows how the graph reads the parameter', () => {

@@ -318,6 +318,19 @@ async function greenNear(page: Page, p: readonly [number, number, number], size 
   return n / (img.width * img.height);
 }
 
+/** The share of the Scene view's lower three quarters (the ground, below the sky) in the grid's ground-square grey. */
+async function groundSquareShare(page: Page): Promise<number> {
+  const b = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  const img = decodePng(await page.screenshot({ clip: { x: b.x, y: b.y + b.height * 0.25, width: b.width, height: b.height * 0.75 } }));
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const [r, g, bl] = img.pixel(x, y);
+    // 0x1c1f27 lit and shaded: a dark, slightly blue grey (the terrain's shade is green, the marker red).
+    if (Math.max(r, g, bl) < 50 && bl >= g && g >= r - 2) n += 1;
+  }
+  return n / (img.width * img.height);
+}
+
 /** A point on the marker's top face (away from its size handle in the middle). */
 const MARK: [number, number, number] = [0.5, 2, -0.4];
 
@@ -375,6 +388,17 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context: the marker drawn' }).toBeGreaterThan(0.6);
   await page.keyboard.press('c');
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context off: isolated again' }).toBeLessThan(0.05);
+  // The grid's dark ground square (20 m round the origin at y = 0) is not drawn in isolation either: it fights the
+  // terrain lying at y = 0 and shows wherever the ground dips below it — dark shapes on the one object shown. Context
+  // shows it again. A dip under the square makes it show for sure.
+  const dipAt: [number, number] = [-1, -8];
+  await cmd('editTerrain', { entityId: hill, kind: 'lower', dabs: [dipAt], radius: 2.5, strength: 1.5 });
+  await expect.poll(async () => ((await query('queryTerrain', { entityId: hill, points: [dipAt] }))['points'] as { height: number }[])[0]!.height, { timeout: 15_000 }).toBeLessThan(-0.5);
+  await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'isolated: no part of the ground square drawn' }).toBeLessThan(0.002);
+  await page.keyboard.press('c');
+  await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context: the ground square drawn again' }).toBeGreaterThan(0.01);
+  await page.keyboard.press('c');
+  await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context off: the square gone again' }).toBeLessThan(0.002);
 
   // ---- The rail: Shift+number and a click switch modes (Material rules arms no brush).
   await page.keyboard.press('Shift+Digit2');
@@ -653,6 +677,23 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   await expect.poll(layersAt, { timeout: 15_000, message: 'the painted layer stored' }).toContain(1);
   await expect.poll(async () => meanDiff(await patch(), before), { timeout: 30_000, message: 'the painted dirt drawn' }).toBeGreaterThan(4);
   if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/palette-paint.png` });
+
+  // ---- Layers without a normal map or ORM map look as a material without them: the whole arrays unset (the reads'
+  // own value) and an empty slot beside a filled one (the array's constant layer) draw as a flat normal and a neutral
+  // ORM do — not white (tilted normals, fully rough and metal), which looks plainly different.
+  const single = (rgba: readonly [number, number, number, number]): Uint8Array => new Uint8Array(makePng(64, 64, () => [rgba[0], rgba[1], rgba[2], rgba[3]]));
+  await publishTexture(be, single([128, 128, 255, 255]), 'tex-flat-normal', 'Flat normal');
+  await publishTexture(be, single([255, 204, 0, 255]), 'tex-orm-neutral', 'Neutral orm');
+  await publishTexture(be, single([255, 255, 255, 255]), 'tex-orm-white', 'White orm');
+  const withMaps = async (normals: unknown, orm: unknown): Promise<void> => {
+    const def = (await mats()).find((m) => m.materialId === made.materialId)!;
+    await cmd('setMaterial', { material: { ...def, parameters: def.parameters!.map((p) => (p.key === 'normals' ? { ...p, default: normals } : p.key === 'orm' ? { ...p, default: orm } : p)) } });
+  };
+  const unset = await patch();
+  await withMaps('', ['tex-orm-white', 'tex-orm-white', '', '']);
+  await expect.poll(async () => meanDiff(await patch(), unset), { timeout: 30_000, message: 'a white ORM differs from none' }).toBeGreaterThan(4);
+  await withMaps(['tex-flat-normal', '', '', ''], ['tex-orm-neutral', '', '', '']);
+  await expect.poll(async () => meanDiff(await patch(), unset), { timeout: 30_000, message: 'a flat normal and a neutral ORM (layer 2: empty slots) look as none' }).toBeLessThan(2);
 }
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {

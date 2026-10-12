@@ -9,7 +9,7 @@
  * export do (`POST …/content/textures/slots`).
  */
 import type { MaterialDef } from '@thirdlight/project-model';
-import { hasTextureSlots, parseTextureSlotSetKey, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
+import { hasTextureSlots, parseFillLayer, parseTextureSlotSetKey, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import { resolveMaterialInstancesLike } from '@thirdlight/three-adapter';
 
 /** Marks a view texture key as a slot list's, apart from asset ids (which hold no ':'). */
@@ -39,7 +39,7 @@ export function withSlotTextureKeys<M extends MaterialDef>(materials: readonly M
 /**
  * A graph material's parameters and the textures there are, as its compile
  * problems are checked: slot lists as their keys, a key there when every
- * slot names a texture of the project.
+ * slot names a texture of the project (or is a constant layer).
  */
 export function slotProblemInput(m: MaterialDef, textureIds: ReadonlySet<string>): { parameters: MaterialDef['parameters']; textureIds: ReadonlySet<string> } {
   const drawn = withSlotTextureKeys([m])[0]!;
@@ -47,7 +47,7 @@ export function slotProblemInput(m: MaterialDef, textureIds: ReadonlySet<string>
   const ids = new Set(textureIds);
   for (const x of drawn.parameters ?? []) {
     const set = typeof x.default === 'string' ? parseSlotTextureKey(x.default) : null;
-    if (set !== null && set.layers.every((id) => textureIds.has(id))) ids.add(x.default as string);
+    if (set !== null && set.layers.every((id) => textureIds.has(id) || parseFillLayer(id) !== null)) ids.add(x.default as string);
   }
   return { parameters: drawn.parameters, textureIds: ids };
 }

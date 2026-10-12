@@ -1067,9 +1067,23 @@ export class Viewport {
     this.setSelected(this.selectedId);
   }
 
+  /**
+   * The grid and its dark ground square, unless an edit mode isolates its
+   * object: they lie at y = 0, where a terrain's ground usually is, so they
+   * fight it in depth or show through wherever it dips below — dark shapes
+   * on the one object the mode is meant to show.
+   */
+  private syncGround(): void {
+    const iso = this.isolation;
+    const on = this.gizmos.grid && (iso === null || iso.given.context);
+    this.grid.visible = on;
+    this.ground.visible = on;
+  }
+
   /** The adapter draws as the isolation says (again after a renderer backend change). */
   private applyIsolation(): void {
     const iso = this.isolation;
+    this.syncGround();
     this.adapter.setIsolation?.(iso === null || iso.given.context ? null : iso.ids);
     this.root.setAttribute('data-isolation', iso === null ? '' : JSON.stringify({ ids: [...iso.given.ids], context: iso.given.context }));
     this.requestRender();
@@ -1374,8 +1388,7 @@ export class Viewport {
     this.gizmos = { ...this.gizmos, ...next };
     this.entityOverlays.setGizmos({ icons: this.gizmos.icons, lights: this.gizmos.lights });
     this.helpers.setGizmos({ colliders: this.gizmos.colliders, gameplay: this.gizmos.gameplay });
-    this.grid.visible = this.gizmos.grid;
-    this.ground.visible = this.gizmos.grid;
+    this.syncGround();
     this.stampGizmoCounts();
     this.requestRender();
   }

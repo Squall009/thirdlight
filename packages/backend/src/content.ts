@@ -69,6 +69,7 @@ import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, KTX2_MODES, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
 import { checkTrimSheetTexture } from './trim-check';
 import { trimSheetErrors, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { parseFillLayer } from '@thirdlight/project-model/texture-slots';
 import type { SlotLayer, TextureSlotAssembler } from './texture-slots';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
@@ -1467,7 +1468,7 @@ export class ContentRoutes {
     }
   }
 
-  /** `{ layers: [texture assetId…], mode }` → the KTX2 array of those layers' current versions. */
+  /** `{ layers: [texture assetId or constant layer…], mode }` → the KTX2 array of those layers' current versions. */
   private async slotArray(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
@@ -1475,14 +1476,18 @@ export class ContentRoutes {
     if (body === null) return;
     const b = body as { layers?: unknown; mode?: unknown };
     const ids = b.layers;
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_TEXTURE_LAYERS || !ids.every((x) => typeof x === 'string' && ID_RE.test(x))) {
-      return this.deps.sendError(res, sessionError('field_value', 'validation', `layers lists 1-${MAX_TEXTURE_LAYERS} texture asset ids`, { path: '/layers' }));
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_TEXTURE_LAYERS || !ids.every((x) => typeof x === 'string' && (ID_RE.test(x) || parseFillLayer(x) !== null))) {
+      return this.deps.sendError(res, sessionError('field_value', 'validation', `layers lists 1-${MAX_TEXTURE_LAYERS} texture asset ids (or constant layers, #rrggbbaa)`, { path: '/layers' }));
     }
     if (typeof b.mode !== 'string' || !(KTX2_MODES as readonly string[]).includes(b.mode)) return this.deps.sendError(res, sessionError('field_value', 'validation', `mode is one of ${KTX2_MODES.join(', ')}`, { path: '/mode' }));
     const assembler = this.deps.textureSlots;
     if (assembler === undefined) return this.deps.sendError(res, sessionError('converter_unavailable', 'unavailable', 'texture slot assembly is not available on this server'));
     const layers: SlotLayer[] = [];
     for (const assetId of ids as string[]) {
+      if (parseFillLayer(assetId) !== null) {
+        layers.push({ assetId, version: 0, sourceDigest: assetId });
+        continue;
+      }
       const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { assetId, includeVersions: true, limit: 1, offset: 0 } }) as { ok: boolean; assets?: { kind: string; currentVersion: number; versions?: { version: number; sourceDigest: string }[] }[] };
       const a = q.assets?.[0];
       const v = a?.versions?.find((x) => x.version === a.currentVersion);
