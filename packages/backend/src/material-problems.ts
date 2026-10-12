@@ -17,7 +17,15 @@
  */
 import { createHash } from 'node:crypto';
 
+import { parseFillLayer, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import { materialGraphCanonical, materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
+
+/**
+ * A slot list compiles as its array (one texture id standing for the
+ * assembled array, never an asset id: ':' is not in the id syntax), as the
+ * editor's views and Problems tab compile it.
+ */
+const slotArrayId = (set: TextureSlotSet): string => `slots:${textureSlotSetKey(set)}`;
 
 export interface MaterialProblem {
   readonly nodeId?: string;
@@ -76,14 +84,22 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
         rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: false, problems: [] });
         continue;
       }
-      const def = { graph: m.graph, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) } as Parameters<typeof materialGraphProblems>[0];
+      // Per-layer slots: the array's id, there when every slot names a texture of the project (or is a constant layer).
+      const sets: TextureSlotSet[] = [];
+      const [drawn] = withAssembledSlots([m as Parameters<typeof withAssembledSlots>[0][number]], (set) => {
+        sets.push(set);
+        return slotArrayId(set);
+      });
+      const parameters = drawn!.parameters ?? m.parameters;
+      const textureIds = sets.length === 0 ? textureSet : new Set([...textureSet, ...sets.filter((set) => set.layers.every((id) => textureSet.has(id) || parseFillLayer(id) !== null)).map(slotArrayId)]);
+      const def = { graph: m.graph, ...(parameters !== undefined ? { parameters } : {}) } as Parameters<typeof materialGraphProblems>[0];
       let problems: readonly MaterialProblem[];
       try {
         const key = createHash('sha256').update(materialGraphCanonical(def, (id) => byId.get(id) ?? null)).update('\u0001').update(texturesKey).digest('hex');
         const hit = cache.get(key);
         if (hit !== undefined) problems = hit;
         else {
-          problems = materialGraphProblems(def, functions, textureSet).map((p) => ({ ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}), severity: p.severity, message: p.message }));
+          problems = materialGraphProblems(def, functions, textureIds).map((p) => ({ ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}), severity: p.severity, message: p.message }));
           if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
           cache.set(key, problems);
         }

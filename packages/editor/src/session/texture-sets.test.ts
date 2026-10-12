@@ -28,5 +28,8 @@ describe('texture sets by name', () => {
     expect(matchingTexture('Meadow grass', 'normals', textures)).toBeNull();
     expect(textureSetQuery('Rock_BaseColor')).toBe('rock');
     expect(textureSetQuery('rock_normal')).toBeNull();
+    // A stem of several words: its longest word is searched (the search matches the name as written, separators and all).
+    expect(textureSetQuery('tl34_grass_albedo')).toBe('grass');
+    expect(matchingTexture('tl34_grass_albedo', 'normals', [{ id: 'g2', name: 'tl35_grass_normal' }, { id: 'g', name: 'tl34_grass_normal' }])).toBe('g');
   });
 });

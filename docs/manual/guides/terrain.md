@@ -46,7 +46,9 @@ undo step). Click a layer tile (or **Add layer**) and pick its texture in
 the **texture browser** — the project's textures as pictures, with a search
 — or drop a texture on the tile. A colour texture brings its normal map and
 ORM along when the project has textures named alike (`rock_albedo` →
-`rock_normal`, `rock_orm`). **Layer settings…** shows the picked layer's
+`rock_normal`, `rock_orm`; `tl34_grass_albedo` → `tl34_grass_normal`). A
+layer without a normal map is drawn flat, without an ORM map unoccluded,
+fairly rough and not metal. **Layer settings…** shows the picked layer's
 three textures (colour with height, normal map, ORM), its name, tiling and
 blend settings.
 
@@ -65,7 +67,8 @@ the edit up) and drag on the ground. `[` / `]` change the size, `Shift+[` /
 `Shift+]` the strength, **F** then a drag resizes on the ground (Shift+F:
 strength; a click keeps it, Esc puts it back), Ctrl held lowers for one
 stroke and **X** switches raise and lower. Each tool remembers its own brush
-in this browser. A stroke is previewed on the GPU while you drag and stored
+in this browser; every setting and key is on one page:
+[Brushes](brushes.md). A stroke is previewed on the GPU while you drag and stored
 as one command when you release.
 
 **API:** [`editTerrain`](../reference/ops-detail.md#op-editTerrain)
@@ -229,6 +232,11 @@ is baked again from them.
 - **One terrain per landscape.** Large worlds stream their tiles: set the
   terrain's **Streaming** rings (see [World streaming](../features/streaming.md))
   and fog the far edge ([environment](environment.md)).
+- **Layer textures are joined into arrays.** Textures imported as PNG or
+  JPEG are encoded into the terrain's three arrays each time a layer's
+  texture changes (seconds for four 512² layers; the ground draws plain
+  until they arrive). Textures encoded to KTX2 (UASTC) at import are joined
+  as they are.
 - **Limits are per command:** a stroke takes at most 1,024 dabs; a
   heightmap import at most 8,193² samples. There is no cap on tiles or
   rules. See [Limits](limits.md).

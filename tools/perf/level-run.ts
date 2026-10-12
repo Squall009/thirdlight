@@ -52,6 +52,9 @@
  *   --sun-edit                   the same with the sun (the key light) turned 3° round the vertical every 4 s, as a day
  *                                cycle turns it: past the far ground's re-bake step (every far tile's horizon shadow
  *                                baked again, with --macro) and the static shadow map drawn again
+ *   --edit-mode                  the landscape's terrain editor: enter and leave to the first frame, programs built,
+ *                                the isolated terrain's orbit frames against the full view's, and masked paint and
+ *                                sculpt dabs' round trips (level-editmode.ts)
  *   --edits-only                 only the editor edits (no export measured)
  *   --edit-profile               the edit windows' main thread by function (inclusive, a CPU profile each)
  *   --foliage off                the landscape's scatter without the foliage policy: every tree, rock and shrub casts
@@ -85,6 +88,7 @@ import { moduleIndex } from './profile';
 import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, uncappedUrl, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { installFrameProbe, probeSceneCounts } from './frame-probe';
 import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, type LevelBuild, type LevelKind, type LevelRoofs } from './level';
+import { editModeRuns, maskedDabRuns, type DabRun, type EditModeRun } from './level-editmode';
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
 import { frameLine } from './village-run';
@@ -184,6 +188,9 @@ export interface LevelReport {
   marks?: LevelMarksOptions;
   /** The scripted road edits in the editor's Scene view: each edit's round trip (ms) and the page's frames meanwhile. */
   splineEdit?: Partial<Record<FrameRenderer, EditRun>>;
+  /** The terrain editor's edit mode (`--edit-mode`). */
+  editMode?: Partial<Record<FrameRenderer, EditModeRun>>;
+  maskedDabs?: DabRun;
   /** The scripted terrain sculpts in the editor's Scene view, recorded the same way. */
   sculptEdit?: Partial<Record<FrameRenderer, EditRun>>;
   stampEdit?: Partial<Record<FrameRenderer, EditRun>>;
@@ -315,6 +322,10 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       if (has('stamp-edit') && kind === 'landscape') report.stampEdit = await editWindows(be, b.projectId, renderers, 'stamp', log, has('edit-profile'));
       if (has('erode-edit') && kind === 'landscape') report.erodeEdit = await editWindows(be, b.projectId, renderers, 'erode', log, has('edit-profile'));
       if (has('sun-edit') && kind === 'landscape') report.sunEdit = await editWindows(be, b.projectId, renderers, 'sun', log, has('edit-profile'));
+      if (has('edit-mode') && kind === 'landscape') {
+        report.editMode = await editModeRuns(be, b.projectId, renderers, log);
+        report.maskedDabs = await maskedDabRuns(be, b.projectId, log);
+      }
       if (has('edits-only')) continue;
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});

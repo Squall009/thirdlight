@@ -58,8 +58,15 @@ export function matchingTexture(albedoName: string, role: Exclude<TextureRole, '
   return null;
 }
 
-/** The text to search the project for a set's other maps (the albedo's stem; null: its name names no colour map). */
+/**
+ * The text to search the project for a set's other maps (null: its name names
+ * no colour map): the stem's longest word. The search matches a substring of
+ * the name as written, so a stem of several words ("tl34 grass" for
+ * `tl34_grass_albedo`) is not one; `matchingTexture` then keeps only the
+ * names whose whole stem is the albedo's.
+ */
 export function textureSetQuery(albedoName: string): string | null {
   const a = textureRoleOf(albedoName);
-  return a !== null && a.role === 'albedo' ? a.stem : null;
+  if (a === null || a.role !== 'albedo') return null;
+  return a.stem.split(' ').reduce((best, w) => (w.length > best.length ? w : best), '');
 }

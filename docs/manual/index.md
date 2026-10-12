@@ -50,6 +50,7 @@ use and why.
 - Building worlds
   - [Build a level with block layers](guides/block-layers.md)
   - [Build terrain: sculpting, rule materials, scatter, splines and blocks on terrain](guides/terrain.md)
+  - [Brushes: settings, cursor and keys](guides/brushes.md)
   - [Dress a scene with instance sets](guides/instance-sets.md)
   - [Generate rooms and buildings](guides/generated-architecture.md)
   - [Lighting and baking](guides/lighting.md)
