@@ -20,6 +20,14 @@ import type { TerrainColumnProps } from '../terrain/terrain-column';
 import { TilesColumn } from '../terrain/TilesMode';
 import type { EditModeKind } from './modes';
 
+/**
+ * How much ground the view spans on entering the terrain editor (metres): a
+ * brush's worth of work around the middle, near enough that a layer tiled
+ * every few metres reads as its texture rather than its average colour.
+ * Home frames every tile.
+ */
+export const TERRAIN_WORK_SPAN_M = 64;
+
 const terrainOf = (e: ProjectedEntity): TerrainComponent | undefined => e.components['terrain'] as TerrainComponent | undefined;
 
 /** The tiles' extent in tile coordinates. */
@@ -72,6 +80,17 @@ export const terrainMode: EditModeKind = {
     if (ext === null) return null;
     const size = terrainTileSize(c);
     return { min: [ext.x0 * size, c.heightRange[0], ext.z0 * size], max: [(ext.x1 + 1) * size, c.heightRange[1], (ext.z1 + 1) * size] };
+  },
+  // The middle of the tiles' extent, on the ground (the view finds its height there).
+  workArea: (e) => {
+    const c = terrainOf(e)!;
+    const ext = tileExtent(c);
+    if (ext === null) return null;
+    const size = terrainTileSize(c);
+    const cx = ((ext.x0 + ext.x1 + 1) * size) / 2;
+    const cz = ((ext.z0 + ext.z1 + 1) * size) / 2;
+    const half = Math.min(TERRAIN_WORK_SPAN_M, (ext.x1 - ext.x0 + 1) * size, (ext.z1 - ext.z0 + 1) * size) / 2;
+    return { min: [cx - half, 0, cz - half], max: [cx + half, 0, cz + half] };
   },
   column: ({ entity, mode, host }) => {
     const id = (TERRAIN_MODES.find((x) => x.id === mode) ?? TERRAIN_MODES[0]!).id;

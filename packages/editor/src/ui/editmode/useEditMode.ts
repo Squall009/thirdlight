@@ -45,6 +45,11 @@ export function useEditMode(deps: EditModeDeps) {
   const saved = useRef<{ ids: string[]; primary: string | null } | null>(null);
   /** The edited object was in the projection since the mode opened (a new one arrives after it is entered). */
   const seen = useRef(false);
+  /**
+   * The working view the view still owes the mode (entered, not framed yet; not again on coming back from Play):
+   * 'always' for an object just made, 'away' — only if the view is not already working on it — for one entered.
+   */
+  const owesFrame = useRef<'always' | 'away' | null>(null);
   /** The rail's mode last shown, per editor (for this page). */
   const lastMode = useRef(new Map<string, string>());
   const selectionRef = useRef(deps.selection);
@@ -52,7 +57,7 @@ export function useEditMode(deps: EditModeDeps) {
   const entitiesRef = useRef(entities);
   entitiesRef.current = entities;
 
-  /** Open the edit mode of an object (`kind`: when it is not in the projection yet); false when it has none. */
+  /** Open the edit mode of an object (`kind`: an object just made, maybe not in the projection yet); false when it has none. */
   const enter = useCallback(
     (entityId: string, kind?: string): boolean => {
       const e = entitiesRef.current.find((x) => x.id === entityId);
@@ -60,6 +65,7 @@ export function useEditMode(deps: EditModeDeps) {
       if (k === undefined) return false;
       if (saved.current === null) saved.current = { ids: selectionRef.current.ids, primary: selectionRef.current.primary };
       seen.current = e !== undefined;
+      owesFrame.current = kind !== undefined ? 'always' : 'away';
       setSelection({ ids: [], primary: null });
       setState({ kind: k.kind, entityId, mode: lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '', context: false });
       workspaceDispatch({ type: 'view', view: 'scene' });
@@ -89,6 +95,12 @@ export function useEditMode(deps: EditModeDeps) {
     });
   }, []);
 
+  /** The working view the shell still owes (null: none), and that it is settled. */
+  const frameOwed = useCallback((): 'always' | 'away' | null => owesFrame.current, []);
+  const frameDone = useCallback((): void => {
+    owesFrame.current = null;
+  }, []);
+
   const toggleContext = useCallback(() => setState((s) => (s === null ? s : { ...s, context: !s.context })), []);
 
   const entity = state === null ? undefined : entities.find((e) => e.id === state.entityId);
@@ -101,7 +113,7 @@ export function useEditMode(deps: EditModeDeps) {
   }, [state, entity, kind, leave]);
 
   const shown = state !== null && entity !== undefined && kind !== undefined && sceneInFront;
-  return { state, entity, kind, shown, enter, leave, setMode, toggleContext };
+  return { state, entity, kind, shown, enter, leave, setMode, toggleContext, frameOwed, frameDone };
 }
 
 export type EditMode = ReturnType<typeof useEditMode>;

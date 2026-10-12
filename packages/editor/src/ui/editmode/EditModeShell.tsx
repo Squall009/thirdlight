@@ -77,6 +77,27 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     return () => p.viewportRef.current?.setIsolation(null);
   }, [entityId, context, p.viewportRef]);
 
+  // On entering, the view looks at a working part of the object (Home frames all of it), once the object is drawn —
+  // unless the user's view is already aimed at it, which is kept.
+  useEffect(() => {
+    if (entityId === null) return undefined;
+    let raf = 0;
+    let tries = 0;
+    const attempt = (): void => {
+      const { mode, viewportRef } = latest.current;
+      const owed = mode.frameOwed();
+      if (mode.entity === undefined || mode.kind === undefined || owed === null) return;
+      const area = mode.kind.workArea?.(mode.entity) ?? null;
+      const keepIf = owed === 'away' ? (mode.kind.bounds?.(mode.entity) ?? null) : null;
+      const settled = area !== null ? viewportRef.current?.frameWorkArea(mode.entity.id, area, keepIf) : owed === 'away' || viewportRef.current?.frameEntity(mode.entity.id, mode.kind.bounds?.(mode.entity) ?? undefined);
+      // A new object is drawn a few frames after it is made: try again until it is (two seconds at most).
+      if (settled === true || ++tries > 120) mode.frameDone();
+      else raf = requestAnimationFrame(attempt);
+    };
+    raf = requestAnimationFrame(attempt);
+    return () => cancelAnimationFrame(raf);
+  }, [entityId]);
+
   // The key map (after the Scene view's own Esc cancelled a stroke, which marks the key taken).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

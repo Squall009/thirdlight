@@ -20,8 +20,14 @@ view that shows only the terrain. Its rail on the left holds the modes
 **Stack**, **Tiles**, **Settings**; Shift+1 … Shift+8), the column on the
 right the mode's tools (a letter key on each tool's tile picks it), and the
 line at the bottom the tool, what to do and the keys. **Context** (C) shows
-the rest of the scene around it (it cannot be picked), **Home** frames the
-terrain, **Done** (Esc) goes back. Later, double-click the terrain in the
+the rest of the scene around it (it cannot be picked). The sky, fog and
+lights are no objects: they draw and light the terrain as in the scene, and
+the terrain's own icon is not drawn while you edit it. Entering looks
+obliquely at the middle of the terrain, about 64 m of ground across (near
+enough to see its textures), unless the view already looks at the terrain
+(then it stays); **Home** frames the whole terrain, **Done**
+(Esc) goes back. A project without a sky shows the editor's dark backdrop
+above the horizon: give the scene a sky in its look ([**Window → Environment**](environment.md)). Later, double-click the terrain in the
 Hierarchy or the Scene view, or press **Edit terrain** in its Inspector (the
 Inspector keeps only the terrain's plain fields). Play sets the editor aside
 and comes back to it.
@@ -42,13 +48,16 @@ scale are not used.
 
 **Editor:** in the **Paint** mode, **Set up material** makes a material
 from the height-blended layers template and gives it to the terrain (one
-undo step). Click a layer tile (or **Add layer**) and pick its texture in
+undo step); its layers start tiled every 4 m (change it per layer in
+**Layer settings…**). Click a layer tile (or **Add layer**) and pick its texture in
 the **texture browser** — the project's textures as pictures, with a search
 — or drop a texture on the tile. A colour texture brings its normal map and
 ORM along when the project has textures named alike (`rock_albedo` →
 `rock_normal`, `rock_orm`; `tl34_grass_albedo` → `tl34_grass_normal`). A
 layer without a normal map is drawn flat, without an ORM map unoccluded,
-fairly rough and not metal. **Layer settings…** shows the picked layer's
+fairly rough and not metal. The backend joins a layer list's textures into
+one array once (seconds for PNG textures; KTX2 textures join at once);
+meanwhile the terrain keeps drawing the textures it had. **Layer settings…** shows the picked layer's
 three textures (colour with height, normal map, ORM), its name, tiling and
 blend settings.
 

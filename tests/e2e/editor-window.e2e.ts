@@ -331,6 +331,51 @@ async function groundSquareShare(page: Page): Promise<number> {
   return n / (img.width * img.height);
 }
 
+/** The view camera's pose (position, forward unit vector) as the canvas reports it. */
+async function viewCamera(page: Page): Promise<{ position: number[]; forward: number[]; fovY: number }> {
+  const c = JSON.parse((await page.locator('canvas.tl-viewport').getAttribute('data-view-camera'))!) as { position: number[]; rotation: number[]; fovY: number };
+  const [x, y, z, w] = c.rotation as [number, number, number, number];
+  // The quaternion applied to (0, 0, -1).
+  const forward = [-(2 * (x * z + w * y)), -(2 * (y * z - w * x)), -(1 - 2 * (x * x + y * y))];
+  return { position: c.position, forward, fovY: c.fovY };
+}
+
+/** The mean colour of a square of the page around a world point. */
+async function colourNear(page: Page, p: readonly [number, number, number], size = 8): Promise<[number, number, number]> {
+  const s = await screenOf(page, p);
+  const img = decodePng(await page.screenshot({ clip: { x: s.x - size / 2, y: s.y - size / 2, width: size, height: size } }));
+  const sum = [0, 0, 0];
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const px = img.pixel(x, y);
+    for (let c = 0; c < 3; c++) sum[c]! += px[c]!;
+  }
+  const n = img.width * img.height;
+  return [sum[0]! / n, sum[1]! / n, sum[2]! / n];
+}
+
+/** The share of the Scene view's top tenth (the sky above the horizon) within 24 of an sRGB colour. */
+async function skyShare(page: Page, rgb: readonly [number, number, number]): Promise<number> {
+  const b = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  const img = decodePng(await page.screenshot({ clip: { x: b.x + 40, y: b.y + 4, width: b.width - 80, height: b.height * 0.1 } }));
+  let n = 0;
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+    const px = img.pixel(x, y);
+    if (Math.abs(px[0] - rgb[0]) + Math.abs(px[1] - rgb[1]) + Math.abs(px[2] - rgb[2]) < 24) n += 1;
+  }
+  return n / (img.width * img.height);
+}
+
+/** The mean absolute difference of two same-sized pictures per channel (0–255). */
+function meanDiffOf(a: ReturnType<typeof decodePng>, b: ReturnType<typeof decodePng>): number {
+  let d = 0;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+    const p = a.pixel(x, y);
+    const q = b.pixel(x, y);
+    d += Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
+  }
+  return d / (a.width * a.height * 3);
+}
+
 /** A point on the marker's top face (away from its size handle in the middle). */
 const MARK: [number, number, number] = [0.5, 2, -0.4];
 
@@ -352,7 +397,12 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect(inspector(page).getByLabel('terrain tools')).toHaveCount(0);
   await expect(canvas).not.toHaveAttribute('data-terrain-tool', /\w/);
 
-  // ---- A double-click on its row opens the terrain editor over the work area, the Scene view lent to it.
+  // ---- A double-click on its row opens the terrain editor over the work area, the Scene view lent to it. (The view
+  // aimed away from the terrain first, at an object beside it: entering frames a working view. A view already aimed
+  // at the terrain is kept.)
+  const aside = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Away', transform: { position: [70, 0, 70] } }))['createdId']);
+  await row(page, aside).click();
+  await page.keyboard.press('f');
   await row(page, hill).dblclick();
   const mode = editMode(page);
   await expect(mode).toBeVisible();
@@ -372,6 +422,16 @@ async function editModeChecks(page: Page): Promise<void> {
   const view = await h('.tl-editmode__view');
   const cb = (await canvas.boundingBox())!;
   expect([Math.round(cb.width), Math.round(cb.height)]).toEqual([Math.round(view.width), Math.round(view.height)]);
+  // Entering looks at a working part of the terrain: obliquely down at its middle on the ground (the horizon 12 % of the
+  // view below its top), near enough that its 32 m fill the view's width.
+  await expect.poll(async () => {
+    const c = await viewCamera(page);
+    const half = Math.tan((c.fovY * Math.PI) / 360);
+    const t = -c.position[1]! / c.forward[1]!;
+    const hit = [c.position[0]! + c.forward[0]! * t, c.position[2]! + c.forward[2]! * t];
+    const pitch = Math.asin(-c.forward[1]!);
+    return [Math.abs(Math.round((pitch - Math.atan(0.76 * half)) * 1000)), Math.round(Math.hypot(hit[0]!, hit[1]!)), Math.abs(Math.round(Math.hypot(c.position[0]! - hit[0]!, c.position[1]!, c.position[2]! - hit[1]!) - 16 / half))];
+  }, { timeout: 15_000, message: 'the working view: its pitch off the expected (mrad), its aim off the middle (m), its distance off (m)' }).toEqual([0, 0, 0]);
   // Its settings column holds the terrain's tools (Sculpt first), armed in the lent view; the status line says what to do.
   await expect(mode.getByLabel('terrain tools')).toBeVisible();
   await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
@@ -388,6 +448,46 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context: the marker drawn' }).toBeGreaterThan(0.6);
   await page.keyboard.press('c');
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context off: isolated again' }).toBeLessThan(0.05);
+  // The sky is no object: it is drawn in isolation as in the whole scene (a colour sky lighting nothing, so the
+  // checks below see the scene's own light).
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#4a90d9', intensity: 1, environmentIntensity: 0 } } });
+  await expect.poll(() => skyShare(page, [0x4a, 0x90, 0xd9]), { timeout: 30_000, message: 'isolated: the sky drawn above the horizon' }).toBeGreaterThan(0.9);
+  // The edited object's own icon is not drawn over it: the picture where it stands (the terrain's origin, a corner of
+  // its tile) is the same with the Gizmos menu's icons on and off.
+  const iconAt = await screenOf(page, [-16, 0, -16]);
+  const iconCrop = async (): Promise<ReturnType<typeof decodePng>> => decodePng(await page.screenshot({ clip: { x: iconAt.x - 50, y: iconAt.y - 60, width: 100, height: 100 } }));
+  const withIcons = await iconCrop();
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/edit-icons.png` });
+  await menu(page, 'Gizmos', 'Icons: on');
+  await page.waitForTimeout(300);
+  const noIcons = await iconCrop();
+  await menu(page, 'Gizmos', 'Icons: off');
+  expect(meanDiffOf(withIcons, noIcons), 'no icon drawn over the edited terrain').toBeLessThan(1);
+  // A raised bump is lit as in the whole scene: its slope facing the sun (from -x, +z) brighter than the one facing away,
+  // and the lights light the isolated terrain as they do with Context on (they are not objects that isolation hides).
+  // (Off to the side: it hides nothing the checks below look at.)
+  const bump: [number, number] = [10, -10];
+  await cmd('editTerrain', { entityId: hill, kind: 'raise', dabs: [bump], radius: 4, strength: 4 });
+  await expect.poll(async () => ((await query('queryTerrain', { entityId: hill, points: [bump] }))['points'] as { height: number }[])[0]!.height, { timeout: 15_000 }).toBeGreaterThan(2);
+  const lit: [number, number, number] = [bump[0] - 1.5, 1.2, bump[1] + 1.5];
+  const shaded: [number, number, number] = [bump[0] + 1.5, 1.2, bump[1] - 1.5];
+  const luma = (c: readonly number[]): number => 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+  await expect.poll(async () => luma(await colourNear(page, lit)) - luma(await colourNear(page, shaded)), { timeout: 30_000, message: 'isolated: the relief shaded by the sun' }).toBeGreaterThan(12);
+  const isoLit = await colourNear(page, lit);
+  await page.keyboard.press('c');
+  await expect(mode.getByRole('status', { name: 'isolation' })).toContainText('Whole scene');
+  await expect.poll(() => skyShare(page, [0x4a, 0x90, 0xd9]), { timeout: 30_000, message: 'Context: the same sky' }).toBeGreaterThan(0.9);
+  await expect.poll(async () => Math.max(...(await colourNear(page, lit)).map((v, i) => Math.abs(v - isoLit[i]!))), { timeout: 30_000, message: 'the bump lit the same with Context on' }).toBeLessThan(4);
+  await page.keyboard.press('c');
+  // Closer in with the wheel, as one works, for the brush checks below (about 10 m from the middle).
+  const vb = (await canvas.boundingBox())!;
+  await page.mouse.move(vb.x + vb.width / 2, vb.y + vb.height / 2);
+  for (let k = 0; k < 6; k++) {
+    await page.mouse.wheel(0, -400);
+    await page.waitForTimeout(80);
+  }
+  let pose = '';
+  await expect.poll(async () => pose !== (pose = (await canvas.getAttribute('data-view-camera')) ?? ''), { timeout: 15_000, message: 'the zoom settled' }).toBe(false);
   // The grid's dark ground square (20 m round the origin at y = 0) is not drawn in isolation either: it fights the
   // terrain lying at y = 0 and shows wherever the ground dips below it — dark shapes on the one object shown. Context
   // shows it again. A dip under the square makes it show for sure.
@@ -396,7 +496,8 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect.poll(async () => ((await query('queryTerrain', { entityId: hill, points: [dipAt] }))['points'] as { height: number }[])[0]!.height, { timeout: 15_000 }).toBeLessThan(-0.5);
   await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'isolated: no part of the ground square drawn' }).toBeLessThan(0.002);
   await page.keyboard.press('c');
-  await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context: the ground square drawn again' }).toBeGreaterThan(0.01);
+  // (Seen at the working view's shallow angle: a thin strip, above the isolated bound.)
+  await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context: the ground square drawn again' }).toBeGreaterThan(0.003);
   await page.keyboard.press('c');
   await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context off: the square gone again' }).toBeLessThan(0.002);
 
@@ -655,7 +756,8 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   const tiling = settings.getByLabel('layer 2 tiling (m)', { exact: true });
   await tiling.fill('3');
   await tiling.blur();
-  await expect.poll(async () => (await mats()).find((m) => m.materialId === made.materialId)?.parameters?.find((x) => x.key === 'layerTiling')?.default, { timeout: 15_000 }).toEqual([1, 3, 1, 1]);
+  // A terrain's material set up here starts its layers tiled every 4 m (the template's 1 m suits a block face).
+  await expect.poll(async () => (await mats()).find((m) => m.materialId === made.materialId)?.parameters?.find((x) => x.key === 'layerTiling')?.default, { timeout: 15_000 }).toEqual([4, 3, 4, 4]);
   if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/palette-settings.png` });
   await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);

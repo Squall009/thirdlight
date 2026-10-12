@@ -19,8 +19,8 @@ import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type { MaterialDef } from '@thirdlight/project-model';
 
 import type { Catalog } from '../../session/catalog';
-import { paletteLayers, paletteSource, standInLayers, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
-import { LAYERED_TEXTURES, templateMaterial } from '../../session/material-graph';
+import { paletteLayers, paletteSource, standInLayers, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
+import { LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial } from '../../session/material-graph';
 import { matchingTexture, textureSetQuery } from '../../session/texture-sets';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
@@ -104,6 +104,8 @@ export interface MaterialLayersProps {
   onPick: (index: number) => void;
   host: PaletteHost;
   disabled?: boolean;
+  /** Metres per repeat the layers of a material set up here start at (absent: the template's). */
+  layerTiling?: number;
 }
 
 /** The "Layers" section of a column: the palette, its material, the picked layer's settings, or "Set up material". */
@@ -119,7 +121,10 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
     try {
       const name = `${p.entityName} layers`;
       const id = await p.host.newMaterialId(name);
-      await p.host.run('Set up material', 'setMaterial', { material: templateMaterial('layers', id, name), assign: { entityId: p.entityId } });
+      let material = templateMaterial('layers', id, name);
+      const tiling = p.layerTiling;
+      if (tiling !== undefined) for (let l = 0; l < TEMPLATE_LAYERS; l++) material = withLayerSetting(material, 'layerTiling', l, tiling);
+      await p.host.run('Set up material', 'setMaterial', { material, assign: { entityId: p.entityId } });
     } finally {
       setBusy(false);
     }

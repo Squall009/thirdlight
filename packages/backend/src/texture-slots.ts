@@ -5,8 +5,9 @@
  * Play, the export and the editor's views draw a slot list as one KTX2
  * array made here: UASTC layers alike are joined as stored (milliseconds),
  * the rest transcoded (or their lossless PNG read) and encoded once
- * (seconds) — the pack route's `packKtx2`, each layer the whole RGBA of its
- * texture. The result goes to the project's import cache keyed by the
+ * (seconds; UASTC at the faster effort a view waiting on it wants,
+ * `ASSEMBLED_UASTC_LEVEL`) — the pack route's `packKtx2`, each layer the
+ * whole RGBA of its texture. The result goes to the project's import cache keyed by the
  * layers' digests, the digest of each lossless PNG read in a layer's place
  * (or none) and the encoding — everything the bytes are made from, so a PNG
  * appearing beside a KTX2 later makes the array again, and two hosts with
@@ -23,7 +24,7 @@ import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspac
 
 import type { DecalPageRequest, DecalPageResult } from './decal-page-assembly';
 import { readKtx2 } from './ktx2-container';
-import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
+import { ASSEMBLED_UASTC_LEVEL, KTX2_ENCODER, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** One layer: a texture asset's version and its file's digest; a constant layer (`fillLayerId`) is its id in all three. */
@@ -58,7 +59,7 @@ export interface TextureSlotAssembler {
 
 /** The import cache's importer name and version for an assembled array (a change to the assembly changes the version). */
 export const SLOT_ARRAY_IMPORTER = 'texture-slots';
-export const SLOT_ARRAY_VERSION = '1';
+export const SLOT_ARRAY_VERSION = '2';
 
 /**
  * The cache key of one array: its layers' file digests in order, the digest
@@ -137,7 +138,7 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
       const fill = resolved.fills[l];
       return (fill !== null && fill !== undefined ? fill.map((value) => ({ value })) : [0, 1, 2, 3].map((channel) => ({ source, channel }))) as unknown as PackLayer;
     });
-    const packed = await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless);
+    const packed = await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless, ASSEMBLED_UASTC_LEVEL);
     if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
     if (!stored.ok) return { ok: false, code: stored.error.code, message: stored.error.message };

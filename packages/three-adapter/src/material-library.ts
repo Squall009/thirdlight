@@ -897,14 +897,36 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   /** The textures each compile samples (a node graph's textures are not material properties; the texture streamer reads them). */
   const sampledBy = new WeakMap<CompiledMaterialGraph, THREE.Texture[]>();
+  /**
+   * The texture each material's texture parameter drew last (by material id
+   * and parameter key): a new texture there (another slot list assembled on
+   * the backend, seconds away) is drawn as the one it replaces until it
+   * arrives, not as the compile's empty fallback (white).
+   */
+  const drawnFor = new Map<string, string>();
   const compileEntry = (def: MaterialDefLike, digest: string, surface: GraphSurface | undefined): CompiledMaterialGraph => {
     const sampledNow: THREE.Texture[] = [];
+    const paramOf = new Map<string, string>();
+    for (const p of def.parameters ?? []) if (p.type === 'texture' && typeof p.default === 'string' && p.default !== '') paramOf.set(p.default, `${def.materialId}\u0000${p.key}`);
     const texture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
       const t = samplerTexture(assetId, sampler);
-      if (t instanceof THREE.Texture) sampledNow.push(t);
+      if (t instanceof THREE.Texture) {
+        sampledNow.push(t);
+        const slot = paramOf.get(assetId);
+        if (slot !== undefined) drawnFor.set(slot, assetId);
+      }
       return t;
     };
-    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
+    const standIn = (assetId: string, sampler: SamplerLike): { assetId: string; texture: THREE.Texture } | null => {
+      const slot = paramOf.get(assetId);
+      const prev = slot === undefined ? undefined : drawnFor.get(slot);
+      if (prev === undefined || prev === assetId || !(loadedTextures.get(prev) instanceof THREE.Texture)) return null;
+      const t = samplerTexture(prev, sampler);
+      if (!(t instanceof THREE.Texture)) return null;
+      sampledNow.push(t);
+      return { assetId: prev, texture: t };
+    };
+    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, standIn, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
     sampledBy.set(compiled, sampledNow);
     return compiled;
   };
@@ -930,8 +952,23 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     holdGraphTextures(e);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
     markSampled(e);
-    // The previous compile's data placeholders go with it.
+    // The previous compile's data placeholders go with it, and the textures it alone drew (a stand-in replaced).
     for (const t of old.ownedTextures) t.dispose();
+    const now = new Set(e.compiled.textures);
+    for (const id of old.textures) {
+      if (now.has(id)) continue;
+      holds.release(id, graphHolder(e.digest));
+      if (!sampled(id)) forgetTexture(id);
+    }
+  }
+  /** A texture no compiled graph samples any more: its sampler copies go, and a later compile loads it again. */
+  function forgetTexture(id: string): void {
+    loadedTextures.delete(id);
+    for (const [k, t] of [...samplerTextures]) {
+      if (!k.startsWith(`${id}|`)) continue;
+      t.dispose();
+      samplerTextures.delete(k);
+    }
   }
   /** A compiled graph material and what its compile made. */
   const disposeEntry = (e: GraphEntry): void => {
@@ -970,15 +1007,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     disposeEntry(e);
     holds.releaseHolder(graphHolder(digest));
     // A texture no other compiled graph samples: its sampler copies go, and a later compile loads it again.
-    for (const id of e.compiled.textures) {
-      if (sampled(id)) continue;
-      loadedTextures.delete(id);
-      for (const [k, t] of [...samplerTextures]) {
-        if (!k.startsWith(`${id}|`)) continue;
-        t.dispose();
-        samplerTextures.delete(k);
-      }
-    }
+    for (const id of e.compiled.textures) if (!sampled(id)) forgetTexture(id);
   };
   const releaseDigest = (digest: string): void => {
     const n = (graphRefs.get(digest) ?? 0) - 1;

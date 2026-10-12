@@ -55,6 +55,8 @@ export class EntityOverlays {
   private readonly host: EntityOverlayHost;
   private readonly built = new Map<string, Built>();
   private gizmos = { icons: true, lights: true };
+  /** The objects an edit mode edits: their own icons stand aside (the object itself is what is seen and worked on). */
+  private editing: ReadonlySet<string> = new Set();
   private selectedId: string | null = null;
   private iconTable: IconTable = [];
 
@@ -111,12 +113,27 @@ export class EntityOverlays {
   /** The Gizmos menu: icons and light ranges shown or not. */
   setGizmos(g: { icons: boolean; lights: boolean }): void {
     this.gizmos = { ...g };
-    for (const b of this.built.values()) {
-      if (b.icon !== null) b.icon.visible = g.icons;
+    for (const [id, b] of this.built) {
+      if (b.icon !== null) b.icon.visible = this.iconShown(id);
       b.group.traverse((o) => {
         if (o.userData['gizmo'] === 'light') o.visible = g.lights;
       });
     }
+  }
+
+  /**
+   * The objects an edit mode edits (empty: none). Their icons are not drawn
+   * meanwhile: a terrain's icon floats in the middle of the ground being
+   * sculpted, hiding it and catching nothing (the mode picks no objects).
+   */
+  setEditing(ids: ReadonlySet<string>): void {
+    this.editing = ids;
+    for (const [id, b] of this.built) if (b.icon !== null) b.icon.visible = this.iconShown(id);
+    this.host.requestRender();
+  }
+
+  private iconShown(id: string): boolean {
+    return this.gizmos.icons && !this.editing.has(id);
   }
 
   /** The selected entity's icon wears its selected artwork. */
@@ -212,7 +229,7 @@ export class EntityOverlays {
     const sprite = makeIconSprite(kind, () => this.host.requestRender());
     sprite.name = e.id;
     sprite.userData['iconKind'] = kind;
-    sprite.visible = this.gizmos.icons;
+    sprite.visible = this.iconShown(e.id);
     fitSprite(sprite);
     if (this.selectedId === e.id) setSpriteSelected(sprite, true, () => this.host.requestRender());
     group.add(sprite);

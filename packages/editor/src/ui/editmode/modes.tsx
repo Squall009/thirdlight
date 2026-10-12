@@ -67,6 +67,12 @@ export interface EditModeKind {
   readonly tools: readonly string[];
   /** The object's box in its own frame for Home (absent: the meshes it draws). */
   bounds?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
+  /**
+   * The part of the object the view looks at on entering, in its own frame
+   * (absent or null: the whole object, as Home): a big object framed whole is
+   * seen from too far to work on.
+   */
+  workArea?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
   /** Fields the Inspector leaves to the mode, by component (what only the mode edits: a terrain's tiles and rules). */

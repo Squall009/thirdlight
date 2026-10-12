@@ -135,6 +135,14 @@ export interface GraphCompileEnv {
    * project has no such texture.
    */
   texture(assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null;
+  /**
+   * While `assetId` is loading: a texture already drawn that it replaces (the
+   * same parameter's previous texture) and that texture's id, drawn meanwhile
+   * instead of nothing; null when there is none. The compile still waits for
+   * `assetId` (it is pending) and samples the stand-in's id too, so its
+   * holder keeps the stand-in until the compile that replaces it.
+   */
+  standIn?(assetId: string, sampler: SamplerLike): { readonly assetId: string; readonly texture: THREE.Texture } | null;
   /** A material function by graph id, or null. */
   fn(graphId: string): MaterialFunctionLike | null;
   /**
@@ -771,7 +779,10 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     const t = env.texture(asset, sampler);
     if (t === 'loading') {
       pending.add(asset);
-      return null;
+      const s = env.standIn?.(asset, sampler) ?? null;
+      if (s === null) return null;
+      textures.add(s.assetId);
+      return s.texture;
     }
     if (t === null) {
       problem(scope, nodeId, 'error', `texture "${asset}" is not available`);

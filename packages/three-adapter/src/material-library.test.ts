@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
+import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 
 function model(): THREE.Group {
   const g = new THREE.Group();
@@ -123,5 +124,46 @@ describe('material library', () => {
     expect(disposed).toBe(0);
     undo[2]!();
     expect(disposed).toBe(1);
+  });
+
+  it('a graph material whose texture parameter changes draws the texture it replaces until the new one arrives, then lets it go', async () => {
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const texA = new THREE.Texture();
+    const texB = new THREE.Texture();
+    let arriveB: (t: THREE.Texture) => void = () => undefined;
+    const lib = createMaterialLibrary({ loadTexture: (id) => (id === 'tex-a' ? Promise.resolve(texA) : new Promise((r) => (arriveB = r))) });
+    const graph = {
+      nodes: [
+        { id: 'out', type: 'unlit', position: [400, 0] as [number, number] },
+        { id: 'skin', type: 'parameter', position: [0, 0] as [number, number], data: { key: 'skin' } },
+        { id: 'read', type: 'sampleTexture', position: [200, 0] as [number, number] },
+      ],
+      edges: [
+        { id: 'e1', from: { node: 'skin', port: 'value' }, to: { node: 'read', port: 'tex' } },
+        { id: 'e2', from: { node: 'read', port: 'rgb' }, to: { node: 'out', port: 'color' } },
+      ],
+    };
+    const skinned = (tex: string): MaterialDefLike => ({ materialId: 'mat-skin', name: 'Skin', shader: 'standard', params: {}, textures: {}, graph, parameters: [{ key: 'skin', type: 'texture', default: tex }] });
+    const sampled = (o: THREE.Object3D): unknown[] => (((mats(o)[0]!.userData[SAMPLED_TEXTURES_KEY] as THREE.Texture[] | undefined) ?? []).map((t) => t.source));
+    lib.setMaterials([skinned('tex-a')]);
+    const a = model();
+    lib.apply(a, { '*': 'mat-skin' });
+    await tick();
+    await tick();
+    expect(sampled(a)).toEqual([texA.source]);
+    const copyA = (mats(a)[0]!.userData[SAMPLED_TEXTURES_KEY] as THREE.Texture[])[0]!;
+    let copyADisposed = 0;
+    copyA.addEventListener('dispose', () => void (copyADisposed += 1));
+    // Another texture there, on its way: the material draws texture A meanwhile (not nothing, which reads white).
+    lib.setMaterials([skinned('tex-b')]);
+    await tick();
+    expect(sampled(a)).toEqual([texA.source]);
+    expect(copyADisposed).toBe(0);
+    // It arrives: texture B is drawn, and texture A, drawn by nothing now, is let go.
+    arriveB(texB);
+    await tick();
+    await tick();
+    expect(sampled(a)).toEqual([texB.source]);
+    expect(copyADisposed).toBe(1);
   });
 });

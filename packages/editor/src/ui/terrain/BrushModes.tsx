@@ -26,7 +26,7 @@ import { useEditStatus } from '../editmode/edit-status';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { MaterialLayers, usePalette } from '../palette/MaterialLayers';
 import { SeedField } from '../rules/RuleConditions';
-import { terrainBrushStore, useTerrainTool, useTerrainToolState, type TerrainColumnProps } from './terrain-column';
+import { TERRAIN_LAYER_TILING_M, terrainBrushStore, useTerrainTool, useTerrainToolState, type TerrainColumnProps } from './terrain-column';
 
 const modeOf = (id: TerrainModeId): TerrainMode => TERRAIN_MODES.find((m) => m.id === id)!;
 
@@ -105,7 +105,7 @@ export function PaintColumn(p: TerrainColumnProps): JSX.Element {
   const [state, setState] = useTerrainToolState(p.entityId);
   // The layers the brush paints: the material's, or the stand-in colours the terrain draws without one.
   const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS);
-  return <BrushModeColumn p={p} modeId="paint" above={<MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={state.brush.layer} onPick={(layer) => setState({ brush: { ...state.brush, layer } })} host={p.palette} disabled={p.locked} />} />;
+  return <BrushModeColumn p={p} modeId="paint" above={<MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={state.brush.layer} onPick={(layer) => setState({ brush: { ...state.brush, layer } })} host={p.palette} disabled={p.locked} layerTiling={TERRAIN_LAYER_TILING_M} />} />;
 }
 
 export function HolesColumn(p: TerrainColumnProps): JSX.Element {

@@ -15,6 +15,15 @@ import { terrainToolStore, type TerrainToolState } from '../../session/terrain-t
 import type { TerrainEditor, TerrainToolOptions } from '../../viewport/terrain-editor';
 import type { PaletteHost } from '../palette/MaterialLayers';
 
+/**
+ * Metres per repeat a terrain's new layered material starts its layers at.
+ * The template's 1 m suits a block face; on open ground a texture repeated
+ * every metre reads as its average colour from a few metres up and its
+ * tiling shows as a grid, so landscape layers are usually tiled every few
+ * metres. Existing materials keep what they store.
+ */
+export const TERRAIN_LAYER_TILING_M = 4;
+
 export interface TerrainColumnProps {
   editor: TerrainEditor | null;
   entityId: string;

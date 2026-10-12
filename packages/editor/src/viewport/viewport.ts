@@ -105,6 +105,13 @@ export interface ViewportCallbacks {
   onDoublePick?: (entityId: string) => void;
 }
 
+/**
+ * The share of the view's height a working view (an edit mode entered) keeps
+ * above the horizon: it looks down obliquely, so relief reads, with the sky
+ * in the top of the picture (about 20° down with the editor's 50° lens).
+ */
+export const WORK_VIEW_SKY = 0.12;
+
 /** An edit mode's isolation: the objects it edits, and whether the rest of the scene is shown as context. */
 export interface ViewIsolation {
   readonly ids: readonly string[];
@@ -1063,6 +1070,7 @@ export class Viewport {
     if (iso !== null) for (const id of iso.ids) for (const x of this.subtreeIds(id)) ids.add(x);
     this.isolation = iso === null ? null : { ids, given: iso };
     this.applyIsolation();
+    this.entityOverlays.setEditing(iso === null ? new Set() : new Set(iso.ids));
     this.helpers.sync(this.helperEntities());
     this.setSelected(this.selectedId);
   }
@@ -1104,16 +1112,63 @@ export class Viewport {
    * Frame an object from the current view direction: `localBox` (its own
    * frame; a terrain's tiles and height range) or else the meshes it draws.
    */
-  frameEntity(id: string, localBox?: { min: readonly number[]; max: readonly number[] }): void {
+  frameEntity(id: string, localBox?: { min: readonly number[]; max: readonly number[] }): boolean {
     this.adapter.sync?.();
     const world = this.worldOf(id);
-    if (world === null) return;
+    if (world === null) return false;
     let box: THREE.Box3;
     if (localBox !== undefined) {
       box = new THREE.Box3(new THREE.Vector3(...(localBox.min as [number, number, number])), new THREE.Vector3(...(localBox.max as [number, number, number]))).applyMatrix4(world);
     } else box = this.boundsOf(this.subtreeIds(id), () => true);
-    if (box.isEmpty()) return this.focus(id);
+    if (box.isEmpty()) {
+      this.focus(id);
+      return true;
+    }
     this.fitBox(box);
+    return true;
+  }
+
+  /**
+   * A working view of part of an object (an edit mode entered): looking down
+   * from the present heading, the horizon {@link WORK_VIEW_SKY} of the view
+   * below its top, onto the middle of
+   * `localBox` (its own frame) — on the ground there when the object is a
+   * terrain — near enough that the box's width fills the view. With
+   * `keepIf` (the object's whole box, its own frame) a view already aimed
+   * inside its footprint is left as it is: the user framed what to work on.
+   * True once settled (false: the object is not drawn yet).
+   */
+  frameWorkArea(id: string, localBox: { min: readonly number[]; max: readonly number[] }, keepIf: { min: readonly number[]; max: readonly number[] } | null = null): boolean {
+    this.adapter.sync?.();
+    const world = this.worldOf(id);
+    if (world === null) return false;
+    const boxOf = (b: { min: readonly number[]; max: readonly number[] }): THREE.Box3 => new THREE.Box3(new THREE.Vector3(...(b.min as [number, number, number])), new THREE.Vector3(...(b.max as [number, number, number]))).applyMatrix4(world);
+    const box = boxOf(localBox);
+    const center = box.getCenter(new THREE.Vector3());
+    const ground = this.adapter.terrains?.()?.field(id)?.heightAt(center.x, center.z);
+    if (typeof ground === 'number' && Number.isFinite(ground)) center.y = ground;
+    const span = Math.max(2, box.max.x - box.min.x, box.max.z - box.min.z);
+    const heading = this.camera.position.clone().sub(this.orbit.target).setY(0);
+    if (heading.lengthSq() < 1e-6) heading.set(0, 0, 1);
+    heading.normalize();
+    const half = Math.tan((this.camera.fov * Math.PI) / 360);
+    const pitch = Math.atan((1 - 2 * WORK_VIEW_SKY) * half);
+    const distance = span / 2 / half;
+    if (keepIf !== null) {
+      const whole = boxOf(keepIf);
+      const t = this.orbit.target;
+      const margin = 1;
+      const aimed = t.x >= whole.min.x - margin && t.x <= whole.max.x + margin && t.z >= whole.min.z - margin && t.z <= whole.max.z + margin;
+      if (aimed) return true;
+    }
+    const dir = heading.multiplyScalar(Math.cos(pitch)).setY(Math.sin(pitch));
+    this.orbit.target.copy(center);
+    this.camera.position.copy(center).addScaledVector(dir, distance);
+    this.camera.far = Math.max(1000, distance * 10);
+    this.camera.updateProjectionMatrix();
+    this.orbit.update();
+    this.requestRender();
+    return true;
   }
 
   // ---- Frames ------------------------------------------------------------

@@ -1359,8 +1359,18 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   await openTerrainEditor(page);
   const box = (await viewport(page).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  // Out to about 130 m from the tile's corner (the view looks down at it from +x +z).
-  for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 500);
+  // Out (or in) to about 130 m from the tile's corner (the view looks down at it from +x +z, at whatever distance the
+  // view had: the editor's working view of the tile when it was last entered from elsewhere).
+  const cornerDistance = async (): Promise<number> => {
+    const c = JSON.parse((await viewport(page).getAttribute('data-view-camera'))!) as { position: number[] };
+    return Math.hypot(c.position[0]! - BIG_ORIGIN[0], c.position[1]! - BIG_ORIGIN[1], c.position[2]! - BIG_ORIGIN[2]);
+  };
+  for (let i = 0; i < 60; i++) {
+    const d = await cornerDistance();
+    if (d > 120 && d < 140) break;
+    await page.mouse.wheel(0, d < 120 ? 100 : -100);
+    await page.waitForTimeout(30);
+  }
   await page.waitForTimeout(300);
   await pickTool(page, 'Raise');
   await setNumber(page, 'brush size', 128);
