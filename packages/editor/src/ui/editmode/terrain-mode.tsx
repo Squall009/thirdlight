@@ -7,7 +7,9 @@
  */
 import { terrainTileSize, type TerrainComponent } from '@thirdlight/runtime';
 
-import { TERRAIN_MODES } from '../../session/terrain-brush';
+import type { BrushUse } from '../../session/brush';
+import { brushKeyHints } from '../../session/edit-keys';
+import { TERRAIN_INVERT_LABELS, TERRAIN_MODES, terrainToolUses, type TerrainMode } from '../../session/terrain-brush';
 import type { ProjectedEntity } from '../../session/projection';
 import { TerrainPanel } from '../TerrainPanel';
 import type { EditModeKind } from './modes';
@@ -30,8 +32,12 @@ function tileExtent(c: TerrainComponent): { x0: number; x1: number; z0: number; 
   return { x0, x1, z0, z1 };
 }
 
-/** The key the terrain's brush tools add: Ctrl held inverts a stroke (lower, erase, fill). */
-const BRUSH_KEYS = [{ keys: ['Ctrl'], label: 'Invert' }] as const;
+/** A mode's brush keys (the shared map's, for the settings its tools use; inverting named as its first tool does it). */
+function modeKeys(m: TerrainMode): ReturnType<typeof brushKeyHints> {
+  const uses = new Set<BrushUse>(m.tools.flatMap((t) => [...terrainToolUses(t)]));
+  const first = m.tools.find((t) => TERRAIN_INVERT_LABELS[t] !== undefined);
+  return brushKeyHints([...uses], first !== undefined ? TERRAIN_INVERT_LABELS[first] : undefined);
+}
 
 export const terrainMode: EditModeKind = {
   kind: 'terrain',
@@ -45,7 +51,7 @@ export const terrainMode: EditModeKind = {
     const size = terrainTileSize(c);
     return ext === null ? 'no tiles' : `${n} tile${n === 1 ? '' : 's'} · ${ext.x1 - ext.x0 + 1} × ${ext.z1 - ext.z0 + 1} · ${size} m each`;
   },
-  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, ...(m.tools.length > 0 ? { keys: BRUSH_KEYS } : {}) })),
+  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, ...(m.tools.length > 0 ? { keys: modeKeys(m) } : {}) })),
   tools: ['terrain'],
   bounds: (e) => {
     const c = terrainOf(e)!;

@@ -24,7 +24,7 @@
  * Pure and deterministic (the brush is `paint-brush.ts`).
  */
 import type { BlockChunk } from './block-layers';
-import { brushFalloff, paintPoint, type PaintBrush, type PaintLayout } from './paint-brush';
+import { brushFalloff, latticeKey, paintPoint, strokeAmount, type DabStroke, type PaintBrush, type PaintLayout } from './paint-brush';
 import { decodeBase64, encodeBase64 } from './png-decode';
 
 /**
@@ -118,9 +118,10 @@ export interface PaintSurface {
  * One brush dab at `at` (layer columns; vertices at whole numbers): every
  * vertex within the radius takes the brush by its falloff. A vertex shared
  * by several chunks is painted once and written to each. Returns the number
- * of vertices changed.
+ * of vertices changed. `stroke`: the stroke's mask (in the layer's metres:
+ * `cellSize` across) and opacity coverage.
  */
-export function paintDab(surface: PaintSurface, at: readonly [number, number], brush: PaintBrush): number {
+export function paintDab(surface: PaintSurface, at: readonly [number, number], brush: PaintBrush, stroke?: DabStroke & { cellSize: readonly number[] }): number {
   const r = brush.radius;
   const x0 = Math.max(surface.minX, Math.ceil(at[0] - r));
   const x1 = Math.min(surface.maxX, Math.floor(at[0] + r));
@@ -132,8 +133,10 @@ export function paintDab(surface: PaintSurface, at: readonly [number, number], b
     for (let x = x0; x <= x1; x++) {
       const dx = x - at[0];
       const dz = z - at[1];
-      const f = brushFalloff(dx * dx + dz * dz, r, brush.falloff);
+      const f = brushFalloff(dx * dx + dz * dz, r, brush.falloff, brush.hardness);
       if (f <= 0) continue;
+      const t = stroke === undefined ? brush.strength * f : strokeAmount(brush.strength * f, stroke.mask, stroke.coverage, latticeKey(x, z), x * stroke.cellSize[0]!, z * stroke.cellSize[2]!);
+      if (t <= 0) continue;
       const holders: { cx: number; cz: number; lattice: Uint8Array; offset: number }[] = [];
       for (const [cx, cz] of chunksOfVertex(x, z)) {
         const lattice = surface.lattice(cx, cz);
@@ -144,7 +147,7 @@ export function paintDab(surface: PaintSurface, at: readonly [number, number], b
       // The first holder's value (chunks in z, then x order) is the vertex's; every copy gets the result.
       const h0 = holders[0]!;
       scratch.set(h0.lattice.subarray(h0.offset, h0.offset + PAINT_CHANNELS));
-      paintPoint(scratch, 0, BLOCK_PAINT_LAYOUT, brush, brush.strength * f);
+      paintPoint(scratch, 0, BLOCK_PAINT_LAYOUT, brush, t);
       let any = false;
       for (const h of holders) {
         let differs = false;

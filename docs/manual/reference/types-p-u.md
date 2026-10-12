@@ -1,8 +1,73 @@
-# Types (PropertyDeclaration to UiWidgetType)
+# Types (ProbeBake to UiTweenKind)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-probe-bake"></a>
+### ProbeBake
+
+Declared in `packages/project-model/src/probe-grids.ts`.
+
+```ts
+interface ProbeBake {
+  /** ISO-8601 time of the bake. */
+  createdAt: string;
+  /** The horizontal spacing the bake used where no volume set its own (the scene's probe spacing for the next bake). */
+  spacing: number;
+  bounces: number;
+  grids: ProbeGridRecord[];
+  /** Probes baked in all tiles; of those, moved out of geometry and filled from neighbours. */
+  probes: number;
+  moved: number;
+  filled: number;
+  /** GPU memory of the tiles' 3D textures (bytes). */
+  gpuBytes: number;
+  /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
+  lightsHash: string;
+  staticsHash: string;
+  /** The texture sky's turn the probes saw (degrees; absent: 0): another turn makes them stale. */
+  skyRotation?: number;
+}
+```
+
+<a id="type-probe-grid-box"></a>
+### ProbeGridBox
+
+Declared in `packages/project-model/src/probe-grids.ts`.
+
+```ts
+/** A tile: its world box and its probes per axis (probes sit on the box's corners and every spacing between). */
+interface ProbeGridBox {
+  min: Vec3;
+  max: Vec3;
+  resolution: Vec3;
+}
+```
+
+<a id="type-probe-grid-record"></a>
+### ProbeGridRecord
+
+Declared in `packages/project-model/src/probe-grids.ts`.
+
+```ts
+interface ProbeGridRecord extends ProbeGridBox {
+  /** The texture asset holding this tile's probes. */
+  asset: string;
+}
+```
+
+<a id="type-property-bounds"></a>
+### PropertyBounds
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+interface PropertyBounds {
+  min: Vec3;
+  max: Vec3;
+}
+```
 
 <a id="type-property-declaration"></a>
 ### PropertyDeclaration
@@ -1523,98 +1588,4 @@ Declared in `packages/project-model/src/ui-documents.ts`.
 
 ```ts
 type UiTweenKind = 'fade' | 'slide' | 'scale' | 'stamp';
-```
-
-<a id="type-ui-widget"></a>
-### UiWidget
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-interface UiWidget {
-  id?: string;
-  type: UiWidgetType;
-  // Placement in a panel (a stack/grid/list parent flows its children; only `size` and `grow` apply there).
-  anchor?: [number, number];
-  pivot?: [number, number];
-  /** Px from the anchor; each axis a number or a view-model binding. */
-  offset?: [UiBindable<number>, UiBindable<number>];
-  /** Each axis a number, null (sized to the content) or a view-model binding. */
-  size?: [UiBindable<number> | null, UiBindable<number> | null];
-  stretch?: 'x' | 'y' | 'both';
-  margin?: [number, number, number, number];
-  grow?: number;
-  style?: string | string[];
-  css?: UiStyle;
-  visible?: UiBindable<boolean>;
-  enabled?: UiBindable<boolean>;
-  /** How opaque the widget and its children are (0–1), over its style's opacity; a number or a binding. */
-  opacity?: UiBindable<number>;
-  /** Degrees clockwise about the widget's pivot (its centre in a stack, grid or list); a number or a binding. */
-  rotation?: UiBindable<number>;
-  focusable?: boolean;
-  /** This widget's sounds (over its styles' and the document's). */
-  sounds?: UiSounds;
-  nav?: { up?: string; down?: string; left?: string; right?: string; next?: string; prev?: string };
-  worldAnchor?: UiWorldAnchor;
-  onFocus?: UiAction | UiAction[];
-  // Containers.
-  children?: UiWidget[];
-  direction?: 'row' | 'column' | 'grid' | 'right' | 'left' | 'up' | 'down';
-  gap?: number;
-  align?: 'start' | 'center' | 'end' | 'stretch';
-  justify?: 'start' | 'center' | 'end' | 'between' | 'around';
-  wrap?: boolean;
-  columns?: number;
-  cellSize?: [number, number];
-  // text / button / input
-  text?: string;
-  /**
-   * Text: the widget's text is the rich text at this view-model
-   * path (markup parsed, braces are plain text) instead of `text`.
-   */
-  content?: UiBinding;
-  /** Text: only the first N visible characters show (a typewriter; the rest keeps its place, hidden). */
-  reveal?: UiBindable<number>;
-  // image
-  image?: UiBindable<string>;
-  /** Show a save slot's picture instead of a texture (a slot number or a binding to one; nothing while it has none). */
-  saveSlot?: UiBindable<number>;
-  slice?: [number, number, number, number];
-  fit?: 'stretch' | 'contain' | 'cover';
-  tint?: UiColor;
-  // bar
-  value?: UiBindable<number> | UiBinding;
-  min?: UiBindable<number>;
-  max?: UiBindable<number>;
-  shape?: 'linear' | 'radial';
-  fillColor?: UiColor;
-  fillStyle?: string;
-  /** A number or a view-model binding (degrees, 0 = up). */
-  startAngle?: UiBindable<number>;
-  // button
-  onClick?: UiAction | UiAction[];
-  // list
-  items?: UiBinding;
-  template?: UiWidget;
-  /**
-   * The field of each item naming it (`id`): an item keeps its widgets, and
-   * the focus, while its key stays in the array, wherever it moves. Absent:
-   * items are kept by their index.
-   */
-  itemKey?: string;
-  // input
-  placeholder?: string;
-  maxLength?: number;
-  onSubmit?: UiAction | UiAction[];
-}
-```
-
-<a id="type-ui-widget-type"></a>
-### UiWidgetType
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiWidgetType = 'panel' | 'stack' | 'grid' | 'text' | 'image' | 'bar' | 'button' | 'list' | 'input';
 ```

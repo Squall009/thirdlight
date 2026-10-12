@@ -9,8 +9,14 @@
  * while painting); Home frames the edited object because F belongs to the
  * brush's resize-in-view.
  *
+ * The brush keys are the same in every editor with a brush: `[` / `]` size,
+ * Shift with them strength, F then a drag resizes in the view (Shift+F:
+ * strength), X switches paint and erase, Ctrl held inverts one stroke.
+ * Brackets are read by their physical key, so they work on any layout.
+ *
  * Pure.
  */
+import type { BrushUse } from './brush';
 
 /** What a key does in an edit mode (null: not the map's; the mode's tools may take it). */
 export type EditKeyAction = { kind: 'done' } | { kind: 'context' } | { kind: 'frame' } | { kind: 'mode'; index: number };
@@ -43,7 +49,7 @@ export function editKeyAction(e: EditKeyEvent, modes: number): EditKeyAction | n
   return null;
 }
 
-/** One entry of the status line's key list: the keys (a chord's parts) and what they do. */
+/** One entry of the status line's key list: the keys (a chord's parts; "a / b" is either key) and what they do. */
 export interface KeyHint {
   readonly keys: readonly string[];
   readonly label: string;
@@ -54,5 +60,39 @@ export function sharedKeyHints(modes: number): KeyHint[] {
   const out: KeyHint[] = [];
   if (modes > 1) out.push({ keys: ['Shift', `1–${Math.min(modes, EDIT_MODE_KEYS)}`], label: 'Mode' });
   out.push({ keys: ['Alt', 'Drag'], label: 'Orbit' }, { keys: ['Home'], label: 'Frame' }, { keys: ['C'], label: 'Context' }, { keys: ['Ctrl', 'Z'], label: 'Undo' }, { keys: ['Esc'], label: 'Done' });
+  return out;
+}
+
+/** What a brush key does (null: not a brush key). */
+export type BrushKeyAction = { kind: 'size'; dir: 1 | -1 } | { kind: 'strength'; dir: 1 | -1 } | { kind: 'resize' } | { kind: 'restrength' } | { kind: 'invert' };
+
+/** The brush key a key event is, for a tool using `uses`. */
+export function brushKeyAction(e: EditKeyEvent, uses: readonly BrushUse[]): BrushKeyAction | null {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  const strength = uses.includes('strength');
+  if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
+    const dir = e.code === 'BracketRight' ? 1 : -1;
+    if (e.shiftKey) return strength ? { kind: 'strength', dir } : null;
+    return uses.includes('size') ? { kind: 'size', dir } : null;
+  }
+  if (e.code === 'KeyF') {
+    if (e.shiftKey) return strength ? { kind: 'restrength' } : null;
+    return uses.includes('size') ? { kind: 'resize' } : null;
+  }
+  if (e.code === 'KeyX' && !e.shiftKey) return uses.includes('invert') ? { kind: 'invert' } : null;
+  return null;
+}
+
+/**
+ * The brush keys of a tool, as the status line lists them. `invert`: what
+ * inverting does in plain words ("Lower", "Erase", "Fill").
+ */
+export function brushKeyHints(uses: readonly BrushUse[], invert = 'Invert'): KeyHint[] {
+  const out: KeyHint[] = [];
+  if (uses.includes('size')) out.push({ keys: ['[ / ]'], label: 'Size' });
+  if (uses.includes('strength')) out.push({ keys: ['Shift', '[ / ]'], label: 'Strength' });
+  if (uses.includes('size')) out.push({ keys: ['F'], label: 'Resize in view' });
+  if (uses.includes('strength')) out.push({ keys: ['Shift', 'F'], label: 'Strength in view' });
+  if (uses.includes('invert')) out.push({ keys: ['X'], label: `Paint / ${invert.toLowerCase()}` }, { keys: ['Ctrl'], label: invert });
   return out;
 }

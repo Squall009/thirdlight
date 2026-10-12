@@ -404,7 +404,7 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       await opts.getByLabel('stamp heightmap', { exact: true }).selectOption('e2e-cone');
       await opts.getByLabel('stamp height', { exact: true }).fill(String(STAMP_HEIGHT));
       await opts.getByLabel('stamp falloff', { exact: true }).fill('0');
-      await setNumber(page, 'terrain radius', STAMP_RADIUS);
+      await setNumber(page, 'brush size', STAMP_RADIUS * 2);
       // One click: one command — the stamps layer made with the stamp, the ground combined again under it.
       const rev0 = await revision();
       const at = await screenOf(page, centre);
@@ -433,7 +433,7 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       const erodeOpts = terrainPanel(page).getByRole('group', { name: 'erode options' });
       await erodeOpts.getByLabel('erode droplets', { exact: true }).fill('2');
       await erodeOpts.getByLabel('erode passes', { exact: true }).fill('20');
-      await setNumber(page, 'terrain radius', ERODE_RADIUS);
+      await setNumber(page, 'brush size', ERODE_RADIUS * 2);
       const probe: [number, number] = [STAMP_AT[0] + STAMP_RADIUS / 2, STAMP_AT[1]];
       const stamped = await height(...probe);
       const rev1 = await revision();
@@ -661,7 +661,10 @@ export async function zoomedOutTo(page: Page, points: readonly V3[], check: () =
     await page.waitForTimeout(80);
   }
   expect(await inView(), 'the points in the Scene view').toBe(true);
+  // The pictures are of the ground: the brush cursor (its fill) off it until a check moves the pointer back.
+  await pointerOffView(page);
   await check();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   for (let i = 0; i < zoomed; i++) {
     await page.mouse.wheel(0, -200);
     await page.waitForTimeout(80);
@@ -786,8 +789,10 @@ export async function shot(page: Page, p: V3, size: number): Promise<Image> {
  */
 export async function terrainStroke(page: Page, points: readonly V3[], look: V3, size: number, held = true): Promise<{ info: StrokeInfo; before: Image; preview: Image; after: Image }> {
   const first = await screenOf(page, points[0]!);
-  await page.mouse.move(first.x, first.y);
+  // The ground before and after, without the brush cursor's fill over it (the pointer off the view); while held, its rings only.
+  await pointerOffView(page);
   const before = await shot(page, look, size);
+  await page.mouse.move(first.x, first.y);
   const was = (await strokeInfo(page))?.serial ?? 0;
   await page.mouse.down();
   for (const p of points.slice(1)) {
@@ -806,8 +811,16 @@ export async function terrainStroke(page: Page, points: readonly V3[], look: V3,
     info = await strokeInfo(page);
     return info !== null && info.serial > was && info.stored === true && info.preview?.settleMs != null && info.preview.diff != null;
   }, { timeout: 30_000, message: 'the stroke stored and its tiles replacing the preview' }).toBe(true);
+  await pointerOffView(page);
   const after = await shot(page, look, size);
   return { info: info!, before, preview, after };
+}
+
+/** The pointer onto the edit mode's rail, off the view: the brush cursor goes. */
+async function pointerOffView(page: Page): Promise<void> {
+  const b = (await viewport(page).boundingBox())!;
+  await page.mouse.move(b.x - 20, b.y + b.height - 20);
+  if ((await viewport(page).getAttribute('data-terrain-tool')) !== '') await expect(viewport(page)).not.toHaveAttribute('data-terrain-brush', /\d/);
 }
 
 /** WebGPU and WebGL 2 on a GPU host; WebGL 2 alone where there is no WebGPU adapter. */
@@ -1134,8 +1147,10 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   // ---- raise: a short drag, the ground up where it went.
   await pickTool(page, 'Raise');
   await expect(viewport(page)).toHaveAttribute('data-terrain-tool', 'raise');
-  await setNumber(page, 'terrain radius', 1.5);
-  await setNumber(page, 'terrain strength', 0.4);
+  // The size is across (twice the radius); a dab at full strength moves the ground by the height step.
+  await setNumber(page, 'brush size', 3);
+  await setNumber(page, 'height step', 0.4);
+  await setNumber(page, 'brush strength', 100);
   const raiseAt = await visibleSpot(page, ground, spots([...grove]));
   const h0 = await height(raiseAt[0], raiseAt[2]);
   // The cursor sits on the ground under the pointer (the stored surface).
@@ -1156,9 +1171,9 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   // ---- paint: layer 2 (blue) over the red ground.
   await pickTool(page, 'Paint');
   await terrainPanel(page).getByRole('radio', { name: 'layer 2' }).click();
-  await setNumber(page, 'terrain radius', 1.2);
-  await setNumber(page, 'terrain blend', 0.6);
-  await terrainPanel(page).getByLabel('terrain falloff').selectOption('constant');
+  await setNumber(page, 'brush size', 2.4);
+  await setNumber(page, 'brush strength', 60);
+  await terrainPanel(page).getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
   const paintAt = await visibleSpot(page, ground, spots([...grove, raiseAt]));
   const paint = await terrainStroke(page, [[paintAt[0] - 0.3, paintAt[1], paintAt[2]], [paintAt[0] + 0.3, paintAt[1], paintAt[2]]], paintAt, 30);
   expect(share(paint.before, isRed), `${renderer}: red before the paint`).toBeGreaterThan(0.6);
@@ -1169,14 +1184,40 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   expect(pd.indicesDiffering).toBe(0);
   expect(meanDiff(paint.preview, paint.after)).toBeLessThan(6);
 
+  // ---- paint through the noise mask with a 50 % opacity: the GPU preview (its mask and the stroke's coverage) against the stored tiles.
+  await setNumber(page, 'brush opacity', 50);
+  const noise = terrainPanel(page).getByRole('region', { name: 'noise mask' });
+  await noise.getByLabel('paint through noise').check();
+  await setNumber(page, 'mask scale', 0.6);
+  await setNumber(page, 'mask contrast', 3);
+  // Off the flattened strips (their flat ground bakes other layers): on ground of one layer the preview's partial paint is the
+  // stored one; where layers mix, the stored tiles settle it (the preview moves the drawn weights only).
+  const strips: V3[] = [];
+  for (let z = PLAYER[1]; z >= HOLE[1]; z -= 3) strips.push([PLAYER[0], 0, z]);
+  for (let x = PLAYER[0]; x >= WEST_TO; x -= 3) strips.push([x, 0, PLAYER[1]]);
+  const maskedAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt, ...strips]));
+  const masked = await terrainStroke(page, [[maskedAt[0] - 0.3, maskedAt[1], maskedAt[2]], [maskedAt[0] + 0.3, maskedAt[1], maskedAt[2]], [maskedAt[0] - 0.3, maskedAt[1], maskedAt[2]]], maskedAt, 30);
+  const md = masked.info.preview!.diff!;
+  expect(md.weightMax, `${renderer} masked paint: preview weights against the stored tiles ${JSON.stringify(md)}`).toBeLessThanOrEqual(4);
+  expect(md.indicesDiffering).toBe(0);
+  // Under the ceiling (and through the mask): never a full coat. (The stroke changed samples: a stroke that changes none is refused.)
+  expect(share(masked.after, isBlue), `${renderer}: the masked paint is not a full coat`).toBeLessThan(0.6);
+  // The tool's settings are remembered: back to a plain brush for what follows (and the next renderer).
+  await setNumber(page, 'brush opacity', 100);
+  await noise.getByLabel('paint through noise').uncheck();
+
   // ---- noise, smooth and a ramp over the raised ground: their previews against the stored tiles.
   const others: Record<string, PreviewDiff> = {};
+  // Each tool remembers its own brush: the same 3 m for these.
   await pickTool(page, 'Noise');
+  await setNumber(page, 'brush size', 3);
   await setNumber(page, 'noise size', 1.5);
   others['noise'] = (await terrainStroke(page, [[raiseAt[0], raiseAt[1], raiseAt[2] - 0.4], [raiseAt[0], raiseAt[1], raiseAt[2] + 0.4]], raiseAt, 40)).info.preview!.diff!;
   await pickTool(page, 'Smooth');
+  await setNumber(page, 'brush size', 3);
   others['smooth'] = (await terrainStroke(page, [[raiseAt[0] - 0.5, raiseAt[1], raiseAt[2]], [raiseAt[0] + 0.5, raiseAt[1], raiseAt[2]]], raiseAt, 40)).info.preview!.diff!;
   await pickTool(page, 'Ramp');
+  await setNumber(page, 'brush size', 3);
   others['ramp'] = (await terrainStroke(page, [[raiseAt[0] - 1, raiseAt[1], raiseAt[2] + 1], [raiseAt[0] + 1, raiseAt[1], raiseAt[2] - 1]], raiseAt, 40, false)).info.preview!.diff!;
   for (const [kind, d] of Object.entries(others)) {
     expect(d.samples, `${renderer} ${kind}: compared`).toBeGreaterThan(20);
@@ -1186,15 +1227,15 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
 
   // ---- holes: one click, the sky through it.
   await pickTool(page, 'Holes');
-  await setNumber(page, 'terrain radius', 1);
-  const holeAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt]));
+  await setNumber(page, 'brush size', 2);
+  const holeAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt, maskedAt]));
   const hole = await terrainStroke(page, [holeAt], holeAt, 16);
   expect(share(hole.before, isSky), `${renderer}: ground before the hole`).toBeLessThan(0.05);
   expect(share(hole.preview, isSky), `${renderer}: the hole previewed`).toBeGreaterThan(0.5);
   expect(share(hole.after, isSky), `${renderer}: the hole stored`).toBeGreaterThan(0.5);
   expect(hole.info.preview!.diff!.holesDiffering, `${renderer} holes: ${JSON.stringify(hole.info.preview!.diff)}`).toBe(0);
-  test.info().annotations.push({ type: `${renderer} terrain tools: preview against stored`, description: JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others }) });
-  console.log(`${renderer} terrain tools: ${JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others })}`);
+  test.info().annotations.push({ type: `${renderer} terrain tools: preview against stored`, description: JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, maskedPaint: { diff: md, msMax: masked.info.preview!.msMax, commitMs: masked.info.commitMs, settleMs: masked.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others }) });
+  console.log(`${renderer} terrain tools: ${JSON.stringify({ raise: { diff: rd, px: raisePx, msMax: raise.info.preview!.msMax, commitMs: raise.info.commitMs, settleMs: raise.info.preview!.settleMs }, paint: { diff: pd, commitMs: paint.info.commitMs, settleMs: paint.info.preview!.settleMs }, maskedPaint: { diff: md, msMax: masked.info.preview!.msMax, commitMs: masked.info.commitMs, settleMs: masked.info.preview!.settleMs }, hole: { diff: hole.info.preview!.diff, settleMs: hole.info.preview!.settleMs }, others })}`);
 
   // ---- undo and redo: the hole goes and comes back; then everything is undone.
   const holeShare = async (): Promise<number> => share(await shot(page, holeAt, 16), isSky);
@@ -1202,7 +1243,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   await expect.poll(holeShare, { timeout: 30_000, message: `${renderer}: the hole undone` }).toBeLessThan(0.05);
   await page.keyboard.press('Control+y');
   await expect.poll(holeShare, { timeout: 30_000, message: `${renderer}: the hole redone` }).toBeGreaterThan(0.5);
-  for (let i = 0; i < 6; i++) await page.keyboard.press('Control+z');
+  for (let i = 0; i < 7; i++) await page.keyboard.press('Control+z');
   await expect.poll(holeShare, { timeout: 30_000 }).toBeLessThan(0.05);
   await expect.poll(async () => share(await shot(page, paintAt, 30), isRed), { timeout: 30_000, message: `${renderer}: the paint undone` }).toBeGreaterThan(0.6);
   await expect.poll(() => height(raiseAt[0], raiseAt[2]), { timeout: 30_000 }).toBe(h0);
@@ -1267,8 +1308,9 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   for (let i = 0; i < 12; i++) await page.mouse.wheel(0, 500);
   await page.waitForTimeout(300);
   await pickTool(page, 'Raise');
-  await setNumber(page, 'terrain radius', 64);
-  await setNumber(page, 'terrain strength', 0.5);
+  await setNumber(page, 'brush size', 128);
+  await setNumber(page, 'height step', 0.5);
+  await setNumber(page, 'brush strength', 100);
   // Two loops of 15 m round a point of the tile the view sees (all in view), projected to the screen.
   let loop: { x: number; y: number }[] = [];
   const inBox = (q: { x: number; y: number }): boolean => q.x > box.x + 10 && q.x < box.x + box.width - 10 && q.y > box.y + 10 && q.y < box.y + box.height - 10;
@@ -1512,7 +1554,7 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await selectEntity(page, ground);
   await pickTool(page, 'Scatter');
   await expect(terrainPanel(page).getByLabel('scatter brush rule')).toHaveValue('posts');
-  await setNumber(page, 'terrain radius', 1.5);
+  await setNumber(page, 'brush size', 3);
   const center = await visibleSpot(page, ground, posts.slice(0, 12).map((c) => [c.x, c.z] as [number, number]));
   const s = await screenOf(page, center);
   const near = (list: Copy[]): number => list.filter((c) => Math.hypot(c.x - center[0], c.z - center[2]) < 1.2).length;

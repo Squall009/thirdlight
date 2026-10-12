@@ -562,7 +562,7 @@ export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdi
 // The instance brush's places and surface drop (the editor finds the surface under the same places the backend plans).
 export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers, instanceStrokeError } from '@thirdlight/project-model';
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
-export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, PAINT_CHANNELS, chunkMeshAO, chunkMeshPaint, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
+export { BRUSH_FALLOFFS, BRUSH_HARDNESS_DEFAULT, BRUSH_MASK_LIMITS, PAINT_BRUSH_LIMITS, brushFalloff, brushHalfRadius, brushMask, type BrushMask, PAINT_CHANNELS, chunkMeshAO, chunkMeshPaint, chunkPaintColors, type BrushFalloff, type PaintBrush } from '@thirdlight/project-model';
 // Material rules (block chunks evaluate them when meshed; the editor edits them).
 export { SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, SurfaceRuleSet, type RuleRange, type SurfaceRule } from '@thirdlight/project-model';
 // The layers past a vec4 a per-layer material setting holds values for (the editor's layer table).

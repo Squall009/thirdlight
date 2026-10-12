@@ -36,12 +36,18 @@ edited with the editor's Terrain tools.
   - `raise`, `lower`, `smooth`, `flatten` (`height`, world y), `noise`
     (`scale` m, `seed`): `dabs: [[x, z], …]`, `radius` (m), `strength`
     (metres at the centre for raise, lower and noise; the blend 0–1 for
-    smooth and flatten), `falloff` smooth | linear | constant;
+    smooth and flatten), `falloff` smooth | linear | constant | curve
+    (`hardness` 0–0.95: the share of the radius at full strength), `mask?`
+    (noise a dab is multiplied by: `{scale m, contrast, threshold, octaves
+    1–5, seed}`, anchored to the terrain so tiles and strokes meet without a
+    seam);
   - `ramp {from: [x, y, z], to: [x, y, z], radius (half the width), strength,
     falloff?}` lays the ground onto the slope between the two points;
-  - `paint {dabs, radius, strength, layer 0–255, erase?}` paints hand paint
-    over the baked layers (`erase` gives the samples back to the baked
-    layers);
+  - `paint {dabs, radius, strength, layer 0–255, erase?, opacity?, mask?,
+    hardness?}` paints hand paint over the baked layers (`erase` gives the
+    samples back to the baked layers); `opacity` (0–1] is the most of the
+    way one stroke takes a sample however many dabs cross it (strength is
+    one dab's);
   - `holes {dabs, radius, erase?}` cuts the cells whose centres are within the
     radius out of the terrain (or fills them back);
   - `import {stageId, format: png16 | raw16, size?: [w, h], byteOrder?:
@@ -118,13 +124,21 @@ edited with the editor's Terrain tools.
   metre apart, heights −128 to 384 m, and opens it; its rail's modes are
   Sculpt, Paint, Holes, Material rules, Scatter, Stack and Tiles): Raise, Lower, Smooth, Flatten (to the height where the stroke began),
   Noise (size, seed), Ramp (drag from one end to the other), Paint (pick a
-  layer: eight swatches or any number 0–255) and Holes; Radius (m),
-  Strength (metres for raise, lower and noise; a 0–1 blend for the others)
-  and Falloff. Ctrl (or the Lower / erase / fill toggle) lowers, takes hand
-  paint back or fills holes for one stroke. In a mode with a brush a left
+  layer: eight swatches or any number 0–255) and Holes, with the brush
+  panel every editor shares: Height step (sculpt: metres one dab at full
+  strength moves the ground), Size (across), Strength (one dab's share),
+  Opacity (paint: one stroke's most), Falloff (smooth, linear, constant, a
+  curve with its hardness), Spacing and the Noise mask (a live swatch of
+  the mask; the cursor's fill shows it). Settings are remembered per tool
+  in the browser. Keys: `[` / `]` size, Shift with them strength, F then a
+  drag resizes on the ground (Shift+F strength; a click sets, Esc puts it
+  back), X switches paint and erase, Ctrl held (or the invert toggle)
+  lowers, takes hand paint back or fills holes for one stroke. In a mode with a brush a left
   drag sculpts (Alt+drag or the right button orbits), Esc drops the
-  stroke in flight. The cursor is a ring laid on the ground under the
-  pointer. A stroke is previewed on the GPU while the pointer is held — each
+  stroke in flight. The cursor lies on the ground under the pointer: an
+  outer ring at the size, a dashed ring where the falloff is at half
+  strength, a fill at the dab's weight (amber; red while erasing or
+  lowering). A stroke is previewed on the GPU while the pointer is held — each
   dab changes the drawn tiles' textures in place before the next frame, no
   tile is re-packed or meshed on the CPU and nothing is sent per dab — and
   the release stores one `editTerrain` (one undo); the tiles it changed are

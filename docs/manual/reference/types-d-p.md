@@ -1,8 +1,41 @@
-# Types (DeleteEntityArgs to PropertyBounds)
+# Types (DeclaredProperty to PostConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-declared-property"></a>
+### DeclaredProperty
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+interface DeclaredProperty {
+  key: string;
+  label: string;
+  type: PropertyType;
+  default: PropertyValue;
+  min?: number;
+  max?: number;
+  step?: number;
+  maxLength?: number;
+  values?: string[];
+  bounds?: PropertyBounds;
+  /**
+   * Who may see and set the property. `public` (the default; the
+   * canonical form omits it) is shown in the Inspector of every object
+   * carrying the behavior and overridable per object; `private` is neither
+   * shown nor overridable — the script always reads `default`.
+   */
+  visibility?: PropertyVisibility;
+  /** The Inspector section the property is listed in (1–64 characters). */
+  group?: string;
+  /** A heading shown above the property in the Inspector (1–64 characters). */
+  header?: string;
+  /** The hover help of the property's field (1–256 characters). */
+  tooltip?: string;
+}
+```
 
 <a id="type-delete-entity-args"></a>
 ### DeleteEntityArgs
@@ -114,6 +147,12 @@ interface EditTerrainArgs {
   /** raise, lower, noise: metres at the centre; the others: the blend at the centre (0–1]. */
   strength?: number;
   falloff?: BrushFalloff;
+  /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
+  hardness?: number;
+  /** paint: the most of the way to the layer one stroke takes a sample, (0, 1] (strength is one dab's); absent: no ceiling. */
+  opacity?: number;
+  /** Sculpt kinds and paint: noise a dab's weight is multiplied by, anchored to the terrain (seamless across its tiles and strokes); absent: none. */
+  mask?: BrushMask;
   /** flatten: the world height levelled to. */
   height?: number;
   /** noise: the size of its bumps (metres) and its seed. */
@@ -1606,70 +1645,5 @@ interface PostConfig {
   ssao?: { enabled: boolean; radius?: number; intensity?: number };
   dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
   antialias?: 'none' | 'fxaa' | 'smaa';
-}
-```
-
-<a id="type-probe-bake"></a>
-### ProbeBake
-
-Declared in `packages/project-model/src/probe-grids.ts`.
-
-```ts
-interface ProbeBake {
-  /** ISO-8601 time of the bake. */
-  createdAt: string;
-  /** The horizontal spacing the bake used where no volume set its own (the scene's probe spacing for the next bake). */
-  spacing: number;
-  bounces: number;
-  grids: ProbeGridRecord[];
-  /** Probes baked in all tiles; of those, moved out of geometry and filled from neighbours. */
-  probes: number;
-  moved: number;
-  filled: number;
-  /** GPU memory of the tiles' 3D textures (bytes). */
-  gpuBytes: number;
-  /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
-  lightsHash: string;
-  staticsHash: string;
-  /** The texture sky's turn the probes saw (degrees; absent: 0): another turn makes them stale. */
-  skyRotation?: number;
-}
-```
-
-<a id="type-probe-grid-box"></a>
-### ProbeGridBox
-
-Declared in `packages/project-model/src/probe-grids.ts`.
-
-```ts
-/** A tile: its world box and its probes per axis (probes sit on the box's corners and every spacing between). */
-interface ProbeGridBox {
-  min: Vec3;
-  max: Vec3;
-  resolution: Vec3;
-}
-```
-
-<a id="type-probe-grid-record"></a>
-### ProbeGridRecord
-
-Declared in `packages/project-model/src/probe-grids.ts`.
-
-```ts
-interface ProbeGridRecord extends ProbeGridBox {
-  /** The texture asset holding this tile's probes. */
-  asset: string;
-}
-```
-
-<a id="type-property-bounds"></a>
-### PropertyBounds
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-interface PropertyBounds {
-  min: Vec3;
-  max: Vec3;
 }
 ```

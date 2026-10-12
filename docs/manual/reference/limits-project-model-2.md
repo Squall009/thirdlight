@@ -43,6 +43,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
+| <a id="limit-brush-hardness-default"></a>`BRUSH_HARDNESS_DEFAULT` | `0.5` | A curve falloff's hardness when none is given. |
+| <a id="limit-brush-mask-limits"></a>`BRUSH_MASK_LIMITS` | `{"scaleMin":0.05,"scaleMax":10000,"contrastMax":16,"octavesMax":5,"seedMax":2147483647}` |  |
 | <a id="limit-paint-brush-limits"></a>`PAINT_BRUSH_LIMITS` | `{"radiusMin":0.25,"radiusMax":64,"strengthMax":1}` | The brush's size (in the target's units, e.g. cells) and strength (the blend per dab at the centre, 0–1). |
 
 <a id="limits-project-model--png-decode"></a>

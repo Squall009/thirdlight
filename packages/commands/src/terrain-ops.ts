@@ -16,6 +16,8 @@
  */
 import {
   BRUSH_FALLOFFS,
+  brushStrokeError,
+  strokeCoverage,
   HEIGHTMAP_FORMATS,
   TERRAIN_BRUSH_LIMITS,
   TERRAIN_LAYER_MAX,
@@ -41,6 +43,7 @@ import {
   terrainTileSize,
   type BlockLayerComponent,
   type BrushFalloff,
+  type BrushMask,
   type Heightmap,
   type HeightmapFormat,
   type ModelErrorV2,
@@ -91,6 +94,12 @@ export interface EditTerrainArgs {
   /** raise, lower, noise: metres at the centre; the others: the blend at the centre (0–1]. */
   strength?: number;
   falloff?: BrushFalloff;
+  /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
+  hardness?: number;
+  /** paint: the most of the way to the layer one stroke takes a sample, (0, 1] (strength is one dab's); absent: no ceiling. */
+  opacity?: number;
+  /** Sculpt kinds and paint: noise a dab's weight is multiplied by, anchored to the terrain (seamless across its tiles and strokes); absent: none. */
+  mask?: BrushMask;
   /** flatten: the world height levelled to. */
   height?: number;
   /** noise: the size of its bumps (metres) and its seed. */
@@ -125,7 +134,7 @@ export interface EditTerrainArgs {
   thermal?: ErosionSettings['thermal'];
 }
 
-const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff'];
+const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff', 'hardness', 'mask'];
 /** The keys each kind takes (besides entityId and kind). */
 export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string[]>> = Object.freeze({
   raise: BRUSH_KEYS,
@@ -133,8 +142,8 @@ export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string
   smooth: BRUSH_KEYS,
   flatten: [...BRUSH_KEYS, 'height'],
   noise: [...BRUSH_KEYS, 'scale', 'seed'],
-  ramp: ['from', 'to', 'radius', 'strength', 'falloff'],
-  paint: [...BRUSH_KEYS, 'layer', 'erase'],
+  ramp: ['from', 'to', 'radius', 'strength', 'falloff', 'hardness'],
+  paint: [...BRUSH_KEYS, 'opacity', 'layer', 'erase'],
   holes: ['dabs', 'radius', 'erase'],
   import: ['stageId', 'format', 'size', 'byteOrder', 'at', 'range'],
   fromBlocks: ['source'],
@@ -184,6 +193,11 @@ export function validateEditTerrainArgs(args: Record<string, unknown>): { ok: tr
     if (!finite(s) || s <= 0 || s > (metres ? L.heightStrengthMax : 1)) return bad('strength', metres ? `metres in (0, ${L.heightStrengthMax}]` : '(0, 1]', metres ? 'strength is the metres a dab moves the ground at its centre' : 'strength is the blend a dab makes at its centre, in (0, 1]');
   }
   if (args['falloff'] !== undefined && !BRUSH_FALLOFFS.includes(args['falloff'] as BrushFalloff)) return bad('falloff', BRUSH_FALLOFFS.join(', '), `falloff is ${BRUSH_FALLOFFS.join(', ')}`);
+  const se = brushStrokeError(args);
+  if (se !== null) {
+    const [key, ...sub] = se.field.split('/');
+    return { ok: false, error: fieldValue(`/args/${se.field}`, sub.length > 0 ? (args[key!] as Record<string, unknown> | undefined)?.[sub[0]!] : args[key!], 'within the brush\'s limits', se.message) };
+  }
   if (kind === 'flatten' && !finite(args['height'])) return bad('height', 'a world height (metres)', 'flatten levels to height (world metres)');
   if (args['scale'] !== undefined && (!finite(args['scale']) || (args['scale'] as number) <= 0 || (args['scale'] as number) > L.noiseScaleMax)) return bad('scale', `metres in (0, ${L.noiseScaleMax}]`, 'scale is the size of the noise\'s bumps in metres');
   if (args['seed'] !== undefined && !Number.isSafeInteger(args['seed'])) return bad('seed', 'a whole number', 'seed is a whole number');
@@ -376,18 +390,23 @@ function planEdit(scene: SceneDocument, content: ContentDocument | undefined, ar
           ...(args.height !== undefined ? { height: args.height - origin[1] } : {}),
           ...(args.scale !== undefined ? { scale: args.scale } : {}),
           ...(args.seed !== undefined ? { seed: args.seed } : {}),
+          ...(args.hardness !== undefined ? { hardness: args.hardness } : {}),
+          ...(args.mask !== undefined ? { mask: args.mask } : {}),
         });
       }
       break;
     case 'ramp': {
       const [ax, ay, az] = args.from!;
       const [bx, by, bz] = args.to!;
-      changed = rampTerrain(s, { from: [ax - origin[0], ay - origin[1], az - origin[2]], to: [bx - origin[0], by - origin[1], bz - origin[2]], radius: r, strength: args.strength!, falloff });
+      changed = rampTerrain(s, { from: [ax - origin[0], ay - origin[1], az - origin[2]], to: [bx - origin[0], by - origin[1], bz - origin[2]], radius: r, strength: args.strength!, falloff, ...(args.hardness !== undefined ? { hardness: args.hardness } : {}) });
       break;
     }
-    case 'paint':
-      for (const at of dabsLocal) changed += paintTerrain(s, { at, radius: r, strength: args.strength!, falloff, layer: args.layer!, ...(args.erase === true ? { erase: true } : {}) });
+    case 'paint': {
+      // One coverage for the stroke: its opacity holds across all its dabs.
+      const coverage = strokeCoverage(args.opacity);
+      for (const at of dabsLocal) changed += paintTerrain(s, { at, radius: r, strength: args.strength!, falloff, layer: args.layer!, ...(args.erase === true ? { erase: true } : {}), ...(args.hardness !== undefined ? { hardness: args.hardness } : {}), ...(args.mask !== undefined ? { mask: args.mask } : {}) }, coverage);
       break;
+    }
     case 'holes':
       for (const at of dabsLocal) changed += holeTerrain(s, { at, radius: r, ...(args.erase === true ? { erase: true } : {}) });
       break;

@@ -221,6 +221,8 @@ export interface TerrainPreviewStats {
 }
 
 interface StrokeRec {
+  /** Counts strokes (a paint stroke's opacity coverage is the stroke's own). */
+  id: number;
   queue: TerrainPreviewDab[];
   stats: TerrainPreviewStats;
   touchedTiles: Set<TileRec>;
@@ -312,7 +314,7 @@ interface TerrainRec {
   /** The finest level's reach the nodes were last selected with (the LOD bias or `lodDistance` changed it: select again). */
   reach: number;
   /** The stroke kind whose passes are to be built ahead (null: none, or built). */
-  warm: TerrainBrushKind | null;
+  warm: { kind: TerrainBrushKind; masked: boolean } | null;
   /** Tiles whose macro texture is to be baked (a terrain with a macro distance), and baked ones whose sunlight is (the sun turned). */
   bakes: Set<TileRec>;
   sunBakes: Set<TileRec>;
@@ -399,6 +401,7 @@ export class TerrainView {
   private bakeMsMax = 0;
   /** The strokes' GPU passes (made with the renderer that draws them). */
   private brush: TerrainBrushGpu | null = null;
+  private strokeIds = 0;
   private brushRenderer: WebGPURenderer | null = null;
 
   constructor(deps: TerrainViewDeps) {
@@ -581,16 +584,16 @@ export class TerrainView {
     if (rec.stroke !== null && rec.stroke.ended === null) rec.stroke.ended = { touched: null, check: false, at: performance.now() };
     if (rec.stroke !== null) this.drawStroke(rec, null);
     const stats: TerrainPreviewStats = { active: true, settling: false, dabs: 0, passes: 0, tiles: 0, msMax: 0, msMean: 0, frames: 0, msMaxAfterFirst: 0, settleMs: null, diff: null };
-    rec.stroke = { queue: [], stats, touchedTiles: new Set(), ended: null, released: null, snapshot: null };
+    rec.stroke = { id: ++this.strokeIds, queue: [], stats, touchedTiles: new Set(), ended: null, released: null, snapshot: null };
     rec.lastStroke = stats;
     return true;
   }
 
-  /** The passes a kind of stroke draws on terrain `id`, built ahead (the editor's tool chosen) so its first dab builds none. */
-  previewWarm(id: string, kind: TerrainBrushKind): void {
+  /** The passes a kind of stroke draws on terrain `id` (`masked`: through a noise mask), built ahead (the editor's tool chosen) so its first dab builds none. */
+  previewWarm(id: string, kind: TerrainBrushKind, masked = false): void {
     const rec = this.terrains.get(id);
     if (rec === undefined) return;
-    rec.warm = kind;
+    rec.warm = { kind, masked };
     this.deps.changed();
   }
 
@@ -643,7 +646,7 @@ export class TerrainView {
       for (const d of k.queue) {
         const dab = brushDabOf(d, shape);
         const before = brush.stats.passes;
-        brush.dab(dab, this.brushTiles(rec, dab, k));
+        brush.dab(dab, this.brushTiles(rec, dab, k), k.id);
         k.stats.passes += brush.stats.passes - before;
         k.stats.dabs += 1;
       }
@@ -802,7 +805,7 @@ export class TerrainView {
     // Before the uploads: a tile with texels still to copy is left out of the dabs (its upload would cover them).
     for (const rec of this.terrains.values()) {
       if (rec.warm !== null && renderer != null && rec.pages.length > 0) {
-        for (const p of rec.pages) this.brushFor(renderer).warm(p, rec.warm);
+        for (const p of rec.pages) this.brushFor(renderer).warm(p, rec.warm.kind, rec.warm.masked);
         rec.warm = null;
       }
       if (rec.stroke !== null) this.drawStroke(rec, renderer ?? null);

@@ -11,7 +11,7 @@
  *
  * Pure: arrays in, bytes out.
  */
-import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintPoint, type BrushFalloff } from './paint-brush';
+import { BRUSH_FALLOFFS, BRUSH_STROKE_KEYS, PAINT_BRUSH_LIMITS, brushFalloff, brushStrokeError, paintPoint, strokeAmount, strokeCoverage, type BrushFalloff, type BrushMask, type DabStroke } from './paint-brush';
 import { PATH_PAINT_SIDES, VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, isPathPaintKey, type PathPaintSide } from './vertex-paint';
 
 export type PaintVec3 = [number, number, number];
@@ -38,6 +38,12 @@ export interface VertexPaintBrush {
   /** 0–3: R, G, B, A. */
   channel: number;
   erase?: boolean;
+  /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
+  hardness?: number;
+  /** The most of the way one stroke takes a vertex, (0, 1] (strength is one dab's); absent: no ceiling. */
+  opacity?: number;
+  /** Noise a dab's weight is multiplied by, anchored to the world (seamless across objects and strokes); absent: none. */
+  mask?: BrushMask;
 }
 
 export interface VertexPaintStroke {
@@ -54,7 +60,7 @@ export interface VertexPaintStroke {
 }
 
 const STROKE_KEYS = ['dabs', 'brush', 'mesh', 'copy', 'path', 'side'];
-const BRUSH_KEYS = ['radius', 'strength', 'falloff', 'channel', 'erase'];
+const BRUSH_KEYS = ['radius', 'strength', 'falloff', 'channel', 'erase', ...BRUSH_STROKE_KEYS];
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** What is wrong with a stroke (a JSON pointer below the stroke and why), or null. `extra`: keys the caller adds. */
@@ -76,6 +82,8 @@ export function vertexPaintStrokeError(s: Record<string, unknown>, extra: readon
   if (brush['falloff'] !== undefined && !BRUSH_FALLOFFS.includes(brush['falloff'] as BrushFalloff)) return { path: '/brush/falloff', message: `falloff is ${BRUSH_FALLOFFS.join(', ')}` };
   if (typeof brush['channel'] !== 'number' || !Number.isInteger(brush['channel']) || brush['channel'] < 0 || brush['channel'] >= VERTEX_PAINT_BYTES) return { path: '/brush/channel', message: `channel is 0-${VERTEX_PAINT_BYTES - 1} (R, G, B, A)` };
   if (brush['erase'] !== undefined && typeof brush['erase'] !== 'boolean') return { path: '/brush/erase', message: 'erase is true or false' };
+  const se = brushStrokeError(brush);
+  if (se !== null) return { path: `/brush/${se.field}`, message: se.message };
   if (s['mesh'] !== undefined && (typeof s['mesh'] !== 'string' || !/#\d+$/.test(s['mesh']))) return { path: '/mesh', message: 'mesh names one mesh of the model ("Body/Hull#0")' };
   if (s['copy'] !== undefined && (typeof s['copy'] !== 'number' || !Number.isInteger(s['copy']) || s['copy'] < 0)) return { path: '/copy', message: 'copy is a copy\'s address (its place in the set\'s buffer, from 0)' };
   if (s['path'] !== undefined && (typeof s['path'] !== 'string' || !isPathPaintKey(s['path']))) return { path: '/path', message: 'path is "outline:<id>", "building:<id>", "element:<id>" or "spline"' };
@@ -89,8 +97,11 @@ export function vertexPaintStrokeError(s: Record<string, unknown>, extra: readon
 /**
  * Apply the dabs to the vertices at `points` (world xyz) whose bytes are
  * `values` (4 a vertex), in dab order. Returns how many bytes changed.
+ * `stroke` (absent: the brush's own, one stroke for these dabs) carries the
+ * opacity's coverage across calls, as a preview painting dab by dab needs.
  */
-export function paintVertexDabs(points: Float32Array, values: Uint8Array, dabs: readonly PaintVec3[], brush: VertexPaintBrush): number {
+export function paintVertexDabs(points: Float32Array, values: Uint8Array, dabs: readonly PaintVec3[], brush: VertexPaintBrush, stroke?: DabStroke): number {
+  const st: DabStroke = stroke ?? { ...(brush.mask !== undefined ? { mask: brush.mask } : {}), coverage: strokeCoverage(brush.opacity) };
   const r = brush.radius;
   const r2 = r * r;
   const falloff = brush.falloff ?? 'smooth';
@@ -112,7 +123,8 @@ export function paintVertexDabs(points: Float32Array, values: Uint8Array, dabs: 
       const dx = points[i * 3]! - d[0], dy = points[i * 3 + 1]! - d[1], dz = points[i * 3 + 2]! - d[2];
       const d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > r2) continue;
-      if (paintPoint(values, i * VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, brush, brush.strength * brushFalloff(d2, r, falloff))) changed++;
+      const a = strokeAmount(brush.strength * brushFalloff(d2, r, falloff, brush.hardness), st.mask, st.coverage, i, points[i * 3]!, points[i * 3 + 2]!, points[i * 3 + 1]!);
+      if (paintPoint(values, i * VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, brush, a)) changed++;
     }
   }
   return changed;

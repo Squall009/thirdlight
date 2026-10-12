@@ -319,7 +319,10 @@ async function greenNear(page: Page, p: readonly [number, number, number], size 
 /** A point on the marker's top face (away from its size handle in the middle). */
 const MARK: [number, number, number] = [0.5, 2, -0.4];
 
-/** A terrain's edit mode: entered three ways, isolation, Context, the rail, an edit undone, an MCP edit, Play aside and back, Esc. */
+/**
+ * A terrain's edit mode: entered three ways, isolation, Context, the rail, an edit undone, the brush keys and a stroke through
+ * the noise mask, an MCP edit, Play aside and back, Esc.
+ */
 async function editModeChecks(page: Page): Promise<void> {
   // A flat one-tile terrain round the origin and a red marker standing on it.
   const hill = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Hill', transform: { position: [-16, 0, -16] } }))['createdId']);
@@ -397,6 +400,111 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect.poll(heightAt, { timeout: 30_000, message: 'undone' }).toBe(h0);
   await mode.getByRole('button', { name: 'Redo', exact: true }).click();
   await expect.poll(heightAt, { timeout: 30_000, message: 'redone from the header' }).toBeGreaterThan(h0 + 0.05);
+
+  // ---- The brush keys (one map, listed in the status line): [ ] size, Shift+] strength, X invert, F drag-resize (Esc puts it back).
+  const hints = mode.getByLabel('edit mode hints');
+  await expect(hints).toContainText('Resize in view');
+  await expect(hints).toContainText('Strength');
+  const sizeField = mode.getByLabel('brush size', { exact: true });
+  const cursorInfo = async (): Promise<{ radius: number; state: string; mask: boolean }> => JSON.parse((await canvas.getAttribute('data-terrain-cursor')) ?? '{}') as { radius: number; state: string; mask: boolean };
+  const over = await screenOf(page, [-6, 0, -6]);
+  await page.mouse.move(over.x, over.y);
+  await expect(sizeField).toHaveValue('16');
+  await expect.poll(async () => (await cursorInfo()).radius).toBe(8);
+  await page.keyboard.press(']');
+  await expect(sizeField).toHaveValue('18');
+  await expect.poll(async () => (await cursorInfo()).radius, { message: 'the cursor follows the key' }).toBe(9);
+  await expect(mode.getByRole('status', { name: 'brush readout' })).toContainText('Size 18 m');
+  await page.keyboard.press('[');
+  await expect(sizeField).toHaveValue('16');
+  await page.keyboard.press('Shift+BracketRight');
+  await expect(mode.getByLabel('brush strength', { exact: true })).toHaveValue('55');
+  await page.keyboard.press('x');
+  await expect(mode.getByLabel('brush invert')).toBeChecked();
+  await expect.poll(async () => (await cursorInfo()).state, { message: 'inverting: the cursor turns red' }).toBe('erase');
+  await page.keyboard.press('x');
+  await expect.poll(async () => (await cursorInfo()).state).toBe('paint');
+  // F, then a drag on the ground: the size is twice the distance from where F was pressed; Esc puts it back, a click keeps it.
+  await page.keyboard.press('f');
+  const away = await screenOf(page, [0, 0, -6]);
+  await page.mouse.move(away.x, away.y, { steps: 4 });
+  await expect.poll(async () => Number(await sizeField.inputValue()), { message: 'F: resized in the view' }).toBeGreaterThan(10);
+  await page.keyboard.press('Escape');
+  await expect(sizeField).toHaveValue('16');
+  await expect(mode, 'Esc put the size back; it did not leave').toBeVisible();
+  await page.mouse.move(over.x, over.y);
+  const revBeforeClick = await revision();
+  await page.keyboard.press('f');
+  await page.mouse.move(away.x, away.y, { steps: 4 });
+  await page.mouse.down();
+  await page.mouse.up();
+  const resized = Number(await sizeField.inputValue());
+  expect(resized, 'a click sets the dragged size (about 2 × 6 m)').toBeGreaterThan(10);
+  expect(resized).toBeLessThan(14);
+  expect(await revision(), 'the click that set the size stored nothing').toBe(revBeforeClick);
+
+  // ---- Paint through noise: the same stroke with the mask on leaves ground unpainted where the unmasked one covers it all; undo.
+  await page.keyboard.press('Shift+Digit2');
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'paint');
+  await mode.getByRole('radio', { name: 'layer 1', exact: true }).click();
+  const fill = async (label: string, v: number): Promise<void> => {
+    const f = mode.getByLabel(label, { exact: true });
+    await f.fill(String(v));
+    await f.blur();
+  };
+  await fill('brush size', 8);
+  await fill('brush strength', 100);
+  await mode.getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
+  const paintAt: [number, number, number] = [-9, 0, -5];
+  const paintStroke = async (): Promise<void> => {
+    const p0 = await screenOf(page, [paintAt[0] - 0.6, 0, paintAt[2]]);
+    const p1 = await screenOf(page, [paintAt[0] + 0.6, 0, paintAt[2]]);
+    const r0 = await revision();
+    await page.mouse.move(p0.x, p0.y);
+    await page.mouse.down();
+    await page.mouse.move(p1.x, p1.y, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(revision, { timeout: 30_000, message: 'the paint stroke stored' }).toBe(r0 + 1);
+    // The pointer leaves the view: the cursor goes, the picture is the ground's.
+    await mode.locator('.tl-editmode__column-head').hover();
+    await expect(canvas).toHaveAttribute('data-terrain-brush', '');
+  };
+  const patch = async (): Promise<ReturnType<typeof decodePng>> => {
+    const c = await screenOf(page, paintAt);
+    return decodePng(await page.screenshot({ clip: { x: c.x - 15, y: c.y - 15, width: 30, height: 30 } }));
+  };
+  const before = await patch();
+  await paintStroke();
+  await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'unmasked: the patch painted over' }).toBeLessThan(0.1);
+  const unmasked = await patch();
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'undone: green again' }).toBeGreaterThan(0.6);
+  const noise = mode.getByRole('region', { name: 'noise mask' });
+  await noise.getByLabel('paint through noise').check();
+  await expect(noise.getByText('on', { exact: true })).toBeVisible();
+  await fill('mask scale', 1.5);
+  await fill('mask contrast', 3);
+  // The cursor's fill shows the mask.
+  const hover = await screenOf(page, paintAt);
+  await page.mouse.move(hover.x, hover.y);
+  await expect.poll(async () => (await cursorInfo()).mask).toBe(true);
+  await paintStroke();
+  const masked = await patch();
+  await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'masked: ground left unpainted through the mask' }).toBeGreaterThan(0.15);
+  const meanDiff = (a: ReturnType<typeof decodePng>, b: ReturnType<typeof decodePng>): number => {
+    let d = 0;
+    for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) {
+      const p = a.pixel(x, y);
+      const q = b.pixel(x, y);
+      d += Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]);
+    }
+    return d / (a.width * a.height * 3);
+  };
+  expect(meanDiff(masked, unmasked), 'the masked stroke differs from the unmasked one').toBeGreaterThan(4);
+  expect(meanDiff(masked, before), 'the masked stroke painted something').toBeGreaterThan(4);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'the masked stroke undone' }).toBeGreaterThan(0.6);
+  await editModeTab(page, 'Sculpt');
 
   // ---- MCP edits reach the open mode: a rename in the header, a hole in the lent view.
   const holeAt: [number, number, number] = [-12, 0, -11];

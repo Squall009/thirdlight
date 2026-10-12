@@ -73,7 +73,7 @@ import {
 } from '../session/block-brush';
 import { overlayColor } from '../session/block-overlay';
 import { RoomTool, type RoomToolCallbacks } from './room-tool';
-import { ringGeometry, ringLine } from './helper-shapes';
+import { BrushCursor } from './brush-cursor';
 
 /** What the panel sets (the tool, the brush and its options). */
 export interface BlockToolOptions {
@@ -196,7 +196,8 @@ export class BlockEditor {
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
   private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
-  private readonly ring: THREE.Line;
+  /** The round brushes' cursor (the one every brush shares). */
+  private readonly cursor: BrushCursor;
   /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
@@ -219,11 +220,9 @@ export class BlockEditor {
     this.ghost = new THREE.Mesh(ghostGeo, ghostMat);
     this.ghost.renderOrder = 18;
     this.ghost.visible = false;
-    // The terrain brush's footprint: a unit circle scaled to the radius, laid on the ground under the pointer.
-    this.ring = ringLine(ringGeometry('xz'), new THREE.LineBasicMaterial({ color: HOVER_HIT, depthTest: false, transparent: true }));
-    this.ring.renderOrder = 20;
-    this.ring.visible = false;
-    this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox, this.ring);
+    this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox);
+    // The round brushes' footprint, laid on the tops under the pointer.
+    this.cursor = new BrushCursor(this.root, 'block-brush-cursor');
     host.scene.add(this.root);
     const rh = this.roomHandlers;
     this.rooms = new RoomTool(
@@ -307,7 +306,7 @@ export class BlockEditor {
     this.opts = o;
     // The terrain brushes show their round footprint instead of a cell.
     if (toolDabs(o.tool)) this.placeBox(this.hover, null);
-    else this.ring.visible = false;
+    else this.cursor.hide();
     if (this.active) this.host.canvas.setAttribute('data-block-tool', o.tool);
     this.rebuildRegions();
     this.host.requestRender();
@@ -742,14 +741,15 @@ export class BlockEditor {
     const layer = this.layer;
     this.host.canvas.setAttribute('data-block-brush', at === null ? '' : `${at.x.toFixed(3)},${at.z.toFixed(3)},${at.rows.toFixed(3)}`);
     if (layer === null || at === null) {
-      this.ring.visible = false;
+      this.cursor.hide();
     } else {
       const cs = layer.component.cellSize;
-      this.ring.position.set(at.x * cs[0], at.rows * cs[1] + 0.02, at.z * cs[2]);
+      const paint = this.opts.tool === 'paint' || this.sculpt?.tool === 'paint';
+      const b = this.opts.brush;
+      const invert = this.sculpt?.invert ?? this.opts.invert;
+      this.cursor.setLook({ falloff: paint ? b.paint.falloff : 'smooth', hardness: b.paint.hardness ?? 0.5, strength: paint ? b.paint.strength : Math.min(1, b.strength), mask: null, state: invert ? 'erase' : 'paint' });
       const r = this.brushRadius();
-      this.ring.scale.set(r * cs[0], 1, r * cs[2]);
-      this.ring.visible = true;
-      this.ring.updateMatrixWorld(true);
+      this.cursor.place({ centre: new THREE.Vector3(at.x * cs[0], at.rows * cs[1], at.z * cs[2]), rx: r * cs[0], rz: r * cs[2], fill: this.sculpt === null });
     }
     this.host.requestRender();
   }

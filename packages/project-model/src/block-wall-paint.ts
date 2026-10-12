@@ -23,7 +23,7 @@
  * Pure and deterministic (the brush is `paint-brush.ts`; meshing reads the
  * points through `block-paint-mesh.ts`).
  */
-import { brushFalloff, paintPoint, type PaintBrush, type PaintLayout } from './paint-brush';
+import { brushFalloff, paintPoint, strokeAmount, type DabStroke, type PaintBrush, type PaintLayout } from './paint-brush';
 import { BLOCK_PAINT_LAYOUT, PAINT_CHANNELS, PAINT_CHUNK_SIZE } from './block-paint';
 import { decodeBase64, encodeBase64 } from './png-decode';
 
@@ -182,8 +182,10 @@ function exposed(s: WallPaintSurface, x: number, z: number, side: number, h: num
  * on a wall): every exposed wall point within the radius (cells across;
  * distance in metres, so points where walls meet are painted alike) takes
  * the brush by its falloff. Returns the number of points changed.
+ * `stroke`: the stroke's mask (3D, in the layer's metres) and opacity
+ * coverage.
  */
-export function wallPaintDab(surface: WallPaintSurface, at: readonly [number, number, number], brush: PaintBrush): number {
+export function wallPaintDab(surface: WallPaintSurface, at: readonly [number, number, number], brush: PaintBrush, stroke?: DabStroke): number {
   const cs = surface.cellSize;
   const st = wallPaintSteps(cs);
   const rm = brush.radius * cs[0]!;
@@ -212,15 +214,16 @@ export function wallPaintDab(surface: WallPaintSurface, at: readonly [number, nu
           if (dxz > rm * rm) continue;
           for (let k = Math.max(k0, surface.minY * st.up); k <= Math.min(k1, surface.maxY * st.up); k++) {
             const py = (k / st.up) * cs[1]!;
-            const f = brushFalloff(dxz + (py - ay) * (py - ay), rm, brush.falloff);
+            const f = brushFalloff(dxz + (py - ay) * (py - ay), rm, brush.falloff, brush.hardness);
             if (f <= 0 || !exposed(surface, x, z, side, k / st.up)) continue;
             if (points === undefined) points = surface.points(cx, cz);
             if (points === null) continue;
             const lx = x - cx * CHUNK_SIZE;
             const lz = z - cz * CHUNK_SIZE;
             const key = wallPointKey(lx, lz, side, j, k);
+            const t = stroke === undefined ? brush.strength * f : strokeAmount(brush.strength * f, stroke.mask, stroke.coverage, `${cx},${cz},${key}`, px, pz, py);
             const value = points.get(key) ?? Uint8Array.from(UNPAINTED_WALL);
-            if (!paintPoint(value, 0, WALL_PAINT_LAYOUT, brush, brush.strength * f)) continue;
+            if (!paintPoint(value, 0, WALL_PAINT_LAYOUT, brush, t)) continue;
             if (isDefault(value)) points.delete(key);
             else points.set(key, value);
             surface.touched(cx, cz, lx, lz, side);

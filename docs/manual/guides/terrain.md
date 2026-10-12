@@ -39,9 +39,14 @@ scale are not used.
 ## Sculpt
 
 **Editor:** in the terrain editor's **Sculpt** mode pick **Raise**,
-**Lower**, **Smooth**, **Flatten**, **Noise** or **Ramp**, set **Radius**,
-**Strength** and **Falloff**, and drag on the ground. Ctrl lowers for one
-stroke. A stroke is previewed on the GPU while you drag and stored as one
+**Lower**, **Smooth**, **Flatten**, **Noise** or **Ramp**, set the brush
+(**Height step**: metres one dab at full strength moves the ground;
+**Size** across, **Strength**, **Falloff**, **Spacing**, and a **Noise
+mask** to break the edit up) and drag on the ground. `[` / `]` change the
+size, `Shift+[` / `Shift+]` the strength, **F** then a drag resizes on the
+ground (Shift+F: strength; a click keeps it, Esc puts it back), Ctrl held
+lowers for one stroke and **X** switches raise and lower. Each tool
+remembers its own brush in this browser. A stroke is previewed on the GPU while you drag and stored as one
 command when you release. **Import heightmap…** (the **Tiles** mode) lays a
 16-bit PNG or RAW file; **Stamp** and **Erode** work through edit layers
 (the **Stack** mode).
@@ -55,6 +60,11 @@ points in world metres:
 ```
 
 The answer's `terrain` lists the tiles written and the samples changed.
+Paint takes `opacity` (the most of the way to the layer one stroke goes,
+however many dabs cross a sample) and every brush kind but ramp takes a
+`mask` (`{scale, contrast, threshold, octaves, seed}`: noise anchored to the
+terrain, seamless across tiles and strokes) and, with `falloff: "curve"`, a
+`hardness`.
 
 ## Rule materials
 

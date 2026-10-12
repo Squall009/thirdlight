@@ -179,6 +179,8 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 | 34.2 | Done 2026-10-12, owner look pending: 8 static pages (terrain sculpt/paint/rules, vertex paint + "doesn't read paint" variant, decal editor with atlas drawer, block editor, kit editor) on the editor's own tokens and icons, Studio textures, a three.js stand-in Scene view; screenshots and `SPEC.md` (sizes, components, colours, key map) in `~/.cache/thirdlight-phase34/mockup/` (1.8 MB of JPEG at 1920×1080). |
 | 34.3 | Done 2026-10-12: `viewport.ts` 1,987 → 1,777 lines; pointer routing, Esc and tool arming moved to `viewport/tool-input.ts` (440): a `SceneTool` interface (press/move/release/click/leave/cancel/key, armed) and a `ToolRouter` the viewport asks first (priority paint → block → terrain → decal → handles → brush; Esc in its old order). No behaviour change; router order covered in vitest (`tool-input.test.ts`, 7 tests); fast gate green with block-editor, instance-brush, terrain-brushes, handles, window-tools, and layered-material (decal tool) alone. |
 | 34.4 | Done 2026-10-12: the edit-mode shell (`ui/editmode/`: registry `EDIT_MODES`, `EditModeShell`, `EditModeHeader`, `ToolRail`, `StatusHints`, `ViewportChrome`, one key map `session/edit-keys.ts`); the live canvas lent with input (`borrow(host, 'edit')`); isolation in the adapter (`isolation-view.ts`, a sweep of the scene's drawables: 11 swept, 6 hidden in the e2e scene); the terrain is the first mode, its old panel split by rail mode as the interim column. e2e: `editor-window.e2e.ts` extended (layout sizes, isolation and Context pixels, rail keys, a stroke and undo/redo, MCP rename and hole, Play aside and back, Esc, Inspector and Scene-view double-click entries, delete closes); `terrain-cdlod-steps.ts` drives the editor. Enter/leave to first frame 8.7–13.5 ms over 3 rounds each (target ≤ 150 ms), 37 programs before and after (no rebuild); small e2e scene, WebGPU, Iris Xe, 1920×1080 — a large level unmeasured. Fast gate green (10 min). |
+| 34.5 | Done 2026-10-12: one `BrushSettings` (`session/brush.ts`: size across, strength, opacity, falloff + curve hardness, spacing, invert, height step; per editor and tool in localStorage, invert not kept), one `SliderField` (stamp/erode fields moved onto it), `BrushPanel`, `FalloffPicker`, shared `Section`/`Toggle`/`Segmented`; one cursor (`viewport/brush-cursor.ts`: ring + dark halo, dashed half-strength ring, fill, dot; `BrushHud`) for the terrain and block editors; brush keys in `edit-keys.ts` (`[ ]`, Shift, F/Shift+F drag, X, Ctrl) listed per mode. Opacity is a per-stroke coverage in `paint-brush.ts` (additive `opacity`, `hardness` on `editTerrain` paint, `editBlocks` paint, `paintVertices`); the GPU preview keeps a per-tile byte coverage. vitest: brush 5, paint-brush 7, terrain-ops +2; e2e: `editor-window` keys/F/X, `terrain-cdlod` on the new fields (+1.7 s on editor-window). |
+| 34.6 | Done 2026-10-12: fractal value-noise mask (`value-noise.ts`, the terrain hash; scale, contrast, threshold, octaves 1–5, seed), additive `mask` on every paint command and the sculpt kinds, anchored to the target; masked GPU passes are their own variants (built when the mask turns on); `NoiseMask` with a live swatch; the cursor's fill shows the mask. Masked + 50 % opacity stroke, preview vs stored: weight ≤ 1 byte on WebGPU and WebGL 2, dab preview ≤ 1.1 ms a frame, commit 19 / 51 ms (targets: in the frame, p95 ≤ 100 ms). Seam-free: the same bytes per sample with 33² tiles as with one 65² tile (vitest). e2e: a masked stroke's pixels differ from the unmasked one, undo. Fast gate green (9 min; village p50 5.6 / 4.8 ms). |
 
 ## 7. Decision log
 
@@ -235,4 +237,26 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     the existing `terrain` tool.
   - Found: an MCP tile change while the terrain brush is armed stops the terrain drawing (predates the shell) — D248,
     for 34.8.
-
+- 2026-10-12 (34.5, 34.6) — The brush kit. Defaults chosen, owner to confirm:
+  - **Size is metres across**, the stroke's radius half of it; a stamp's side and an erosion square are the size.
+  - **A sculpt dab moves the ground by height step × strength** (strength is one dab's share for every tool; the
+    height step is its own labelled row).
+  - **Opacity is a per-stroke coverage**, not a snapshot of the start: each point's coverage grows as blends compound
+    (c' = c + (1 − c)·a) and stops at the opacity; the blend applied is (c' − c)/(1 − c). The same function runs in the
+    commands and (in bytes) in the GPU preview, so no start values travel. Paint tools only (terrain, block, vertex);
+    the block command takes one coverage per request and an editor preview can pass one for the whole stroke.
+  - **The inner ring is where the falloff is at half strength** (smooth and linear fall from the centre, so "where it
+    starts" says nothing); **curve** = full strength out to a hardness, then the smooth falloff.
+  - **The mask is anchored to the target, not the brush**: the terrain's frame (its object's position), the block
+    layer's metres, vertex paint in the world, path paint along/across the side. Walls and meshes use 3D noise that is
+    the 2D noise at y = 0. The sculpt kinds take a mask too (the mockup shows it in Sculpt); ramp and holes do not.
+  - **Settings are per tool** (the plan's rule; Unreal shares one brush across tools) and the fill is drawn only for
+    tools with a strength and never during a stroke (it would hide the preview being laid). The swatch spans one brush.
+  - Found: a TSL `If` inside the sculpt pass changed its normals (WebGPU); the masked passes became separate shader
+    variants instead (also no hashing for dabs without a mask). Ping-ponged half-float coverage targets read wrong on
+    WebGL 2; the coverage now goes the way the other passes do (a scratch rectangle copied into a byte texture).
+  - Limit kept from before: the preview moves the drawn weights only, so on ground where several layers mix (the
+    flattened strips in the e2e scene) partial paint — now common with a mask or an opacity — is settled by the stored
+    tiles on release. For 35's layered surface material.
+  - Not yet on the kit: the vertex paint and instance brush panels and rings (35.5), block paint's panel (36.5); their
+    commands take `opacity`, `mask`, `hardness` now.

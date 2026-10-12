@@ -34,7 +34,7 @@ import {
 import { decodeBase64, decodePngRgba } from './png-decode';
 import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
 import { PAINT_CHANNELS, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, unpaintedChunk, type PaintSurface } from './block-paint';
-import { paintBrushError, type BrushFalloff } from './paint-brush';
+import { brushStrokeError, paintBrushError, strokeCoverage, type BrushFalloff, type BrushMask, type StrokeCoverage } from './paint-brush';
 import { WALL_POINT_BYTES, decodeWallPaint, encodeWallPaint, wallPaintDab, type WallPaint, type WallPaintSurface } from './block-wall-paint';
 import { edgeConnectNeighbours } from './block-connect';
 import { canonicalBlockEdge, edgeInBounds, edgeInBox, transformEdge, validatePatternEdges, edgeLocalKey, edgesEditShapeError, edgesEditTargets, type BlockEdge, type EdgesEdit } from './block-edges';
@@ -848,9 +848,14 @@ export type BlockEdit =
    * toward the target per dab at the centre (0-1], `falloff` smooth (default),
    * linear or constant. Only chunks holding cells are painted. `target`
    * walls (or both) paints the wall points (`block-wall-paint.ts`) within the
-   * radius of the point (`at`, `y` rows) by distance in metres.
+   * radius of the point (`at`, `y` rows) by distance in metres. `hardness`:
+   * a curve falloff's share of the radius at full strength. The paint dabs
+   * of one command are one stroke: `opacity` (0, 1] is the most of the way to
+   * the target the stroke takes a point (strength is one dab's); `mask`
+   * multiplies a dab by noise anchored to the layer (seamless across chunks
+   * and strokes).
    */
-  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number }
+  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number; hardness?: number; opacity?: number; mask?: BrushMask }
   /** Edge pieces (`block-edges.ts`): set (or remove with null) the edges at `at` (x, y, z, axis, …) or on and inside `box`; `keep`: only where none stands. */
   | EdgesEdit
   /**
@@ -883,7 +888,7 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   heightmap: { required: ['png', 'origin', 'y', 'scale', 'cell'], optional: ['keepAbove', 'colors'] },
   surface: { required: ['columns'], optional: ['cell'] },
   sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
-  paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase', 'target', 'y'] },
+  paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase', 'target', 'y', 'hardness', 'opacity', 'mask'] },
   edges: { required: ['edge'], optional: ['at', 'box', 'mode'] },
   scatter: { required: ['rule', 'at', 'radius'], optional: ['erase'] },
   bakeScatter: { required: [], optional: [] },
@@ -1021,7 +1026,7 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
       case 'paint': {
         const at = e['at'];
         if (!Array.isArray(at) || at.length !== 2 || !at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= BLOCK_LIMITS.coordinateXZ)) return bad('at', 'at is the brush centre [x, z] in columns');
-        const be = paintBrushError(e);
+        const be = paintBrushError(e) ?? brushStrokeError(e);
         if (be !== null) return bad(be.field, be.message);
         if (!Number.isInteger(e['channel']) || (e['channel'] as number) < 0 || (e['channel'] as number) >= PAINT_CHANNELS) return bad('channel', 'channel is 0-3 (a material layer) or 4 (wetness)');
         if (e['target'] !== undefined && !PAINT_TARGETS.includes(e['target'] as PaintTarget)) return bad('target', `target is ${PAINT_TARGETS.join(', ')} (absent: tops)`);
@@ -1065,6 +1070,13 @@ export interface BlockEditContext {
   stamps: ReadonlyMap<string, BlockStamp>;
   /** Walls of rooms drawn on the layer (`architectureWallEdges`): wall paint reaches their faces too (absent: none). */
   walls?: ReadonlyMap<number, boolean>;
+  /**
+   * The paint stroke's coverages, by surface and opacity (absent: the
+   * command's own). An editor previewing a stroke dab by dab passes one map
+   * for the whole stroke, so its preview keeps the opacity as the command
+   * holding all the dabs does.
+   */
+  coverages?: Map<string, StrokeCoverage | null>;
 }
 
 /** `rebased`: columns whose top row moved under `surface` / `sculpt` edits (absent: the command had none). */
@@ -1239,6 +1251,13 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
     topsBefore ??= new Map();
     const k = `${x},${z}`;
     if (!topsBefore.has(k)) topsBefore.set(k, { x, z, top: g.columnTop(x, z) });
+  };
+  // The paint dabs of one command are one stroke: a coverage per surface and opacity holds the ceiling across them.
+  const coverages = ctx.coverages ?? new Map<string, StrokeCoverage | null>();
+  const coverage = (surface: 'tops' | 'walls', opacity: number | undefined): StrokeCoverage | null => {
+    const k = `${surface}:${opacity ?? 1}`;
+    if (!coverages.has(k)) coverages.set(k, strokeCoverage(opacity));
+    return coverages.get(k)!;
   };
   for (let i = 0; i < edits.length; i++) {
     const e = edits[i]!;
@@ -1560,14 +1579,15 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
       case 'paint': {
         // The layer's surface paint (the cells stay as they are).
         if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');
-        const brush = { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}) } as const;
-        if (e.target !== 'walls') changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], brush);
+        const brush = { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}), ...(e.hardness !== undefined ? { hardness: e.hardness } : {}) } as const;
+        const mask = e.mask !== undefined ? { mask: e.mask } : {};
+        if (e.target !== 'walls') changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], brush, { ...mask, coverage: coverage('tops', e.opacity), cellSize: g.cellSize });
         if (e.target === 'walls' || e.target === 'both') {
           const solid = (cell: BlockCell): boolean => {
             const t = cell.block !== undefined ? ctx.types.get(cell.block) : undefined;
             return t !== undefined && blockTypeSolid(t);
           };
-          changed += wallPaintDab(g.wallPaintSurface(solid, ctx.walls), [e.at[0]!, e.y!, e.at[1]!], brush);
+          changed += wallPaintDab(g.wallPaintSurface(solid, ctx.walls), [e.at[0]!, e.y!, e.at[1]!], brush, { ...mask, coverage: coverage('walls', e.opacity) });
         }
         break;
       }

@@ -15,7 +15,10 @@
  *
  * Pure and deterministic.
  */
-import { brushFalloff, paintPoint, type BrushFalloff } from './paint-brush';
+import { brushFalloff, brushMask, latticeKey, paintPoint, strokeAmount, type BrushFalloff, type BrushMask, type StrokeCoverage } from './paint-brush';
+import { terrainNoise } from './value-noise';
+
+export { TERRAIN_NOISE_HASH, terrainNoise } from './value-noise';
 import { terrainFlatStep, terrainHeightOf, terrainStepOf, terrainTileKey, type TerrainComponent } from './terrain';
 import { cloneTerrainTile, flatTerrainTile, setTerrainHole, writeSampleLayers, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, type TerrainTile } from './terrain-tile';
 
@@ -151,6 +154,10 @@ export interface TerrainSculptDab {
   /** noise: the size of its bumps (metres) and its seed. */
   scale?: number;
   seed?: number;
+  /** A curve falloff's hardness. */
+  hardness?: number;
+  /** The noise mask a dab's weight is multiplied by (the terrain's metres). */
+  mask?: BrushMask;
 }
 
 /** The global sample box a circle covers, clipped to `b` (null when empty). */
@@ -161,36 +168,6 @@ function sampleBox(s: TerrainSamples, cx: number, cz: number, r: number, b: read
   const z0 = Math.max(b[1]!, Math.ceil((cz - r) / sp));
   const z1 = Math.min(b[3]!, Math.floor((cz + r) / sp));
   return x0 > x1 || z0 > z1 ? null : [x0, z0, x1, z1];
-}
-
-/** The noise hash's multipliers: x, z and seed lanes, then two mixing rounds (the editor's GPU preview hashes alike). */
-export const TERRAIN_NOISE_HASH: readonly number[] = Object.freeze([0x27d4eb2d, 0x165667b1, 0x9e3779b1, 0x85ebca6b, 0xc2b2ae35]);
-const [HX, HZ, HS, HM1, HM2] = TERRAIN_NOISE_HASH as [number, number, number, number, number];
-
-/** A deterministic hash of a lattice point to [0, 1). */
-function hash01(ix: number, iz: number, seed: number): number {
-  let h = Math.imul(ix | 0, HX) ^ Math.imul(iz | 0, HZ) ^ Math.imul(seed | 0, HS);
-  h = Math.imul(h ^ (h >>> 15), HM1);
-  h = Math.imul(h ^ (h >>> 13), HM2);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-
-/** Value noise in [-1, 1] at (x, z) in units of its lattice (smoothstep between lattice points). */
-export function terrainNoise(x: number, z: number, seed: number): number {
-  const ix = Math.floor(x);
-  const iz = Math.floor(z);
-  const fx = x - ix;
-  const fz = z - iz;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sz = fz * fz * (3 - 2 * fz);
-  const a = hash01(ix, iz, seed);
-  const b = hash01(ix + 1, iz, seed);
-  const c = hash01(ix, iz + 1, seed);
-  const d = hash01(ix + 1, iz + 1, seed);
-  const top = a + (b - a) * sx;
-  const bottom = c + (d - c) * sx;
-  return (top + (bottom - top) * sz) * 2 - 1;
 }
 
 /** Apply one sculpt dab. Returns the samples it changed. */
@@ -221,8 +198,9 @@ export function sculptTerrain(s: TerrainSamples, dab: TerrainSculptDab): number 
       if (Number.isNaN(h)) continue;
       const dx = x * sp - cx;
       const dz = z * sp - cz;
-      const f = brushFalloff(dx * dx + dz * dz, dab.radius, dab.falloff);
+      let f = brushFalloff(dx * dx + dz * dz, dab.radius, dab.falloff, dab.hardness);
       if (f === 0) continue;
+      if (dab.mask !== undefined) f *= brushMask(dab.mask, x * sp, z * sp);
       let v = h;
       switch (dab.kind) {
         case 'raise':
@@ -268,6 +246,7 @@ export interface TerrainRamp {
   /** The blend toward the slope at the middle (0–1]. */
   strength: number;
   falloff: BrushFalloff;
+  hardness?: number;
 }
 
 /** Apply a ramp. Returns the samples it changed. */
@@ -296,7 +275,7 @@ export function rampTerrain(s: TerrainSamples, ramp: TerrainRamp): number {
       const t = len2 > 0 ? Math.max(0, Math.min(1, (px * ux + pz * uz) / len2)) : 0;
       const dx = px - t * ux;
       const dz = pz - t * uz;
-      const f = brushFalloff(dx * dx + dz * dz, r, ramp.falloff);
+      const f = brushFalloff(dx * dx + dz * dz, r, ramp.falloff, ramp.hardness);
       if (f === 0) continue;
       const h = s.heightOf(st);
       const target = ay + t * (by - ay);
@@ -316,6 +295,9 @@ export interface TerrainPaintDab {
   falloff: BrushFalloff;
   layer: number;
   erase?: boolean;
+  hardness?: number;
+  /** The noise mask a dab's weight is multiplied by (the terrain's metres). */
+  mask?: BrushMask;
 }
 
 const AMOUNT = 2 * TERRAIN_SAMPLE_LAYERS;
@@ -365,8 +347,12 @@ export function paintTerrainSample(p: Uint8Array, o: number, layer: number, t: n
   return false;
 }
 
-/** Apply one paint dab. Returns the samples it changed. */
-export function paintTerrain(s: TerrainSamples, dab: TerrainPaintDab): number {
+/**
+ * Apply one paint dab. Returns the samples it changed. `coverage` (one per
+ * stroke) holds the stroke's opacity: each sample's blend is kept under it
+ * across the stroke's dabs.
+ */
+export function paintTerrain(s: TerrainSamples, dab: TerrainPaintDab, coverage: StrokeCoverage | null = null): number {
   const bounds = s.sampleBounds();
   if (bounds === null) return 0;
   const box = sampleBox(s, dab.at[0], dab.at[1], dab.radius, bounds);
@@ -377,15 +363,17 @@ export function paintTerrain(s: TerrainSamples, dab: TerrainPaintDab): number {
     for (let x = box[0]; x <= box[2]; x++) {
       const dx = x * sp - dab.at[0];
       const dz = z * sp - dab.at[1];
-      const f = brushFalloff(dx * dx + dz * dz, dab.radius, dab.falloff);
+      const f = brushFalloff(dx * dx + dz * dz, dab.radius, dab.falloff, dab.hardness);
       if (f === 0) continue;
+      const t = strokeAmount(dab.strength * f, dab.mask, coverage, latticeKey(x, z), x * sp, z * sp);
+      if (t === 0) continue;
       const held = s.holders(x, z, false);
       if (held.length === 0) continue;
       // Painted once (on the first holder) and copied to the others, which hold the same bytes.
       const first = held[0]!;
       const probe = new Uint8Array(TERRAIN_PAINT_BYTES);
       if (first.tile.paint !== null) probe.set(first.tile.paint.subarray(first.i * TERRAIN_PAINT_BYTES, (first.i + 1) * TERRAIN_PAINT_BYTES));
-      if (!paintTerrainSample(probe, 0, dab.layer, dab.strength * f, dab.erase === true)) continue;
+      if (!paintTerrainSample(probe, 0, dab.layer, t, dab.erase === true)) continue;
       for (const h of s.holders(x, z, true)) {
         h.tile.paint ??= new Uint8Array(TERRAIN_PAINT_BYTES * h.tile.heights.length);
         h.tile.paint.set(probe, h.i * TERRAIN_PAINT_BYTES);

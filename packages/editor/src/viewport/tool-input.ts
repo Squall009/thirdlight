@@ -324,6 +324,14 @@ export class ViewportTools {
       // A stroke ends on release even when the tools were disarmed meanwhile.
       pointerUp: (e) => (live()?.pointerUp(e) === true ? 'stop' : null),
       cancel: () => ed()?.cancel() === true,
+      leave: () => {
+        const x = ed();
+        if (x !== null && 'leave' in x) x.leave();
+      },
+      key: (e) => {
+        const x = live();
+        return x !== null && 'key' in x && x.key(e);
+      },
     };
   }
 

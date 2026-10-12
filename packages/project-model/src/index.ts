@@ -1116,7 +1116,8 @@ export {
 } from './block-mesh';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 // The paint brush (any paint target) and a block layer's surface paint.
-export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
+export { BRUSH_FALLOFFS, BRUSH_HARDNESS_DEFAULT, BRUSH_MASK_LIMITS, BRUSH_STROKE_KEYS, PAINT_BRUSH_LIMITS, StrokeCoverage, brushFalloff, brushHalfRadius, brushMask, brushStrokeError, brushStrokeOptions, paintBrushError, paintPoint, strokeAmount, strokeCoverage, type BrushFalloff, type BrushMask, type BrushStrokeOptions, type PaintBrush, type PaintLayout } from './paint-brush';
+export { fractalNoise01, valueNoise01 } from './value-noise';
 export {
   BLOCK_EDGE_SHAPES,
   BLOCK_EDGE_SIDES,

@@ -1,9 +1,10 @@
 /**
  * The terrain tools' brush maths, kept apart from the Scene view so it is
- * checked without a browser: the tools, their brush settings, where a drag
- * drops its dabs, how many dabs one stroke may hold (the command's
- * per-request bounds), the `editTerrain` args a stroke stores and the dab
- * its GPU preview draws (the same numbers, so the preview is the stroke).
+ * checked without a browser: the tools, the shared brush settings each uses
+ * (`brush.ts`) and the terrain's own beside them, where a drag drops its
+ * dabs, how many dabs one stroke may hold (the command's per-request
+ * bounds), the `editTerrain` args a stroke stores and the dab its GPU
+ * preview draws (the same numbers, so the preview is the stroke).
  *
  * Ctrl (or the panel's invert) turns raise into lower and back, paint into
  * erasing hand paint, and holes into filling them.
@@ -12,6 +13,7 @@
  */
 import { TERRAIN_BRUSH_LIMITS, terrainDabSamples, type BrushFalloff, type ErosionSettings, type TerrainLayer, type TerrainStamp } from '@thirdlight/runtime';
 import type { TerrainBrushKind, TerrainPreviewDab } from '@thirdlight/three-adapter';
+import { brushRadius, brushStrokeExtras, type BrushBounds, type BrushSettings, type BrushUse } from './brush';
 
 /**
  * The sculpt and paint tools (previewed on the GPU), the scatter brush (its
@@ -38,8 +40,8 @@ export const TERRAIN_TOOLS: readonly { id: TerrainToolId; label: string; title: 
   { id: 'paint', label: 'Paint', title: 'Paint the chosen layer (Ctrl: take hand paint back)' },
   { id: 'holes', label: 'Holes', title: 'Cut holes in the ground (Ctrl: fill them)' },
   { id: 'scatter', label: 'Scatter', title: "Put the chosen scatter rule's copies under the brush whatever its conditions (Ctrl: take them off); a bake keeps both" },
-  { id: 'stamp', label: 'Stamp', title: 'Click to place the chosen heightmap as a stamp (its side twice the radius) in a stamps layer' },
-  { id: 'erode', label: 'Erode', title: 'Click to erode the square under the brush (its side twice the radius) into an erosion layer' },
+  { id: 'stamp', label: 'Stamp', title: 'Click to place the chosen heightmap as a stamp (its side the brush size) in a stamps layer' },
+  { id: 'erode', label: 'Erode', title: 'Click to erode the square under the brush (its side the brush size) into an erosion layer' },
 ]);
 
 /** The terrain editor's modes (its tool rail): what each shows, its tools and its one-line hint. */
@@ -66,15 +68,8 @@ export const TERRAIN_MODES: readonly TerrainMode[] = Object.freeze([
   { id: 'tiles', label: 'Tiles', glyph: 'tiles', tools: [], hint: 'Import a heightmap onto the tiles, or lay a block layer\'s surface onto them.' },
 ]);
 
-/** The brush's settings (one set for every tool; each reads its own). */
+/** The terrain's own settings beside the shared brush (one set for every tool; each reads its own). */
 export interface TerrainBrushState {
-  /** Metres. */
-  radius: number;
-  /** raise, lower, noise: metres a dab moves the ground at its centre. */
-  height: number;
-  /** smooth, flatten, ramp, paint: the blend a dab makes at its centre (0–1]. */
-  blend: number;
-  falloff: BrushFalloff;
   /** paint: the material layer (0–255). */
   layer: number;
   /** noise: the bumps' size (metres) and seed. */
@@ -84,10 +79,40 @@ export interface TerrainBrushState {
   rule: string;
 }
 
-export const DEFAULT_TERRAIN_BRUSH: TerrainBrushState = Object.freeze({ radius: 8, height: 0.5, blend: 0.5, falloff: 'smooth', layer: 1, scale: 16, seed: 1, rule: '' }) as TerrainBrushState;
+export const DEFAULT_TERRAIN_BRUSH: TerrainBrushState = Object.freeze({ layer: 1, scale: 16, seed: 1, rule: '' }) as TerrainBrushState;
 
 /** The settings' bounds in the panel (the command's per-request bounds cap them). */
-export const TERRAIN_BRUSH_UI = Object.freeze({ radiusMin: 0.25, radiusMax: TERRAIN_BRUSH_LIMITS.radiusMax, heightMax: TERRAIN_BRUSH_LIMITS.heightStrengthMax, scaleMax: TERRAIN_BRUSH_LIMITS.noiseScaleMax });
+export const TERRAIN_BRUSH_UI = Object.freeze({ scaleMax: TERRAIN_BRUSH_LIMITS.noiseScaleMax });
+
+/** The shared brush's bounds on a terrain: a size up to the command's widest radius, a height step up to its most metres a dab. */
+export const TERRAIN_BRUSH_BOUNDS: BrushBounds = Object.freeze({ size: [0.5, 2 * TERRAIN_BRUSH_LIMITS.radiusMax] as const, heightStep: [0.01, TERRAIN_BRUSH_LIMITS.heightStrengthMax] as const });
+
+/** The shared settings each tool uses (the brush panel's rows, the keys, what its stroke sends). */
+export function terrainToolUses(tool: TerrainToolId): readonly BrushUse[] {
+  switch (tool) {
+    case 'raise':
+    case 'lower':
+      return ['heightStep', 'size', 'strength', 'falloff', 'spacing', 'invert', 'mask'];
+    case 'noise':
+      return ['heightStep', 'size', 'strength', 'falloff', 'spacing', 'mask'];
+    case 'smooth':
+    case 'flatten':
+      return ['size', 'strength', 'falloff', 'spacing', 'mask'];
+    case 'ramp':
+      return ['size', 'strength', 'falloff'];
+    case 'paint':
+      return ['size', 'strength', 'opacity', 'falloff', 'spacing', 'invert', 'mask'];
+    case 'holes':
+    case 'scatter':
+      return ['size', 'spacing', 'invert'];
+    case 'stamp':
+    case 'erode':
+      return ['size'];
+  }
+}
+
+/** What inverting does with each tool, in plain words (the toggle and the keys say it). */
+export const TERRAIN_INVERT_LABELS: Readonly<Partial<Record<TerrainToolId, string>>> = Object.freeze({ raise: 'Lower', lower: 'Raise', paint: 'Erase', holes: 'Fill', scatter: 'Take off' });
 
 /** The kind a stroke of `tool` stores, with Ctrl or the panel's invert (raise and lower trade places). */
 export function strokeKind(tool: TerrainToolId, invert: boolean): TerrainToolId {
@@ -97,9 +122,9 @@ export function strokeKind(tool: TerrainToolId, invert: boolean): TerrainToolId 
   return tool;
 }
 
-/** Metres between a drag's dabs: a quarter of the radius (a fast drag leaves no gaps), at least half a sample. */
-export function terrainDabSpacing(radius: number, spacing: number): number {
-  return Math.max(spacing * 0.5, radius / 4);
+/** Metres between a drag's dabs: the brush's spacing (a share of its size), at least half a sample. */
+export function terrainDabSpacing(b: Pick<BrushSettings, 'size' | 'spacing'>, sampleSpacing: number): number {
+  return Math.max(sampleSpacing * 0.5, b.size * b.spacing);
 }
 
 /** The most dabs one stroke may hold at this radius (the command's bounds on dabs and on the samples they cover). */
@@ -127,52 +152,58 @@ export interface StrokeExtra {
 
 const r4 = (v: number): number => Math.round(v * 1e4) / 1e4;
 
+/** The metres a sculpt dab moves the ground at its centre: the height step at the brush's strength. */
+const sculptMetres = (b: BrushSettings): number => Math.max(1e-4, r4(b.heightStep * b.strength));
+
 /** One dab of the preview, as the stroke stores it (null: the tool has no preview — the scatter brush). */
-export function previewDab(tool: TerrainToolId, b: TerrainBrushState, at: readonly [number, number], invert: boolean, extra: StrokeExtra): TerrainPreviewDab | null {
+export function previewDab(tool: TerrainToolId, b: BrushSettings, tb: TerrainBrushState, at: readonly [number, number], invert: boolean, extra: StrokeExtra): TerrainPreviewDab | null {
   const kind = strokeKind(tool, invert);
   if (!previewedTool(kind)) return null;
-  const base = { kind, at: [r4(at[0]), r4(at[1])] as [number, number], radius: b.radius, falloff: b.falloff };
+  const more = brushStrokeExtras(b, terrainToolUses(kind));
+  const base = { kind, at: [r4(at[0]), r4(at[1])] as [number, number], radius: brushRadius(b), falloff: b.falloff, ...more };
   switch (kind) {
     case 'raise':
     case 'lower':
-      return { ...base, strength: b.height };
+      return { ...base, strength: sculptMetres(b) };
     case 'noise':
-      return { ...base, strength: b.height, scale: b.scale, seed: b.seed };
+      return { ...base, strength: sculptMetres(b), scale: tb.scale, seed: tb.seed };
     case 'smooth':
-      return { ...base, strength: b.blend };
+      return { ...base, strength: b.strength };
     case 'flatten':
-      return { ...base, strength: b.blend, height: extra.height ?? 0 };
+      return { ...base, strength: b.strength, height: extra.height ?? 0 };
     case 'ramp':
-      return { kind, radius: b.radius, falloff: b.falloff, strength: b.blend, from: extra.from ?? [at[0], 0, at[1]], to: extra.to ?? [at[0], 0, at[1]] };
+      return { kind, radius: brushRadius(b), falloff: b.falloff, ...more, strength: b.strength, from: extra.from ?? [at[0], 0, at[1]], to: extra.to ?? [at[0], 0, at[1]] };
     case 'paint':
-      return { ...base, strength: b.blend, layer: b.layer, ...(invert ? { erase: true } : {}) };
+      return { ...base, strength: b.strength, layer: tb.layer, ...(invert ? { erase: true } : {}) };
     case 'holes':
-      return { kind, at: base.at, radius: b.radius, ...(invert ? { erase: true } : {}) };
+      return { kind, at: base.at, radius: brushRadius(b), ...(invert ? { erase: true } : {}) };
   }
 }
 
 /** The `editTerrain` args of a stroke (its dabs' points in world metres). */
-export function strokeArgs(entityId: string, tool: TerrainToolId, b: TerrainBrushState, dabs: readonly (readonly [number, number])[], invert: boolean, extra: StrokeExtra): Record<string, unknown> {
+export function strokeArgs(entityId: string, tool: TerrainToolId, b: BrushSettings, tb: TerrainBrushState, dabs: readonly (readonly [number, number])[], invert: boolean, extra: StrokeExtra): Record<string, unknown> {
   const kind = strokeKind(tool, invert);
   const points = dabs.map((d) => [r4(d[0]), r4(d[1])]);
+  const radius = brushRadius(b);
+  const more = brushStrokeExtras(b, terrainToolUses(kind));
   switch (kind) {
     case 'raise':
     case 'lower':
-      return { entityId, kind, dabs: points, radius: b.radius, strength: b.height, falloff: b.falloff };
+      return { entityId, kind, dabs: points, radius, strength: sculptMetres(b), falloff: b.falloff, ...more };
     case 'noise':
-      return { entityId, kind, dabs: points, radius: b.radius, strength: b.height, falloff: b.falloff, scale: b.scale, seed: b.seed };
+      return { entityId, kind, dabs: points, radius, strength: sculptMetres(b), falloff: b.falloff, scale: tb.scale, seed: tb.seed, ...more };
     case 'smooth':
-      return { entityId, kind, dabs: points, radius: b.radius, strength: b.blend, falloff: b.falloff };
+      return { entityId, kind, dabs: points, radius, strength: b.strength, falloff: b.falloff, ...more };
     case 'flatten':
-      return { entityId, kind, dabs: points, radius: b.radius, strength: b.blend, falloff: b.falloff, height: extra.height ?? 0 };
+      return { entityId, kind, dabs: points, radius, strength: b.strength, falloff: b.falloff, height: extra.height ?? 0, ...more };
     case 'ramp':
-      return { entityId, kind, from: extra.from, to: extra.to, radius: b.radius, strength: b.blend, falloff: b.falloff };
+      return { entityId, kind, from: extra.from, to: extra.to, radius, strength: b.strength, falloff: b.falloff, ...more };
     case 'paint':
-      return { entityId, kind, dabs: points, radius: b.radius, strength: b.blend, falloff: b.falloff, layer: b.layer, ...(invert ? { erase: true } : {}) };
+      return { entityId, kind, dabs: points, radius, strength: b.strength, falloff: b.falloff, layer: tb.layer, ...(invert ? { erase: true } : {}), ...more };
     case 'holes':
-      return { entityId, kind, dabs: points, radius: b.radius, ...(invert ? { erase: true } : {}) };
+      return { entityId, kind, dabs: points, radius, ...(invert ? { erase: true } : {}) };
     case 'scatter':
-      return { entityId, kind, rule: b.rule, dabs: points, radius: b.radius, ...(invert ? { erase: true } : {}) };
+      return { entityId, kind, rule: tb.rule, dabs: points, radius, ...(invert ? { erase: true } : {}) };
     case 'stamp':
     case 'erode':
       return { entityId, kind };

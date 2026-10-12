@@ -23,7 +23,7 @@
  */
 import { pathDistanceNear, pathPointAt, samplePath } from './arch-path';
 import type { ArchitectureComponent, ArchitecturePath } from './architecture';
-import { brushFalloff, paintPoint } from './paint-brush';
+import { brushFalloff, latticeKey, paintPoint, strokeAmount, strokeCoverage, type DabStroke } from './paint-brush';
 import { SplineCurve, newSplineFrame } from './spline-curve';
 import type { SplineComponent } from './spline';
 import { PATH_PAINT_CELL, VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, VERTEX_PAINT_LIMITS, type PathPaintSide } from './vertex-paint';
@@ -172,12 +172,15 @@ function grown(g: PathGrid | null, i0: number, i1: number, j0: number, j1: numbe
 /**
  * Paint one side of a path with dabs (points in the object's frame). Returns
  * the grid (grown where the dabs reach past it) and how many bytes changed;
- * dabs beyond the side's reach paint nothing.
+ * dabs beyond the side's reach paint nothing. The mask is anchored to the
+ * side (metres along and across it); `stroke` (absent: the brush's own, one
+ * stroke for these dabs) carries the opacity's coverage across calls.
  */
-export function paintPathDabs(grid: PathGrid | null, frame: PathFrame, side: PathPaintSide, dabs: readonly PaintVec3[], brush: VertexPaintBrush): { grid: PathGrid | null; changed: number } {
+export function paintPathDabs(grid: PathGrid | null, frame: PathFrame, side: PathPaintSide, dabs: readonly PaintVec3[], brush: VertexPaintBrush, stroke?: DabStroke): { grid: PathGrid | null; changed: number } {
   const cell = PATH_PAINT_CELL;
   const r = brush.radius;
   const falloff = brush.falloff ?? 'smooth';
+  const st: DabStroke = stroke ?? { ...(brush.mask !== undefined ? { mask: brush.mask } : {}), coverage: strokeCoverage(brush.opacity) };
   const place = newPathPlace();
   const L = VERTEX_PAINT_LIMITS;
   const lastCell = Math.ceil(frame.length / cell);
@@ -204,7 +207,8 @@ export function paintPathDabs(grid: PathGrid | null, frame: PathFrame, side: Pat
           const d2 = ds * ds + dt * dt;
           if (d2 > r * r) continue;
           const at = ((j - g.origin[1]) * cols + (i - g.origin[0])) * VERTEX_PAINT_BYTES;
-          if (paintPoint(g.values, at, VERTEX_PAINT_LAYOUT, brush, brush.strength * brushFalloff(d2, r, falloff))) changed++;
+          const a = strokeAmount(brush.strength * brushFalloff(d2, r, falloff, brush.hardness), st.mask, st.coverage, latticeKey(i, j), i * cell, j * cell);
+          if (paintPoint(g.values, at, VERTEX_PAINT_LAYOUT, brush, a)) changed++;
         }
       }
     }

@@ -23,6 +23,14 @@
  * stores; elsewhere the commit settles it); an erase moves them toward layer
  * 0, what ground without rules bakes. Holes set the cell's hole bit exactly.
  *
+ * A dab's noise mask is the cores' fractal value noise (the same hash, each
+ * octave's seed lane computed here as the cores compute it). A paint
+ * stroke's opacity keeps, per tile, a coverage texture for the stroke — how
+ * far its dabs have taken each sample (a byte) — that the paint passes read
+ * and one more pass writes the way they write theirs (a scratch rectangle
+ * copied in after every pass), so a dab blends what the core's
+ * `StrokeCoverage` lets it.
+ *
  * Tiles on another texture page than the one a pass reads are left out of
  * its cross-tile reads (smoothing and normals then take the tile's own
  * samples there, until the commit).
@@ -35,14 +43,14 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
-import { TERRAIN_NOISE_HASH, type BrushFalloff } from '@thirdlight/runtime';
+import { TERRAIN_NOISE_HASH, type BrushFalloff, type BrushMask } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
 import { stepOf } from './terrain-material';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, clamp, float, floor, int, ivec2, max, screenCoordinate, select, sqrt, textureLoad, uint, uniform, vec4 } = TSL;
+const { Fn, clamp, float, floor, int, ivec2, max, min, screenCoordinate, select, sqrt, texture, textureLoad, uint, uniform, vec4 } = TSL;
 
 export type TerrainBrushKind = 'raise' | 'lower' | 'smooth' | 'flatten' | 'noise' | 'ramp' | 'paint' | 'holes';
 
@@ -67,6 +75,12 @@ export interface TerrainBrushDab {
   /** paint: the layer painted; paint and holes: erase. */
   layer: number;
   erase: boolean;
+  /** A curve falloff's hardness. */
+  hardness: number;
+  /** Sculpt kinds and paint: the noise mask (null: none). */
+  mask: BrushMask | null;
+  /** paint: the stroke's opacity ceiling (1: none). */
+  opacity: number;
 }
 
 /** A tile a dab reaches: its page textures and layer, and the rectangle of samples written. */
@@ -104,14 +118,16 @@ export function terrainBrushMargin(kind: TerrainBrushKind): number {
   return kind === 'paint' ? 2 : kind === 'holes' ? 0 : 1;
 }
 
-type Variant = 'point' | 'smooth' | 'weights' | 'indices' | 'holes' | 'copy';
+type Variant = 'point' | 'smooth' | 'weights' | 'indices' | 'holes' | 'copy' | 'coverage';
 
 /** The passes a kind draws per tile. */
 function variantsOf(kind: TerrainBrushKind): Variant[] {
   return kind === 'paint' ? ['weights', 'indices'] : kind === 'holes' ? ['holes'] : kind === 'smooth' ? ['smooth'] : ['point'];
 }
 
-const FALLOFF_CODE: Readonly<Record<BrushFalloff, number>> = { smooth: 0, linear: 1, constant: 2 };
+const FALLOFF_CODE: Readonly<Record<BrushFalloff, number>> = { smooth: 0, linear: 1, constant: 2, curve: 3 };
+/** The mask's octaves the passes evaluate (the brush mask's most). */
+const MASK_OCTAVES = 5;
 const POINT_CODE: Readonly<Record<string, number>> = { raise: 0, lower: 1, flatten: 2, noise: 3, ramp: 4 };
 
 /** The noise hash's lattice offset: keeps the lattice coordinates positive in unsigned arithmetic (the cores' `Math.imul` wraps the same). */
@@ -157,7 +173,21 @@ export class TerrainBrushGpu {
     rampB: uniform(new THREE.Vector3()),
     paintLayer: uniform(0),
     erase: uniform(0),
+    hardness: uniform(0.5),
+    maskScale: uniform(1),
+    maskContrast: uniform(1),
+    maskThreshold: uniform(0.5),
+    /** Each octave's weight (0 past the mask's octaves; they sum to 1) and seed lane as two 16-bit halves. */
+    maskW: Array.from({ length: MASK_OCTAVES }, () => uniform(0)),
+    maskLane: Array.from({ length: MASK_OCTAVES }, () => uniform(new THREE.Vector2())),
+    opacity: uniform(1),
   };
+  /** The coverage a paint pass reads (the tile's, swapped in per tile). */
+  private readonly covIn: N;
+  /** Per tile (page texture and layer) in this stroke: its coverage (made at the tile's first covered dab, all zero). */
+  private readonly coverage = new Map<string, THREE.DataArrayTexture>();
+  private coverageStroke = -1;
+  private readonly blankCoverage = coverageTexture(1);
   readonly stats: TerrainBrushStats = { passes: 0, copies: 0 };
   private readonly unlisten = new Map<THREE.Texture, () => void>();
   /** Kinds whose passes were built ahead, per page ("kind:heights uuid"). */
@@ -166,20 +196,26 @@ export class TerrainBrushGpu {
   constructor(renderer: WebGPURenderer) {
     this.renderer = renderer;
     this.u.flip.value = (renderer.backend as { isWebGLBackend?: boolean }).isWebGLBackend === true ? 1 : 0;
+    this.covIn = texture(this.blankCoverage);
   }
 
   /**
    * Draw one dab into the tiles it reaches (`tiles`: each with its
    * rectangle). The textures are changed on the GPU only: their CPU copies
-   * keep the stored tile, which a cancel uploads again.
+   * keep the stored tile, which a cancel uploads again. `stroke` names the
+   * stroke the dab is part of (its opacity's coverage starts over with a new
+   * one).
    */
-  dab(dab: TerrainBrushDab, tiles: readonly TerrainBrushTile[]): void {
+  dab(dab: TerrainBrushDab, tiles: readonly TerrainBrushTile[], stroke = 0): void {
     if (tiles.length === 0) return;
+    if (stroke !== this.coverageStroke) this.dropCoverage(stroke);
     const r = this.renderer;
     const saved = r.getRenderTarget();
     const variants = variantsOf(dab.kind);
+    const covered = dab.kind === 'paint' && dab.opacity < 1;
+    const masked = dab.mask !== null && dab.kind !== 'holes' && dab.kind !== 'ramp';
     const used = new Map<number, number>();
-    const copies: { from: THREE.RenderTarget; to: THREE.DataArrayTexture; tile: TerrainBrushTile; w: number; h: number }[] = [];
+    const copies: { from: THREE.RenderTarget; to: THREE.DataArrayTexture; tile: TerrainBrushTile; w: number; h: number; layer: number }[] = [];
     this.setDab(dab);
     for (const t of tiles) {
       const [x0, z0, x1, z1] = t.rect;
@@ -188,15 +224,18 @@ export class TerrainBrushGpu {
       if (w <= 0 || h <= 0) continue;
       const size = pow2AtLeast(Math.max(w, h));
       this.setTile(t, size, dab);
-      for (const v of variants) {
+      const cov = covered ? this.coverageOf(t) : null;
+      this.covIn.value = cov ?? this.blankCoverage;
+      for (const v of cov !== null ? [...variants, 'coverage' as const] : variants) {
         const k = used.get(size) ?? 0;
         used.set(size, k + 1);
         const rt = this.target(size, k);
-        this.quad.material = this.material(v, v === 'point' || v === 'smooth' ? t.heights : t.layers, t);
+        this.quad.material = this.material(v, v === 'point' || v === 'smooth' ? t.heights : t.layers, t, masked);
         r.setRenderTarget(rt);
         this.quad.render(r);
         this.stats.passes += 1;
-        copies.push({ from: rt, to: v === 'point' || v === 'smooth' ? t.heights : v === 'indices' ? t.indices : t.layers, tile: t, w, h });
+        // The coverage goes into the tile's own coverage texture (its only layer), the rest into the page's.
+        copies.push({ from: rt, to: v === 'coverage' ? cov! : v === 'point' || v === 'smooth' ? t.heights : v === 'indices' ? t.indices : t.layers, tile: t, w, h, layer: v === 'coverage' ? 0 : t.layer });
       }
     }
     r.setRenderTarget(saved);
@@ -205,24 +244,41 @@ export class TerrainBrushGpu {
     const at = new THREE.Vector3();
     for (const c of copies) {
       region.max.set(c.w, c.h);
-      at.set(c.tile.rect[0], c.tile.rect[1], c.tile.layer);
+      at.set(c.tile.rect[0], c.tile.rect[1], c.layer);
       r.copyTextureToTexture(c.from.texture, c.to, region, at);
       this.stats.copies += 1;
     }
+  }
+
+  /** A tile's coverage in this stroke (made, all zero, at its first covered dab). */
+  private coverageOf(t: TerrainBrushTile): THREE.DataArrayTexture {
+    const key = `${t.layers.uuid}:${t.layer}`;
+    let c = this.coverage.get(key);
+    if (c === undefined) this.coverage.set(key, (c = coverageTexture(t.cells + 1)));
+    return c;
+  }
+
+  /** A new stroke: the last one's coverage goes. */
+  private dropCoverage(stroke: number): void {
+    for (const c of this.coverage.values()) c.dispose();
+    this.coverage.clear();
+    this.coverageStroke = stroke;
   }
 
   /**
    * Build a kind's passes for a page ahead — each drawn once into a texel of
    * scratch (WebGL 2 links a program at its first draw, whatever was
    * compiled before) — so a stroke's first dab builds nothing on its frame;
-   * the cost falls on the frame the tool or terrain was chosen.
+   * the cost falls on the frame the tool or terrain was chosen. `masked`:
+   * the passes of a dab through a noise mask (built when the mask is turned
+   * on).
    */
-  warm(page: { heights: THREE.DataArrayTexture; layers: THREE.DataArrayTexture; indices: THREE.DataArrayTexture }, kind: TerrainBrushKind): void {
-    const key = `${kind}:${page.heights.uuid}`;
+  warm(page: { heights: THREE.DataArrayTexture; layers: THREE.DataArrayTexture; indices: THREE.DataArrayTexture }, kind: TerrainBrushKind, masked = false): void {
+    const key = `${kind}${masked ? '+mask' : ''}:${page.heights.uuid}`;
     if (this.warmed.has(key)) return;
     this.warmed.add(key);
-    for (const v of variantsOf(kind)) {
-      const m = this.material(v, v === 'point' || v === 'smooth' ? page.heights : page.layers, { ...page, layer: 0, cells: 16, spacing: 1, metresPerStep: 1, ox: 0, oz: 0, around: [], rect: [0, 0, 0, 0] });
+    for (const v of kind === 'paint' ? [...variantsOf(kind), 'coverage' as const] : variantsOf(kind)) {
+      const m = this.material(v, v === 'point' || v === 'smooth' ? page.heights : page.layers, { ...page, layer: 0, cells: 16, spacing: 1, metresPerStep: 1, ox: 0, oz: 0, around: [], rect: [0, 0, 0, 0] }, masked && kind !== 'holes' && kind !== 'ramp');
       const saved = this.renderer.getRenderTarget();
       this.quad.material = m;
       this.renderer.setRenderTarget(this.target(1, 0));
@@ -272,6 +328,8 @@ export class TerrainBrushGpu {
     this.materials.clear();
     for (const list of this.targets.values()) for (const t of list) t.dispose();
     this.targets.clear();
+    this.dropCoverage(-1);
+    this.blankCoverage.dispose();
     for (const off of this.unlisten.values()) off();
     this.unlisten.clear();
   }
@@ -291,6 +349,22 @@ export class TerrainBrushGpu {
     u.seedLo.value = lane & 0xffff;
     u.paintLayer.value = d.erase ? 0 : d.layer;
     u.erase.value = d.erase ? 1 : 0;
+    u.hardness.value = d.hardness;
+    u.opacity.value = d.opacity;
+    const m = d.mask;
+    if (m !== null) {
+      u.maskScale.value = m.scale;
+      u.maskContrast.value = m.contrast;
+      u.maskThreshold.value = m.threshold;
+      // The cores' octave weights (1, ½, ¼ …) normalised, and each octave's seed lane (seed + o).
+      let norm = 0;
+      for (let o = 0; o < m.octaves; o++) norm += 0.5 ** o;
+      for (let o = 0; o < MASK_OCTAVES; o++) {
+        u.maskW[o]!.value = o < m.octaves ? 0.5 ** o / norm : 0;
+        const lane = Math.imul((m.seed + o) | 0, HASH_K[2]) >>> 0;
+        (u.maskLane[o]!.value as THREE.Vector2).set(lane >>> 16, lane & 0xffff);
+      }
+    }
   }
 
   private setTile(t: TerrainBrushTile, size: number, d: TerrainBrushDab): void {
@@ -325,13 +399,13 @@ export class TerrainBrushGpu {
 
   // ---- materials -------------------------------------------------------------------------
 
-  /** A variant's material for a page (made once per page texture; let go with it). */
-  private material(v: Variant, src: THREE.DataArrayTexture, t: TerrainBrushTile | null): NodeMaterial {
-    const key = `${v}:${src.uuid}`;
+  /** A variant's material for a page, with or without the mask (made once per page texture; let go with it). */
+  private material(v: Variant, src: THREE.DataArrayTexture, t: TerrainBrushTile | null, masked = false): NodeMaterial {
+    const key = `${v}${masked ? '+mask' : ''}:${src.uuid}`;
     let m = this.materials.get(key);
     if (m === undefined) {
       m = new NodeMaterial();
-      m.outputNode = v === 'copy' ? this.copyNode(src) : this.node(v, t!);
+      m.outputNode = v === 'copy' ? this.copyNode(src) : this.node(v, t!, masked);
       m.depthTest = false;
       m.depthWrite = false;
       m.blending = THREE.NoBlending;
@@ -369,7 +443,54 @@ export class TerrainBrushGpu {
     return textureLoad(src, ivec2(lx, lz)).depth(int(this.u.layer));
   }
 
-  private node(v: Variant, t: TerrainBrushTile): N {
+  /** The noise hash of a lattice point on a seed lane (its two 16-bit halves), to [0, 1) — the cores' hash in unsigned arithmetic. */
+  private hash(ix: N, iz: N, laneHi: N, laneLo: N): N {
+    const lane = (i: N, k: number): N => uint(i.add(int(HASH_BIAS))).mul(uint(k >>> 0)).sub(uint(Math.imul(HASH_BIAS, k) >>> 0));
+    const seedLane = uint(laneHi).shiftLeft(uint(16)).bitOr(uint(laneLo));
+    let h = lane(ix, HASH_K[0]).bitXor(lane(iz, HASH_K[1])).bitXor(seedLane);
+    h = h.bitXor(h.shiftRight(uint(15))).mul(uint(HASH_K[3] >>> 0));
+    h = h.bitXor(h.shiftRight(uint(13))).mul(uint(HASH_K[4] >>> 0));
+    h = h.bitXor(h.shiftRight(uint(16)));
+    return float(h).div(4294967296);
+  }
+
+  /** Value noise in [0, 1] at (x, z) lattice units on a seed lane (smoothstep between lattice points). */
+  private noise01(x: N, z: N, laneHi: N, laneLo: N): N {
+    const fx0 = floor(x);
+    const fz0 = floor(z);
+    const ix = int(fx0);
+    const iz = int(fz0);
+    const fx = x.sub(fx0);
+    const fz = z.sub(fz0);
+    const sx = fx.mul(fx).mul(float(3).sub(fx.mul(2)));
+    const sz = fz.mul(fz).mul(float(3).sub(fz.mul(2)));
+    const a = this.hash(ix, iz, laneHi, laneLo);
+    const b = this.hash(ix.add(int(1)), iz, laneHi, laneLo);
+    const c = this.hash(ix, iz.add(int(1)), laneHi, laneLo);
+    const d = this.hash(ix.add(int(1)), iz.add(int(1)), laneHi, laneLo);
+    const top = a.add(b.sub(a).mul(sx));
+    const bottom = c.add(d.sub(c).mul(sx));
+    return top.add(bottom.sub(top).mul(sz));
+  }
+
+  /**
+   * The dab's mask at (wx, wz) terrain metres: the cores' fractal noise
+   * through contrast and threshold (every octave evaluated; one past the
+   * mask's octaves weighs 0). Only the masked passes hold it, so a dab
+   * without a mask hashes nothing.
+   */
+  private mask(wx: N, wz: N): N {
+    const u = this.u;
+    let sum: N = float(0);
+    for (let o = 0; o < MASK_OCTAVES; o++) {
+      const f = 2 ** o;
+      const lane = u.maskLane[o]!;
+      sum = sum.add(this.noise01(wx.div(u.maskScale).mul(f), wz.div(u.maskScale).mul(f), lane.x, lane.y).mul(u.maskW[o]!));
+    }
+    return clamp(sum.sub(u.maskThreshold).mul(u.maskContrast).add(0.5), 0, 1);
+  }
+
+  private node(v: Variant, t: TerrainBrushTile, masked: boolean): N {
     const u = this.u;
     const heights = t.heights;
     const layers = t.layers;
@@ -378,11 +499,17 @@ export class TerrainBrushGpu {
     const sp = u.spacing;
     const layer = int(u.layer);
     const { lx, lz } = this.sampleXZ();
+    const withMask = masked;
     const byte = (x: N): N => floor(x.mul(255).add(0.5)).div(255);
     const falloff = (d2: N): N => {
       const r2 = u.radius.mul(u.radius);
       const k = float(1).sub(d2.div(r2));
-      const f = select(u.falloff.greaterThan(1.5), float(1), select(u.falloff.greaterThan(0.5), float(1).sub(sqrt(d2).div(u.radius)), k.mul(k)));
+      // curve: full out to the hardness, then the smooth falloff over the rest.
+      const d = sqrt(d2).div(u.radius);
+      const ct = max(d.sub(u.hardness), 0).div(max(float(1).sub(u.hardness), 1e-6));
+      const ck = float(1).sub(ct.mul(ct));
+      const curve = select(d.lessThanEqual(u.hardness), float(1), ck.mul(ck));
+      const f = select(u.falloff.greaterThan(2.5), curve, select(u.falloff.greaterThan(1.5), float(1), select(u.falloff.greaterThan(0.5), float(1).sub(d), k.mul(k))));
       return select(d2.lessThanEqual(r2), f, float(0));
     };
     const d2At = (x: N, z: N): N => {
@@ -390,6 +517,9 @@ export class TerrainBrushGpu {
       const dz = float(z).mul(sp).sub(u.centre.y);
       return dx.mul(dx).add(dz.mul(dz));
     };
+    /** A sample's place in the terrain's frame (metres): what the mask and the noise are anchored to. */
+    const worldX = (x: N): N => u.origin.x.add(float(x).mul(sp));
+    const worldZ = (z: N): N => u.origin.y.add(float(z).mul(sp));
     if (v === 'point' || v === 'smooth') {
       /** A sample's stored step and whether a tile holds it (local samples of this tile, one tile out at most). */
       const fetch = (x: N, z: N): { step: N; present: N } => {
@@ -402,36 +532,11 @@ export class TerrainBrushGpu {
         const tx = textureLoad(heights, ivec2(px, pz)).depth(int(max(l, float(0))));
         return { step: stepOf(tx), present: l.greaterThanEqual(0) };
       };
-      const hash = (ix: N, iz: N): N => {
-        const lane = (i: N, k: number): N => uint(i.add(int(HASH_BIAS))).mul(uint(k >>> 0)).sub(uint(Math.imul(HASH_BIAS, k) >>> 0));
-        const seedLane = uint(u.seedHi).shiftLeft(uint(16)).bitOr(uint(u.seedLo));
-        let h = lane(ix, HASH_K[0]).bitXor(lane(iz, HASH_K[1])).bitXor(seedLane);
-        h = h.bitXor(h.shiftRight(uint(15))).mul(uint(HASH_K[3] >>> 0));
-        h = h.bitXor(h.shiftRight(uint(13))).mul(uint(HASH_K[4] >>> 0));
-        h = h.bitXor(h.shiftRight(uint(16)));
-        return float(h).div(4294967296);
-      };
-      const noise = (x: N, z: N): N => {
-        const fx0 = floor(x);
-        const fz0 = floor(z);
-        const ix = int(fx0);
-        const iz = int(fz0);
-        const fx = x.sub(fx0);
-        const fz = z.sub(fz0);
-        const sx = fx.mul(fx).mul(float(3).sub(fx.mul(2)));
-        const sz = fz.mul(fz).mul(float(3).sub(fz.mul(2)));
-        const a = hash(ix, iz);
-        const b = hash(ix.add(int(1)), iz);
-        const c = hash(ix, iz.add(int(1)));
-        const d = hash(ix.add(int(1)), iz.add(int(1)));
-        const top = a.add(b.sub(a).mul(sx));
-        const bottom = c.add(d.sub(c).mul(sx));
-        return top.add(bottom.sub(top).mul(sz)).mul(2).sub(1);
-      };
       /** A sample's step after the dab (the cores' rounding: an integer step plus its rounded delta), and whether it is held. */
       const after = (x: N, z: N): { step: N; present: N } => {
         const here = fetch(x, z);
         const st = here.step;
+        const masked = (f: N): N => (withMask ? f.mul(this.mask(worldX(x), worldZ(z))) : f);
         let delta: N;
         if (v === 'smooth') {
           let sum: N = float(0);
@@ -443,9 +548,9 @@ export class TerrainBrushGpu {
               sum = sum.add(q.step.mul(on));
               count = count.add(on);
             }
-          delta = u.strength.mul(falloff(d2At(x, z))).mul(sum.div(max(count, 1)).sub(st));
+          delta = u.strength.mul(masked(falloff(d2At(x, z)))).mul(sum.div(max(count, 1)).sub(st));
         } else {
-          const f = falloff(d2At(x, z));
+          const f = masked(falloff(d2At(x, z)));
           // A ramp: the slope between its ends, by the point's place along it.
           const px = float(x).mul(sp).sub(u.rampA.x);
           const pz = float(z).mul(sp).sub(u.rampA.y);
@@ -458,15 +563,16 @@ export class TerrainBrushGpu {
           const fr = falloff(rx.mul(rx).add(rz.mul(rz)));
           const slope = u.rampA.z.add(along.mul(u.rampB.z.sub(u.rampA.z)));
           const k = u.kind;
-          const wx = u.origin.x.add(float(x).mul(sp)).div(u.scale);
-          const wz = u.origin.y.add(float(z).mul(sp)).div(u.scale);
+          const wx = worldX(x).div(u.scale);
+          const wz = worldZ(z).div(u.scale);
+          const bump = this.noise01(wx, wz, u.seedHi, u.seedLo).mul(2).sub(1);
           delta = select(
             k.lessThan(0.5),
             u.strength.mul(f),
             select(
               k.lessThan(1.5),
               u.strength.mul(f).negate(),
-              select(k.lessThan(2.5), u.strength.mul(f).mul(u.target.sub(st)), select(k.lessThan(3.5), u.strength.mul(f).mul(noise(wx, wz)), u.strength.mul(fr).mul(slope.sub(st)))),
+              select(k.lessThan(2.5), u.strength.mul(f).mul(u.target.sub(st)), select(k.lessThan(3.5), u.strength.mul(f).mul(bump), u.strength.mul(fr).mul(slope.sub(st)))),
             ),
           );
         }
@@ -494,30 +600,53 @@ export class TerrainBrushGpu {
         return vec4(hi.div(255), lo.div(255), byte(gx.negate().mul(inv).mul(0.5).add(0.5)), byte(gz.negate().mul(inv).mul(0.5).add(0.5)));
       })();
     }
-    const texel = textureLoad(layers, ivec2(lx, lz)).depth(layer);
     if (v === 'holes') {
+      const texel = textureLoad(layers, ivec2(lx, lz)).depth(layer);
       // The cell whose min corner the sample is: cut (or filled) when its centre is within the radius.
       const dx = float(lx).add(0.5).mul(sp).sub(u.centre.x);
       const dz = float(lz).add(0.5).mul(sp).sub(u.centre.y);
       const inside = dx.mul(dx).add(dz.mul(dz)).lessThanEqual(u.radius.mul(u.radius)).and(lx.lessThan(n)).and(lz.lessThan(n));
       return vec4(texel.r, texel.g, texel.b, select(inside, float(1).sub(u.erase), texel.a));
     }
-    const chan = floor(u.paintLayer.add(0.5)).mod(4);
-    const one = (c: number): N => select(chan.equal(c), float(1), float(0));
-    const amount = clamp(u.strength.mul(falloff(d2At(lx, lz))), 0, 1);
-    const w = vec4(texel.r, texel.g, texel.b, max(float(1).sub(texel.r).sub(texel.g).sub(texel.b), 0));
-    if (v === 'weights') {
-      const toward = vec4(one(0), one(1), one(2), one(3));
-      const moved = w.add(toward.sub(w).mul(amount));
-      return vec4(byte(moved.x), byte(moved.y), byte(moved.z), texel.a);
-    }
-    // Indices: the painted layer where it is painted, and one sample around where its channel is empty (filtered weight shows it).
-    const ids = textureLoad(indices, ivec2(lx, lz)).depth(layer);
-    const reach = u.radius.add(sp.mul(1.5));
-    const wc = select(chan.equal(0), w.x, select(chan.equal(1), w.y, select(chan.equal(2), w.z, w.w)));
-    const set = amount.greaterThan(0).or(d2At(lx, lz).lessThanEqual(reach.mul(reach)).and(wc.mul(255).lessThan(0.5)));
-    const id = u.paintLayer.div(255);
-    const pick = (c: number, cur: N): N => select(set.and(chan.equal(c)), id, cur);
-    return vec4(pick(0, ids.x), pick(1, ids.y), pick(2, ids.z), pick(3, ids.w));
+    // Paint: the dab's weight (strength × falloff × mask), held under the stroke's opacity by its coverage (`StrokeCoverage`).
+    return Fn(() => {
+      const f = falloff(d2At(lx, lz));
+      const weight = clamp(u.strength.mul(withMask ? f.mul(this.mask(worldX(lx), worldZ(lz))) : f), 0, 1).toVar();
+      const covered = textureLoad(this.covIn, ivec2(lx, lz)).depth(int(0)).x;
+      const capped = u.opacity.lessThan(1);
+      const next = select(weight.greaterThan(0).and(covered.lessThan(u.opacity)), min(u.opacity, covered.add(float(1).sub(covered).mul(weight))), covered);
+      if (v === 'coverage') return vec4(byte(select(capped, next, float(0))), 0, 0, 1);
+      const amount = select(capped, select(next.greaterThanEqual(1), float(1), next.sub(covered).div(max(float(1).sub(covered), 1e-6))), weight);
+      const texel = textureLoad(layers, ivec2(lx, lz)).depth(layer);
+      const chan = floor(u.paintLayer.add(0.5)).mod(4);
+      const one = (c: number): N => select(chan.equal(c), float(1), float(0));
+      const w = vec4(texel.r, texel.g, texel.b, max(float(1).sub(texel.r).sub(texel.g).sub(texel.b), 0));
+      if (v === 'weights') {
+        const toward = vec4(one(0), one(1), one(2), one(3));
+        const moved = w.add(toward.sub(w).mul(amount));
+        return vec4(byte(moved.x), byte(moved.y), byte(moved.z), texel.a);
+      }
+      // Indices: the painted layer where it is painted, and one sample around where its channel is empty (filtered weight shows it).
+      const ids = textureLoad(indices, ivec2(lx, lz)).depth(layer);
+      const reach = u.radius.add(sp.mul(1.5));
+      const wc = select(chan.equal(0), w.x, select(chan.equal(1), w.y, select(chan.equal(2), w.z, w.w)));
+      const set = amount.greaterThan(0).or(d2At(lx, lz).lessThanEqual(reach.mul(reach)).and(wc.mul(255).lessThan(0.5)));
+      const id = u.paintLayer.div(255);
+      const pick = (c: number, cur: N): N => select(set.and(chan.equal(c)), id, cur);
+      return vec4(pick(0, ids.x), pick(1, ids.y), pick(2, ids.z), pick(3, ids.w));
+    })();
   }
+}
+
+/** A stroke's coverage of a tile: a byte per sample (`side` samples a side), all zero until its dabs are copied in. */
+function coverageTexture(side: number): THREE.DataArrayTexture {
+  const t = new THREE.DataArrayTexture(new Uint8Array(side * side * 4), side, side, 1);
+  t.format = THREE.RGBAFormat;
+  t.type = THREE.UnsignedByteType;
+  t.minFilter = THREE.NearestFilter;
+  t.magFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.NoColorSpace;
+  t.needsUpdate = true;
+  return t;
 }

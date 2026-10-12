@@ -5,10 +5,12 @@
  * view while the editor is in front.
  *
  * - Tools: raise, lower, smooth, flatten, noise, ramp, paint, holes; Ctrl
- *   (or the invert toggle) lowers, erases hand paint or fills holes for one
- *   stroke.
- * - Brush: radius, strength (metres for raise, lower and noise; a blend for
- *   the others), falloff, the painted layer, the noise's size and seed.
+ *   (or the invert toggle, X) lowers, erases hand paint or fills holes for
+ *   one stroke.
+ * - Brush: the shared brush panel (`BrushPanel`: height step, size,
+ *   strength, opacity, falloff, spacing, invert) and noise mask
+ *   (`NoiseMask`), the settings each tool uses, remembered per tool; the
+ *   painted layer and the noise tool's size and seed beside them.
  * - Import heightmap: a 16-bit PNG or RAW file staged and laid onto the
  *   tiles from a tile on, with the heights its 0 and 65535 stand for.
  * - Convert a block layer: its surface (corner heights) and paint become the
@@ -29,9 +31,15 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import { BRUSH_FALLOFFS, EROSION_LIMITS, HEIGHTMAP_FORMATS, TERRAIN_LAYER_MAX, TERRAIN_STAMP_MODES, TERRAIN_TILE_COORD_MAX, terrainTileSize, type BrushFalloff, type HeightmapFormat, type TerrainComponent, type TerrainStampMode } from '@thirdlight/runtime';
+import { EROSION_LIMITS, HEIGHTMAP_FORMATS, TERRAIN_LAYER_MAX, TERRAIN_STAMP_MODES, TERRAIN_TILE_COORD_MAX, terrainTileSize, type HeightmapFormat, type TerrainComponent, type TerrainStampMode } from '@thirdlight/runtime';
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
-import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_UI, TERRAIN_TOOLS, erodeArgs, layersWithStamp, type ErodeToolState, type StampToolState, type TerrainBrushState, type TerrainMode, type TerrainToolId } from '../session/terrain-brush';
+import { DEFAULT_BRUSH, brushRadius, brushStore } from '../session/brush';
+import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, DEFAULT_TERRAIN_BRUSH, TERRAIN_BRUSH_BOUNDS, TERRAIN_BRUSH_UI, TERRAIN_INVERT_LABELS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, terrainToolUses, type ErodeToolState, type StampToolState, type TerrainBrushState, type TerrainMode, type TerrainToolId } from '../session/terrain-brush';
+import { BrushPanel } from './brush/BrushPanel';
+import { NoiseMask } from './brush/NoiseMask';
+import { SliderField } from './brush/SliderField';
+import { useBrush } from './brush/useBrush';
+import { Section } from './editmode/controls';
 import type { TerrainEditor } from '../viewport/terrain-editor';
 import { SurfaceRulesEditor } from './SurfaceRulesEditor';
 import { ScatterRulesEditor } from './ScatterRulesEditor';
@@ -67,7 +75,10 @@ export function TerrainPanel(p: Props): JSX.Element {
   // The mode's tool (its first until another of its tools is chosen).
   const tool = mode.tools.includes(chosen) ? chosen : (mode.tools[0] ?? chosen);
   const [brush, setBrush] = useState<TerrainBrushState>(DEFAULT_TERRAIN_BRUSH);
-  const [invert, setInvert] = useState(false);
+  // The tool's shared brush settings (remembered per tool; keys and drags in the view change them too).
+  const store = brushStore('terrain', tool, DEFAULT_BRUSH, TERRAIN_BRUSH_BOUNDS);
+  const settings = useBrush(store);
+  const uses = terrainToolUses(tool);
   const [importOpen, setImportOpen] = useState(false);
   const [stamp, setStamp] = useState<StampToolState>(DEFAULT_STAMP_TOOL);
   const [erode, setErode] = useState<ErodeToolState>(DEFAULT_ERODE_TOOL);
@@ -84,11 +95,11 @@ export function TerrainPanel(p: Props): JSX.Element {
     if (p.locked) return;
     if (tool === 'stamp') {
       if (stamp.asset === '') return;
-      void p.run('Place stamp', 'setComponent', { entityId: p.entityId, component: 'terrain', value: { layers: layersWithStamp(c.layers ?? [], stamp, at, brush.radius) } });
-    } else if (tool === 'erode') void p.run('Erode', 'editTerrain', erodeArgs(p.entityId, erode, at, brush.radius));
+      void p.run('Place stamp', 'setComponent', { entityId: p.entityId, component: 'terrain', value: { layers: layersWithStamp(c.layers ?? [], stamp, at, brushRadius(store.get())) } });
+    } else if (tool === 'erode') void p.run('Erode', 'editTerrain', erodeArgs(p.entityId, erode, at, brushRadius(store.get())));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` is remade each render from the state listed here
-  useEffect(() => editor?.setOptions({ tool, brush, invert, place }), [editor, tool, brush, invert, stamp, erode, c, p.entityId, p.locked, p.run]);
+  useEffect(() => editor?.setOptions({ tool, brush, store, place }), [editor, tool, brush, store, stamp, erode, c, p.entityId, p.locked, p.run]);
   // A mode without brush tools (rules, tiles) leaves the Scene view's clicks alone.
   const brushing = mode.tools.length > 0;
   useEffect(() => {
@@ -97,7 +108,6 @@ export function TerrainPanel(p: Props): JSX.Element {
   }, [editor, p.visible, brushing]);
 
   const size = terrainTileSize(c);
-  const metres = tool === 'raise' || tool === 'lower' || tool === 'noise';
   const set = (patch: Partial<TerrainBrushState>): void => setBrush((b) => ({ ...b, ...patch }));
   // The scatter brush paints a rule the terrain has (the first, until another is chosen).
   // Ground cover is never stored: the brush edits the stored rules only.
@@ -115,30 +125,46 @@ export function TerrainPanel(p: Props): JSX.Element {
       </div>
       {brushing && (
       <>
-      <div className="tl-blocks__tools" role="toolbar" aria-label="terrain tool">
-        {TERRAIN_TOOLS.filter((t) => mode.tools.includes(t.id)).map((t) => (
-          <button key={t.id} className={`tl-btn tl-btn--small${tool === t.id ? ' is-active' : ''}`} aria-pressed={tool === t.id} title={t.title} onClick={() => setTool(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div className="tl-blocks__opts">
-        <label title="The brush's radius in metres.">
-          Radius <input aria-label="terrain radius" type="number" className="tl-blocks__num" min={TERRAIN_BRUSH_UI.radiusMin} max={TERRAIN_BRUSH_UI.radiusMax} step={0.5} value={brush.radius} onChange={(e) => set({ radius: clampNum(Number(e.target.value), TERRAIN_BRUSH_UI.radiusMin, TERRAIN_BRUSH_UI.radiusMax, brush.radius) })} />
-        </label>
-        {tool !== 'holes' && tool !== 'scatter' && tool !== 'stamp' && tool !== 'erode' &&
-          (metres ? (
-            <label title="Metres a dab moves the ground at its centre.">
-              Strength <input aria-label="terrain strength" type="number" className="tl-blocks__num" min={0.01} max={TERRAIN_BRUSH_UI.heightMax} step={0.1} value={brush.height} onChange={(e) => set({ height: clampNum(Number(e.target.value), 0.01, TERRAIN_BRUSH_UI.heightMax, brush.height) })} />
-            </label>
-          ) : (
-            <label title="How far toward the target (the neighbours, the level, the slope, the layer) a dab goes at its centre (0-1).">
-              Strength <input aria-label="terrain blend" type="number" className="tl-blocks__num" min={0.01} max={1} step={0.05} value={brush.blend} onChange={(e) => set({ blend: clampNum(Number(e.target.value), 0.01, 1, brush.blend) })} />
-            </label>
+      <Section title="Tool">
+        <div className="tl-blocks__tools" role="toolbar" aria-label="terrain tool">
+          {TERRAIN_TOOLS.filter((t) => mode.tools.includes(t.id)).map((t) => (
+            <button key={t.id} className={`tl-btn tl-btn--small${tool === t.id ? ' is-active' : ''}`} aria-pressed={tool === t.id} title={t.title} onClick={() => setTool(t.id)}>
+              {t.label}
+            </button>
           ))}
-        {tool === 'scatter' && (
-          <label title="The scatter rule whose copies the brush puts on (Ctrl: takes off).">
-            Rule{' '}
+        </div>
+      </Section>
+      {tool === 'paint' && (
+        <Section title="Layer">
+          <div className="tl-blocks__palette" role="radiogroup" aria-label="terrain layer">
+            {Array.from({ length: PICKER_LAYERS }, (_v, i) => (
+              <button key={i} className={`tl-blocks__type${brush.layer === i ? ' is-active' : ''}`} role="radio" aria-checked={brush.layer === i} aria-label={`layer ${i}`} title={`Layer ${i} (the material's layer ${i}; its colour without a material)`} onClick={() => set({ layer: i })}>
+                <span className="tl-blocks__swatch" style={{ background: TERRAIN_DEFAULT_COLOURS[i % TERRAIN_DEFAULT_COLOURS.length] }} />
+                <span>{i}</span>
+              </button>
+            ))}
+          </div>
+          <SliderField label="Layer" aria="terrain layer number" value={brush.layer} min={0} max={15} limit={[0, TERRAIN_LAYER_MAX]} step={1} hint="Any layer of the material (0-255)." onChange={(v) => set({ layer: Math.round(v) })} />
+        </Section>
+      )}
+      <Section title="Brush" aside="Shared by every brush">
+        <BrushPanel settings={settings} store={store} uses={uses} preview={mode.id === 'sculpt'} {...(TERRAIN_INVERT_LABELS[tool] !== undefined ? { invert: TERRAIN_INVERT_LABELS[tool] } : {})} />
+      </Section>
+      {uses.includes('mask') && (
+        <Section key={`mask:${mode.id}`} title="Noise mask" open={mode.id === 'paint'} aside={<span className={`tl-tag${settings.mask.on ? ' tl-tag--ok' : ''}`}>{settings.mask.on ? 'on' : 'off'}</span>}>
+          <NoiseMask settings={settings} store={store} />
+        </Section>
+      )}
+      {tool === 'noise' && (
+        <Section title="Noise">
+          <SliderField label="Bump size" aria="noise size" value={brush.scale} min={0.5} max={256} log limit={[0.1, TERRAIN_BRUSH_UI.scaleMax]} step={0.1} decimals={brush.scale < 10 ? 1 : 0} unit="m" hint="The size of the noise's bumps in metres." onChange={(v) => set({ scale: v })} />
+          <SliderField label="Seed" aria="noise seed" value={brush.seed} min={0} max={100} limit={[-2_147_483_647, 2_147_483_647]} step={1} hint="Another seed, other bumps." onChange={(v) => set({ seed: Math.round(v) })} />
+        </Section>
+      )}
+      {tool === 'scatter' && (
+        <Section title="Scatter rule">
+          <label className="tl-frow" title="The scatter rule whose copies the brush puts on (Ctrl: takes off).">
+            <span className="tl-frow__label">Rule</span>
             <select aria-label="scatter brush rule" value={brush.rule} onChange={(e) => set({ rule: e.target.value })}>
               {scatterIds.length === 0 && <option value="">(no scatter rules)</option>}
               {scatterIds.map((id) => (
@@ -148,47 +174,17 @@ export function TerrainPanel(p: Props): JSX.Element {
               ))}
             </select>
           </label>
-        )}
-        {tool !== 'holes' && tool !== 'scatter' && tool !== 'stamp' && tool !== 'erode' && (
-          <label title="How the brush fades toward its edge: smooth, linear, or constant (a hard edge).">
-            Falloff{' '}
-            <select aria-label="terrain falloff" value={brush.falloff} onChange={(e) => set({ falloff: e.target.value as BrushFalloff })}>
-              {BRUSH_FALLOFFS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {tool === 'noise' && (
-          <>
-            <label title="The size of the noise's bumps in metres.">
-              Size <input aria-label="noise size" type="number" className="tl-blocks__num" min={0.1} max={TERRAIN_BRUSH_UI.scaleMax} step={1} value={brush.scale} onChange={(e) => set({ scale: clampNum(Number(e.target.value), 0.1, TERRAIN_BRUSH_UI.scaleMax, brush.scale) })} />
-            </label>
-            <label title="The noise's seed (another seed, other bumps).">
-              Seed <input aria-label="noise seed" type="number" className="tl-blocks__num" step={1} value={brush.seed} onChange={(e) => set({ seed: Math.trunc(Number(e.target.value) || 0) })} />
-            </label>
-          </>
-        )}
-        <label title="Lower (raise), erase hand paint back toward the baked layers (paint), fill holes (holes) or take copies off (scatter); Ctrl held flips it for one stroke.">
-          <input type="checkbox" aria-label="terrain invert" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Lower / erase / fill
-        </label>
-      </div>
-      {tool === 'stamp' && <StampOptions stamp={stamp} set={(x) => setStamp((s) => ({ ...s, ...x }))} layers={(c.layers ?? []).filter((l) => l.kind === 'stamps').map((l) => l.id)} />}
-      {tool === 'erode' && <ErodeOptions erode={erode} set={(x) => setErode((s) => ({ ...s, ...x }))} />}
-      {tool === 'paint' && (
-        <div className="tl-blocks__palette" role="radiogroup" aria-label="terrain layer">
-          {Array.from({ length: PICKER_LAYERS }, (_v, i) => (
-            <button key={i} className={`tl-blocks__type${brush.layer === i ? ' is-active' : ''}`} role="radio" aria-checked={brush.layer === i} aria-label={`layer ${i}`} title={`Layer ${i} (the material's layer ${i}; its colour without a material)`} onClick={() => set({ layer: i })}>
-              <span className="tl-blocks__swatch" style={{ background: TERRAIN_DEFAULT_COLOURS[i % TERRAIN_DEFAULT_COLOURS.length] }} />
-              <span>{i}</span>
-            </button>
-          ))}
-          <label title="Any layer of the material (0-255).">
-            Layer <input aria-label="terrain layer number" type="number" className="tl-blocks__num" min={0} max={TERRAIN_LAYER_MAX} step={1} value={brush.layer} onChange={(e) => set({ layer: Math.round(clampNum(Number(e.target.value), 0, TERRAIN_LAYER_MAX, brush.layer)) })} />
-          </label>
-        </div>
+        </Section>
+      )}
+      {tool === 'stamp' && (
+        <Section title="Stamp">
+          <StampOptions stamp={stamp} set={(x) => setStamp((s) => ({ ...s, ...x }))} layers={(c.layers ?? []).filter((l) => l.kind === 'stamps').map((l) => l.id)} />
+        </Section>
+      )}
+      {tool === 'erode' && (
+        <Section title="Erode">
+          <ErodeOptions erode={erode} set={(x) => setErode((s) => ({ ...s, ...x }))} />
+        </Section>
       )}
       </>
       )}
@@ -326,12 +322,8 @@ function StampOptions(p: { stamp: StampToolState; set: (x: Partial<StampToolStat
         Heightmap <RefPicker aria="stamp heightmap" kinds={['texture']} value={s.asset} none={null} onPick={(v) => p.set({ asset: v })} />
       </label>
       {s.asset === '' && <span className="tl-inspector__hint">Choose a heightmap, then click the terrain.</span>}
-      <label title="Metres the image's white stands for (negative digs).">
-        Height <input aria-label="stamp height" type="number" className="tl-blocks__num" step={1} value={s.height} onChange={(e) => p.set({ height: clampNum(Number(e.target.value), -10_000, 10_000, s.height) })} />
-      </label>
-      <label title="Degrees the image turns about +y.">
-        Turn <input aria-label="stamp rotation" type="number" className="tl-blocks__num" step={15} value={s.rotation} onChange={(e) => p.set({ rotation: clampNum(Number(e.target.value), -360, 360, s.rotation) })} />
-      </label>
+      <SliderField label="Height" aria="stamp height" value={s.height} min={-100} max={100} limit={[-10_000, 10_000]} step={1} unit="m" hint="Metres the image's white stands for (negative digs)." onChange={(v) => p.set({ height: v })} />
+      <SliderField label="Turn" aria="stamp rotation" value={s.rotation} min={-180} max={180} limit={[-360, 360]} step={15} unit="°" hint="Degrees the image turns about +y." onChange={(v) => p.set({ rotation: v })} />
       <label title="add: raised by the shape; max: raised up to it; min: cut down to it.">
         Mode{' '}
         <select aria-label="stamp mode" value={s.mode} onChange={(e) => p.set({ mode: e.target.value as TerrainStampMode })}>
@@ -342,9 +334,7 @@ function StampOptions(p: { stamp: StampToolState; set: (x: Partial<StampToolStat
           ))}
         </select>
       </label>
-      <label title="The share of the side over which the stamp fades in from its edges (0-0.5).">
-        Edge fade <input aria-label="stamp falloff" type="number" className="tl-blocks__num" min={0} max={0.5} step={0.05} value={s.falloff} onChange={(e) => p.set({ falloff: clampNum(Number(e.target.value), 0, 0.5, s.falloff) })} />
-      </label>
+      <SliderField label="Edge fade" aria="stamp falloff" value={s.falloff} min={0} max={0.5} step={0.05} hint="The share of the side over which the stamp fades in from its edges." onChange={(v) => p.set({ falloff: v })} />
       <label title="The stamps layer the stamp goes into (none yet: a new one).">
         Layer{' '}
         <select aria-label="stamp layer" value={s.layer} onChange={(e) => p.set({ layer: e.target.value })}>
@@ -369,27 +359,15 @@ function ErodeOptions(p: { erode: ErodeToolState; set: (x: Partial<ErodeToolStat
       <label title="Water droplets run downhill, take up ground and drop it where they slow: channels and fans.">
         <input type="checkbox" aria-label="erode hydraulic" checked={e.hydraulic} onChange={(x) => p.set({ hydraulic: x.target.checked })} /> Hydraulic
       </label>
-      <label title="Droplets per sample of the square.">
-        Droplets <input aria-label="erode droplets" type="number" className="tl-blocks__num" min={0.05} max={L.droplets[1]} step={0.1} value={e.droplets} disabled={!e.hydraulic} onChange={(x) => p.set({ droplets: clampNum(Number(x.target.value), 0.01, L.droplets[1], e.droplets) })} />
-      </label>
-      <label title="How fast a droplet takes up ground (0-1).">
-        Erosion <input aria-label="erode erosion" type="number" className="tl-blocks__num" min={0.01} max={1} step={0.05} value={e.erosion} disabled={!e.hydraulic} onChange={(x) => p.set({ erosion: clampNum(Number(x.target.value), 0.01, 1, e.erosion) })} />
-      </label>
-      <label title="How fast it drops what it carries past its capacity (0-1).">
-        Deposition <input aria-label="erode deposition" type="number" className="tl-blocks__num" min={0.01} max={1} step={0.05} value={e.deposition} disabled={!e.hydraulic} onChange={(x) => p.set({ deposition: clampNum(Number(x.target.value), 0.01, 1, e.deposition) })} />
-      </label>
+      <SliderField label="Droplets" aria="erode droplets" value={e.droplets} min={0.05} max={L.droplets[1]} limit={[0.01, L.droplets[1]]} step={0.05} disabled={!e.hydraulic} hint="Droplets per sample of the square." onChange={(v) => p.set({ droplets: v })} />
+      <SliderField label="Erosion" aria="erode erosion" value={e.erosion} min={0.01} max={1} step={0.05} disabled={!e.hydraulic} hint="How fast a droplet takes up ground." onChange={(v) => p.set({ erosion: v })} />
+      <SliderField label="Deposition" aria="erode deposition" value={e.deposition} min={0.01} max={1} step={0.05} disabled={!e.hydraulic} hint="How fast it drops what it carries past its capacity." onChange={(v) => p.set({ deposition: v })} />
       <label title="Ground slides off slopes steeper than the angle of repose: screes and softened ridges.">
         <input type="checkbox" aria-label="erode thermal" checked={e.thermal} onChange={(x) => p.set({ thermal: x.target.checked })} /> Thermal
       </label>
-      <label title="Passes over the square.">
-        Passes <input aria-label="erode passes" type="number" className="tl-blocks__num" min={1} max={L.iterations[1]} step={1} value={e.iterations} disabled={!e.thermal} onChange={(x) => p.set({ iterations: Math.round(clampNum(Number(x.target.value), 1, L.iterations[1], e.iterations)) })} />
-      </label>
-      <label title="The angle of repose in degrees: steeper slopes shed ground.">
-        Angle <input aria-label="erode talus" type="number" className="tl-blocks__num" min={L.talus[0]} max={L.talus[1]} step={1} value={e.talus} disabled={!e.thermal} onChange={(x) => p.set({ talus: clampNum(Number(x.target.value), L.talus[0], L.talus[1], e.talus) })} />
-      </label>
-      <label title="Another seed, other droplets.">
-        Seed <input aria-label="erode seed" type="number" className="tl-blocks__num" step={1} value={e.seed} onChange={(x) => p.set({ seed: Math.trunc(Number(x.target.value) || 0) })} />
-      </label>
+      <SliderField label="Passes" aria="erode passes" value={e.iterations} min={1} max={L.iterations[1]} step={1} disabled={!e.thermal} hint="Passes over the square." onChange={(v) => p.set({ iterations: Math.round(v) })} />
+      <SliderField label="Angle" aria="erode talus" value={e.talus} min={L.talus[0]} max={L.talus[1]} step={1} unit="°" disabled={!e.thermal} hint="The angle of repose: steeper slopes shed ground." onChange={(v) => p.set({ talus: v })} />
+      <SliderField label="Seed" aria="erode seed" value={e.seed} min={0} max={100} limit={[-2_147_483_647, 2_147_483_647]} step={1} hint="Another seed, other droplets." onChange={(v) => p.set({ seed: Math.round(v) })} />
     </div>
   );
 }

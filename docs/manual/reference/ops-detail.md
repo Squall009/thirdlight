@@ -378,6 +378,12 @@ interface EditTerrainArgs {
   /** raise, lower, noise: metres at the centre; the others: the blend at the centre (0–1]. */
   strength?: number;
   falloff?: BrushFalloff;
+  /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
+  hardness?: number;
+  /** paint: the most of the way to the layer one stroke takes a sample, (0, 1] (strength is one dab's); absent: no ceiling. */
+  opacity?: number;
+  /** Sculpt kinds and paint: noise a dab's weight is multiplied by, anchored to the terrain (seamless across its tiles and strokes); absent: none. */
+  mask?: BrushMask;
   /** flatten: the world height levelled to. */
   height?: number;
   /** noise: the size of its bumps (metres) and its seed. */

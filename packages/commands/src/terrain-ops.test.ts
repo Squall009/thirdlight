@@ -6,7 +6,7 @@
  * back at the old tile digests. The largest stroke fits one request.
  */
 import { describe, expect, it } from 'vitest';
-import { TERRAIN_BRUSH_LIMITS, encodeTerrainTile, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainTileKey, type SceneV4, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
+import { TERRAIN_BRUSH_LIMITS, TERRAIN_PAINT_BYTES, TerrainSamples, StrokeCoverage, encodeTerrainTile, paintTerrain, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainTileKey, type SceneV4, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState, MAX_REQUEST_BYTES, planTerrainEdit, terrainTilesAfter, type EditTerrainArgs } from './index';
 import type { CommandState } from './index';
@@ -110,6 +110,84 @@ describe('editTerrain', () => {
     expect(tooFar.ok === false && tooFar.error.message).toMatch(/split it/);
     const notTerrain = planTerrainEdit(scene, BEFORE.content, { entityId: BEFORE.scene.entities[0]!.id, kind: 'raise', dabs: [[0, 0]], radius: 1, strength: 1 }, read);
     expect(notTerrain.ok).toBe(false);
+  });
+
+  it('paint takes an opacity, a mask and a curve: the ceiling holds, the bytes are the cores dab by dab, seamless across a tile edge', () => {
+    const MASK = { scale: 1.5, contrast: 1.8, threshold: 0.45, octaves: 3, seed: 77 };
+    const flat: TerrainComponent = { ...TERRAIN, tiles: [{ x: 0, z: 0 }, { x: 1, z: 0 }] };
+    const scene = state([0, 0, 0], flat).scene;
+    // Back and forth over the tiles' shared edge (x = 16 m): every sample is crossed by many dabs.
+    const dabs: [number, number][] = [];
+    for (let i = 0; i < 40; i++) dabs.push([12 + (i % 10) * 0.8, 6 + Math.floor(i / 10) * 0.6]);
+    const args: EditTerrainArgs = { entityId: 'group-0902', kind: 'paint', dabs, radius: 3, strength: 0.6, falloff: 'curve', hardness: 0.4, layer: 3, opacity: 0.5, mask: MASK };
+    const a = planTerrainEdit(scene, BEFORE.content, args, read);
+    expect(a.ok, JSON.stringify(a)).toBe(true);
+    if (!a.ok) return;
+    const amount = (t: TerrainTile, x: number, z: number): number => t.paint![(z * 33 + x) * TERRAIN_PAINT_BYTES + 8]!;
+    const left = a.plan.tiles.get('0,0')!;
+    const right = a.plan.tiles.get('1,0')!;
+    let most = 0;
+    for (let z = 0; z < 33; z++) for (let x = 0; x < 33; x++) most = Math.max(most, amount(left, x, z), amount(right, x, z));
+    // The stroke's ceiling: half the way to full paint however many dabs crossed a sample.
+    expect(most).toBeGreaterThan(100);
+    expect(most).toBeLessThanOrEqual(128);
+    // The shared edge: the same bytes in both tiles.
+    for (let z = 0; z < 33; z++) expect(Array.from(left.paint!.subarray((z * 33 + 32) * 9, (z * 33 + 33) * 9))).toEqual(Array.from(right.paint!.subarray(z * 33 * 9, (z * 33 + 1) * 9)));
+    // The cores dab by dab with one coverage (what the GPU preview mirrors) give the command's bytes.
+    const s = new TerrainSamples(flat, new Map([['0,0', flatTerrainTile(33, terrainFlatStep(flat.heightRange))], ['1,0', flatTerrainTile(33, terrainFlatStep(flat.heightRange))]]));
+    const coverage = new StrokeCoverage(0.5);
+    for (const at of dabs) paintTerrain(s, { at, radius: 3, strength: 0.6, falloff: 'curve', hardness: 0.4, layer: 3, mask: MASK }, coverage);
+    expect(hex(s.all().get('0,0')!)).toBe(hex(left));
+    expect(hex(s.all().get('1,0')!)).toBe(hex(right));
+    // Seamless: the same stroke on one tile twice as wide paints every world sample alike (the mask is the place's, not the tile's).
+    const wide: TerrainComponent = { tileSamples: 65, spacing: 0.5, heightRange: TERRAIN.heightRange, tiles: [{ x: 0, z: 0 }] };
+    const w = planTerrainEdit(state([0, 0, 0], wide).scene, BEFORE.content, args, read);
+    expect(w.ok).toBe(true);
+    if (!w.ok) return;
+    const one = w.plan.tiles.get('0,0')!;
+    for (let z = 0; z < 33; z++)
+      for (let x = 0; x <= 64; x++) {
+        const t = x < 32 ? left : right;
+        const lx = x < 32 ? x : x - 32;
+        expect(Array.from(one.paint!.subarray((z * 65 + x) * 9, (z * 65 + x + 1) * 9)), `sample ${x},${z}`).toEqual(Array.from(t.paint!.subarray((z * 33 + lx) * 9, (z * 33 + lx + 1) * 9)));
+      }
+    // The mask holds paint back: one dab, unmasked, puts down clearly more paint.
+    const { opacity: _ceiling, ...uncapped } = args;
+    const pass = { ...uncapped, dabs: dabs.slice(0, 1) };
+    const plain = planTerrainEdit(scene, BEFORE.content, { ...pass, mask: undefined } as EditTerrainArgs, read);
+    const masked = planTerrainEdit(scene, BEFORE.content, pass, read);
+    expect(plain.ok && masked.ok).toBe(true);
+    if (!plain.ok || !masked.ok) return;
+    const total = (tiles: ReadonlyMap<string, TerrainTile>): number => {
+      let n = 0;
+      for (const t of tiles.values()) for (let i = 0; i < 33 * 33; i++) n += t.paint === null ? 0 : t.paint[i * TERRAIN_PAINT_BYTES + 8]!;
+      return n;
+    };
+    expect(total(masked.plan.tiles)).toBeLessThan(total(plain.plan.tiles) * 0.8);
+    // Checked args: an opacity on a sculpt, a bad mask, a hardness past its bound are refused.
+    const st = state([0, 0, 0], flat);
+    for (const bad of [{ ...args, kind: 'raise', strength: 1, layer: undefined, opacity: 0.5 }, { ...args, mask: { ...MASK, octaves: 9 } }, { ...args, opacity: 0 }, { ...args, hardness: 2 }]) {
+      const r = applyMutation(st, request('editTerrain', JSON.parse(JSON.stringify(bad)) as Record<string, unknown>, st.scene.revision));
+      expect(r.ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('a sculpt stroke through a mask moves the ground less, and only where the mask lets it', () => {
+    const flat: TerrainComponent = { ...TERRAIN, tiles: [{ x: 0, z: 0 }] };
+    const scene = state([0, 0, 0], flat).scene;
+    const base: EditTerrainArgs = { entityId: 'group-0902', kind: 'raise', dabs: [[8, 8]], radius: 6, strength: 2, falloff: 'constant' };
+    const plain = planTerrainEdit(scene, BEFORE.content, base, read);
+    const masked = planTerrainEdit(scene, BEFORE.content, { ...base, mask: { scale: 2, contrast: 2, threshold: 0.5, octaves: 2, seed: 4 } }, read);
+    expect(plain.ok && masked.ok).toBe(true);
+    if (!plain.ok || !masked.ok) return;
+    const p = plain.plan.tiles.get('0,0')!.heights;
+    const m = masked.plan.tiles.get('0,0')!.heights;
+    let lower = 0;
+    for (let i = 0; i < p.length; i++) {
+      expect(m[i]!).toBeLessThanOrEqual(p[i]!);
+      if (m[i]! < p[i]!) lower++;
+    }
+    expect(lower).toBeGreaterThan(20);
   });
 
   it('bake: sets the rules and paints every tile; a sculpt bakes again where it moved the ground', () => {

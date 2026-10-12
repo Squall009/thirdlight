@@ -8,7 +8,7 @@
  *
  * Pure.
  */
-import { TERRAIN_HEIGHT_STEPS, type BrushFalloff } from '@thirdlight/runtime';
+import { BRUSH_HARDNESS_DEFAULT, TERRAIN_HEIGHT_STEPS, type BrushFalloff, type BrushMask } from '@thirdlight/runtime';
 
 import { terrainBrushMargin, type TerrainBrushDab, type TerrainBrushKind } from './terrain-brush-gpu';
 import { TERRAIN_TEXEL_BYTES } from './terrain-texels';
@@ -31,6 +31,12 @@ export interface TerrainPreviewDab {
   to?: readonly [number, number, number];
   layer?: number;
   erase?: boolean;
+  /** A curve falloff's hardness. */
+  hardness?: number;
+  /** paint: the stroke's opacity ceiling (absent: none). */
+  opacity?: number;
+  /** Sculpt kinds and paint: the noise mask (terrain metres). */
+  mask?: BrushMask;
 }
 
 /** The terrain's shape a dab is put into. */
@@ -64,6 +70,9 @@ export function brushDabOf(d: TerrainPreviewDab, s: PreviewShape): TerrainBrushD
     to: [to[0] - ox, to[2] - oz, stepOf(to[1])],
     layer: d.layer ?? 0,
     erase: d.erase === true,
+    hardness: d.hardness ?? BRUSH_HARDNESS_DEFAULT,
+    mask: d.mask ?? null,
+    opacity: d.kind === 'paint' && d.opacity !== undefined ? d.opacity : 1,
   };
 }
 

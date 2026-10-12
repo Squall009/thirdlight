@@ -1,8 +1,102 @@
-# Types (UiWorldAnchor to WindConfig)
+# Types (UiWidget to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-widget"></a>
+### UiWidget
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+interface UiWidget {
+  id?: string;
+  type: UiWidgetType;
+  // Placement in a panel (a stack/grid/list parent flows its children; only `size` and `grow` apply there).
+  anchor?: [number, number];
+  pivot?: [number, number];
+  /** Px from the anchor; each axis a number or a view-model binding. */
+  offset?: [UiBindable<number>, UiBindable<number>];
+  /** Each axis a number, null (sized to the content) or a view-model binding. */
+  size?: [UiBindable<number> | null, UiBindable<number> | null];
+  stretch?: 'x' | 'y' | 'both';
+  margin?: [number, number, number, number];
+  grow?: number;
+  style?: string | string[];
+  css?: UiStyle;
+  visible?: UiBindable<boolean>;
+  enabled?: UiBindable<boolean>;
+  /** How opaque the widget and its children are (0–1), over its style's opacity; a number or a binding. */
+  opacity?: UiBindable<number>;
+  /** Degrees clockwise about the widget's pivot (its centre in a stack, grid or list); a number or a binding. */
+  rotation?: UiBindable<number>;
+  focusable?: boolean;
+  /** This widget's sounds (over its styles' and the document's). */
+  sounds?: UiSounds;
+  nav?: { up?: string; down?: string; left?: string; right?: string; next?: string; prev?: string };
+  worldAnchor?: UiWorldAnchor;
+  onFocus?: UiAction | UiAction[];
+  // Containers.
+  children?: UiWidget[];
+  direction?: 'row' | 'column' | 'grid' | 'right' | 'left' | 'up' | 'down';
+  gap?: number;
+  align?: 'start' | 'center' | 'end' | 'stretch';
+  justify?: 'start' | 'center' | 'end' | 'between' | 'around';
+  wrap?: boolean;
+  columns?: number;
+  cellSize?: [number, number];
+  // text / button / input
+  text?: string;
+  /**
+   * Text: the widget's text is the rich text at this view-model
+   * path (markup parsed, braces are plain text) instead of `text`.
+   */
+  content?: UiBinding;
+  /** Text: only the first N visible characters show (a typewriter; the rest keeps its place, hidden). */
+  reveal?: UiBindable<number>;
+  // image
+  image?: UiBindable<string>;
+  /** Show a save slot's picture instead of a texture (a slot number or a binding to one; nothing while it has none). */
+  saveSlot?: UiBindable<number>;
+  slice?: [number, number, number, number];
+  fit?: 'stretch' | 'contain' | 'cover';
+  tint?: UiColor;
+  // bar
+  value?: UiBindable<number> | UiBinding;
+  min?: UiBindable<number>;
+  max?: UiBindable<number>;
+  shape?: 'linear' | 'radial';
+  fillColor?: UiColor;
+  fillStyle?: string;
+  /** A number or a view-model binding (degrees, 0 = up). */
+  startAngle?: UiBindable<number>;
+  // button
+  onClick?: UiAction | UiAction[];
+  // list
+  items?: UiBinding;
+  template?: UiWidget;
+  /**
+   * The field of each item naming it (`id`): an item keeps its widgets, and
+   * the focus, while its key stays in the array, wherever it moves. Absent:
+   * items are kept by their index.
+   */
+  itemKey?: string;
+  // input
+  placeholder?: string;
+  maxLength?: number;
+  onSubmit?: UiAction | UiAction[];
+}
+```
+
+<a id="type-ui-widget-type"></a>
+### UiWidgetType
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiWidgetType = 'panel' | 'stack' | 'grid' | 'text' | 'image' | 'bar' | 'button' | 'list' | 'input';
+```
 
 <a id="type-ui-world-anchor"></a>
 ### UiWorldAnchor
@@ -141,6 +235,12 @@ interface VertexPaintBrush {
   /** 0–3: R, G, B, A. */
   channel: number;
   erase?: boolean;
+  /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
+  hardness?: number;
+  /** The most of the way one stroke takes a vertex, (0, 1] (strength is one dab's); absent: no ceiling. */
+  opacity?: number;
+  /** Noise a dab's weight is multiplied by, anchored to the world (seamless across objects and strokes); absent: none. */
+  mask?: BrushMask;
 }
 ```
 

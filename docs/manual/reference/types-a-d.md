@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to DeclaredProperty)
+# Types (AcknowledgeBehaviorTrustArgs to DecalPageRef)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -978,9 +978,14 @@ type BlockEdit =
    * toward the target per dab at the centre (0-1], `falloff` smooth (default),
    * linear or constant. Only chunks holding cells are painted. `target`
    * walls (or both) paints the wall points (`block-wall-paint.ts`) within the
-   * radius of the point (`at`, `y` rows) by distance in metres.
+   * radius of the point (`at`, `y` rows) by distance in metres. `hardness`:
+   * a curve falloff's share of the radius at full strength. The paint dabs
+   * of one command are one stroke: `opacity` (0, 1] is the most of the way to
+   * the target the stroke takes a point (strength is one dab's); `mask`
+   * multiplies a dab by noise anchored to the layer (seamless across chunks
+   * and strokes).
    */
-  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number }
+  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean; target?: PaintTarget; y?: number; hardness?: number; opacity?: number; mask?: BrushMask }
   /** Edge pieces (`block-edges.ts`): set (or remove with null) the edges at `at` (x, y, z, axis, …) or on and inside `box`; `keep`: only where none stands. */
   | EdgesEdit
   /**
@@ -1157,25 +1162,33 @@ interface BoxArgs {
 Declared in `packages/project-model/src/paint-brush.ts`.
 
 ```ts
+type BrushFalloff = 'smooth' | 'linear' | 'constant' | 'curve';
+```
+
+<a id="type-brush-mask"></a>
+### BrushMask
+
+Declared in `packages/project-model/src/paint-brush.ts`.
+
+```ts
 /**
- * The paint brush — radius, strength, falloff and the target
- * channel — as its own module, so every paint target uses the same brush: a
- * block layer's paint and wetness today (`block-paint.ts`), mesh vertex
- * colours later.
- *
- * A target is a set of points, each holding `channels` bytes (0–255). The
- * first `weights` channels are layer weights that always sum to 255 (painting
- * one moves weight from the others onto it; erasing one gives its weight back
- * to the others); any further channel stands alone (wetness: painting raises
- * it toward 255, erasing lowers it toward 0). A dab changes every point
- * within the radius by `strength × falloff(distance)` of the way to its
- * target.
- *
- * Squared distances only, no trigonometry, results rounded to bytes: the
- * same dabs give the same bytes in every JavaScript engine (the editor's
- * preview and the backend's edit agree).
+ * A stroke's noise mask: world-anchored fractal value noise (`value-noise.ts`)
+ * a dab's weight is multiplied by at each point. Anchored to the target's
+ * frame, not to the brush, so tiles, chunks and repeated strokes meet without
+ * a seam.
  */
-type BrushFalloff = 'smooth' | 'linear' | 'constant';
+interface BrushMask {
+  /** Metres one lattice cell of the first octave spans. */
+  scale: number;
+  /** How sharply the noise turns from 0 to 1 around the threshold (1: as it is). */
+  contrast: number;
+  /** The noise value (0–1) that maps to half weight: higher leaves more unpainted. */
+  threshold: number;
+  /** Layers of detail (1–5). */
+  octaves: number;
+  /** Another seed, another pattern (a whole number). */
+  seed: number;
+}
 ```
 
 <a id="type-brush-vec3"></a>
@@ -1407,38 +1420,5 @@ interface DecalPageRef {
   albedo?: DecalPageLayerRef;
   normal?: DecalPageLayerRef;
   orm?: DecalPageLayerRef;
-}
-```
-
-<a id="type-declared-property"></a>
-### DeclaredProperty
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-interface DeclaredProperty {
-  key: string;
-  label: string;
-  type: PropertyType;
-  default: PropertyValue;
-  min?: number;
-  max?: number;
-  step?: number;
-  maxLength?: number;
-  values?: string[];
-  bounds?: PropertyBounds;
-  /**
-   * Who may see and set the property. `public` (the default; the
-   * canonical form omits it) is shown in the Inspector of every object
-   * carrying the behavior and overridable per object; `private` is neither
-   * shown nor overridable — the script always reads `default`.
-   */
-  visibility?: PropertyVisibility;
-  /** The Inspector section the property is listed in (1–64 characters). */
-  group?: string;
-  /** A heading shown above the property in the Inspector (1–64 characters). */
-  header?: string;
-  /** The hover help of the property's field (1–256 characters). */
-  tooltip?: string;
 }
 ```

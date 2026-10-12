@@ -10,7 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import { validateEditTerrainArgs } from '../../../packages/commands/src/index';
 import { TERRAIN_HEIGHT_STEPS, TerrainSamples, validateTerrainLayers, type ModelErrorV2, flatTerrainTile, holeTerrain, paintTerrain, rampTerrain, sculptTerrain, terrainHoleAt, terrainTileKey, type TerrainTile } from '../../../packages/project-model/src/index';
-import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, PLACED_TERRAIN_TOOLS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
+import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, PLACED_TERRAIN_TOOLS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, terrainDabSpacing, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
+import { DEFAULT_BRUSH, type BrushSettings } from '../../../packages/editor/src/session/brush';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, tileRect } from '../../../packages/three-adapter/src/terrain-preview';
 
 const S = 33;
@@ -55,6 +56,8 @@ function changed(before: Map<string, TerrainTile>, after: ReadonlyMap<string, Te
 }
 
 const shape = { origin: ORIGIN, heightRange: RANGE, spacing: SPACING };
+/** Every setting that adds an argument: a curve falloff, an opacity under 1, a mask that is on. */
+const FULL: BrushSettings = { ...DEFAULT_BRUSH, falloff: 'curve', hardness: 0.25, opacity: 0.6, mask: { ...DEFAULT_BRUSH.mask, on: true } };
 
 describe('terrain tools: strokes', () => {
   it('store args the command accepts, for every tool, inverted or not', () => {
@@ -62,14 +65,29 @@ describe('terrain tools: strokes', () => {
       // The placed tools store no stroke (checked below).
       if (PLACED_TERRAIN_TOOLS.includes(t.id)) continue;
       for (const invert of [false, true]) {
-        const args = strokeArgs('ground', t.id, DEFAULT_TERRAIN_BRUSH, [[12, -14], [13, -14]], invert, { height: 5, from: [11, 4, -15], to: [20, 7, -10] });
-        const v = validateEditTerrainArgs(args);
-        expect(v.ok, `${t.id}${invert ? ' inverted' : ''}: ${JSON.stringify(v)}`).toBe(true);
+        // With every setting that adds an argument (a curve, an opacity, a mask): each tool sends only what it takes.
+        for (const b of [DEFAULT_BRUSH, FULL]) {
+          const args = strokeArgs('ground', t.id, b, DEFAULT_TERRAIN_BRUSH, [[12, -14], [13, -14]], invert, { height: 5, from: [11, 4, -15], to: [20, 7, -10] });
+          const v = validateEditTerrainArgs(args);
+          expect(v.ok, `${t.id}${invert ? ' inverted' : ''}: ${JSON.stringify(v)}`).toBe(true);
+        }
       }
     }
-    expect(strokeArgs('g', 'raise', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['kind']).toBe('lower');
-    expect(strokeArgs('g', 'paint', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
-    expect(strokeArgs('g', 'holes', DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
+    expect(strokeArgs('g', 'raise', DEFAULT_BRUSH, DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['kind']).toBe('lower');
+    expect(strokeArgs('g', 'paint', DEFAULT_BRUSH, DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
+    expect(strokeArgs('g', 'holes', DEFAULT_BRUSH, DEFAULT_TERRAIN_BRUSH, [[0, 0]], true, {})['erase']).toBe(true);
+    // The size is across: the radius is half; a sculpt's metres are its height step at the strength.
+    const raised = strokeArgs('g', 'raise', { ...DEFAULT_BRUSH, size: 9, heightStep: 0.8, strength: 0.5 }, DEFAULT_TERRAIN_BRUSH, [[0, 0]], false, {});
+    expect([raised['radius'], raised['strength']]).toEqual([4.5, 0.4]);
+    // A paint stroke with the full kit: the preview says what the stroke stores.
+    const pa = strokeArgs('g', 'paint', FULL, DEFAULT_TERRAIN_BRUSH, [[0, 0]], false, {});
+    const pd = previewDab('paint', FULL, DEFAULT_TERRAIN_BRUSH, [0, 0], false, {})!;
+    for (const k of ['opacity', 'mask', 'hardness', 'strength', 'radius', 'falloff'] as const) expect(pd[k], k).toEqual(pa[k]);
+    const gpu = brushDabOf(pd, shape);
+    expect([gpu.opacity, gpu.hardness, gpu.mask]).toEqual([0.6, 0.25, pa['mask']]);
+    // Dabs a share of the size apart (at least half a sample).
+    expect(terrainDabSpacing({ size: 16, spacing: 0.125 }, 0.5)).toBe(2);
+    expect(terrainDabSpacing({ size: 0.5, spacing: 0.02 }, 1)).toBe(0.5);
     // The placed tools: an erode's args and the layers after a stamp are what the command and the model take.
     const erode = validateEditTerrainArgs(erodeArgs('ground', DEFAULT_ERODE_TOOL, [12, -14], 8));
     expect(erode.ok, JSON.stringify(erode)).toBe(true);
@@ -94,14 +112,14 @@ describe('terrain tools: strokes', () => {
 
   it('preview in the terrain frame what they store (centre, steps, flatten level, ramp ends)', () => {
     const mps = (RANGE[1] - RANGE[0]) / TERRAIN_HEIGHT_STEPS;
-    const b = { ...DEFAULT_TERRAIN_BRUSH, height: 1.5, blend: 0.4 };
-    const raise = brushDabOf(previewDab('raise', b, [12, -14], false, {}), shape);
+    const b = { ...DEFAULT_BRUSH, heightStep: 1.5, strength: 1 };
+    const raise = brushDabOf(previewDab('raise', b, DEFAULT_TERRAIN_BRUSH, [12, -14], false, {})!, shape);
     expect([raise.cx, raise.cz]).toEqual([2, 6]);
     expect(raise.strength).toBeCloseTo(1.5 / mps, 6);
-    const flat = brushDabOf(previewDab('flatten', b, [12, -14], false, { height: 7 }), shape);
+    const flat = brushDabOf(previewDab('flatten', { ...b, strength: 0.4 }, DEFAULT_TERRAIN_BRUSH, [12, -14], false, { height: 7 })!, shape);
     expect(flat.strength).toBe(0.4);
     expect(flat.target).toBeCloseTo((7 - ORIGIN[1]! - RANGE[0]) / mps, 6);
-    const ramp = brushDabOf(previewDab('ramp', b, [0, 0], false, { from: [11, 4, -15], to: [20, 7, -10] }), shape);
+    const ramp = brushDabOf(previewDab('ramp', b, DEFAULT_TERRAIN_BRUSH, [0, 0], false, { from: [11, 4, -15], to: [20, 7, -10] })!, shape);
     expect(ramp.from[0]).toBe(1);
     expect(ramp.from[1]).toBe(5);
     expect(ramp.from[2]).toBeCloseTo((4 - 2 - RANGE[0]) / mps, 6);
@@ -122,15 +140,16 @@ describe('terrain tools: strokes', () => {
     ];
     let start = tiles();
     for (const c of cases) {
-      const brush = { ...DEFAULT_TERRAIN_BRUSH, radius: c.radius, height: 0.7, blend: 0.6, falloff: 'linear' as const, scale: 3 };
+      const brush = { ...DEFAULT_BRUSH, size: c.radius * 2, heightStep: 0.7, strength: c.tool === 'raise' || c.tool === 'lower' || c.tool === 'noise' ? 1 : 0.6, falloff: 'linear' as const };
+      const tb = { ...DEFAULT_TERRAIN_BRUSH, scale: 3 };
       const extra = { height: 9, from: [10 + 4, 6, -20 + 30] as [number, number, number], to: [10 + 40, 1, -20 + 2] as [number, number, number] };
-      const dab = brushDabOf(previewDab(c.tool, brush, c.at, c.invert === true, extra), shape);
+      const dab = brushDabOf(previewDab(c.tool, brush, tb, c.at, c.invert === true, extra)!, shape);
       const s = new TerrainSamples({ tileSamples: S, spacing: SPACING, heightRange: RANGE }, start);
       const local = [c.at[0] - ORIGIN[0]!, c.at[1] - ORIGIN[2]!] as const;
       if (c.tool === 'paint') paintTerrain(s, { at: local, radius: c.radius, strength: 0.6, falloff: 'linear', layer: 2 });
       else if (c.tool === 'holes') holeTerrain(s, { at: local, radius: c.radius, ...(c.invert === true ? { erase: true } : {}) });
       else if (c.tool === 'ramp') rampTerrain(s, { from: [4, 4, 30], to: [40, -1, 2], radius: c.radius, strength: 0.6, falloff: 'linear' });
-      else sculptTerrain(s, { kind: c.tool as 'raise', at: local, radius: c.radius, strength: c.tool === 'raise' || c.tool === 'lower' || c.tool === 'noise' ? 0.7 : 0.6, falloff: 'linear', height: 9 - ORIGIN[1]!, scale: 3, seed: brush.seed });
+      else sculptTerrain(s, { kind: c.tool as 'raise', at: local, radius: c.radius, strength: c.tool === 'raise' || c.tool === 'lower' || c.tool === 'noise' ? 0.7 : 0.6, falloff: 'linear', height: 9 - ORIGIN[1]!, scale: 3, seed: tb.seed });
       const diff = changed(start, s.all());
       expect(diff.length, `${c.tool}: the core changed something`).toBeGreaterThan(0);
       const box = brushSampleBox(dab, SPACING);
