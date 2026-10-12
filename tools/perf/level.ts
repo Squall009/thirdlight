@@ -76,7 +76,10 @@
  *
  * Any outdoor class can carry decals and vertex paint on the area's surfaces
  * (`--decals N`, `--mesh-decals N`, `--clipped-decals N`, `--painted N`;
- * none by default, as recorded): level-marks.ts places them.
+ * none by default, as recorded): level-marks.ts places them. Any outdoor
+ * class can carry generated buildings on the area's free ground wearing one
+ * wall material (`--layered-walls N`, `--wall-layers 1|2|4`; none by default,
+ * as recorded): level-walls.ts places them.
  *
  * Both classes share the camera (at the area's edge, looking across it to the
  * horizon) and the environment, so the landscape's extra cost is the far part.
@@ -91,6 +94,7 @@ import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } fro
 import type { PerfBackend } from './backend';
 import { prng, type BehaviorPlan, type EntityValue } from './generate';
 import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, COPY_STROKE_RADIUS, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINT_STROKE_RADIUS, PAINTED_MATERIAL, type LevelMarks, type LevelMarksOptions } from './level-marks';
+import { layeredWalls, layeredWallsNotBuilt, wallCounts, wallEntities, wallLayerTextures, wallTrimSheet, NO_LAYERED_WALLS, WALL_LAYER_SETS, WALL_MATERIAL, type LayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes. */
@@ -342,6 +346,8 @@ export interface LevelPlan {
   interior?: { architecture: Record<string, unknown>; doorType: Record<string, unknown> };
   /** Decals and paint on the area's surfaces (level-marks.ts; absent or all empty: none). */
   marks?: LevelMarks;
+  /** Generated buildings on the area wearing one wall material (level-walls.ts; absent or empty: none). */
+  walls?: LayeredWalls;
 }
 
 /** The landscape's road and river: their objects' places (world) and spline components (points as offsets). */
@@ -494,7 +500,7 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
   return f;
 }
 
-export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false, markOptions: LevelMarksOptions = NO_LEVEL_MARKS): LevelPlan {
+export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false, markOptions: LevelMarksOptions = NO_LEVEL_MARKS, wallOptions: LayeredWallsOptions = NO_LAYERED_WALLS): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
   const rnd = prng(seed * 104729 + N);
@@ -690,6 +696,10 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
   for (const id of new Set([...marks.paintedProps, ...marks.paintedCopies.map((c) => c.entityId)])) entities.find((e) => e.id === id)!.components['materials'] = { '*': PAINTED_MATERIAL };
   entities.push(...markEntities(marks));
   Object.assign(counts, markCounts(marks));
+  // Buildings on the free ground, from a generator of their own; they come after the class's own entities.
+  const buildings = layeredWalls({ seed, side: N, origin: [-half, 0, -half], groundY, rooms }, wallOptions);
+  entities.push(...wallEntities(buildings, [-half, 0, -half]));
+  Object.assign(counts, wallCounts(buildings));
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += PASTE_MAX) batches.push(entities.slice(i, i + PASTE_MAX));
@@ -700,7 +710,7 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
   if (kind !== 'area' && splines) counts.splines = levelSplines().length;
   const fields = world ? levelFields(seed, foliage) : null;
   if (fields !== null) counts.fieldChunks = (S.world.fields.side / 16) ** 2;
-  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, blocksSeam: kind !== 'area' && blocksSeam, fields, marks };
+  return { kind, version: LEVEL_VERSION, seed, props, buffers, layer, batches, blockEdits, rooms, camera, counts, liveDoors, edgeWalls, wallPaint, roofs, kitSwap, rules, projection, macro, foliage, flight, flightOps, impostorSize, splines: kind !== 'area' && splines, blocksSeam: kind !== 'area' && blocksSeam, fields, marks, ...(buildings.buildings.length > 0 ? { walls: buildings } : {}) };
 }
 
 /**
@@ -843,6 +853,20 @@ async function publishMarks(be: PerfBackend, projectId: string, cmd: (op: string
   }
 }
 
+/** The wall material and its textures: refused first when the variant waits for an engine part (level-walls.ts). */
+async function publishWalls(be: PerfBackend, projectId: string, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, seed: number, w: LayeredWalls): Promise<void> {
+  const refused = layeredWallsNotBuilt(w.options);
+  if (refused !== null) throw new Error(refused);
+  // One layer: today's trim shader on the base sheet.
+  const [base] = WALL_LAYER_SETS[1].layers;
+  const t = wallLayerTextures(base!, seed);
+  const ids = { map: `level-walls-${base!.id}-albedo`, normalMap: `level-walls-${base!.id}-normal`, ormMap: `level-walls-${base!.id}-orm` };
+  await publishFileVia(be, projectId, cmd, { assetId: ids.map, kind: 'texture', displayName: ids.map, bytes: t.albedo });
+  await publishFileVia(be, projectId, cmd, { assetId: ids.normalMap, kind: 'texture', displayName: ids.normalMap, bytes: t.normal });
+  await publishFileVia(be, projectId, cmd, { assetId: ids.ormMap, kind: 'texture', displayName: ids.ormMap, bytes: t.orm });
+  await cmd('setMaterial', { material: { materialId: WALL_MATERIAL, name: 'Level walls', shader: 'trim', params: {}, textures: ids, trim: wallTrimSheet() } });
+}
+
 export async function buildLevel(be: PerfBackend, projectId: string, plan: LevelPlan, log: (s: string) => void = () => undefined): Promise<LevelBuild> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Perf level ${plan.kind}` });
@@ -857,6 +881,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
   await cmd('setSettings', { settings: { physics_dimension: 3, ...(hasTerrain(plan.kind) ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
   for (const f of plan.props) await publishFileVia(be, projectId, cmd, { assetId: f.assetId, kind: 'model', displayName: f.assetId, bytes: propGlb(f.seed, f.spec) });
   if (plan.marks !== undefined) await publishMarks(be, projectId, cmd, plan, plan.marks);
+  if (plan.walls !== undefined) await publishWalls(be, projectId, cmd, plan.seed, plan.walls);
   // The interior has no foliage: the kit would only be shipped unused.
   if (plan.interior === undefined) await publishFileVia(be, projectId, cmd, { assetId: FOLIAGE_KIT, kind: 'model', displayName: 'Level foliage', bytes: scatterKitGlb(plan.seed, FOLIAGE_PIECES) });
   if (hasTerrain(plan.kind)) {

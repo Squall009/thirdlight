@@ -55,19 +55,27 @@ as in 34.0.
   - **Opaque surfaces:** albedo A = height (linear). **Cut-out and
     transparent materials** (foliage, decals): A = opacity.
 
-## 2. Where things stand (recon 2026-10-12, at `47999af5`)
+## 2. Where things stand (recon 2026-10-12 at `47999af5`, re-read at `eb3e6dc6` after phase 34)
 
 - **Seven fixed shader types** (`project-model/src/materials.ts:31`):
   `standard, foliage, kit, unlit, water, trim, decal`. Material instances
   (`instanceOf`) and Convert to graph exist.
 - **The 4-layer height-blended material is a graph template,** not a type
-  (`editor/src/session/material-graph.ts:405-520`, `TEMPLATE_LAYERS = 4`).
+  (`editor/src/session/material-graph.ts:447-560`, `TEMPLATE_LAYERS = 4`).
   - It reads `albedoHeight`, `normals` and `orm` texture arrays.
   - Terrain gets more layers through `extraLayers`.
-- **Bug:** the template's `heightBlend` weights are wired to `vertexColor`
-  `COLOR_0` (`material-graph.ts:493`), so the "unwired weights = vertex
-  paint" fallback never fires. The stock layered material ignores vertex
-  paint on props.
+  - Since 34.9 a texture read says what it gives without a texture
+    (`absent`: the ORM reads `orm`, a normal read a flat normal), and a slot
+    list fills an empty normal/ORM slot with a constant layer.
+  - Materials carry optional `layerNames` (`materials.ts:226`); the layer
+    palette (`editor/src/ui/palette/`: `LayerPalette`, `LayerPicker`,
+    `MaterialLayers`, `LayerSettings`) shows a layered material's layers;
+    `setMaterial {material, assign: {entityId}}` makes and assigns one as one
+    undo step.
+- **Bug (still there at `eb3e6dc6`):** the template's `heightBlend` weights
+  are wired to `vertexColor` `COLOR_0` (`material-graph.ts:498`), not the
+  vertex paint set, so the stock layered material ignores vertex paint on
+  props.
 - **The trim shader** (`three-adapter/src/trim-material.ts`):
   - reads three textures and ignores albedo alpha;
   - grime and wetness are flat tints from `COLOR_0`, and vertex paint adds
@@ -79,11 +87,21 @@ as in 34.0.
   - terrain stores up to 256 layers as 4 indices + 4 weights;
   - vertex paint (`tlPaint`) stores 4 independent bytes per vertex, and on
     generated walls and splines a path-space grid.
-- **Vertex paint UI** is a floating window (`VertexPaintPanel.tsx`, 203
-  lines). Channels are labelled R/G/B/A with no meaning, and nothing warns
-  that the material doesn't read paint.
+- **Vertex paint UI** is a floating window (`ui/tools/VertexPaintPanel.tsx`,
+  203 lines). Channels are labelled R/G/B/A with no meaning, and nothing warns
+  that the material doesn't read paint. `paintVertices` already takes the
+  brush kit's `opacity`, `mask` and `hardness` (34.5, 34.6); only the panel
+  and ring are not on the kit.
+- **Phase 34's shell** (`editor/src/ui/editmode/`: `EDIT_MODES`, one entry
+  today, the terrain; `EditModeShell`, `ToolRail`, `ToolGrid`, `StatusHints`;
+  the key map `session/edit-keys.ts`; isolation in the adapter), the brush kit
+  (`ui/brush/`: `BrushPanel`, `SliderField`, `NoiseMask`, the settle queue)
+  and the one cursor (`viewport/brush-cursor.ts`) are what 35.5 and 35.6 build
+  on. `viewport/viewport.ts` (1,948 lines) and `three-adapter/src/adapter.ts`
+  (1,976) are near the split line: the next change to either moves its area
+  out first.
 - **Decals** (phase 32):
-  - a floating Decal tool (`DecalToolPanel.tsx`, `viewport/decal-tool.ts`);
+  - a floating Decal tool (`ui/tools/DecalToolPanel.tsx`, `viewport/decal-tool.ts`);
   - **decal pages** pack every decal image into page arrays up to 2048² for
     Play and the export (`project-model/src/decal-pages.ts`,
     `backend/src/decal-page-compose.ts`);
@@ -135,7 +153,7 @@ Rules for every item:
 | Measure | Target |
 |---|---|
 | A wall with one trim layer | within noise of today's trim shader |
-| A wall with 4 layers + wetness | GPU scene pass + ≤ 1.0 ms at 1080p for a village-class view (measured in 35.1, recorded) |
+| A wall with 4 layers + wetness | GPU scene pass + ≤ 1.0 ms at 1080p for a village-class view: `level --classes area --layered-walls 24 --wall-layers 4` against 35.1's 1-layer 5.66–5.72 ms (WebGPU), so ≤ ~6.7 ms; WebGL 2 has no pass timing, its frame p50 is compared instead |
 | Unused layers | no texture read |
 | Decal atlas composition | ≤ 2 s for 200 decal images, off the main thread |
 
@@ -143,10 +161,36 @@ Rules for every item:
 
 | Item | Status |
 |---|---|
-| 35.0 | — |
+| 35.0 | Done 2026-10-12: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 (2026-09-25) exists, the pinned 0.20.0 stays (nothing here depends on it). §2 re-read at `eb3e6dc6`: line numbers, 34.9's `absent` reads and constant slot layers, `layerNames`, the palette, `setMaterial assign`, the shell and brush kit, panel paths updated; the template's weight bug is still there. Items unchanged. |
+| 35.1 | Done 2026-10-12: `level --layered-walls N [--wall-layers 1\|2\|4]` (`tools/perf/level-walls.ts`): N generated buildings (starter room preset in and out, 1–2 storeys, door, windows with panes, hip/gable roof) as one static architecture object on the area's free ground, wearing one wall material; 1 layer = today's trim shader on a 1024² starter-layout sheet (albedo with height in A, normal, ORM); 2 and 4 layers are in `WALL_LAYER_SETS` (trim A + trim B; + moss and rust tiling, wetness) and refused until 35.3 builds the material. vitest `tests/perf/level-walls.test.ts` (7). **Baseline, area class, Iris Xe, 1080p, uncapped, 2 rounds:** without walls WebGPU p50/p95 6.8/9.7 ms, GPU 10.41 ms (scene pass 4.16), 260 draws, 271k tris; WebGL 2 p50/p95 2.7/7.0. **24 trim buildings (39 storeys):** WebGPU p50/p95 7.4/8.3 and 7.4/11.0 ms, GPU 11.71/12.02 ms, **scene pass 5.66/5.72 ms**, 343–346 draws, 330k tris, main thread 7.4–7.6 ms; WebGL 2 p50/p95 3.9/7.3 and 4.0/10.7 ms (no GPU pass timing on WebGL 2). The walls cost ~1.5 ms of scene pass. WebGL 2 p99 126–142 ms in every run, walls or not (the class's own hitches, not the walls). Screenshots looked at (both renderers): the buildings show the sheet's courses. Fast gate: build, lint, vitest 688, e2e 30 green; village WebGL 2 p50 5.0 > 4.84 ms twice (gate + rerun), the same miss as 34.10's tail. No A/B was run, because this change ships nothing: only `tools/perf`, `tests/perf` and docs differ from `eb3e6dc6`, so the village export is the same build. Host state (D199). |
 
 ## 6. Decision log
 
 - 2026-10-12 — Planned from the owner's material questions: one layered
   type for terrain and walls, defaults to start from, Customize to graph,
   height in alpha, a decal editor with atlasing.
+- 2026-10-12 (35.0) — Plan re-read against phase 34's outcome: only §2's
+  facts changed (listed in §5); the items stand. 35.5 is smaller than
+  planned, since `paintVertices` already takes the brush kit's opacity, mask
+  and hardness.
+- 2026-10-12 (35.1) — The walls switch. Defaults chosen, owner to confirm:
+  - **"Village-scale" is 24 buildings** on the area class's 100 × 100 m, 39
+    storeys between them. The village perf class has no buildings, and the
+    area's free ground holds about that many with 2 m between them. The
+    switch says when the area is full instead of placing fewer.
+  - **Generated buildings, not block walls**: the trim shader is what
+    generated architecture wears, and 35.3's layered surface replaces it
+    there first. One object holds every building, as the Rooms tool makes
+    them. Props stay where the class put them (a few end up inside a
+    building), so the class's own content never moves with the count.
+  - **The baseline is unpainted.** Today's trim shader reads paint as grime
+    and wetness tints at the same cost either way. 35.3 adds the paint
+    strokes the 2- and 4-layer variants blend by, and measures them against
+    this row.
+  - **The variants wait as refusals** (`layeredWallsNotBuilt`), the way the
+    marks switch's did. They are not a stand-in material. 35.3 fills
+    `publishWalls` for 2 and 4 layers from `WALL_LAYER_SETS` and
+    `wallLayerTextures` (trim layers at the sheet's 1024², tiling layers at
+    512², as §1's per-group sizes say).
+  - WebGL 2 gives no per-pass GPU time (three times only the outermost
+    pass), so its target is read on frame p50, with host drift in mind.

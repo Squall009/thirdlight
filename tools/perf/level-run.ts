@@ -66,6 +66,11 @@
  *   --painted N                  N placed props, then foliage copies, painted by strokes and wearing a paint-tinted
  *                                material (with --switches paint=off: the same scene, paint not drawn); all default
  *                                0: the class as recorded (level-marks.ts)
+ *   --layered-walls N            N generated buildings (one or two storeys, door, windows, roof) on the area's free ground,
+ *                                every wall wearing one material (default 0: the class as recorded; level-walls.ts)
+ *   --wall-layers 1|2|4          with --layered-walls: the layers that material blends (default 1: today's trim shader on
+ *                                one trim sheet; 2: two trim sheets, 4: two sheets, moss and rust plus wetness, refused
+ *                                until the engine has the layered surface material)
  *   --moving-decals N            with --decals: the first N projected decals move to and fro along their surface
  *   --decal-spawns N             with --decals: a script spawns N decals a second on their ground spots (past the
  *                                transient budget the oldest fade out)
@@ -91,6 +96,7 @@ import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, LE
 import { editModeRuns, maskedDabRuns, type DabRun, type EditModeRun } from './level-editmode';
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
+import { layeredWallsNotBuilt, parseLayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { frameLine } from './village-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
@@ -186,6 +192,8 @@ export interface LevelReport {
   heightFog?: boolean;
   /** Decals and paint on the area's surfaces (absent: none). */
   marks?: LevelMarksOptions;
+  /** Generated buildings on the area and the layers their wall material blends (absent: none). */
+  layeredWalls?: LayeredWallsOptions;
   /** The scripted road edits in the editor's Scene view: each edit's round trip (ms) and the page's frames meanwhile. */
   splineEdit?: Partial<Record<FrameRenderer, EditRun>>;
   /** The terrain editor's edit mode (`--edit-mode`). */
@@ -293,6 +301,10 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   if (foliage !== 'on' && foliage !== 'off') throw new Error(`--foliage: on or off, not ${foliage}`);
   const marks = parseLevelMarks(get);
   if (anyLevelMarks(marks) && kinds.includes('interior')) throw new Error('--decals, --mesh-decals, --clipped-decals and --painted mark the outdoor classes\' area, not the interior');
+  const walls = parseLayeredWalls(get);
+  if (walls.buildings > 0 && kinds.includes('interior')) throw new Error('--layered-walls builds on the outdoor classes\' area, not the interior');
+  const wallsRefused = layeredWallsNotBuilt(walls);
+  if (wallsRefused !== null) throw new Error(wallsRefused);
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -306,14 +318,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), ...(has('day-cycle') ? { dayCycle: true } : {}), ...(anyLevelMarks(marks) ? { marks } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), ...(has('day-cycle') ? { dayCycle: true } : {}), ...(anyLevelMarks(marks) ? { marks } : {}), ...(walls.buildings > 0 ? { layeredWalls: walls } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'), marks);
+      const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'), marks, walls);
       const b = await buildLevel(be, `level-${kind}`, plan, log);
       if (has('height-fog')) await be.project(b.projectId).command('setEnvironment', { sceneId: 'scene-main', environment: { ...LEVEL_LOOK, heightFog: LEVEL_HEIGHT_FOG } });
       if (has('day-cycle')) await dayCycle(be, b.projectId);
