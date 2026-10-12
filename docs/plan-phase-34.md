@@ -182,6 +182,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 | 34.5 | Done 2026-10-12: one `BrushSettings` (`session/brush.ts`: size across, strength, opacity, falloff + curve hardness, spacing, invert, height step; per editor and tool in localStorage, invert not kept), one `SliderField` (stamp/erode fields moved onto it), `BrushPanel`, `FalloffPicker`, shared `Section`/`Toggle`/`Segmented`; one cursor (`viewport/brush-cursor.ts`: ring + dark halo, dashed half-strength ring, fill, dot; `BrushHud`) for the terrain and block editors; brush keys in `edit-keys.ts` (`[ ]`, Shift, F/Shift+F drag, X, Ctrl) listed per mode. Opacity is a per-stroke coverage in `paint-brush.ts` (additive `opacity`, `hardness` on `editTerrain` paint, `editBlocks` paint, `paintVertices`); the GPU preview keeps a per-tile byte coverage. vitest: brush 5, paint-brush 7, terrain-ops +2; e2e: `editor-window` keys/F/X, `terrain-cdlod` on the new fields (+1.7 s on editor-window). |
 | 34.6 | Done 2026-10-12: fractal value-noise mask (`value-noise.ts`, the terrain hash; scale, contrast, threshold, octaves 1–5, seed), additive `mask` on every paint command and the sculpt kinds, anchored to the target; masked GPU passes are their own variants (built when the mask turns on); `NoiseMask` with a live swatch; the cursor's fill shows the mask. Masked + 50 % opacity stroke, preview vs stored: weight ≤ 1 byte on WebGPU and WebGL 2, dab preview ≤ 1.1 ms a frame, commit 19 / 51 ms (targets: in the frame, p95 ≤ 100 ms). Seam-free: the same bytes per sample with 33² tiles as with one 65² tile (vitest). e2e: a masked stroke's pixels differ from the unmasked one, undo. Fast gate green (9 min; village p50 5.6 / 4.8 ms). |
 | 34.7 | Done 2026-10-12: `ui/palette/` — `LayerPalette` (tiles: the slot texture's backend thumbnail, number, name, sub line; picked = brush ring; 1–9 keys; drop target), `LayerPicker` (chip + compact palette in a popover beside the column), `MaterialLayers` (the Paint column's Layers section: material chip, picked-layer line, **Layer settings…** popover, **Set up material**), `LayerSettings.tsx` moved here (the material document's table and the popover's `LayerFields` share `session/layer-palette.ts`). Additive `layerNames` on materials; `setMaterial {material, assign: {entityId}}` = one undo step. Material rules pick their layer with `LayerPicker`. Thumbnail of a 64² PNG texture: 128 px PNG well under 64 KB (asserted ≤ 64 KB), read once per texture version (the tile cache). e2e: `editor-window` (stand-ins, key pick, Set up + one undo/redo, drop, picker, name + tiling, paint the material's layer 2: stored index and pixels), `terrain-cdlod` (palette tile, rules' picker). The editor-window terrain test takes 7.6 s in the gate (terrain-cdlod 2.9 min, both renderers). Fast gate green (rendering's dynamic-resolution step failed once, passed on rerun; village p50 5.6 / 4.7 ms within its limits). Screenshots looked at against 02/03 (owner look pending): the paint column, the settings popover and the rules picker. |
+| 34.8 | Done 2026-10-12: the terrain editor's columns rebuilt (`ui/terrain/`, one per rail mode, Settings added): tool grids with letter keys (`ToolGrid`), Paint/Erase and Cut/Fill as one tool each, rule cards shared with the Blocks panel (`ui/rules/`, `RangeField`, `ChipsField`; `SurfaceRule.name` additive), a live preview of the bake (the bake's own function over the drawn tiles, `TerrainView.previewLayers`), every scatter field, stamp move/turn/resize handles, the tile grid with click-to-add (`editTerrain addTiles`, edges carried on) and remove, every erosion setting; a layer's colour/normal/ORM slots with a texture browser and name-matched sets; `TerrainPanel`, `TerrainLayersPanel`, `SurfaceRulesEditor`, `ScatterRulesEditor` deleted; Inspector keeps the plain fields; a new terrain is one command. D248 fixed (a grown page uploaded only the queued layer). e2e: `terrain-cdlod` steps rewritten + `tiles` (3.0 min, was 2.9), `editor-window` green. Blur/Fill not built (no core maths). |
 
 ## 7. Decision log
 
@@ -285,4 +286,45 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     command). The table in the material document stays for editing all layers at once.
   - Not done here: Erase/Blur/Fill paint tools and the rules' cards and live preview (34.8), the palette in vertex
     paint (35) and blocks (36). The slots' normal and ORM arrays are not filled from the palette (the albedo's only).
-
+- 2026-10-12 (34.8) — The terrain editor. Defaults chosen, owner to confirm:
+  - **Paint's tools are Paint and Erase; Blur and Fill (in the mockup) are not built.** A blur of hand paint and a
+    fill need maths in `paint-brush.ts`/`terrain-edit.ts` and a GPU pass whose preview equals the stored bytes; none
+    exists yet, so the buttons are left out rather than shown doing something else. Erase is the paint tool inverted
+    (one brush; X switches; the tiles follow the brush's invert). Holes likewise: Cut and Fill.
+  - **A new terrain is one command:** `createEntity` with its `terrain` in `components` (the op already takes it), not
+    a combined command or a follow-up. One undo takes the object and its terrain away and closes the editor.
+  - **Adding a tile carries the ground on** (`editTerrain addTiles`, additive kind): each sample takes the nearest
+    sample of a tile that was there (its 8 neighbours), shared-edge samples their weights and paint too — no crack,
+    no cliff; rules bake it in the same command. Removing is `setComponent terrain {tiles}` without it. The grid shows
+    a tile's 8 empty neighbours; a click on one adds, on a tile picks.
+  - **The rules' live preview** runs the command's bake function (`bakeTerrainRules`, re-exported by the runtime) over
+    the Scene view's decoded tiles nearest the view, up to `RULES_PREVIEW_SAMPLES` (1.1 M samples: all of a usual
+    terrain) on the main thread after the draft rests 180 ms, and the view draws the result in place of the stored
+    layers (`previewLayers`; the stored layers come back when the draft equals what is stored, the mode is left or the
+    bake lands). It leaves the splines' paint out (the bake has it). **"Highlight the selected rule"** is "Only the open
+    rule": that rule alone over the first layer — where it applies — rather than a hatch overlay (no second pass).
+    The mockup's per-card eye is not built (it needs an `enabled` field). Rules get an optional `name` (additive).
+  - **One rule-card editor for terrain and block layers** (`ui/rules/`): the Blocks panel's rules and scatter use the
+    same cards (layers 1–4 by number there) with Apply/Revert until 36 rebuilds that panel; the old list editors are
+    gone. Conditions are range sliders (drag a thumb to its end to open that end; typing `35–90`, `>35`, `<90`, `any`)
+    with a softness each; "only where" and scatter's layers pick layers from the palette by picture.
+  - **Settings sliders that store** (`SliderField settle`): a drag shows at once and sends one command once it rests
+    250 ms (the layer list, the picked stamp, Settings).
+  - **A layer's full set:** the layer settings popover shows its colour (+height), normal map and ORM slots, each
+    picked in the texture browser (also the empty-slot picker and the stamp heightmap). Picking a colour texture fills
+    normal/ORM from textures named alike (`rock_albedo`/`rock_basecolor` → `rock_normal`, `rock_orm`; the stem and the
+    role word, never a near stem), overwriting those slots when a match exists, in the same command. Unset normal/ORM
+    arrays still read white: D250.
+  - **Inspector:** the terrain section skips the fields only the editor edits (tiles, rules, scatter, layers, overview;
+    `EditModeKind.inspectorSkips`); the plain fields stay.
+  - **Stamps are picked and dragged on screen** (their squares' projected corners), the drag measured on the level of
+    the stamp's corners: a raycast onto the stamp's own steep mountain missed it in the e2e (the press found ground
+    40 m behind). Handles are sprites of a fixed screen size.
+  - Found and fixed: D248 — `TerrainView.grow` made new arrays and the next layer queued (the new tile's) made three's
+    first upload write only that layer; every used layer is queued now. The backend's JPEG decode capped at
+    `maxPixels / 1024²` MP while jpeg-js counts 1,000² — a slot array of 512² JPEGs refused its own size (layer
+    textures from JPEGs never drew); fixed with a test. Found, not fixed: D249 (dark shapes under hidden objects in
+    isolation), D250 (unset normal/ORM arrays read white).
+  - Screenshots looked at against 01–03 (owner look pending): Sculpt, Paint (palette, settings with slots, texture
+    browser), Holes, Material rules (cards, picker, preview), Scatter, Stack (stamp handles), Tiles (grid), Settings;
+    kept in `~/.cache/thirdlight-phase34/work/shots/348-*.png`.

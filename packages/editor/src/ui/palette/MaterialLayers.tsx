@@ -1,11 +1,13 @@
 /**
  * An object's material layers in an edit mode's settings column: the layer
  * palette of the material it draws with (its "*" mapping), with what the
- * palette edits on that material — a texture into a layer's slot (dropped
- * from the project window or picked), the layer's name and settings in a
- * popover — and "Set up material" when it has no layered material: a new
- * material from the Height-blended layers template, given to the object in
- * the same command (one undo step).
+ * palette edits on that material — a texture into a layer's slots (dropped
+ * on a tile, or picked in the texture browser: the project window lies
+ * under the mode), its normal map and ORM filled from textures named alike
+ * (`texture-sets.ts`); the layer's textures, name and settings in a popover —
+ * and "Set up material" when it has no layered material: a new material from
+ * the Height-blended layers template, given to the object in the same
+ * command (one undo step).
  *
  * Without a layered material the palette shows the colours the object draws
  * meanwhile, named as such, and the button is the first thing in the section.
@@ -16,14 +18,40 @@ import { useMemo, useState, type JSX } from 'react';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type { MaterialDef } from '@thirdlight/project-model';
 
-import { paletteLayers, paletteSource, standInLayers, withSlotTexture, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
+import type { Catalog } from '../../session/catalog';
+import { paletteLayers, paletteSource, standInLayers, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
 import { LAYERED_TEXTURES, templateMaterial } from '../../session/material-graph';
+import { matchingTexture, textureSetQuery } from '../../session/texture-sets';
 import type { TileThumbnails } from '../../viewport/thumbnails';
-import { useAssetSummaries } from '../catalog/catalog-context';
-import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
+import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
+import { TEXTURE_KINDS } from '../catalog/RefPicker';
 import { Section } from '../editmode/controls';
 import { LayerPalette, Popover } from './LayerPalette';
 import { LayerFields } from './LayerSettings';
+import { LayerTextures } from './LayerTextures';
+import { TextureBrowser } from './TextureBrowser';
+
+/** How many textures named like a colour map are read to find its set (the first page of matches). */
+const SET_CANDIDATES = 50;
+
+/**
+ * The material after a layer took a colour texture: its normal and ORM slots
+ * filled from textures named alike when the project has them (left as they
+ * are when it has none).
+ */
+async function withTextureSet(m: MaterialDef, layer: number, albedoId: string, catalog: Catalog | null): Promise<MaterialDef> {
+  if (catalog === null) return m;
+  const [albedo] = await catalog.entries([albedoId], TEXTURE_KINDS);
+  const stem = albedo === undefined ? null : textureSetQuery(albedo.name);
+  if (albedo === undefined || stem === null) return m;
+  const { entries } = await catalog.page({ kinds: TEXTURE_KINDS, text: stem }, 0, SET_CANDIDATES);
+  let out = m;
+  for (const key of [LAYERED_TEXTURES.normals, LAYERED_TEXTURES.orm] as const) {
+    const id = matchingTexture(albedo.name, key === LAYERED_TEXTURES.normals ? 'normals' : 'orm', entries);
+    if (id !== null) out = withSlotTexture(out, layer, id, key);
+  }
+  return out;
+}
 
 /** What the palette needs from the app. */
 export interface PaletteHost {
@@ -81,6 +109,7 @@ export interface MaterialLayersProps {
 /** The "Layers" section of a column: the palette, its material, the picked layer's settings, or "Set up material". */
 export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
   const { source, layers } = p.palette;
+  const { catalog } = useCatalog();
   const [chooser, setChooser] = useState<{ index: number; anchor: HTMLElement } | null>(null);
   const [settings, setSettings] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -116,11 +145,15 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
   const m = source.material;
   const editable = source.kind === 'layered' && p.disabled !== true;
   const slotted = source.kind === 'layered' && source.slots !== 'array';
-  const put = (index: number, textureId: string): void => {
-    // The material as the project shows it now (two quick drops both count: each command waits for the one before).
-    const now = p.host.materials.find((x) => x.materialId === m.materialId) ?? m;
-    save(withSlotTexture(now, index, textureId), 'Layer texture');
+  /** A texture into a layer's slot of one array; a colour texture brings its set's other maps along (one command). */
+  const put = (index: number, textureId: string, key: LayerTextureKey = LAYERED_TEXTURES.albedo): void => {
     p.onPick(index);
+    void (async () => {
+      // The material as the project shows it now (two quick drops both count: each command waits for the one before).
+      const now = p.host.materials.find((x) => x.materialId === m.materialId) ?? m;
+      const one = withSlotTexture(now, index, textureId, key);
+      save(key === LAYERED_TEXTURES.albedo && textureId !== '' ? await withTextureSet(one, index, textureId, catalog) : one, 'Layer texture');
+    })();
   };
   const picked = layers.find((l) => l.index === p.active);
   const chip = (
@@ -154,21 +187,22 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
       </div>
       {chooser !== null && (
         <Popover anchor={chooser.anchor} onClose={() => setChooser(null)} aria="choose layer texture" title={`Texture for layer ${chooser.index + 1}`} aside={m.name}>
-          <RefPicker
+          <TextureBrowser
             aria={`layer ${chooser.index + 1} texture`}
-            kinds={TEXTURE_KINDS}
-            value=""
-            none="(choose a texture)"
+            value={null}
+            thumbnails={p.host.thumbnails}
+            autoFocus
             onPick={(id) => {
-              if (id !== '') put(chooser.index, id);
+              put(chooser.index, id);
               setChooser(null);
             }}
           />
-          <p className="tl-inspector__hint">Or drag a texture from the project window onto the layer.</p>
+          <p className="tl-hint">Its normal map and ORM come along when the project has textures named alike (rock_albedo, rock_normal, rock_orm).</p>
         </Popover>
       )}
       {settings !== null && source.kind === 'layered' && (
         <Popover anchor={settings} onClose={() => setSettings(null)} aria="layer settings" title={`Layer ${p.active + 1}${picked !== undefined ? ` · ${picked.name}` : ''}`} aside={m.name}>
+          {slotted && <LayerTextures material={m} layer={p.active} thumbnails={p.host.thumbnails} disabled={!editable} onPick={(key, id) => put(p.active, id, key)} />}
           <LayerFields key={p.active} material={m} layer={p.active} textureName={picked?.texture != null ? (p.palette.names.get(picked.texture) ?? null) : null} onSave={(x) => save(x)} />
         </Popover>
       )}

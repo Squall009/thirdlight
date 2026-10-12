@@ -65,7 +65,7 @@ import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurfac
 import { sameMacroSource, TERRAIN_HORIZON_METRES, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays, type TerrainMacroJob } from './terrain-macro';
 import { gridGeometry, nodeGeometry } from './terrain-grid';
 import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
-import { metresPerStep, packFlat, packHeightNormalBorder, TERRAIN_TEXEL_BYTES } from './terrain-texels';
+import { metresPerStep, packFlat, packHeightNormalBorder, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 import { TerrainBrushGpu, terrainBrushParts, type TerrainBrushKind, type TerrainBrushPart, type TerrainBrushTile } from './terrain-brush-gpu';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, rectUnion, tileRect, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 import { packTerrainTile, type TerrainTexels } from './terrain-pack-worker';
@@ -322,6 +322,8 @@ interface TerrainRec {
   stroke: StrokeRec | null;
   settle: SettleRec | null;
   lastStroke: TerrainPreviewStats | null;
+  /** Tiles drawing layers handed in by the editor (a rules preview) instead of their stored ones (null: none). */
+  layerPreview: Set<TileRec> | null;
   /** Its rings when it streams (a game page; null: every tile resident). */
   rings: ResolvedStreamingRings | null;
   /** A streamed terrain's overview drawn where its tiles are not (null: none), and the digest read into it. */
@@ -433,7 +435,7 @@ export class TerrainView {
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), sunBakes: new Set(), stroke: null, settle: null, lastStroke: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), sunBakes: new Set(), stroke: null, settle: null, lastStroke: null, layerPreview: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -628,6 +630,41 @@ export class TerrainView {
     k.released ??= { check: false };
     k.ended = { touched: stored === null ? null : new Set(stored.map((t) => terrainTileKey(t[0]!, t[1]!))), check: k.released.check, at: performance.now() };
     this.deps.changed();
+  }
+
+  /**
+   * Draw these tiles' layers (keyed "x,z") in place of their stored ones —
+   * the editor's preview of a rules bake — or, with null, the stored layers
+   * again. Heights and holes' places are left as they are; a tile whose
+   * stored data arrive meanwhile draws them. A tile a stroke is previewing
+   * on is left out.
+   */
+  previewLayers(id: string, tiles: ReadonlyMap<string, TerrainTile> | null): void {
+    const rec = this.terrains.get(id);
+    if (rec === undefined) return;
+    const was = rec.layerPreview ?? new Set<TileRec>();
+    const next = new Set<TileRec>();
+    if (tiles !== null) {
+      for (const [key, tile] of tiles) {
+        const t = rec.tiles.get(key);
+        if (t === undefined || t.tile === null || t.layer < 0 || t.preview !== null || tile.samples !== t.tile.samples) continue;
+        this.queueLayers(rec, t, tile);
+        next.add(t);
+      }
+    }
+    for (const t of was) if (!next.has(t) && rec.tiles.get(terrainTileKey(t.x, t.z)) === t && t.tile !== null && t.layer >= 0) this.queueLayers(rec, t, t.tile);
+    rec.layerPreview = next.size > 0 ? next : null;
+    this.deps.changed();
+  }
+
+  /** A tile's layer and index texels packed from `tile` and queued for upload (its heights untouched). */
+  private queueLayers(rec: TerrainRec, t: TileRec, tile: TerrainTile): void {
+    const bytes = tile.samples * tile.samples * TERRAIN_TEXEL_BYTES;
+    const layers = new Uint8Array(bytes);
+    const indices = new Uint8Array(bytes);
+    packLayers(layers, indices, tile);
+    t.pending = { heights: t.pending?.heights ?? null, layers, indices };
+    rec.uploads.add(t);
   }
 
   /** The last stroke's figures on terrain `id` (null: none). */
@@ -1123,6 +1160,8 @@ export class TerrainView {
   }
 
   private arrive(rec: TerrainRec, t: TileRec, digest: string | null, tile: TerrainTile, texels: TerrainTexels): void {
+    // Its stored data replace a rules preview's layers.
+    rec.layerPreview?.delete(t);
     // Its stored data replace a stroke's preview once uploaded.
     if (t.preview !== null) {
       t.preview = null;
@@ -1289,6 +1328,10 @@ export class TerrainView {
     (heights.image.data as Uint8Array).set(old.heights.image.data as Uint8Array);
     (layers.image.data as Uint8Array).set(old.layers.image.data as Uint8Array);
     (indices.image.data as Uint8Array).set(old.indices.image.data as Uint8Array);
+    // Every layer in use goes up with the new textures' first upload: a layer queued before it (the tile this
+    // grow makes room for) would otherwise make that upload write only the queued layer, and the tiles already
+    // there would draw what the new texture held (no heights: the terrain drawn far below, or not at all).
+    for (const l of old.used) for (const tex of [heights, layers, indices]) tex.addLayerUpdate(l);
     const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, indices, rec.uniforms);
     const fallback = defaultTerrainMaterial(surface);
     old.undoMaterial?.();

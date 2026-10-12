@@ -32,10 +32,11 @@ import type { TileThumbnails } from '../viewport/thumbnails';
 import { useTileUrl } from './assets/TileImage';
 import { useAssetSummaries } from './catalog/catalog-context';
 import type { BlockCell, BlockCutaway, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor, PaintTarget } from '@thirdlight/project-model';
-import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, blockKitNames, type BrushFalloff } from '@thirdlight/runtime';
+import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, SURFACE_RULE_BLOCK_LAYERS, blockKitNames, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
-import { SurfaceRulesEditor } from './SurfaceRulesEditor';
-import { ScatterRulesEditor } from './ScatterRulesEditor';
+import { Segmented } from './editmode/controls';
+import { MaterialRulesEditor } from './rules/MaterialRuleCards';
+import { ScatterRulesEditor } from './rules/ScatterRuleCards';
 import { componentPatch } from '../session/descriptor-fields';
 import {
   BLOCK_TOOLS,
@@ -106,6 +107,9 @@ interface Props {
   /** The rooms drawn on the layer (the Rooms tool; absent: no rooms tool). */
   rooms?: RoomsBinding;
 }
+
+/** The heights a block layer's cells span (metres above its object): the rules' height sliders' track. */
+const blockHeights = (c: { bounds: { min: readonly number[]; max: readonly number[] }; cellSize: readonly number[] }): [number, number] => [c.bounds.min[1]! * c.cellSize[1]!, Math.max(c.bounds.min[1]! * c.cellSize[1]! + 1, c.bounds.max[1]! * c.cellSize[1]!)];
 
 const newId = (base: string, taken: readonly string[]): string => {
   const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'item';
@@ -429,9 +433,10 @@ export function BlocksPanel(p: Props): JSX.Element {
       </div>
 
       {layer !== null && rulesOpen && (
-        <SurfaceRulesEditor
+        <MaterialRulesEditor
           rules={layer.component.rules ?? []}
           blocks={true}
+          height={blockHeights(layer.component)}
           disabled={layer.locked}
           onApply={(rules) => p.run(rules.length > 0 ? 'Set material rules' : 'Remove material rules', 'setComponent', { entityId: layer.entityId, component: 'blockLayer', value: { ...layer.component, rules } })}
         />
@@ -440,6 +445,8 @@ export function BlocksPanel(p: Props): JSX.Element {
         <ScatterRulesEditor
           rules={layer.component.scatter ?? []}
           blocks={true}
+          height={blockHeights(layer.component)}
+          layerField={(value, onChange, aria) => <Segmented small aria={aria} value={value} options={Array.from({ length: SURFACE_RULE_BLOCK_LAYERS }, (_x, k) => ({ id: k, label: String(k + 1), hint: `Layer ${k + 1}` }))} onChange={onChange} />}
           disabled={layer.locked}
           onApply={async (scatter) => {
             // The rules on the component, then every chunk baked with them (two undo steps: the bake is a cell edit).

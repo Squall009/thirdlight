@@ -13,16 +13,18 @@ Use a terrain for open ground that reaches the horizon; use a
 ## Make the terrain
 
 **Editor:** **GameObject → Terrain** makes 2 × 2 tiles of 257 samples a
-metre apart, heights −128 to 384 m, and opens it in the **terrain editor**:
-a full-screen editor on the Scene view that shows only the terrain. Its
-rail on the left holds the modes (**Sculpt**, **Paint**, **Holes**,
-**Material rules**, **Scatter**, **Stack**, **Tiles**; Shift+1 … Shift+7),
-the column on the right the mode's tools, and the line at the bottom what
-to do and the keys. **Context** (C) shows the rest of the scene around it
-(it cannot be picked), **Home** frames the terrain, **Done** (Esc) goes
-back. Later, double-click the terrain in the Hierarchy or the Scene view,
-or press **Edit terrain** in its Inspector. Play sets the editor aside and
-comes back to it.
+metre apart, heights −128 to 384 m (one command: one undo takes it away),
+and opens it in the **terrain editor**: a full-screen editor on the Scene
+view that shows only the terrain. Its rail on the left holds the modes
+(**Sculpt**, **Paint**, **Holes**, **Material rules**, **Scatter**,
+**Stack**, **Tiles**, **Settings**; Shift+1 … Shift+8), the column on the
+right the mode's tools (a letter key on each tool's tile picks it), and the
+line at the bottom the tool, what to do and the keys. **Context** (C) shows
+the rest of the scene around it (it cannot be picked), **Home** frames the
+terrain, **Done** (Esc) goes back. Later, double-click the terrain in the
+Hierarchy or the Scene view, or press **Edit terrain** in its Inspector (the
+Inspector keeps only the terrain's plain fields). Play sets the editor aside
+and comes back to it.
 
 **API:** [`createEntity`](../reference/ops-detail.md#op-createEntity) with a
 [`terrain`](../reference/components-rendering-1.md#component-terrain)
@@ -36,20 +38,35 @@ component naming its tiles (a tile without data is flat at 0 m):
 The object's position is the corner of tile `[0, 0]`; its rotation and
 scale are not used.
 
+## Give it a material
+
+**Editor:** in the **Paint** mode, **Set up material** makes a material
+from the height-blended layers template and gives it to the terrain (one
+undo step). Click a layer tile (or **Add layer**) and pick its texture in
+the **texture browser** — the project's textures as pictures, with a search
+— or drop a texture on the tile. A colour texture brings its normal map and
+ORM along when the project has textures named alike (`rock_albedo` →
+`rock_normal`, `rock_orm`). **Layer settings…** shows the picked layer's
+three textures (colour with height, normal map, ORM), its name, tiling and
+blend settings.
+
+**API:** [`setMaterial`](../reference/ops-detail.md#op-setMaterial) with
+`assign: {entityId}` makes a material and gives it to the terrain in one
+command; its `albedoHeight`, `normals` and `orm` parameters take one texture
+id per layer.
+
 ## Sculpt
 
-**Editor:** in the terrain editor's **Sculpt** mode pick **Raise**,
-**Lower**, **Smooth**, **Flatten**, **Noise** or **Ramp**, set the brush
-(**Height step**: metres one dab at full strength moves the ground;
-**Size** across, **Strength**, **Falloff**, **Spacing**, and a **Noise
-mask** to break the edit up) and drag on the ground. `[` / `]` change the
-size, `Shift+[` / `Shift+]` the strength, **F** then a drag resizes on the
-ground (Shift+F: strength; a click keeps it, Esc puts it back), Ctrl held
-lowers for one stroke and **X** switches raise and lower. Each tool
-remembers its own brush in this browser. A stroke is previewed on the GPU while you drag and stored as one
-command when you release. **Import heightmap…** (the **Tiles** mode) lays a
-16-bit PNG or RAW file; **Stamp** and **Erode** work through edit layers
-(the **Stack** mode).
+**Editor:** in the **Sculpt** mode pick **Raise** (Q), **Lower** (W),
+**Smooth** (E), **Flatten** (R), **Noise** (T) or **Ramp** (Y), set the brush
+(**Height step**: metres one dab at full strength moves the ground; **Size**
+across, **Strength**, **Falloff**, **Spacing**, and a **Noise mask** to break
+the edit up) and drag on the ground. `[` / `]` change the size, `Shift+[` /
+`Shift+]` the strength, **F** then a drag resizes on the ground (Shift+F:
+strength; a click keeps it, Esc puts it back), Ctrl held lowers for one
+stroke and **X** switches raise and lower. Each tool remembers its own brush
+in this browser. A stroke is previewed on the GPU while you drag and stored
+as one command when you release.
 
 **API:** [`editTerrain`](../reference/ops-detail.md#op-editTerrain)
 ([`EditTerrainArgs`](../reference/types-d-p.md#type-edit-terrain-args)),
@@ -60,41 +77,58 @@ points in world metres:
 ```
 
 The answer's `terrain` lists the tiles written and the samples changed.
-Paint takes `opacity` (the most of the way to the layer one stroke goes,
-however many dabs cross a sample) and every brush kind but ramp takes a
-`mask` (`{scale, contrast, threshold, octaves, seed}`: noise anchored to the
-terrain, seamless across tiles and strokes) and, with `falloff: "curve"`, a
-`hardness`.
+Every brush kind but ramp takes a `mask` (`{scale, contrast, threshold,
+octaves, seed}`: noise anchored to the terrain, seamless across tiles and
+strokes) and, with `falloff: "curve"`, a `hardness`.
+
+## Paint and holes
+
+**Editor:** the **Paint** mode's tools are **Paint** (B) and **Erase** (X:
+takes hand paint off, so the rules' layers show again); pick the layer from
+the palette by its picture or its number key (1–9). **Opacity** is the most
+one stroke paints however long you drag; **Paint through noise** breaks the
+paint up with the noise mask. The **Holes** mode cuts holes (**Cut**, B) and
+closes them (**Fill**, X).
+
+**API:** `editTerrain` kind `paint {dabs, radius, strength, layer, erase?,
+opacity?, mask?}` and kind `holes {dabs, radius, erase?}`.
 
 ## Rule materials
 
-**Editor:** the terrain editor's **Material rules** mode: each rule names a
-material layer and its conditions (height, slope, cavity, noise, the share
-of an earlier layer); **Apply** bakes them into every tile. **Paint** puts
-hand paint over them.
+**Editor:** the **Material rules** mode: each rule is a card — its name, the
+layer it paints (picked from the palette by its picture), its conditions as
+range sliders (slope, height, cavity, noise, "only where" another layer's
+share holds), each with its softness. Drag a card's grip to reorder (later
+rules paint over earlier ones). While you edit, the terrain shows the rules
+as they would bake (**Live preview of the bake**); **Only the open rule**
+shows where that rule applies. **Bake rules** stores and bakes them in one
+command; **Revert to last bake** throws the edits away. Hand paint stays
+over the rules.
 
 **API:** `editTerrain` kind `bake` sets and bakes the rules in one command
 ([`SurfaceRule`](../reference/types-p-u.md#type-surface-rule)):
 
 ```json
 {"entityId": "<terrain>", "kind": "bake", "rules": [
-  {"layer": 1, "slope": {"min": 20, "fade": 5}},
+  {"name": "Rock on slopes", "layer": 1, "slope": {"min": 20, "fade": 5}},
   {"layer": 2, "height": {"min": 4, "fade": 1}}]}
 ```
 
 Where no rule applies the ground is layer 0. Later sculpting bakes the
-rules again where it moved the ground. To see the layers as textures, give
-the object a [`materials`](../reference/components-rendering-1.md#component-materials)
-component whose `*` names a material made from the **height-blended
-layers** template; without one the first four layers show as plain colours.
+rules again where it moved the ground.
 
 ## Rule scatter and ground cover
 
-**Editor:** the terrain editor's **Scatter** mode: each rule places a
-model by density, spacing and the same conditions; **Apply** bakes the
-copies. The **Scatter** brush adds or (Ctrl) removes copies by hand. A rule
-marked as ground cover is never stored: it is made round the camera while
-the game runs.
+**Editor:** the **Scatter** mode: each rule is a card with every field it
+has — the model, density, spacing, random scale, turn, lean and sink, a
+seed; where (the material rules' conditions, the layers the ground must
+show, picked by their pictures, regions kept clear); drawing (shadows, a
+blob shadow, ground cover or colliders, far copies as impostors, thinning
+far copies, the chunk size). **Bake rules** bakes the copies. **Scatter by
+hand** places the chosen rule's copies under the brush (**Place**, B) or
+takes them off (**Take off**, X, or Ctrl held); hand edits survive every
+bake. A rule marked as ground cover is never stored: it is made round the
+camera while the game runs.
 
 **API:** `editTerrain` kind `bake` with `scatter`
 ([`ScatterRule`](../reference/types-p-u.md#type-scatter-rule)):
@@ -108,6 +142,33 @@ A bake that names only `scatter` leaves the baked materials as they are.
 `queryTerrain {entityId, scatter: {}}` (MCP `tl_content_query target="terrain"`) counts
 each rule's copies. Scripts find, hide and remove copies with
 [`ctx.scatter`](../reference/script-api.md#ctx-scatter).
+
+## Stamps and erosion (Stack)
+
+**Editor:** the **Stack** mode lists the edit layers the heights are made
+of, over the ground as sculpted by hand: switch a layer off, weigh it, move
+it, delete it. **Stamp** (W) places a heightmap (picked by its picture) as
+wide as the brush with a click; **Select** (Q) draws the stamps' squares on
+the ground — drag one's body to move it, a corner to resize it, the knob to
+turn it, or set its numbers in the column. **Erode** (E) erodes the square
+under the brush with a click (hydraulic and thermal, every setting of each).
+
+**API:** `setComponent` of the terrain's `layers`
+([`TerrainLayer`](../reference/types-p-u.md#type-terrain-layer)) and
+`editTerrain` kind `erode`.
+
+## Tiles and heightmaps
+
+**Editor:** the **Tiles** mode draws the tile grid on the ground: click an
+empty square beside the terrain (dashed, with a "+") to add a tile there —
+it carries the ground on from its neighbours' edges — or click a tile to
+pick it and **Remove** it. **Import heightmap** lays a 16-bit PNG or RAW file
+from the picked tile; **From a block layer** converts a block layer's
+surface. The **Settings** mode holds the tile size, the height range, the
+detail distance and collision.
+
+**API:** `editTerrain` kind `addTiles {tiles: [[x, z]]}` and kind `import`
+(a staged file).
 
 ## A road or a river (splines)
 
@@ -136,7 +197,7 @@ the ground back. Scripts read it as a path with
 1. Build the area as a [block layer](block-layers.md) standing on the
    terrain (a courtyard, a village square).
 2. Add a **blocks** edit layer to the terrain. **Editor:** the terrain
-   editor's **Stack** mode → **Add blocks layer**. **API:** `setComponent` `{"entityId": "<terrain>",
+   editor's **Stack** mode → **Meet block layers**. **API:** `setComponent` `{"entityId": "<terrain>",
    "component": "terrain", "value": {"layers": [{"id": "courtyard", "kind":
    "blocks", "blend": 8}]}}`
    ([`TerrainBlocksLayer`](../reference/types-p-u.md#type-terrain-blocks-layer)).
@@ -162,7 +223,7 @@ is baked again from them.
   `setComponent` of `layers` replaces every edit layer. Read them first
   (`queryTerrain`) and send the full list.
 - **`setComponent` of `rules` alone stores them without baking.** Use
-  `editTerrain` kind `bake` (or **Apply**).
+  `editTerrain` kind `bake` (or **Bake rules**).
 - **`tileSamples` is fixed once tiles hold data.** Choose it first.
 - **A spline never changes a block layer:** where cells are, it stops.
 - **One terrain per landscape.** Large worlds stream their tiles: set the

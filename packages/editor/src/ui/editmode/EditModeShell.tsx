@@ -17,7 +17,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, type JSX, type RefObject } from 'react';
+import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
 
 import { editKeyAction, sharedKeyHints } from '../../session/edit-keys';
 import type { Viewport } from '../../viewport/viewport';
@@ -25,6 +25,7 @@ import { iconSrc, iconTitle, objectIconFor, type IconTable } from '../../viewpor
 import type { SceneViewLending } from '../shell/useSceneViewLending';
 import { isTyping } from '../workspace/EditorWindow';
 import { EditModeHeader } from './EditModeHeader';
+import { EditStatusContext, type EditStatus } from './edit-status';
 import type { EditModeHost } from './modes';
 import { StatusHints } from './StatusHints';
 import { ToolRail } from './ToolRail';
@@ -52,6 +53,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const viewHost = useRef<HTMLDivElement | null>(null);
   const latest = useRef(p);
   latest.current = p;
+  const [status, setStatus] = useState<EditStatus | null>(null);
 
   // The Scene view's canvas, lent with input while the shell shows.
   useEffect(() => {
@@ -134,13 +136,14 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         <aside className="tl-editmode__column" aria-label="edit mode settings">
           <div className="tl-editmode__column-head">
             <b>{rail.label}</b>
+            {status !== null && status.tool !== rail.label && <span className="tl-editmode__tool">{status.tool}</span>}
           </div>
           <div className="tl-editmode__column-body" key={entity.id}>
-            {kind.column({ entity, mode: rail.id, host: p.host })}
+            <EditStatusContext.Provider value={setStatus}>{kind.column({ entity, mode: rail.id, host: p.host })}</EditStatusContext.Provider>
           </div>
         </aside>
       </div>
-      <StatusHints tool={rail.label} text={rail.hint} keys={[...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length)]} />
+      <StatusHints tool={status?.tool ?? rail.label} text={status?.text ?? rail.hint} keys={[...(status?.keys ?? []), ...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length)]} {...(status?.right !== undefined ? { right: status.right } : {})} />
     </section>
   );
 }

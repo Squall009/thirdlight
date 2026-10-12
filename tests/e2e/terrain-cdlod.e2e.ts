@@ -120,7 +120,7 @@ import { decodePng, type Image } from './png';
 import { expectRendererBackend } from './renderer-variants';
 import { serveDir, type CameraView, type V3 } from './frame-reading';
 
-import { BACKENDS, BLOCKS_AT, type Diagnostics, FIFTH, HOLE, MACRO_DISTANCE, type Observation, PAINTED, PLAIN, POST_IMPOSTOR_SIZE, RAMP_DISC, RAMP_MID, RIVER_LOOK, ROAD_AT, ROAD_LOOK, STRIP_HEIGHT, TILES, type TerrainDiag, bigNoise, buildTerrain, checkCrossings, cmd, editLayers, expectFrame, expectHorizonLight, expectRiver, expectRoad, expectSeam, frameOk, isOrange, isYellow, materialRules, postBand, relay, roadHandle, scatterRules, screenOf, seamPoints, setLayer3, setPostsImpostor, shareNear, streamed, streamingPlay, surface, surfaceAcrossPlaza, terrainTools, useBackend, viewport, walkAcrossPlaza, zoomedOutTo } from './terrain-cdlod-steps';
+import { BACKENDS, BLOCKS_AT, type Diagnostics, FIFTH, HOLE, MACRO_DISTANCE, type Observation, PAINTED, PLAIN, POST_IMPOSTOR_SIZE, RAMP_DISC, RAMP_MID, RIVER_LOOK, ROAD_AT, ROAD_LOOK, STRIP_HEIGHT, TILES, type TerrainDiag, bigNoise, buildTerrain, checkCrossings, cmd, editLayers, expectFrame, expectHorizonLight, expectRiver, expectRoad, expectSeam, frameOk, isOrange, isYellow, materialRules, postBand, relay, roadHandle, scatterRules, screenOf, seamPoints, setLayer3, setPostsImpostor, shareNear, streamed, streamingPlay, surface, surfaceAcrossPlaza, terrainTools, tiles, useBackend, viewport, walkAcrossPlaza, zoomedOutTo } from './terrain-cdlod-steps';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -208,6 +208,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     if (renderer === BACKENDS[0]) {
       // The terrain tools (their previews against the stored tiles), then the material rules from the editor.
       await terrainTools(page, renderer, ground, big, true);
+      await tiles(page, renderer, ground, big, true);
       await materialRules(page, ground, blocks);
       await scatterRules(page, ground, terrace);
       await expectRoad(ground, `${renderer} (stored)`);
@@ -256,6 +257,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         await page.waitForTimeout(80);
       }
       await terrainTools(page, renderer, ground, big, false);
+      await tiles(page, renderer, ground, big, false);
       await editLayers(page, renderer, ground, road, false, plaza);
     }
 

@@ -72,17 +72,14 @@ export function useTerrainTools(deps: TerrainToolsDeps) {
     return s.stageId;
   }, [clientRef, setNotice]);
 
-  /** A new terrain object, opened in the terrain editor. */
+  /** A new terrain object, opened in the terrain editor: one command (the object made with its terrain), so one undo takes it away. */
   const createTerrain = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
     const half = terrainTileSize(NEW_TERRAIN);
-    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: [-half, 0, -half] } }, c.projection.revision);
+    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Terrain', transform: { position: [-half, 0, -half] }, components: { terrain: NEW_TERRAIN } }, c.projection.revision);
     if (!res.ok || res.createdId === undefined) return reportFailure('New terrain', res);
-    const id = res.createdId;
-    const set = await c.command('setComponent', { entityId: id, component: 'terrain', value: NEW_TERRAIN }, c.projection.revision);
-    if (!set.ok) return reportFailure('New terrain', set);
-    created(id);
+    created(res.createdId);
   }, [clientRef, reportFailure, created]);
 
   return { terrainEditor, makeTerrainEditor, terrainRun, stageFile, createTerrain };

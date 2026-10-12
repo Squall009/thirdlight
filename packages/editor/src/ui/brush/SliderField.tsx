@@ -37,12 +37,55 @@ export interface SliderFieldProps {
   disabled?: boolean;
   /** The tooltip: what the setting does and its keys. */
   hint?: string;
+  /**
+   * The value is a stored one (each change a command): the field shows a
+   * drag at once and hands the value over once the control rests, so a drag
+   * is one command, not one per pointer move.
+   */
+  settle?: boolean;
   onChange: (value: number) => void;
 }
 
+/** Milliseconds a settling slider rests before it hands its value over. */
+export const SLIDER_SETTLE_MS = 250;
+
 const decimalsOf = (step: number): number => (Number.isInteger(step) ? 0 : Math.min(4, String(step).split('.')[1]?.length ?? 1));
 
-export function SliderField(p: SliderFieldProps): JSX.Element {
+export function SliderField(props: SliderFieldProps): JSX.Element {
+  // A settling slider: its own value while it moves, handed over once it rests (and when it goes).
+  const [held, setHeld] = useState<number | null>(null);
+  const latestValue = useRef(props.value);
+  latestValue.current = props.value;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const out = useRef<{ v: number; send: (v: number) => void } | null>(null);
+  /** The stored value when the last one was handed over: once it changes (stored, or refused and moved on), the field shows it again. */
+  const sentOver = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    if (out.current !== null) out.current.send(out.current.v);
+  }, []);
+  useEffect(() => {
+    if (held !== null && out.current === null && (held === props.value || props.value !== sentOver.current)) setHeld(null);
+  }, [held, props.value]);
+  const p: SliderFieldProps =
+    props.settle !== true
+      ? props
+      : {
+          ...props,
+          value: held ?? props.value,
+          onChange: (v) => {
+            setHeld(v);
+            out.current = { v, send: props.onChange };
+            if (timer.current !== null) clearTimeout(timer.current);
+            timer.current = setTimeout(() => {
+              const o = out.current;
+              out.current = null;
+              timer.current = null;
+              sentOver.current = latestValue.current;
+              if (o !== null) o.send(o.v);
+            }, SLIDER_SETTLE_MS);
+          },
+        };
   const scale = p.scale ?? 1;
   const [lo, hi] = p.limit ?? [p.min, p.max];
   const decimals = p.decimals ?? decimalsOf(p.step);

@@ -38,6 +38,8 @@ export interface RuleRange {
 }
 
 export interface SurfaceRule {
+  /** What the rule is called in the editor ("Rock on steep slopes"; absent: a summary of its conditions). Paints nothing. */
+  name?: string;
   /** The material layer it paints (block layers: 0-3, the four their paint carries). */
   layer: number;
   /** How much of its layer it gives where every condition holds (0-1; absent: 1). */
@@ -65,9 +67,9 @@ export const SURFACE_RULE_BLOCK_LAYERS = 4;
 /** Metres a cavity is measured over when a rule names none. */
 export const SURFACE_RULE_CAVITY_RADIUS = 2;
 /** Bounds of the values a rule holds (dimensions of a value, not counts). */
-export const SURFACE_RULE_LIMITS = Object.freeze({ value: 100_000, cavityRadiusMax: 64, noiseScaleMin: 0.01, noiseScaleMax: 100_000 });
+export const SURFACE_RULE_LIMITS = Object.freeze({ value: 100_000, cavityRadiusMax: 64, noiseScaleMin: 0.01, noiseScaleMax: 100_000, nameLength: 64 });
 /** The rule fields in canonical order. */
-export const SURFACE_RULE_FIELDS: readonly string[] = Object.freeze(['layer', 'strength', 'face', 'height', 'slope', 'cavity', 'noise', 'weight', 'blocks', 'meta']);
+export const SURFACE_RULE_FIELDS: readonly string[] = Object.freeze(['name', 'layer', 'strength', 'face', 'height', 'slope', 'cavity', 'noise', 'weight', 'blocks', 'meta']);
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -137,7 +139,7 @@ export function validateRuleConditions(r: Record<string, unknown>, p: string, er
 /** Validate a rule list; `blocks`: a block layer's (layers 0-3, block conditions allowed). */
 export function validateSurfaceRules(value: unknown, path: string, errors: ModelErrorV2[], blocks: boolean): void {
   if (!Array.isArray(value)) {
-    err(errors, 'field_type', path, 'rules are a list of {layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}', value);
+    err(errors, 'field_type', path, 'rules are a list of {name?, layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}', value);
     return;
   }
   const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
@@ -145,6 +147,8 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
     const p = `${path}/${i}`;
     if (!isObj(r)) return err(errors, 'field_type', p, 'a rule is an object {layer, …conditions}', r);
     for (const k of Object.keys(r)) if (!SURFACE_RULE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown rule field "${k}"`, k);
+    const name = r['name'];
+    if (name !== undefined && !(typeof name === 'string' && name.length >= 1 && name.length <= SURFACE_RULE_LIMITS.nameLength)) err(errors, 'field_value', `${p}/name`, `name is 1-${SURFACE_RULE_LIMITS.nameLength} characters`, name);
     const layer = r['layer'];
     if (!(Number.isInteger(layer) && (layer as number) >= 0 && (layer as number) <= layerMax)) err(errors, 'field_value', `${p}/layer`, blocks ? `layer is 0-${layerMax} (a block layer's paint carries four layers)` : `layer is 0-${layerMax}`, layer);
     const s = r['strength'];
@@ -162,7 +166,7 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
 export function canonicalSurfaceRules(rules: readonly SurfaceRule[]): SurfaceRule[] {
   const range = canonicalRuleRange;
   return rules.map((r) => {
-    const out: SurfaceRule = { layer: r.layer };
+    const out: SurfaceRule = { ...(r.name !== undefined && r.name !== '' ? { name: r.name } : {}), layer: r.layer };
     if (r.strength !== undefined && r.strength !== 1) out.strength = r.strength;
     if (r.face !== undefined) out.face = r.face;
     const height = range(r.height);

@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { validateEditTerrainArgs } from '../../../packages/commands/src/index';
 import { TERRAIN_HEIGHT_STEPS, TerrainSamples, validateTerrainLayers, type ModelErrorV2, flatTerrainTile, holeTerrain, paintTerrain, rampTerrain, sculptTerrain, terrainHoleAt, terrainTileKey, type TerrainTile } from '../../../packages/project-model/src/index';
-import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, PLACED_TERRAIN_TOOLS, TERRAIN_TOOLS, erodeArgs, layersWithStamp, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, terrainDabSpacing, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
+import { DEFAULT_ERODE_TOOL, DEFAULT_STAMP_TOOL, PICKING_TERRAIN_TOOLS, PLACED_TERRAIN_TOOLS, TERRAIN_MODES, erodeArgs, layersWithStamp, previewDab, strokeArgs, strokeDabLimit, dabsAlong, DEFAULT_TERRAIN_BRUSH, terrainDabSpacing, type TerrainToolId } from '../../../packages/editor/src/session/terrain-brush';
 import { DEFAULT_BRUSH, type BrushSettings } from '../../../packages/editor/src/session/brush';
 import { boxTiles, brushDabOf, brushSampleBox, compareRect, emptyDiff, tileRect } from '../../../packages/three-adapter/src/terrain-preview';
 
@@ -61,9 +61,10 @@ const FULL: BrushSettings = { ...DEFAULT_BRUSH, falloff: 'curve', hardness: 0.25
 
 describe('terrain tools: strokes', () => {
   it('store args the command accepts, for every tool, inverted or not', () => {
-    for (const t of TERRAIN_TOOLS) {
-      // The placed tools store no stroke (checked below).
-      if (PLACED_TERRAIN_TOOLS.includes(t.id)) continue;
+    for (const id of new Set(TERRAIN_MODES.flatMap((m) => m.tools))) {
+      const t = { id };
+      // The placed tools store no stroke (checked below); the picking tools (stamps, tiles) none at all.
+      if (PLACED_TERRAIN_TOOLS.includes(t.id) || PICKING_TERRAIN_TOOLS.includes(t.id)) continue;
       for (const invert of [false, true]) {
         // With every setting that adds an argument (a curve, an opacity, a mask): each tool sends only what it takes.
         for (const b of [DEFAULT_BRUSH, FULL]) {

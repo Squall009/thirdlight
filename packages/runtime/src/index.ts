@@ -290,7 +290,9 @@ export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@th
 export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
 export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileBytes, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
 // The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.
-export { HEIGHTMAP_FORMATS, TERRAIN_BRUSH_LIMITS, TERRAIN_LAYER_MAX, TERRAIN_NOISE_HASH, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
+export { HEIGHTMAP_FORMATS, TERRAIN_ADD_TILES_MAX, TERRAIN_BRUSH_LIMITS, TERRAIN_HEIGHT_LIMIT, TERRAIN_LAYER_MAX, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_MACRO_DISTANCE_LIMITS, TERRAIN_NOISE_HASH, TERRAIN_SPACING_LIMITS, TERRAIN_STAMP_SIZE_LIMITS, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';
+// The rules bake the editor previews a draft with (the command's own function, run over the tiles the Scene view holds).
+export { TerrainSamples, bakeTerrainRules } from '@thirdlight/project-model';
 // The edit layers and erosion settings the editor's terrain tools offer (the command checks them).
 export { EROSION_LIMITS, HYDRAULIC_DEFAULTS, TERRAIN_STAMP_FALLOFF_DEFAULT, TERRAIN_STAMP_MODES, THERMAL_DEFAULTS, terrainLayerOrder, TERRAIN_BLOCKS_BLEND_DEFAULT, TERRAIN_BLOCKS_BLEND_LIMITS, TERRAIN_BLOCKS_MODES, TerrainBlockSeam, type ErosionSettings, type TerrainBlocksLayer, type TerrainBlocksMode, type TerrainLayer, type TerrainStamp, type TerrainStampMode } from '@thirdlight/project-model';
 export { terrainOverviewOf, terrainTileOf } from './terrain-blob';

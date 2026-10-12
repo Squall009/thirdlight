@@ -362,7 +362,7 @@ async function editModeChecks(page: Page): Promise<void> {
   // Its settings column holds the terrain's tools (Sculpt first), armed in the lent view; the status line says what to do.
   await expect(mode.getByLabel('terrain tools')).toBeVisible();
   await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
-  await expect(mode.getByLabel('edit mode hints')).toContainText('Drag on the ground to shape it.');
+  await expect(mode.getByLabel('edit mode hints')).toContainText('Drag on the ground to raise it.');
 
   // ---- Isolation: only the terrain is drawn (the marker leaves the picture, its shadow stays); Context shows it again.
   await expect(canvas).toHaveAttribute('data-isolation', new RegExp(hill));
@@ -616,7 +616,8 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   // ---- An empty slot picks its texture in a popover beside the column.
   await layers.getByRole('radio', { name: 'layer 2', exact: true }).click();
   const chooser = page.getByRole('dialog', { name: 'choose layer texture' });
-  await chooser.getByLabel('layer 2 texture').selectOption('tex-dirt');
+  // The texture browser in the popover (the project window is under the mode): the picture clicked.
+  await chooser.getByRole('group', { name: 'layer 2 texture' }).getByRole('option', { name: 'Forest dirt' }).click();
   await expect.poll(albedo, { timeout: 15_000, message: 'the picked texture in slot 2' }).toEqual(['tex-grass', 'tex-dirt', '', '']);
   await expect(chooser).toHaveCount(0);
   await expect(layers.getByRole('radio', { name: 'layer 2', exact: true }).locator('.tl-ptile__thumb')).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });

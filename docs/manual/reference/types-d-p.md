@@ -1,4 +1,4 @@
-# Types (DeclaredProperty to PostConfig)
+# Types (DeclaredProperty to PointerButtonName)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -185,6 +185,8 @@ interface EditTerrainArgs {
   rect?: [number, number, number, number];
   hydraulic?: ErosionSettings['hydraulic'];
   thermal?: ErosionSettings['thermal'];
+  /** addTiles: the tile coordinates made ([x, z]), each carrying on from its neighbours' edges. */
+  tiles?: [number, number][];
 }
 ```
 
@@ -194,7 +196,7 @@ interface EditTerrainArgs {
 Declared in `packages/commands/src/terrain-ops.ts`.
 
 ```ts
-type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode';
+type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode' | 'addTiles';
 ```
 
 <a id="type-effect-parameter-types"></a>
@@ -1630,27 +1632,4 @@ Declared in `packages/project-model/src/input.ts`.
 ```ts
 /** The pointer buttons an action binds. */
 type PointerButtonName = 'left' | 'right' | 'middle';
-```
-
-<a id="type-post-config"></a>
-### PostConfig
-
-Declared in `packages/project-model/src/materials.ts`.
-
-```ts
-interface PostConfig {
-  toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
-  exposure?: number;
-  bloom?: { enabled: boolean; strength?: number; radius?: number; threshold?: number };
-  /**
-   * Colour grading. Lift (raises the blacks, −0.5–0.5, default 0),
-   * gamma (mid-tones, 0.2–5, default 1: >1 brightens) and gain (scales the
-   * whites, 0–4, default 1) — the defaults leave the image unchanged.
-   */
-  grading?: { contrast?: number; saturation?: number; brightness?: number; tint?: string; lut?: string; lift?: number; gamma?: number; gain?: number };
-  vignette?: { enabled: boolean; darkness?: number; offset?: number };
-  ssao?: { enabled: boolean; radius?: number; intensity?: number };
-  dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
-  antialias?: 'none' | 'fxaa' | 'smaa';
-}
 ```

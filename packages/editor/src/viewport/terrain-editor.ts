@@ -34,12 +34,15 @@
  * Browser-only (three.js).
  */
 import * as THREE from 'three';
-import type { TerrainComponent } from '@thirdlight/project-model';
+import type { SurfaceRule, TerrainComponent } from '@thirdlight/project-model';
 import type { TerrainPreviewDab, TerrainPreviewStats, TerrainView } from '@thirdlight/three-adapter';
 import { DEFAULT_BRUSH, brushRadius, brushSummary, dragStrength, roundSize, stepSize, stepStrength, strokeMask, type BrushSettings, type BrushStore } from '../session/brush';
 import { brushKeyAction } from '../session/edit-keys';
-import { DEFAULT_TERRAIN_BRUSH, PLACED_TERRAIN_TOOLS, dabsAlong, previewDab, previewedTool, strokeArgs, strokeDabLimit, strokeKind, terrainDabSpacing, terrainToolUses, type StrokeExtra, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
+import { DEFAULT_TERRAIN_BRUSH, PICKING_TERRAIN_TOOLS, PLACED_TERRAIN_TOOLS, dabsAlong, previewDab, previewedTool, strokeArgs, strokeDabLimit, strokeKind, terrainDabSpacing, terrainToolUses, type StampRef, type StrokeExtra, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
+import { bakeRulesPreview, type RulesPreview } from '../session/terrain-rules-preview';
 import { BrushCursor, BrushHud } from './brush-cursor';
+import { TerrainTileGrid, type TileGridCell } from './terrain-tile-grid';
+import { STAMP_HANDLE_PX, TerrainStampHandles, draggedPose, poseOf, type StampHandle, type StampPose } from './terrain-stamp-handles';
 
 /** The selected terrain as the editor holds it. */
 export interface TerrainEditTarget {
@@ -58,6 +61,11 @@ export interface TerrainToolOptions {
   store: BrushStore | null;
   /** The placed tools (stamp, erode): what a click at world (x, z) does. */
   place?: (at: [number, number]) => void;
+  /** Tiles: a click on a tile or an empty square beside the terrain, and the tile picked. */
+  onTile?: (cell: TileGridCell) => void;
+  pickedTile?: readonly [number, number] | null;
+  /** Stack: the stamps drawn, the one picked, a pick (null: none) and a stamp moved, turned or resized (one command). */
+  stamps?: { list: readonly StampRef[]; picked: { layer: string; index: number } | null; onPick: (ref: StampRef | null) => void; onChange: (ref: StampRef, pose: StampPose) => void };
 }
 
 export interface TerrainEditorCallbacks {
@@ -78,6 +86,9 @@ export interface TerrainEditorHost {
   /** Armed, the tools own the left button (the host stands its gizmo aside). */
   armed?(on: boolean): void;
 }
+
+/** The tools whose overlays (the tile grid, the stamps' squares) lie on the decoded ground. */
+const OVERLAID_TOOLS: readonly TerrainToolId[] = ['tiles', 'stamps', 'stamp', 'erode'];
 
 /** How long the readout stays after a key changed the brush. */
 const HUD_KEY_MS = 1200;
@@ -104,6 +115,13 @@ export class TerrainEditor {
   private readonly cursor: BrushCursor;
   private readonly hud: BrushHud;
   private readonly rampLine: THREE.Line;
+  private readonly grid: TerrainTileGrid;
+  private readonly stampHandles: TerrainStampHandles;
+  /** A picked stamp's handle being dragged: which, its pose before, the ground point it began at. */
+  /** The decoded ground the overlays were last laid on (a new one — tiles arrived — lays them again). */
+  private overlayField: object | null = null;
+  private overlaySerial = 0;
+  private stampDrag: { handle: StampHandle; ref: StampRef; start: StampPose; from: [number, number]; pose: StampPose } | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private active = false;
   private target: TerrainEditTarget | null = null;
@@ -151,6 +169,8 @@ export class TerrainEditor {
     this.rampLine.frustumCulled = false;
     this.rampLine.visible = false;
     this.root.add(this.rampLine);
+    this.grid = new TerrainTileGrid(this.root);
+    this.stampHandles = new TerrainStampHandles(this.root);
     host.scene.add(this.root);
   }
 
@@ -177,6 +197,7 @@ export class TerrainEditor {
     this.host.canvas.setAttribute('data-terrain-tool', on ? this.opts.tool : '');
     this.host.armed?.(on);
     this.warm();
+    this.refreshOverlays();
     this.host.requestRender();
   }
 
@@ -203,6 +224,7 @@ export class TerrainEditor {
     this.target = t;
     if (t === null) this.cursor.hide();
     else if (changed) this.warm();
+    this.refreshOverlays();
   }
 
   setOptions(o: TerrainToolOptions): void {
@@ -215,7 +237,57 @@ export class TerrainEditor {
     this.opts = o;
     if (this.active) this.host.canvas.setAttribute('data-terrain-tool', o.tool);
     if (toolChanged) this.warm();
+    this.refreshOverlays();
     this.refreshLook();
+  }
+
+  /** The tile grid (Tiles) and the stamps' squares (Stack) for the tool and the terrain as they are now. */
+  private refreshOverlays(): void {
+    const t = this.target;
+    const tool = this.opts.tool;
+    const field = t === null ? null : (this.host.terrains()?.field(t.entityId) ?? null);
+    if (field !== this.overlayField) {
+      this.overlayField = field;
+      this.overlaySerial += 1;
+    }
+    const tiles = this.active && t !== null && field !== null && tool === 'tiles';
+    this.grid.setVisible(tiles);
+    if (tiles) {
+      const heightAt = (x: number, z: number): number | null => field.heightAt(x, z);
+      this.grid.update(t.component, field.origin, heightAt, `${this.overlaySerial}:${t.entityId}:${t.component.tiles.map((r) => `${r.x},${r.z}`).join(';')}`);
+      this.grid.setPicked(this.opts.pickedTile ?? null);
+    }
+    const st = this.opts.stamps;
+    const stack = this.active && t !== null && field !== null && st !== undefined && (tool === 'stamps' || tool === 'stamp' || tool === 'erode');
+    this.stampHandles.setVisible(stack);
+    if (stack && this.stampDrag === null) this.stampHandles.set(st.list, st.picked, tool === 'stamps', (x, z) => field.heightAt(x, z));
+    this.publishStamps();
+    this.host.requestRender();
+  }
+
+  /** The picked stamp's handles on screen (client px) for tests: its centre, corners and turn knob. */
+  private publishStamps(): void {
+    const ref = this.stampHandles.pickedRef();
+    if (ref === null || this.opts.tool !== 'stamps' || !this.active) {
+      this.host.canvas.setAttribute('data-terrain-stamp', '');
+      return;
+    }
+    const pose = this.stampDrag?.pose ?? poseOf(ref);
+    const { corners, knob } = this.stampHandles.handlePoints(pose);
+    // Its middle on the level of its corners: where a press grabs its body (its square as drawn).
+    const centre = new THREE.Vector3(pose.at[0], corners.reduce((sum, c) => sum + c.y, 0) / corners.length, pose.at[1]);
+    const s = (v: THREE.Vector3): [number, number] => {
+      const q = this.screen(v);
+      return [Math.round(q.x), Math.round(q.y)];
+    };
+    this.host.canvas.setAttribute('data-terrain-stamp', JSON.stringify({ layer: ref.layer, index: ref.index, centre: s(centre), corner: s(corners[2]!), knob: s(knob) }));
+  }
+
+  /** A world point on screen (client px). */
+  private screen(v: THREE.Vector3): { x: number; y: number } {
+    const rect = this.host.canvas.getBoundingClientRect();
+    const p = v.clone().project(this.host.camera);
+    return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height };
   }
 
   /** The tool's brush settings now. */
@@ -238,7 +310,7 @@ export class TerrainEditor {
   }
 
   strokeInFlight(): boolean {
-    return this.stroke !== null;
+    return this.stroke !== null || this.stampDrag !== null;
   }
 
   // ---- pointer -----------------------------------------------------------------------
@@ -262,9 +334,18 @@ export class TerrainEditor {
       this.cb.onRefused('The terrain is hidden (show it to edit it).');
       return true;
     }
+    const tool = this.opts.tool;
+    if (tool === 'tiles') {
+      const cell = this.cellUnder(e.clientX, e.clientY);
+      if (cell !== null) this.opts.onTile?.(cell);
+      return true;
+    }
+    if (tool === 'stamps') {
+      this.pressStamps(e.clientX, e.clientY);
+      return true;
+    }
     const at = this.surfaceUnder(e.clientX, e.clientY);
     this.drawCursor(at);
-    const tool = this.opts.tool;
     // A placed tool: one click, one command (its result comes back as the stored tiles).
     if (PLACED_TERRAIN_TOOLS.includes(tool)) {
       if (at !== null) this.opts.place?.([r4(at.x), r4(at.z)]);
@@ -299,6 +380,23 @@ export class TerrainEditor {
       this.ctrl = e.ctrlKey || e.metaKey;
       this.refreshLook();
     }
+    if (this.opts.tool === 'tiles') {
+      const cell = this.cellUnder(e.clientX, e.clientY);
+      this.grid.setHover(cell);
+      this.host.canvas.setAttribute('data-terrain-tile', cell === null ? '' : `${cell.kind}:${cell.x},${cell.z}`);
+      this.host.requestRender();
+      return false;
+    }
+    if (this.opts.tool === 'stamps') {
+      const d = this.stampDrag;
+      const to = d === null ? null : this.levelUnder(e.clientX, e.clientY, d.start);
+      if (d === null || to === null) return d !== null;
+      d.pose = draggedPose(d.handle, d.start, d.from, to);
+      this.stampHandles.drag(d.pose);
+      this.publishStamps();
+      this.host.requestRender();
+      return true;
+    }
     const at = this.surfaceUnder(e.clientX, e.clientY);
     this.drawCursor(at);
     const k = this.stroke;
@@ -316,6 +414,15 @@ export class TerrainEditor {
   }
 
   pointerUp(_e: PointerEvent): boolean {
+    const d = this.stampDrag;
+    if (d !== null) {
+      this.stampDrag = null;
+      const moved = d.pose.at[0] !== d.start.at[0] || d.pose.at[1] !== d.start.at[1] || d.pose.size !== d.start.size || d.pose.rotation !== d.start.rotation;
+      if (moved) this.opts.stamps?.onChange(d.ref, d.pose);
+      else this.stampHandles.drag(null);
+      this.publishStamps();
+      return true;
+    }
     const k = this.stroke;
     if (k === null) return false;
     this.stroke = null;
@@ -326,6 +433,13 @@ export class TerrainEditor {
 
   /** Esc: drop the stroke in flight (nothing is stored; the preview is undone), or put back what F was dragging. */
   cancel(): boolean {
+    if (this.stampDrag !== null) {
+      this.stampDrag = null;
+      this.stampHandles.drag(null);
+      this.publishStamps();
+      this.host.requestRender();
+      return true;
+    }
     if (this.adjust !== null) {
       const a = this.adjust;
       this.adjust = null;
@@ -350,6 +464,7 @@ export class TerrainEditor {
     this.lastAt = null;
     this.cursor.hide();
     this.hud.hide();
+    this.grid.setHover(null);
     this.host.canvas.setAttribute('data-terrain-brush', '');
     this.host.requestRender();
   }
@@ -357,6 +472,8 @@ export class TerrainEditor {
   /** After a frame: publish the last stroke's figures when they changed (tests read them). */
   afterFrame(): void {
     const t = this.target;
+    // The ground the overlays lie on was decoded again (a tile came or changed): lay them on it.
+    if (this.active && t !== null && OVERLAID_TOOLS.includes(this.opts.tool) && (this.host.terrains()?.field(t.entityId) ?? null) !== this.overlayField) this.refreshOverlays();
     if (t === null || this.lastStroke === null) return;
     const s: TerrainPreviewStats | null = this.host.terrains()?.previewStats(t.entityId) ?? null;
     const out = JSON.stringify({ ...this.lastStroke, ...(s !== null ? { preview: s } : {}) });
@@ -433,6 +550,105 @@ export class TerrainEditor {
     this.host.requestRender();
   }
 
+  /**
+   * Draw `rules` on the terrain as a bake of them would paint it (the tiles
+   * near what the view looks at, `terrain-rules-preview.ts`), or with null the stored
+   * layers again. Returns what it covered (null: nothing drawn).
+   */
+  previewRules(rules: readonly SurfaceRule[] | null): (RulesPreview & { ms: number }) | null {
+    const t = this.target;
+    const view = this.host.terrains();
+    if (t === null || view === null) return null;
+    if (rules === null) {
+      view.previewLayers(t.entityId, null);
+      this.host.canvas.setAttribute('data-terrain-rules-preview', '');
+      this.host.requestRender();
+      return null;
+    }
+    const field = view.field(t.entityId);
+    if (field === null) return null;
+    const t0 = performance.now();
+    // Nearest what the view looks at: the ground under its middle, else below the camera.
+    const rect = this.host.canvas.getBoundingClientRect();
+    const mid = this.surfaceUnder(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const cam = this.host.camera.position;
+    const r = bakeRulesPreview(t.component, field.origin, (x, z) => field.tile(x, z), rules, mid !== null ? [mid.x, mid.z] : [cam.x, cam.z]);
+    view.previewLayers(t.entityId, r.tiles);
+    const ms = Math.round((performance.now() - t0) * 10) / 10;
+    this.host.canvas.setAttribute('data-terrain-rules-preview', JSON.stringify({ covered: r.covered, total: r.total, ms }));
+    this.host.requestRender();
+    return { ...r, ms };
+  }
+
+  /**
+   * The picked stamp's handle, a stamp's square or nothing under a press: pick, or begin a drag. Found on the
+   * screen (a corner or the knob within a few pixels, a square by its corners' outline), so a press on a stamp's
+   * own mountain, or past the ground's edge, finds it as the drawing shows it; a drag is measured on the level of
+   * the stamp's centre, so the mountain it raises does not pull it about.
+   */
+  private pressStamps(clientX: number, clientY: number): void {
+    const st = this.opts.stamps;
+    if (st === undefined) return;
+    const picked = this.stampHandles.pickedRef();
+    const near = (v: THREE.Vector3): boolean => {
+      const q = this.screen(v);
+      return Math.hypot(q.x - clientX, q.y - clientY) <= STAMP_HANDLE_PX;
+    };
+    let handle: StampHandle | null = null;
+    if (picked !== null) {
+      const { corners, knob } = this.stampHandles.handlePoints(poseOf(picked));
+      if (near(knob)) handle = 'turn';
+      else if (corners.some(near)) handle = 'size';
+      else if (this.onStampScreen(picked, clientX, clientY)) handle = 'move';
+    }
+    const from = picked === null ? null : this.levelUnder(clientX, clientY, poseOf(picked));
+    this.host.canvas.setAttribute('data-terrain-stamp-press', JSON.stringify({ handle, picked: picked === null ? null : `${picked.layer}:${picked.index}` }));
+    if (handle !== null && picked !== null && from !== null) {
+      const start = poseOf(picked);
+      this.stampDrag = { handle, ref: picked, start, from, pose: start };
+      return;
+    }
+    // A pick: the stamp whose square the press is on (the last drawn first), or none.
+    const list = st.list;
+    let hit: StampRef | null = null;
+    for (let i = list.length - 1; i >= 0 && hit === null; i--) if (this.onStampScreen(list[i]!, clientX, clientY)) hit = list[i]!;
+    st.onPick(hit);
+  }
+
+  /** Whether a client point lies in a stamp's square as drawn (its corners on the ground, projected). */
+  private onStampScreen(r: StampRef, clientX: number, clientY: number): boolean {
+    const { corners } = this.stampHandles.handlePoints(poseOf(r));
+    const q = corners.map((c) => this.screen(c));
+    let inside = false;
+    for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+      const a = q[i]!;
+      const b = q[j]!;
+      if (a.y > clientY !== b.y > clientY && clientX < ((b.x - a.x) * (clientY - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+
+  /** The point under the pointer (world x, z) on the level of a stamp's corners (null: the ray misses it). */
+  private levelUnder(clientX: number, clientY: number, r: StampPose): [number, number] | null {
+    const { corners } = this.stampHandles.handlePoints(r);
+    const y = corners.reduce((sum, c) => sum + c.y, 0) / corners.length;
+    const p = this.rayAt(clientX, clientY).intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3());
+    return p === null ? null : [p.x, p.z];
+  }
+
+  /** The view's ray through a client point. */
+  private rayAt(clientX: number, clientY: number): THREE.Ray {
+    const rect = this.host.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.host.camera);
+    return this.raycaster.ray.clone();
+  }
+
+  /** The tile grid's square under the pointer. */
+  private cellUnder(clientX: number, clientY: number): TileGridCell | null {
+    return this.grid.cellAt(this.rayAt(clientX, clientY), this.surfaceUnder(clientX, clientY));
+  }
+
   /** The stored ground under the pointer (world), or null (no terrain there). */
   private surfaceUnder(clientX: number, clientY: number): THREE.Vector3 | null {
     const t = this.target;
@@ -450,6 +666,12 @@ export class TerrainEditor {
   private drawCursor(at: THREE.Vector3 | null): void {
     this.host.canvas.setAttribute('data-terrain-brush', at === null ? '' : `${at.x.toFixed(3)},${at.y.toFixed(3)},${at.z.toFixed(3)}`);
     this.lastAt = at;
+    // The picking tools have no brush: no rings.
+    if (PICKING_TERRAIN_TOOLS.includes(this.opts.tool)) {
+      this.cursor.hide();
+      this.host.requestRender();
+      return;
+    }
     const t = this.target;
     const field = t === null ? null : (this.host.terrains()?.field(t.entityId) ?? null);
     if (at === null || field === null || t === null) {
@@ -518,6 +740,8 @@ export class TerrainEditor {
     this.root.removeFromParent();
     this.cursor.dispose();
     this.hud.dispose();
+    this.grid.dispose();
+    this.stampHandles.dispose();
     this.rampLine.geometry.dispose();
     (this.rampLine.material as THREE.Material).dispose();
   }

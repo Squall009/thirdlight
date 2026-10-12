@@ -97,6 +97,20 @@ export function brushKeyHints(uses: readonly BrushUse[], invert = 'Invert'): Key
   return out;
 }
 
+/**
+ * The letters a tool grid never binds: C (Context), F (resize in the view)
+ * and X (paint / erase: a tile that erases shows X, the brush's key flips to
+ * it). Physical keys, as the rest of the map reads them.
+ */
+export const RESERVED_TOOL_KEYS: ReadonlySet<string> = new Set(['KeyC', 'KeyF', 'KeyX']);
+
+/** The tool-grid letter a key event is (upper case; null: not a free letter key). */
+export function toolKeyOf(e: EditKeyEvent): string | null {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
+  const m = /^Key([A-Z])$/.exec(e.code);
+  return m === null || RESERVED_TOOL_KEYS.has(e.code) ? null : m[1]!;
+}
+
 /** The most palette entries a number key reaches (1 … 9). */
 export const PALETTE_KEYS = 9;
 

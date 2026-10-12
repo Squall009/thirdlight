@@ -107,8 +107,8 @@ export function terrainBakeRect(before: ReadonlyMap<string, TerrainTile>, after:
   return out === null ? null : [out[0] - margin, out[1] - margin, out[2] + margin, out[3] + margin];
 }
 
-/** A tile's baked weights as they are when it has none: all layer 0. */
-function defaultWeights(n: number): Uint8Array {
+/** A tile's baked weights as they are when it has none (`n` samples): all layer 0. */
+export function defaultTerrainWeights(n: number): Uint8Array {
   const w = new Uint8Array(n * TERRAIN_WEIGHT_BYTES);
   for (let i = 0; i < n; i++) w[i * TERRAIN_WEIGHT_BYTES + TERRAIN_SAMPLE_LAYERS] = 255;
   return w;
@@ -193,7 +193,7 @@ export function bakeTerrainRules(s: TerrainSamples, set: SurfaceRuleSet | null, 
         if (same) continue;
         if (written === null) {
           written = s.writable(tx, tz)!;
-          written.weights ??= defaultWeights(S * S);
+          written.weights ??= defaultTerrainWeights(S * S);
         }
         written.weights!.set(scratch, o);
         changed += 1;

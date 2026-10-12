@@ -33,6 +33,8 @@ import {
   validateSurfaceRules,
   flatTerrainTile,
   holeTerrain,
+  extendTerrainTiles,
+  TERRAIN_ADD_TILES_MAX,
   importHeightmap,
   paintTerrain,
   rampTerrain,
@@ -80,8 +82,8 @@ import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldV
 import type { OpOutcome } from './ops';
 import type { ContentDocument, SceneDocument } from './types';
 
-export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode';
-export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake', 'scatter', 'erode'];
+export type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode' | 'addTiles';
+export const EDIT_TERRAIN_KINDS: readonly EditTerrainKind[] = [...TERRAIN_SCULPT_KINDS, 'ramp', 'paint', 'holes', 'import', 'fromBlocks', 'bake', 'scatter', 'erode', 'addTiles'];
 
 /** `editTerrain` args (which keys a kind takes: `EDIT_TERRAIN_KEYS`). */
 export interface EditTerrainArgs {
@@ -132,6 +134,8 @@ export interface EditTerrainArgs {
   rect?: [number, number, number, number];
   hydraulic?: ErosionSettings['hydraulic'];
   thermal?: ErosionSettings['thermal'];
+  /** addTiles: the tile coordinates made ([x, z]), each carrying on from its neighbours' edges. */
+  tiles?: [number, number][];
 }
 
 const BRUSH_KEYS = ['dabs', 'radius', 'strength', 'falloff', 'hardness', 'mask'];
@@ -150,6 +154,7 @@ export const EDIT_TERRAIN_KEYS: Readonly<Record<EditTerrainKind, readonly string
   bake: ['rules', 'scatter'],
   scatter: ['dabs', 'radius', 'rule', 'erase'],
   erode: ['layerId', 'rect', 'hydraulic', 'thermal', 'seed'],
+  addTiles: ['tiles'],
 });
 
 /** The host's result: the terrain's new value and what the edit did. */
@@ -227,6 +232,12 @@ export function validateEditTerrainArgs(args: Record<string, unknown>): { ok: tr
     if (errors.length > 0) return { ok: false, error: fieldValue(errors[0]!.path, (errors[0] as { found?: unknown }).found, 'scatter rules', errors[0]!.message) };
   }
   if (kind === 'scatter' && typeof args['rule'] !== 'string') return bad('rule', 'a scatter rule id', 'rule names the scatter rule whose copies the stroke edits');
+  if (kind === 'addTiles') {
+    const t = args['tiles'];
+    if (!(Array.isArray(t) && t.length >= 1 && t.length <= TERRAIN_ADD_TILES_MAX && t.every((v) => Array.isArray(v) && v.length === 2 && v.every((c) => Number.isInteger(c) && Math.abs(c as number) <= TERRAIN_TILE_COORD_MAX)))) {
+      return bad('tiles', `1-${TERRAIN_ADD_TILES_MAX} [x, z] tile coordinates`, `tiles are the tile coordinates made (whole numbers within ±${TERRAIN_TILE_COORD_MAX})`);
+    }
+  }
   if (kind === 'erode') {
     const e = erodeArgsError(args);
     if (e !== null) return { ok: false, error: e };
@@ -317,6 +328,10 @@ function planEdit(scene: SceneDocument, content: ContentDocument | undefined, ar
     if (heightmap === undefined) return { ok: false, error: fieldValue('/args/stageId', args.stageId, 'a heightmap the host read', 'editTerrain import runs through the project host, which reads the uploaded file') };
     const at = args.at ?? [0, 0];
     grow(at[0] * size, at[1] * size, (at[0] + Math.max(1, Math.ceil((heightmap.width - 1) / (comp.tileSamples - 1)))) * size, (at[1] + Math.max(1, Math.ceil((heightmap.height - 1) / (comp.tileSamples - 1)))) * size);
+  }
+  if (args.kind === 'addTiles') {
+    // The new tiles and the ring round them (whose edges they carry on from).
+    for (const [tx, tz] of args.tiles!) grow((tx - 1) * size, (tz - 1) * size, (tx + 2) * size, (tz + 2) * size);
   }
   // Material rules: a bake's, else the terrain's (baked again where the edit moves the ground; their reach is read too).
   // A bake naming only scatter rules leaves the material as it is.
@@ -419,6 +434,9 @@ function planEdit(scene: SceneDocument, content: ContentDocument | undefined, ar
       clamped = r2.clamped;
       break;
     }
+    case 'addTiles':
+      extendTerrainTiles(s, args.tiles!);
+      break;
     case 'bake':
       break;
   }

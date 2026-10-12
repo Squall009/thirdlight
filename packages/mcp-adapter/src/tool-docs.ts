@@ -74,6 +74,7 @@ import {
   PATH_PAINT_CELL,
   PATH_PAINT_REACH,
   VERTEX_PAINT_BRUSH_LIMITS,
+  TERRAIN_ADD_TILES_MAX,
   TERRAIN_BRUSH_LIMITS,
   INSTANCE_BRUSH_REACH,
   TEXTURE_BUDGET_DEFAULT_MB,
@@ -177,7 +178,8 @@ export const TOOL_DETAILS = {
     'kind holes {dabs, radius, erase?} cuts cells out (erase fills them); kind import {stageId (tl_content_upload), format png16|raw16, size? [w, h] (raw16; absent: square), byteOrder? little|big, ' +
     'at? [tileX, tileZ], range? [low, high] m its 0 and 65535 stand for (absent: the terrain\'s)} lays a 16-bit heightmap one pixel per sample (rows go +z) and adds the tiles it reaches; ' +
     'kind fromBlocks {source: a block layer object} turns the layer\'s corner-height surface into tiles (cells over no column become holes, painted layers 0-3 come as hand paint). ' +
-    'Material rules (terrain and block layers alike): [{layer, strength? 0-1, face? top|wall, height? (world m), slope? (degrees), cavity? (m the ground radius? m around lies above: + hollows), noise? {scale m, seed?}, weight? {layer} (its share 0-1 left by the rules before), ' +
+    `kind addTiles {tiles: [[x, z] tile coordinates, 1-${TERRAIN_ADD_TILES_MAX}]} makes tiles beside the terrain's: each takes its neighbours' nearest heights, so the ground carries on from their edges (no crack or cliff), and the rules bake it; a tile is removed with setComponent "terrain" {tiles} without it. ` +
+    'Material rules (terrain and block layers alike): [{name? (the editor\'s label; paints nothing), layer, strength? 0-1, face? top|wall, height? (world m), slope? (degrees), cavity? (m the ground radius? m around lies above: + hollows), noise? {scale m, seed?}, weight? {layer} (its share 0-1 left by the rules before), ' +
     'blocks? [block type ids] and meta? {field: value} (block layers only)}], each condition a range {min?, max?, fade?} fading over fade past its ends; in order, each takes its share of every layer so far; where none applies, layer 0. ' +
     'kind bake {rules?, scatter?} sets a terrain\'s rules (absent: its own again — unless only scatter is given; []: none) and bakes them into every tile; a sculpt, ramp, import or conversion bakes them again where it moves the ground; hand paint stays over them (a setComponent of rules alone does not bake). ' +
     'Scatter rules (terrain and block layers alike) place models where conditions hold, their copies baked per terrain tile (tiles[].scatter, a blob) or block chunk: [{id (1-32 of A-Z a-z 0-9 _ -), asset: {assetId, piece?}, density (candidates per m² where every condition holds fully), spacing? m (no two copies closer), scale? [min, max], yaw? degrees (default 360), align? 0-1 (lean to the normal), sink? m, seed?, ' +

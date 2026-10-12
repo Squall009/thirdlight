@@ -36,7 +36,8 @@ export function decodeSource(bytes: Uint8Array, format: 'png' | 'jpeg', maxPixel
     if (!r.ok) throw new Error(r.message);
     return { width: r.png.width, height: r.png.height, data: r.png.rgba };
   }
-  const img = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: maxPixels / (1024 * 1024), maxMemoryUsageInMB: 512 });
+  // jpeg-js counts a megapixel as a million pixels: a limit of exactly `maxPixels` (a packed texture's one size) must not refuse that size.
+  const img = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: maxPixels / 1_000_000, maxMemoryUsageInMB: 512 });
   return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
 }
 

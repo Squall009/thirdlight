@@ -112,6 +112,28 @@ describe('editTerrain', () => {
     expect(notTerrain.ok).toBe(false);
   });
 
+  it('addTiles: a new tile carries on from its neighbours\' edges (no crack, no cliff); a taken place changes nothing', () => {
+    const scene = state([10, 0, 10]).scene;
+    const r = planTerrainEdit(scene, BEFORE.content, { entityId: 'group-0902', kind: 'addTiles', tiles: [[0, 1]] }, read);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.added).toEqual([[0, 1]]);
+    const made = r.plan.tiles.get('0,1')!;
+    const ridge = tileOne();
+    for (let x = 0; x < 33; x++) {
+      // The shared edge is the stored tile's last row; every row after it carries that row on.
+      expect(made.heights[x]).toBe(ridge.heights[32 * 33 + x]);
+      expect(made.heights[16 * 33 + x]).toBe(ridge.heights[32 * 33 + x]);
+    }
+    // Beside the flat tile only (a corner away from the ridge): flat.
+    const corner = planTerrainEdit(scene, BEFORE.content, { entityId: 'group-0902', kind: 'addTiles', tiles: [[2, -1]] }, read);
+    expect(corner.ok && [...corner.plan.tiles.get('2,-1')!.heights].every((h) => h === terrainFlatStep(TERRAIN.heightRange))).toBe(true);
+    const taken = planTerrainEdit(scene, BEFORE.content, { entityId: 'group-0902', kind: 'addTiles', tiles: [[1, 0]] }, read);
+    expect(taken.ok === false && taken.error.code).toBe('no_change');
+    const bad = applyMutation(state(), request('editTerrain', { entityId: 'group-0902', kind: 'addTiles', tiles: [[0.5, 1]] }, 0) as never);
+    expect(bad.ok).toBe(false);
+  });
+
   it('paint takes an opacity, a mask and a curve: the ceiling holds, the bytes are the cores dab by dab, seamless across a tile edge', () => {
     const MASK = { scale: 1.5, contrast: 1.8, threshold: 0.45, octaves: 3, seed: 77 };
     const flat: TerrainComponent = { ...TERRAIN, tiles: [{ x: 0, z: 0 }, { x: 1, z: 0 }] };

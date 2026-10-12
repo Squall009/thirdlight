@@ -1015,7 +1015,7 @@ function EditorApp(): JSX.Element {
       tileThumbnails={tileThumbnails}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
-      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id) }}
+      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) }}
     />
   );
   /** What the edit modes read from the app. */

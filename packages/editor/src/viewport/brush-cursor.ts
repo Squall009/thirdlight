@@ -61,8 +61,8 @@ const FILL_ALPHA = 0.3;
 /** Lifted off the surface so the lines do not flicker into it. */
 const LIFT = 0.04;
 
-/** A stylesheet colour token (`--brush`), or white where there is no stylesheet. */
-function tokenColour(name: string): THREE.Color {
+/** A stylesheet colour token (`--brush`), or white where there is no stylesheet: the Scene-view overlays take the editor's colours from one place. */
+export function tokenColour(name: string): THREE.Color {
   const v = typeof document === 'undefined' ? '' : getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const c = new THREE.Color(1, 1, 1);
   if (v !== '') c.setStyle(v, THREE.SRGBColorSpace);

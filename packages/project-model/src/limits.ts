@@ -60,6 +60,7 @@ export { PAINT_BRUSH_LIMITS } from './paint-brush';
 export { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 export { SCULPT_LIMITS } from './block-sculpt';
 export { TERRAIN_BRUSH_LIMITS } from './terrain-edit';
+export { TERRAIN_ADD_TILES_MAX } from './terrain-import';
 export { TIMELINE_LIMITS } from './timelines';
 export { UI_LIMITS } from './ui-documents';
 export { MAX_LIGHTMAP_ATLASES, MAX_LIGHTMAP_ENTRIES } from './lighting';

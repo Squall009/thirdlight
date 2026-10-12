@@ -16,7 +16,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
-import { closeEditor, editModeTab, editorPane, enterEditMode, leaveEditMode, menu, openEditor, openWindow } from './ui';
+import { closeEditor, editMode, editModeTab, editorPane, enterEditMode, leaveEditMode, menu, openEditor, openWindow } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 import { count, frameShareNear, meanDiff, projectWith, share, type CameraView, type V3 } from './frame-reading';
 
@@ -401,9 +401,14 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       const list = terrainPanel(page).getByRole('group', { name: 'terrain layers' });
       await pickTool(page, 'Stamp');
       const opts = terrainPanel(page).getByRole('group', { name: 'stamp options' });
-      await opts.getByLabel('stamp heightmap', { exact: true }).selectOption('e2e-cone');
+      // The heightmap picked by its picture in the texture browser (the project window is under the mode).
+      if ((await opts.getByRole('group', { name: 'stamp heightmap browser' }).count()) === 0) await opts.getByRole('button', { name: 'stamp heightmap', exact: true }).click();
+      await opts.getByRole('group', { name: 'stamp heightmap browser' }).getByRole('option', { name: 'Cone', exact: true }).click();
+      await expect(opts.getByRole('button', { name: 'stamp heightmap', exact: true })).toHaveAttribute('data-texture', 'e2e-cone');
       await opts.getByLabel('stamp height', { exact: true }).fill(String(STAMP_HEIGHT));
+      await opts.getByLabel('stamp height', { exact: true }).blur();
       await opts.getByLabel('stamp falloff', { exact: true }).fill('0');
+      await opts.getByLabel('stamp falloff', { exact: true }).blur();
       await setNumber(page, 'brush size', STAMP_RADIUS * 2);
       // One click: one command — the stamps layer made with the stamp, the ground combined again under it.
       const rev0 = await revision();
@@ -419,6 +424,7 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       expect(Math.hypot(st[0] - STAMP_AT[0], st[1] - STAMP_AT[1]), 'the stamp where it was clicked').toBeLessThan(0.6);
       expect((await height(...st)) - handMade, 'the mountain\'s top').toBeGreaterThan(STAMP_HEIGHT - 1.5);
       await expect(list.getByRole('listitem', { name: 'layer stamps' })).toBeVisible();
+      await stampHandles(page, ground, centre);
       // The steep flanks painted by the slope rule, baked again after the stamp (on the side the view sees).
       await expect.poll(async () => {
         let best = 0;
@@ -431,8 +437,10 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
       // The Erode tool: the square round the mountain, one command (eroded on the backend's worker).
       await pickTool(page, 'Erode');
       const erodeOpts = terrainPanel(page).getByRole('group', { name: 'erode options' });
-      await erodeOpts.getByLabel('erode droplets', { exact: true }).fill('2');
-      await erodeOpts.getByLabel('erode passes', { exact: true }).fill('20');
+      for (const [label, v] of [['erode droplets', '2'], ['erode passes', '20']] as const) {
+        await erodeOpts.getByLabel(label, { exact: true }).fill(v);
+        await erodeOpts.getByLabel(label, { exact: true }).blur();
+      }
       await setNumber(page, 'brush size', ERODE_RADIUS * 2);
       const probe: [number, number] = [STAMP_AT[0] + STAMP_RADIUS / 2, STAMP_AT[1]];
       const stamped = await height(...probe);
@@ -479,6 +487,47 @@ export async function editLayers(page: Page, renderer: string, ground: string, r
 }
 
 /**
+ * The placed stamp's handles in the view (Select): picked from the list, its body dragged (it moves: one command),
+ * its corner dragged (it grows: one command), both undone; the mountain back where it was clicked.
+ */
+export async function stampHandles(page: Page, ground: string, centre: V3): Promise<void> {
+  type Handles = { layer: string; index: number; centre: [number, number]; corner: [number, number]; knob: [number, number] };
+  const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
+  const stamp = async (): Promise<{ at: [number, number]; size: number; rotation?: number }> => (((await layersOf(ground)).find((l) => l.kind === 'stamps')!.stamps![0]) as { at: [number, number]; size: number; rotation?: number });
+  const handles = async (): Promise<Handles | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stamp')) || 'null') as Handles | null;
+  await pickTool(page, 'Select');
+  await terrainPanel(page).getByRole('group', { name: 'terrain layers' }).getByRole('button', { name: 'stamp 1 of stamps' }).click();
+  await expect.poll(handles, { timeout: 15_000, message: 'the picked stamp\'s handles in the view' }).not.toBeNull();
+  const before = await stamp();
+  const drag = async (from: [number, number], by: [number, number]): Promise<void> => {
+    await page.mouse.move(from[0], from[1]);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(from[0] + (by[0] * i) / 8, from[1] + (by[1] * i) / 8);
+    await page.mouse.up();
+  };
+  // Its body: moved across the ground.
+  let rev = await revision();
+  await drag((await handles())!.centre, [60, 0]);
+  await expect.poll(revision, { timeout: 30_000, message: 'the stamp moved: one command' }).toBe(rev + 1).catch(async (e: Error) => {
+    throw new Error(`${e.message}: ${await viewport(page).getAttribute('data-terrain-stamp-press')} handles ${JSON.stringify(await handles())}`);
+  });
+  const moved = await stamp();
+  expect(Math.hypot(moved.at[0] - before.at[0], moved.at[1] - before.at[1]), 'the stamp moved').toBeGreaterThan(1);
+  expect(moved.size).toBe(before.size);
+  // Its corner: dragged outward, it grows (and stays square).
+  rev = await revision();
+  const h = (await handles())!;
+  await drag(h.corner, [Math.sign(h.corner[0] - h.centre[0]) * 40, Math.sign(h.corner[1] - h.centre[1]) * 40]);
+  await expect.poll(revision, { timeout: 30_000, message: 'the stamp resized: one command' }).toBe(rev + 1);
+  expect((await stamp()).size, 'the stamp grew').toBeGreaterThan(before.size);
+  test.info().annotations.push({ type: 'stamp handles', description: JSON.stringify({ before, moved, resized: await stamp() }) });
+  await cmd('undo', {});
+  await cmd('undo', {});
+  await expect.poll(stamp, { timeout: 30_000, message: 'undone: the stamp back' }).toMatchObject({ at: before.at, size: before.size });
+  void centre;
+}
+
+/**
  * The blocks layer through the Layers list (first renderer): added (one command: the ground meets every block layer),
  * its blend set, flattened and cut again; then narrowed to the plaza by command (the list has no picker); the plaza's
  * border, the cut under it and the texture origin read back.
@@ -503,11 +552,11 @@ export async function blocksLayer(list: ReturnType<Page['getByRole']>, ground: s
   await blend.blur();
   await expect.poll(async () => (await layersOf(ground)).find((l) => l.kind === 'blocks')?.blend, { timeout: 30_000, message: 'the blend stored' }).toBe(PLAZA_BLEND);
   // Flatten: whole ground just under the blocks; cut again.
-  await list.getByLabel('layer blocks mode', { exact: true }).selectOption('flatten');
+  await list.getByRole('radiogroup', { name: 'layer blocks mode' }).getByRole('radio', { name: 'Flatten' }).click();
   await expect.poll(async () => (await at(...centre)).hole, { timeout: 30_000, message: 'flattened: no hole under the plaza' }).toBe(false);
   figures['flattened'] = await at(...centre);
   expect((await at(...centre)).height!, 'flattened just under the plaza').toBeCloseTo(plazaTop(centre[0]) - 0.02, 2);
-  await list.getByLabel('layer blocks mode', { exact: true }).selectOption('cut');
+  await list.getByRole('radiogroup', { name: 'layer blocks mode' }).getByRole('radio', { name: 'Cut away' }).click();
   await expect.poll(async () => (await at(...centre)).hole, { timeout: 30_000, message: 'cut away again' }).toBe(true);
   // Narrowed to the plaza: the other block areas' ground as it was made by hand.
   await cmd('setComponent', { entityId: ground, component: 'terrain', value: { layers: (await layersOf(ground)).map((l) => (l.kind === 'blocks' ? { ...l, blockLayers: [plaza] } : l)) } });
@@ -730,13 +779,18 @@ export type PreviewDiff = { samples: number; stepsMax: number; stepsDiffering: n
 export type StrokeInfo = { serial: number; tool: string; dabs: number; commitMs: number | null; stored: boolean | null; preview?: { active: boolean; settling: boolean; dabs: number; passes: number; tiles: number; msMax: number; msMean: number; frames: number; msMaxAfterFirst: number; settleMs: number | null; diff: PreviewDiff | null } };
 export const strokeInfo = async (page: Page): Promise<StrokeInfo | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stroke')) ?? 'null') as StrokeInfo | null;
 export const terrainPanel = (page: Page) => page.getByLabel('terrain tools');
-/** The terrain editor's rail mode that holds each tool. */
-const TOOL_MODES: Readonly<Record<string, string>> = { Raise: 'Sculpt', Lower: 'Sculpt', Smooth: 'Sculpt', Flatten: 'Sculpt', Noise: 'Sculpt', Ramp: 'Sculpt', Paint: 'Paint', Holes: 'Holes', Scatter: 'Scatter', Stamp: 'Stack', Erode: 'Stack' };
-/** Pick a terrain tool: its mode on the terrain editor's rail, then the tool. */
+/** The terrain editor's rail mode and tool tile of each tool. */
+const TOOL_MODES: Readonly<Record<string, [string, string]>> = { Raise: ['Sculpt', 'Raise'], Lower: ['Sculpt', 'Lower'], Smooth: ['Sculpt', 'Smooth'], Flatten: ['Sculpt', 'Flatten'], Noise: ['Sculpt', 'Noise'], Ramp: ['Sculpt', 'Ramp'], Paint: ['Paint', 'Paint'], Erase: ['Paint', 'Erase'], Holes: ['Holes', 'Cut'], Scatter: ['Scatter', 'Place'], Select: ['Stack', 'Select'], Stamp: ['Stack', 'Stamp'], Erode: ['Stack', 'Erode'] };
+/** Pick a terrain tool: its mode on the terrain editor's rail, then its tile in the mode's tool grid. */
 export async function pickTool(page: Page, name: string): Promise<void> {
-  await editModeTab(page, TOOL_MODES[name]!);
-  await terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name, exact: true }).click();
+  const [mode, tile] = TOOL_MODES[name]!;
+  await editModeTab(page, mode);
+  const button = terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name: tile, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
 }
+/** The terrain editor's header fact ("64 tiles · 8 × 8 · 32 m each"). */
+export const editorMeta = (page: Page) => editMode(page).locator('.tl-emh__meta');
 /** Click an object's row in the Hierarchy (an open edit mode is left first: the Hierarchy is under it). */
 export async function clickRow(page: Page, id: string): Promise<void> {
   await leaveEditMode(page);
@@ -817,7 +871,7 @@ export async function terrainStroke(page: Page, points: readonly V3[], look: V3,
 }
 
 /** The pointer onto the edit mode's rail, off the view: the brush cursor goes. */
-async function pointerOffView(page: Page): Promise<void> {
+export async function pointerOffView(page: Page): Promise<void> {
   const b = (await viewport(page).boundingBox())!;
   await page.mouse.move(b.x - 20, b.y + b.height - 20);
   if ((await viewport(page).getAttribute('data-terrain-tool')) !== '') await expect(viewport(page)).not.toHaveAttribute('data-terrain-brush', /\d/);
@@ -1141,7 +1195,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   const grove: V3[] = first ? [] : [[GROVE[0], 0, GROVE[1]], [GROVE[0] + 2, 0, GROVE[1]], [GROVE[0] - 2, 0, GROVE[1]], [GROVE[0], 0, GROVE[1] + 2], [GROVE[0], 0, GROVE[1] - 2]];
   const height = async (x: number, z: number): Promise<number> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number }[])[0]!.height;
   await selectEntity(page, ground);
-  await expect(terrainPanel(page).getByLabel('terrain size')).toContainText(`${TILES * TILES} tiles of ${CELLS * SPACING} m`);
+  await expect(editorMeta(page)).toHaveText(`${TILES * TILES} tiles · ${TILES} × ${TILES} · ${CELLS * SPACING} m each`);
   const rev0 = Number((await query('queryProject')).revision);
 
   // ---- raise: a short drag, the ground up where it went.
@@ -1250,32 +1304,32 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   await expect.poll(() => height(raiseAt[0], raiseAt[2]), { timeout: 30_000 }).toBe(h0);
 
   if (first) {
-    // ---- a new terrain from the GameObject menu: its editor opens (then undone: the editor closes).
+    // ---- a new terrain from the GameObject menu: one command, its editor opens; one undo takes it away (the editor closes).
     const newRows = page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: /^Terrain$/ }) });
+    const revNew = Number((await query('queryProject')).revision);
     await menu(page, 'GameObject', 'Terrain');
-    await expect(terrainPanel(page).getByLabel('terrain size')).toContainText('4 tiles of 256 m');
+    await expect(editorMeta(page)).toHaveText('4 tiles · 2 × 2 · 256 m each');
+    expect(Number((await query('queryProject')).revision), 'the new terrain is one command').toBe(revNew + 1);
     await expect(newRows).toHaveCount(1);
     await page.keyboard.press('Control+z');
-    await page.keyboard.press('Control+z');
     await expect(newRows).toHaveCount(0, { timeout: 30_000 });
+    await expect(editMode(page)).toHaveCount(0);
     await selectEntity(page, ground);
 
-    // ---- the heightmap import dialog: a 33² RAW of 10 m on tile [7, 7] (then undone).
+    // ---- the heightmap import in Tiles: a 33² RAW of 10 m on tile [7, 7] (then undone).
     const at: [number, number] = [ORIGIN[0] + 7 * CELLS * SPACING + 4, ORIGIN[2] + 7 * CELLS * SPACING + 4];
     const was = await height(...at);
     const raw = new Uint8Array(33 * 33 * 2);
     const v = Math.round(((10 - RANGE[0]) / (RANGE[1] - RANGE[0])) * 65535);
     for (let i = 0; i < 33 * 33; i++) new DataView(raw.buffer).setUint16(i * 2, v, true);
     await editModeTab(page, 'Tiles');
-    await terrainPanel(page).getByRole('button', { name: 'Import heightmap…' }).click();
-    const dialog = page.getByRole('dialog', { name: 'import heightmap' });
+    const dialog = terrainPanel(page).getByRole('group', { name: 'import heightmap' });
     await dialog.getByLabel('heightmap file').setInputFiles({ name: 'patch.raw', mimeType: 'application/octet-stream', buffer: Buffer.from(raw) });
-    await expect(dialog.getByLabel('heightmap format')).toHaveValue('raw16');
+    await expect(dialog.getByRole('radiogroup', { name: 'heightmap format' }).getByRole('radio', { name: 'RAW 16-bit' })).toHaveAttribute('aria-checked', 'true');
     await expect(dialog.getByLabel('raw width')).toHaveValue('33');
     await dialog.getByLabel('import tile x').fill('7');
     await dialog.getByLabel('import tile z').fill('7');
     await dialog.getByRole('button', { name: 'import', exact: true }).click();
-    await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect.poll(() => height(...at), { timeout: 30_000 }).toBeCloseTo(10, 1);
     await page.keyboard.press('Control+z');
     await expect.poll(() => height(...at), { timeout: 30_000 }).toBe(was);
@@ -1375,43 +1429,117 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
 }
 
 /**
+ * Tiles in the terrain editor, right after the tools (the 1,025² tile framed, Sculpt armed after strokes):
+ * - another client adds a tile beside the 1,025² tile — its page grows — and the tile already there still draws as
+ *   it did (a grown page once drew its old tiles from the new textures' empty layers: the terrain vanished), undone;
+ * - (first renderer) the tile grid in Tiles: the empty square beside the ground under the pointer, clicked, adds a
+ *   tile in one command that carries the ground on from its neighbour's edge (no crack, no cliff); the column's
+ *   Remove takes it away again (one command).
+ */
+export async function tiles(page: Page, renderer: string, ground: string, big: string, first: boolean): Promise<void> {
+  const revision = async (): Promise<number> => Number((await query('queryProject')).revision);
+  const drawn = async (): Promise<number> => (JSON.parse((await viewport(page).getAttribute('data-terrain')) ?? '{"tilesDrawn":0}') as TerrainDiag).tilesDrawn;
+  const spot = await surface(big, BIG_ORIGIN[0] + 30, BIG_ORIGIN[2] + 30);
+  await pointerOffView(page);
+  await page.waitForTimeout(300);
+  const before = await shot(page, spot, 80);
+  const tilesBefore = await drawn();
+  await cmd('editTerrain', { entityId: big, kind: 'addTiles', tiles: [[1, 0]] });
+  await expect.poll(drawn, { timeout: 60_000, message: `${renderer}: the new tile beside the 1,025² tile drawn` }).toBe(tilesBefore + 1);
+  let diff = 0;
+  await expect.poll(async () => (diff = meanDiff(before, await shot(page, spot, 80))), { timeout: 15_000, message: `${renderer}: the 1,025² tile drawn as before after its page grew` }).toBeLessThan(6);
+  test.info().annotations.push({ type: `${renderer} tile added to a full page`, description: JSON.stringify({ meanDiff: diff }) });
+  await cmd('undo', {});
+  await expect.poll(drawn, { timeout: 30_000 }).toBe(tilesBefore);
+  if (!first) return;
+
+  // The tile grid: the square east of tile [7, 3] is empty.
+  const tileCount = async (): Promise<number> => ((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { tiles: unknown[] } } } }).entity.components.terrain.tiles.length;
+  const height = async (x: number, z: number): Promise<number | null> => ((await query('queryTerrain', { entityId: ground, points: [[x, z]] }))['points'] as { height: number | null }[])[0]!.height;
+  const size = CELLS * SPACING;
+  const east = ORIGIN[0] + TILES * size;
+  const z = ORIGIN[2] + 3.5 * size;
+  await selectEntity(page, ground);
+  await editModeTab(page, 'Tiles');
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(400);
+  const level = (await height(east - 0.5, z)) ?? 0;
+  const target: V3 = [east + size / 2, level, z];
+  await zoomedOutTo(page, [target, [east, level, z]], async () => {
+    const s = await screenOf(page, target);
+    await page.mouse.move(s.x - 2, s.y);
+    await page.mouse.move(s.x, s.y);
+    await expect(viewport(page)).toHaveAttribute('data-terrain-tile', `empty:${TILES},3`);
+    if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/terrain-tiles.png` });
+    const rev0 = await revision();
+    await page.mouse.click(s.x, s.y);
+    await expect.poll(tileCount, { timeout: 30_000, message: 'a tile added by a click' }).toBe(TILES * TILES + 1);
+    expect(await revision(), 'one command').toBe(rev0 + 1);
+  });
+  // The new tile carries the ground on from its neighbour's edge: the shared edge's height, then that height across it.
+  for (const dz of [-6, 0, 6]) {
+    const edge = (await height(east, z + dz))!;
+    expect(await height(east + 0.25, z + dz), `no crack at z ${z + dz}`).not.toBeNull();
+    expect((await height(east + size / 2, z + dz))!, `no cliff: the edge's height carried on (z ${z + dz})`).toBeCloseTo(edge, 1);
+  }
+  await expect(terrainPanel(page).getByLabel('picked tile')).toContainText(`${TILES}, 3`);
+  const rev1 = await revision();
+  await terrainPanel(page).getByRole('button', { name: 'remove tile' }).click();
+  await expect.poll(tileCount, { timeout: 30_000, message: 'the picked tile removed' }).toBe(TILES * TILES);
+  expect(await revision(), 'one command').toBe(rev1 + 1);
+}
+
+/**
  * The material rules from the editor (see the file's header): the terrain's baked twice (the hand paint on the ramp
  * survives both), the block layer's stored on its component, and layer 5's own settings in the layer table.
  */
 export async function materialRules(page: Page, ground: string, blocks: string): Promise<void> {
   type Point = { layers: number[]; weights: number[] };
   const layersAt = async (p: [number, number]): Promise<Point> => ((await query('queryTerrain', { entityId: ground, points: [p] }))['points'] as Point[])[0]!;
-  await selectEntity(page, ground);
-  await editModeTab(page, 'Material rules');
-  const rules = terrainPanel(page).getByRole('group', { name: 'material rules' });
-  await rules.getByRole('button', { name: 'add rule' }).click();
-  const fill = async (scope: typeof rules, label: string, value: number): Promise<void> => {
-    const f = scope.getByLabel(label, { exact: true });
+  const fill = async (scope: ReturnType<Page['getByRole']>, label: string, value: number | string): Promise<void> => {
+    const f = scope.getByRole('textbox', { name: label, exact: true });
     await f.fill(String(value));
     await f.blur();
   };
+  await selectEntity(page, ground);
+  await editModeTab(page, 'Material rules');
+  const rules = terrainPanel(page).getByRole('group', { name: 'material rules' });
+  // A new rule opens its card.
+  await rules.getByRole('button', { name: 'add rule' }).click();
+  await expect(rules.getByRole('listitem', { name: 'rule 1' })).toHaveClass(/is-active/);
   // The rule's layer from the palette by its picture (layer index 3 is the palette's fourth).
   await rules.getByRole('button', { name: 'rule 1 layer', exact: true }).click();
   if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/rules-picker.png` });
   await page.getByRole('dialog', { name: 'rule 1 layer choices' }).getByRole('radio', { name: `layer ${STEEP_RULE.layer + 1}`, exact: true }).click();
   await expect(rules.getByRole('button', { name: 'rule 1 layer', exact: true })).toHaveAttribute('data-layer', String(STEEP_RULE.layer));
-  await fill(rules, 'rule 1 slope min', STEEP_RULE.slope.min);
-  await fill(rules, 'rule 1 slope fade', 1);
+  // The slope as a range ("over 62°") and its softness, on sliders that take typing.
+  await fill(rules, 'rule 1 slope', `>${STEEP_RULE.slope.min}`);
+  await fill(rules, 'rule 1 slope softness', 1);
+  // The live preview: the draft drawn on the terrain before it is baked — the steep ramp shows layer 3 (magenta), stored still layer 0.
+  const rampMid: V3 = [RAMP_MID[0], (await surface(ground, ...RAMP_MID))[1], RAMP_MID[1]];
+  await zoomedOutTo(page, [rampMid], async () => {
+    await expect.poll(async () => JSON.parse((await viewport(page).getAttribute('data-terrain-rules-preview')) || '{"covered":0}').covered as number, { timeout: 15_000, message: 'the rules previewed' }).toBeGreaterThan(0);
+    await expect.poll(() => shareNear(page, rampMid, isMagenta, 8), { timeout: 15_000, message: 'the preview paints the steep ramp with layer 3' }).toBeGreaterThan(0.5);
+  });
+  expect((await layersAt(RAMP_MID)).layers, 'not baked yet').not.toEqual([STEEP_RULE.layer]);
   const rev0 = Number((await query('queryProject')).revision);
-  await rules.getByRole('button', { name: 'apply rules' }).click();
+  await terrainPanel(page).getByRole('button', { name: 'bake rules' }).click();
   await expect.poll(async () => (await layersAt(RAMP_MID)).layers, { timeout: 30_000, message: 'the steep ramp baked layer 3' }).toEqual([STEEP_RULE.layer]);
   expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
   expect(await layersAt(RAMP_DISC), 'the hand paint over the rules').toMatchObject({ layers: [2], weights: [255] });
   expect((await layersAt(PLAIN)).layers, 'gentle ground keeps layer 0').toEqual([0]);
-  // A second bake (the fade changed): the hand paint is still there.
-  await fill(rules, 'rule 1 slope fade', STEEP_RULE.slope.fade);
-  await rules.getByRole('button', { name: 'apply rules' }).click();
+  // A second bake (the softness changed): the hand paint is still there.
+  await fill(rules, 'rule 1 slope softness', STEEP_RULE.slope.fade);
+  await terrainPanel(page).getByRole('button', { name: 'bake rules' }).click();
   const terrainRules = async (): Promise<unknown> => (((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: { terrain?: { rules?: unknown } } }[] }).entities.find((e) => e.id === ground)?.components.terrain?.rules ?? null);
   await expect.poll(terrainRules, { timeout: 30_000 }).toEqual([STEEP_RULE]);
   expect(await layersAt(RAMP_DISC), 'the hand paint after a second bake').toMatchObject({ layers: [2], weights: [255] });
   expect((await layersAt(RAMP_MID)).layers).toEqual([STEEP_RULE.layer]);
+  // Its card folded says what it does in a line.
+  await rules.getByRole('listitem', { name: 'rule 1' }).locator('.tl-rule__head').click();
+  await expect(rules.getByRole('listitem', { name: 'rule 1' }).locator('.tl-rule__sum')).toHaveText(`Slope above ${STEEP_RULE.slope.min}°`);
 
-  // The block layer's Rules: the same slope rule.
+  // The block layer's Rules: the same cards, the same slope rule (its layers 1-4 picked by number).
   await clickRow(page, blocks);
   await openWindow(page, 'Blocks');
   const panel = page.getByLabel('blocks panel');
@@ -1419,9 +1547,9 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   await panel.getByRole('button', { name: /^Rules/ }).click();
   const blockRules = panel.getByRole('group', { name: 'material rules' });
   await blockRules.getByRole('button', { name: 'add rule' }).click();
-  await fill(blockRules, 'rule 1 layer', STEEP_RULE.layer);
-  await fill(blockRules, 'rule 1 slope min', STEEP_RULE.slope.min);
-  await fill(blockRules, 'rule 1 slope fade', STEEP_RULE.slope.fade);
+  await blockRules.getByRole('radiogroup', { name: 'rule 1 layer' }).getByRole('radio', { name: String(STEEP_RULE.layer + 1), exact: true }).click();
+  await fill(blockRules, 'rule 1 slope', `>${STEEP_RULE.slope.min}`);
+  await fill(blockRules, 'rule 1 slope softness', STEEP_RULE.slope.fade);
   await blockRules.getByRole('button', { name: 'apply rules' }).click();
   const blockRulesStored = async (): Promise<unknown> => (((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: { blockLayer?: { rules?: unknown } } }[] }).entities.find((e) => e.id === blocks)?.components.blockLayer?.rules ?? null);
   await expect.poll(blockRulesStored, { timeout: 30_000 }).toEqual([STEEP_RULE]);
@@ -1494,46 +1622,55 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   type Copy = { rule: string; x: number; y: number; z: number; cell: [number, number] };
   const box: [number, number, number, number] = [GROVE[0] - GROVE_RADIUS - 1, GROVE[1] - GROVE_RADIUS - 1, GROVE[0] + GROVE_RADIUS + 1, GROVE[1] + GROVE_RADIUS + 1];
   const copies = async (): Promise<Copy[]> => (((await query('queryTerrain', { entityId: ground, scatter: { box } }))['scatter'] as { copies: Copy[] } | undefined)?.copies ?? []);
-  const fill = async (scope: ReturnType<Page['getByRole']>, label: string, value: number | string): Promise<void> => {
-    const f = scope.getByLabel(label, { exact: true });
-    await f.fill(String(value));
-    await f.blur();
-  };
+
   // The disc the rules read (layer 2, green), painted now: the first renderer's tools ran on the ground as it was.
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [GROVE], radius: GROVE_RADIUS, strength: 1, falloff: 'constant', layer: 1 });
   await selectEntity(page, ground);
   await editModeTab(page, 'Scatter');
   const rules = terrainPanel(page).getByRole('group', { name: 'scatter rules' });
+  const text = async (label: string, value: number | string): Promise<void> => {
+    const f = rules.getByRole('textbox', { name: label, exact: true });
+    await f.fill(String(value));
+    await f.blur();
+  };
+  /** A rule's layer condition: added, its layer picked from the palette by its picture. */
+  const onLayer = async (n: number, layer: number): Promise<void> => {
+    await rules.getByRole('button', { name: `scatter ${n} add layer condition` }).click();
+    await rules.getByRole('button', { name: `scatter ${n} layers 1 layer`, exact: true }).click();
+    await page.getByRole('dialog', { name: `scatter ${n} layers 1 layer choices` }).getByRole('radio', { name: `layer ${layer + 1}`, exact: true }).click();
+  };
   // Posts: on the disc (layer 2's share over 0.5), on ground gentler than 30°.
   await rules.getByRole('button', { name: 'add scatter rule' }).click();
-  await fill(rules, 'scatter 1 name', 'posts');
+  await text('scatter 1 name', 'posts');
   await rules.getByLabel('scatter 1 model', { exact: true }).selectOption('e2e-post');
-  await fill(rules, 'scatter 1 density', 1.5);
-  await fill(rules, 'scatter 1 spacing', 0.6);
-  await fill(rules, 'scatter 1 slope max', 30);
-  await fill(rules, 'scatter 1 slope fade', 0.5);
-  await rules.getByLabel('scatter 1 layers', { exact: true }).check();
-  await fill(rules, 'scatter 1 layers of layer', 1);
+  await text('scatter 1 density', 1.5);
+  await text('scatter 1 spacing', 0.6);
+  await text('scatter 1 slope', '<30');
+  await text('scatter 1 slope softness', 0.5);
+  await onLayer(1, 1);
   // Each post carries its model's collider; far below the test's screen sizes it would turn into its impostor.
   await rules.getByLabel('scatter 1 collide', { exact: true }).check();
-  await fill(rules, 'scatter 1 impostor size', POST_IMPOSTOR_SIZE);
+  await rules.getByLabel('scatter 1 impostor', { exact: true }).check();
+  await text('scatter 1 impostor size', POST_IMPOSTOR_SIZE);
+  // Turn, lean and sink: every field of the rule on the card.
+  await text('scatter 1 yaw', 90);
+  await text('scatter 1 sink', 0.05);
   // Tufts: ground cover on the same disc, reaching the Play camera (about 45 m away).
   await rules.getByRole('button', { name: 'add scatter rule' }).click();
-  await fill(rules, 'scatter 2 name', 'tufts');
+  await text('scatter 2 name', 'tufts');
   await rules.getByLabel('scatter 2 model', { exact: true }).selectOption('e2e-tuft');
-  await fill(rules, 'scatter 2 density', 6);
-  await fill(rules, 'scatter 2 spacing', 0);
-  await fill(rules, 'scatter 2 slope max', 40);
-  await rules.getByLabel('scatter 2 layers', { exact: true }).check();
-  await fill(rules, 'scatter 2 layers of layer', 1);
+  await text('scatter 2 density', 6);
+  await text('scatter 2 spacing', 0);
+  await text('scatter 2 slope', '<40');
+  await onLayer(2, 1);
   await rules.getByLabel('scatter 2 cover', { exact: true }).check();
-  await fill(rules, 'scatter 2 cover distance', 100);
+  await text('scatter 2 cover distance', 100);
   const rev0 = Number((await query('queryProject')).revision);
-  await rules.getByRole('button', { name: 'apply scatter rules' }).click();
+  await rules.getByRole('button', { name: 'bake scatter rules' }).click();
   await expect.poll(async () => (await copies()).length, { timeout: 30_000, message: 'the posts baked' }).toBeGreaterThan(10);
   expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
   const stored = (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { scatter: Record<string, unknown>[] } } } }).entity.components.terrain.scatter);
-  expect(stored[0], 'the dialog wrote the collider and the impostor size').toMatchObject({ id: 'posts', collide: true, impostorSize: POST_IMPOSTOR_SIZE });
+  expect(stored[0], 'the card wrote the collider, the impostor size, the turn and the sink').toMatchObject({ id: 'posts', collide: true, impostorSize: POST_IMPOSTOR_SIZE, yaw: 90, sink: 0.05, layers: [{ layer: 1, min: 0.5 }] });
   // Every post on the disc and on gentle ground (its slope read where it stands); ground cover is never stored.
   const posts = await copies();
   expect(posts.every((c) => c.rule === 'posts')).toBe(true);
@@ -1558,7 +1695,7 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await cmd('deleteEntity', { entityId: marker });
   await selectEntity(page, ground);
   await pickTool(page, 'Scatter');
-  await expect(terrainPanel(page).getByLabel('scatter brush rule')).toHaveValue('posts');
+  await expect(terrainPanel(page).getByRole('radiogroup', { name: 'scatter brush rule' }).getByRole('radio', { name: 'posts' })).toHaveAttribute('aria-checked', 'true');
   await setNumber(page, 'brush size', 3);
   const center = await visibleSpot(page, ground, posts.slice(0, 12).map((c) => [c.x, c.z] as [number, number]));
   const s = await screenOf(page, center);
@@ -1583,11 +1720,16 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await panel.getByRole('button', { name: /^Scatter.*…$/ }).click();
   const blockRules = panel.getByRole('group', { name: 'scatter rules' });
   await blockRules.getByRole('button', { name: 'add scatter rule' }).click();
-  await fill(blockRules, 'scatter 1 name', 'posts');
+  const blockText = async (label: string, value: number | string): Promise<void> => {
+    const f = blockRules.getByRole('textbox', { name: label, exact: true });
+    await f.fill(String(value));
+    await f.blur();
+  };
+  await blockText('scatter 1 name', 'posts');
   await blockRules.getByLabel('scatter 1 model', { exact: true }).selectOption('e2e-post');
-  await fill(blockRules, 'scatter 1 density', 2);
-  await fill(blockRules, 'scatter 1 spacing', 0.4);
-  await fill(blockRules, 'scatter 1 slope max', 10);
+  await blockText('scatter 1 density', 2);
+  await blockText('scatter 1 spacing', 0.4);
+  await blockText('scatter 1 slope', '<10');
   await blockRules.getByRole('button', { name: 'apply scatter rules' }).click();
   type Chunk = { chunk: { scatter?: string } | null };
   const terraceCopies = async (): Promise<[number, number, number][]> => {

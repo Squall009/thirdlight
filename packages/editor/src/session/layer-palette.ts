@@ -103,14 +103,33 @@ export function withLayerSetting(m: MaterialDef, key: SettingKey, layer: number,
   return { ...m, parameters };
 }
 
-/** The material with a texture in a layer's albedo slot (unset or slots only: a prebuilt array is one texture asset). */
-export function withSlotTexture(m: MaterialDef, layer: number, textureId: string): MaterialDef {
+/** The texture arrays a layer takes a texture in (the template's three: colour with height, normal map, ORM). */
+export type LayerTextureKey = (typeof LAYERED_TEXTURES)[keyof typeof LAYERED_TEXTURES];
+
+/** A layer's texture in one of its arrays' slots (null: none of its own — a prebuilt array, an unset or empty slot). */
+export function slotTexture(m: MaterialDef, key: LayerTextureKey, layer: number): string | null {
+  const v = (m.parameters ?? []).find((p) => p.key === key && p.type === 'texture')?.default;
+  if (!isTextureSlots(v)) return null;
+  const id = v[layer] ?? '';
+  return id === '' ? null : id;
+}
+
+/**
+ * The material with a texture in a layer's slot of one of its arrays (unset
+ * or slots only: a prebuilt array is one texture asset). `''` empties the
+ * slot; when no slot is left filled the array is unset again (the template's
+ * own default: a flat normal, plain ORM).
+ */
+export function withSlotTexture(m: MaterialDef, layer: number, textureId: string, key: LayerTextureKey = LAYERED_TEXTURES.albedo): MaterialDef {
+  const albedo = (m.parameters ?? []).find((p) => p.key === LAYERED_TEXTURES.albedo)?.default;
   const parameters = (m.parameters ?? []).map((p) => {
-    if (p.key !== LAYERED_TEXTURES.albedo || p.type !== 'texture') return p;
-    const slots = isTextureSlots(p.default) ? [...p.default] : Array.from({ length: TEMPLATE_LAYERS }, () => '');
+    if (p.key !== key || p.type !== 'texture') return p;
+    if (!isTextureSlots(p.default) && p.default !== '' && p.default !== undefined) return p;
+    // A new list as long as the layers the colour array names (the arrays line up layer for layer).
+    const slots = isTextureSlots(p.default) ? [...p.default] : Array.from({ length: Math.max(TEMPLATE_LAYERS, isTextureSlots(albedo) ? albedo.length : 0) }, () => '');
     while (slots.length <= layer) slots.push('');
     slots[layer] = textureId;
-    return { ...p, default: slots };
+    return { ...p, default: slots.every((x) => x === '') ? '' : slots };
   });
   return { ...m, parameters };
 }

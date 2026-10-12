@@ -7,7 +7,7 @@ How to build terrain step by step: [the terrain guide](../guides/terrain.md).
 A `terrain` component makes an object a heightfield of square tiles for
 landscape (block layers stay the tool for authored structure). It is drawn in
 the Scene view, Play and an export alike and collides in 3D games, and is
-edited with the editor's Terrain tools.
+edited in the editor's **terrain editor** (below).
 
 - **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
   [{x, z, data?}]}`: each tile holds `tileSamples × tileSamples` samples
@@ -60,13 +60,20 @@ edited with the editor's Terrain tools.
   - `fromBlocks {source}` turns a block layer whose surface is corner heights
     into tiles: every sample over the layer takes the layer's top there,
     cells over columns without blocks become holes, painted layers 0–3 come
-    as hand paint (wetness is not carried).
+    as hand paint (wetness is not carried);
+  - `addTiles {tiles: [[x, z], …]}` (1–64 a request) makes tiles beside the
+    terrain's: each sample takes the height of the nearest sample of a tile
+    that was there before, so the ground carries on from their edges (no
+    crack, no cliff), and samples on a shared edge take that tile's weights
+    and hand paint too; the rules bake the new tiles in the same command. A
+    tile is removed with `setComponent terrain {tiles}` without it.
   The result names what it did: `terrain {tiles: [[x, z], …] written, added,
   changed (samples, or hole cells), clamped? (heights outside the range)}`.
   The same stroke gives the same tiles every time (squared distances and
   16-bit steps only).
-- **Material rules** (`terrain.rules`; the terrain tools' **Material
-  rules…**, MCP `editTerrain` kind `bake {rules}`): a list of rules, each a
+- **Material rules** (`terrain.rules`; the terrain editor's **Material
+  rules** mode, MCP `editTerrain` kind `bake {rules}`): a list of rules, each a
+  `name` (optional: the editor's label; it paints nothing), a
   material layer, a strength (0-1), top or wall faces and conditions —
   **height** (world metres), **slope** (degrees), **cavity** (metres the
   ground `radius` metres around lies above the point: positive in hollows),
@@ -74,17 +81,25 @@ edited with the editor's Terrain tools.
   **share** another layer has from the rules before it — each a range
   (min, max, either open) with a **fade** past its ends. They apply in
   order, each taking its share of every layer so far; where none applies the
-  ground is layer 0. **Apply** bakes them into every tile's baked weights
+  ground is layer 0. **Bake rules** bakes them into every tile's baked weights
   (one command, one undo); a sculpt, ramp, import or conversion bakes them
   again where it moved the ground, in the same command. Hand paint is a map
   of its own and stays over the rules through every bake; erasing it shows
   the rules again. The game only reads the baked weights (no rule runs per
   frame). The same rules paint block layers (below); positions and heights
   are world ones, so a block area and the terrain round it match. A
-  `setComponent` of `rules` alone stores them without baking. Measured (one
+  `setComponent` of `rules` alone stores them without baking. In the editor
+  each rule is a card (its layer picked from the palette by its picture,
+  its conditions as range sliders with a softness each, drag the grip to
+  reorder); while the cards differ from what is stored the terrain is drawn
+  as a bake of them would paint it (**Live preview of the bake**: the tiles
+  nearest the view, as many as a preview may bake at once, with the bake's own function;
+  the splines' paint over the rules is left out of it), and **Only the open
+  rule** draws that rule alone over the first layer: where it applies.
+  Measured (one
   backend, 4 rules with cavity and noise): about 0.4-0.8 µs a sample — a
   257² tile 54 ms, a 1,025² tile 0.45 s, a 16 m sculpt's re-bake 7-16 ms; the
-  landscape perf class's 144 tiles 7.3 s for an Apply. Drawing cost: none
+  landscape perf class's 144 tiles 7.3 s for a bake. Drawing cost: none
   (`level --rules`: GPU 12.8-13.0 ms with and without).
 - **Reading**: `queryTerrain` (MCP `tl_content_query target="terrain"`)
   lists each terrain with its tiles, `storedBytes` and `memoryBytes` (what
@@ -117,49 +132,70 @@ edited with the editor's Terrain tools.
   [World streaming](streaming.md)).
 - **Picking** in the Scene view reads the terrain's heights (click to select
   it; drops land on it).
-- **Terrain tools** (the **terrain editor**: a full-screen edit mode on the
-  Scene view that draws only the terrain, opened by a double-click on it in
-  the Hierarchy or the Scene view or by **Edit terrain** in its Inspector;
-  **GameObject → Terrain** makes a new one, 2 × 2 tiles of 257 samples a
-  metre apart, heights −128 to 384 m, and opens it; its rail's modes are
-  Sculpt, Paint, Holes, Material rules, Scatter, Stack and Tiles): Raise, Lower, Smooth, Flatten (to the height where the stroke began),
-  Noise (size, seed), Ramp (drag from one end to the other), Paint (pick a
-  layer from the **layer palette**, below, by a click or its number key 1–9) and Holes, with the brush
-  panel every editor shares: Height step (sculpt: metres one dab at full
-  strength moves the ground), Size (across), Strength (one dab's share),
-  Opacity (paint: one stroke's most), Falloff (smooth, linear, constant, a
-  curve with its hardness), Spacing and the Noise mask (a live swatch of
-  the mask; the cursor's fill shows it). Settings are remembered per tool
-  in the browser. Keys: `[` / `]` size, Shift with them strength, F then a
-  drag resizes on the ground (Shift+F strength; a click sets, Esc puts it
-  back), X switches paint and erase, Ctrl held (or the invert toggle)
-  lowers, takes hand paint back or fills holes for one stroke. In a mode with a brush a left
-  drag sculpts (Alt+drag or the right button orbits), Esc drops the
-  stroke in flight. The cursor lies on the ground under the pointer: an
-  outer ring at the size, a dashed ring where the falloff is at half
-  strength, a fill at the dab's weight (amber; red while erasing or
-  lowering). A stroke is previewed on the GPU while the pointer is held — each
-  dab changes the drawn tiles' textures in place before the next frame, no
-  tile is re-packed or meshed on the CPU and nothing is sent per dab — and
-  the release stores one `editTerrain` (one undo); the tiles it changed are
-  read and uploaded again over the preview, the others drawn from what they
-  held. The preview's heights are the stored ones (to a step in rare
-  rounding cases), its paint a close approximation the stored tiles settle
-  (an erase previews toward layer 0, what ground without rules bakes),
-  its holes exact. A stroke holds at most the dabs the command takes at its
-  radius (992 at 64 m on a 1 m grid; more is the next stroke). **Import
-  heightmap…** stages a 16-bit PNG or RAW file (a square RAW names its own
-  size) and lays it from a chosen tile with the heights its 0 and 65,535
-  stand for; **From block layer → Convert** turns a block layer's surface
-  into the terrain's samples. Each is one undo step. Measured (Iris Xe, both
-  renderers): a 64 m raise dragged over a 1,025² tile costs the page about
-  0.25 ms a frame (at most 0.5 ms; no frame missed), is stored about 140 ms
-  after the release and its stored tile replaces the preview about 150 ms
-  after it; read back, the preview's heights match the stored ones (at most
-  one sample a step off). The passes are built when a tool or terrain is
-  chosen, not on the first dab. `?terrainCheck=1` on the editor's URL reads
-  each stroke's preview back and compares it with the stored tiles
-  (`data-terrain-stroke` on the Scene view; a test's measure).
+- **The terrain editor**: a full-screen edit mode on the Scene view that
+  draws only the terrain (**Context**, C, shows the rest, not pickable),
+  opened by a double-click on it in the Hierarchy or the Scene view or by
+  **Edit terrain** in its Inspector (the Inspector keeps the plain fields;
+  the tiles, rules, scatter and edit layers are edited only here).
+  **GameObject → Terrain** makes a new one — 2 × 2 tiles of 257 samples a
+  metre apart, heights −128 to 384 m, in one command (one undo takes it
+  away) — and opens it. Its rail holds the modes (Shift+1 … Shift+8):
+  **Sculpt**, **Paint**, **Holes**, **Material rules**, **Scatter**,
+  **Stack**, **Tiles** and **Settings**; the column the mode's tool grid
+  (letter keys on the tiles), brush and settings; the status line the tool,
+  what to do and its keys.
+  - **Sculpt**: Raise (Q), Lower (W), Smooth (E), Flatten (R: to the height
+    where the stroke began), Noise (T: bump size, seed), Ramp (Y: drag from
+    one end to the other). **Paint**: Paint (B) and Erase (X) — one tool,
+    one brush; erasing takes hand paint off so the rules' layers show again
+    — with the **layer palette** (below; number keys 1–9 pick a layer).
+    Blur and Fill (the mockup's) are not built: their maths is not in the
+    commands' brush cores yet, and a preview must be what is stored.
+    **Holes**: Cut (B) and Fill (X).
+  - The brush panel every editor shares: Height step (sculpt: metres one
+    dab at full strength moves the ground), Size (across), Strength (one
+    dab's share), Opacity (paint: one stroke's most), Falloff (smooth,
+    linear, constant, a curve with its hardness), Spacing and the Noise mask
+    (a live swatch of the mask; the cursor's fill shows it). Settings are
+    remembered per tool in the browser. Keys: `[` / `]` size, Shift with
+    them strength, F then a drag resizes on the ground (Shift+F strength; a
+    click sets, Esc puts it back), X switches paint and erase, Ctrl held
+    (or the invert toggle) lowers, takes hand paint back or fills holes for
+    one stroke. A left drag sculpts (Alt+drag or the right button orbits),
+    Esc drops the stroke in flight. The cursor lies on the ground under the
+    pointer: an outer ring at the size, a dashed ring where the falloff is
+    at half strength, a fill at the dab's weight (amber; red while erasing
+    or lowering).
+  - A stroke is previewed on the GPU while the pointer is held — each dab
+    changes the drawn tiles' textures in place before the next frame, no
+    tile is re-packed or meshed on the CPU and nothing is sent per dab — and
+    the release stores one `editTerrain` (one undo); the tiles it changed
+    are read and uploaded again over the preview, the others drawn from what
+    they held. The preview's heights are the stored ones (to a step in rare
+    rounding cases), its paint a close approximation the stored tiles settle
+    (an erase previews toward layer 0, what ground without rules bakes), its
+    holes exact. A stroke holds at most the dabs the command takes at its
+    radius (992 at 64 m on a 1 m grid; more is the next stroke).
+  - **Tiles**: the tile grid is drawn on the ground — every tile's outline
+    and, dashed with a "+", every empty square beside the terrain. Click an
+    empty square to add a tile there (`addTiles`: it carries the ground on
+    from its neighbours), click a tile to pick it and **Remove** it. **Import
+    heightmap** stages a 16-bit PNG or RAW file (a square RAW names its own
+    size) and lays it from the picked tile (or one typed) with the heights
+    its 0 and 65,535 stand for; **From a block layer → Convert** turns a
+    block layer's surface into the terrain's samples. Each is one undo step.
+  - **Settings**: samples a side and spacing (fixed once a tile holds
+    ground), the height range (changing it scales every height with it),
+    the detail distance, the far ground's macro distance, collision.
+  - Measured (Iris Xe, both renderers): a 64 m raise dragged over a 1,025²
+    tile costs the page about 0.25 ms a frame (at most 0.5 ms; no frame
+    missed), is stored about 140 ms after the release and its stored tile
+    replaces the preview about 150 ms after it; read back, the preview's
+    heights match the stored ones (at most one sample a step off). The
+    passes are built when a tool or terrain is chosen, not on the first
+    dab. `?terrainCheck=1` on the editor's URL reads each stroke's preview
+    back and compares it with the stored tiles (`data-terrain-stroke` on the
+    Scene view; a test's measure).
 - **Drawing** (CDLOD): each tile is a quadtree whose nodes are one shared
   16 × 16 grid drawn instanced, raised in the vertex shader from the tile's
   heights and morphed between levels by distance, so levels meet without
@@ -172,17 +208,24 @@ edited with the editor's Terrain tools.
   (put fog there). A sculpt, paint or holes edit uploads only the changed
   tiles again; the sun's cached static shadow is drawn again once.
 - **Layer palette** (the terrain editor's Paint mode; the Material rules
-  pick a rule's layer from it too): the terrain's material's layers as
+  and Scatter rules pick a layer from it too): the terrain's material's layers as
   tiles — each layer's albedo picture (its texture's thumbnail), its number
   and its name (the material's `layerNames` entry, else its texture's name).
   Without a layered material the tiles are the four stand-in colours and
   **Set up material** makes one from the height-blended layers template and
   gives it to the terrain (`setMaterial {material, assign: {entityId}}`: one
-  undo step). Drop a texture on a layer (or click an empty one, or **Add
-  layer**, to pick it): it goes into that layer's slot of the material's
-  albedo array (per-layer slots). **Layer settings…** edits the picked
-  layer's name, tiling, normal strength, height contrast and offset and
-  projection (the material's layer table, one layer at a time). A material
+  undo step). Drop a texture on a layer, or click an empty one or **Add
+  layer** to pick it in the **texture browser** (the project's textures as
+  pictures with a search; the project window lies under the edit mode): it
+  goes into that layer's slot of the material's colour array (per-layer
+  slots), and its normal map and ORM come along from textures named alike
+  when the project has them (`rock_albedo` or `rock_basecolor` brings
+  `rock_normal` and `rock_orm`), in the same command. **Layer settings…**
+  shows the picked layer's three textures — colour (with the height in
+  alpha), normal map, ORM — each picked in the browser (a normal or ORM slot
+  can be emptied; a layer without one borrows the first layer's that has
+  one), and its name, tiling, normal strength, height contrast and offset
+  and projection (the material's layer table, one layer at a time). A material
   whose albedo is a prebuilt array shows its layers without pictures; a
   material instance shows its parent's layers, changed on the parent.
 - **Material**: give the object a `materials` component with `"*"` naming a
@@ -288,8 +331,8 @@ Noise and Ramp edit) at the bottom.
   an erode run changed; **splines** — every spline that shapes the terrain
   (on top when the list names no splines layer).
   Each layer can be switched off (`enabled: false`: it changes nothing) and
-  weighed (`strength` 0–1: the share of its change kept). ▲/▼ move a layer
-  (what it applies over changes), ✕ deletes it. A terrain without `layers`
+  weighed (`strength` 0–1: the share of its change kept). The arrows move a
+  layer (what it applies over changes), the bin deletes it. A terrain without `layers`
   is one base layer with the splines on top: nothing to convert.
 - **Stamps** (`{kind: "stamps", stamps: [{asset, at: [x, z], size, rotation?,
   height, mode?, y?, falloff?}]}`): a texture asset's first channel (a 16- or
@@ -299,9 +342,14 @@ Noise and Ramp edit) at the bottom.
   the ground by the shape, **max** raises it up to the shape standing on `y`
   (world; default the terrain object's height), **min** cuts it down to it;
   `falloff` (0–0.5 of the side, default 0.15) fades it in from its edges. The
-  **Stamp** tool: choose the heightmap, its height, turn, mode, edge fade and
-  layer, then click the terrain — a stamp of side twice the brush radius,
-  one command (into the chosen stamps layer, the first, or a new one).
+  **Stamp** tool: choose the heightmap (by its picture), its height, turn,
+  mode, edge fade and layer, then click the terrain — a stamp as wide as the
+  brush, one command (into the chosen stamps layer, the first, or a new
+  one). The **Select** tool draws every stamp's square on the ground; click
+  one (or pick it in the list) and drag its body to move it, a corner to
+  resize it (it stays square) or the knob beyond its edge to turn it — each
+  drag one command on release; its height, side, turn, edge fade, mode and
+  (max/min) base height are in the column, with **Delete stamp**.
 - **Erosion** (`editTerrain {kind: "erode", rect: [x0, z0, x1, z1], layerId?,
   hydraulic?: {droplets?, erosion?, deposition?, capacity?, evaporation?,
   inertia?, lifetime?, radius?}, thermal?: {iterations?, talus?, amount?},
@@ -316,8 +364,10 @@ Noise and Ramp edit) at the bottom.
   border: sculpting below keeps the channels on the new ground; running it
   again over the same place replaces that place's result (the same settings
   and seed give the same ground — it is deterministic). The **Erode** tool:
-  choose hydraulic and/or thermal and their settings, click the terrain — the
-  square of side twice the brush radius, one command. The backend erodes on
+  hydraulic and/or thermal with every setting of each (droplets, erosion,
+  deposition, capacity, evaporation, inertia, lifetime, wear radius; passes,
+  angle, amount; seed), click the terrain — the square the brush covers,
+  one command. The backend erodes on
   a worker thread before the command, so other requests are not held up; a
   run is bounded at 2,049² samples (erode a larger area in parts).
 - **Only the changed rectangle is combined again**: a stamp placed, moved or
@@ -346,7 +396,8 @@ camera while the game runs — with one rule list format on both, so a block
 area and the terrain around it are dressed alike.
 
 - **Scatter rules** (`terrain.scatter`, `blockLayer.scatter`; the terrain
-  tools' **Scatter rules…**, the Blocks panel's **Scatter…**): each rule has
+  editor's **Scatter** mode, the Blocks panel's **Scatter…**: one card per
+  rule, every field on it): each rule has
   an `id` (1-32 of A-Z a-z 0-9 _ -), a model `asset {assetId, piece?}`, a
   `density` (candidate places per m² where every condition holds fully), a
   `spacing` (m; no two copies of the rule closer), a random `scale [min,
@@ -367,7 +418,7 @@ area and the terrain around it are dressed alike.
   meshes all the way).
 - **Stored copies**: a terrain bakes each tile's copies into a blob of its own
   (`tiles[].scatter`), a block layer into each chunk (`scatter`, written
-  with the chunk's file). **Apply** (MCP `editTerrain bake {scatter}`; on a
+  with the chunk's file). **Bake rules** / **Apply** (MCP `editTerrain bake {scatter}`; on a
   block layer `setComponent` then `editBlocks {kind: "bakeScatter"}`, two
   undo steps) bakes every tile or chunk. Then an edit that moves the ground,
   paints or cuts it bakes again only around what it changed (the rules'
@@ -376,8 +427,8 @@ area and the terrain around it are dressed alike.
   copies. Measured (Node): a 512 m tile with three tree and rock rules bakes
   in 7 ms (188 copies; 30 ms at 16 times the density), a 16 m raise's
   rectangle in 0.6-5 ms; the landscape perf class's 144 tiles in 0.9 s
-  (one command).
-- **The Scatter brush** (the terrain tools' **Scatter**, the Blocks tools'
+  (one command). The terrain editor's button is **Bake rules**.
+- **The Scatter brush** (the terrain editor's **Scatter by hand**: Place, B, and Take off, X; the Blocks tools'
   **Scatter**, MCP `editTerrain {kind: "scatter", rule, dabs, radius,
   erase?}` and `editBlocks {kind: "scatter", rule, at, radius, erase?}`):
   the rule's candidate places under the brush get a copy whatever the

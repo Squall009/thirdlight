@@ -1,17 +1,23 @@
 /**
  * The terrain editor: a terrain's edit mode. Its rail holds the terrain
- * tools' modes (`TERRAIN_MODES`); the settings column is the terrain panel
- * of the mode shown, and its brush tools are the Scene view's terrain tool.
+ * editor's modes (`TERRAIN_MODES`: Sculpt, Paint, Holes, Material rules,
+ * Scatter, Stack, Tiles, Settings); each mode's column is its own
+ * (`ui/terrain/`), and its tools are the Scene view's terrain tools.
  *
  * Browser-only (React).
  */
+import type { JSX } from 'react';
 import { terrainTileSize, type TerrainComponent } from '@thirdlight/runtime';
 
-import type { BrushUse } from '../../session/brush';
-import { brushKeyHints, PALETTE_KEYS, paletteKeyHint } from '../../session/edit-keys';
-import { TERRAIN_INVERT_LABELS, TERRAIN_MODES, terrainToolUses, type TerrainMode } from '../../session/terrain-brush';
+import { TERRAIN_MODES, type TerrainModeId } from '../../session/terrain-brush';
 import type { ProjectedEntity } from '../../session/projection';
-import { TerrainPanel } from '../TerrainPanel';
+import { HolesColumn, PaintColumn, SculptColumn } from '../terrain/BrushModes';
+import { RulesColumn } from '../terrain/RulesMode';
+import { ScatterColumn } from '../terrain/ScatterMode';
+import { SettingsColumn } from '../terrain/SettingsMode';
+import { StackColumn } from '../terrain/StackMode';
+import type { TerrainColumnProps } from '../terrain/terrain-column';
+import { TilesColumn } from '../terrain/TilesMode';
 import type { EditModeKind } from './modes';
 
 const terrainOf = (e: ProjectedEntity): TerrainComponent | undefined => e.components['terrain'] as TerrainComponent | undefined;
@@ -32,13 +38,16 @@ function tileExtent(c: TerrainComponent): { x0: number; x1: number; z0: number; 
   return { x0, x1, z0, z1 };
 }
 
-/** A mode's brush keys (the shared map's, for the settings its tools use; inverting named as its first tool does it). */
-function modeKeys(m: TerrainMode): ReturnType<typeof brushKeyHints> {
-  const uses = new Set<BrushUse>(m.tools.flatMap((t) => [...terrainToolUses(t)]));
-  const first = m.tools.find((t) => TERRAIN_INVERT_LABELS[t] !== undefined);
-  // Paint picks its layer from the palette by number.
-  return [...(m.tools.includes('paint') ? paletteKeyHint(PALETTE_KEYS, 'Layer') : []), ...brushKeyHints([...uses], first !== undefined ? TERRAIN_INVERT_LABELS[first] : undefined)];
-}
+const COLUMNS: Readonly<Record<TerrainModeId, (p: TerrainColumnProps) => JSX.Element>> = {
+  sculpt: SculptColumn,
+  paint: PaintColumn,
+  holes: HolesColumn,
+  rules: RulesColumn,
+  scatter: ScatterColumn,
+  stack: StackColumn,
+  tiles: TilesColumn,
+  settings: SettingsColumn,
+};
 
 export const terrainMode: EditModeKind = {
   kind: 'terrain',
@@ -52,8 +61,11 @@ export const terrainMode: EditModeKind = {
     const size = terrainTileSize(c);
     return ext === null ? 'no tiles' : `${n} tile${n === 1 ? '' : 's'} · ${ext.x1 - ext.x0 + 1} × ${ext.z1 - ext.z0 + 1} · ${size} m each`;
   },
-  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, ...(m.tools.length > 0 ? { keys: modeKeys(m) } : {}) })),
+  // The keys of each mode come from its column (the tool picked): the status line lists them.
+  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, ...(m.id === 'settings' ? { sep: true } : {}) })),
   tools: ['terrain'],
+  // Tiles, rules, scatter and the edit layers are edited in the editor; the Inspector keeps the plain fields.
+  inspectorSkips: { terrain: ['tiles', 'rules', 'scatter', 'layers', 'overview'] },
   bounds: (e) => {
     const c = terrainOf(e)!;
     const ext = tileExtent(c);
@@ -62,24 +74,24 @@ export const terrainMode: EditModeKind = {
     return { min: [ext.x0 * size, c.heightRange[0], ext.z0 * size], max: [(ext.x1 + 1) * size, c.heightRange[1], (ext.z1 + 1) * size] };
   },
   column: ({ entity, mode, host }) => {
-    const m = TERRAIN_MODES.find((x) => x.id === mode) ?? TERRAIN_MODES[0]!;
+    const id = (TERRAIN_MODES.find((x) => x.id === mode) ?? TERRAIN_MODES[0]!).id;
     const flags = host.flags(entity.id);
-    return (
-      <TerrainPanel
-        editor={host.terrain.terrainEditor}
-        mode={m}
-        visible
-        entityId={entity.id}
-        component={terrainOf(entity)!}
-        locked={flags?.locked === true}
-        hidden={flags?.active === false}
-        blockLayers={host.blockLayers}
-        run={host.terrain.terrainRun}
-        stage={host.terrain.stageFile}
-        entityName={entity.name}
-        mapping={entity.components['materials'] as Readonly<Record<string, string>> | undefined}
-        palette={host.palette}
-      />
-    );
+    const pos = (entity.components['transform'] as { position?: number[] } | undefined)?.position ?? [0, 0, 0];
+    const props: TerrainColumnProps = {
+      editor: host.terrain.terrainEditor,
+      entityId: entity.id,
+      entityName: entity.name,
+      component: terrainOf(entity)!,
+      origin: [pos[0] ?? 0, pos[1] ?? 0, pos[2] ?? 0],
+      locked: flags?.locked === true,
+      hidden: flags?.active === false,
+      blockLayers: host.blockLayers,
+      run: host.terrain.terrainRun,
+      stage: host.terrain.stageFile,
+      mapping: entity.components['materials'] as Readonly<Record<string, string>> | undefined,
+      palette: host.palette,
+    };
+    const Column = COLUMNS[id];
+    return <Column key={id} {...props} />;
   },
 };

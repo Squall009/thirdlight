@@ -98,7 +98,7 @@ export interface InspectorDockProps {
   /** The Scene view is in front (a block layer's tools are armed only then). */
   sceneInFront: boolean;
   /** The selection's edit mode: its button's label and what opens it (null: none). */
-  editMode: { label: string; enter: () => void } | null;
+  editMode: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>> } | null;
 }
 
 /** Generated architecture in the Inspector: presets' sliders preview in the Scene view while dragged and are stored on release. */

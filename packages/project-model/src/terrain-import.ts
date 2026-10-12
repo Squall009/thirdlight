@@ -17,12 +17,15 @@ import type { BlockLayerComponent, BlockLayerData, BlockType } from './block-lay
 import { PAINT_CHANNELS, chunksOfVertex, paintOffset } from './block-paint';
 import { columnHeights } from './block-sculpt';
 import { decodePngRgba } from './png-decode';
-import { TERRAIN_HEIGHT_STEPS, terrainStepOf } from './terrain';
+import { TERRAIN_HEIGHT_STEPS, terrainStepOf, terrainTileKey } from './terrain';
 import type { TerrainSamples } from './terrain-edit';
-import { setTerrainHole, writeSampleLayers, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS } from './terrain-tile';
+import { defaultTerrainWeights } from './terrain-rules';
+import { setTerrainHole, writeSampleLayers, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, type TerrainTile } from './terrain-tile';
 
 export type HeightmapFormat = 'png16' | 'raw16';
 export const HEIGHTMAP_FORMATS: readonly HeightmapFormat[] = ['png16', 'raw16'];
+/** The most tiles one `editTerrain addTiles` makes: a per-request bound on the work, not on the terrain. */
+export const TERRAIN_ADD_TILES_MAX = 64;
 /** The most samples one heightmap import reads (8,193²): a per-request bound on memory, not a terrain size. */
 export const HEIGHTMAP_MAX_SAMPLES = 8193 * 8193;
 
@@ -123,6 +126,69 @@ export function importHeightmap(s: TerrainSamples, map: Heightmap, at: readonly 
       }
     }
   return { added, samples: set };
+}
+
+/**
+ * Add tiles beside the terrain's: each new tile's samples take the height of
+ * the nearest sample of a tile that was there before (its 8 neighbours), so
+ * the ground carries on from its edges with no cliff and no crack; samples on
+ * an edge it shares take that tile's weights and hand paint too, so the seam
+ * is exact (the inside is unpainted; material rules bake it). A tile with no
+ * neighbour is flat at 0 m. Coordinates already holding a tile are skipped.
+ * Returns the tiles it added.
+ */
+export function extendTerrainTiles(s: TerrainSamples, coords: readonly (readonly [number, number])[]): number {
+  const n = s.n;
+  const side = n + 1;
+  const before = new Set([...s.all().keys()]);
+  let added = 0;
+  for (const [tx, tz] of coords) {
+    if (s.tile(tx, tz) !== undefined) continue;
+    // The neighbours from before this edit (a tile added in the same call is not one).
+    const around: { x: number; z: number; tile: TerrainTile }[] = [];
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dz === 0) continue;
+        const key = terrainTileKey(tx + dx, tz + dz);
+        const t = before.has(key) ? s.tile(tx + dx, tz + dz) : undefined;
+        if (t !== undefined) around.push({ x: tx + dx, z: tz + dz, tile: t });
+      }
+    const t = s.addTile(tx, tz);
+    added += 1;
+    if (around.length === 0) continue;
+    for (let lz = 0; lz <= n; lz++) {
+      const gz = tz * n + lz;
+      for (let lx = 0; lx <= n; lx++) {
+        const gx = tx * n + lx;
+        let best: { tile: TerrainTile; i: number } | null = null;
+        let bestD = Infinity;
+        for (const a of around) {
+          const cx = Math.min(Math.max(gx, a.x * n), a.x * n + n);
+          const cz = Math.min(Math.max(gz, a.z * n), a.z * n + n);
+          const d = (cx - gx) * (cx - gx) + (cz - gz) * (cz - gz);
+          if (d < bestD) {
+            bestD = d;
+            best = { tile: a.tile, i: (cz - a.z * n) * side + (cx - a.x * n) };
+          }
+        }
+        const i = lz * side + lx;
+        t.heights[i] = best!.tile.heights[best!.i]!;
+        if (bestD !== 0) continue;
+        // On a shared edge: the neighbour's layers as well, so both tiles draw the same seam.
+        const w = best!.tile.weights;
+        if (w !== null) {
+          t.weights ??= defaultTerrainWeights(side * side);
+          t.weights.set(w.subarray(best!.i * TERRAIN_WEIGHT_BYTES, (best!.i + 1) * TERRAIN_WEIGHT_BYTES), i * TERRAIN_WEIGHT_BYTES);
+        }
+        const p = best!.tile.paint;
+        if (p !== null) {
+          t.paint ??= new Uint8Array(side * side * TERRAIN_PAINT_BYTES);
+          t.paint.set(p.subarray(best!.i * TERRAIN_PAINT_BYTES, (best!.i + 1) * TERRAIN_PAINT_BYTES), i * TERRAIN_PAINT_BYTES);
+        }
+      }
+    }
+  }
+  return added;
 }
 
 /** A block layer as the converter reads it. */

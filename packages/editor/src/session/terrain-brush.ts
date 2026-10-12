@@ -11,62 +11,125 @@
  *
  * Pure.
  */
-import { TERRAIN_BRUSH_LIMITS, terrainDabSamples, type BrushFalloff, type ErosionSettings, type TerrainLayer, type TerrainStamp } from '@thirdlight/runtime';
+import { HYDRAULIC_DEFAULTS, TERRAIN_BRUSH_LIMITS, THERMAL_DEFAULTS, terrainDabSamples, type BrushFalloff, type ErosionSettings, type TerrainLayer, type TerrainStamp } from '@thirdlight/runtime';
 import type { TerrainBrushKind, TerrainPreviewDab } from '@thirdlight/three-adapter';
 import { brushRadius, brushStrokeExtras, type BrushBounds, type BrushSettings, type BrushUse } from './brush';
 
 /**
  * The sculpt and paint tools (previewed on the GPU), the scatter brush (its
- * copies come with the stored edit) and the placed tools: a click puts a
- * stamp in a stamps layer, or erodes the square under the brush into an
- * erosion layer (no preview: the combined ground comes back from the
- * backend).
+ * copies come with the stored edit), the placed tools (a click puts a stamp
+ * in a stamps layer, or erodes the square under the brush into an erosion
+ * layer: no preview, the combined ground comes back from the backend) and
+ * the picking tools (stamps: select a stamp and move, turn or resize it with
+ * its handles; tiles: add a tile beside the terrain or pick one).
  */
-export type TerrainToolId = TerrainBrushKind | 'scatter' | 'stamp' | 'erode';
+export type TerrainToolId = TerrainBrushKind | 'scatter' | 'stamp' | 'erode' | 'stamps' | 'tiles';
 
 /** The tools a click places rather than strokes. */
 export const PLACED_TERRAIN_TOOLS: readonly TerrainToolId[] = ['stamp', 'erode'];
 
-/** Whether a tool's dabs are previewed on the GPU. */
-export const previewedTool = (t: TerrainToolId): t is TerrainBrushKind => t !== 'scatter' && !PLACED_TERRAIN_TOOLS.includes(t);
+/** The tools that pick things in the view (no brush). */
+export const PICKING_TERRAIN_TOOLS: readonly TerrainToolId[] = ['stamps', 'tiles'];
 
-export const TERRAIN_TOOLS: readonly { id: TerrainToolId; label: string; title: string }[] = Object.freeze([
-  { id: 'raise', label: 'Raise', title: 'Raise the ground under the brush (Ctrl: lower)' },
-  { id: 'lower', label: 'Lower', title: 'Lower the ground under the brush (Ctrl: raise)' },
-  { id: 'smooth', label: 'Smooth', title: 'Smooth the ground toward its neighbours' },
-  { id: 'flatten', label: 'Flatten', title: 'Level the ground to the height where the stroke began' },
-  { id: 'noise', label: 'Noise', title: 'Add bumps of the noise size' },
-  { id: 'ramp', label: 'Ramp', title: 'Drag from one point to another: the ground between them takes the straight slope' },
-  { id: 'paint', label: 'Paint', title: 'Paint the chosen layer (Ctrl: take hand paint back)' },
-  { id: 'holes', label: 'Holes', title: 'Cut holes in the ground (Ctrl: fill them)' },
-  { id: 'scatter', label: 'Scatter', title: "Put the chosen scatter rule's copies under the brush whatever its conditions (Ctrl: take them off); a bake keeps both" },
-  { id: 'stamp', label: 'Stamp', title: 'Click to place the chosen heightmap as a stamp (its side the brush size) in a stamps layer' },
-  { id: 'erode', label: 'Erode', title: 'Click to erode the square under the brush (its side the brush size) into an erosion layer' },
-]);
+/** Whether a tool's dabs are previewed on the GPU. */
+export const previewedTool = (t: TerrainToolId): t is TerrainBrushKind => t !== 'scatter' && !PLACED_TERRAIN_TOOLS.includes(t) && !PICKING_TERRAIN_TOOLS.includes(t);
 
 /** The terrain editor's modes (its tool rail): what each shows, its tools and its one-line hint. */
-export type TerrainModeId = 'sculpt' | 'paint' | 'holes' | 'rules' | 'scatter' | 'stack' | 'tiles';
+export type TerrainModeId = 'sculpt' | 'paint' | 'holes' | 'rules' | 'scatter' | 'stack' | 'tiles' | 'settings';
+
+/**
+ * One tile of a mode's tool grid: the tool it arms, with the brush inverted
+ * or not (paint and erase are one tool, so they share one brush), its glyph,
+ * its key and what to do with it in one sentence (the status line).
+ */
+export interface TerrainToolTile {
+  readonly id: string;
+  readonly tool: TerrainToolId;
+  /** Picking the tile sets the brush's invert (absent: leaves it). */
+  readonly invert?: boolean;
+  readonly label: string;
+  readonly glyph: string;
+  /** The key that picks it (a letter; X is the brush's paint/erase key). */
+  readonly key: string;
+  readonly hint: string;
+}
 
 export interface TerrainMode {
   readonly id: TerrainModeId;
   readonly label: string;
   /** The rail's glyph (ui/editmode/glyphs.tsx). */
   readonly glyph: string;
-  /** The brush tools it arms (none: the mode edits through its panel only). */
+  /** The tool grid (empty: the mode edits through its column only). */
+  readonly tiles: readonly TerrainToolTile[];
+  /** The tools it arms in the view (the grid's, or a picking tool of its own). */
   readonly tools: readonly TerrainToolId[];
-  /** What to do, in one sentence (the status line). */
+  /** What to do, in one sentence (the status line, before a tool is chosen). */
   readonly hint: string;
 }
 
+const tile = (id: string, tool: TerrainToolId, label: string, glyph: string, key: string, hint: string, invert?: boolean): TerrainToolTile => ({ id, tool, label, glyph, key, hint, ...(invert !== undefined ? { invert } : {}) });
+
 export const TERRAIN_MODES: readonly TerrainMode[] = Object.freeze([
-  { id: 'sculpt', label: 'Sculpt', glyph: 'sculpt', tools: ['raise', 'lower', 'smooth', 'flatten', 'noise', 'ramp'], hint: 'Drag on the ground to shape it.' },
-  { id: 'paint', label: 'Paint', glyph: 'paint', tools: ['paint'], hint: 'Drag on the ground to paint the chosen layer.' },
-  { id: 'holes', label: 'Holes', glyph: 'holes', tools: ['holes'], hint: 'Drag on the ground to cut holes; hold Ctrl to fill them.' },
-  { id: 'rules', label: 'Material rules', glyph: 'rules', tools: [], hint: 'Add rules that paint layers by slope, height and noise, then apply them.' },
-  { id: 'scatter', label: 'Scatter', glyph: 'scatter', tools: ['scatter'], hint: 'Add scatter rules and apply them; drag to place a rule\'s copies, hold Ctrl to take them off.' },
-  { id: 'stack', label: 'Stack', glyph: 'stack', tools: ['stamp', 'erode'], hint: 'Click the ground to place a stamp or erode the square under the brush.' },
-  { id: 'tiles', label: 'Tiles', glyph: 'tiles', tools: [], hint: 'Import a heightmap onto the tiles, or lay a block layer\'s surface onto them.' },
+  {
+    id: 'sculpt',
+    label: 'Sculpt',
+    glyph: 'sculpt',
+    tiles: [
+      tile('raise', 'raise', 'Raise', 'raise', 'Q', 'Drag on the ground to raise it.'),
+      tile('lower', 'lower', 'Lower', 'lower', 'W', 'Drag on the ground to lower it.'),
+      tile('smooth', 'smooth', 'Smooth', 'smooth', 'E', 'Drag to even the ground out toward its neighbours.'),
+      tile('flatten', 'flatten', 'Flatten', 'flatten', 'R', 'Drag to level the ground to the height where the stroke began.'),
+      tile('noise', 'noise', 'Noise', 'noise', 'T', 'Drag to add bumps of the noise size.'),
+      tile('ramp', 'ramp', 'Ramp', 'ramp', 'Y', 'Drag from one end to the other: the ground between takes the straight slope.'),
+    ],
+    tools: ['raise', 'lower', 'smooth', 'flatten', 'noise', 'ramp'],
+    hint: 'Drag on the ground to shape it.',
+  },
+  {
+    id: 'paint',
+    label: 'Paint',
+    glyph: 'paint',
+    tiles: [tile('paint', 'paint', 'Paint', 'brush', 'B', 'Drag to paint the chosen layer.', false), tile('erase', 'paint', 'Erase', 'erase', 'X', 'Drag to take hand paint off: the rules\' layers show again.', true)],
+    tools: ['paint'],
+    hint: 'Drag on the ground to paint the chosen layer.',
+  },
+  {
+    id: 'holes',
+    label: 'Holes',
+    glyph: 'holes',
+    tiles: [tile('cut', 'holes', 'Cut', 'holes', 'B', 'Drag to cut holes in the ground (caves, tunnels, models below).', false), tile('fill', 'holes', 'Fill', 'fill', 'X', 'Drag over holes to close them.', true)],
+    tools: ['holes'],
+    hint: 'Drag on the ground to cut holes; hold Ctrl to fill them.',
+  },
+  { id: 'rules', label: 'Material rules', glyph: 'rules', tiles: [], tools: [], hint: 'Pick a rule to see where it applies; bake when it looks right.' },
+  {
+    id: 'scatter',
+    label: 'Scatter',
+    glyph: 'scatter',
+    tiles: [tile('place', 'scatter', 'Place', 'scatter', 'B', "Drag to put the chosen rule's copies under the brush, whatever its conditions.", false), tile('takeoff', 'scatter', 'Take off', 'erase', 'X', "Drag to take the chosen rule's copies off.", true)],
+    tools: ['scatter'],
+    hint: 'Add scatter rules and bake them; drag to place copies by hand.',
+  },
+  {
+    id: 'stack',
+    label: 'Stack',
+    glyph: 'stack',
+    tiles: [
+      tile('stamps', 'stamps', 'Select', 'select', 'Q', 'Click a stamp to pick it; drag it, its corner or its turn knob.'),
+      tile('stamp', 'stamp', 'Stamp', 'stamp', 'W', 'Click the ground to place the heightmap as a stamp (its side is the brush size).'),
+      tile('erode', 'erode', 'Erode', 'erode', 'E', 'Click the ground to erode the square under the brush.'),
+    ],
+    tools: ['stamps', 'stamp', 'erode'],
+    hint: 'Click the ground to place a stamp or erode; drag a stamp to move it.',
+  },
+  { id: 'tiles', label: 'Tiles', glyph: 'tiles', tiles: [], tools: ['tiles'], hint: 'Click an empty square beside the terrain to add a tile; click a tile to pick it.' },
+  { id: 'settings', label: 'Settings', glyph: 'settings', tiles: [], tools: [], hint: 'The terrain\'s size, detail and collision.' },
 ]);
+
+/** The mode a tool belongs to. */
+export function terrainModeOf(tool: TerrainToolId): TerrainMode | undefined {
+  return TERRAIN_MODES.find((m) => m.tools.includes(tool));
+}
 
 /** The terrain's own settings beside the shared brush (one set for every tool; each reads its own). */
 export interface TerrainBrushState {
@@ -108,6 +171,9 @@ export function terrainToolUses(tool: TerrainToolId): readonly BrushUse[] {
     case 'stamp':
     case 'erode':
       return ['size'];
+    case 'stamps':
+    case 'tiles':
+      return [];
   }
 }
 
@@ -206,6 +272,8 @@ export function strokeArgs(entityId: string, tool: TerrainToolId, b: BrushSettin
       return { entityId, kind, rule: tb.rule, dabs: points, radius, ...(invert ? { erase: true } : {}) };
     case 'stamp':
     case 'erode':
+    case 'stamps':
+    case 'tiles':
       return { entityId, kind };
   }
 }
@@ -246,22 +314,72 @@ export function layersWithStamp(layers: readonly TerrainLayer[], st: StampToolSt
   return layers.map((l) => (l === target && l.kind === 'stamps' ? { ...l, stamps: [...l.stamps, stamp] } : l));
 }
 
-/** The erode tool's settings (each run on or off). */
+/** A stamp of the terrain's stamps layers: the layer, its place in the list, the stamp. */
+export interface StampRef {
+  readonly layer: string;
+  readonly index: number;
+  readonly stamp: TerrainStamp;
+}
+
+/** Every stamp of the terrain's stamps layers, in the layers' order. */
+export function terrainStamps(layers: readonly TerrainLayer[]): StampRef[] {
+  return layers.flatMap((l) => (l.kind === 'stamps' ? l.stamps.map((stamp, index) => ({ layer: l.id, index, stamp })) : []));
+}
+
+/** The layers with one stamp changed (moved, turned, resized, retuned); a rotation of 0 is left out, as a new stamp's is. */
+export function layersWithStampChanged(layers: readonly TerrainLayer[], layer: string, index: number, patch: Partial<TerrainStamp>): TerrainLayer[] {
+  return layers.map((l) => {
+    if (l.id !== layer || l.kind !== 'stamps') return l;
+    return {
+      ...l,
+      stamps: l.stamps.map((st, i) => {
+        if (i !== index) return st;
+        const next: TerrainStamp = { ...st, ...patch };
+        if (next.at !== undefined) next.at = [r4(next.at[0]), r4(next.at[1])];
+        next.size = r4(next.size);
+        if (next.rotation !== undefined) {
+          const turn = r4((((next.rotation % 360) + 540) % 360) - 180);
+          if (turn === 0) delete next.rotation;
+          else next.rotation = turn;
+        }
+        return next;
+      }),
+    };
+  });
+}
+
+/** The layers without one stamp. */
+export function layersWithoutStamp(layers: readonly TerrainLayer[], layer: string, index: number): TerrainLayer[] {
+  return layers.map((l) => (l.id === layer && l.kind === 'stamps' ? { ...l, stamps: l.stamps.filter((_s, i) => i !== index) } : l));
+}
+
+/** The erode tool's settings: each run on or off, with every one of its settings (the command's defaults to start). */
 export interface ErodeToolState {
   hydraulic: boolean;
+  /** Hydraulic: droplets per sample, how fast they take up and drop ground, how much they carry, dry up, keep their way, live, and the radius they wear. */
   droplets: number;
   erosion: number;
   deposition: number;
+  capacity: number;
+  evaporation: number;
+  inertia: number;
+  lifetime: number;
+  radius: number;
   thermal: boolean;
+  /** Thermal: passes, the angle of repose (degrees), the share of the excess moved a pass. */
   iterations: number;
   talus: number;
+  amount: number;
   seed: number;
 }
 
-export const DEFAULT_ERODE_TOOL: ErodeToolState = Object.freeze({ hydraulic: true, droplets: 0.5, erosion: 0.3, deposition: 0.3, thermal: true, iterations: 40, talus: 35, seed: 1 }) as ErodeToolState;
+export const DEFAULT_ERODE_TOOL: ErodeToolState = Object.freeze({ hydraulic: true, ...HYDRAULIC_DEFAULTS, thermal: true, ...THERMAL_DEFAULTS, seed: 1 }) as ErodeToolState;
 
 /** The `editTerrain` erode args for a click at world (x, z): the square of side twice the radius. */
 export function erodeArgs(entityId: string, e: ErodeToolState, at: readonly [number, number], radius: number): Record<string, unknown> {
-  const settings: ErosionSettings = { ...(e.hydraulic ? { hydraulic: { droplets: e.droplets, erosion: e.erosion, deposition: e.deposition } } : {}), ...(e.thermal ? { thermal: { iterations: e.iterations, talus: e.talus } } : {}) };
+  const settings: ErosionSettings = {
+    ...(e.hydraulic ? { hydraulic: { droplets: e.droplets, erosion: e.erosion, deposition: e.deposition, capacity: e.capacity, evaporation: e.evaporation, inertia: e.inertia, lifetime: e.lifetime, radius: e.radius } } : {}),
+    ...(e.thermal ? { thermal: { iterations: e.iterations, talus: e.talus, amount: e.amount } } : {}),
+  };
   return { entityId, kind: 'erode', rect: [r4(at[0] - radius), r4(at[1] - radius), r4(at[0] + radius), r4(at[1] + radius)], ...settings, seed: e.seed };
 }

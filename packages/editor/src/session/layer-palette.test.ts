@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MaterialDef } from '@thirdlight/project-model';
 
-import { isLayeredMaterial, layerSetting, paletteLayers, paletteSource, standInLayers, withLayerName, withLayerSetting, withSlotTexture } from './layer-palette';
+import { isLayeredMaterial, layerSetting, paletteLayers, paletteSource, slotTexture, standInLayers, withLayerName, withLayerSetting, withSlotTexture } from './layer-palette';
 import { layeredMaterial } from './material-graph';
 
 const names: Record<string, string> = { grass: 'Meadow grass', dirt: 'Forest dirt' };
@@ -33,6 +33,16 @@ describe('layer palette', () => {
     // A prebuilt array: as many tiles as it has layers, none with a picture.
     const arr = { ...base, parameters: base.parameters!.map((p) => (p.key === 'albedoHeight' ? { ...p, default: 'terrain-albedo' } : p)) };
     expect(paletteLayers(arr, nameOf, 5).map((l) => l.texture)).toEqual([null, null, null, null, null]);
+  });
+  it('a layer takes a texture in each of its arrays: the normal and ORM lists line up with the colour one; emptied, an array is unset again', () => {
+    let m = withSlotTexture(withSlotTexture(base, 4, 'grass'), 4, 'grass-n', 'normals');
+    const normals = (x: MaterialDef): unknown => x.parameters!.find((p) => p.key === 'normals')!.default;
+    expect(normals(m)).toEqual(['', '', '', '', 'grass-n']);
+    expect(slotTexture(m, 'normals', 4)).toBe('grass-n');
+    expect(slotTexture(m, 'normals', 1)).toBeNull();
+    expect(slotTexture(m, 'albedoHeight', 4)).toBe('grass');
+    m = withSlotTexture(m, 4, '', 'normals');
+    expect(normals(m)).toBe('');
   });
   it('names: "" drops back to the texture name; trailing empty names are not kept', () => {
     const m = withLayerName(withLayerName(base, 2, 'Rock'), 2, '  ');

@@ -183,11 +183,18 @@ export function Popover(p: { anchor: HTMLElement; onClose: () => void; title: Re
   const latest = useRef(p);
   latest.current = p;
   useLayoutEffect(() => {
-    const a = p.anchor.getBoundingClientRect();
-    const column = p.anchor.closest('.tl-editmode__column, .tl-dock, aside')?.getBoundingClientRect() ?? a;
-    const h = box.current?.offsetHeight ?? 200;
-    const top = Math.max(8, Math.min(window.innerHeight - h - 8, a.top + a.height / 2 - 28));
-    setPlace({ right: window.innerWidth - column.left + 10, top, arrow: a.top + a.height / 2 - top });
+    const put = (): void => {
+      const a = p.anchor.getBoundingClientRect();
+      const column = p.anchor.closest('.tl-editmode__column, .tl-dock, aside')?.getBoundingClientRect() ?? a;
+      const h = Math.min(box.current?.offsetHeight ?? 200, window.innerHeight - 16);
+      const top = Math.max(8, Math.min(window.innerHeight - h - 8, a.top + a.height / 2 - 28));
+      setPlace((was) => (was !== null && was.top === top && was.right === window.innerWidth - column.left + 10 ? was : { right: window.innerWidth - column.left + 10, top, arrow: a.top + a.height / 2 - top }));
+    };
+    put();
+    // Its content grows (a texture browser opened in it): placed again so it stays on the screen.
+    const ro = typeof ResizeObserver === 'function' && box.current !== null ? new ResizeObserver(put) : null;
+    if (ro !== null && box.current !== null) ro.observe(box.current);
+    return () => ro?.disconnect();
   }, [p.anchor]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

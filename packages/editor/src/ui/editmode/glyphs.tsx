@@ -9,6 +9,117 @@
 import type { JSX } from 'react';
 
 const PATHS: Readonly<Record<string, JSX.Element>> = {
+  raise: (
+    <>
+      <path d="M3 19h18" />
+      <path d="M5 19c3-1 4-8 7-8s4 7 7 8" />
+      <path d="M12 3v6M9 6l3-3 3 3" />
+    </>
+  ),
+  lower: (
+    <>
+      <path d="M3 19h18" />
+      <path d="M5 13c3 1 4 5 7 5s4-4 7-5" />
+      <path d="M12 3v7M9 7l3 3 3-3" />
+    </>
+  ),
+  smooth: (
+    <>
+      <path d="M3 15c3-6 6 2 9-3s6 1 9-2" />
+      <path d="M3 20c4-2 7-1 9-1s5 1 9-1" opacity=".55" />
+    </>
+  ),
+  flatten: (
+    <>
+      <path d="M3 19h18" />
+      <path d="M4 15h16" />
+      <path d="M8 11l4-3 4 3" opacity=".55" />
+      <path d="M12 8v7" />
+    </>
+  ),
+  noise: (
+    <>
+      <path d="M3 16l3-5 2 3 3-7 2 6 2-3 3 5 3-4" />
+      <path d="M3 20h18" opacity=".5" />
+    </>
+  ),
+  ramp: (
+    <>
+      <path d="M3 19h18" />
+      <path d="M4 19L20 7v12" />
+      <circle cx="4" cy="19" r="1.4" />
+      <circle cx="20" cy="7" r="1.4" />
+    </>
+  ),
+  brush: (
+    <>
+      <path d="M18 3l3 3-9 9-3-3z" />
+      <path d="M9 12c-3 0-5 2-5 5 0 1-1 2-2 2 2 2 7 2 9-1 1-1.5 1-3 1-3" />
+    </>
+  ),
+  erase: (
+    <>
+      <path d="M8 20h12" />
+      <path d="M4 14l9-9 6 6-9 9H8z" />
+      <path d="M8 10l6 6" />
+    </>
+  ),
+  fill: (
+    <>
+      <path d="M5 11l7-7 7 7-7 7z" />
+      <path d="M5 11h14" />
+      <path d="M20 15s2 2.5 2 4a2 2 0 0 1-4 0c0-1.5 2-4 2-4z" />
+    </>
+  ),
+  select: (
+    <>
+      <path d="M5 3l14 7-6 2-2 6z" />
+      <path d="M14 14l5 5" />
+    </>
+  ),
+  stamp: (
+    <>
+      <path d="M8 3h8v4l-2 3h5v4H5v-4h5L8 7z" />
+      <path d="M5 18h14v3H5z" />
+    </>
+  ),
+  erode: (
+    <>
+      <path d="M3 19h18" />
+      <path d="M4 19c2-6 4-11 8-11s6 5 8 11" />
+      <path d="M10 9c0 3 1 6 2 10M14 10c-1 3-1 6 0 9" opacity=".55" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" />
+    </>
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  trash: (
+    <>
+      <path d="M4 7h16M9 7V4h6v3" />
+      <path d="M6 7l1 13h10l1-13" />
+    </>
+  ),
+  up: <path d="M7 14l5-5 5 5" />,
+  down: <path d="M7 10l5 5 5-5" />,
+  dice: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <circle cx="9" cy="9" r="1" fill="currentColor" />
+      <circle cx="15" cy="15" r="1" fill="currentColor" />
+      <circle cx="15" cy="9" r="1" fill="currentColor" />
+      <circle cx="9" cy="15" r="1" fill="currentColor" />
+    </>
+  ),
+  import: (
+    <>
+      <path d="M12 3v12M7 10l5 5 5-5" />
+      <path d="M4 17v3h16v-3" />
+    </>
+  ),
   sculpt: (
     <>
       <path d="M2 20l6-9 4 5 3-4 7 8z" />

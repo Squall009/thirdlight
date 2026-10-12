@@ -14,12 +14,15 @@ export interface RailItem {
   readonly id: string;
   readonly label: string;
   readonly glyph: string;
+  /** A line above it (the editor's own settings, after its modes). */
+  readonly sep?: boolean;
 }
 
 export function ToolRail({ items, active, onPick }: { items: readonly RailItem[]; active: string; onPick: (id: string) => void }): JSX.Element {
   return (
     <nav className="tl-rail" role="tablist" aria-label="editor modes" aria-orientation="vertical">
-      {items.map((it, i) => (
+      {items.map((it, i) => [
+        it.sep === true ? <span key={`${it.id}:sep`} className="tl-rail__sep" role="separator" /> : null,
         <button
           key={it.id}
           type="button"
@@ -36,8 +39,8 @@ export function ToolRail({ items, active, onPick }: { items: readonly RailItem[]
               ⇧{i + 1}
             </kbd>
           )}
-        </button>
-      ))}
+        </button>,
+      ])}
     </nav>
   );
 }

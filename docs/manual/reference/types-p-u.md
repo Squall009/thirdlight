@@ -1,8 +1,31 @@
-# Types (ProbeBake to UiTweenKind)
+# Types (PostConfig to UiTweenKind)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-post-config"></a>
+### PostConfig
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+interface PostConfig {
+  toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
+  exposure?: number;
+  bloom?: { enabled: boolean; strength?: number; radius?: number; threshold?: number };
+  /**
+   * Colour grading. Lift (raises the blacks, −0.5–0.5, default 0),
+   * gamma (mid-tones, 0.2–5, default 1: >1 brightens) and gain (scales the
+   * whites, 0–4, default 1) — the defaults leave the image unchanged.
+   */
+  grading?: { contrast?: number; saturation?: number; brightness?: number; tint?: string; lut?: string; lift?: number; gamma?: number; gain?: number };
+  vignette?: { enabled: boolean; darkness?: number; offset?: number };
+  ssao?: { enabled: boolean; radius?: number; intensity?: number };
+  dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
+  antialias?: 'none' | 'fxaa' | 'smaa';
+}
+```
 
 <a id="type-probe-bake"></a>
 ### ProbeBake
@@ -861,6 +884,8 @@ Declared in `packages/project-model/src/surface-rules.ts`.
 
 ```ts
 interface SurfaceRule {
+  /** What the rule is called in the editor ("Rock on steep slopes"; absent: a summary of its conditions). Paints nothing. */
+  name?: string;
   /** The material layer it paints (block layers: 0-3, the four their paint carries). */
   layer: number;
   /** How much of its layer it gives where every condition holds (0-1; absent: 1). */

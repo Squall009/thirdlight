@@ -33,7 +33,8 @@ export type PatchRebase = (current: Record<string, unknown>) => Record<string, u
 interface Props {
   entity: ProjectedEntity | null;
   /** The object's edit mode, opened by the button under its name (null: it has none). */
-  editAction?: { label: string; enter: () => void } | null;
+  /** The object's edit mode: the button into it, and the fields it edits there instead of here (by component). */
+  editAction?: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>> } | null;
   gizmoMode: GizmoMode;
   onGizmoMode: (m: GizmoMode) => void;
   /** The component descriptors (null until the first game query answered). */
@@ -297,6 +298,7 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
               onEdit: edit(c, value),
               ...(op === null ? { readOnly: true } : {}),
               ...(present.has(c.name) && removable(c.name) ? { onRemove: () => onComponentEdit(entity.id, c.name, null) } : {}),
+              ...(editAction?.skips?.[c.name] !== undefined ? { skip: editAction.skips[c.name] } : {}),
             };
             if (c.name === 'behavior') {
               return (

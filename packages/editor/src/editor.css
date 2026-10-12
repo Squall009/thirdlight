@@ -1446,3 +1446,88 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-pop .tl-inspector__hint { margin: 0; }
 .tl-layer-fields { display: flex; flex-direction: column; gap: 7px; }
 .tl-slider--text .tl-input { grid-column: 2 / span 2; height: 24px; }
+/* The terrain editor's columns (one per rail mode) and the edit modes' shared pieces they introduced. */
+.tl-terrain { display: flex; flex-direction: column; flex: none; padding-bottom: 12px; }
+.tl-editmode__tool { color: var(--text-dim); font-size: var(--text-sm); }
+.tl-rail__sep { height: 1px; margin: 6px 6px; background: var(--line); flex: none; }
+.tl-sec__stack { display: flex; flex-direction: column; gap: 7px; }
+.tl-frow > .tl-input { flex: 1; min-width: 0; height: 24px; }
+.tl-seg.is-disabled { opacity: .45; }
+.tl-seg button:disabled { cursor: default; }
+.tl-seg { flex-wrap: wrap; }
+.tl-tag--warn { background: var(--warn-bg); color: var(--warn); }
+/* ToolGrid: a mode's tools. */
+.tl-toolgrid { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 6px; }
+.tl-tool { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 9px 2px 7px; color: var(--text-dim); font: inherit; font-size: var(--text-xs); cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.tl-tool:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.tl-tool .tl-kbd { position: absolute; top: 3px; right: 3px; font-size: 9px; padding: 1px 3px; border-bottom-width: 1px; opacity: .7; }
+.tl-tool.is-active { color: #fff; background: var(--select-bg); border-color: var(--select); box-shadow: 0 0 0 1px var(--select) inset; }
+.tl-tool:disabled { opacity: .45; cursor: default; }
+/* RangeField: two thumbs, the state colour between them; an open end's thumb is hollow. */
+.tl-range .tl-slider__fill { background: var(--select); }
+.tl-range.is-any .tl-slider__fill { background: var(--text-faint); opacity: .35; }
+.tl-range__thumb.is-open { background: var(--surface-1); box-shadow: inset 0 0 0 2px var(--text-dim), 0 1px 3px rgba(0,0,0,.6); }
+.tl-range__thumb:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--select-line); }
+.tl-range .tl-slider__thumb { pointer-events: auto; }
+.tl-range .tl-slider__num input { text-align: center; }
+/* Rule cards (material and scatter rules). */
+.tl-rules { display: flex; flex-direction: column; gap: 6px; }
+.tl-rule { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--surface-0); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.tl-rule.is-active { border-color: var(--select-line); box-shadow: 0 0 0 1px var(--select-line); background: linear-gradient(180deg, rgba(76,141,255,.06), transparent 60%), var(--surface-0); }
+.tl-rule.is-drop { border-color: var(--select); border-style: dashed; }
+.tl-rule__head { display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 26px; }
+.tl-rule__grip { color: var(--text-faint); font-size: 12px; letter-spacing: -2px; cursor: grab; user-select: none; }
+.tl-rule__name { flex: 1; min-width: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-rule__sum { font-size: var(--text-xs); color: var(--text-faint); margin-top: -3px; padding-left: 20px; line-height: 1.35; }
+.tl-rule__body { display: flex; flex-direction: column; gap: 7px; }
+.tl-rule__body .tl-subhead { margin-top: 6px; color: var(--text-dim); }
+.tl-rule__foot { display: flex; align-items: center; gap: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.tl-cond { display: flex; flex-direction: column; gap: 5px; }
+.tl-cond > .tl-slider:not(:first-child):not(.tl-range) .tl-slider__label { padding-left: 12px; color: var(--text-faint); }
+.tl-layercond { display: flex; flex-direction: column; gap: 5px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.tl-addrow { display: inline-flex; align-items: center; justify-content: center; gap: 6px; align-self: flex-start; height: 26px; padding: 0 10px; font: inherit; font-size: var(--text-sm); color: var(--text-dim); cursor: pointer;
+  background: none; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); }
+.tl-addrow:hover:not(:disabled) { color: var(--text); border-color: var(--select-line); }
+.tl-addrow--wide { align-self: stretch; height: 30px; }
+/* ChipsField: names as chips. */
+.tl-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 3px; min-height: 26px; background: var(--surface-0); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.tl-chip { display: inline-flex; align-items: center; gap: 2px; height: 20px; padding: 0 2px 0 7px; font-size: var(--text-xs); background: var(--surface-3); border-radius: 999px; }
+.tl-chip button { width: 16px; height: 16px; padding: 0; border: 0; background: none; color: var(--text-dim); cursor: pointer; border-radius: 50%; }
+.tl-chip button:hover { color: var(--text); background: var(--surface-2); }
+.tl-chips__input { flex: 1; min-width: 60px; height: 20px; padding: 0 4px; font: inherit; font-size: var(--text-sm); color: var(--text); background: none; border: 0; outline: none; }
+/* TextureBrowser: the project's textures as pictures. */
+.tl-texbrowser { display: flex; flex-direction: column; gap: 6px; }
+.tl-texbrowser__grid { overflow-y: auto; }
+.tl-texbrowser__row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; height: 86px; }
+.tl-texcell { display: flex; flex-direction: column; gap: 3px; padding: 3px; font: inherit; text-align: left; cursor: pointer; min-width: 0;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); }
+.tl-texcell:hover:not(:disabled) { border-color: var(--line-strong); }
+.tl-texcell.is-active { border-color: var(--brush); box-shadow: 0 0 0 1px var(--brush); }
+.tl-texcell__thumb { display: block; aspect-ratio: 1; height: 58px; width: 100%; border-radius: 3px; overflow: hidden; background: var(--surface-3); }
+.tl-texcell__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tl-texcell__name { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 1px; }
+/* A layer's texture slots (colour, normal, ORM). */
+.tl-layertex { display: flex; flex-direction: column; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.tl-layertex__slot { display: flex; flex-direction: column; gap: 6px; }
+.tl-layerchip--slot { flex: 1; max-width: none; }
+/* The Stack mode's layer list. */
+.tl-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tl-stack__layer { display: flex; flex-direction: column; gap: 6px; padding: 7px 8px; background: var(--surface-0); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.tl-stack__layer.is-off { opacity: .6; }
+.tl-stack__layer--base { flex-direction: row; align-items: baseline; gap: 8px; font-size: var(--text-sm); background: transparent; border-style: dashed; }
+.tl-stack__head { display: flex; align-items: center; gap: 4px; }
+.tl-stack__id { font-size: var(--text-xs); color: var(--text-faint); }
+.tl-stack__stamps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tl-stack__stamp { width: 100%; text-align: left; padding: 3px 6px; font: inherit; font-size: var(--text-xs); color: var(--text-dim); cursor: pointer; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); }
+.tl-stack__stamp:hover { color: var(--text); background: var(--surface-2); }
+.tl-stack__stamp.is-active { color: var(--text); background: var(--select-bg); border-color: var(--select-line); }
+/* A file chooser that reads as a button. */
+.tl-file { position: relative; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; font-size: var(--text-sm); color: var(--text-dim); cursor: pointer;
+  background: var(--surface-2); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); overflow: hidden; }
+.tl-file:hover { color: var(--text); border-color: var(--select-line); }
+.tl-file span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.tl-btn > .tl-glyph { display: inline-block; vertical-align: -2px; margin-right: 4px; }
+.tl-pop { max-height: calc(100vh - 16px); overflow-y: auto; }
+.tl-terrain .tl-btn { white-space: nowrap; }

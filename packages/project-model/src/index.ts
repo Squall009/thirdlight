@@ -1333,7 +1333,7 @@ export {
   type TerrainSculptDab,
   type TerrainSculptKind,
 } from './terrain-edit';
-export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, blockLayerToTerrain, decodeHeightmap, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
+export { HEIGHTMAP_FORMATS, HEIGHTMAP_MAX_SAMPLES, TERRAIN_ADD_TILES_MAX, blockLayerToTerrain, decodeHeightmap, extendTerrainTiles, importHeightmap, type BlockLayerSource, type Heightmap, type HeightmapFormat, type HeightmapOptions } from './terrain-import';
 export { TerrainField, terrainCellStep, type TerrainSample } from './terrain-field';
 // Edit layers: stamps, erosion and the splines combined over the hand-made ground into the drawn heights.
 export {

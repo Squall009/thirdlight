@@ -69,6 +69,8 @@ export interface EditModeKind {
   bounds?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
+  /** Fields the Inspector leaves to the mode, by component (what only the mode edits: a terrain's tiles and rules). */
+  readonly inspectorSkips?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */

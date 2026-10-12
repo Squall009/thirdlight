@@ -155,7 +155,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-surface-rule-limits"></a>`SURFACE_RULE_LIMITS` | `{"value":100000,"cavityRadiusMax":64,"noiseScaleMin":0.01,"noiseScaleMax":100000}` | Bounds of the values a rule holds (dimensions of a value, not counts). |
+| <a id="limit-surface-rule-limits"></a>`SURFACE_RULE_LIMITS` | `{"value":100000,"cavityRadiusMax":64,"noiseScaleMin":0.01,"noiseScaleMax":100000,"nameLength":64}` | Bounds of the values a rule holds (dimensions of a value, not counts). |
 
 <a id="limits-project-model--terrain-blocks"></a>
 ## `terrain-blocks.ts`
@@ -188,6 +188,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-heightmap-max-samples"></a>`HEIGHTMAP_MAX_SAMPLES` | `67125249` | The most samples one heightmap import reads (8,193²): a per-request bound on memory, not a terrain size. |
+| <a id="limit-terrain-add-tiles-max"></a>`TERRAIN_ADD_TILES_MAX` | `64` | The most tiles one `editTerrain addTiles` makes: a per-request bound on the work, not on the terrain. |
 
 <a id="limits-project-model--terrain-layers"></a>
 ## `terrain-layers.ts`

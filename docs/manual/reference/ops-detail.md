@@ -416,6 +416,8 @@ interface EditTerrainArgs {
   rect?: [number, number, number, number];
   hydraulic?: ErosionSettings['hydraulic'];
   thermal?: ErosionSettings['thermal'];
+  /** addTiles: the tile coordinates made ([x, z]), each carrying on from its neighbours' edges. */
+  tiles?: [number, number][];
 }
 ```
 

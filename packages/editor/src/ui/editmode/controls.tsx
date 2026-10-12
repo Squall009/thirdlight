@@ -43,11 +43,11 @@ export function Toggle({ label, on, onChange, aria, keyName, hint, disabled }: {
 }
 
 /** One choice of a few, side by side. */
-export function Segmented<T extends string | number>({ options, value, onChange, aria, small }: { options: readonly { id: T; label: string; hint?: string }[]; value: T; onChange: (v: T) => void; aria: string; small?: boolean }): JSX.Element {
+export function Segmented<T extends string | number>({ options, value, onChange, aria, small, disabled }: { options: readonly { id: T; label: string; hint?: string }[]; value: T; onChange: (v: T) => void; aria: string; small?: boolean; disabled?: boolean }): JSX.Element {
   return (
-    <div className={`tl-seg${small === true ? ' tl-seg--sm' : ''}`} role="radiogroup" aria-label={aria}>
+    <div className={`tl-seg${small === true ? ' tl-seg--sm' : ''}${disabled === true ? ' is-disabled' : ''}`} role="radiogroup" aria-label={aria} aria-disabled={disabled === true ? true : undefined}>
       {options.map((o) => (
-        <button key={String(o.id)} type="button" role="radio" aria-checked={o.id === value} className={o.id === value ? 'is-active' : ''} title={o.hint} onClick={() => onChange(o.id)}>
+        <button key={String(o.id)} type="button" role="radio" aria-checked={o.id === value} className={o.id === value ? 'is-active' : ''} title={o.hint} disabled={disabled} onClick={() => onChange(o.id)}>
           {o.label}
         </button>
       ))}
