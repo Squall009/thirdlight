@@ -549,6 +549,24 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-dialog__body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .tl-dialog__body p { margin: 0; }
 .tl-dialog__result { display: flex; flex-direction: column; gap: 10px; }
+.tl-dialog--wide { width: min(820px, 94vw); }
+/* The New material dialog: the defaults as picture cards, the name below. */
+.tl-newmat__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; max-height: 62vh; overflow: auto; }
+.tl-newmat__card { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 8px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface-0); color: inherit; cursor: pointer; font: inherit; }
+.tl-newmat__card:hover { border-color: var(--line-strong); }
+.tl-newmat__card.is-picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: var(--surface-2, var(--surface-1)); }
+.tl-newmat__preview { width: 80px; height: 80px; flex: none; border-radius: 6px; background: #3a3a3a; object-fit: cover; }
+.tl-newmat__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tl-newmat__use { font-size: 12px; color: var(--text-dim, inherit); line-height: 1.3; }
+.tl-newmat__reads { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.tl-newmat__reads .tl-tag { font-size: 10.5px; }
+.tl-newmat__name { display: flex; gap: 8px; align-items: flex-end; }
+.tl-newmat__name .tl-field { flex: 1; margin: 0; }
+.tl-graph__node-notes { position: absolute; left: 0; display: flex; flex-wrap: wrap; gap: 3px; width: max(100%, 220px); pointer-events: none; }
+.tl-graph__node-notes .tl-tag { background: var(--surface-2); border-color: var(--line-strong); }
+.tl-material-reads { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+.tl-material-customize { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; margin: 4px 0 8px; }
 .tl-shortcuts { border-collapse: collapse; width: 100%; }
 .tl-shortcuts td { padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
 .tl-shortcuts kbd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-family: inherit; }
@@ -1421,6 +1439,7 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-ptile--empty.is-active { border-style: solid; }
 .tl-ptile.is-drop { border-color: var(--select); box-shadow: 0 0 0 2px var(--focus); background: var(--select-bg); }
 .tl-palette-setup { display: flex; flex-direction: column; gap: 8px; padding: 10px; margin-bottom: 4px; background: var(--brand-dim); border: 1px solid rgba(242,181,68,.45); border-radius: var(--radius-md); }
+.tl-palette-setup.is-warning { background: var(--warn-bg); border-color: var(--warn); }
 .tl-palette-setup p { margin: 0; font-size: var(--text-sm); color: var(--text); line-height: 1.4; }
 .tl-btn--primary { align-self: flex-start; height: 28px; padding: 0 14px; background: var(--brand); border-color: var(--brand); color: #1a1407; font-weight: var(--weight-bold); }
 .tl-btn--primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--brand); }

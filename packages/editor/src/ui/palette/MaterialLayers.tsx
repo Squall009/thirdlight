@@ -5,9 +5,12 @@
  * on a tile, or picked in the texture browser: the project window lies
  * under the mode), its normal map and ORM filled from textures named alike
  * (`texture-sets.ts`); the layer's textures, name and settings in a popover —
- * and "Set up material" when it has no layered material: a new material from
- * the Height-blended layers template, given to the object in the same
- * command (one undo step).
+ * and "Set up material" when it has no material: a new layered material,
+ * given to the object in the same command (one undo step). When its
+ * material doesn't read layer weights (`materialReads`), painting would draw
+ * nothing on it: the section says so first, with "Make it paintable" — a
+ * layered material whose base layer wears the old material's maps, given
+ * the same way.
  *
  * Without a layered material the palette shows the colours the object draws
  * meanwhile, named as such, and the button is the first thing in the section.
@@ -17,10 +20,11 @@
 import { useMemo, useState, type JSX } from 'react';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type { MaterialDef } from '@thirdlight/project-model';
+import { materialReads } from '@thirdlight/project-model/material-reads';
 
 import type { Catalog } from '../../session/catalog';
-import { paletteLayers, paletteSource, standInLayers, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
-import { LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial } from '../../session/material-graph';
+import { paintableMaterial, paletteLayers, paletteSource, standInLayers, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
+import { LAYERED_TEXTURES, TEMPLATE_LAYERS } from '../../session/material-graph';
 import { matchingTexture, textureSetQuery } from '../../session/texture-sets';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
@@ -87,7 +91,8 @@ export function usePalette(mapping: Readonly<Record<string, string>> | undefined
   const arrayLayers = typeof albedo === 'string' && albedo !== '' ? (summaries[0]?.image?.layers ?? 1) : null;
   const key = [...names].join('|');
   const layers = useMemo(
-    () => (source.kind === 'none' ? standInLayers(standIn) : paletteLayers(source.material, (id) => names.get(id), arrayLayers)),
+    // A material without layers: the tiles are stand-ins, though the object has a material.
+    () => (source.kind === 'none' ? standInLayers(standIn, source.material === null ? 'no material' : 'stand-in') : paletteLayers(source.material, (id) => names.get(id), arrayLayers)),
     // `key` stands for the names read so far.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is rebuilt each draw; `key` names its content
     [source, standIn, key, arrayLayers],
@@ -121,7 +126,7 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
     try {
       const name = `${p.entityName} layers`;
       const id = await p.host.newMaterialId(name);
-      let material = templateMaterial('layers', id, name);
+      let material = paintableMaterial(source.kind === 'none' ? source.material : null, id, name);
       const tiling = p.layerTiling;
       if (tiling !== undefined) for (let l = 0; l < TEMPLATE_LAYERS; l++) material = withLayerSetting(material, 'layerTiling', l, tiling);
       await p.host.run('Set up material', 'setMaterial', { material, assign: { entityId: p.entityId } });
@@ -130,17 +135,31 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
     }
   };
   if (source.kind === 'none') {
+    const own = source.material;
+    // A graph that mixes its own layers by the weights paints by layer number, though the palette can't show its layers.
+    if (own !== null && materialReads(own, 'layerWeights', { materials: p.host.materials })) {
+      return (
+        <Section title="Layers" aside={<span className="tl-tag">{own.name}</span>}>
+          <p className="tl-inspector__hint">"{own.name}" mixes layers of its own graph by the painted weights: paint picks its layers by number. Open it in the material editor to change them.</p>
+          <LayerPalette layers={layers} active={p.active} onPick={p.onPick} thumbnails={p.host.thumbnails} keys aria="layers" />
+        </Section>
+      );
+    }
     return (
-      <Section title="Layers" aside={<span className="tl-tag">no material</span>}>
-        <div className="tl-palette-setup" role="note" aria-label="no layered material">
+      <Section title="Layers" aside={<span className="tl-tag">{own === null ? 'no material' : 'not paintable'}</span>}>
+        <div className={`tl-palette-setup${own !== null ? ' is-warning' : ''}`} role="note" aria-label={own === null ? 'no layered material' : 'material does not read paint'}>
           <p>
-            {source.material === null
-              ? `${p.entityName} has no layered material yet, so it paints these stand-in colours.`
-              : `${p.entityName} draws with "${source.material.name}", which has no layers, so it paints these stand-in colours.`}{' '}
-            Set up a material, then drop a texture on each layer.
+            {own === null ? (
+              <>{p.entityName} has no layered material yet, so it paints these stand-in colours. Set up a material, then drop a texture on each layer.</>
+            ) : (
+              <>
+                <b>"{own.name}" doesn't read paint</b> (layer weights), so painting draws nothing on {p.entityName}.{' '}
+                {own.graph === undefined && own.textures['map'] !== undefined ? `Make it paintable: a layered material whose first layer keeps "${own.name}"'s textures.` : 'Make it paintable: a layered material, then drop a texture on each layer.'}
+              </>
+            )}
           </p>
-          <button type="button" className="tl-btn tl-btn--primary" aria-label="set up material" disabled={busy || p.disabled === true} onClick={() => void setUp()}>
-            {busy ? 'Setting up…' : 'Set up material'}
+          <button type="button" className="tl-btn tl-btn--primary" aria-label={own === null ? 'set up material' : 'make it paintable'} disabled={busy || p.disabled === true} onClick={() => void setUp()}>
+            {busy ? 'Setting up…' : own === null ? 'Set up material' : 'Make it paintable'}
           </button>
         </div>
         <LayerPalette layers={layers} active={p.active} onPick={p.onPick} thumbnails={p.host.thumbnails} keys aria="layers" />

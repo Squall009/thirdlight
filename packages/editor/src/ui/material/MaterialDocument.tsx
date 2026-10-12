@@ -23,6 +23,7 @@ import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/th
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault, TEMPLATE_LAYERS } from '../../session/material-graph';
+import { declarationLabels } from '../../session/material-defaults';
 import { slotProblemInput } from '../../session/texture-slots';
 import { stringsIn, useTextureIds } from '../catalog/catalog-context';
 import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
@@ -62,6 +63,13 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   const functions = useMemo(() => p.graphs.filter((g) => g.kind === 'material-function'), [p.graphs]);
   const hasGraph = m?.graph !== undefined;
   usePreview(useMemo(() => (hasGraph ? { kind: 'material' as const, materialId: p.materialId, materials: p.materials, functions: functions as unknown as MaterialFunctionLike[] } : null), [hasGraph, p.materialId, p.materials, functions]));
+  // What the graph reads and writes (inferred from its nodes), shown under its surface output.
+  const outputNotes = useMemo(() => {
+    if (m?.graph === undefined) return undefined;
+    const labels = declarationLabels(m, { materials: p.materials, functions });
+    const surface = m.graph.nodes.find((n) => n.type === 'pbr' || n.type === 'unlit' || n.type === 'customLit');
+    return surface === undefined ? undefined : new Map([[surface.id, labels.length > 0 ? labels : ['reads no paint or layer weights']]]);
+  }, [m, p.materials, functions]);
   const compileProblems = useMemo(() => {
     if (m?.graph === undefined) return [];
     // Per-layer slots compile as their array's key.
@@ -70,7 +78,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   }, [m, p.graphs, textureIds]);
   if (m === null) return <p className="tl-hint">This material no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the material node catalogue…</p>;
-  if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Choose it in the project window and use "Convert to graph" in its Inspector.</p>;
+  if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Choose it in the project window and use "Customize (convert to graph)" in its Inspector.</p>;
   const newNodeData = (type: string): Record<string, GraphValue> | undefined => {
     // A new Parameter node reads the first declared parameter; a new call runs the first function.
     if (type === 'parameter' && (m.parameters ?? []).length > 0) return { key: m.parameters![0]!.key };
@@ -81,6 +89,14 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
     <div className="tl-animator-doc tl-material-doc" aria-label="material graph">
       <EditorToolbar label="material toolbar">
         <span className="tl-editor-toolbar__note">Graph material</span>
+        {/* What it reads, readable at any zoom (also under the graph's output). */}
+        <span className="tl-material-reads" aria-label="material reads">
+          {[...(outputNotes?.values() ?? [])].flat().map((t) => (
+            <span key={t} className="tl-tag">
+              {t}
+            </span>
+          ))}
+        </span>
         <ToolbarSpacer />
         <ToolButton
           action="delete"
@@ -117,6 +133,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
             newNodeData={newNodeData}
             portContext={portContext}
             extraProblems={compileProblems}
+            {...(outputNotes !== undefined ? { nodeNotes: outputNotes } : {})}
           />
         </div>
       </div>

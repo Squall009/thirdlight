@@ -128,6 +128,8 @@ export interface GraphEditorProps {
   edgeTip?: (edgeId: string) => string | null;
   /** Something was dropped on the graph (drag and drop from outside, e.g. a variable); `at` in graph units, `screen` the client (window) point. */
   onDropItem?: (data: DataTransfer, at: GraphPoint, screen: { x: number; y: number }) => void;
+  /** Short tags shown under a node (node id → texts, e.g. what a material's output reads); absent or empty: none. */
+  nodeNotes?: ReadonlyMap<string, readonly string[]>;
 }
 
 /** Copy/paste between editors of the same graph kind (document tabs of one kind). */
@@ -164,7 +166,7 @@ interface Catalogue {
   active: number;
 }
 
-export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext, extraProblems, breakpoints, onToggleBreakpoint, current, edgeTip, onDropItem }: GraphEditorProps): JSX.Element {
+export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext, extraProblems, breakpoints, onToggleBreakpoint, current, edgeTip, onDropItem, nodeNotes }: GraphEditorProps): JSX.Element {
   const fixedTypes = useMemo(() => fixedTypesOf(kind), [kind]);
   // Every node's resolved ports for this graph value; the geometry
   // helpers below read the current table through a ref (callbacks keep working).
@@ -1223,6 +1225,15 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
                   if (!pointerDownRef.current && e.target === e.currentTarget && !selectionRef.current.has(n.id)) setSelection(new Set([n.id]));
                 }}
               >
+                {(nodeNotes?.get(n.id) ?? []).length > 0 && (
+                  <div className="tl-graph__node-notes" data-node-notes={n.id} title={nodeNotes!.get(n.id)!.join(' · ')} style={{ top: r.h + 4 }}>
+                    {nodeNotes!.get(n.id)!.map((t) => (
+                      <span key={t} className="tl-tag">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {(['in', 'out'] as const).flatMap((side) =>
                   (side === 'in' ? portsOfNode(n).inputs : portsOfNode(n).outputs).map((port) => {
                     const pt = portPoint(kind, { ...n, position: p }, side, port.id);

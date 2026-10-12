@@ -10,6 +10,7 @@
     "./limits": "./src/limits.ts",
     "./texture-slots": "./src/texture-slots.ts",
     "./trim-sheet": "./src/trim-sheet.ts",
+    "./material-reads": "./src/material-reads.ts",
     "./meshopt": "./src/meshopt.ts",
     "./decal-clip-glb": "./src/decal-clip-glb.ts"
   },

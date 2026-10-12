@@ -1,10 +1,55 @@
 # Material graphs
 
-Materials built as node graphs: templates, instances, the Material editor,
+New materials from the defaults, what a material reads, and materials built
+as node graphs: templates, instances, the Material editor,
 custom-lit surfaces, the node catalogue, exposed parameters (also set from
 scripts), material functions, and trim sheets. Step by step:
 [the material graph guide](../guides/material-graphs.md). Every node:
 [Material graph](../reference/graph-material.md).
+
+## New materials and what they read
+
+In the project window, **create ▾ → Material** opens the **New material**
+dialog: the defaults to start from, each with a preview, what it is for and
+what it reads.
+
+| Default | For | Reads |
+|---|---|---|
+| Layered surface | terrain, block ground and walls, painted props | layer weights (and vertex paint where the object is painted); albedo alpha = height |
+| Standard | props and models | vertex paint only with *paintTint* on |
+| Decal | stains, signs and markings over a surface | draws as a decal; albedo alpha = opacity |
+| Foliage | grass, leaves, cloth in the wind | (COLOR_0 is wind data) |
+| Water | lakes and seas | — |
+| Unlit | flat colour that ignores lights | — |
+| Atlas surface | modular pieces sharing one world-aligned texture atlas (the `kit` shader; its data key is unchanged) | — |
+
+Pick one, name it and press Enter (or double-click the card). The Layered
+surface is a graph material and opens in the editor window; the others are
+edited in the Inspector. Trim sheet materials keep their own Create entry.
+
+**Customize (convert to graph)** in a shader material's Inspector turns it
+into a node graph of your own that looks the same (below): the way to an
+emissive layer, a special blend or anything else the defaults don't do.
+
+**What a material reads.** Every material declares what it reads besides
+its own values and textures — *layer weights*, *vertex paint*, *trim rows*,
+*vertex occlusion* — whether it *draws as a decal*, and what its albedo's
+alpha is (*height* for a height blend, *opacity* when cut out or
+transparent). A shader type's come from one table; a graph material's are
+worked out from its nodes: a Height blend or Weighted mix whose weights come
+from a vertex colour set or the paint (or a Height blend with its weights
+unwired) reads layer weights, a Vertex colour on the paint set reads vertex
+paint, a texture's alpha into a Height blend's heights is height, into
+opacity or alpha clip is opacity, COLOR_0 into ambient occlusion is vertex
+occlusion, an output with **Decal** set draws as a decal (through material
+function calls too). The Inspector lists them under **reads**, and the
+material editor shows them under the graph's surface output.
+
+Editors that paint check this before they draw: the terrain editor's
+**Layers** section says when the terrain's material doesn't read paint
+(painting would draw nothing) and offers **Make it paintable** — a layered
+material whose first layer keeps the old material's colour, normal and ORM
+maps, given to the terrain in one undo step.
 
 ## Graph materials
 
@@ -12,14 +57,14 @@ A material can be built as a node graph. The project window
 lists every material (`t:material`): Create → **Graph material** makes one
 and opens it in the editor window as a **Material: <name>** tab — from the
 submenu, an empty graph (a **PBR output**) or a
-built-in template: *standard*, *foliage wind*, *world-aligned kit*, *unlit*
+built-in template: *standard*, *foliage wind*, *atlas surface*, *unlit*
 or *water* (the shader types as graphs, with their defaults), *river
 (spline water)* (flow along a spline's water mesh, foam at its banks and in
 the shallows, soft shores), or *height-blended layers (painted terrain)* — four layers from texture arrays,
 weighted by vertex colours (a painted block layer's paint, or a mesh's own:
 trim sheets blending clean → dirt → moss). Any shader
-material's **Convert to graph** rebuilds it as a graph that looks the same:
-its values and textures wired in, and for foliage, kit and water their wind,
+material's **Customize (convert to graph)** rebuilds it as a graph that looks the same:
+its values and textures wired in, and for foliage, atlas surface and water their wind,
 UV period / macro normal and water values as public exposed parameters
 (objects may override them). The pixel parity test draws every shader type
 both ways on WebGL 2 and WebGPU and holds them to the renderer's parity rule.

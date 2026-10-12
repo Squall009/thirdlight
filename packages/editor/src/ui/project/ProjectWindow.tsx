@@ -17,7 +17,8 @@
  *   shows the item in the Inspector.
  * - Making: the Create menu (the "create" button, or a right-click) makes a
  *   new item of a kind in the folder shown, named in place first (Unity's
- *   Create menu); a right-click on an item also opens or deletes it.
+ *   Create menu) — a material in the New material dialog, from a default;
+ *   a right-click on an item also opens or deletes it.
  *
  * Display and intent only: every change is a command through the session.
  *
@@ -36,6 +37,7 @@ import { useCatalog } from '../catalog/catalog-context';
 import { useIndexList } from '../catalog/useIndexList';
 import { VirtualList } from '../catalog/VirtualList';
 import { MATERIAL_DRAG_TYPE } from '../material/MaterialInspector';
+import { NewMaterialDialog } from '../material/NewMaterialDialog';
 import { LabelsBar } from '../LoadableFields';
 import type { LoadingNameActions } from '../useLoadingNames';
 import { ContextMenu } from '../ContextMenu';
@@ -106,6 +108,7 @@ export function ProjectWindow(p: Props): JSX.Element {
   const [clip, setClip] = useState<ProjectSelection | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
   // A name being typed: a new folder's, a renamed folder's, or a new item's (`create` = its Create menu key).
+  const [newMaterial, setNewMaterial] = useState<string | null>(null);
   const [naming, setNaming] = useState<{ mode: 'new' | 'rename' | 'create'; folder: string; value: string; create?: { key: string; label: string } } | null>(null);
   // The open menu: the Create menu under its button, or the right-click menu (on an item, or on the list).
   const [menuAt, setMenuAt] = useState<{ x: number; y: number; item: ProjectItem | null; createOnly?: boolean } | null>(null);
@@ -297,6 +300,11 @@ export function ProjectWindow(p: Props): JSX.Element {
   /** Start naming a new item of a kind (it is made in the folder shown when the name is confirmed). */
   const startCreate = (key: string, label: string, defaultName: string): void => {
     setError(null);
+    // A material starts from a default, picked in its dialog.
+    if (key === 'material') {
+      setNewMaterial(defaultName);
+      return;
+    }
     setNaming({ mode: 'create', folder: folder ?? '', value: defaultName, create: { key, label } });
   };
   /** The Create menu: each kind, grouped into submenus where a kind has variants (graph material templates, graph kinds). */
@@ -386,6 +394,7 @@ export function ProjectWindow(p: Props): JSX.Element {
 
   return (
     <div className="tl-project" data-folder={folder ?? ''}>
+      {newMaterial !== null && p.actions !== undefined && <NewMaterialDialog defaultName={newMaterial} onCreate={(key, name) => p.actions!.create(`material:${key}`, name)} onClose={() => setNewMaterial(null)} />}
       <FolderTree folder={folder} onFolder={(f) => p.onFolder(f)} dropping={dropping} onDragOver={dragOver} onDragLeave={() => setDropping(null)} onDrop={drop} />
       <div className="tl-project__main" ref={listRef} tabIndex={-1} onKeyDown={onKeyDown} onContextMenu={onContextMenu}>
         <div className="tl-project__bar">

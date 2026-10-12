@@ -921,7 +921,16 @@ export {
   type WindConfig,
   WET_ALBEDO_SCALE,
   WET_ROUGHNESS,
+  // What each shader type is called on screen, and what it reads and writes.
+  MATERIAL_SHADER_LABELS,
+  MATERIAL_DECLARATION_KEYS,
+  MATERIAL_DECLARATIONS,
+  type MaterialDeclaration,
+  type MaterialDeclarationKey,
+  type MaterialDeclarationWhen,
 } from './materials';
+// What a material reads and writes: a shader's from the table, a graph's inferred from its nodes.
+export { graphDeclaration, materialDeclaration, materialReads, shaderDeclaration, type MaterialReadsContext } from './material-reads';
 // Per-layer texture slots of graph materials (Play and the export assemble arrays from them).
 export { fillLayerId, parseFillLayer, textureSlotFill } from './texture-slots';
 export { hasTextureSlots, isTextureSlots, materialSlotTextureRefs, materialTextureSlotSets, parseTextureSlotSetKey, textureSlotLayers, textureSlotMode, textureSlotSetKey, textureSlotsError, withAssembledSlots, type TextureSlotSet } from './texture-slots';

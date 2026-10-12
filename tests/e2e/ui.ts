@@ -262,7 +262,8 @@ export async function createItem(page: Page, what: string | readonly [string, st
     await menu.getByRole('menuitem', { name: what[0], exact: true }).click();
     await menu.getByRole('menu', { name: what[0], exact: true }).getByRole('menuitem', { name: what[1], exact: true }).click();
   }
-  const field = panel.getByLabel('new item name', { exact: true });
+  // Named in place, or (a material) in the New material dialog over the page with its default picked.
+  const field = page.getByLabel('new item name', { exact: true });
   await field.fill(name);
   await field.press('Enter');
   await expect(field).toHaveCount(0);

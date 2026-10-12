@@ -163,6 +163,7 @@ Rules for every item:
 |---|---|
 | 35.0 | Done 2026-10-12: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 (2026-09-25) exists, the pinned 0.20.0 stays (nothing here depends on it). §2 re-read at `eb3e6dc6`: line numbers, 34.9's `absent` reads and constant slot layers, `layerNames`, the palette, `setMaterial assign`, the shell and brush kit, panel paths updated; the template's weight bug is still there. Items unchanged. |
 | 35.1 | Done 2026-10-12: `level --layered-walls N [--wall-layers 1\|2\|4]` (`tools/perf/level-walls.ts`): N generated buildings (starter room preset in and out, 1–2 storeys, door, windows with panes, hip/gable roof) as one static architecture object on the area's free ground, wearing one wall material; 1 layer = today's trim shader on a 1024² starter-layout sheet (albedo with height in A, normal, ORM); 2 and 4 layers are in `WALL_LAYER_SETS` (trim A + trim B; + moss and rust tiling, wetness) and refused until 35.3 builds the material. vitest `tests/perf/level-walls.test.ts` (7). **Baseline, area class, Iris Xe, 1080p, uncapped, 2 rounds:** without walls WebGPU p50/p95 6.8/9.7 ms, GPU 10.41 ms (scene pass 4.16), 260 draws, 271k tris; WebGL 2 p50/p95 2.7/7.0. **24 trim buildings (39 storeys):** WebGPU p50/p95 7.4/8.3 and 7.4/11.0 ms, GPU 11.71/12.02 ms, **scene pass 5.66/5.72 ms**, 343–346 draws, 330k tris, main thread 7.4–7.6 ms; WebGL 2 p50/p95 3.9/7.3 and 4.0/10.7 ms (no GPU pass timing on WebGL 2). The walls cost ~1.5 ms of scene pass. WebGL 2 p99 126–142 ms in every run, walls or not (the class's own hitches, not the walls). Screenshots looked at (both renderers): the buildings show the sheet's courses. Fast gate: build, lint, vitest 688, e2e 30 green; village WebGL 2 p50 5.0 > 4.84 ms twice (gate + rerun), the same miss as 34.10's tail. No A/B was run, because this change ships nothing: only `tools/perf`, `tests/perf` and docs differ from `eb3e6dc6`, so the village export is the same build. Host state (D199). |
+| 35.2 | Done 2026-10-12: declarations (`layerWeights`, `vertexPaint`, `trimRows`, `vertexAO`, `writesDecal`, `alphaIsHeight`, `alphaIsOpacity`) — the shader table `MATERIAL_DECLARATIONS` and on-screen names `MATERIAL_SHADER_LABELS` in `materials.ts`, graph inference and `materialReads` in `project-model/src/material-reads.ts` (the editor's value subpath). **New material** dialog (Create → Material): 7 defaults with generated previews (`public/icons/materials`, 7 WebPs 160², 20.3 KiB in all), what each reads, Enter/double-click creates. **Customize (convert to graph)** in the Inspector, the reads listed there, under the graph's output and in the material toolbar; "kit" shows as Atlas surface. The terrain editor's Layers say when the material reads no paint, with **Make it paintable** (base layer keeps the old maps). vitest 13 + 10; e2e: `material-graph.e2e.ts` (dialog, Customize, terrain warning). Screenshots looked at (WebGPU; `~/.cache/thirdlight-phase34/work/shots352/`). Fast gate green (vitest 690 files, e2e 39, village WebGPU p50 5.6 / WebGL 2 4.8 ms within limits). |
 
 ## 6. Decision log
 
@@ -194,3 +195,28 @@ Rules for every item:
     512², as §1's per-group sizes say).
   - WebGL 2 gives no per-pass GPU time (three times only the outermost
     pass), so its target is read on frame p50, with host drift in mind.
+- 2026-10-12 (35.2) — Material types. Defaults chosen, owner to confirm:
+  - **`vertexPaint` is its own declaration** besides `layerWeights`: terrain and block ground supply weights through
+    COLOR_0, vertex paint through the paint set, so the terrain editor asks one and the vertex paint editor (35.5) the
+    other. Today's layered template reads COLOR_0 only (the wiring bug 35.3 fixes), so it declares `layerWeights` but
+    not `vertexPaint` — the inference says what the shader does.
+  - **Inference walks upstream** from where a value is used (a blend's weights, the output's occlusion/opacity/alpha
+    clip, a Height blend's heights) to its source, through function calls and back out, counting only nodes that reach
+    an output. Mix weights are not followed for occlusion, height or opacity (the template's ORM is mixed by painted
+    weights; that is not vertex occlusion). A test holds every convertible shader's converted graph to the shader's
+    own declaration.
+  - **The table lives in `materials.ts`; the editor reads it through a new value subpath
+    `@thirdlight/project-model/material-reads`** (editor → project-model is types-only; `limits`, `texture-slots` and
+    `trim-sheet` are the precedent), so there is no editor copy.
+  - **The dialog replaces Create → Material's in-place naming** (Standard picked, so Enter makes what it made before);
+    the Graph material submenu (Empty, River, the templates) and Trim sheet material stay as they are. Foliage, Water,
+    Unlit and Atlas surface start at their shader's defaults. The Layered surface opens in the material editor (it is a
+    graph); the rest in the Inspector.
+  - **Previews are generated pictures**, not live renders: the defaults have no textures, so a live sphere of each is a
+    plain white ball. Made on the Studio's container backend (Qwen-Image Turbo, prompts and seeds in
+    `tools/icons/editor-icons.tsv`, group `material`), packed by `pack-editor-icons.mjs`.
+  - **Make it paintable** gives a layered material whose first layer takes the old shader material's colour, normal and
+    ORM maps and its name, assigned in one command (`setMaterial assign`); 35.5 reuses `paintableMaterial`. A graph
+    that mixes its own layers by the weights gets no warning (paint picks its layers by number).
+  - The reference keeps the data key in its per-parameter rows ("The kit shader's …"); only the shader enum's text
+    names Atlas surface — the descriptor registry is at its size budget.

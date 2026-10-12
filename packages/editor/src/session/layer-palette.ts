@@ -19,7 +19,7 @@ import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_SLOT_ALL } from '@thirdlight/project-model/limits';
 import { isTextureSlots } from '@thirdlight/project-model/texture-slots';
 
-import { LAYER_SETTINGS, LAYERED_TEXTURES, TEMPLATE_LAYERS } from './material-graph';
+import { LAYER_SETTINGS, LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial } from './material-graph';
 
 /** One tile of the palette. */
 export interface PaletteLayer {
@@ -134,6 +134,30 @@ export function withSlotTexture(m: MaterialDef, layer: number, textureId: string
   return { ...m, parameters };
 }
 
+/** The maps of a shader material a paintable one's first layer takes over (its slot → the layered array). */
+const BASE_LAYER_MAPS: readonly (readonly [string, LayerTextureKey])[] = [
+  ['map', LAYERED_TEXTURES.albedo],
+  ['normalMap', LAYERED_TEXTURES.normals],
+  ['ormMap', LAYERED_TEXTURES.orm],
+];
+
+/**
+ * "Make it paintable": a layered material for an object whose material
+ * reads no paint or layer weights. Its first layer (the base, what paint
+ * leaves) wears the old material's colour, normal and ORM maps and its
+ * name, so the object looks as before until it is painted; a material with
+ * none of those maps (a graph, a model's own) gives an empty first layer.
+ */
+export function paintableMaterial(old: MaterialDef | null, materialId: string, name: string): MaterialDef {
+  let m = templateMaterial('layers', materialId, name);
+  if (old === null || old.graph !== undefined) return m;
+  for (const [slot, key] of BASE_LAYER_MAPS) {
+    const id = old.textures[slot];
+    if (id !== undefined && id !== '') m = withSlotTexture(m, 0, id, key);
+  }
+  return old.textures['map'] !== undefined ? withLayerName(m, 0, old.name) : m;
+}
+
 /** The material with a layer's palette name ("" = its texture's name). */
 export function withLayerName(m: MaterialDef, layer: number, name: string): MaterialDef {
   const names = [...(m.layerNames ?? [])];
@@ -175,6 +199,6 @@ export function layerSub(m: MaterialDef, layer: number): string {
 }
 
 /** The stand-in tiles of an object without a layered material (its four default colours). */
-export function standInLayers(colours: readonly string[]): PaletteLayer[] {
-  return colours.map((colour, i) => ({ index: i, name: `Layer ${i + 1}`, texture: null, colour, sub: 'no material' }));
+export function standInLayers(colours: readonly string[], sub = 'no material'): PaletteLayer[] {
+  return colours.map((colour, i) => ({ index: i, name: `Layer ${i + 1}`, texture: null, colour, sub }));
 }

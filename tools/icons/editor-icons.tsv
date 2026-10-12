@@ -65,3 +65,11 @@ probes	object	-	7	ee6cce57-f408-4f1e-bad0-d34b429447d9	nine solid round yellow b
 patrol	object	-	42	4ba0196b-04cd-41ab-b757-8004be1955a9	a cute round slime monster walking with a curved arrow looping back and forth beneath it, a patrolling enemy	purple monster with white eyes, light violet arrow
 hitbox	object	-	42	0141dcc0-7dfa-4d8f-9e51-153ce2720e41	a jagged comic impact burst star inside a square frame, a hit box	orange red burst and coral frame
 health	object	-	42	d0b30f8c-967a-4114-be2a-43a1aabab096	a plump rounded heart with a small white plus sign on it, health	bright green heart
+# Materials (the New material dialog's previews): "A game engine material preview ... on a plain dark grey background ..., soft studio lighting, centered, no text." on the container backend (Qwen-Image Turbo, 8 steps, 256x256, opaque); the thing column holds the subject.
+layered	material	-	3503	888ee4aa-6362-4812-b381-ab4b9e1b2fb6	a sphere of grey stone bricks, dark green moss in the cracks on one side, brown rust stains on the other, the lower part wet and glossy	-
+standard	material	-	3504	0aec2852-44ea-404c-9e03-7631ebce337e	a plain matte light grey sphere with a subtle soft highlight	-
+decal	material	-	3505	ad3e3af9-3950-469d-bdee-b050ce3aec91	a concrete tile with a dark spray splat and dirt stain decal fading into it	-
+foliage	material	-	3506	0f84622e-0250-4145-ab2c-6e587c9863b2	a bunch of green leaf cards and grass blades with cut-out edges, light through the leaves	-
+water	material	-	3507	013d1f08-723a-4d35-b9ee-e2a218d46e6d	a glossy translucent blue-green water sphere with ripples and reflections	-
+unlit	material	-	3508	e6c069da-7d65-4026-8769-c0fbd87f527f	a flat-shaded solid orange disc, no lighting	-
+atlas	material	-	3509	ab8f81af-6c91-4024-870a-61e58a8bbdcf	a modular wall corner of repeating atlas panels lined up across the joins	-

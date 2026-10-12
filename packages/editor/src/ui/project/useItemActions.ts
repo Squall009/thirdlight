@@ -19,6 +19,7 @@ import { architectureGraphTemplate } from '@thirdlight/runtime';
 
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
 import { newEffect } from '../../session/effect-edit';
+import { materialDefault } from '../../session/material-defaults';
 import { newMaterialGraph, templateMaterial } from '../../session/material-graph';
 import { documentOfItem, freeItemId, isAssetKind, type ProjectItem } from '../../session/project-items';
 import { newLibraryFiles } from '../../session/script-sources';
@@ -43,7 +44,7 @@ export const GRAPH_MATERIAL_TEMPLATES: readonly { value: string; label: string }
   { value: '', label: 'Empty (PBR output)' },
   { value: 'standard', label: 'Standard' },
   { value: 'foliage', label: 'Foliage wind' },
-  { value: 'kit', label: 'World-aligned kit' },
+  { value: 'kit', label: 'Atlas surface' },
   { value: 'unlit', label: 'Unlit' },
   { value: 'water', label: 'Water' },
   // For a spline's water mesh: two-phase flow along it, foam at its banks and in the shallows, soft shores.
@@ -146,9 +147,12 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       const id = await freeItemId(name, kind, (ids) => c.catalog.taken(ids, [kind]));
       const run = async (op: string, args: Record<string, unknown>): Promise<string | null> => refusal(await c.command(op, args, c.projection.revision));
       let err: string | null;
+      let made: MaterialDef | null = null;
       switch (head) {
         case 'material':
-          err = await run('setMaterial', { material: { materialId: id, name, shader: 'standard', params: {}, textures: {} } satisfies MaterialDef });
+          // From a default of the New material dialog (`material:<key>`; none: the standard one).
+          made = materialDefault(arg).make(id, name);
+          err = await run('setMaterial', { material: made });
           break;
         case 'trim-material':
           // One sheet in the engine's starter layout (equal rows); its textures and rows are set in the Inspector.
@@ -209,9 +213,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       if (err !== null) return err;
       const item = { kind, id };
       inspect(item);
-      // A shader material is edited in the Inspector; everything else opens in its editor.
+      // A shader material is edited in the Inspector; everything else (a graph material too) opens in its editor.
       const doc = documentOfItem(item);
-      if (doc !== null && head !== 'material') openDocument(doc.kind, doc.id);
+      if (doc !== null && (head !== 'material' || made?.graph !== undefined)) openDocument(doc.kind, doc.id);
       return null;
     },
     [clientRef, graphKinds, chosenModel, clipsOf, inspect, openDocument],

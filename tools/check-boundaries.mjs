@@ -344,8 +344,10 @@ export const NODE_SIDE_ALLOWED = {
     // before it sends a command. The texture-slot rules (pure functions over
     // material data): the views draw a material's slots as Play does. The
     // trim-sheet rules (pure functions over a material's row table): the
-    // trim table editor checks and splits rows as the model does.
-    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet'] },
+    // trim table editor checks and splits rows as the model does. What a
+    // material reads (the shader table and the graph inference): the editors
+    // that paint warn of a material that would draw nothing, as one check.
+    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads'] },
   },
 };
 

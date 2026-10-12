@@ -5,9 +5,12 @@
  * search catalogue, a texture × tint is wired into the PBR output's base
  * colour (the multiply takes the vec3 width of its wires), each gesture is
  * one graphEdit on owner kind `material` (checked in the backend), the
- * graph survives a reload and one Ctrl+Z undoes the last wire. "Convert to
- * graph" turns a standard material into an equivalent graph. The graph
- * renders (material-graph-play.e2e.ts checks the pixels).
+ * graph survives a reload and one Ctrl+Z undoes the last wire. The New
+ * material dialog lists the defaults with previews and what they read;
+ * "Customize" (Convert to graph) turns a standard material into an
+ * equivalent graph; the terrain editor warns of a material that reads no
+ * paint and makes it paintable. The graph renders
+ * (material-graph-play.e2e.ts checks the pixels).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +20,7 @@ import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
-import { menu, projectWindow, openWindow, chooseItem, createItem, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf } from './ui';
+import { menu, projectWindow, openWindow, chooseItem, createItem, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf, editMode, editModeTab, leaveEditMode } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -152,25 +155,77 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   await expect(page.locator('[data-edge-id]')).toHaveCount(2);
 });
 
-test('Convert to graph turns a standard material into an equivalent graph and opens it', async ({ page }) => {
-  test.setTimeout(120_000);
+test('New material: the defaults with previews and what they read; Customize turns a standard material into an equivalent graph; the terrain editor warns of a material that reads no paint', async ({ page }) => {
+  test.setTimeout(150_000);
+  const shots = process.env['TL_SHOTS'];
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
+
+  // ---- Create → Material opens the dialog: seven defaults, each with a loaded preview; Standard picked; what each reads.
+  const panel = await projectWindow(page);
+  await panel.getByRole('button', { name: /^create/ }).click();
+  await page.getByRole('menu', { name: 'create menu', exact: true }).getByRole('menuitem', { name: 'Material', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'New material' });
+  await expect(dialog).toBeVisible();
+  const cards = dialog.getByRole('radiogroup', { name: 'material defaults' }).getByRole('radio');
+  expect(await cards.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).toEqual(['Layered surface', 'Standard', 'Decal', 'Foliage', 'Water', 'Unlit', 'Atlas surface']);
+  await expect(dialog.getByRole('radio', { name: 'Standard', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect.poll(() => dialog.locator('img.tl-newmat__preview').evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length), { message: 'every preview loaded' }).toBe(7);
+  await expect(dialog.getByRole('radio', { name: 'Layered surface' })).toContainText('reads layer weights');
+  await expect(dialog.getByRole('radio', { name: 'Decal' })).toContainText('draws as a decal');
+  if (shots !== undefined) await dialog.screenshot({ path: `${shots}/new-material-dialog.png` });
+
+  // A layered surface: a graph material, opened in the editor window; its output says what it reads.
+  await dialog.getByRole('radio', { name: 'Layered surface' }).click();
+  await dialog.getByLabel('new item name', { exact: true }).fill('Ground');
+  await dialog.getByRole('button', { name: 'create material' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expectEditorOpen(page, 'Material', 'Ground');
+  await expect.poll(async () => (await materials()).find((m) => m.name === 'Ground')?.graph?.nodes.some((n) => n.type === 'heightBlend') ?? false).toBe(true);
+  // Under the graph's output, and in the toolbar (readable at any zoom).
+  const notes = page.locator('.tl-graph__node-notes');
+  await expect(notes).toContainText('reads layer weights');
+  await expect(notes).toContainText('albedo alpha = height');
+  await expect(page.getByRole('toolbar', { name: 'material toolbar' }).getByLabel('material reads')).toContainText('reads layer weights');
+  if (shots !== undefined) await page.screenshot({ path: `${shots}/new-material-layered.png` });
+  await closeEditor(page, 'Material', 'Ground');
+
+  // ---- Customize: a standard material (the dialog's default) becomes an equivalent graph and opens.
   await createItem(page, 'Material', 'Material 1');
+  await expect(inspectorOf(page).getByLabel('material reads')).toContainText('only its own values');
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).fill('0.3');
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).blur();
-  await expect.poll(async () => (await materials())[0]?.shader === 'standard' && JSON.stringify(await materials()).includes('"roughness":0.3')).toBe(true);
-  await page.getByRole('button', { name: 'Convert to graph' }).click();
+  await expect.poll(async () => { const m = (await materials()).find((x) => x.name === 'Material 1'); return m?.shader === 'standard' && JSON.stringify(m).includes('"roughness":0.3'); }).toBe(true);
+  await page.getByRole('button', { name: 'Customize (convert to graph)', exact: true }).click();
   await expectEditorOpen(page, 'Material', 'Material 1');
-  const m = await graphMaterial();
+  await expect.poll(async () => (await materials()).find((x) => x.name === 'Material 1')?.graph !== undefined).toBe(true);
+  const m = (await materials()).find((x) => x.name === 'Material 1')!;
   expect(m.shader).toBe('standard');
   const rough = m.graph!.nodes.find((n) => n.id === 'roughness')!;
   expect(rough.data?.['value']).toBe(0.3);
   expect(m.graph!.edges.some((e) => e.from.node === 'roughness' && e.to.node === 'output' && e.to.port === 'roughness')).toBe(true);
   await expect(node(page, 'output')).toBeVisible();
+  await expect(page.locator('.tl-graph__node-notes')).toHaveText('reads no paint or layer weights');
   // Its Inspector shows it as a graph material now.
   await chooseItem(page, 'material', 'Material 1');
   await expect(inspectorOf(page).getByRole('button', { name: 'Open graph' })).toBeVisible();
+
+  // ---- A terrain wearing it: the terrain editor's Layers say painting would draw nothing, and Make it paintable fixes that in one command.
+  await closeEditor(page);
+  const hill = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Hill', transform: { position: [-16, 0, -16] }, components: { terrain: { tileSamples: 33, spacing: 1, heightRange: [-8, 24], tiles: [{ x: 0, z: 0 }] }, materials: { '*': m.materialId } } }))['createdId']);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${hill}"]`).dblclick();
+  const mode = editMode(page);
+  await expect(mode).toBeVisible();
+  await editModeTab(page, 'Paint');
+  const warning = mode.getByRole('note', { name: 'material does not read paint' });
+  await expect(warning).toContainText('"Material 1" doesn\'t read paint');
+  await expect(warning).toContainText('painting draws nothing on Hill');
+  if (shots !== undefined) await page.screenshot({ path: `${shots}/terrain-not-paintable.png` });
+  await warning.getByRole('button', { name: 'make it paintable' }).click();
+  await expect(warning).toHaveCount(0);
+  await expect.poll(async () => { const id = (await components(hill))['materials'] as Record<string, string> | undefined; return (await materials()).find((x) => x.materialId === id?.['*'])?.name ?? null; }, { timeout: 15_000 }).toBe('Hill layers');
+  await expect(mode.getByRole('button', { name: 'open material' })).toHaveText('Hill layers');
+  await leaveEditMode(page);
 });
 
 let seq = 0;

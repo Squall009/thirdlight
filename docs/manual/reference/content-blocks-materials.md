@@ -17,7 +17,7 @@ Project materials.
 | `materials` | list of objects | `[]` |  | **Materials.** The project's materials (each its own file). |
 | `materials[].materialId` | string, id, 1–64 chars |  |  | **Id.** The stable material id. (required; format id) |
 | `materials[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in pickers. (required; format name) |
-| `materials[].shader` | enum: `standard`, `foliage`, `kit`, `unlit`, `water`, `trim`, `decal` | `"standard"` |  | **Shader.** Standard, foliage (wind), kit (world-space detail), unlit, water, trim (a trim sheet: its row table in trim) or decal (a mark decals and decal meshes draw with: its own textures or a trim sheet's decal cell in decal). (required) |
+| `materials[].shader` | enum: `standard`, `foliage`, `kit`, `unlit`, `water`, `trim`, `decal` | `"standard"` |  | **Shader.** Standard, foliage (wind), kit (shown as Atlas surface: world-aligned atlas detail), unlit, water, trim (a trim sheet: its row table in trim) or decal (a mark decals and decal meshes draw with: its own textures or a trim sheet's decal cell in decal). (required) |
 | `materials[].params` | object | `{}` |  | **Parameters.** Shader parameter overrides. (required) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The standard shader's color (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.roughness` | number | `0.8` | 0 – 1, step 0.01 | **Roughness.** The standard shader's roughness (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |

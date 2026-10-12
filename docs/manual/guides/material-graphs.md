@@ -10,7 +10,7 @@ fields: [Material graph nodes](../reference/graph-material.md).
 
 1. In the project window, **create ▾ → Graph material → Empty (PBR
    output)** (or start from a template: Standard, Foliage wind,
-   World-aligned kit, Unlit, Water, River, Height-blended layers). Name it
+   Atlas surface, Unlit, Water, River, Height-blended layers). Name it
    `Glow`. It opens in the editor window as a **Material** tab; the preview
    pane above the Inspector shows it on a sphere.
 2. **Exposed parameters** (left of the graph): **+ Parameter**, then its

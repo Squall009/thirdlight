@@ -3,13 +3,14 @@
  * 256 px PNG (tools/icons/editor-icons.tsv says which prompt and seed made
  * it) is cropped to what it draws, squared, scaled down to the size the
  * editor shows it at (twice the CSS size, for high-density screens) and
- * written as a WebP with alpha into packages/editor/public/icons/{kinds,actions,objects}.
+ * written as a WebP with alpha into packages/editor/public/icons/{kinds,actions,objects,materials}
+ * (materials: the New material dialog's previews, opaque pictures).
  * The browser does the scaling and the encoding (Chromium's canvas), so the
  * repo needs no image library. Prints each file's size and the total.
  *
  *   node tools/icons/pack-editor-icons.mjs <raw dir> [group]
  *
- * With a group (kind, action, object) only that group's rows are packed, so
+ * With a group (kind, action, object, material) only that group's rows are packed, so
  * adding icons needs only their own raw files.
  * `<raw dir>/<name>.png` per row of the table; a row whose `source` column
  * names a file under packages/editor/public/icons/ packs that file instead
@@ -26,9 +27,11 @@ import { browserLaunchEnv } from '../../tests/e2e/browser-env.mjs';
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ICONS = join(REPO, 'packages', 'editor', 'public', 'icons');
 /** Shipped pixel size per group: kinds show at up to ~50 CSS px (project tiles; 16–32 in tabs and headers), actions at 16. */
-const SIZE = { kind: 96, action: 32, object: 96 };
+const SIZE = { kind: 96, action: 32, object: 96, material: 160 };
 /** The folder each group ships in; objects are the hierarchy rows' and Scene view billboards' art (drawn at up to ~70 px). */
-const DIR = { kind: 'kinds', action: 'actions', object: 'objects' };
+const DIR = { kind: 'kinds', action: 'actions', object: 'objects', material: 'materials' };
+/** Room left around what an icon draws (strokes not cut at the edge); material previews are whole pictures, kept as they are. */
+const MARGIN = { kind: 1.06, action: 1.06, object: 1.06, material: 1 };
 /** Alpha at or below this is background haze the generator leaves; it is cleared before cropping. */
 const HAZE = 8;
 
@@ -55,7 +58,7 @@ for (const r of rows) {
   const size = SIZE[r.group];
   if (size === undefined) throw new Error(`${r.name}: unknown group ${r.group}`);
   const dataUrl = await page.evaluate(
-    async ({ png, size, haze }) => {
+    async ({ png, size, haze, margin }) => {
       const img = new Image();
       img.src = `data:image/png;base64,${png}`;
       await img.decode();
@@ -81,7 +84,7 @@ for (const r of rows) {
       g.putImageData(data, 0, 0);
       if (x1 < 0) throw new Error('empty image');
       // A square around what it draws, with a small margin so strokes are not cut at the edge.
-      const side = Math.max(x1 - x0 + 1, y1 - y0 + 1) * 1.06;
+      const side = Math.max(x1 - x0 + 1, y1 - y0 + 1) * margin;
       const cx = (x0 + x1 + 1) / 2;
       const cy = (y0 + y1 + 1) / 2;
       // Halve step by step (a single big downscale aliases thin strokes).
@@ -104,7 +107,7 @@ for (const r of rows) {
       o.drawImage(src, sx, sy, sw, sw, 0, 0, size, size);
       return out.toDataURL('image/webp', 0.9);
     },
-    { png, size, haze: HAZE },
+    { png, size, haze: HAZE, margin: MARGIN[r.group] },
   );
   if (!dataUrl.startsWith('data:image/webp')) throw new Error('this Chromium cannot encode WebP');
   const dir = join(ICONS, DIR[r.group]);

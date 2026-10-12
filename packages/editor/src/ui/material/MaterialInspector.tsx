@@ -3,8 +3,9 @@
  * material's values, built from the shader-type table (project-model
  * `MATERIAL_PARAMS` / `MATERIAL_TEXTURE_SLOTS`) — a parameter that is not set
  * keeps the file's value (on a model) or the shader default; "reset" removes
- * the override — "Convert to graph" (a standard or unlit material as an
- * equivalent graph, opened in the editor window), a graph material's summary
+ * the override — what it reads (paint, layer weights, …), "Customize"
+ * (Convert to graph: the material as an equivalent graph of its own, opened
+ * in the editor window), a graph material's summary
  * with "Open graph", and a material instance's parent and changed values
  * (its parent's look with some values changed; an instance is a material
  * like any other: object, model-asset and block-type mappings may name it).
@@ -20,12 +21,14 @@
  */
 import { useEffect, useState, type DragEvent, type JSX } from 'react';
 import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader, MaterialValue } from '@thirdlight/project-model';
+import { MATERIAL_SHADER_LABELS } from '@thirdlight/project-model/material-reads';
 import { ParameterValue } from './MaterialDocument';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../../session/material-schema';
 import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
 import { CONVERTIBLE_SHADERS, convertToGraph } from '../../session/material-graph';
+import { declarationLabels } from '../../session/material-defaults';
 import { RefPicker, TEXTURE_KINDS, useEntryName } from '../catalog/RefPicker';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { TrimSheetTable, type TrimCheck } from './TrimSheetTable';
@@ -99,6 +102,7 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
           <p className="tl-hint">
             “{selected.name}” is a graph material ({selected.graph.nodes.length} node{selected.graph.nodes.length === 1 ? '' : 's'}, {(selected.parameters ?? []).length} exposed parameter{(selected.parameters ?? []).length === 1 ? '' : 's'}).
           </p>
+          <MaterialReads material={selected} materials={p.materials} />
           <button className="tl-btn tl-btn--small" onClick={() => p.onOpen(selected.materialId)}>
             Open graph
           </button>
@@ -112,6 +116,17 @@ export function MaterialItemInspector(p: { materialId: string; materials: readon
       <button className="tl-btn tl-btn--small" onClick={createInstance} title="A material instance of this material: its look, with the values you change in it">
         + new instance
       </button>
+    </div>
+  );
+}
+
+/** What a material reads and writes (its declarations), as tags: what painting or placing on it will show. */
+function MaterialReads(p: { material: MaterialDef; materials: readonly MaterialDef[] }): JSX.Element {
+  const labels = declarationLabels(p.material, { materials: p.materials });
+  return (
+    <div className="tl-material-reads" aria-label="material reads">
+      <span className="tl-field__label">reads</span>
+      {labels.length === 0 ? <span className="tl-hint">only its own values and textures (no paint, no layer weights)</span> : labels.map((l) => <span key={l} className="tl-tag">{l}</span>)}
     </div>
   );
 }
@@ -167,11 +182,33 @@ function MaterialInspector(props: { material: MaterialDef; materials: readonly M
         >
           {MATERIAL_SHADERS.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {MATERIAL_SHADER_LABELS[s]}
             </option>
           ))}
         </select>
       </label>
+      <MaterialReads material={m} materials={props.materials} />
+      <div className="tl-material-customize">
+        <button
+          className="tl-btn tl-btn--small"
+          disabled={!CONVERTIBLE_SHADERS.includes(m.shader)}
+          title={
+            CONVERTIBLE_SHADERS.includes(m.shader)
+              ? 'Turn this material into a node graph of your own that looks the same (its values, textures and public parameters; one undo), opened in the material editor to change further'
+              : `A ${MATERIAL_SHADER_LABELS[m.shader]} material has no graph form yet`
+          }
+          onClick={() => {
+            const r = convertToGraph(m);
+            if (r.ok) {
+              props.onSave(r.material);
+              props.onOpen(m.materialId);
+            }
+          }}
+        >
+          Customize (convert to graph)
+        </button>
+        <span className="tl-hint">Needs an emissive layer or a special blend? Make it a graph you own.</span>
+      </div>
       <div className="tl-subhead">Parameters (unset = the file's value or the default)</div>
       {Object.entries(schema).map(([key, type]) => (
         <ParamRow key={key} name={key} type={type} value={m.params[key]} onCommit={(v) => setParam(key, v)} />
@@ -198,20 +235,6 @@ function MaterialInspector(props: { material: MaterialDef; materials: readonly M
         </label>
       ))}
       {m.shader === 'trim' && <TrimSheetTable material={m} onSave={props.onSave} {...(props.onCheckTrim !== undefined ? { onCheck: props.onCheckTrim } : {})} />}
-      <button
-        className="tl-btn tl-btn--small"
-        disabled={!CONVERTIBLE_SHADERS.includes(m.shader)}
-        title="Rebuild this material as a node graph that looks the same (its values, textures and — for wind, kit and water — public parameters; one undo)"
-        onClick={() => {
-          const r = convertToGraph(m);
-          if (r.ok) {
-            props.onSave(r.material);
-            props.onOpen(m.materialId);
-          }
-        }}
-      >
-        Convert to graph
-      </button>
       <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object or an asset uses it)">
         delete material
       </button>

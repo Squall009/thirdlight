@@ -164,6 +164,59 @@ export const MATERIAL_TEXTURE_SLOTS: Readonly<Record<MaterialShader, readonly st
 };
 
 /**
+ * What a shader type is called on screen. The data keys stay as they were
+ * (projects store them); `kit` is shown as "Atlas surface" because "kit"
+ * names the block kits.
+ */
+export const MATERIAL_SHADER_LABELS: Readonly<Record<MaterialShader, string>> = {
+  standard: 'Standard',
+  foliage: 'Foliage',
+  kit: 'Atlas surface',
+  unlit: 'Unlit',
+  water: 'Water',
+  trim: 'Trim sheet',
+  decal: 'Decal',
+};
+
+/**
+ * What a material reads besides its own values and textures, and what it
+ * writes — so an editor that paints or places can tell whether the
+ * material shows it instead of silently drawing nothing:
+ * - `layerWeights`: layers mixed by per-vertex weights (a terrain's or a
+ *   block layer's stored weights, a mesh's vertex colours, vertex paint);
+ * - `vertexPaint`: the object's vertex paint;
+ * - `trimRows`: a trim sheet's row table;
+ * - `vertexAO`: occlusion baked into the vertex colours (COLOR_0 R);
+ * - `writesDecal`: it draws as a decal over the surface under it;
+ * - `alphaIsHeight` / `alphaIsOpacity`: what its albedo's alpha means — a
+ *   layer's height in a height blend, or coverage (cut-out, transparent).
+ *   Neither: the alpha is not read.
+ * A graph material's are inferred from its nodes (`material-reads.ts`).
+ */
+export const MATERIAL_DECLARATION_KEYS = ['layerWeights', 'vertexPaint', 'trimRows', 'vertexAO', 'writesDecal', 'alphaIsHeight', 'alphaIsOpacity'] as const;
+export type MaterialDeclarationKey = (typeof MATERIAL_DECLARATION_KEYS)[number];
+export type MaterialDeclaration = Readonly<Record<MaterialDeclarationKey, boolean>>;
+/** A declaration that holds only for some parameter values: the parameter's (or, unset, its default) is one of `in`. */
+export interface MaterialDeclarationWhen {
+  readonly param: string;
+  readonly in: readonly MaterialParamValue[];
+}
+const ALPHA_COVERAGE: MaterialDeclarationWhen = { param: 'alphaMode', in: ['cutout', 'blend'] };
+
+/** Each fixed shader type's declarations (absent: false). */
+export const MATERIAL_DECLARATIONS: Readonly<Record<MaterialShader, Readonly<Partial<Record<MaterialDeclarationKey, true | MaterialDeclarationWhen>>>>> = {
+  standard: { vertexPaint: { param: 'paintTint', in: [true] }, alphaIsOpacity: ALPHA_COVERAGE },
+  // COLOR_0 is wind data here, not paint or weights.
+  foliage: { alphaIsOpacity: ALPHA_COVERAGE },
+  kit: { alphaIsOpacity: ALPHA_COVERAGE },
+  unlit: { alphaIsOpacity: ALPHA_COVERAGE },
+  water: {},
+  // COLOR_0 R is occlusion; vertex paint adds to the grime and wetness tints. The albedo's alpha is not read.
+  trim: { trimRows: true, vertexAO: true, vertexPaint: true, alphaIsOpacity: { param: 'alphaMode', in: ['cutout'] } },
+  decal: { writesDecal: true, alphaIsOpacity: true },
+};
+
+/**
  * The wet look (the layered template and the trim material): the albedo darkens by this factor and the
  * roughness goes toward this value as wetness reaches 1.
  */
