@@ -15,7 +15,7 @@
 import type { JSX } from 'react';
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 
-import { brushKeyHints, PALETTE_KEYS, paletteKeyHint, type KeyHint } from '../../session/edit-keys';
+import { brushKeyHints, paletteKeyHint, type KeyHint } from '../../session/edit-keys';
 import { TERRAIN_BRUSH_UI, TERRAIN_INVERT_LABELS, TERRAIN_MODES, terrainToolUses, type TerrainMode, type TerrainModeId, type TerrainToolTile } from '../../session/terrain-brush';
 import { BrushPanel } from '../brush/BrushPanel';
 import { NoiseMask } from '../brush/NoiseMask';
@@ -47,7 +47,7 @@ function pickedTile(m: TerrainMode, remembered: string, invert: boolean): Terrai
   return m.tiles.find((x) => x.tool === t.tool && x.invert === invert) ?? t;
 }
 
-function BrushModeColumn({ p, modeId, children, above }: { p: TerrainColumnProps; modeId: 'sculpt' | 'paint' | 'holes'; children?: (tile: TerrainToolTile) => JSX.Element | null; above?: JSX.Element }): JSX.Element {
+function BrushModeColumn({ p, modeId, children, above, paletteCount = 0 }: { p: TerrainColumnProps; modeId: 'sculpt' | 'paint' | 'holes'; children?: (tile: TerrainToolTile) => JSX.Element | null; above?: JSX.Element; /** Layers the number keys pick (the status line names as many). */ paletteCount?: number }): JSX.Element {
   const m = modeOf(modeId);
   const [state, setState] = useTerrainToolState(p.entityId);
   const first = m.tiles.find((x) => x.id === state.tiles[modeId]) ?? m.tiles[0]!;
@@ -62,7 +62,7 @@ function BrushModeColumn({ p, modeId, children, above }: { p: TerrainColumnProps
     setState({ tiles: { ...state.tiles, [modeId]: id } });
     if (t.invert !== undefined) terrainBrushStore(t.tool).set({ invert: t.invert });
   };
-  useEditStatus({ tool: tile.label, text: tile.hint, keys: [...toolKeysHint(m.tiles), ...(modeId === 'paint' ? paletteKeyHint(PALETTE_KEYS, 'Layer') : []), ...brushKeyHints(uses, invert)] });
+  useEditStatus({ tool: tile.label, text: tile.hint, keys: [...toolKeysHint(m.tiles), ...(modeId === 'paint' ? paletteKeyHint(paletteCount, 'Layer') : []), ...brushKeyHints(uses, invert)] });
   return (
     <div className="tl-terrain" aria-label="terrain tools">
       <Section title="Tool">
@@ -105,7 +105,7 @@ export function PaintColumn(p: TerrainColumnProps): JSX.Element {
   const [state, setState] = useTerrainToolState(p.entityId);
   // The layers the brush paints: the material's, or the stand-in colours the terrain draws without one.
   const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS);
-  return <BrushModeColumn p={p} modeId="paint" above={<MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={state.brush.layer} onPick={(layer) => setState({ brush: { ...state.brush, layer } })} host={p.palette} disabled={p.locked} layerTiling={TERRAIN_LAYER_TILING_M} />} />;
+  return <BrushModeColumn p={p} modeId="paint" paletteCount={palette.layers.length} above={<MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={state.brush.layer} onPick={(layer) => setState({ brush: { ...state.brush, layer } })} host={p.palette} disabled={p.locked} layerTiling={TERRAIN_LAYER_TILING_M} />} />;
 }
 
 export function HolesColumn(p: TerrainColumnProps): JSX.Element {

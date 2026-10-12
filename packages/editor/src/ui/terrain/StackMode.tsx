@@ -14,10 +14,13 @@
  *
  * Every change is one command: the layer list (`setComponent terrain`) or
  * an erosion (`editTerrain` erode); the backend combines the ground again.
+ * Changes of the list go through one `useSettledEdits`, so a slider that
+ * settles, a click and a handle dragged in the view all build on each
+ * other and on the list as the project holds it.
  *
  * Browser-only (React).
  */
-import { useState, type JSX } from 'react';
+import { useCallback, useState, type JSX } from 'react';
 import { EROSION_LIMITS, TERRAIN_HEIGHT_LIMIT, TERRAIN_STAMP_SIZE_LIMITS, TERRAIN_BLOCKS_BLEND_DEFAULT, TERRAIN_BLOCKS_BLEND_LIMITS, TERRAIN_STAMP_FALLOFF_DEFAULT, TERRAIN_STAMP_MODES, terrainLayerOrder, type TerrainBlocksLayer, type TerrainLayer, type TerrainStamp } from '@thirdlight/runtime';
 
 import { brushKeyHints } from '../../session/edit-keys';
@@ -25,6 +28,7 @@ import { brushRadius } from '../../session/brush';
 import { TERRAIN_MODES, erodeArgs, freeLayerId, layersWithStamp, layersWithStampChanged, layersWithoutStamp, terrainStamps, terrainToolUses, type ErodeToolState, type StampRef, type StampToolState } from '../../session/terrain-brush';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { BrushPanel } from '../brush/BrushPanel';
+import { useSettledEdits, type SettledEdits } from '../brush/settle';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
 import { EntryName, TEXTURE_KINDS } from '../catalog/RefPicker';
@@ -43,28 +47,49 @@ const MODE = TERRAIN_MODES.find((m) => m.id === 'stack')!;
 const KIND_LABEL: Record<TerrainLayer['kind'], string> = { stamps: 'Stamps', erosion: 'Erosion', splines: 'Roads and rivers', blocks: 'Meets block layers' };
 const MODE_LABEL: Record<string, string> = { add: 'Raise', max: 'Up to', min: 'Down to' };
 
+/** No layers stored (one array, so the settled edits see the same stored value each render). */
+const NO_LAYERS: TerrainLayer[] = [];
+
+/** The list to store: the splines' place only once it differs from "on top" or carries a setting. */
+function storedLayers(next: readonly TerrainLayer[]): TerrainLayer[] {
+  const last = next[next.length - 1];
+  const plain = last !== undefined && last.kind === 'splines' && last.enabled !== false && (last.strength ?? 1) === 1 && last.name === undefined && next.filter((l) => l.kind === 'splines').length === 1;
+  return plain ? next.slice(0, -1) : [...next];
+}
+
+type LayerEdits = SettledEdits<TerrainLayer[]>;
+
 export function StackColumn(p: TerrainColumnProps): JSX.Element {
   const [state, setState] = useTerrainToolState(p.entityId);
   const tile = MODE.tiles.find((t) => t.id === state.tiles.stack) ?? MODE.tiles[0]!;
   const tool = tile.tool;
-  const layers = p.component.layers ?? [];
+  const { run, entityId } = p;
+  const saveLayers = useCallback(
+    (next: TerrainLayer[], what: string): Promise<boolean> => {
+      const list = storedLayers(next);
+      return run(what, 'setComponent', { entityId, component: 'terrain', value: { layers: list.length > 0 ? list : null } });
+    },
+    [run, entityId],
+  );
+  const edits = useSettledEdits(p.component.layers ?? NO_LAYERS, saveLayers);
+  const layers = edits.value;
   const stamps = terrainStamps(layers);
   const picked = state.pickedStamp === null ? null : (stamps.find((s) => s.layer === state.pickedStamp!.layer && s.index === state.pickedStamp!.index) ?? null);
-  const setLayers = (what: string, next: TerrainLayer[]): Promise<boolean> => p.run(what, 'setComponent', { entityId: p.entityId, component: 'terrain', value: { layers: next.length > 0 ? next : null } });
   const store = useTerrainTool(p, tool, {
     place: (at) => {
       if (p.locked) return;
       const radius = brushRadius(terrainBrushStore(tool).get());
       if (tool === 'stamp') {
         if (state.stamp.asset === '') return;
-        void setLayers('Place stamp', layersWithStamp(layers, state.stamp, at, radius));
+        const stamp = state.stamp;
+        edits.edit('place', 'Place stamp', (ls) => layersWithStamp(ls, stamp, at, radius), true);
       } else if (tool === 'erode') void p.run('Erode', 'editTerrain', erodeArgs(p.entityId, state.erode, at, radius));
     },
     stamps: {
       list: stamps,
       picked: state.pickedStamp,
       onPick: (ref) => setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index } }),
-      onChange: (ref, pose) => void setLayers('Move stamp', layersWithStampChanged(layers, ref.layer, ref.index, { at: pose.at, size: pose.size, rotation: pose.rotation })),
+      onChange: (ref, pose) => edits.edit(`stamp ${ref.layer} ${ref.index} pose`, 'Move stamp', (ls) => layersWithStampChanged(ls, ref.layer, ref.index, { at: pose.at, size: pose.size, rotation: pose.rotation }), true),
     },
   });
   const settings = useBrush(store ?? terrainBrushStore('stamp'));
@@ -77,7 +102,7 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
         <ToolGrid tools={MODE.tiles} active={tile.id} onPick={(id) => setState({ tiles: { ...state.tiles, stack: id } })} aria="terrain tool" cols={3} disabled={p.locked} />
         <p className="tl-hint">{text}</p>
       </Section>
-      {tool === 'stamps' && <PickedStamp p={p} picked={picked} layers={layers} setLayers={setLayers} onDrop={() => setState({ pickedStamp: null })} />}
+      {tool === 'stamps' && <PickedStamp p={p} picked={picked} layers={layers} edits={edits} onDrop={() => setState({ pickedStamp: null })} />}
       {tool === 'stamp' && store !== null && (
         <Section title="New stamp">
           <StampOptions stamp={state.stamp} set={(x) => setState({ stamp: { ...state.stamp, ...x } })} layers={layers.filter((l) => l.kind === 'stamps').map((l) => l.id)} thumbnails={p.palette.thumbnails} />
@@ -90,13 +115,13 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
           <BrushPanel settings={settings} store={store} uses={uses} />
         </Section>
       )}
-      <LayerList p={p} picked={picked} onPick={(ref) => setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index }, tiles: { ...state.tiles, stack: 'stamps' } })} setLayers={setLayers} />
+      <LayerList p={p} picked={picked} onPick={(ref) => setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index }, tiles: { ...state.tiles, stack: 'stamps' } })} layers={layers} edits={edits} />
     </div>
   );
 }
 
 /** The picked stamp's settings (Select): what it is, where, how high, turned, how it meets the ground; delete. */
-function PickedStamp(p: { p: TerrainColumnProps; picked: StampRef | null; layers: readonly TerrainLayer[]; setLayers: (what: string, next: TerrainLayer[]) => Promise<boolean>; onDrop: () => void }): JSX.Element {
+function PickedStamp(p: { p: TerrainColumnProps; picked: StampRef | null; layers: readonly TerrainLayer[]; edits: LayerEdits; onDrop: () => void }): JSX.Element {
   const r = p.picked;
   if (r === null) {
     return (
@@ -107,24 +132,25 @@ function PickedStamp(p: { p: TerrainColumnProps; picked: StampRef | null; layers
   }
   const s = r.stamp;
   const off = p.p.locked;
-  const change = (what: string, patch: Partial<TerrainStamp>): void => void p.setLayers(what, layersWithStampChanged(p.layers, r.layer, r.index, patch));
+  // Keyed by the stamp and the setting: a drag's moves replace each other; other settings wait beside it.
+  const change = (what: string, patch: Partial<TerrainStamp>, now = false): void => p.edits.edit(`stamp ${r.layer} ${r.index} ${Object.keys(patch).join()}`, what, (ls) => layersWithStampChanged(ls, r.layer, r.index, patch), now);
   return (
     <Section title="Picked stamp" aside={<EntryName id={s.asset} kinds={TEXTURE_KINDS} />}>
       <div role="group" aria-label="picked stamp" className="tl-sec__stack">
-        <SliderField label="Height" aria="picked stamp height" settle value={s.height} min={-100} max={100} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="Metres the image's white stands for (negative digs)." disabled={off} onChange={(v) => change('Stamp height', { height: v })} />
-        <SliderField label="Side" aria="picked stamp size" settle value={s.size} min={1} max={2048} log limit={[TERRAIN_STAMP_SIZE_LIMITS.min, TERRAIN_STAMP_SIZE_LIMITS.max]} step={0.5} unit="m" hint="Metres along a side. A corner in the view drags it too." disabled={off} onChange={(v) => change('Stamp size', { size: v })} />
-        <SliderField label="Turn" aria="picked stamp rotation" settle value={s.rotation ?? 0} min={-180} max={180} step={1} unit="°" hint="Degrees about up. The knob in the view turns it too." disabled={off} onChange={(v) => change('Turn stamp', { rotation: v })} />
-        <SliderField label="Edge fade" aria="picked stamp falloff" settle value={s.falloff ?? TERRAIN_STAMP_FALLOFF_DEFAULT} min={0} max={0.5} step={0.01} scale={100} unit="%" hint="The share of the side over which it fades in from its edges." disabled={off} onChange={(v) => change('Stamp fade', { falloff: v })} />
+        <SliderField label="Height" aria="picked stamp height" value={s.height} min={-100} max={100} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="Metres the image's white stands for (negative digs)." disabled={off} onChange={(v) => change('Stamp height', { height: v })} />
+        <SliderField label="Side" aria="picked stamp size" value={s.size} min={1} max={2048} log limit={[TERRAIN_STAMP_SIZE_LIMITS.min, TERRAIN_STAMP_SIZE_LIMITS.max]} step={0.5} unit="m" hint="Metres along a side. A corner in the view drags it too." disabled={off} onChange={(v) => change('Stamp size', { size: v })} />
+        <SliderField label="Turn" aria="picked stamp rotation" value={s.rotation ?? 0} min={-180} max={180} step={1} unit="°" hint="Degrees about up. The knob in the view turns it too." disabled={off} onChange={(v) => change('Turn stamp', { rotation: v })} />
+        <SliderField label="Edge fade" aria="picked stamp falloff" value={s.falloff ?? TERRAIN_STAMP_FALLOFF_DEFAULT} min={0} max={0.5} step={0.01} scale={100} unit="%" hint="The share of the side over which it fades in from its edges." disabled={off} onChange={(v) => change('Stamp fade', { falloff: v })} />
         <div className="tl-frow">
           <span className="tl-frow__label">Meets the ground</span>
-          <Segmented small aria="picked stamp mode" value={s.mode ?? 'add'} options={TERRAIN_STAMP_MODES.map((m) => ({ id: m, label: MODE_LABEL[m] ?? m, hint: m === 'add' ? 'Raised by the shape' : m === 'max' ? 'Raised up to the shape' : 'Cut down to the shape' }))} onChange={(m) => change('Stamp mode', { mode: m === 'add' ? undefined : m })} />
+          <Segmented small aria="picked stamp mode" value={s.mode ?? 'add'} options={TERRAIN_STAMP_MODES.map((m) => ({ id: m, label: MODE_LABEL[m] ?? m, hint: m === 'add' ? 'Raised by the shape' : m === 'max' ? 'Raised up to the shape' : 'Cut down to the shape' }))} onChange={(m) => change('Stamp mode', { mode: m === 'add' ? undefined : m }, true)} />
         </div>
         {s.mode !== undefined && s.mode !== 'add' && (
-          <SliderField label="Its zero at" aria="picked stamp base" settle value={s.y ?? p.p.origin[1]} min={heightTrack(p.p)[0]} max={heightTrack(p.p)[1]} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="The world height the image's black stands for: the ground is raised up to, or cut down to, the shape from there." disabled={off} onChange={(v) => change('Stamp base', { y: v })} />
+          <SliderField label="Its zero at" aria="picked stamp base" value={s.y ?? p.p.origin[1]} min={heightTrack(p.p)[0]} max={heightTrack(p.p)[1]} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="The world height the image's black stands for: the ground is raised up to, or cut down to, the shape from there." disabled={off} onChange={(v) => change('Stamp base', { y: v })} />
         )}
         <button type="button" className="tl-btn tl-btn--small" aria-label="delete picked stamp" disabled={off} onClick={() => {
           p.onDrop();
-          void p.setLayers('Remove stamp', layersWithoutStamp(p.layers, r.layer, r.index));
+          p.edits.edit(`stamp ${r.layer} ${r.index} remove`, 'Remove stamp', (ls) => layersWithoutStamp(ls, r.layer, r.index), true);
         }}>
           <Glyph name="trash" size={14} /> Delete stamp
         </button>
@@ -200,40 +226,32 @@ function ErodeOptions(p: { erode: ErodeToolState; set: (x: Partial<ErodeToolStat
 }
 
 /** The layers, top first, with the hand-made ground at the bottom; a stamps layer lists its stamps (a click picks one). */
-function LayerList(p: { p: TerrainColumnProps; picked: StampRef | null; onPick: (ref: StampRef | null) => void; setLayers: (what: string, next: TerrainLayer[]) => Promise<boolean> }): JSX.Element {
-  const c = p.p.component;
-  const [busy, setBusy] = useState(false);
+function LayerList(p: { p: TerrainColumnProps; picked: StampRef | null; onPick: (ref: StampRef | null) => void; layers: readonly TerrainLayer[]; edits: LayerEdits }): JSX.Element {
   // The stack as it applies (the splines on top when the list names none), drawn top first.
-  const order = terrainLayerOrder(c);
-  const listed = c.layers ?? [];
-  const apply = async (what: string, next: TerrainLayer[]): Promise<void> => {
-    setBusy(true);
-    try {
-      // The splines' place is stored only once it differs from "on top" or carries a setting.
-      const last = next[next.length - 1];
-      const plain = last !== undefined && last.kind === 'splines' && last.enabled !== false && (last.strength ?? 1) === 1 && last.name === undefined && !listed.some((l) => l.kind === 'splines');
-      await p.setLayers(what, plain ? next.slice(0, -1) : next);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const update = (id: string, patch: (l: TerrainLayer) => TerrainLayer | null, what: string): void => void apply(what, order.map((l) => (l.id === id ? patch(l) : l)).filter((l): l is TerrainLayer => l !== null));
-  const move = (i: number, by: -1 | 1): void => {
-    const j = i + by;
-    if (j < 0 || j >= order.length) return;
-    const next = [...order];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    void apply('Move layer', next);
-  };
-  const add = (kind: 'stamps' | 'erosion' | 'blocks'): void => {
-    // The ground meets the block layers over everything else (a road's end included); other new layers go under the splines.
-    if (kind === 'blocks') return void apply('Add blocks layer', [...order, { id: freeLayerId(order, 'blocks'), kind }]);
-    const made: TerrainLayer = kind === 'stamps' ? { id: freeLayerId(order, 'stamps'), kind, stamps: [] } : { id: freeLayerId(order, 'erosion'), kind };
-    const at = order.findIndex((l) => l.kind === 'splines');
-    void apply('Add layer', at < 0 ? [...order, made] : [...order.slice(0, at), made, ...order.slice(at)]);
-  };
-  const setBlocks = (id: string, patch: Partial<TerrainBlocksLayer>, what: string): void => update(id, (x) => (x.kind === 'blocks' ? ({ ...x, ...patch } as TerrainLayer) : x), what);
-  const off = p.p.locked || busy;
+  const order = terrainLayerOrder({ layers: [...p.layers] });
+  /** A change of the stack, made on the list as the project holds it when it is stored (a click at once, a slider once it rests). */
+  const change = (key: string, what: string, f: (order: TerrainLayer[]) => TerrainLayer[], now = true): void => p.edits.edit(key, what, (ls) => f(terrainLayerOrder({ layers: ls })), now);
+  const update = (id: string, patch: (l: TerrainLayer) => TerrainLayer | null, what: string, key = `${id} ${what}`, now = true): void =>
+    change(key, what, (o) => o.map((l) => (l.id === id ? patch(l) : l)).filter((l): l is TerrainLayer => l !== null), now);
+  const move = (id: string, by: -1 | 1): void =>
+    change(`move ${id} ${by}`, 'Move layer', (o) => {
+      const i = o.findIndex((l) => l.id === id);
+      const j = i + by;
+      if (i < 0 || j < 0 || j >= o.length) return o;
+      const next = [...o];
+      [next[i], next[j]] = [next[j]!, next[i]!];
+      return next;
+    });
+  const add = (kind: 'stamps' | 'erosion' | 'blocks'): void =>
+    change(`add ${kind}`, kind === 'blocks' ? 'Add blocks layer' : 'Add layer', (o) => {
+      // The ground meets the block layers over everything else (a road's end included); other new layers go under the splines.
+      if (kind === 'blocks') return [...o, { id: freeLayerId(o, 'blocks'), kind }];
+      const made: TerrainLayer = kind === 'stamps' ? { id: freeLayerId(o, 'stamps'), kind, stamps: [] } : { id: freeLayerId(o, 'erosion'), kind };
+      const at = o.findIndex((l) => l.kind === 'splines');
+      return at < 0 ? [...o, made] : [...o.slice(0, at), made, ...o.slice(at)];
+    });
+  const setBlocks = (id: string, patch: Partial<TerrainBlocksLayer>, what: string, now = true): void => update(id, (x) => (x.kind === 'blocks' ? ({ ...x, ...patch } as TerrainLayer) : x), what, `${id} ${Object.keys(patch).join()}`, now);
+  const off = p.p.locked;
   return (
     <Section title="Layers" aside={`${order.length + 1}`}>
       <div role="group" aria-label="terrain layers">
@@ -246,10 +264,10 @@ function LayerList(p: { p: TerrainColumnProps; picked: StampRef | null; onPick: 
                   <Toggle label={KIND_LABEL[l.kind]} aria={`layer ${l.id} on`} hint="Switch the layer on or off (off: it changes nothing)" disabled={off} on={l.enabled !== false} onChange={(on) => update(l.id, (x) => ({ ...x, ...(on ? { enabled: undefined } : { enabled: false }) }) as TerrainLayer, on ? 'Layer on' : 'Layer off')} />
                   <span className="tl-stack__id">{l.id}</span>
                   <span className="tl-emh__spacer" />
-                  <button type="button" className="tl-iconbtn" aria-label={`layer ${l.id} up`} title="Apply after the layer above" disabled={off || i === order.length - 1} onClick={() => move(i, 1)}>
+                  <button type="button" className="tl-iconbtn" aria-label={`layer ${l.id} up`} title="Apply after the layer above" disabled={off || i === order.length - 1} onClick={() => move(l.id, 1)}>
                     <Glyph name="up" size={15} />
                   </button>
-                  <button type="button" className="tl-iconbtn" aria-label={`layer ${l.id} down`} title="Apply before the layer below" disabled={off || i === 0} onClick={() => move(i, -1)}>
+                  <button type="button" className="tl-iconbtn" aria-label={`layer ${l.id} down`} title="Apply before the layer below" disabled={off || i === 0} onClick={() => move(l.id, -1)}>
                     <Glyph name="down" size={15} />
                   </button>
                   {l.kind !== 'splines' && (
@@ -258,7 +276,7 @@ function LayerList(p: { p: TerrainColumnProps; picked: StampRef | null; onPick: 
                     </button>
                   )}
                 </div>
-                <SliderField label="Strength" aria={`layer ${l.id} strength`} settle value={l.strength ?? 1} min={0} max={1} step={1} scale={100} unit="%" hint="The share of the layer's change kept." disabled={off} onChange={(v) => update(l.id, (x) => ({ ...x, strength: v === 1 ? undefined : v }) as TerrainLayer, 'Layer strength')} />
+                <SliderField label="Strength" aria={`layer ${l.id} strength`} value={l.strength ?? 1} min={0} max={1} step={1} scale={100} unit="%" hint="The share of the layer's change kept." disabled={off} onChange={(v) => update(l.id, (x) => ({ ...x, strength: v === 1 ? undefined : v }) as TerrainLayer, 'Layer strength', `${l.id} strength`, false)} />
                 {l.kind === 'stamps' && (
                   <ul className="tl-stack__stamps">
                     {l.stamps.map((s, k) => (
@@ -277,7 +295,7 @@ function LayerList(p: { p: TerrainColumnProps; picked: StampRef | null; onPick: 
                       <span className="tl-frow__label">Under blocks</span>
                       <Segmented small aria={`layer ${l.id} mode`} value={l.mode ?? 'cut'} options={[{ id: 'cut', label: 'Cut away', hint: 'No ground, no collider under the blocks' }, { id: 'flatten', label: 'Flatten', hint: 'Whole ground just below them' }]} onChange={(m) => setBlocks(l.id, { mode: m === 'cut' ? undefined : 'flatten' }, 'Blocks layer mode')} />
                     </div>
-                    <SliderField label="Blend" aria={`layer ${l.id} blend`} settle value={l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT} min={TERRAIN_BLOCKS_BLEND_LIMITS.min} max={TERRAIN_BLOCKS_BLEND_LIMITS.max} step={0.5} unit="m" hint="Metres over which the ground round the blocks fades from their border's height and paint to its own." disabled={off} onChange={(v) => setBlocks(l.id, { blend: v === TERRAIN_BLOCKS_BLEND_DEFAULT ? undefined : v }, 'Blocks layer blend')} />
+                    <SliderField label="Blend" aria={`layer ${l.id} blend`} value={l.blend ?? TERRAIN_BLOCKS_BLEND_DEFAULT} min={TERRAIN_BLOCKS_BLEND_LIMITS.min} max={TERRAIN_BLOCKS_BLEND_LIMITS.max} step={0.5} unit="m" hint="Metres over which the ground round the blocks fades from their border's height and paint to its own." disabled={off} onChange={(v) => setBlocks(l.id, { blend: v === TERRAIN_BLOCKS_BLEND_DEFAULT ? undefined : v }, 'Blocks layer blend', false)} />
                     <Toggle label="Carry the blocks' paint across" aria={`layer ${l.id} paint`} disabled={off} on={l.paint !== false} onChange={(on) => setBlocks(l.id, { paint: on ? undefined : false }, 'Blocks layer paint')} />
                     <span className="tl-hint">{l.blockLayers === undefined ? 'Meets every block layer.' : `Meets ${l.blockLayers.join(', ')}.`}</span>
                   </>

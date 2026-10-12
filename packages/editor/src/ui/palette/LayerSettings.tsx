@@ -24,6 +24,7 @@ import { MATERIAL_EXTRA_LAYERS_MAX } from '@thirdlight/runtime';
 
 import { layerSetting, layerSettingValue, withLayerName, withLayerSetting } from '../../session/layer-palette';
 import { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_SETTINGS, TEMPLATE_LAYERS, TEMPLATE_READS } from '../../session/material-graph';
+import { useSettledEdits } from '../brush/settle';
 import { SliderField } from '../brush/SliderField';
 import { Segmented } from '../editmode/controls';
 
@@ -174,54 +175,17 @@ const FIELD_RANGES: Readonly<Record<(typeof LAYER_SETTINGS)[number]['key'], { mi
   layerProjection: { min: 0, max: 2, step: 1 },
 };
 
-/** Milliseconds a slider rests before its value is stored (a drag is one command, not one per frame). */
-const SETTLE_MS = 250;
-
 /**
  * One layer's settings and palette name. Values show at once and are stored
- * as one `setMaterial` once the control rests; edits made in quick
- * succession build on each other, not on the material as last shown.
+ * as one `setMaterial` once the control rests (`useSettledEdits`).
  */
 export function LayerFields({ material, layer, textureName, onSave }: { material: MaterialDef; layer: number; textureName: string | null; onSave: (m: MaterialDef) => void }): JSX.Element {
-  // The edits not shown back by the project yet, by setting key (and "name").
-  const [draft, setDraft] = useState<Record<string, number | string>>({});
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pending = useRef<Record<string, number | string>>({});
-  const latest = useRef(material);
-  latest.current = material;
-  const save = useRef(onSave);
-  save.current = onSave;
-  const flush = (): void => {
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = null;
-    let m = latest.current;
-    for (const [k, v] of Object.entries(pending.current)) m = k === 'name' ? withLayerName(m, layer, String(v)) : withLayerSetting(m, k as (typeof LAYER_SETTINGS)[number]['key'], layer, Number(v));
-    pending.current = {};
-    save.current(m);
-  };
-  useEffect(() => () => {
-    if (timer.current !== null) flush();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- stores what is still waiting when the popover closes
-  }, []);
-  // A value the material shows now is no longer a draft.
-  useEffect(() => {
-    setDraft((d) => {
-      const next = { ...d };
-      for (const k of Object.keys(next)) {
-        const shown = k === 'name' ? (material.layerNames?.[layer] ?? '') : layerSetting(material, k as (typeof LAYER_SETTINGS)[number]['key'], layer);
-        if (shown === next[k] && pending.current[k] === undefined) delete next[k];
-      }
-      return next;
-    });
-  }, [material, layer]);
-  const set = (key: string, value: number | string, now = false): void => {
-    pending.current = { ...pending.current, [key]: value };
-    setDraft((d) => ({ ...d, [key]: value }));
-    if (timer.current !== null) clearTimeout(timer.current);
-    if (now) flush();
-    else timer.current = setTimeout(flush, SETTLE_MS);
-  };
-  const name = String(draft['name'] ?? material.layerNames?.[layer] ?? '');
+  const edits = useSettledEdits(material, (m) => onSave(m));
+  const shownMaterial = edits.value;
+  // The name as typed, stored when the field is left.
+  const [typed, setTyped] = useState<string | null>(null);
+  const set = (key: Setting['key'], value: number, now = false): void => edits.edit(key, key, (m) => withLayerSetting(m, key, layer, value), now);
+  const name = typed ?? shownMaterial.layerNames?.[layer] ?? '';
   return (
     <div className="tl-layer-fields" role="group" aria-label={`layer ${layer + 1} settings`}>
       <label className="tl-slider tl-slider--text" title="The layer's name in the palette (empty: its texture's name).">
@@ -232,15 +196,19 @@ export function LayerFields({ material, layer, textureName, onSave }: { material
           maxLength={MATERIAL_LAYER_NAME_MAX}
           placeholder={textureName ?? `Layer ${layer + 1}`}
           value={name}
-          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-          onBlur={(e) => e.target.value.trim() !== (material.layerNames?.[layer] ?? '') && set('name', e.target.value.trim(), true)}
+          onChange={(e) => setTyped(e.target.value)}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            setTyped(null);
+            if (v !== (shownMaterial.layerNames?.[layer] ?? '')) edits.edit('name', 'name', (m) => withLayerName(m, layer, v), true);
+          }}
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
       </label>
       {LAYER_SETTINGS.map((s) => {
-        const shown = layerSetting(material, s.key, layer);
+        const shown = layerSetting(shownMaterial, s.key, layer);
         if (shown === null) return null;
-        const value = Number(draft[s.key] ?? shown);
+        const value = Number(shown);
         if ('options' in s) {
           return (
             <div key={s.key} className="tl-slider" title={s.title}>

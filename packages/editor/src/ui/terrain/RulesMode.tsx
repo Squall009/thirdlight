@@ -15,6 +15,7 @@ import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import type { SurfaceRule } from '@thirdlight/runtime';
 import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 
+import { surfaceRuleTitle } from '../../session/rule-text';
 import { Section, Toggle } from '../editmode/controls';
 import { useEditStatus } from '../editmode/edit-status';
 import { LayerPicker } from '../palette/LayerPalette';
@@ -67,7 +68,7 @@ export function RulesColumn(p: TerrainColumnProps): JSX.Element {
       setBusy(false);
     }
   };
-  useEditStatus({ tool: 'Material rules', text: selected !== null ? `Shown: where "${draft[selected]?.name ?? `rule ${selected + 1}`}" paints${state.solo ? ' (alone)' : ''}. Bake when it looks right.` : 'Pick a rule to edit it; drag ⋮⋮ to reorder. Bake when the preview looks right.', right: `${draft.length} rule${draft.length === 1 ? '' : 's'}${changed ? ' · not baked' : ''}` });
+  useEditStatus({ tool: 'Material rules', text: selected !== null ? `Shown: where "${draft[selected] !== undefined ? surfaceRuleTitle(draft[selected], layerName) : `rule ${selected + 1}`}" paints${state.solo ? ' (alone)' : ''}. Bake when it looks right.` : 'Pick a rule to edit it; drag ⋮⋮ to reorder. Bake when the preview looks right.', right: `${draft.length} rule${draft.length === 1 ? '' : 's'}${changed ? ' · not baked' : ''}` });
   return (
     <div className="tl-terrain" aria-label="terrain tools">
       <Section title="Rules" aside={`${draft.length} rule${draft.length === 1 ? '' : 's'}`}>

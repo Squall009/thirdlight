@@ -3,6 +3,8 @@
  * that holds between a low and a high end ("slope 35–90°"). A thumb dragged
  * to its end of the track leaves that end open ("over 35"); both open is
  * "any". The field takes typing too: "35–90", ">35", "<90" or "any".
+ * A `closed` range (a span both ends of which are always set, a height
+ * range) stops its thumbs at the track's ends and takes only "a–b".
  *
  * Browser-only (React).
  */
@@ -23,6 +25,10 @@ export interface RangeFieldProps {
   unit?: string;
   disabled?: boolean;
   hint?: string;
+  /** Both ends always set: no open end, typing "a–b" only. */
+  closed?: boolean;
+  /** What typing may reach (default: the track's ends). */
+  limit?: readonly [number, number];
   onChange: (value: RangeValue) => void;
 }
 
@@ -56,9 +62,10 @@ export function RangeField(p: RangeFieldProps): JSX.Element {
     const r = el.getBoundingClientRect();
     const t = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
     const v = snap(p.min + t * span);
-    if (end === 'min') set('min', v <= p.min ? undefined : v);
-    else set('max', v >= p.max ? undefined : v);
+    set(end, open(end, v));
   };
+  /** A value at its end of the track opens that end (not in a closed range). */
+  const open = (end: 'min' | 'max', v: number): number | undefined => (p.closed === true ? v : end === 'min' ? (v <= p.min ? undefined : v) : v >= p.max ? undefined : v);
   const onDown = (e: PointerEvent<HTMLSpanElement>): void => {
     if (p.disabled === true || e.button !== 0) return;
     const el = track.current!;
@@ -78,8 +85,8 @@ export function RangeField(p: RangeFieldProps): JSX.Element {
     const at = end === 'min' ? lo : hi;
     if (e.key in steps) {
       const v = snap(Math.min(p.max, Math.max(p.min, at + steps[e.key]! * p.step)));
-      set(end, end === 'min' ? (v <= p.min ? undefined : v) : v >= p.max ? undefined : v);
-    } else if (e.key === 'Home' || e.key === 'End') set(end, undefined);
+      set(end, open(end, v));
+    } else if (e.key === 'Home' || e.key === 'End') set(end, p.closed === true ? (e.key === 'Home' ? p.min : p.max) : undefined);
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -88,10 +95,14 @@ export function RangeField(p: RangeFieldProps): JSX.Element {
     if (text === null) return;
     const v = parseRange(text);
     setText(null);
-    if (v !== null && p.disabled !== true) p.onChange(v);
+    if (v === null || p.disabled === true) return;
+    const [a, b] = p.limit ?? [p.min, p.max];
+    const inside = (x: number | undefined): boolean => x === undefined || (x >= a && x <= b);
+    if (p.closed === true && (v.min === undefined || v.max === undefined || !(v.min < v.max))) return;
+    if (inside(v.min) && inside(v.max)) p.onChange(v);
   };
   const shown = rangeText(p.value, decimals);
-  const keysHint = 'Drag a thumb (to the end: open), type 35–90, >35, <90 or any.';
+  const keysHint = p.closed === true ? 'Drag a thumb or type low–high.' : 'Drag a thumb (to the end: open), type 35–90, >35, <90 or any.';
   return (
     <div className={`tl-slider tl-range${p.value.min === undefined && p.value.max === undefined ? ' is-any' : ''}${p.disabled === true ? ' is-disabled' : ''}`} title={p.hint !== undefined ? `${p.hint} ${keysHint}` : keysHint}>
       <span className="tl-slider__label">{p.label}</span>

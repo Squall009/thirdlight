@@ -1066,13 +1066,27 @@ export class Viewport {
    */
   setIsolation(iso: ViewIsolation | null): void {
     if (iso === null && this.isolation === null) return;
-    const ids = new Set<string>();
-    if (iso !== null) for (const id of iso.ids) for (const x of this.subtreeIds(id)) ids.add(x);
-    this.isolation = iso === null ? null : { ids, given: iso };
+    this.isolation = iso === null ? null : { ids: this.isolatedIds(iso), given: iso };
     this.applyIsolation();
     this.entityOverlays.setEditing(iso === null ? new Set() : new Set(iso.ids));
     this.helpers.sync(this.helperEntities());
     this.setSelected(this.selectedId);
+  }
+
+  private isolatedIds(iso: ViewIsolation): Set<string> {
+    const ids = new Set<string>();
+    for (const id of iso.ids) for (const x of this.subtreeIds(id)) ids.add(x);
+    return ids;
+  }
+
+  /** A child added to (or moved out of) an edited object while its mode is open is drawn (or hidden) like the rest. */
+  private followIsolation(): void {
+    const iso = this.isolation;
+    if (iso === null) return;
+    const ids = this.isolatedIds(iso.given);
+    if (ids.size === iso.ids.size && [...ids].every((id) => iso.ids.has(id))) return;
+    this.isolation = { ids, given: iso.given };
+    this.applyIsolation();
   }
 
   /**
@@ -1093,7 +1107,7 @@ export class Viewport {
     const iso = this.isolation;
     this.syncGround();
     this.adapter.setIsolation?.(iso === null || iso.given.context ? null : iso.ids);
-    this.root.setAttribute('data-isolation', iso === null ? '' : JSON.stringify({ ids: [...iso.given.ids], context: iso.given.context }));
+    this.root.setAttribute('data-isolation', iso === null ? '' : JSON.stringify({ ids: [...iso.given.ids], context: iso.given.context, drawn: iso.ids.size }));
     this.requestRender();
   }
 
@@ -1401,6 +1415,7 @@ export class Viewport {
       }
     }
     this.source.sync(entities, full ? null : changed);
+    if (structural) this.followIsolation();
     // Automatic lighting follows whether the scene has a light.
     this.applyLightingMode();
     this.syncVirtualCameraPreviews(entities);

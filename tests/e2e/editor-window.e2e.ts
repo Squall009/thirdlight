@@ -448,6 +448,13 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context: the marker drawn' }).toBeGreaterThan(0.6);
   await page.keyboard.press('c');
   await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'Context off: isolated again' }).toBeLessThan(0.05);
+  // A child added to the terrain while the mode is open is drawn (it is part of the edited object), and hidden again once it goes.
+  const child = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: hill, kind: 'box', name: 'Child', box: { size: [2, 2, 2], material: { color: '#ff2020' } }, transform: { position: [16, 1, 16] } }))['createdId']);
+  await expect(canvas).toHaveAttribute('data-isolation', /"drawn":2/);
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'isolated: a child added while open drawn' }).toBeGreaterThan(0.6);
+  await cmd('deleteEntity', { entityId: child });
+  await expect(canvas).toHaveAttribute('data-isolation', /"drawn":1/);
+  await expect.poll(() => redNear(page, MARK), { timeout: 30_000, message: 'isolated: the child gone' }).toBeLessThan(0.05);
   // The sky is no object: it is drawn in isolation as in the whole scene (a colour sky lighting nothing, so the
   // checks below see the scene's own light).
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#4a90d9', intensity: 1, environmentIntensity: 0 } } });

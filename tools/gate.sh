@@ -16,7 +16,9 @@
 #                                             under a memory cap (TL_GATE_MEM, default 7G): a caller
 #                                             that ends (an agent session) no longer kills the gate
 #                                             halfway. Prints its log folder.
-#   tools/gate.sh wait                        blocks until the detached gate ends; prints its summary
+#   tools/gate.sh wait                        blocks until the detached gate ends; prints its summary.
+#                                             A unit the cap's OOM killer (or a signal) ended is RED,
+#                                             whatever its summary got to say
 #
 # One gate at a time (a lock in the log folder): two gates on this host starve each other into
 # timeouts. The summary ends with the run's memory peak.
@@ -28,7 +30,10 @@
 # worker count (the config's own default is 1). Here: 2 for fast and rerun, FULL_WORKERS for full on a GPU.
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
-# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker).
+# about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker). With --both-renderers
+# (every test in both renderers' browsers, the leak test on) 3 workers reached the 7 G cap and were
+# OOM-killed 18 min in, the terrain CDLOD file (the landscape class, 3.6 min alone) among the files
+# in flight; 2 workers ran those files at a 5.4 GB peak: FULL_WORKERS_BOTH.
 set -u
 mode=${1:-}
 shift || true
@@ -40,6 +45,7 @@ SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-exp
 # summary; a phase that adds e2e time extends or replaces tests to stay inside it (AGENTS.md).
 FULL_BUDGET_MIN=15
 FULL_WORKERS=3
+FULL_WORKERS_BOTH=2
 # A worker count the caller set wins in every mode.
 workers_set=${TL_E2E_WORKERS:+1}
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-2}
@@ -64,7 +70,8 @@ case "$mode" in
     mkdir -p "$L"
     echo "$L" > "$LOGS/last-detached"
     sudo -n systemctl reset-failed "$UNIT" 2> /dev/null || true
-    sudo -n systemd-run --unit="$UNIT" --quiet --collect -p MemoryMax="$need" -p MemorySwapMax=0 \
+    # No --collect: a unit that failed stays loaded, so `wait` can read how it ended (reset above on the next start).
+    sudo -n systemd-run --unit="$UNIT" --quiet -p MemoryMax="$need" -p MemorySwapMax=0 \
       --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
       NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" ${workers_set:+TL_E2E_WORKERS="$TL_E2E_WORKERS"} \
       tools/gate.sh "$sub" "$@" || exit 1
@@ -73,6 +80,15 @@ case "$mode" in
   wait)
     L=$(cat "$LOGS/last-detached" 2> /dev/null)
     while systemctl is-active --quiet "$UNIT"; do sleep 30; done
+    # How the unit ended: oom-kill (the cap), signal, core-dump or timeout means the run was cut off, even when the
+    # summary has a line (an OOM kill can take a browser and leave the script to write GREEN after its rerun).
+    res=$(systemctl show -p Result --value "$UNIT" 2> /dev/null)
+    case "$res" in
+      oom-kill | signal | core-dump | timeout | watchdog) cut="RED killed (unit result: $res; see journalctl -u $UNIT)" ;;
+      *) cut='' ;;
+    esac
+    if [ -z "$cut" ] && ! tail -1 "$L/summary.txt" 2> /dev/null | grep -qE '^(GREEN|RED)'; then cut="RED ended without a summary (unit result: ${res:-unknown})"; fi
+    [ -n "$cut" ] && [ -n "$L" ] && echo "$cut" >> "$L/summary.txt"
     [ -n "$L" ] && cat "$L/summary.txt"
     tail -1 "$L/summary.txt" 2> /dev/null | grep -q '^GREEN' ;
     exit $? ;;
@@ -154,6 +170,7 @@ case "$mode" in
     # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
     if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
       export TL_E2E_WORKERS=$FULL_WORKERS
+      [ "${1:-}" = "--both-renderers" ] && export TL_E2E_WORKERS=$FULL_WORKERS_BOTH
     fi
     build_and_unit
     export TL_MEMORY=1
