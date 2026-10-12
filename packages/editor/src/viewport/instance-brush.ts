@@ -268,9 +268,9 @@ export class InstanceBrushTool {
   }
 }
 
-/** Block layers as the brush's surfaces (grids built once per revision of the layers). */
+/** Block layers as the brush's surfaces (grids built once per revision of the layers and set of hidden ones). */
 export class BrushBlockSurfaces {
-  private built: { revision: number; layers: BrushBlockLayer[] } | null = null;
+  private built: { revision: number; hidden: string; layers: BrushBlockLayer[] } | null = null;
   private source: { types: readonly BlockType[]; layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; hidden?: boolean }>; revision: number } | null = null;
 
   update(types: readonly BlockType[], layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: ReadonlyMap<string, BlockChunk>; origin: readonly number[]; hidden?: boolean }>, revision: number): void {
@@ -280,14 +280,16 @@ export class BrushBlockSurfaces {
   layers(): BrushBlockLayer[] {
     const src = this.source;
     if (src === null) return [];
-    if (this.built?.revision === src.revision) return this.built.layers;
+    // Hiding a layer (an inactive object, a closed scene) changes no cells, so the revision stays.
+    const hidden = [...src.layers].filter(([, l]) => l.hidden === true).map(([id]) => id).join(',');
+    if (this.built?.revision === src.revision && this.built.hidden === hidden) return this.built.layers;
     const types = new Map(src.types.map((t) => [t.blockId, t]));
     const layers: BrushBlockLayer[] = [];
     for (const [id, l] of src.layers) {
       if (l.hidden === true || l.component.metadataOnly === true) continue;
       layers.push({ grid: BlockGrid.from(l.component, { entityId: id, chunks: [...l.chunks.values()] }), types, origin: l.origin });
     }
-    this.built = { revision: src.revision, layers };
+    this.built = { revision: src.revision, hidden, layers };
     return layers;
   }
 }

@@ -3,7 +3,8 @@
  *
  * - the editor with several scenes: a header per open scene, a new scene
  *   becomes the active one and new objects go there, rename, the start set,
- *   close/open, deleting an empty scene, and a drag between scenes refused;
+ *   close/open (a closed scene's block layer leaves the Scene view too),
+ *   deleting an empty scene, and a drag between scenes refused;
  * - Play loads scenes on demand: an exit zone loads a scene and moves the
  *   player to its spawn; MCP's game-control relay unloads it again (a script's
  *   ctx.scenes: keep-loaded.e2e, scene-reload.e2e).
@@ -15,6 +16,7 @@ import { join } from 'node:path';
 import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { decodePng } from './png';
 import { createBox } from './ui';
 
 let be: E2EBackend;
@@ -121,14 +123,32 @@ test('several scenes in the editor: new scene is active, objects go there, renam
 
   await page.screenshot({ path: 'test-results/scenes-hierarchy.png' });
 
-  // Close Cave (this browser only): its header and rows go; "open scene…" brings it back.
+  // A magenta block slab in Cave around the origin, drawn in the Scene view while Cave is open.
+  await cmd('setBlockType', { block: { blockId: 'glow', name: 'Glow', variants: [{ color: '#ff00ff' }], shape: 'full' } });
+  const slab = String((await cmd('createEntity', { sceneId: secondId, parentId: null, kind: 'group', name: 'Slab', transform: { position: [-8, 0, -8] } }))['createdId']);
+  await cmd('setComponent', { entityId: slab, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 2, 16] } } });
+  await cmd('editBlocks', { entityId: slab, edits: [{ kind: 'fill', box: [0, 0, 0, 16, 1, 16], cell: { block: 'glow' } }] });
+  const magenta = async (): Promise<number> => {
+    const img = decodePng(await page.locator('.tl-viewport').screenshot());
+    let n = 0;
+    for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 120 && b > 120 && g < 60) n += 1;
+    }
+    return n;
+  };
+  await expect.poll(magenta, { timeout: 20_000, message: "Cave's block slab in the Scene view" }).toBeGreaterThan(200);
+
+  // Close Cave (this browser only): its header, rows and block layer go; "open scene…" brings them back.
   await cave.getByRole('button', { name: 'close scene Cave' }).click();
   await expect(cave).toHaveCount(0);
   await expect(boxRow).toHaveCount(0);
   await expect(main).toHaveClass(/is-active/);
+  await expect.poll(magenta, { timeout: 10_000, message: "a closed scene's block layer is not drawn" }).toBeLessThan(20);
   await page.getByLabel('open scene').selectOption({ label: 'Cave' });
   await expect(cave).toHaveCount(1);
   await expect(boxRow).toHaveCount(1);
+  await expect.poll(magenta, { timeout: 10_000, message: "Cave's block slab drawn again" }).toBeGreaterThan(200);
   // The open scenes survive a reload.
   await page.reload();
   await expect(status(page)).toContainText('connected');

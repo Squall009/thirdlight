@@ -76,8 +76,11 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     if (cache.revision !== c.getBlockRevision()) propGridsRef.current = { revision: c.getBlockRevision(), grids: new Map() };
     const grids = propGridsRef.current.grids;
     const out: PropLayer[] = [];
+    // Objects snap onto the layers of the open scenes only (a closed scene's cells are not drawn).
+    const visible = only === undefined ? new Set(c.visibleEntities().map((e) => e.id)) : null;
     for (const [id, l] of c.getBlockLayers()) {
       if (only !== undefined && id !== only) continue;
+      if (visible !== null && !visible.has(id)) continue;
       const e = c.projection.getEntity(id);
       if (!e || e.active === false) continue;
       let g = grids.get(id);
@@ -181,13 +184,15 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
       const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
       const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position, regions: l.regions }]));
-      // An inactive layer object is not drawn.
+      // An inactive layer object is not drawn, nor a layer of a closed scene (it stays meshed,
+      // so opening the scene again shows it at once).
       const flags = effectiveFlagsOf(c.projection.listEntities());
-      for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;
+      const visible = new Set(c.visibleEntities().map((e) => e.id));
+      for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false || !visible.has(id);
       viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
-      // The tools' layer list and the Scene view's chosen layer.
+      // The tools' layer list (the open scenes' layers) and the Scene view's chosen layer.
       const rows: BlockLayerRow[] = [...blockLayers]
-        .filter(([id]) => byId.has(id))
+        .filter(([id]) => byId.has(id) && visible.has(id))
         .map(([id, l]) => ({ entityId: id, name: byId.get(id)!.name ?? id, component: l.component, regions: l.regions, active: flags.get(id)?.active !== false, locked: flags.get(id)?.locked === true }));
       setBlockRows(stable('blockRows', rows));
       pushLayer(c, layers, rows);
