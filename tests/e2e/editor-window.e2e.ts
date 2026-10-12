@@ -744,6 +744,8 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   const bytes = await thumb.locator('img').evaluate(async (img: HTMLImageElement) => (img.naturalWidth > 0 ? (await (await fetch(img.src)).blob()).size : 0));
   expect(bytes, 'a thumbnail loaded').toBeGreaterThan(0);
   expect(bytes, 'a thumbnail is at most 64 KB').toBeLessThanOrEqual(64 * 1024);
+  // An opaque PNG has no height in its alpha: the backend's check puts a "no height" badge on the tile.
+  await expect(layers.getByRole('radio', { name: 'layer 1', exact: true }).getByLabel('no height in alpha')).toHaveText('no height', { timeout: 15_000 });
 
   // ---- An empty slot picks its texture in a popover beside the column.
   await layers.getByRole('radio', { name: 'layer 2', exact: true }).click();
@@ -803,6 +805,17 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   await expect.poll(async () => meanDiff(await patch(), unset), { timeout: 30_000, message: 'a white ORM differs from none' }).toBeGreaterThan(4);
   await withMaps(['tex-flat-normal', '', '', ''], ['tex-orm-neutral', '', '', '']);
   await expect.poll(async () => meanDiff(await patch(), unset), { timeout: 30_000, message: 'a flat normal and a neutral ORM (layer 2: empty slots) look as none' }).toBeLessThan(2);
+
+  // ---- An albedo with its height in A wears no badge; the opaque ones keep theirs.
+  await publishTexture(be, new Uint8Array(makePng(64, 64, (x, y) => (x % 16 === 0 || y % 16 === 0 ? [70, 65, 60, 20] : [160, 150, 140, 140 + ((x * 7 + y * 3) % 100)]))), 'tex-stones-h', 'Stones with height');
+  const now = (await mats()).find((m) => m.materialId === made.materialId)!;
+  await cmd('setMaterial', { material: { ...now, parameters: now.parameters!.map((p) => (p.key === 'albedoHeight' ? { ...p, default: ['tex-grass', 'tex-dirt', 'tex-stones-h', ''] } : p)) } });
+  const stonesTile = layers.getByRole('radio', { name: 'layer 3', exact: true });
+  await expect(stonesTile.locator('.tl-ptile__thumb')).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });
+  await expect(stonesTile.locator('.tl-ptile__name')).toHaveText('Stones with height');
+  await expect(layers.getByRole('radio', { name: 'layer 2', exact: true }).getByLabel('no height in alpha')).toBeVisible({ timeout: 15_000 });
+  await expect(stonesTile.getByLabel('no height in alpha')).toHaveCount(0);
+  if (process.env['TL_SHOTS'] !== undefined) await layers.screenshot({ path: `${process.env['TL_SHOTS']}/palette-no-height.png` });
 }
 
 test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {

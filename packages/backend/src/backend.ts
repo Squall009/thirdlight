@@ -69,6 +69,7 @@ import { loadManual, makeDocsRoute, manualSummary } from './docs';
 import { makePlayRoutes } from './play-routes';
 import { comparePin, engineIdentity, makeEngineInfo } from './engine';
 import { createMaterialProblemChecker, materialProblemLine, type MaterialRow } from './material-problems';
+import { createHeightAlphaChecks, createHeightAlphaProblems, makeHeightAlphaRoute } from './height-alpha';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING };
@@ -317,7 +318,9 @@ export function createBackend(
   // Per-layer texture slots' arrays (Play, the export and the editor's views), cached in the import cache.
   // Decal pages ride on the same port: the builds that assemble slot arrays make the pages too.
   const decalPages = createDecalPageAssembler({ service, encoder: textureEncoder, now: nowMs });
-  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs }), decalPages: decalPages.assemble };
+  // Height in alpha: the albedos layered surfaces blend by height are checked, and an array gives a layer without one a brightness height.
+  const heightChecks = createHeightAlphaChecks({ service, encoder: textureEncoder });
+  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs, heights: heightChecks }), decalPages: decalPages.assemble };
   // A model's "extract textures" import setting: its images become texture assets.
   const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
   // The game folder is the truth for assets: moved and changed files, the import cache.
@@ -449,6 +452,7 @@ export function createBackend(
     heldImages.loaded(projectId);
     blockProblems.loaded(projectId);
     paintProblems.loaded(projectId);
+    heightProblems.loaded(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -589,6 +593,9 @@ export function createBackend(
   const blockProblems = createBlockProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
   const paintProblems = createPaintProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
+  // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
+  const heightProblems = createHeightAlphaProblems({ service, checks: heightChecks, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
+  const heightAlphaRoute = makeHeightAlphaRoute({ problems: heightProblems, requireAuth, sendJson, sendError });
   // Models still holding images when the project extracts every model's: extracted where their files are, the rest listed.
   const heldImages = createHeldImagesChecker({ service, extract: assetFiles.extractModels, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
 
@@ -677,6 +684,7 @@ export function createBackend(
     heldImages.changed(projectId, change);
     blockProblems.changed(projectId, change);
     paintProblems.changed(projectId, change);
+    heightProblems.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
@@ -1139,6 +1147,11 @@ export function createBackend(
 
     try {
       if (parts[0] === 'api' && parts[1] === 'v1') {
+        // GET /api/v1/projects/:projectId/content/textures/height-alpha?ids= — which textures carry a height in A (the layer palette's badge)
+        if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'textures' && parts[6] === 'height-alpha') {
+          await heightAlphaRoute(req, res, parts[3]!, query);
+          return;
+        }
         // The additive behavior-source preparation route (before the
         // content route table so it is never shadowed).
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'behaviors' && parts[6] === 'source') {
@@ -1401,6 +1414,7 @@ export function createBackend(
           heldImages.loaded(projectId);
           blockProblems.loaded(projectId);
           paintProblems.loaded(projectId);
+          heightProblems.loaded(projectId);
           // The missing asset files (the first page; the missing-files route pages them).
           const missing = missingFiles.firstPage(projectId);
           const list = problems.get(projectId) ?? [];

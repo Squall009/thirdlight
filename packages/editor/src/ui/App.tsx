@@ -1029,6 +1029,7 @@ function EditorApp(): JSX.Element {
       run: terrainTools.terrainRun,
       newMaterialId: (name) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())),
       openMaterial: (id) => openDocument('material', id),
+      heightInAlpha: (ids) => clientRef.current?.heightInAlpha(ids) ?? Promise.resolve(null),
     },
   };
 

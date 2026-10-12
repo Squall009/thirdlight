@@ -1434,6 +1434,9 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-ptile__sub { font-size: 10px; color: var(--text-faint); padding: 0 2px; margin-top: -3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-ptile.is-active { border-color: var(--brush); box-shadow: 0 0 0 1px var(--brush), 0 4px 14px rgba(242,181,68,.12); }
 .tl-ptile.is-active .tl-ptile__idx { background: var(--brush); color: #1a1407; }
+.tl-ptile__badge { position: absolute; top: 7px; right: 7px; height: 16px; padding: 0 5px; font-size: 9.5px; font-weight: var(--weight-bold); line-height: 16px; white-space: nowrap;
+  border-radius: 4px; background: rgba(13,15,19,.82); color: var(--warn); box-shadow: inset 0 0 0 1px rgba(255,207,92,.45); }
+.tl-palette--compact .tl-ptile__badge { top: 5px; right: 5px; padding: 0 3px; font-size: 8.5px; }
 .tl-ptile--empty { border-style: dashed; border-color: var(--line-strong); background: transparent; }
 .tl-ptile--empty .tl-ptile__thumb { background: transparent; border: 1px dashed var(--line); }
 .tl-ptile--empty.is-active { border-style: solid; }

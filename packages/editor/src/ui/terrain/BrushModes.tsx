@@ -104,7 +104,7 @@ export function SculptColumn(p: TerrainColumnProps): JSX.Element {
 export function PaintColumn(p: TerrainColumnProps): JSX.Element {
   const [state, setState] = useTerrainToolState(p.entityId);
   // The layers the brush paints: the material's, or the stand-in colours the terrain draws without one.
-  const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS);
+  const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS, p.palette.heightInAlpha);
   return <BrushModeColumn p={p} modeId="paint" paletteCount={palette.layers.length} above={<MaterialLayers entityId={p.entityId} entityName={p.entityName} palette={palette} active={state.brush.layer} onPick={(layer) => setState({ brush: { ...state.brush, layer } })} host={p.palette} disabled={p.locked} layerTiling={TERRAIN_LAYER_TILING_M} />} />;
 }
 

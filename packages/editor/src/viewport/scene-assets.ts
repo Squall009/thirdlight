@@ -63,7 +63,7 @@ export function createSceneViewAssets(o: {
   const loadTexture = async (assetId: string): Promise<THREE.Texture | null> => {
     // A material's per-layer slots: the array the backend assembles from them.
     const slots = parseSlotTextureKey(assetId);
-    if (slots !== null) return decodeTexture(await client.textureSlotBytes(slots.layers, slots.mode));
+    if (slots !== null) return decodeTexture(await client.textureSlotBytes(slots.layers, slots.mode, slots.height === true));
     // A texture the editor has not read the facts of yet is read by id first (the editor holds no whole catalog).
     await client.catalog.ensureAssets([assetId]);
     const v = client.content.resolveVersion(assetId);

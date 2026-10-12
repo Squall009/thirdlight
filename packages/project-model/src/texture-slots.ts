@@ -29,10 +29,17 @@
  *   node in linear colour space data, anything else colour
  *   (`textureSlotMode`).
  * - An object's overrides cannot hold slots (they stay plain values).
+ * - An array whose alpha the graph reads as a height (`heightAlphaParams`:
+ *   the layered surface's albedo) is a height array (`TextureSlotSet.height`):
+ *   the assembly gives a layer whose texture has no height in A (none, or a
+ *   flat one) a height made from its brightness, so its blends are not
+ *   decided by a constant. Play, the export and the views all draw the one
+ *   assembled array, so they agree.
  */
 import { KTX2_ENCODINGS, MAX_TEXTURE_LAYERS, type Ktx2Encoding } from './content-limits';
 import type { GraphData, GraphEdge, GraphNode } from './graph';
 import { LAYER_NOT_READ, LAYERED_TEXTURES, TEMPLATE_LAYERS, UV_SOURCES } from './layered-surface';
+import { heightAlphaParams } from './material-reads';
 import { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
 import { ID_RE } from './validate';
 
@@ -115,18 +122,51 @@ export function textureSlotMode(graph: GraphData | undefined, key: string): Ktx2
 export interface TextureSlotSet {
   readonly layers: readonly string[];
   readonly mode: Ktx2Encoding;
+  /** Its alpha is read as a height: a layer without one gets a height from its brightness (absent: A as it is). */
+  readonly height?: true;
 }
 
-/** The key one assembled array is known by (the same layers and encoding are one array). */
+/** Marks a height array's key (after the encoding; no encoding holds it). */
+const HEIGHT_KEY_MARK = '+height';
+
+/** The key one assembled array is known by (the same layers, encoding and height rule are one array). */
 export function textureSlotSetKey(s: TextureSlotSet): string {
-  return `${s.mode}:${s.layers.join(',')}`;
+  return `${s.mode}${s.height === true ? HEIGHT_KEY_MARK : ''}:${s.layers.join(',')}`;
 }
 
 /** The layers and encoding a `textureSlotSetKey` names (null: not such a key). */
 export function parseTextureSlotSetKey(key: string): TextureSlotSet | null {
-  const [mode, list] = key.split(':', 2) as [string, string | undefined];
+  const [head, list] = key.split(':', 2) as [string, string | undefined];
+  const height = head.endsWith(HEIGHT_KEY_MARK);
+  const mode = height ? head.slice(0, -HEIGHT_KEY_MARK.length) : head;
   if (!(KTX2_ENCODINGS as readonly string[]).includes(mode) || list === undefined || list === '') return null;
-  return { mode: mode as Ktx2Encoding, layers: list.split(',') };
+  return { mode: mode as Ktx2Encoding, layers: list.split(','), ...(height ? { height: true as const } : {}) };
+}
+
+/** The graphs' height parameters, once per graph object (a resolved instance shares its root's graph). */
+const heightKeysOf = new WeakMap<GraphData, ReadonlySet<string>>();
+
+/**
+ * The texture parameters of a material whose arrays are height arrays (its
+ * graph's `heightAlphaParams`, and their trim groups as `layeredForDraw`
+ * names them).
+ */
+export function heightSlotKeys(m: { readonly graph?: GraphData }): ReadonlySet<string> {
+  if (m.graph === undefined) return new Set();
+  let keys = heightKeysOf.get(m.graph);
+  if (keys === undefined) {
+    const own = heightAlphaParams(m.graph);
+    keys = new Set([...own, ...[...own].map(TRIM_GROUP_KEY)]);
+    heightKeysOf.set(m.graph, keys);
+  }
+  return keys;
+}
+
+/** The slot set a drawn material's parameter assembles to (null: no slot names a texture). */
+function slotSetOf(m: SlottedMaterial, key: string, slots: readonly string[], heights: ReadonlySet<string>): TextureSlotSet | null {
+  const layers = textureSlotLayers(slots, textureSlotFill(m.graph, key));
+  if (layers === null) return null;
+  return { layers, mode: textureSlotMode(m.graph, key), ...(heights.has(key) ? { height: true as const } : {}) };
 }
 
 interface SlottedMaterial {
@@ -274,12 +314,13 @@ export function layeredDrawnLayers(m: SlottedMaterial): number {
 /** Every distinct slot set the materials (resolved: no instances) draw with, in first-use order. */
 export function materialTextureSlotSets(materials: readonly SlottedMaterial[]): TextureSlotSet[] {
   const out = new Map<string, TextureSlotSet>();
-  for (const m of materials.map(layeredForDraw)) {
+  for (const source of materials) {
+    const heights = heightSlotKeys(source);
+    const m = layeredForDraw(source);
     for (const p of m.parameters ?? []) {
       if (p.type !== 'texture' || !isTextureSlots(p.default)) continue;
-      const layers = textureSlotLayers(p.default, textureSlotFill(m.graph, p.key));
-      if (layers === null) continue;
-      const set: TextureSlotSet = { layers, mode: textureSlotMode(m.graph, p.key) };
+      const set = slotSetOf(m, p.key, p.default, heights);
+      if (set === null) continue;
       const k = textureSlotSetKey(set);
       if (!out.has(k)) out.set(k, set);
     }
@@ -298,12 +339,14 @@ export function hasTextureSlots(materials: readonly SlottedMaterial[]): boolean 
  * has none). Materials without slots are returned as they are.
  */
 export function withAssembledSlots<M extends SlottedMaterial>(materials: readonly M[], idOf: (set: TextureSlotSet) => string): M[] {
-  return materials.map(layeredForDraw).map((m) => {
+  return materials.map((source) => {
+    const m = layeredForDraw(source);
     if (!hasTextureSlots([m])) return m;
+    const heights = heightSlotKeys(source);
     const parameters = (m.parameters ?? []).map((p) => {
       if (p.type !== 'texture' || !isTextureSlots(p.default)) return p;
-      const layers = textureSlotLayers(p.default, textureSlotFill(m.graph, p.key));
-      return { ...p, default: layers === null ? '' : idOf({ layers, mode: textureSlotMode(m.graph, p.key) }) };
+      const set = slotSetOf(m, p.key, p.default, heights);
+      return { ...p, default: set === null ? '' : idOf(set) };
     });
     return { ...m, parameters };
   });

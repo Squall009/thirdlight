@@ -17,10 +17,11 @@
  *
  * Browser-only (React).
  */
-import { useMemo, useState, type JSX } from 'react';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type { MaterialDef } from '@thirdlight/project-model';
 import { materialReads } from '@thirdlight/project-model/material-reads';
+import { heightSlotKeys } from '@thirdlight/project-model/texture-slots';
 
 import type { Catalog } from '../../session/catalog';
 import { paintableMaterial, paletteLayers, paletteSource, standInLayers, trimSheetMaterials, withLayerSetting, withSlotTexture, type LayerTextureKey, type PaletteLayer, type PaletteSource } from '../../session/layer-palette';
@@ -67,6 +68,8 @@ export interface PaletteHost {
   newMaterialId(name: string): Promise<string>;
   /** Open a material in the editor window. */
   openMaterial(materialId: string): void;
+  /** Which textures carry a height in A (the backend's check; null: not known). Absent: no "no height" badges. */
+  heightInAlpha?(ids: readonly string[]): Promise<Readonly<Record<string, 'height' | 'flat' | null>> | null>;
 }
 
 /** An object's palette: where its layers come from and the tiles. */
@@ -77,8 +80,43 @@ export interface Palette {
   readonly names: ReadonlyMap<string, string>;
 }
 
-/** The palette of an object with this material mapping (`standIn`: the colours it draws without a layered material). */
-export function usePalette(mapping: Readonly<Record<string, string>> | undefined, materials: readonly MaterialDef[], standIn: readonly string[]): Palette {
+const NO_TEXTURES: ReadonlySet<string> = new Set();
+
+/**
+ * The slot textures without a height in A, when the material blends its
+ * layers by the albedo's alpha (`heightSlotKeys`; a cut-out or decal
+ * material's A is opacity, never asked about): asked again when the textures
+ * or their versions change.
+ */
+function useNoHeight(source: PaletteSource, materials: readonly MaterialDef[], ids: readonly string[], versions: string, ask: PaletteHost['heightInAlpha']): ReadonlySet<string> {
+  const [flat, setFlat] = useState<ReadonlySet<string>>(NO_TEXTURES);
+  // The host's function is made anew each draw; only what it is asked about re-asks.
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  const graphOf = source.kind === 'instance' ? materials.find((x) => x.materialId === source.parent) : source.kind === 'none' ? undefined : source.material;
+  const reads = graphOf !== undefined && heightSlotKeys(graphOf).has(LAYERED_TEXTURES.albedo);
+  const key = reads ? `${ids.join(',')}|${versions}` : '';
+  useEffect(() => {
+    const fetchHeights = askRef.current;
+    if (key === '' || ids.length === 0 || fetchHeights === undefined) {
+      setFlat(NO_TEXTURES);
+      return undefined;
+    }
+    let live = true;
+    void fetchHeights(ids).then((r) => {
+      if (live && r !== null) setFlat(new Set(ids.filter((id) => r[id] === 'flat')));
+    });
+    return () => {
+      live = false;
+    };
+    // `key` names the ids and their versions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `ids` is read through `key`
+  }, [key]);
+  return flat;
+}
+
+/** The palette of an object with this material mapping (`standIn`: the colours it draws without a layered material; `heightInAlpha`: the host's check, for the "no height" badges). */
+export function usePalette(mapping: Readonly<Record<string, string>> | undefined, materials: readonly MaterialDef[], standIn: readonly string[], heightInAlpha?: PaletteHost['heightInAlpha']): Palette {
   const source = useMemo(() => paletteSource(mapping, materials), [mapping, materials]);
   const albedo = source.kind === 'none' ? undefined : (source.material.parameters ?? []).find((p) => p.key === LAYERED_TEXTURES.albedo)?.default;
   const ids = useMemo(() => (Array.isArray(albedo) ? [...new Set((albedo as string[]).filter((x) => x !== ''))] : typeof albedo === 'string' && albedo !== '' ? [albedo] : []), [albedo]);
@@ -90,12 +128,16 @@ export function usePalette(mapping: Readonly<Record<string, string>> | undefined
   });
   const arrayLayers = typeof albedo === 'string' && albedo !== '' ? (summaries[0]?.image?.layers ?? 1) : null;
   const key = [...names].join('|');
+  const noHeight = useNoHeight(source, materials, Array.isArray(albedo) ? ids : [], summaries.map((x) => x?.currentVersion ?? 0).join(','), heightInAlpha);
   const layers = useMemo(
     // A material without layers: the tiles are stand-ins, though the object has a material.
-    () => (source.kind === 'none' ? standInLayers(standIn, source.material === null ? 'no material' : 'stand-in') : paletteLayers(source.material, (id) => names.get(id), arrayLayers)),
+    () =>
+      source.kind === 'none'
+        ? standInLayers(standIn, source.material === null ? 'no material' : 'stand-in')
+        : paletteLayers(source.material, (id) => names.get(id), arrayLayers).map((l) => (l.texture !== null && noHeight.has(l.texture) ? { ...l, noHeight: true } : l)),
     // `key` stands for the names read so far.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is rebuilt each draw; `key` names its content
-    [source, standIn, key, arrayLayers],
+    [source, standIn, key, arrayLayers, noHeight],
   );
   return { source, layers, names };
 }

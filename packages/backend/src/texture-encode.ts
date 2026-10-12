@@ -39,6 +39,7 @@ import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import * as ktx2Encoder from 'ktx2-encoder';
 
 import { composePageRgba, type ComposeLayer } from './decal-page-compose';
+import { brightnessHeight } from './height-pixels';
 import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
 import { joinUastcLayers, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
@@ -58,8 +59,12 @@ export type Ktx2EncodeResult =
   | { ok: true; ktx2: Uint8Array; source: { format: 'png' | 'jpeg' | 'webp'; width: number; height: number } }
   | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
 
-/** One channel of a packed layer: a channel of source image `source`, or a constant 0–255. */
-export type PackSource = { source: number; channel: 0 | 1 | 2 | 3 } | { value: number };
+/**
+ * One channel of a packed layer: a channel of source image `source`, a
+ * height made from its brightness (`brightnessHeight`: the stand-in for an
+ * albedo without height in A), or a constant 0–255.
+ */
+export type PackSource = { source: number; channel: 0 | 1 | 2 | 3 } | { source: number; height: true } | { value: number };
 /** A packed layer's R, G, B and A sources. */
 export type PackLayer = readonly [PackSource, PackSource, PackSource, PackSource];
 
@@ -241,7 +246,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
   // Every layer the whole RGBA of one KTX2: join them as stored when they are UASTC alike.
   const whole = layers.map((l) => {
     const s = l[0];
-    return s !== undefined && 'source' in s && l.every((c, k) => 'source' in c && c.source === s.source && c.channel === k) ? s.source : -1;
+    return s !== undefined && 'source' in s && l.every((c, k) => 'channel' in c && c.source === s.source && c.channel === k) ? s.source : -1;
   });
   if (whole.every((i) => i >= 0 && sources[i] !== undefined && sourceFormat(sources[i]!) === 'ktx2')) {
     const joined = joinUastcLayers(whole.map((i) => sources[i]!), mode === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR);
@@ -287,6 +292,13 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     images.set(i, img);
   }
   const n = width * height;
+  // A source's brightness height, made once however many layers read it.
+  const heights = new Map<number, Uint8Array>();
+  const heightOf = (source: number): Uint8Array => {
+    let h = heights.get(source);
+    if (h === undefined) heights.set(source, (h = brightnessHeight(images.get(source)!.data)));
+    return h;
+  };
   const slices = layers.map((l) => {
     const out = new Uint8Array(n * 4);
     for (let c = 0; c < 4; c++) {
@@ -294,6 +306,9 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
       if ('value' in src) {
         const v = Math.max(0, Math.min(255, Math.round(src.value)));
         for (let i = 0; i < n; i++) out[i * 4 + c] = v;
+      } else if ('height' in src) {
+        const h = heightOf(src.source);
+        for (let i = 0; i < n; i++) out[i * 4 + c] = h[i]!;
       } else {
         const d = images.get(src.source)!.data;
         for (let i = 0; i < n; i++) out[i * 4 + c] = d[i * 4 + src.channel]!;

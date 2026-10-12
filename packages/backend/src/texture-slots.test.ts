@@ -12,11 +12,15 @@
  * - The arrays are made once: the import cache holds one entry per array,
  *   and a second export assembles nothing (`stats`).
  * - The editor's route answers the same array's bytes.
+ * - A layered surface's albedo is a height array: a layer whose texture has
+ *   no height in A gets a brightness height, the export ships the very array
+ *   the editor's route answers, and a texture with height keeps its own.
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { readRuntimeContentSync } from '@thirdlight/exporter';
+import { LAYERED_TEXTURES, layeredMaterial } from '@thirdlight/project-model/layered-surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { encodeRgbaPng } from './image-thumbnail';
@@ -78,6 +82,12 @@ describe('per-layer texture slots: Play and export arrays', () => {
       ['d-two', [200, 100, 0, 255], 'data'],
     ];
     for (const [name, rgba, mode] of files) writeFileSync(game('assets', 'slots', `${name}.ktx2`), await ktx2(rgba, mode));
+    // An albedo with a height in A (a ramp across the image).
+    const ramp = new Uint8Array(16 * 16 * 4).map((_, i) => (i % 4 === 3 ? ((i >> 2) % 16) * 16 : 120));
+    const rampKtx = await encodeKtx2(encodeRgbaPng(ramp, 16, 16), 'color');
+    if (!rampKtx.ok) throw new Error(rampKtx.message);
+    writeFileSync(game('assets', 'slots', 'c-height.ktx2'), rampKtx.ktx2);
+    files.push(['c-height', [0, 0, 0, 0], 'color']);
     await command('importAssets', { folder: 'assets/slots' });
     const assets = (tb.backend._test.service.query({ op: 'queryAssets', projectId: PID, args: { limit: 50, offset: 0 } }) as unknown as { assets: { assetId: string; displayName: string }[] }).assets;
     for (const [name] of files) ids[name] = assets.find((a) => a.displayName === name)!.assetId;
@@ -166,4 +176,36 @@ describe('per-layer texture slots: Play and export arrays', () => {
     const bad = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/slots`, { method: 'POST', headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ layers: ['nope'], mode: 'data' }) });
     expect(bad.status).toBe(400);
   });
+
+  it('a layered surface\'s albedo: the layer without height gets one from brightness, in the export and the editor\'s array alike', async () => {
+    const base = layeredMaterial('mat-layered', 'Layered');
+    const albedo = [ids['c-red']!, ids['c-height']!];
+    const material = { ...base, parameters: (base.parameters ?? []).map((p) => (p.key === LAYERED_TEXTURES.albedo ? { ...p, default: albedo } : p)) };
+    await command('setMaterial', { material });
+    const made = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Box L' });
+    await command('setComponent', { entityId: made['createdId'], component: 'materials', value: { '*': 'mat-layered' } });
+    const slots = (height: boolean) => fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/slots`, { method: 'POST', headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ layers: albedo, mode: 'color', ...(height ? { height: true } : {}) }) });
+    const viewed = await slots(true);
+    expect(viewed.status).toBe(200);
+    // Layer 1 (a constant A) got a brightness height; layer 2 keeps its own.
+    expect(viewed.headers.get('x-thirdlight-derived-height')).toBe('0');
+    const plain = await slots(false);
+    expect(plain.headers.get('x-thirdlight-derived-height')).toBe('');
+    expect(plain.headers.get('x-thirdlight-digest')).not.toBe(viewed.headers.get('x-thirdlight-digest'));
+    const r = await exportNow();
+    expect(r.status, JSON.stringify(r.json).slice(0, 600)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (p) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, p)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { assets: { assetId: string; sourceDigest: string }[]; materials: { materialId: string; parameters: { key: string; default: unknown }[] }[] };
+    const arrayId = content.materials.find((m) => m.materialId === 'mat-layered')!.parameters.find((p) => p.key === LAYERED_TEXTURES.albedo)!.default;
+    expect(content.assets.find((a) => a.assetId === arrayId)!.sourceDigest).toBe(viewed.headers.get('x-thirdlight-digest'));
+    // The backend's check: the problem names the texture without height, and the route says which is which.
+    const heights = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/height-alpha?ids=${albedo.join(',')}`, { method: 'GET', token: tb.adminToken, origin: null });
+    expect(heights.json).toMatchObject({ textures: { [albedo[0]!]: 'flat', [albedo[1]!]: 'height' } });
+  }, 180_000);
 });

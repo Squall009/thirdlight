@@ -1468,18 +1468,22 @@ export class ContentRoutes {
     }
   }
 
-  /** `{ layers: [texture assetId or constant layer…], mode }` → the KTX2 array of those layers' current versions. */
+  /**
+   * `{ layers: [texture assetId or constant layer…], mode, height? }` → the KTX2 array of those layers' current versions
+   * (`height`: a height array; `x-thirdlight-derived-height` lists the layers given a brightness height).
+   */
   private async slotArray(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
     const body = await this.readJsonBody(req, res);
     if (body === null) return;
-    const b = body as { layers?: unknown; mode?: unknown };
+    const b = body as { layers?: unknown; mode?: unknown; height?: unknown };
     const ids = b.layers;
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_TEXTURE_LAYERS || !ids.every((x) => typeof x === 'string' && (ID_RE.test(x) || parseFillLayer(x) !== null))) {
       return this.deps.sendError(res, sessionError('field_value', 'validation', `layers lists 1-${MAX_TEXTURE_LAYERS} texture asset ids (or constant layers, #rrggbbaa)`, { path: '/layers' }));
     }
     if (typeof b.mode !== 'string' || !(KTX2_MODES as readonly string[]).includes(b.mode)) return this.deps.sendError(res, sessionError('field_value', 'validation', `mode is one of ${KTX2_MODES.join(', ')}`, { path: '/mode' }));
+    if (b.height !== undefined && typeof b.height !== 'boolean') return this.deps.sendError(res, sessionError('field_value', 'validation', 'height is true or false', { path: '/height' }));
     const assembler = this.deps.textureSlots;
     if (assembler === undefined) return this.deps.sendError(res, sessionError('converter_unavailable', 'unavailable', 'texture slot assembly is not available on this server'));
     const layers: SlotLayer[] = [];
@@ -1494,7 +1498,7 @@ export class ContentRoutes {
       if (!q.ok || a === undefined || a.kind !== 'texture' || v === undefined) return this.deps.sendError(res, sessionError('asset_not_found', 'validation', `no texture asset "${assetId}" in this project`, { path: '/layers' }));
       layers.push({ assetId, version: v.version, sourceDigest: v.sourceDigest });
     }
-    const made = await assembler.assemble(projectId, layers, b.mode as Ktx2Mode);
+    const made = await assembler.assemble(projectId, layers, b.mode as Ktx2Mode, { height: b.height === true });
     if (!made.ok) return this.deps.sendError(res, sessionError((made.code === 'converter_unavailable' ? 'converter_unavailable' : 'conversion_failed') as SessionError['code'], made.code === 'converter_unavailable' ? 'unavailable' : 'validation', made.message.slice(0, 256), { path: '/layers' }));
     const opened = this.deps.service.openBlobFile(projectId, made.file);
     if (!opened.ok) return this.deps.sendError(res, commandErrorToSession(opened.error));
@@ -1507,6 +1511,7 @@ export class ContentRoutes {
     res.setHeader('content-type', 'application/octet-stream');
     res.setHeader('content-length', String(made.file.byteLength));
     res.setHeader('x-thirdlight-digest', made.file.digest);
+    res.setHeader('x-thirdlight-derived-height', (made.derivedHeight ?? []).flatMap((d, i) => (d ? [String(i)] : [])).join(','));
     res.statusCode = 200;
     res.end(Buffer.concat(parts));
   }

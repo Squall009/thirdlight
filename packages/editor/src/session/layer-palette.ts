@@ -34,6 +34,8 @@ export interface PaletteLayer {
   readonly empty?: boolean;
   /** A short line under the name (its tiling and projection). */
   readonly sub?: string;
+  /** Its albedo has no height in A (the backend's check): its blends are soft, a height from brightness stands in. */
+  readonly noHeight?: boolean;
 }
 
 /** What the palette knows of an object's material. */

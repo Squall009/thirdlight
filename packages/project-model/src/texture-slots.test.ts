@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { GraphData } from './graph';
+import type { GraphData, GraphEdge, GraphNode } from './graph';
+import { LAYERED_TEXTURES, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES } from './layered-surface';
+import { heightAlphaParams } from './material-reads';
 import { canonicalMaterials, materialParameterValueError, MATERIAL_LAYER_NAME_MAX, resolveMaterialInstances, validateMaterials, type MaterialDef } from './materials';
 import { fillLayerId, materialSlotTextureRefs, materialTextureSlotSets, parseFillLayer, parseTextureSlotSetKey, textureSlotFill, textureSlotLayers, textureSlotMode, textureSlotSetKey, withAssembledSlots } from './texture-slots';
 
@@ -102,5 +104,48 @@ describe('layer names', () => {
     expect('layerNames' in canonicalMaterials([{ ...base, layerNames: ['', ''] }])[0]!).toBe(false);
     const resolved = resolveMaterialInstances([{ ...base, layerNames: ['Grass'] }, { materialId: 'mat-i', name: 'Instance', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-l' }]);
     expect(resolved.find((m) => m.materialId === 'mat-i')!.layerNames).toEqual(['Grass']);
+  });
+});
+
+describe('height in alpha', () => {
+  const withSlots = (m: MaterialDef, values: Record<string, unknown>): MaterialDef => ({ ...m, parameters: (m.parameters ?? []).map((p) => (p.key in values ? { ...p, default: values[p.key] } : p)) as MaterialDef['parameters'] });
+
+  it('a layered surface\'s albedo array is a height array; its normal and ORM arrays are not', () => {
+    const m = withSlots(layeredMaterial('ground', 'Ground'), { [LAYERED_TEXTURES.albedo]: ['rock', 'moss'], [LAYERED_TEXTURES.normals]: ['rock_n', ''] });
+    expect([...heightAlphaParams(m.graph!)]).toEqual([LAYERED_TEXTURES.albedo]);
+    const keys = materialTextureSlotSets([m]).map(textureSlotSetKey);
+    expect(keys).toContain('color+height:rock,moss');
+    expect(keys.some((k) => k.startsWith('normal:'))).toBe(true);
+    expect(keys.filter((k) => k.includes('+height'))).toHaveLength(1);
+    // The views and builds name the height array by its own key.
+    const [drawn] = withAssembledSlots([m], textureSlotSetKey);
+    expect(drawn!.parameters!.find((p) => p.key === LAYERED_TEXTURES.albedo)!.default).toBe('color+height:rock,moss');
+  });
+
+  it('a height key reads back with its rule; the plain key stays as it was', () => {
+    const set = { layers: ['rock', 'moss'], mode: 'color' as const, height: true as const };
+    expect(textureSlotSetKey(set)).toBe('color+height:rock,moss');
+    expect(parseTextureSlotSetKey('color+height:rock,moss')).toEqual(set);
+    expect(parseTextureSlotSetKey('color:rock,moss')).toEqual({ layers: ['rock', 'moss'], mode: 'color' });
+    expect(parseTextureSlotSetKey('srgb+height:rock')).toBeNull();
+  });
+
+  it('the trim group of a layered surface with a mesh-UV layer is a height array too', () => {
+    const projection = Array.from({ length: TEMPLATE_LAYERS }, (_, i) => (i === 0 ? UV_SOURCES.geometry : UV_SOURCES.top));
+    const m = withSlots(layeredMaterial('wall', 'Wall'), { [LAYERED_TEXTURES.albedo]: ['sheet', 'moss'], layerProjection: projection });
+    const keys = materialTextureSlotSets([m]).map(textureSlotSetKey);
+    expect(keys).toEqual(expect.arrayContaining(['color+height:sheet', 'color+height:moss']));
+  });
+
+  it('a cut-out or decal material keeps A as opacity: no height array, even with a Height blend', () => {
+    const n = (id: string, type: string, data?: GraphNode['data']): GraphNode => ({ id, type, position: [0, 0], ...(data !== undefined ? { data } : {}) });
+    const e = (id: string, from: string, fp: string, to: string, tp: string): GraphEdge => ({ id, from: { node: from, port: fp }, to: { node: to, port: tp } });
+    const nodes = [n('p', 'parameter', { key: 'alb' }), n('t', 'sampleTexture'), n('h', 'combine'), n('hb', 'heightBlend'), n('mix', 'weightedMix'), n('out', 'pbr')];
+    const edges = [e('1', 'p', 'value', 't', 'tex'), e('2', 't', 'a', 'h', 'x'), e('3', 'h', 'xyzw', 'hb', 'heights'), e('4', 'hb', 'weights', 'mix', 'weights'), e('5', 't', 'rgb', 'mix', 'a'), e('6', 'mix', 'out', 'out', 'baseColor')];
+    expect([...heightAlphaParams({ nodes, edges })]).toEqual(['alb']);
+    expect([...heightAlphaParams({ nodes, edges: [...edges, e('7', 't', 'a', 'out', 'opacity')] })]).toEqual([]);
+    expect([...heightAlphaParams({ nodes: nodes.map((x) => (x.id === 'out' ? n('out', 'pbr', { decal: 'blend' }) : x)), edges })]).toEqual([]);
+    // A texture whose colour only is read is no height texture.
+    expect([...heightAlphaParams({ nodes: [...nodes, n('q', 'parameter', { key: 'tint' }), n('t2', 'sampleTexture')], edges: [...edges, e('8', 'q', 'value', 't2', 'tex'), e('9', 't2', 'rgb', 'out', 'emissive')] })]).toEqual(['alb']);
   });
 });

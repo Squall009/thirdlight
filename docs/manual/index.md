@@ -59,6 +59,7 @@ use and why.
   - [Make and spawn a prefab](guides/prefabs.md)
   - [Material graphs](guides/material-graphs.md)
   - [Trim sheets](guides/trim-sheets.md)
+  - [Height in alpha: layers that blend along their stones](guides/height-in-alpha.md)
   - [Decals](guides/decals.md)
   - [Vertex paint](guides/vertex-paint.md)
   - [Effects](guides/effects.md)

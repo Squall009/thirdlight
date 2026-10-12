@@ -316,8 +316,10 @@ One material layout for terrain, block ground and walls, generated
 architecture, splines and painted props: the **Layered surface** default
 (Create → Material) and the *height-blended layers* template are the same
 graph. It blends up to four layers (a terrain draws more) by their heights;
-each layer is a texture set — colour with the **height in alpha**, normal
-map, ORM — with its own settings in the material's layer table (and each
+each layer is a texture set — colour with the **height in alpha** (see
+[Height in alpha](../guides/height-in-alpha.md): a colour texture without
+one is a problem, wears a "no height" badge in the palette, and blends by
+its brightness meanwhile), normal map, ORM — with its own settings in the material's layer table (and each
 edit mode's **Layer settings…**):
 
 - **UV source**: **top** (the mesh's metre UVs: terrain and block ground,

@@ -9,6 +9,9 @@
  *   window (it goes into that layer's slot); an empty slot and the "Add
  *   layer" tile also open a texture picker on a click.
  * - `keys`: the number keys 1–9 pick a tile (the edit modes' key map).
+ * - A layer whose albedo has no height in A (the backend's check) wears a
+ *   small "no height" badge: its blends are soft until a texture with one
+ *   takes its place.
  * - `LayerPicker` is the compact palette in a popover behind a chip, for a
  *   field that names one layer (a material rule's).
  *
@@ -43,6 +46,9 @@ export interface LayerPaletteProps {
   keys?: boolean;
   aria: string;
 }
+
+/** What a "no height" badge means, in the tile's tooltip. */
+const NO_HEIGHT_HINT = 'No height in its alpha: blends with the other layers are soft, and its brightness stands in for the height. Use an albedo with height in A (Texture Designer: albedo + height export).';
 
 const textureDrop = (ev: DragEvent): string | null => {
   const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
@@ -91,7 +97,7 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
       aria-checked={p.picked}
       aria-label={`layer ${l.index + 1}`}
       className={`tl-ptile${p.picked ? ' is-active' : ''}${l.empty === true ? ' tl-ptile--empty' : ''}${over ? ' is-drop' : ''}`}
-      title={l.empty === true ? `${l.name}: no texture yet (it draws the first filled layer's). Drop a texture here, or click to pick one.` : `${l.name}${l.sub !== undefined ? ` · ${l.sub}` : ''}`}
+      title={l.empty === true ? `${l.name}: no texture yet (it draws the first filled layer's). Drop a texture here, or click to pick one.` : `${l.name}${l.sub !== undefined ? ` · ${l.sub}` : ''}${l.noHeight === true ? `\n${NO_HEIGHT_HINT}` : ''}`}
       disabled={p.disabled}
       data-layer={l.index}
       onClick={(e) => {
@@ -116,6 +122,11 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
         {thumb.url !== null ? <img src={thumb.url} alt="" draggable={false} /> : l.colour !== undefined ? <i style={{ background: l.colour }} /> : l.empty === true ? <PlusGlyph /> : null}
       </span>
       <span className="tl-ptile__idx">{l.index + 1}</span>
+      {l.noHeight === true && (
+        <span className="tl-ptile__badge" aria-label="no height in alpha">
+          no height
+        </span>
+      )}
       <span className="tl-ptile__name">{l.name}</span>
       {l.sub !== undefined && <span className="tl-ptile__sub">{l.sub}</span>}
     </button>

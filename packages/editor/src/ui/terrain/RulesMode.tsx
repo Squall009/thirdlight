@@ -35,7 +35,7 @@ export function RulesColumn(p: TerrainColumnProps): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [covered, setCovered] = useState<{ covered: number; total: number } | null>(null);
   useTerrainTool(p, null);
-  const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS);
+  const palette = usePalette(p.mapping, p.palette.materials, TERRAIN_DEFAULT_COLOURS, p.palette.heightInAlpha);
   const layerName = (i: number): string => palette.layers.find((l) => l.index === i)?.name ?? `Layer ${i + 1}`;
   const material = palette.source.kind !== 'none' ? palette.source.material.name : undefined;
   const layerField = (value: number, onChange: (layer: number) => void, aria: string): ReactNode => <LayerPicker layers={palette.layers} value={value} onChange={onChange} aria={aria} title="Layer for this rule" {...(material !== undefined ? { material } : {})} thumbnails={p.palette.thumbnails} disabled={p.locked} />;

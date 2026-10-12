@@ -31,7 +31,8 @@ export interface ClosureSlotLayer {
 
 /** The backend's texture-array assembly from single-layer textures (cached by their digests), and of decal pages. */
 export interface ClosureTextureSlots extends ClosureDecalPages {
-  assemble(projectId: string, layers: readonly ClosureSlotLayer[], mode: Ktx2Encoding): Promise<{ ok: true; file: BlobFile } | { ok: false; code: string; message: string }>;
+  /** `options.height`: a height array (a layer without a height in A gets one from its brightness: `TextureSlotSet.height`). */
+  assemble(projectId: string, layers: readonly ClosureSlotLayer[], mode: Ktx2Encoding, options?: { readonly height?: boolean }): Promise<{ ok: true; file: BlobFile } | { ok: false; code: string; message: string }>;
 }
 
 /** The id prefix of an assembled array (then its file digest's first 57 hex digits: 63 characters, within the id syntax). */
@@ -76,7 +77,7 @@ export async function closureSlotArrays(o: {
   for (const set of sets) {
     const layers = slotLayers(set, byId);
     if (typeof layers === 'string') return refused(layers);
-    const made = await o.port.assemble(o.projectId, layers, set.mode);
+    const made = await o.port.assemble(o.projectId, layers, set.mode, set.height === true ? { height: true } : undefined);
     if (!made.ok) return refused(`the ${set.mode} array of slots ${set.layers.join(', ')}: ${made.message}`, made.code);
     const f = made.file;
     const id = `${SLOT_ARRAY_ID_PREFIX}${f.digest.slice(0, 57)}`;
@@ -92,7 +93,7 @@ export async function closureSlotArrays(o: {
       artifacts.push({ path, bytes, digest: f.digest, contentType: 'image/x-texture' });
     }
     // The metrics digest stands for what the array is made of (its layers' files and encoding).
-    const metricsDigest = o.hash(new TextEncoder().encode(JSON.stringify({ slots: layers.map((l) => l.sourceDigest), mode: set.mode })));
+    const metricsDigest = o.hash(new TextEncoder().encode(JSON.stringify({ slots: layers.map((l) => l.sourceDigest), mode: set.mode, ...(set.height === true ? { height: true } : {}) })));
     rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest });
   }
   return { ok: true, arrays: { ids, rows, files, artifacts } };

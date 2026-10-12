@@ -54,7 +54,8 @@ export interface MaterialReadsContext {
   readonly functions?: readonly GraphDocument[];
 }
 
-const NONE: MaterialDeclaration = Object.freeze(Object.fromEntries(MATERIAL_DECLARATION_KEYS.map((k) => [k, false])) as Record<MaterialDeclarationKey, boolean>);
+/** Nothing read (made per call: `texture-slots.ts` reaches this module while `materials.ts` is still loading, so the key list is not there yet at load). */
+const none = (): Record<MaterialDeclarationKey, boolean> => Object.fromEntries(MATERIAL_DECLARATION_KEYS.map((k) => [k, false])) as Record<MaterialDeclarationKey, boolean>;
 
 /** One graph in a call chain: the graph and, for a function, the call that runs it (in the frame above). */
 interface Frame {
@@ -164,7 +165,7 @@ function liveNodes(root: Frame, functions: readonly GraphDocument[] | undefined)
 export function graphDeclaration(graph: GraphData, functions?: readonly GraphDocument[]): MaterialDeclaration {
   const root = frameOf(graph, null, 0);
   const live = liveNodes(root, functions);
-  const d: Record<MaterialDeclarationKey, boolean> = { ...NONE };
+  const d: Record<MaterialDeclarationKey, boolean> = none();
   for (const { frame, node } of live) {
     if (node.type === 'vertexColor' && (vertexColourSet(node) === 'paint' || readsPaintWhereUnstored(node))) d.vertexPaint = true;
     if (node.type === 'layerWeights') d.vertexPaint = true;
@@ -185,6 +186,34 @@ export function graphDeclaration(graph: GraphData, functions?: readonly GraphDoc
   return d;
 }
 
+/**
+ * The texture parameters whose alpha is a height: read into a Height blend's
+ * heights, in a material whose alpha is never opacity and that draws no decal
+ * (a cut-out, transparent or decal material keeps A as opacity throughout).
+ * The backend checks these textures for a height in A, and an array of them
+ * gets a height from brightness for a layer whose texture has none
+ * (`TextureSlotSet.height`). Only reads in the graph itself count (a texture
+ * handed into a material function is the function's business).
+ */
+export function heightAlphaParams(graph: GraphData, functions?: readonly GraphDocument[]): ReadonlySet<string> {
+  const d = graphDeclaration(graph, functions);
+  if (!d.alphaIsHeight || d.alphaIsOpacity || d.writesDecal) return new Set();
+  const root = frameOf(graph, null, 0);
+  const keys = new Set(graph.nodes.filter((n) => n.type === 'parameter').map((n) => String(n.data?.['key'] ?? '')));
+  const out = new Set<string>();
+  const blends = liveNodes(root, functions).filter((x) => x.frame === root && x.node.type === 'heightBlend');
+  for (const key of keys) {
+    const fromKey: Source = (n, port) => {
+      if (!isAlpha(n, port)) return false;
+      const tex = graph.edges.find((e) => e.to.node === n.id && e.to.port === 'tex');
+      const p = tex === undefined ? undefined : root.byId.get(tex.from.node);
+      return p?.type === 'parameter' && String(p.data?.['key'] ?? '') === key;
+    };
+    if (blends.some(({ node }) => reaches(root, node, 'heights', fromKey, false, functions, new Set()))) out.add(key);
+  }
+  return out;
+}
+
 /** A parameter's value as the material draws it (its own, else the shader's default). */
 function paramValue(m: Pick<MaterialDef, 'shader' | 'params'>, key: string): MaterialParamValue | readonly [number, number] | undefined {
   const own = m.params[key];
@@ -196,7 +225,7 @@ function paramValue(m: Pick<MaterialDef, 'shader' | 'params'>, key: string): Mat
 /** A fixed shader's declarations for its parameter values. */
 export function shaderDeclaration(m: Pick<MaterialDef, 'shader' | 'params'>): MaterialDeclaration {
   const table = MATERIAL_DECLARATIONS[m.shader] ?? {};
-  const d: Record<MaterialDeclarationKey, boolean> = { ...NONE };
+  const d: Record<MaterialDeclarationKey, boolean> = none();
   for (const key of MATERIAL_DECLARATION_KEYS) {
     const rule = table[key];
     if (rule === undefined) continue;
