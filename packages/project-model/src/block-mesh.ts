@@ -659,6 +659,14 @@ export interface BlockTopOptions {
   /** Walls of world-mapped looks cut at the wall paint points (`block-wall-cut.ts`; a layer with `wallPaint`). */
   readonly wallSteps?: WallSteps;
   /**
+   * Per block type: the heights its world-mapped walls are also cut at
+   * (metres, from the layer's row 0; the first storey of cells, then the
+   * storeys above; 0: none), so a trim sheet's field rows repeat up them at
+   * their real height — a vertex where each repeat meets the next (absent or
+   * null: no cuts).
+   */
+  readonly wallRows?: (type: BlockType) => readonly [number, number] | null | undefined;
+  /**
    * A cell's seam group: a face between cells of different groups is kept
    * even where the neighbour would hide it (a cut-away roof's cells and the
    * wall under them: when the roof is cut the wall's top is there to see).
@@ -782,6 +790,10 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
   const cs = grid.cellSize;
   const subdivision = Math.max(1, Math.floor(options.topSubdivision ?? 1));
   const wallSteps = options.wallSteps;
+  const rowsOf = (t: BlockType): readonly [number, number] | null => {
+    const r = options.wallRows?.(t);
+    return r !== undefined && r !== null && (r[0] > 0 || r[1] > 0) ? r : null;
+  };
   const seams = options.seams;
   /** Cut wall vertices of the cell being emitted, by projection, place across and height: [plane, vertex] pairs (cleared per cell, as `remap` is). */
   const cutRemap = new Map<number, number[]>();
@@ -901,10 +913,26 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
   const uv: number[] = [0, 0];
   const wx = worldUvWrap(cx * CHUNK_SIZE * cs[0]!);
   const wz = worldUvWrap(cz * CHUNK_SIZE * cs[2]!);
-  /** A triangle of a world-mapped look that is a wall (vertical, facing ±X or ±Z): cut at the wall paint points. */
-  const cutsWall = (rotated: Classified, worldLook: boolean, t: number): boolean => {
+  /** A triangle of a world-mapped look that is a wall (vertical, facing ±X or ±Z): cut at the wall paint points and its rows' repeats. */
+  const cutsWall = (rotated: Classified, worldLook: boolean, rows: readonly [number, number] | null, t: number): boolean => {
     const proj = rotated.proj[t]!;
-    return wallSteps !== undefined && worldLook && Math.abs(rotated.face[t * 3 + 1]!) < 1e-6 && (proj < 2 || proj > 3);
+    return (wallSteps !== undefined || rows !== null) && worldLook && Math.abs(rotated.face[t * 3 + 1]!) < 1e-6 && (proj < 2 || proj > 3);
+  };
+  /**
+   * Whether a row repeat of the wall rows begins strictly inside triangle
+   * `i`'s heights: a face no repeat line crosses (a storey whose row is as
+   * tall as its cells) is emitted as it is, without the cutting's cost.
+   */
+  const rowRepeatsInside = (rotated: Classified, src: BlockMeshSource, i: number, oy: number, rows: readonly [number, number]): boolean => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const y = rotated.positions[src.indices[i + k]! * 3 + 1]! + oy;
+      lo = Math.min(lo, y);
+      hi = Math.max(hi, y);
+    }
+    const step = Math.floor(lo / cs[1]! + 1e-4) <= 0 ? rows[0] : rows[1];
+    return step > 0 && Math.ceil(lo / step + 1e-6) * step < hi - 1e-6;
   };
   /**
    * The face triangle `i` makes with the next one, `j` (the two triangles of
@@ -939,23 +967,30 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
    * source index of one that is drawn, or −1) along when the two are one quad:
    * returns whether it did.
    */
-  const emitTriangle = (part: Part, remap: Map<number, number>, src: BlockMeshSource, rotated: Classified, worldLook: boolean, i: number, t: number, ox: number, oy: number, oz: number, next = -1): boolean => {
+  const emitTriangle = (part: Part, remap: Map<number, number>, src: BlockMeshSource, rotated: Classified, worldLook: boolean, rows: readonly [number, number] | null, i: number, t: number, ox: number, oy: number, oz: number, next = -1): boolean => {
     const acc = part.acc;
     const proj = rotated.proj[t]!;
-    // A wall of a world-mapped look, cut at the wall paint points (its texture coordinates follow its positions).
-    if (cutsWall(rotated, worldLook, t)) {
-      const quad = next >= 0 && cutsWall(rotated, worldLook, next / 3) ? quadOf(src, rotated, i, next) : null;
+    // A wall of a world-mapped look, cut at the wall paint points and its rows' repeats (its texture coordinates follow its positions).
+    if (cutsWall(rotated, worldLook, rows, t) && (wallSteps !== undefined || rowRepeatsInside(rotated, src, i, oy, rows!))) {
+      const quad = next >= 0 && cutsWall(rotated, worldLook, rows, next / 3) ? quadOf(src, rotated, i, next) : null;
       const poly: CutVertex[] = [];
+      let low = Infinity;
       for (const v of quad ?? [src.indices[i]!, src.indices[i + 1]!, src.indices[i + 2]!]) {
         poly.push([rotated.positions[v * 3]! + ox, rotated.positions[v * 3 + 1]! + oy, rotated.positions[v * 3 + 2]! + oz, rotated.normals[v * 3]!, rotated.normals[v * 3 + 1]!, rotated.normals[v * 3 + 2]!]);
+        low = Math.min(low, rotated.positions[v * 3 + 1]! + oy);
       }
       const across = proj < 2 ? 2 : 0;
-      for (const piece of cutWallPolygon(poly, across, cs[across]! / wallSteps!.along, cs[1]! / wallSteps!.up)) {
+      // The storey the face starts in picks its row, as the strip UVs do (`block-cell-uv.ts`): the first, or one above.
+      const rowStep = rows === null ? 0 : Math.floor(low / cs[1]! + 1e-4) <= 0 ? rows[0] : rows[1];
+      const stepsY = wallSteps !== undefined ? [cs[1]! / wallSteps.up, rowStep] : [rowStep];
+      for (const piece of cutWallPolygon(poly, across, wallSteps !== undefined ? cs[across]! / wallSteps.along : 0, stepsY)) {
+        // The row repeat the piece lies in: pieces of two repeats meet at a vertex each (the strip's v jumps there).
+        const band = rowStep > 0 ? Math.floor((piece[0]![1] + piece[1]![1] + piece[2]![1]) / 3 / rowStep) : 0;
         for (const c of piece) {
           // Pieces of one cell's walls share vertices where they meet: the same place (0.1 mm, from the cell's origin) on
-          // the same plane, which faces of one projection share only when they are one plane.
+          // the same plane, which faces of one projection share only when they are one plane (and in one row repeat).
           const along = Math.round((c[across]! - (across === 0 ? ox : oz)) * 1e4);
-          const plane = Math.round((c[2 - across]! - (across === 0 ? oz : ox)) * 1e4);
+          const plane = Math.round((c[2 - across]! - (across === 0 ? oz : ox)) * 1e4) * 131072 + band;
           const key = (proj * 2_097_152 + along + 1_048_576) * 2_097_152 + Math.round((c[1] - oy) * 1e4) + 1_048_576;
           let list = cutRemap.get(key);
           let out = -1;
@@ -1011,6 +1046,7 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
     const placed = place(x, y, z, cell);
     if (placed === null) return;
     const { look, source: src, rotated, ox, oy, oz, hidden } = placed;
+    const rows = rowsOf(look.type);
     for (const g of src.groups) {
       const part = partOf(look.key!, g.material, look.tangents, look.type.blockId, look.variant);
       const remap = new Map<number, number>();
@@ -1042,7 +1078,7 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
         const j = i + 3;
         const sj = j < g.start + g.count && look.classified !== null ? look.classified.side[j / 3]! : -1;
         const next = j < g.start + g.count && !(sj >= 0 && hidden[sj]) ? j : -1;
-        if (emitTriangle(part, remap, src, rotated, look.world, i, t, ox, oy, oz, next)) i += 3;
+        if (emitTriangle(part, remap, src, rotated, look.world, rows, i, t, ox, oy, oz, next)) i += 3;
       }
     }
   });
@@ -1061,7 +1097,7 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
       const part = partOf(src.key, g.material, world && src.tangents === true, t.blockId, variant);
       const remap = new Map<number, number>();
       cutRemap.clear();
-      for (let i = g.start; i < g.start + g.count; i += 3) if (emitTriangle(part, remap, src.source, rotated, world, i, i / 3, f.ox, f.oy, f.oz, i + 3 < g.start + g.count ? i + 3 : -1)) i += 3;
+      for (let i = g.start; i < g.start + g.count; i += 3) if (emitTriangle(part, remap, src.source, rotated, world, rowsOf(t), i, i / 3, f.ox, f.oy, f.oz, i + 3 < g.start + g.count ? i + 3 : -1)) i += 3;
     }
   });
   if (smoothing && tops.length > 0) {

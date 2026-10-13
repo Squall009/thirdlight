@@ -155,6 +155,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 |---|---|
 | 36.0 | Done 2026-10-13: three.js 0.186.1 is still the latest on npm; Rapier 0.21.0 (2026-09-25) exists, the pinned 0.20.0 stays (nothing here needs it). §2 re-read at `6f191f50` (block faces' trim strips, Atlas surface, trim layers / `layerSheets`, New material dialog, Texture Designer defaults, line numbers); 36.1 lower_wall 0.5 m, 36.2 block faces stack, e2e reduction target (D253) in §3. |
 | 36.1 | Done 2026-10-13: `docs/manual/guides/trim-sheet-spec.md` (sheet, row table with pixel bounds and inset v in glTF and Blender terms, ASCII layout, slot readers, maps, tiling, UVs for pieces and overrides, piece placement and names, reserved vertex colours, checklist), linked from `trim-sheets.md` (its stale "block walls are not strips" pitfall corrected) and the index. Numbers from the Texture Designer's `solve()` (2048², 512 px/m, gutter 8, align 16: rows_used 2000, fits, no warnings) and the engine's `trimSheetFromLayout` (no errors, no problems, safe mip level 4 on every row). Art-factory proposal for the owner: `~/.cache/thirdlight-phase36/art-factory-proposal.md`. Fast gate green (vitest 703, e2e 30, perf in limits). |
+| 36.2 | Done 2026-10-13: a sheet-level `realHeight` (new sheets, layout imports; a checkbox for stored ones) draws fields at their own height (last repeat cut) and trims once (fitted within 5 %, else at their own height); block walls cut where the field row repeats; Snap to row on tied sliders, mismatches in the sheet's backend problems; `TRIM_SHEET_DEFAULTS` 2048²/512, spec rows. Meshing: 16² wall chunk 2.4–2.8 → 2.6–3.0 ms, worst case (every first-storey face cut) 0.75 → 1.93 ms; `block-world-uv` 6.7 + 6.7 → 6.4 + 6.3 s. |
 
 ## 6. Decision log
 
@@ -204,3 +205,52 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   - The art-factory changes (service default alignment 16, a Thirdlight
     starter sheet with the spec's rows, the albedo + height packing by
     default, the safe mip level) are a proposal for the owner, not edits.
+
+- 2026-10-13 (36.2) — Trims at their real height. Defaults chosen, owner to
+  confirm:
+  - **Gated per sheet (`trim.realHeight`, additive on schema 7).** Absent:
+    every part fitted to whole rows as before, block faces one row each —
+    stored sheets keep their pixels. New sheets (Create, a shader switched to
+    trim) and `layout.json` imports write it true (the designer paints rows at
+    real height); the row table's **rows at their real height** box opts a
+    stored sheet in. Sheetless (grey) architecture keeps the old equal-row
+    layout, so its meshes are unchanged; the perf walls class pins the layout
+    it was recorded with.
+  - **Fields repeat at their own height, the last repeat cut** (it continues
+    the one below: the row wraps in v), never stretched. A swept part counts
+    from its lower end, so walls on one base line up and the cut lands under
+    the ceiling, cove or dado rail; block walls count from the layer's row 0,
+    as planar floors already do, so the pattern runs on across cells. The
+    mesher cuts block wall faces at the repeat lines per block type ([first
+    storey, higher storeys] metres from the type's real-height trim sheet,
+    sent to the mesh workers with the types; a material redefinition re-cuts)
+    with a vertex per repeat on each line; a mesh made before the cut keeps
+    the fitted mapping. Faces no line crosses skip the cutting (its cost).
+    Block tops map the floor row by metres too but are not cut (1 m cells and
+    the 1 m floor row: as before).
+  - **Trims are drawn once.** Within `TRIM_HEIGHT_TOLERANCE` (5 %) fitted:
+    the starter room's 0.15 m baseboard on the spec's 0.156 m row and the
+    starter frame's 0.12 m on 0.125 m both fit, so starters raise no problem.
+    A shorter part shows the row's top at its painted scale; a taller one the
+    row at the top and its bottom edge carried on (v clamped; the gutter
+    repeats that edge). Curved runs (smooth profiles: a cove) stay fitted —
+    a moulding's row is painted round its curve. Groin vaults follow the same
+    rule; reveals keep their own mapping.
+  - **Geometry never follows the sheet.** The simulation's colliders and an
+    export's meshes are made without row tables, so a part keeps the
+    slider's height; "its height comes from the row" is the slider's job: a
+    Parameter wired straight into a band's height or a frame's width is tied
+    to its slot's row (`arch-style-rows.ts`). The preset sliders show *Row
+    “baseboard”: 0.156 m* and **Snap to row** (one graph edit); a tied value
+    more than 5 % off its row on a real-height sheet is a warning in the trim
+    material's backend problems (`materialProblems`, `tl_diagnostics`)
+    naming the preset and both heights. Masked values are not judged.
+  - **Meshing cost** (Node on this host, one 16² chunk): 3-high walls over a
+    floor 2.4–2.8 → 2.6–3.0 ms (3,744 → 3,872 tris); worst case, every
+    first-storey wall face exposed and cut once, 0.75 → 1.93 ms (1,536 →
+    2,560 tris). The architecture test component: 1.1 → 1.0 ms, 3,002 →
+    2,630 tris (trims no longer stack). Sheets without the flag: unchanged.
+  - **E2E (D253):** `block-world-uv` carries the checks (block faces stack,
+    a 0.4 m band keeps the 0.25 m baseboard row's scale, Snap to row in the
+    Inspector) and got shorter: 6.7 + 6.7 → 6.4 + 6.3 s alone (its bump
+    reads settle at 250 ms polls instead of 400).

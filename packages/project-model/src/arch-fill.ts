@@ -261,6 +261,12 @@ function groin(w: ArchMeshWriter, r: PathRect, base: number, rise: number, row: 
   const density = trimRowDensity(ctx.sheet, row);
   const rowMetres = trimRowMetres(ctx.sheet, row);
   const [v0, v1] = trimRowV(ctx.sheet, row);
+  /*
+   * Fitted to whole rows from each springing, the way stored sheets drew; on a sheet drawing rows at their real
+   * height a field repeats at its own height from the springing (the last repeat cut at the crown), a trim is
+   * fitted once over the curve (its row is painted to wrap it), as the sweep does (`trimRunMapping`).
+   */
+  const real = ctx.sheet.realHeight === true;
   const su = density / ctx.sheet.size[0];
   for (const barrel of [0, 1]) {
     // Barrel 0 spans b (its arc across b, running along a); barrel 1 spans a.
@@ -275,7 +281,8 @@ function groin(w: ArchMeshWriter, r: PathRect, base: number, rise: number, row: 
     const cum = new Float64Array(np);
     for (let i = 1; i < np; i++) cum[i] = cum[i - 1]! + len2(pts[i * 2]! - pts[i * 2 - 2]!, (pts[i * 2 + 1]! - pts[i * 2 - 1]!) * ys);
     const half = cum[np - 1]! / 2;
-    const stacks = Math.max(1, Math.round(half / rowMetres));
+    const stackLen = real && row.tileV === true ? rowMetres : real ? half : half / Math.max(1, Math.round(half / rowMetres));
+    const stacks = Math.max(1, Math.ceil(half / stackLen - 1e-6));
     const cols = Math.max(1, Math.ceil(Lr / Math.max(0.25, rowMetres)));
     const at = (c: number, along: number, y: number): number[] => {
       // along: −Lr/2…Lr/2 on the running axis; c: −S/2…S/2 across.
@@ -305,8 +312,8 @@ function groin(w: ArchMeshWriter, r: PathRect, base: number, rise: number, row: 
       // Arc length from the nearer springing, for the strips' stacking and the AO.
       const qa = cum[i]! <= half ? cum[i]! : cum[np - 1]! - cum[i]!;
       const qb = cum[i + 1]! <= half ? cum[i + 1]! : cum[np - 1]! - cum[i + 1]!;
-      const stack = Math.min(stacks - 1, Math.floor(((qa + qb) / 2 / half) * stacks));
-      const tOf = (q: number): number => Math.max(0, Math.min(1, (q / half) * stacks - stack));
+      const stack = Math.min(stacks - 1, Math.floor((qa + qb) / 2 / stackLen));
+      const tOf = (q: number): number => Math.max(0, Math.min(1, q / stackLen - stack));
       const aoOf = (q: number): number => (ctx.aoStrength > 0 ? ctx.aoStrength * Math.max(0, 1 - q / ctx.aoRadius) : 0);
       for (let m = 0; m < cols; m++) {
         const f0 = m / cols;

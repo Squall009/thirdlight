@@ -228,9 +228,10 @@ export const NODE_SIDE_ALLOWED = {
     // empty slot's constant layer read from its layer-list entry, a layered
     // material drawn with only the layers it uses) and the layered surface's
     // row rules (its trim sheets share one table) and the material instance
-    // resolution (an instance's trim sheet checked as its root) are the
-    // project-model values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads'] },
+    // resolution (an instance's trim sheet checked as its root) and the
+    // presets' row-tied sliders (a trim sheet's problems name the presets
+    // that do not fit its rows) are the project-model values the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.

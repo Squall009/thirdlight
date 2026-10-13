@@ -8,14 +8,28 @@
  *   preset derived from it) are made again, and of those only the chunks
  *   whose elements changed. Releasing stores the value in the preset (one
  *   graph edit, one undo). The engine's starters are read-only: "Derive"
- *   makes a project preset from one.
+ *   makes a project preset from one. A slider tied to a trim row (a band's
+ *   height, a frame's width: `arch-style-rows.ts`) shows the row's height on
+ *   the sheet the preset wears, and "Snap to row" sets it to that height.
  * - `ArchitectureOutlines`: an architecture object's outlines and their
  *   presets, restyling every outline of one preset with another (the
  *   outlines stay as they are), and the sliders of the presets it uses.
  */
 import { useEffect, useMemo, useState, type JSX } from 'react';
-import type { ArchitectureComponent, ArchitectureOutline, GraphDocument, GraphNode, GraphOp } from '@thirdlight/project-model';
-import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STARTER_GRAPHS, ARCHITECTURE_STYLE_KIND, architectureStylesOf, resolveArchitecturePreset, type ArchitecturePreview, type ArchitectureStyleParam } from '@thirdlight/runtime';
+import type { ArchitectureComponent, ArchitectureOutline, GraphDocument, GraphNode, GraphOp, TrimSheet } from '@thirdlight/project-model';
+import {
+  ARCHITECTURE_PRESET_KIND,
+  ARCHITECTURE_STARTER_GRAPHS,
+  ARCHITECTURE_STYLE_KIND,
+  architectureRowTies,
+  architectureStylesOf,
+  architectureTiedRow,
+  fitsTrimRow,
+  formatRowMetres,
+  resolveArchitecturePreset,
+  type ArchitecturePreview,
+  type ArchitectureStyleParam,
+} from '@thirdlight/runtime';
 
 export interface PresetSlidersProps {
   presetId: string;
@@ -27,6 +41,17 @@ export interface PresetSlidersProps {
   onPreview(preview: ArchitecturePreview | null): void;
   /** Make a project preset deriving from `base` (a starter's sliders are read-only). */
   onDerive?(base: string): void;
+  /** A trim material's row table (an instance: its root's; null: not a trim material). */
+  sheetOf?(materialId: string): TrimSheet | null;
+  /** The trim material the object's architecture wears, for a preset naming none (null: none known). */
+  objectSheet?: string | null;
+}
+
+/** A slider's trim row: its slot and height, and whether the sheet draws rows at their real height. */
+interface SliderRow {
+  slot: string;
+  metres: number;
+  real: boolean;
 }
 
 const archGraphsOf = (graphs: readonly GraphDocument[]): GraphDocument[] => graphs.filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
@@ -62,6 +87,18 @@ export function PresetSliders(props: PresetSlidersProps): JSX.Element {
     for (const n of style.nodes.values()) if (n.type === 'parameter' && typeof n.data?.['name'] === 'string') at.set(n.data['name'] as string, n.position[1] * 1e6 + n.position[0]);
     return [...style.params.values()].sort((a, b) => (at.get(a.name) ?? 0) - (at.get(b.name) ?? 0));
   }, [resolved.style]);
+  // The rows the style's tied sliders size, on the sheet the preset wears (else the object's).
+  const sheetId = resolved.sheet ?? props.objectSheet ?? null;
+  const sheet = sheetId !== null ? (props.sheetOf?.(sheetId) ?? null) : null;
+  const rows = useMemo((): Map<string, SliderRow> => {
+    const out = new Map<string, SliderRow>();
+    if (resolved.style === null || sheet === null) return out;
+    for (const tie of architectureRowTies(resolved.style)) {
+      const row = architectureTiedRow(tie, sheet);
+      if (row !== null) out.set(tie.param, { ...row, real: sheet.realHeight === true });
+    }
+    return out;
+  }, [resolved.style, sheet]);
   const own = (name: string): GraphNode[] => doc?.graph.nodes.filter((n) => n.type === 'value' && n.data?.['parameter'] === name) ?? [];
   const setHead = (key: 'style' | 'base' | 'sheet', value: string): void => {
     const data = { style: '', base: '', sheet: '', ...(head?.data ?? {}), [key]: value };
@@ -108,6 +145,7 @@ export function PresetSliders(props: PresetSlidersProps): JSX.Element {
           own={own(p.name).length > 0}
           mask={resolved.masks[p.name] !== undefined ? `${resolved.masks[p.name]!.source} mask → ${resolved.masks[p.name]!.to}` : null}
           readOnly={doc === null}
+          row={rows.get(p.name) ?? null}
           onDrag={(v) => props.onPreview({ preset: presetId, values: { [p.name]: v } })}
           onCommit={(v) => void commit(p, v)}
           onReset={() => void reset(p)}
@@ -124,8 +162,8 @@ function freshId(nodes: readonly GraphNode[], base: string): string {
   return id;
 }
 
-function ParamSlider(props: { param: ArchitectureStyleParam; value: number; own: boolean; mask: string | null; readOnly: boolean; onDrag(v: number): void; onCommit(v: number): void; onReset(): void }): JSX.Element {
-  const { param, value } = props;
+function ParamSlider(props: { param: ArchitectureStyleParam; value: number; own: boolean; mask: string | null; readOnly: boolean; row: SliderRow | null; onDrag(v: number): void; onCommit(v: number): void; onReset(): void }): JSX.Element {
+  const { param, value, row } = props;
   const [draft, setDraft] = useState(value);
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
@@ -136,7 +174,8 @@ function ParamSlider(props: { param: ArchitectureStyleParam; value: number; own:
     setDragging(false);
     if (draft !== value) props.onCommit(draft);
   };
-  return (
+  const snapTo = row === null ? value : Math.min(param.max, Math.max(param.min, row.metres));
+  const slider = (
     <label className="tl-field">
       <span className="tl-field__label" title={props.mask ?? undefined}>
         {param.name.replace(/_/g, ' ')}
@@ -183,6 +222,25 @@ function ParamSlider(props: { param: ArchitectureStyleParam; value: number; own:
         )}
       </span>
     </label>
+  );
+  if (row === null) return slider;
+  // A part off its row: fitted all the same on a sheet that fits rows to parts; drawn at the row's own height on one that does not.
+  const fits = fitsTrimRow(value, row.metres);
+  return (
+    <>
+      {slider}
+      <div className="tl-field tl-field--hint" aria-label={`${param.name} row`}>
+        <span className="tl-inspector__hint">
+          Row “{row.slot}”: {formatRowMetres(row.metres)}
+          {fits ? '' : row.real ? ` — the part is ${formatRowMetres(value)}: the row is drawn at its own height, not fitted` : ` — the part is ${formatRowMetres(value)}: the row is stretched to it`}
+        </span>
+        {!props.readOnly && Math.abs(snapTo - value) > 1e-6 && (
+          <button type="button" className="tl-btn tl-btn--small" aria-label={`snap ${param.name} to row`} title={`Set ${param.name.replace(/_/g, ' ')} to the row's height (${formatRowMetres(row.metres)})`} onClick={() => props.onCommit(snapTo)}>
+            Snap to row
+          </button>
+        )}
+      </div>
+    </>
   );
 }
 

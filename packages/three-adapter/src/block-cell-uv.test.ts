@@ -11,9 +11,9 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, meshBlockChunk, shapeSource, type BlockLookResolver, type BlockType } from '@thirdlight/runtime';
 
-import { cellUnitUvs, keepMetreUv, syncCellUv, trimStripUvs } from './block-cell-uv';
+import { cellUnitUvs, keepMetreUv, syncCellUv, trimStripUvs, trimWallRowSteps } from './block-cell-uv';
 import { CELL_UV_KEY, readsCellUv, TRIM_STRIPS_KEY, type MaterialGraphLike } from './material-graph';
-import type { TrimSheet } from '@thirdlight/runtime';
+import { trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/runtime';
 
 const TYPES = new Map<string, BlockType>([['ground', { blockId: 'ground', name: 'Ground', variants: [{ color: '#808080' }], shape: 'full' }]]);
 /** Stand-ins with a mapped material: world UVs and tangents. */
@@ -168,6 +168,59 @@ describe('cell-unit UVs on block layers', () => {
     mesh.material = new THREE.MeshStandardMaterial();
     syncCellUv(mesh);
     expect(geometry.getAttribute('uv').array).toBe(p.uvs);
+  });
+
+  it('a sheet drawing rows at their real height: the mesher cuts the walls where a field row repeats and the strips stack it up the face at its own height', () => {
+    // The spec's wall and floor rows (trim-sheet-spec.md).
+    const sheet: TrimSheet = { size: [2048, 2048], texelDensity: 512, padding: 8, realHeight: true, rows: [
+      { slot: 'floor', top: 8, bottom: 520, tileV: true },
+      { slot: 'upper_wall', top: 536, bottom: 1048, tileV: true },
+      { slot: 'lower_wall', top: 1064, bottom: 1320, tileV: true },
+    ] };
+    const steps = trimWallRowSteps(sheet)!;
+    // The spec's lower wall is 0.5 m, its upper wall 1 m: first-storey faces are cut in two, higher ones not.
+    expect(steps).toEqual([0.5, 1]);
+    expect(trimWallRowSteps({ ...sheet, realHeight: undefined })).toBeNull();
+    const cell: [number, number, number] = [1, 1, 1];
+    const g = new BlockGrid({ cellSize: cell, bounds: { min: [0, 0, 0], max: [8, 8, 8] } });
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 2; y++) g.set(x, y, 0, { block: 'ground' });
+    const plain = meshBlockChunk(g, 0, 0, TYPES, world, {});
+    const cut = meshBlockChunk(g, 0, 0, TYPES, world, { wallRows: () => steps });
+    const tris = (parts: typeof plain): number => parts.reduce((n, p) => n + p.indices.length / 3, 0);
+    // Only the first storey's walls gain triangles: 2 × 3 cells of front and back, 2 ends, one cut each.
+    expect(tris(cut) - tris(plain)).toBe(8 * 2);
+    const [v0, v1] = trimRowV(sheet, trimRowOf(sheet, 'lower_wall')!);
+    const [u0, u1] = trimRowV(sheet, trimRowOf(sheet, 'upper_wall')!);
+    const across = (v: number, lo: number, hi: number): number => +((v - lo) / (hi - lo)).toFixed(4);
+    const lower = new Set<string>();
+    const upper = new Set<string>();
+    for (const p of cut) {
+      const strips = trimStripUvs(p.uvs, p.positions, p.indices, cell, sheet);
+      for (let i = 0; i < p.indices.length; i += 3) {
+        const t = [p.indices[i]!, p.indices[i + 1]!, p.indices[i + 2]!];
+        if (Math.abs(p.normals[t[0]! * 3 + 1]!) > 0.9) continue;
+        const ys = t.map((j) => p.positions[j * 3 + 1]!);
+        for (const j of t) {
+          const y = p.positions[j * 3 + 1]!;
+          // Each half-metre piece of a first-storey face spans the lower wall's row once, its top at the row's top.
+          if (Math.min(...ys) < 1) lower.add(`${y}:${across(strips[j * 2 + 1]!, v0, v1)}`);
+          else upper.add(`${y}:${across(strips[j * 2 + 1]!, u0, u1)}`);
+        }
+      }
+    }
+    expect([...lower].sort()).toEqual(['0.5:0', '0.5:1', '0:1', '1:0']);
+    expect([...upper].sort()).toEqual(['1:1', '2:0']);
+    // A mesh made before the cut (one quad a face) keeps the face-fitted strip: no v outside the row.
+    const old = plain[0]!;
+    const strips = trimStripUvs(old.uvs, old.positions, old.indices, cell, sheet);
+    for (let i = 0; i < old.indices.length; i += 3) {
+      const t = [old.indices[i]!, old.indices[i + 1]!, old.indices[i + 2]!];
+      if (Math.abs(old.normals[t[0]! * 3 + 1]!) > 0.9 || Math.max(...t.map((j) => old.positions[j * 3 + 1]!)) > 1) continue;
+      for (const j of t) {
+        expect(strips[j * 2 + 1]!).toBeGreaterThanOrEqual(v0 - 1e-6);
+        expect(strips[j * 2 + 1]!).toBeLessThanOrEqual(v1 + 1e-6);
+      }
+    }
   });
 
   it('only the layered template as made before per-layer tilings reads cells', () => {

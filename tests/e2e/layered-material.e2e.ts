@@ -712,7 +712,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await expect(table).toBeVisible();
   await inspector(page).getByLabel('trim layout file').setInputFiles({ name: 'layout.json', mimeType: 'application/json', buffer: Buffer.from(testTrimLayoutJson()) });
   // The rows, and the decal layer's cell kept as a named rectangle (listed under the table).
-  await expect.poll(async () => (await trimMaterial())?.trim).toEqual({ ...TEST_TRIM_SHEET, cells: [TEST_TRIM_CELL] });
+  await expect.poll(async () => (await trimMaterial())?.trim).toEqual({ ...TEST_TRIM_SHEET, cells: [TEST_TRIM_CELL], realHeight: true });
   await expect(inspector(page).getByLabel('trim check')).toContainText('4 rows and 1 decal cell (left out, neither rows nor cells: notes)');
   await expect(inspector(page).getByLabel('trim decal cells')).toContainText('sign: 32 × 32 px at 8, 192 (0.25 × 0.25 m)');
   const cell = (label: string) => table.getByLabel(label, { exact: true });

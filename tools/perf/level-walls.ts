@@ -27,7 +27,7 @@
  * Pure: the placements and textures are a function of the seed and the
  * options, from a generator of their own.
  */
-import { defaultTrimSheet, LAYERED_TEXTURES, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES, type MaterialDef, type TrimSheet } from '@thirdlight/project-model';
+import { equalTrimRows, LAYERED_TEXTURES, TRIM_STARTER_LAYOUT, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES, type MaterialDef, type TrimSheet } from '@thirdlight/project-model';
 
 import { makePng } from '../../tests/e2e/png-make';
 import { prng, type EntityValue } from './generate';
@@ -259,8 +259,8 @@ export function wallCounts(w: LayeredWalls): Record<string, number> {
   return { wallBuildings: w.buildings.length, wallStoreys: w.buildings.reduce((n, b) => n + b.storeys, 0), wallLayers: w.options.layers };
 }
 
-/** The sheet a trim layer is laid out on: the engine's default (1024², the starter rows). */
-export const wallTrimSheet = (): TrimSheet => defaultTrimSheet();
+/** The sheet a trim layer is laid out on: 1024², the starter slots in equal rows, fitted to parts (the layout the class was recorded with). */
+export const wallTrimSheet = (): TrimSheet => ({ size: [1024, 1024], texelDensity: 256, padding: 8, rows: equalTrimRows(1024, TRIM_STARTER_LAYOUT, 8) });
 
 /**
  * A layer's three textures: albedo with height in alpha, a normal map from that height, and ORM (occlusion from

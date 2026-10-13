@@ -703,7 +703,7 @@ const MATERIAL_BASES: J[] = [
       params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])),
       textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])),
       // A one-pixel row and a one-pixel decal cell at the top: every size, density and padding in range keeps them valid.
-      ...(s === 'trim' ? { trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 0, bottom: 1, texelDensity: 64, tileV: true }], cells: [{ name: 'sign', rect: [0, 0, 1, 1] }] } } : {}),
+      ...(s === 'trim' ? { trim: { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 0, bottom: 1, texelDensity: 64, tileV: true }], cells: [{ name: 'sign', rect: [0, 0, 1, 1] }], realHeight: true } } : {}),
     },
   ]),
   // A decal material drawing a trim sheet's cell (no texture slots of its own).
@@ -1035,8 +1035,9 @@ describe('descriptor registry', () => {
     // settings, mesh and pieces, about 8.7 KB; streaming rings on terrains and block layers, about 2.4 KB; height fog in the look
     // and in presets, about 2.6 KB; the trim material's parameters and row table, about 6 KB; generated architecture, about 3 KB; the declared types of JSON values, about 0.6 KB;
     // decals — the component, decal layers on every drawn object, the decal material and trim cells — about 10 KB;
-    // vertex paint — the component and an instance set's paint — about 2 KB; object icons by type and their counts, about 1.2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(328_000);
+    // vertex paint — the component and an instance set's paint — about 2 KB; object icons by type and their counts, about 1.2 KB;
+    // the trim sheet's rows at their real height, about 0.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(328_300);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

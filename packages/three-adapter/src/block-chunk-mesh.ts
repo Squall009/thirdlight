@@ -51,6 +51,8 @@ export interface ChunkLooks {
   variantModel(type: BlockType, variant: number): ChunkModelRef | null;
   /** A model's geometry; null while it is not there (the chunk draws without it). */
   model(ref: ChunkModelRef): ChunkModelGeometry | null;
+  /** The heights a block type's walls are cut at so its trim sheet's field rows stack at their real height (`BlockTopOptions.wallRows`; absent or null: none). */
+  wallRows?(type: BlockType): readonly [number, number] | null;
 }
 
 /** One look a chunk's parts draw: by part key prefix (`<look key>#<material>`). */
@@ -112,7 +114,7 @@ export function meshChunkForDrawing(grid: BlockGridReader, component: BlockLayer
   const missing = new Map<string, ChunkModelRef>();
   // A layer with cut-aways keeps the faces between a zone's cells and the rest (the wall's top under a cut roof).
   const seams = component.cutaway !== undefined ? cutawaySeams(cutawayZones(component, grid.regions)) : undefined;
-  const tops = { ...blockTopOptions(component), ...(seams !== undefined ? { seams } : {}) };
+  const tops = { ...blockTopOptions(component), ...(seams !== undefined ? { seams } : {}), ...(looks.wallRows !== undefined ? { wallRows: (t: BlockType) => looks.wallRows!(t) } : {}) };
   /** The chunk meshed at one level of detail: model looks at that level (or their last), stand-ins as they are. */
   const mesh = (level: number): ChunkMeshPart[] =>
     meshBlockChunk(grid, cx, cz, types, {

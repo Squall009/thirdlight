@@ -60,4 +60,16 @@ describe('material problems on the backend', () => {
     expect(sheetErrors(['sheet-dark', 'sheet'])).toEqual([]);
     expect(sheetErrors(['plain'])).toEqual([expect.stringContaining('"plain" is not a trim material')]);
   });
+
+  it('a trim sheet drawing rows at their real height names the presets whose row-tied sliders do not fit its rows', () => {
+    const sheet = { materialId: 'sheet', name: 'Sheet', shader: 'trim', params: {}, textures: {}, trim: defaultTrimSheet() };
+    const preset = (graphId: string, values: Record<string, number>, sheetId = 'sheet') => ({ graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet: sheetId } }, ...Object.entries(values).map(([parameter, value], i) => ({ id: `v${i}`, type: 'value', position: [0, 150], data: { parameter, value } }))], edges: [] } });
+    const problems = (graphs: unknown[], trim = sheet.trim): string[] => createMaterialProblemChecker().check({ materials: [{ ...sheet, trim }], graphs, assets }).find((r) => r.materialId === 'sheet')!.problems.map((p) => p.message);
+    // The starter room's 0.15 m baseboard fits the 0.156 m row; 0.3 m does not, and both heights are named.
+    expect(problems([preset('fits', {})])).toEqual([]);
+    expect(problems([preset('tall', { baseboard_height: 0.3 })])).toEqual(['preset "tall" (tall): baseboard_height is 0.3 m, its row "baseboard" is 0.156 m — the row is drawn at its own height, not fitted (Snap to row beside the preset\'s slider)']);
+    // A sheet fitting rows to parts (stored before the option) has nothing to say; nor a preset naming another sheet.
+    expect(problems([preset('tall', { baseboard_height: 0.3 })], { ...sheet.trim, realHeight: undefined } as never)).toEqual([]);
+    expect(problems([preset('tall', { baseboard_height: 0.3 }, 'other')])).toEqual([]);
+  });
 });

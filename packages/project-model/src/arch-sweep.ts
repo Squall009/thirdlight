@@ -4,8 +4,9 @@
  * mouldings meet at corners, T-junctions and frames without gaps or
  * overlaps. Each profile segment is a strip wearing its trim row: u runs
  * along the strip in metres (measured on the strip's own edge, so a mitred
- * corner keeps its texel density), v spans the row exactly once across —
- * a segment taller than its row is stacked from several strips.
+ * corner keeps its texel density), v spans the row across — a segment taller
+ * than a field row is stacked from several strips (`trimRunMapping`: at the
+ * row's real height on a sheet that draws them so, else fitted to whole rows).
  *
  * Openings cut the strips (cells inside the opening's span along the path
  * and its height are left out) and add reveals; overridden spans leave
@@ -20,7 +21,7 @@ import { type ArchMeshWriter, BOTH, FAR, fillPlanarPolygon, NEAR } from './arch-
 import type { PathSamples } from './arch-path';
 import type { ArchitectureProfile } from './architecture';
 import type { TrimRow, TrimSheet } from './trim-sheet';
-import { trimRowDensity, trimRowV } from './trim-sheet';
+import { trimRowDensity, trimRowV, trimRunMapping } from './trim-sheet';
 
 /** A profile ready to sweep (chamfer applied or not). */
 export interface SweepProfile {
@@ -419,12 +420,13 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
     const len = len2(bx - ax, by - ay);
     if (len < 1e-9) return;
     const density = trimRowDensity(o.sheet, row);
-    const rowMetres = (row.bottom - row.top) / density;
-    const stacks = Math.max(1, Math.round(runLen[k]! / rowMetres));
-    const stackLen = runLen[k]! / stacks;
+    const topAtEnd = runTopAtEnd[k] === 1;
+    // How the row covers the run: its repeats and where each position lies across it (trim-sheet.ts).
+    const run = trimRunMapping(o.sheet, row, runLen[k]!, !topAtEnd, p.smooth && row.tileV !== true);
+    const stacks = run.stacks;
     const q0 = runBefore[k]!;
     const params = new Set<number>([0, 1]);
-    for (let q = Math.ceil(q0 / stackLen + 1e-9); q * stackLen < q0 + len - 1e-9; q++) params.add((q * stackLen - q0) / len);
+    for (const b of run.boundaries) if (b > q0 + 1e-9 && b < q0 + len - 1e-9) params.add((b - q0) / len);
     // Where the darkening of an end's corner fades out (a segment shorter than the reach darkens all along).
     if (ao && r < len) {
       if (corner[i0]! > 0) params.add(r / len);
@@ -460,7 +462,6 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
     const n1 = endNormal(i1, i1 + 1);
     const [v0, v1] = trimRowV(o.sheet, row);
     const su = density / o.sheet.size[0];
-    const topAtEnd = runTopAtEnd[k] === 1;
     // u along each row's own edge: cumulative over columns.
     const nr = rows.length;
     const rx = new Float64Array(nr);
@@ -493,7 +494,7 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
     };
     // Each cell's stack piece; a row on a stack boundary has a vertex for each side (v jumps there), else one shared.
     const cellStack = new Int32Array(Math.max(1, nr - 1));
-    for (let m = 0; m + 1 < nr; m++) cellStack[m] = Math.min(stacks - 1, Math.floor((q0 + ((rows[m]! + rows[m + 1]!) / 2) * len) / stackLen));
+    for (let m = 0; m + 1 < nr; m++) cellStack[m] = Math.min(stacks - 1, run.stackAt(q0 + ((rows[m]! + rows[m + 1]!) / 2) * len));
     const cache = new Int32Array(nc * nr * 2).fill(-1);
     // Per row: the face's 2D normal (smooth profiles blend their end normals), the profile's AO and v's place.
     const rn = new Float64Array(nr * 2);
@@ -547,14 +548,13 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
       nx /= l3;
       ny /= l3;
       nz /= l3;
-      const local = (q0 + rows[mm]! * len) / stackLen - stack;
-      const across = topAtEnd ? 1 - local : local;
+      const across = run.acrossAt(q0 + rows[mm]! * len, stack);
       let occ = 0;
       if (ao) {
         const sideAo = n2x > 0 ? pathAo[cc * 2]! * n2x : n2x < 0 ? pathAo[cc * 2 + 1]! * -n2x : 0;
         occ = o.aoStrength * (1 - (1 - rowAo[mm]!) * (1 - sideAo));
       }
-      const i = w.vertex(px, py, pz, nx, ny, nz, uAlong[mm * nc + cc]! * su, v0 + (v1 - v0) * (across < 0 ? 0 : across > 1 ? 1 : across), occ);
+      const i = w.vertex(px, py, pz, nx, ny, nz, uAlong[mm * nc + cc]! * su, v0 + (v1 - v0) * across, occ);
       cache[k] = i;
       return i;
     };

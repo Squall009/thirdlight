@@ -12,10 +12,13 @@
  * HTTP), the tops show the ramp once across the four cells: red rises along
  * the row and does not jump back at any cell edge.
  *
- * A trim sheet on the world-mapped row (rows in plain colours) shows its
- * lower-wall row across each wall face and its floor row on the tops: the
- * renderer turns block metres into trim strips for a material that draws
- * them.
+ * A trim sheet on the world-mapped row (rows in plain colours, drawn at
+ * their real height) shows its floor row on the tops and its 0.5 m lower-wall
+ * row twice up each 1 m wall face: the renderer turns block metres into trim
+ * strips for a material that draws them, and the mesher cuts the walls where
+ * the row repeats. A band of generated architecture on the same sheet keeps
+ * its baseboard row's painted scale (once at its own height, not stretched to
+ * the band), and its preset's slider snaps to the row in the Inspector.
  *
  * The type's material is added in the form (a "*" slot, starting at the
  * first material, then picked). Normal maps on the world-mapped kit, tops
@@ -43,7 +46,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu, openWindow } from './ui';
+import { inspector, menu, openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -65,6 +68,42 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 const ORIGIN = [-2, 0, -1] as const;
 /** Metres the ramp texture spans (the material's tiling is its inverse). */
 const RAMP_METRES = 4;
+
+/**
+ * The trim sheet: rows at their real height on a 256² sheet at 64 px/m, each padding filled as the row's edge (or,
+ * the lower wall tiling in v, its wrap): the floor 1 m red, the lower wall 0.5 m green over cyan, the upper wall 1 m
+ * blue, the baseboard 0.25 m yellow over magenta. Colours are told apart by hue (lighting and corner shading scale a
+ * pixel's channels alike).
+ */
+const SHEET = { size: [256, 256], texelDensity: 64, padding: 8, realHeight: true, rows: [{ slot: 'floor', top: 8, bottom: 72, tileV: true }, { slot: 'lower_wall', top: 88, bottom: 120, tileV: true }, { slot: 'upper_wall', top: 136, bottom: 200, tileV: true }, { slot: 'baseboard', top: 216, bottom: 232 }] };
+const COLOURS = { red: [230, 30, 30], green: [30, 230, 30], cyan: [30, 220, 220], blue: [30, 30, 230], yellow: [230, 220, 30], magenta: [220, 30, 220] } as const;
+type Colour = keyof typeof COLOURS;
+const SHEET_COLOURS = (y: number): [number, number, number, number] => {
+  const c: Colour | null = y < 80 ? 'red' : y < 88 ? 'cyan' : y < 104 ? 'green' : y < 120 ? 'cyan' : y < 128 ? 'green' : y < 208 ? 'blue' : y < 224 ? 'yellow' : y < 240 ? 'magenta' : null;
+  return c === null ? [20, 20, 20, 255] : [...COLOURS[c], 255];
+};
+/** Whether a pixel's hue (its channels over the brightest) is nearer to `want`'s than to every other colour of the sheet's. */
+const isColour = (rgb: readonly number[], want: Colour): boolean => {
+  const top = Math.max(rgb[0]!, rgb[1]!, rgb[2]!, 1);
+  const d = (c: Colour): number => COLOURS[c].reduce((n, v, k) => n + (v / Math.max(...COLOURS[c]) - rgb[k]! / top) ** 2, 0);
+  return top > 30 && (Object.keys(COLOURS) as Colour[]).every((c) => c === want || d(want) < d(c));
+};
+/** A style of one band profile (slot baseboard, 3 cm deep) swept along the outline, its height an exposed slider. */
+const BAND_STYLE = {
+  nodes: [
+    { id: 'outline', type: 'outline', position: [0, 0] },
+    { id: 'height', type: 'parameter', position: [0, 150], data: { name: 'band_height', default: 0.4, min: 0, max: 1 } },
+    { id: 'profile', type: 'band', position: [260, 0], data: { depth: 0.03, slot: 'baseboard' } },
+    { id: 'sweep', type: 'sweep', position: [520, 0] },
+    { id: 'output', type: 'output', position: [780, 0] },
+  ],
+  edges: [
+    { id: 'e1', from: { node: 'height', port: 'value' }, to: { node: 'profile', port: 'height' } },
+    { id: 'e2', from: { node: 'outline', port: 'path' }, to: { node: 'sweep', port: 'path' } },
+    { id: 'e3', from: { node: 'profile', port: 'profile' }, to: { node: 'sweep', port: 'profile' } },
+    { id: 'e4', from: { node: 'sweep', port: 'element' }, to: { node: 'output', port: 'elements' } },
+  ],
+};
 
 /** The Scene view's projector from its published view-projection matrix, for a picture of its canvas. */
 async function sceneProjector(view: Locator): Promise<(p: [number, number, number]) => { x: number; y: number } | null> {
@@ -148,6 +187,26 @@ async function scenePicture(view: Locator, check: (red: number[]) => string | nu
   return red;
 }
 
+/** The Scene view's picture until every place shows its colour of the sheet (world points). */
+async function expectColours(view: Locator, places: readonly { name: string; at: readonly [number, number, number]; colour: Colour }[], name: string): Promise<void> {
+  let problem: string | null = 'no picture';
+  await expect.poll(async () => {
+    const png = await view.screenshot();
+    const img = decodePng(png);
+    const project = await sceneProjector(view);
+    const bad: string[] = [];
+    for (const p of places) {
+      const c = project([p.at[0], p.at[1], p.at[2]]);
+      const rgb = c === null ? null : img.pixel(Math.round(c.x), Math.round(c.y));
+      if (rgb === null || !isColour(rgb, p.colour)) bad.push(`${p.name}: ${rgb === null ? 'off screen' : rgb.slice(0, 3).join(',')} (want ${p.colour})`);
+    }
+    if (bad.length === 0) keep(name, png);
+    return (problem = bad.length === 0 ? null : bad.join('; '));
+  }, { timeout: 30_000, intervals: [300], message: `Scene view picture (${name})` }).toBeNull().catch((e: Error) => {
+    throw new Error(`${e.message}\n${problem}`);
+  });
+}
+
 /**
  * The faces whose bump is read: a point in a cell's middle (world), the
  * face's normal, and the in-face direction of its image's top right.
@@ -182,7 +241,7 @@ async function settledBrightness(view: Locator, at: readonly number[], name: str
       const same = Math.abs(now - last) < 1;
       last = now;
       return same;
-    }, { timeout: 30_000, intervals: [400], message: `Scene view settles (${name})` })
+    }, { timeout: 30_000, intervals: [250], message: `Scene view settles (${name})` })
     .toBe(true);
   if (png !== null) keep(name, png);
   return last;
@@ -255,39 +314,49 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; uv?: string }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.uv).toBe('world');
   const world = await scenePicture(view, oneRampAcross, 'world-uv');
 
-  // ---- A trim sheet on the world-mapped blocks: its walls wear the lower-wall row (green) across each cell face and
-  // its tops the floor row (red), as a generated wall's strips do — not the whole sheet stacked once a metre.
-  const SHEET = { size: [256, 256], texelDensity: 64, padding: 8, rows: [{ slot: 'floor', top: 8, bottom: 56 }, { slot: 'lower_wall', top: 72, bottom: 120 }, { slot: 'upper_wall', top: 136, bottom: 184 }] };
-  const rowColour = (y: number): [number, number, number, number] => (y < 64 ? [230, 30, 30, 255] : y < 128 ? [30, 230, 30, 255] : y < 192 ? [30, 30, 230, 255] : [20, 20, 20, 255]);
-  await publishBytes(be, new Uint8Array(makePng(256, 256, (_x, y) => rowColour(y))), 'texture', 'sheet', 'sheet');
+  // ---- A trim sheet drawing its rows at their real height on the world-mapped blocks: its tops wear the floor row
+  // (red, 1 m) once a cell, its first-storey walls the lower-wall row (0.5 m, green over cyan) twice up
+  // each 1 m face — the mesher cuts the face where the row repeats — not once stretched, nor the whole sheet a metre.
+  await publishBytes(be, new Uint8Array(makePng(256, 256, (_x, y) => SHEET_COLOURS(y))), 'texture', 'sheet', 'sheet');
   await cmd('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: { map: 'sheet' }, trim: SHEET } });
   await form.getByRole('combobox', { name: 'blockType materials *', exact: true }).selectOption({ label: 'Sheet' });
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-sheet' });
-  const stripPlaces = [
-    ...[0.2, 0.5, 0.8].map((y) => ({ name: `wall +Z at ${y} m`, at: [0.5, y, 1] as [number, number, number], hue: 1 })),
-    ...[-1.5, -0.5, 0.5].map((x) => ({ name: `top at x ${x}`, at: [x, 1, -0.5] as [number, number, number], hue: 0 })),
-  ];
-  let stripProblem: string | null = 'no picture';
-  await expect.poll(async () => {
-    const png = await view.screenshot();
-    const img = decodePng(png);
-    const project = await sceneProjector(view);
-    const bad: string[] = [];
-    for (const p of stripPlaces) {
-      const c = project(p.at);
-      if (c === null) {
-        bad.push(`${p.name} off screen`);
-        continue;
-      }
-      const rgb = img.pixel(Math.round(c.x), Math.round(c.y));
-      const others = [0, 1, 2].filter((k) => k !== p.hue).map((k) => rgb[k]!);
-      if (!(rgb[p.hue]! > 40 && rgb[p.hue]! > 1.6 * Math.max(...others))) bad.push(`${p.name} ${rgb.slice(0, 3).join(',')}`);
-    }
-    if (bad.length === 0) keep('trim-strips', png);
-    return (stripProblem = bad.length === 0 ? null : bad.join('; '));
-  }, { timeout: 30_000, intervals: [300], message: 'trim strips on block walls and tops' }).toBeNull().catch((e: Error) => {
-    throw new Error(`${e.message}\n${stripProblem}`);
-  });
+  await expectColours(view, [
+    // The +X end wall, z 0 (world): cyan, green, cyan, green from the bottom (stretched once it would be cyan, cyan, green, green).
+    ...[0.125, 0.375, 0.625, 0.875].map((y, i) => ({ name: `wall +X at ${y} m`, at: [2, y, 0] as const, colour: i % 2 === 0 ? 'cyan' : 'green' })),
+    ...[-1.5, -0.5, 0.5].map((x) => ({ name: `top at x ${x}`, at: [x, 1, -0.5] as const, colour: 'red' })),
+  ] as const, 'trim-strips');
+
+  // ---- A baseboard keeps its pattern scale: a band swept along the +Z wall wears the 0.25 m baseboard row (yellow
+  // over magenta). 0.4 m tall, the row shows once at its own height from the band's top and its bottom edge carries
+  // on below (fitted to whole rows it would repeat twice: yellow again at 0.12 m). Its preset's slider is tied to the
+  // row: the Inspector shows the row's height, and Snap to row sets the band to it — the wall shows above it again.
+  await cmd('setGraph', { graph: { graphId: 'e2e-band-style', kind: 'architecture-style', name: 'Band', graph: BAND_STYLE } });
+  await cmd('setGraph', { graph: { graphId: 'e2e-band', kind: 'architecture-preset', name: 'Band', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: 'e2e-band-style', base: '', sheet: 'mat-sheet' } }], edges: [] } } });
+  const band = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Band', transform: { position: [...ORIGIN] } }))['createdId']);
+  // No corner shading: the reads near the band's foot see the row's colours as they are.
+  await cmd('setComponent', { entityId: band, component: 'architecture', value: { elements: [], outlines: [{ id: 'b', preset: 'e2e-band', path: { points: [[0, 0, 2], [4, 0, 2]] } }], ao: { strength: 0 } } });
+  const onBand = (y: number): readonly [number, number, number] => [-0.5, y, 1.031];
+  await expectColours(view, [
+    { name: 'band at 0.37 m', at: onBand(0.37), colour: 'yellow' },
+    { name: 'band at 0.3 m', at: onBand(0.3), colour: 'yellow' },
+    { name: 'band at 0.2 m', at: onBand(0.2), colour: 'magenta' },
+    { name: 'band at 0.12 m', at: onBand(0.12), colour: 'magenta' },
+  ], 'baseboard-real-height');
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${band}"]`).click();
+  await expect(inspector(page).getByLabel('band_height row')).toContainText('Row “baseboard”: 0.25 m — the part is 0.4 m');
+  await inspector(page).getByRole('button', { name: 'snap band_height to row' }).click();
+  const bandValue = async (): Promise<unknown> => (((await query('queryGameConfig'))['graphs'] ?? []) as { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[]).find((g) => g.graphId === 'e2e-band')?.graph.nodes.find((n) => n.type === 'value')?.data?.['value'];
+  await expect.poll(bandValue).toBe(0.25);
+  await expect(inspector(page).getByRole('button', { name: 'snap band_height to row' })).toHaveCount(0);
+  await expectColours(view, [
+    { name: 'wall above the band at 0.3 m', at: [-0.5, 0.3, 1.001], colour: 'green' },
+    { name: 'band at 0.2 m', at: onBand(0.2), colour: 'yellow' },
+    { name: 'band at 0.06 m', at: onBand(0.06), colour: 'magenta' },
+  ], 'baseboard-snapped');
+  // Back to the layer's block type form.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
+  await panel.getByRole('button', { name: 'block tile', exact: true }).click();
 
   // ---- Normal maps on the world-mapped kit: the standard shader with a map tilted toward the image's top right.
   await publishBytes(be, new Uint8Array(makePng(16, 16, () => [204, 204, 200, 255])), 'texture', 'tilt', 'tilt');

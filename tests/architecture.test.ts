@@ -21,10 +21,12 @@ import {
   repeatPlaces,
   type ArchitectureChunk,
 } from '../packages/project-model/src/arch-generate';
+import { ArchMeshWriter } from '../packages/project-model/src/arch-mesh';
 import { samplePath } from '../packages/project-model/src/arch-path';
-import type { ArchitectureComponent, ArchitectureSweep } from '../packages/project-model/src/architecture';
+import { resolveProfile, sweepProfile } from '../packages/project-model/src/arch-sweep';
+import type { ArchitectureComponent, ArchitectureProfile, ArchitectureSweep } from '../packages/project-model/src/architecture';
 import { validateArchitectureComponent } from '../packages/project-model/src/architecture';
-import { defaultTrimSheet, trimRowOf, trimRowV } from '../packages/project-model/src/trim-sheet';
+import { defaultTrimSheet, trimRowOf, trimRowV, type TrimSheet } from '../packages/project-model/src/trim-sheet';
 import { sha256Hex } from '../packages/project-model/src/sha256';
 import { architectureMeshPacker } from '../packages/exporter/src/architecture-meshes';
 import { TEST_PROFILES, testArchitecture } from './arch-test-style';
@@ -265,7 +267,7 @@ describe('architecture generator', () => {
     expect(same).toBeGreaterThan(0);
     expect(changed).toBeGreaterThan(0);
     // A different sheet changes every key.
-    const other = architectureChunkKeys(c, { '*': { ...SHEET, texelDensity: 512 } });
+    const other = architectureChunkKeys(c, { '*': { ...SHEET, texelDensity: SHEET.texelDensity * 2 } });
     for (const [k, v] of keys) expect(other.get(k)!.key).not.toBe(v.key);
   });
 
@@ -308,5 +310,38 @@ describe('architecture generator', () => {
     // The instance draws with its root's sheet: the blob is what the generator makes with that sheet.
     expect(sha256Hex(encodeArchitectureChunks(decodeArchitectureChunks(blobs[0]!.bytes)))).toBe(sha256Hex(encodeArchitectureChunks(generateArchitecture(c, { architecture: sheet }).map((k) => ({ ...k, problems: [] })))));
     expect(doc.entities[0]!.components.architecture.baked).toBeUndefined();
+  });
+});
+
+describe('trim rows at their real height in the sweep', () => {
+  /** The front face (looking +Z, right of a run along +X) of a profile swept 2 m: each vertex's height and place across its row. */
+  const front = (sheet: TrimSheet, profile: ArchitectureProfile, slot: string): [number, number][] => {
+    const w = new ArchMeshWriter();
+    const s = samplePath({ points: [[0, 0, 0], [2, 0, 0]] });
+    sweepProfile(w, s, resolveProfile(profile, false), { sheet, rowOf: (k) => trimRowOf(sheet, k), aoStrength: 0, aoRadius: 1 });
+    const m = w.finish();
+    const [v0, v1] = trimRowV(sheet, trimRowOf(sheet, slot)!);
+    const out: [number, number][] = [];
+    for (let i = 0; i < m.positions.length / 3; i++) if (m.normals[i * 3 + 2]! > 0.9 && Math.abs(m.positions[i * 3]!) < 1e-6) out.push([+m.positions[i * 3 + 1]!.toFixed(5), +((m.uvs[i * 2 + 1]! - v0) / (v1 - v0)).toFixed(3)]);
+    return out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  };
+  const band = (h: number): ArchitectureProfile => ({ points: [[0.02, 0], [0.02, h], [0, h]], slots: ['baseboard', 'baseboard'] });
+  const real = defaultTrimSheet();
+  const fitted: TrimSheet = { ...real, realHeight: undefined };
+
+  it('a baseboard keeps its painted scale: a taller band shows the row once at its own height, its edge carried on below', () => {
+    // 0.3 m band on the 0.15625 m row: the row's top at the band's top, its bottom 0.15625 m down, the edge below that.
+    expect(front(real, band(0.3), 'baseboard')).toEqual([[0, 1], [0.14375, 1], [0.3, 0]]);
+    // Fitted (a stored sheet): two stretched repeats of 0.15 m each, the row's bottom and top meeting at 0.15 m.
+    expect(front(fitted, band(0.3), 'baseboard')).toEqual([[0, 1], [0.15, 0], [0.15, 1], [0.3, 0]]);
+    // A band within 5 % of its row is fitted to it on either sheet.
+    expect(front(real, band(0.15), 'baseboard')).toEqual([[0, 1], [0.15, 0]]);
+  });
+
+  it('a field repeats at its own height up a wall, the last repeat cut at the top', () => {
+    const wall: ArchitectureProfile = { points: [[0.1, 0], [0.1, 2.1]], slots: ['upper_wall'] };
+    expect(front(real, wall, 'upper_wall')).toEqual([[0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [2.1, 0.9]]);
+    // Fitted: round(2.1 / 1) = 2 repeats of 1.05 m.
+    expect(front(fitted, wall, 'upper_wall')).toEqual([[0, 1], [1.05, 0], [1.05, 1], [2.1, 0]]);
   });
 });

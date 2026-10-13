@@ -18,13 +18,15 @@
  * A material that draws trim strips (a trim sheet, or a layered surface with
  * a trim layer) reads the UVs as places on its sheet; its chunk meshes take
  * strip UVs made from the metres (`trimStripUvs`), so a block wall wears the
- * sheet's rows as a generated wall does.
+ * sheet's rows as a generated wall does: on a sheet drawing rows at their
+ * real height, a field row repeats up the wall at its own height (the mesher
+ * cuts the walls where it repeats: `trimWallRowSteps`).
  *
  * The metre UVs stay with the mesh: a material change in place (the project
  * switching to per-layer tilings, a trim layer added or dropped) puts them
  * back.
  */
-import { trimRowDensity, trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/runtime';
+import { trimRowDensity, trimRowMetres, trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/runtime';
 import type * as THREE from 'three';
 
 import { CELL_UV_KEY, TRIM_STRIPS_KEY } from './material-graph';
@@ -57,6 +59,22 @@ const rowFor = (sheet: TrimSheet, slots: readonly string[]): TrimSheet['rows'][n
   }
   return sheet.rows[0] ?? null;
 };
+
+/**
+ * The heights a block wall under `sheet` is cut at so its rows repeat at
+ * their real height: [the first storey's row, the higher storeys' row] in
+ * metres, 0 where that row is not a field (a trim is drawn once per face);
+ * null when the sheet fits rows to faces (no cuts) or neither row repeats.
+ */
+export function trimWallRowSteps(sheet: TrimSheet): readonly [number, number] | null {
+  if (sheet.realHeight !== true) return null;
+  const step = (slots: readonly string[]): number => {
+    const r = rowFor(sheet, slots);
+    return r !== null && r.tileV === true ? trimRowMetres(sheet, r) : 0;
+  };
+  const steps: [number, number] = [step(STRIP_ROWS.lower), step(STRIP_ROWS.upper)];
+  return steps[0] > 0 || steps[1] > 0 ? steps : null;
+}
 
 /**
  * Metre UVs divided back into cells: u by the cell width; v by the height
@@ -104,6 +122,14 @@ export function cellUnitUvs(metres: Float32Array, positions: ArrayLike<number>, 
  * comes from its corners snapped to the cell grid, so the two triangles of a
  * face agree; the mesher keeps one vertex per cell face, so no vertex is
  * asked for two rows (welded smooth tops excepted: one of their cells wins).
+ *
+ * A sheet drawing rows at their real height maps a field row by height
+ * instead: v follows the place's height above the layer's row 0 (along v on
+ * a top) modulo the row's metres, so the row repeats at its own height and
+ * runs on unbroken across cells. A triangle inside one repeat (the mesher cut
+ * the wall there: `trimWallRowSteps`) takes it exactly; one spanning several
+ * (a mesh made before the cut) keeps the mapping above. A trim row (no tiling
+ * in v) keeps it too: once per face.
  */
 export function trimStripUvs(metres: Float32Array, positions: ArrayLike<number>, index: ArrayLike<number> | null, cellSize: readonly [number, number, number], sheet: TrimSheet): Float32Array {
   const out = new Float32Array(metres);
@@ -136,6 +162,19 @@ export function trimStripUvs(metres: Float32Array, positions: ArrayLike<number>,
     const row = !wall ? top : c0 <= 0 ? lower : upper;
     const [v0, v1] = trimRowV(sheet, row);
     const su = trimRowDensity(sheet, row) / sheet.size[0];
+    if (sheet.realHeight === true && row.tileV === true) {
+      const m = trimRowMetres(sheet, row);
+      const k = Math.floor(lo / m + eps);
+      if (Math.ceil(hi / m - eps) - k <= 1) {
+        for (const v of tri) {
+          const f = (across(v) - k * m) / m;
+          const t = wall ? 1 - f : f;
+          out[v * 2] = metres[v * 2]! * su;
+          out[v * 2 + 1] = v0 + (v1 - v0) * (t < 0 ? 0 : t > 1 ? 1 : t);
+        }
+        continue;
+      }
+    }
     const span = (c1 - c0) * size;
     for (const v of tri) {
       // 0 at the cells' top edge, 1 at their bottom (a row's v runs down the image); a top's v grows along +v.

@@ -51,7 +51,7 @@ import {
 } from './architecture';
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { INSTANCE_FLOATS } from './types-v3';
-import { defaultTrimSheet, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
+import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
 export const ARCHITECTURE_GENERATOR_VERSION = 2;
@@ -191,7 +191,12 @@ export function architectureChunks(c: ArchitectureComponent): [number, number][]
 export function sheetFor(sheets: ArchitectureSheets, material: string): TrimSheet {
   return sheets[material] ?? sheets['*'] ?? STARTER_SHEET;
 }
-const STARTER_SHEET = defaultTrimSheet();
+/**
+ * The layout a part without a trim material is laid out on: the equal rows
+ * sheets had before rows were drawn at their real height. Such parts draw
+ * flat grey (their UVs read nothing), so they keep the meshes they had.
+ */
+const STARTER_SHEET: TrimSheet = { size: [1024, 1024], texelDensity: 256, padding: 8, rows: equalTrimRows(1024, TRIM_STARTER_LAYOUT, 8) };
 
 /**
  * The sheets a component's slots wear: per material slot, the row table of

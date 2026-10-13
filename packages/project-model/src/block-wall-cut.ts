@@ -2,7 +2,8 @@
  * Cutting a wall face at the wall paint points' lines — a block layer with
  * wall paint draws its walls with a vertex at every point
  * (`block-wall-paint.ts`), so paint between the cell corners shows (vertex
- * colours only change at vertices).
+ * colours only change at vertices) — and where a trim sheet's field row
+ * repeats up the wall (a strip's v jumps back to the row's bottom there).
  *
  * A vertical convex polygon (a triangle, or a quad the mesher put together
  * from the two triangles of a face, which cuts into half the triangles) is
@@ -48,12 +49,14 @@ function split(poly: CutVertex[], axis: number, value: number): [CutVertex[], Cu
 
 /**
  * The pieces of a convex polygon cut on the lines along `across` (0 x, 2 z)
- * every `step` metres and along y every `stepY` metres, as triangles. A
- * polygon no line crosses comes back fanned whole.
+ * every `step` metres and along y every `stepY` metres (each of several, a
+ * list: the wall paint's rows and a trim row's repeats), as triangles; a step
+ * of 0 cuts nothing. A polygon no line crosses comes back fanned whole.
  */
-export function cutWallPolygon(poly: readonly CutVertex[], across: number, step: number, stepY: number): CutVertex[][] {
+export function cutWallPolygon(poly: readonly CutVertex[], across: number, step: number, stepY: number | readonly number[]): CutVertex[][] {
   let polys: CutVertex[][] = [poly.map((v) => [...v] as CutVertex)];
   const cut = (axis: number, s: number): void => {
+    if (!(s > 0) || !Number.isFinite(s)) return;
     let lo = Infinity;
     let hi = -Infinity;
     for (const v of poly) {
@@ -69,7 +72,7 @@ export function cutWallPolygon(poly: readonly CutVertex[], across: number, step:
     }
   };
   cut(across, step);
-  cut(1, stepY);
+  for (const s of typeof stepY === 'number' ? [stepY] : stepY) cut(1, s);
   const out: CutVertex[][] = [];
   for (const poly of polys) {
     for (let i = 1; i + 1 < poly.length; i++) {

@@ -19,9 +19,14 @@
  * compile: each names a trim material (or an instance of one: it draws with
  * its root's rows), and all share one row table (its trim layers read one),
  * else the rows that differ are listed.
+ *
+ * A trim material that draws its rows at their real height also lists the
+ * presets naming it whose row-tied sliders do not fit their rows (both
+ * heights named), so a squashed or overgrown baseboard shows without Play.
  */
 import { createHash } from 'node:crypto';
 
+import { formatRowMetres, presetRowMismatches } from '@thirdlight/project-model/arch-style-rows';
 import { layerSheetMismatches } from '@thirdlight/project-model/layered-surface';
 import { resolveMaterial } from '@thirdlight/project-model/material-reads';
 import { parseFillLayer, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
@@ -87,9 +92,10 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
     const textureSet = new Set(textures);
     const texturesKey = textures.join('\u0000');
     const rows: MaterialRow[] = [];
+    const heights = rowHeightProblems(content);
     for (const m of content.materials ?? []) {
       if (m.graph === undefined || m.graph === null) {
-        rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: false, problems: [] });
+        rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: false, problems: (heights.get(m.materialId) ?? []).slice(0, PROBLEMS_PER_MATERIAL) });
         continue;
       }
       // Per-layer slots: the array's id, there when every slot names a texture of the project (or is a constant layer).
@@ -165,11 +171,34 @@ function sheetProblems(m: { readonly layerSheets?: readonly string[] }, material
   return out;
 }
 
+/**
+ * Presets whose sliders tied to trim rows do not fit the rows of the sheet
+ * they name (`architectureRowMismatches`), by the trim material named: a
+ * baseboard set to 0.3 m on a 0.156 m row draws the row at its own height and
+ * carries its edge on below, which is rarely what was meant.
+ */
+function rowHeightProblems(content: ContentLike): Map<string, MaterialProblem[]> {
+  const out = new Map<string, MaterialProblem[]>();
+  const materials = content.materials ?? [];
+  if (!materials.some((m) => m.shader === 'trim' && m.trim?.realHeight === true)) return out;
+  const sheetOf = (id: string): TrimSheet | null => {
+    const s = resolveMaterial(materials as unknown as Parameters<typeof resolveMaterial>[0], id);
+    return s?.shader === 'trim' && s.trim !== undefined ? s.trim : null;
+  };
+  const names = new Map((content.graphs ?? []).map((g) => [g.graphId, g.name ?? g.graphId]));
+  for (const x of presetRowMismatches(content.graphs as Parameters<typeof presetRowMismatches>[0], sheetOf)) {
+    const list = out.get(x.sheet) ?? [];
+    list.push({ severity: 'warning', message: `preset "${names.get(x.preset) ?? x.preset}" (${x.preset}): ${x.param} is ${formatRowMetres(x.value)}, its row "${x.slot}" is ${formatRowMetres(x.rowMetres)} — the row is drawn at its own height, not fitted (Snap to row beside the preset's slider)` });
+    out.set(x.sheet, list);
+  }
+  return out;
+}
+
 /** One line for the problems log. */
 export function materialProblemLine(r: MaterialRow): string {
   const errors = r.problems.filter((p) => p.severity === 'error').length;
   const warnings = r.problems.length - errors;
   const counts = [errors > 0 ? `${errors} error${errors === 1 ? '' : 's'}` : '', warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : ''].filter((x) => x !== '').join(', ');
   const first = r.problems[0]!;
-  return `Material "${r.name}" (${r.materialId}): ${counts} in its graph — ${first.nodeId !== undefined ? `node ${first.nodeId}: ` : ''}${first.message}`;
+  return `Material "${r.name}" (${r.materialId}): ${counts}${r.graph ? ' in its graph' : ''} — ${first.nodeId !== undefined ? `node ${first.nodeId}: ` : ''}${first.message}`;
 }

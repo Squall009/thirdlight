@@ -21,7 +21,7 @@ import { PlayDebugView } from '../PlayDebugView';
 import { GraphInspector } from '../../graph/GraphInspector';
 import { ArchitectureOutlines, PresetSliders, type PresetSlidersProps } from '../architecture/ArchitecturePanels';
 import { useRoomsBinding } from '../architecture/useRoomsBinding';
-import { ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
+import { ARCHITECTURE_MATERIAL_SLOT, ARCHITECTURE_PRESET_KIND, trimSheetOfMaterial, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
 import { behaviorPortContext } from '../../session/behavior-graph';
@@ -100,6 +100,12 @@ export interface InspectorDockProps {
   editMode: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>> } | null;
 }
 
+/** The material an architecture object's elements wear when their preset names no sheet: its slot's, else every slot's. */
+function architectureObjectSheet(materials: unknown): string | null {
+  const m = materials as Readonly<Record<string, string>> | undefined;
+  return m?.[ARCHITECTURE_MATERIAL_SLOT] ?? m?.['*'] ?? null;
+}
+
 /** Generated architecture in the Inspector: presets' sliders preview in the Scene view while dragged and are stored on release. */
 function architectureInspector(props: InspectorDockProps): {
   archProps: Omit<PresetSlidersProps, 'presetId'>;
@@ -111,6 +117,7 @@ function architectureInspector(props: InspectorDockProps): {
   const archProps = {
     graphs,
     sheets: materials.filter((m) => m.shader === 'trim').map((m) => [m.materialId, m.name ?? m.materialId] as const),
+    sheetOf: (id: string) => trimSheetOfMaterial(materials, id),
     onEdit: (graphId: string, ops: GraphOp[]) => sendGraphEdit({ kind: 'graph', id: graphId }, ops),
     onPreview: (p: ArchitecturePreview | null) => void props.viewportRef.current?.previewArchitecture(p),
   };
@@ -438,6 +445,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                 <ArchitectureOutlines
                   {...archProps}
                   component={selected.components['architecture'] as ArchitectureComponent}
+                  objectSheet={architectureObjectSheet(selected.components['materials'])}
                   onChange={(next) => void setArchitecture(selected.id, next)}
                   onDerive={(base) => void derivePreset(selected.id, base)}
                 />

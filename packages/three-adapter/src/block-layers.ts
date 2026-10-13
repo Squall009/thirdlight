@@ -151,6 +151,14 @@ export interface BlockLayerViewDeps {
   prefabModel?(prefabId: string): { assetId: string; piece?: string } | null;
   /** Apply a block type's material mapping to a chunk mesh of a model look or (assetId null) a stand-in (the host's material library). */
   applyMaterials?(mesh: THREE.Mesh, type: BlockType, assetId: string | null): void;
+  /**
+   * The heights a block type's walls are cut at so the field rows of the trim
+   * sheet it wears stack at their real height: [the first storey, the storeys
+   * above] in metres (`trimWallRowSteps`; null: no cuts).
+   */
+  wallRowsOf?(type: BlockType): readonly [number, number] | null;
+  /** Call `listener` when what `wallRowsOf` answers may have changed (the material definitions); returns the unsubscribe. */
+  onWallRowsChanged?(listener: () => void): () => void;
   /** Whether a layer's chunks get lightmap UVs (a bake has lightmaps for them). */
   lightmapped?(entityId: string): boolean;
   /** A chunk was (re)built with lightmap UVs: its group and its layout digest (the host puts the lightmap on). */
@@ -415,7 +423,11 @@ export class BlockLayerView {
   private readonly pageLooks: ChunkLooks = {
     variantModel: (type, variant) => variantModelOf(type, variant, (id) => this.deps.prefabModel?.(id) ?? null),
     model: (ref) => this.modelLook(ref, this.meshingLayer),
+    wallRows: (type) => this.wallRows.get(type.blockId) ?? null,
   };
+  /** Per block type: the heights its walls are cut at for its trim sheet's rows (`wallRowsOf`), known when its types were set. */
+  private wallRows = new Map<string, readonly [number, number]>();
+  private readonly stopWallRows: (() => void) | undefined;
   private pool: MeshWorkerPool | null = null;
   /** No workers here (none given, or they failed): everything meshes on the page. */
   private poolUnavailable: boolean;
@@ -442,6 +454,24 @@ export class BlockLayerView {
     this.root.name = 'block-layers';
     this.poolUnavailable = deps.meshWorkers === undefined;
     this.cut = new CutawayDrawing(deps.precompile !== undefined ? { precompile: (o) => deps.precompile!(o) } : {});
+    // A trim material redefined (its rows, or whether they draw at their real height): the walls it dresses are cut again.
+    this.stopWallRows = deps.onWallRowsChanged?.(() => {
+      if (this.disposed || !this.updateWallRows()) return;
+      this.sendTypes();
+      for (const layer of this.layers.values()) this.restyleLayer(layer);
+    });
+  }
+
+  /** Ask for every type's wall cuts again; whether any changed. */
+  private updateWallRows(): boolean {
+    const next = new Map<string, readonly [number, number]>();
+    for (const t of this.types.values()) {
+      const r = this.deps.wallRowsOf?.(t) ?? null;
+      if (r !== null) next.set(t.blockId, [r[0], r[1]]);
+    }
+    const same = next.size === this.wallRows.size && [...next].every(([k, v]) => this.wallRows.get(k)?.[0] === v[0] && this.wallRows.get(k)?.[1] === v[1]);
+    this.wallRows = next;
+    return !same;
   }
 
   /** The block types (every chunk re-meshes when they change). */
@@ -449,6 +479,7 @@ export class BlockLayerView {
     const next = new Map(types.map((t) => [t.blockId, t]));
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
     this.types = next;
+    this.updateWallRows();
     this.sendTypes();
     this.deps.scatter?.setTypes?.(types);
     for (const layer of this.layers.values()) {
@@ -919,6 +950,7 @@ export class BlockLayerView {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopWallRows?.();
     this.pool?.dispose();
     this.pool = null;
     this.results.length = 0;
@@ -978,7 +1010,7 @@ export class BlockLayerView {
     if (this.pool === null) return;
     const types = [...this.types.values()];
     const variantModels: [string, (ChunkModelRef | null)[]][] = types.map((t) => [t.blockId, t.variants.map((_, i) => this.pageLooks.variantModel(t, i))]);
-    this.pool.broadcast({ t: 'types', types, variantModels });
+    this.pool.broadcast({ t: 'types', types, variantModels, wallRows: [...this.wallRows] });
   }
 
   /** A model's look, asking the host for it (a layer waiting for it re-meshes when it is ready); null while it loads. */

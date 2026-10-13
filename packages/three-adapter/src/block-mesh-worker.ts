@@ -26,8 +26,8 @@ export { runArchitectureWorker } from './architecture-worker';
 
 /** Page → worker. */
 export type MeshWorkerRequest =
-  /** The block types and, per type, each variant's model (null: a stand-in). */
-  | { t: 'types'; types: BlockType[]; variantModels: [string, (ChunkModelRef | null)[]][] }
+  /** The block types and, per type, each variant's model (null: a stand-in) and the heights its walls are cut at for its trim rows. */
+  | { t: 'types'; types: BlockType[]; variantModels: [string, (ChunkModelRef | null)[]][]; wallRows?: [string, readonly [number, number]][] }
   /** A model's geometry (copied: the page keeps meshing with it too). */
   | { t: 'model'; key: string; geometry: ChunkModelGeometry }
   /** A layer's cells, whole (a new layer, or one replaced: `serial` names this version); `component.kits` are the kits it shows. */
@@ -72,6 +72,7 @@ interface WorkerLayer {
 export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; tracked(): number } {
   let types = new Map<string, BlockType>();
   let variantModels = new Map<string, (ChunkModelRef | null)[]>();
+  let wallRows = new Map<string, readonly [number, number]>();
   const models = new Map<string, ChunkModelGeometry>();
   const layers = new Map<string, WorkerLayer>();
   const standIns = new StandInShapes();
@@ -86,6 +87,7 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; trac
       return (variant < table.length ? table[variant] : table[0]) ?? null;
     },
     model: (ref) => models.get(chunkModelKey(ref)) ?? null,
+    wallRows: (type) => wallRows.get(type.blockId) ?? null,
   };
   const chunkId = (entityId: string, cx: number, cz: number): string => `${entityId}\u0000${cx},${cz}`;
 
@@ -120,6 +122,7 @@ export function runBlockMeshWorker(endpoint: MeshEndpoint): { stop(): void; trac
       case 'types':
         types = new Map(m.types.map((t) => [t.blockId, t]));
         variantModels = new Map(m.variantModels);
+        wallRows = new Map(m.wallRows ?? []);
         // The kits' swaps are the types'.
         for (const layer of layers.values()) layer.view = blockKitView(layer.grid, layer.component.kits, types);
         break;

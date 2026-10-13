@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 
+import { trimWallRowSteps } from './block-cell-uv';
 import { createCutawayFollower, type CutawayFollower } from './block-cutaway-follow';
 import { BlockLayerView, blockLookFromObject, type BlockModelLook } from './block-layers';
 import { createBrowserMeshWorker } from './block-mesh-pool';
@@ -87,6 +88,20 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
       const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
       if (Object.keys(mapping).length > 0) d.materials.apply(mesh, mapping, null);
     },
+    // The first trim sheet among the type's materials (a stand-in wears one; a world-mapped model rarely more) sets its wall cuts.
+    wallRowsOf: (type) => {
+      const library = d.materials;
+      if (library?.trimSheetOf === undefined) return null;
+      const ids = new Set(Object.values(type.materials ?? {}));
+      for (const v of type.variants) if (v.model !== undefined) for (const id of Object.values(d.assetMaterials(v.model.assetId) ?? {})) ids.add(id);
+      for (const id of ids) {
+        const sheet = library.trimSheetOf(id);
+        const steps = sheet !== null ? trimWallRowSteps(sheet) : null;
+        if (steps !== null) return steps;
+      }
+      return null;
+    },
+    onWallRowsChanged: (listener) => d.materials?.onDefinitions?.(listener) ?? (() => undefined),
     ...(d.meshWorkerUrl !== undefined ? { meshWorkers: () => createBrowserMeshWorker(d.meshWorkerUrl!) } : {}),
     meshed: () => d.onChange(),
     // Baked block-layer chunks: lightmap UVs, and the chunk's lightmap when its layout is the baked one.

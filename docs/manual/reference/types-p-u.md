@@ -1343,6 +1343,12 @@ interface TrimSheet {
   rows: TrimRow[];
   /** Decal cells (absent: none). */
   cells?: TrimCell[];
+  /**
+   * Rows are drawn at their real metre height (absent: the way sheets were
+   * drawn before, each part fitted to a whole number of rows — stored sheets
+   * keep their look until this is turned on). See `trimRunMapping`.
+   */
+  realHeight?: boolean;
 }
 ```
 

@@ -135,19 +135,31 @@ has), and Play's architecture problems name the row.
 The trim material has no emission of its own: the `emissive` row draws only
 as the colours you paint (it lights nothing and does not bloom).
 
-How the heights meet the geometry today:
+How the heights meet the geometry (a sheet with **rows at their real
+height** on, as new sheets and imported layouts are; see
+[Trim sheets](trim-sheets.md#rows-at-their-real-height)):
 
-- **Fields stack.** A `tile_uv` row repeats up a surface a whole number of
-  times, rounded to the nearest whole and stretched by the difference (a
-  3 m wall wears `upper_wall` three times; a 0.9 m dado wears `lower_wall`
-  twice at 0.45 m each). On 1 m and 0.5 m block cells and 3 m storeys the
-  standard field heights divide evenly.
-- **Trims follow the profile.** A profile part (a baseboard band, a frame)
-  is as tall as its style says, and its `tile_u` row is fitted to it. Set
-  the style's sizes to the row's metres (baseboard height 0.156 m, frame
-  width 0.125 m) so a trim keeps its painted scale.
-- **Block wall faces are one row per cell face.** A row shorter than the
-  cell is stretched up the face (`lower_wall` on a 1 m cell: 2×).
+- **Fields repeat at their own height.** A `tile_uv` row repeats up a
+  surface from the part's lower end, and the last repeat is cut where the
+  part ends — never stretched (a 3 m wall wears `upper_wall` three times; a
+  0.9 m dado wears `lower_wall` once and 0.4 m of it again, under the dado
+  rail). On 1 m and 0.5 m block cells and 3 m storeys the standard field
+  heights divide evenly, so nothing is cut.
+- **Trims are drawn once, at their own height.** A `tile_u` row on a part
+  within 5 % of its height is fitted to it (a 0.15 m baseboard on the
+  0.156 m row); on a shorter part the row's top shows at its painted scale,
+  on a taller part the row sits at the top and its bottom edge carries on
+  below. Size the parts to the rows: a style slider tied to a row (a band's
+  height, a frame's width) shows the row's height and offers **Snap to row**,
+  and a part that doesn't fit is listed in the sheet's problems.
+- **Block walls repeat the wall rows up each face.** The mesher cuts a wall
+  face where its row repeats (`lower_wall` on a 1 m first-storey cell: two
+  repeats of 0.5 m), counted from the layer's row 0, so the pattern runs on
+  unbroken from cell to cell.
+
+A sheet with the option off is drawn as sheets made before it were: every
+part fitted to a whole number of rows and stretched, block wall faces one
+row each.
 
 ## Maps
 

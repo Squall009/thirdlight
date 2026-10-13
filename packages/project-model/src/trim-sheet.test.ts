@@ -12,6 +12,7 @@ import {
   trimRowMetres,
   trimRowOf,
   trimRowV,
+  trimRunMapping,
   trimSafeMipLevel,
   trimSheetErrors,
   trimSheetFromLayout,
@@ -24,6 +25,7 @@ import {
   trimV,
   writeTrimStripUvs,
   writeTrimVertexColour,
+  type TrimRow,
   type TrimSheet,
 } from './trim-sheet';
 
@@ -118,7 +120,85 @@ describe('trim sheet row table', () => {
     expect(equalTrimRows(8, ['a', 'b', 'c', 'd'], 8).every((r) => r.bottom > r.top)).toBe(true);
     const shuffled = { ...UNEQUAL, rows: [...UNEQUAL.rows].reverse() };
     expect(canonicalTrimSheet(shuffled)).toEqual(UNEQUAL);
-    expect(defaultTrimSheet().rows.map((r) => r.slot)).toEqual(TRIM_STARTER_LAYOUT);
+    expect(defaultTrimSheet().rows.map((r) => r.slot).sort()).toEqual([...TRIM_STARTER_LAYOUT].sort());
+  });
+
+  it('a new sheet is the spec: 2048², 512 px/m, rows at their real heights in 16 px aligned bands, drawn at real height', () => {
+    const s = defaultTrimSheet();
+    expect([s.size, s.texelDensity, s.padding, s.realHeight]).toEqual([[2048, 2048], 512, 8, true]);
+    const metres = Object.fromEntries(s.rows.map((r) => [r.slot, trimRowMetres(s, r)]));
+    expect(metres).toEqual({ floor: 1, upper_wall: 1, lower_wall: 0.5, baseboard: 0.15625, crown: 0.125, frame: 0.125, column: 0.25, bevel: 0.0625, emissive: 0.125 });
+    for (const r of s.rows) {
+      expect((r.bottom - r.top) % 16).toBe(0);
+      expect((r.top - s.padding) % 16).toBe(0);
+    }
+    expect(s.rows.filter((r) => r.tileV === true).map((r) => r.slot)).toEqual(['floor', 'upper_wall', 'lower_wall', 'column', 'bevel']);
+    expect(trimSheetProblems(s)).toEqual([]);
+    expect(trimSheetSafeMipLevel(s)).toBe(4);
+    // The flag is stored only when on: a sheet saved before it keeps its bytes.
+    expect(canonicalTrimSheet(s).realHeight).toBe(true);
+    expect('realHeight' in canonicalTrimSheet({ ...s, realHeight: false })).toBe(false);
+    expect(trimSheetErrors({ ...s, realHeight: 'yes' }).map((e) => e.path)).toEqual(['/realHeight']);
+  });
+});
+
+describe('a row over a run (trimRunMapping)', () => {
+  const sheet = defaultTrimSheet();
+  const row = (slot: string): TrimRow => trimRowOf(sheet, slot)!;
+  /** Where across its row a run shows each place (metres from its start), with the repeat holding the place's neighbourhood. */
+  const across = (m: ReturnType<typeof trimRunMapping>, d: number, towardStart = false): number => m.acrossAt(d, m.stackAt(towardStart ? d - 1e-6 : d + 1e-6));
+
+  it('without realHeight fits a part to whole rows, stretched (stored sheets keep their look)', () => {
+    const legacy = { ...sheet, realHeight: undefined };
+    // A 0.9 m dado on a 0.5 m row: two repeats of 0.45 m; the top of the part shows the row's top.
+    const m = trimRunMapping(legacy, row('lower_wall'), 0.9, false);
+    expect([m.stacks, m.boundaries]).toEqual([2, [0.45]]);
+    expect(across(m, 0)).toBeCloseTo(1);
+    expect(across(m, 0.45, true)).toBeCloseTo(0);
+    expect(across(m, 0.9, true)).toBeCloseTo(0);
+    // A trim three times its row is stacked three times.
+    expect(trimRunMapping(legacy, row('baseboard'), 0.47, false).stacks).toBe(3);
+  });
+
+  it('a field repeats at its own height from the lower end, the last repeat cut where the run ends', () => {
+    // 2.1 m of upper wall on a 1 m row, run upward: repeats at 1 and 2 m, 0.1 m of a third at the top.
+    const up = trimRunMapping(sheet, row('upper_wall'), 2.1, false);
+    expect(up.stacks).toBe(3);
+    expect(up.boundaries.map((b) => +b.toFixed(9))).toEqual([1, 2]);
+    expect(across(up, 0)).toBeCloseTo(1);
+    expect(across(up, 0.5)).toBeCloseTo(0.5);
+    expect(across(up, 1, true)).toBeCloseTo(0);
+    expect(across(up, 1)).toBeCloseTo(1);
+    // The cut repeat continues the one below (the row tiles in v): 0.1 m into it is 0.1 of the row up from its bottom.
+    expect(across(up, 2.1, true)).toBeCloseTo(0.9);
+    // The same run walked from the top down: counted from its lower end all the same.
+    const down = trimRunMapping(sheet, row('upper_wall'), 2.1, true);
+    expect(down.boundaries.map((b) => +b.toFixed(9))).toEqual([0.1, 1.1]);
+    expect(across(down, 2.1, true)).toBeCloseTo(1);
+    expect(across(down, 0)).toBeCloseTo(0.9);
+    // Whole repeats exactly: 3 m on 1 m, no sliver.
+    expect(trimRunMapping(sheet, row('upper_wall'), 3.0000001, false).stacks).toBe(3);
+  });
+
+  it('a trim is drawn once: fitted within the tolerance, else at its own height from the top', () => {
+    // 0.15 m on the 0.15625 m baseboard: within 5 %, fitted.
+    const fit = trimRunMapping(sheet, row('baseboard'), 0.15, false);
+    expect([fit.stacks, fit.boundaries]).toEqual([1, []]);
+    expect(across(fit, 0.15, true)).toBeCloseTo(0);
+    expect(across(fit, 0)).toBeCloseTo(1);
+    // 0.3 m: the row's own 0.15625 m at the top, its bottom edge carried on below.
+    const tall = trimRunMapping(sheet, row('baseboard'), 0.3, false);
+    expect(tall.boundaries.map((b) => +b.toFixed(9))).toEqual([0.14375]);
+    expect(across(tall, 0.3, true)).toBeCloseTo(0);
+    expect(across(tall, 0.3 - 0.078125)).toBeCloseTo(0.5);
+    expect(across(tall, 0.1)).toBe(1);
+    expect(across(tall, 0)).toBe(1);
+    // 0.05 m: the row's top 0.05 m (a third of it), not squashed.
+    const short = trimRunMapping(sheet, row('baseboard'), 0.05, false);
+    expect(across(short, 0)).toBeCloseTo(0.05 / 0.15625);
+    // A curved moulding's row is painted to wrap its curve: fitted whatever its length.
+    expect(trimRunMapping(sheet, row('crown'), 0.4, false, true).boundaries).toEqual([]);
+    expect(across(trimRunMapping(sheet, row('crown'), 0.4, false, true), 0.2)).toBeCloseTo(0.5);
   });
 
   it('a sheet conforms to a layout when it has every slot', () => {
@@ -254,7 +334,8 @@ describe('Texture Designer layout import', () => {
       ],
     };
     const r = trimSheetFromLayout(layout);
-    const sheet = { size: [1024, 512], texelDensity: 512, padding: 8, rows: [{ slot: 'plaster_field', top: 8, bottom: 264, tileV: true }, { slot: 'coping', top: 280, bottom: 376 }], cells: [{ name: 'window_round', rect: [8, 392, 112, 112] }, { name: 'crack', rect: [136, 392, 64, 64] }] };
+    // The designer paints rows at their real height: the imported table draws them so.
+    const sheet = { size: [1024, 512], texelDensity: 512, padding: 8, rows: [{ slot: 'plaster_field', top: 8, bottom: 264, tileV: true }, { slot: 'coping', top: 280, bottom: 376 }], cells: [{ name: 'window_round', rect: [8, 392, 112, 112] }, { name: 'crack', rect: [136, 392, 64, 64] }], realHeight: true };
     expect(r).toEqual({ ok: true, skipped: ['notes'], sheet });
     expect(trimCellMetres(sheet as TrimSheet, trimCellOf(sheet as TrimSheet, 'window_round')!)).toEqual([0.21875, 0.21875]);
     // A decal layer without cells adds no cells key: a sheet without them keeps its bytes.

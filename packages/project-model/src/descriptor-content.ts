@@ -307,6 +307,7 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
       bool('tileV', 'Tiles in v', 'It tiles in v too: its padding continues its wrap.', { default: false, omitDefault: true }),
     ]), { required: true }),
     json('cells', 'Decal cells', 'Marks placed once on the sheet (signs, cracks, stains): [{name, rect: [x, y, width, height]}], each a named rectangle in whole pixels from the image\'s top-left corner, inside the sheet, that decal materials draw (read from the Texture Designer\'s layout.json; empty: none).', { shape: 'TrimCell[]' }),
+    bool('realHeight', 'Rows at their real height', 'Rows draw at their own metres (fields repeat, trims keep their scale). Off: parts are fitted to whole rows, as older sheets draw.', { default: false, omitDefault: true }),
   ], { required: true, when: when('shader', 'trim') }),
   // A decal material's trim sheet cell (decals.ts).
   obj('decal', 'Decal cell', 'A decal material that draws one decal cell of a trim sheet (its textures are the sheet\'s; empty: its own texture slots).', [

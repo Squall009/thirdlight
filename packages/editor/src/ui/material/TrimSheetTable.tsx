@@ -2,7 +2,8 @@
  * A trim material's row table in the Inspector: the sheet's size, texel
  * density and padding, and one line per row — its slot, pixel bounds, its
  * own density (empty: the sheet's), whether it tiles in v — with the row's
- * height in metres and the deepest mip level it reads cleanly. "Equal rows"
+ * height in metres and the deepest mip level it reads cleanly, and whether
+ * rows are drawn at their real height (new sheets: on). "Equal rows"
  * splits the sheet again into equal rows (the default layout), "Import
  * layout.json" reads a Texture Designer trim export's table (its rows and
  * its decal cells, listed under the rows), "Check padding"
@@ -128,6 +129,10 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
         <NumberField label="sheet height (px)" value={sheet.size[1]} onCommit={(v) => save({ ...sheet, size: [sheet.size[0], v!] })} />
         <NumberField label="texel density (px/m)" value={sheet.texelDensity} onCommit={(v) => save({ ...sheet, texelDensity: v! })} />
         <NumberField label="padding (px)" value={sheet.padding} onCommit={(v) => save({ ...sheet, padding: v! })} />
+        <label className="tl-field" title="Draw every row at its own height in metres: fields repeat up a wall at that height, trims show at their painted scale. Off: each part is fitted to whole rows (how sheets made before this option drew).">
+          <input type="checkbox" aria-label="rows at their real height" checked={sheet.realHeight === true} onChange={(e) => save({ ...sheet, realHeight: e.target.checked })} />
+          <span className="tl-field__label">rows at their real height</span>
+        </label>
       </div>
       <table className="tl-material-layers__table" aria-label="trim rows">
         <thead>

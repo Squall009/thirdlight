@@ -148,8 +148,8 @@ Project materials.
 | `materials[].instanceOf` | string, id, 1–64 chars |  |  | **Instance of.** A material instance: the parent material (or instance) whose look it takes. (format id) |
 | `materials[].values` | JSON |  |  | **Parameter values.** An instance of a graph material: its values for the parent's parameters (parameter key → value). |
 | `materials[].trim` | object |  |  | **Trim sheet.** A trim material's row table: where each row (a strip that tiles along u) lies on the sheet, in pixels from the image's top. Generated architecture asks for rows by slot. (required; applies when `shader` is `trim`) |
-| `materials[].trim.size` | vec2 [width, height] | `[1024,1024]` | 1 – 4096, step 1, px | **Size.** The sheet's width and height in pixels (its textures' level 0). (required) |
-| `materials[].trim.texelDensity` | number | `256` | 1 – 65536, step 1, px | **Texel density.** Pixels per metre along a strip (each row may set its own). (required) |
+| `materials[].trim.size` | vec2 [width, height] | `[2048,2048]` | 1 – 4096, step 1, px | **Size.** The sheet's width and height in pixels (its textures' level 0). (required) |
+| `materials[].trim.texelDensity` | number | `512` | 1 – 65536, step 1, px | **Texel density.** Pixels per metre along a strip (each row may set its own). (required) |
 | `materials[].trim.padding` | int | `8` | 0 – 256, step 1, px | **Padding.** Pixels above and below every row that repeat its edge (or continue its wrap), so filtering and mips read only the row. (required) |
 | `materials[].trim.rows` | list of objects |  |  | **Rows.** The rows, each a slot and its pixel bounds; rows do not overlap. (required) |
 | `materials[].trim.rows[].slot` | string, id, 1–64 chars |  |  | **Slot.** The semantic slot it fills (the starter layout: floor, lower_wall, upper_wall, baseboard, crown, frame, column, bevel, emissive); unique on the sheet. (required; format id) |
@@ -158,6 +158,7 @@ Project materials.
 | `materials[].trim.rows[].texelDensity` | number |  | 1 – 65536, step 1, px | **Texel density.** Its own pixels per metre (absent: the sheet's). |
 | `materials[].trim.rows[].tileV` | bool | `false` |  | **Tiles in v.** It tiles in v too: its padding continues its wrap. (stored only when not the default) |
 | `materials[].trim.cells` | JSON: `TrimCell[]` ([TrimCell](types-p-u.md#type-trim-cell)) |  |  | **Decal cells.** Marks placed once on the sheet (signs, cracks, stains): [{name, rect: [x, y, width, height]}], each a named rectangle in whole pixels from the image's top-left corner, inside the sheet, that decal materials draw (read from the Texture Designer's layout.json; empty: none). |
+| `materials[].trim.realHeight` | bool | `false` |  | **Rows at their real height.** Rows draw at their own metres (fields repeat, trims keep their scale). Off: parts are fitted to whole rows, as older sheets draw. (stored only when not the default) |
 | `materials[].decal` | object |  |  | **Decal cell.** A decal material that draws one decal cell of a trim sheet (its textures are the sheet's; empty: its own texture slots). (applies when `shader` is `decal`) |
 | `materials[].decal.sheet` | material id |  |  | **Sheet.** The trim material whose sheet holds the cell. (required) |
 | `materials[].decal.cell` | string, id, 1–64 chars |  |  | **Cell.** The cell's name in the sheet's decal cells. (required; format id) |

@@ -247,16 +247,20 @@ baseboards, crowns, frames, columns, bevels). Generated architecture draws
 every row as its own strip of geometry, so one sheet restyles a whole level
 for a fraction of a texture array's memory, and rows may differ in height.
 Create → **Trim sheet material** makes one (shader type `trim`) in the
-engine's starter layout; its Inspector has the usual values and textures and
-the **Trim sheet** table:
+[trim sheet spec](../guides/trim-sheet-spec.md)'s layout (2048², 512 px/m,
+the standard rows at their real heights); its Inspector has the usual values
+and textures and the **Trim sheet** table:
 
 - the sheet's size (pixels), texel density (pixels per metre along a strip)
   and **padding** (pixels above and below every row that repeat its edge —
-  the Texture Designer's gutter, 8 px by default);
+  the Texture Designer's gutter, 8 px by default), and **rows at their real
+  height** (new sheets and imported layouts: on): fields repeat up a surface
+  at their own height and trims keep their painted scale, where off fits
+  each part to whole rows ([Trim sheets](../guides/trim-sheets.md#rows-at-their-real-height));
 - one line per row: its **slot** (`floor`, `lower_wall`, `upper_wall`,
   `baseboard`, `crown`, `frame`, `column`, `bevel`, `emissive` in the starter
   layout; any id), its pixel bounds **top**/**bottom** from the image's top
-  (rows equal by default, any heights allowed, never overlapping), its own
+  (any heights, never overlapping), its own
   density (empty: the sheet's) and **tiles v** (its padding continues its
   wrap); the row's height in metres and the deepest mip level it reads
   cleanly are shown;

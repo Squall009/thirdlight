@@ -265,7 +265,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-trim-density-max"></a>`TRIM_DENSITY_MAX` | `65536` |  |
 | <a id="limit-trim-density-min"></a>`TRIM_DENSITY_MIN` | `1` | Texel density bounds (pixels per metre). |
 | <a id="limit-trim-padding-max"></a>`TRIM_PADDING_MAX` | `256` | The most padding a row may declare (pixels). |
-| <a id="limit-trim-sheet-defaults"></a>`TRIM_SHEET_DEFAULTS` | `{"size":[1024,1024],"texelDensity":256,"padding":8}` | A new sheet's values: 1024², 256 px/m (a 4 m wide strip), 8 px of padding (the Texture Designer's gutter). |
+| <a id="limit-trim-sheet-defaults"></a>`TRIM_SHEET_DEFAULTS` | `{"size":[2048,2048],"texelDensity":512,"padding":8}` | A new sheet's values: 2048², 512 px/m (a 4 m wide strip), 8 px of padding — the trim sheet spec's and the Texture Designer's. |
 | <a id="limit-trim-sheet-size-max"></a>`TRIM_SHEET_SIZE_MAX` | `4096` | The largest sheet side (pixels): a sheet's textures are textures, so their import limit is the sheet's (a larger table would validate and then name pixels no texture of it can have). |
 
 <a id="limits-project-model--types-v3"></a>

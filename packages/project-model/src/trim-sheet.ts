@@ -83,6 +83,12 @@ export interface TrimSheet {
   rows: TrimRow[];
   /** Decal cells (absent: none). */
   cells?: TrimCell[];
+  /**
+   * Rows are drawn at their real metre height (absent: the way sheets were
+   * drawn before, each part fitted to a whole number of rows — stored sheets
+   * keep their look until this is turned on). See `trimRunMapping`.
+   */
+  realHeight?: boolean;
 }
 
 /**
@@ -96,14 +102,39 @@ export const TRIM_DENSITY_MIN = 1;
 export const TRIM_DENSITY_MAX = 65536;
 /** The most padding a row may declare (pixels). */
 export const TRIM_PADDING_MAX = 256;
-/** A new sheet's values: 1024², 256 px/m (a 4 m wide strip), 8 px of padding (the Texture Designer's gutter). */
-export const TRIM_SHEET_DEFAULTS = { size: [1024, 1024] as [number, number], texelDensity: 256, padding: 8 } as const;
+/** A new sheet's values: 2048², 512 px/m (a 4 m wide strip), 8 px of padding — the trim sheet spec's and the Texture Designer's. */
+export const TRIM_SHEET_DEFAULTS = { size: [2048, 2048] as [number, number], texelDensity: 512, padding: 8 } as const;
 /**
  * The engine's neutral starter layout: the slots a generated room or
  * building asks for. A game's sheets may add slots of their own; a sheet
  * conforms to a layout when it has all of the layout's slots.
  */
 export const TRIM_STARTER_LAYOUT: readonly string[] = ['floor', 'lower_wall', 'upper_wall', 'baseboard', 'crown', 'frame', 'column', 'bevel', 'emissive'];
+/**
+ * The starter layout's rows on a default sheet, as the trim sheet spec
+ * (docs/manual/guides/trim-sheet-spec.md) lays them out: each row at its
+ * real metre height (floor and upper wall 1 m, lower wall 0.5 m, baseboard
+ * 0.156 m, …), bands of 8 px gutter + row + 8 px gutter starting on 16 px.
+ * Fields (`tileV`) stack up a surface; trims are drawn once across a part.
+ */
+export const TRIM_STARTER_ROWS: readonly Readonly<TrimRow>[] = Object.freeze([
+  { slot: 'floor', top: 8, bottom: 520, tileV: true },
+  { slot: 'upper_wall', top: 536, bottom: 1048, tileV: true },
+  { slot: 'lower_wall', top: 1064, bottom: 1320, tileV: true },
+  { slot: 'baseboard', top: 1336, bottom: 1416 },
+  { slot: 'crown', top: 1432, bottom: 1496 },
+  { slot: 'frame', top: 1512, bottom: 1576 },
+  { slot: 'column', top: 1592, bottom: 1720, tileV: true },
+  { slot: 'bevel', top: 1736, bottom: 1768, tileV: true },
+  { slot: 'emissive', top: 1784, bottom: 1848 },
+]);
+/**
+ * How far a part may differ from its trim row's height and still have the
+ * row fitted to it (a fraction of the row): within it the stretch does not
+ * show (a 0.15 m baseboard on a 0.156 m row); past it the row is drawn at
+ * its own height and a part tied to a style slider is a problem.
+ */
+export const TRIM_HEIGHT_TOLERANCE = 0.05;
 /** COLOR_0 channels on trim meshes (see the module comment). */
 export const TRIM_COLOUR_OCCLUSION = 0;
 export const TRIM_COLOUR_GRIME = 1;
@@ -117,7 +148,7 @@ export interface TrimSheetError {
   allowed?: readonly string[];
 }
 
-const SHEET_FIELDS = ['size', 'texelDensity', 'padding', 'rows', 'cells'] as const;
+const SHEET_FIELDS = ['size', 'texelDensity', 'padding', 'rows', 'cells', 'realHeight'] as const;
 const CELL_FIELDS = ['name', 'rect'] as const;
 const ROW_FIELDS = ['slot', 'top', 'bottom', 'texelDensity', 'tileV'] as const;
 
@@ -140,6 +171,7 @@ export function trimSheetErrors(v: unknown): TrimSheetError[] {
   if (!sized) out.push({ path: '/size', message: `size is [width, height] in pixels, 1-${TRIM_SHEET_SIZE_MAX} each` });
   if (!isNum(v['texelDensity'], TRIM_DENSITY_MIN, TRIM_DENSITY_MAX)) out.push({ path: '/texelDensity', message: `texelDensity is pixels per metre, ${TRIM_DENSITY_MIN}-${TRIM_DENSITY_MAX}` });
   if (!isInt(v['padding'], 0, TRIM_PADDING_MAX)) out.push({ path: '/padding', message: `padding is whole pixels, 0-${TRIM_PADDING_MAX}` });
+  if (v['realHeight'] !== undefined && typeof v['realHeight'] !== 'boolean') out.push({ path: '/realHeight', message: 'realHeight is true or false' });
   const rows = v['rows'];
   if (!Array.isArray(rows) || rows.length === 0) {
     out.push({ path: '/rows', message: 'rows lists at least one row {slot, top, bottom}' });
@@ -216,6 +248,8 @@ export function canonicalTrimSheet(s: TrimSheet): TrimSheet {
       .map((r) => ({ slot: r.slot, top: r.top, bottom: r.bottom, ...(r.texelDensity !== undefined ? { texelDensity: r.texelDensity } : {}), ...(r.tileV === true ? { tileV: true } : {}) })),
     // Cells keep their order (the order a picker lists them in); an empty list is no list, so a sheet without cells keeps its bytes.
     ...(s.cells !== undefined && s.cells.length > 0 ? { cells: s.cells.map((c) => ({ name: c.name, rect: [c.rect[0], c.rect[1], c.rect[2], c.rect[3]] as TrimCell['rect'] })) } : {}),
+    // Off is no field, so a sheet stored before the flag keeps its bytes.
+    ...(s.realHeight === true ? { realHeight: true } : {}),
   };
 }
 
@@ -245,10 +279,10 @@ export function equalTrimRows(height: number, slots: readonly string[], padding:
   return slots.map((slot, i) => ({ slot, top: i * band + pad, bottom: (i + 1) * band - pad }));
 }
 
-/** A new sheet in the starter layout (equal rows). */
-export function defaultTrimSheet(slots: readonly string[] = TRIM_STARTER_LAYOUT): TrimSheet {
+/** A new sheet: the starter rows at their real heights on the default sheet (the spec's layout). */
+export function defaultTrimSheet(): TrimSheet {
   const { size, texelDensity, padding } = TRIM_SHEET_DEFAULTS;
-  return { size: [size[0], size[1]], texelDensity, padding, rows: equalTrimRows(size[1], slots, padding) };
+  return { size: [size[0], size[1]], texelDensity, padding, rows: TRIM_STARTER_ROWS.map((r) => ({ ...r })), realHeight: true };
 }
 
 /** The row filling `slot`, or null. */
@@ -270,6 +304,85 @@ export function trimRowDensity(sheet: TrimSheet, row: TrimRow): number {
 /** A row's height in metres at its density: how tall a strip is with square texels. */
 export function trimRowMetres(sheet: TrimSheet, row: TrimRow): number {
   return (row.bottom - row.top) / trimRowDensity(sheet, row);
+}
+
+/**
+ * How a strip of `row` covers a run of a part `length` metres long (a
+ * profile segment, or several of a smooth profile wearing one row), as the
+ * row is drawn there. Positions along the run are metres from its start;
+ * `topAtStart` says which end the row's top pixels go at (the higher one).
+ *
+ * - `stacks`: how many times the row repeats; `at` gives, for a position,
+ *   which repeat holds it and where across the row it lies (0 the row's top
+ *   edge, 1 its bottom). `boundaries` are the positions where one repeat
+ *   gives way to the next (or where the row's edge starts to repeat), which
+ *   need a vertex of their own.
+ *
+ * A sheet without `realHeight` fits every part to a whole number of rows,
+ * stretched to the run (the way stored sheets have always drawn). With it:
+ * - a field (`tileV`) repeats at its own height from the run's lower end,
+ *   the last repeat cut where the run ends (the row tiles in v, so the cut
+ *   repeat continues the one below it seamlessly; nothing is stretched);
+ * - a trim is drawn once: fitted when the run is within
+ *   `TRIM_HEIGHT_TOLERANCE` of the row (or `curved`: a moulding's row is
+ *   painted to wrap its curve), else at its own height from the run's top —
+ *   a shorter part shows the row's top, a taller one the row's bottom edge
+ *   carried on below it (the padding repeats that edge, so nothing of the
+ *   neighbour is read).
+ */
+export interface TrimRunMapping {
+  stacks: number;
+  boundaries: number[];
+  /** Which repeat holds position `d` (metres from the run's start; ask at a cell's middle, a boundary is ambiguous). */
+  stackAt(d: number): number;
+  /** Where across the row position `d` lies for repeat `stack` (0 its top edge, 1 its bottom; clamped). */
+  acrossAt(d: number, stack: number): number;
+}
+
+export function trimRunMapping(sheet: TrimSheet, row: TrimRow, length: number, topAtStart: boolean, curved = false): TrimRunMapping {
+  const rowMetres = trimRowMetres(sheet, row);
+  const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+  const L = Math.max(length, 1e-9);
+  const fitted = (stacks: number): TrimRunMapping => {
+    const step = L / stacks;
+    const boundaries: number[] = [];
+    for (let q = 1; q < stacks; q++) boundaries.push(q * step);
+    return {
+      stacks,
+      boundaries,
+      stackAt: (d) => Math.max(0, Math.min(stacks - 1, Math.floor(d / step))),
+      acrossAt: (d, stack) => {
+        const local = d / step - stack;
+        return clamp01(topAtStart ? local : 1 - local);
+      },
+    };
+  };
+  if (sheet.realHeight !== true) return fitted(Math.max(1, Math.round(L / rowMetres)));
+  // From the run's lower end (fields) or its top (trims): where the row's repeats are counted from.
+  const fromLow = (d: number): number => (topAtStart ? L - d : d);
+  const ofLow = (x: number): number => (topAtStart ? L - x : x);
+  if (row.tileV === true) {
+    const stacks = Math.max(1, Math.ceil(L / rowMetres - 1e-6));
+    const boundaries: number[] = [];
+    for (let q = 1; q < stacks; q++) boundaries.push(ofLow(q * rowMetres));
+    boundaries.sort((a, b) => a - b);
+    const stackOf = (x: number): number => Math.max(0, Math.min(stacks - 1, Math.floor(x / rowMetres + 1e-9)));
+    return {
+      stacks,
+      boundaries,
+      stackAt: (d) => stackOf(fromLow(d)),
+      acrossAt: (d, stack) => clamp01(1 - (fromLow(d) / rowMetres - stack)),
+    };
+  }
+  if (curved || Math.abs(L - rowMetres) <= TRIM_HEIGHT_TOLERANCE * rowMetres) return fitted(1);
+  // Once, at its own height from the top: the top's distance down the run is the place across the row.
+  const fromTop = (d: number): number => (topAtStart ? d : L - d);
+  return {
+    stacks: 1,
+    boundaries: rowMetres < L ? [topAtStart ? rowMetres : L - rowMetres] : [],
+    stackAt: () => 0,
+    acrossAt: (d) => clamp01(fromTop(d) / rowMetres),
+  };
 }
 
 /**
@@ -517,7 +630,8 @@ export function trimSheetFromLayout(json: unknown): TrimLayoutImport {
     }
     rows.push({ slot: l['name'], top: px[0], bottom: px[1], ...(l['kind'] === 'tile_uv' ? { tileV: true } : {}) });
   }
-  const sheet: TrimSheet = { size: [size[0], size[1]], texelDensity: density, padding: isInt(gutter, 0, TRIM_PADDING_MAX) ? gutter : 0, rows, ...(cells.length > 0 ? { cells } : {}) };
+  // The Texture Designer paints every row at its real height (one density for the sheet): an imported table draws them so.
+  const sheet: TrimSheet = { size: [size[0], size[1]], texelDensity: density, padding: isInt(gutter, 0, TRIM_PADDING_MAX) ? gutter : 0, rows, ...(cells.length > 0 ? { cells } : {}), realHeight: true };
   const errors = trimSheetErrors(sheet);
   if (errors.length > 0) return { ok: false, message: `layout.json: ${errors[0]!.path} ${errors[0]!.message}` };
   return { ok: true, sheet: canonicalTrimSheet(sheet), skipped };

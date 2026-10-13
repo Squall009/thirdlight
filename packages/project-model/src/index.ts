@@ -1186,7 +1186,9 @@ export {
   TRIM_PADDING_MAX,
   TRIM_SHEET_DEFAULTS,
   TRIM_SHEET_SIZE_MAX,
+  TRIM_HEIGHT_TOLERANCE,
   TRIM_STARTER_LAYOUT,
+  TRIM_STARTER_ROWS,
   canonicalTrimSheet,
   defaultTrimSheet,
   equalTrimRows,
@@ -1197,6 +1199,7 @@ export {
   trimRowMetres,
   trimRowOf,
   trimRowV,
+  trimRunMapping,
   trimSafeMipLevel,
   trimSheetErrors,
   trimSheetFromLayout,
@@ -1213,6 +1216,7 @@ export {
   type TrimLayoutImport,
   type TrimPaddingProblem,
   type TrimRow,
+  type TrimRunMapping,
   type TrimSheet,
   type TrimSheetError,
   type TrimSheetProblem,
@@ -1547,6 +1551,7 @@ export {
   type ArchitectureStyles,
   type ResolvedArchitecturePreset,
 } from './arch-style';
+export { architectureRowMismatches, architectureRowTies, architectureTiedRow, fitsTrimRow, formatRowMetres, type ArchitectureRowMismatch, type ArchitectureRowTie } from './arch-style-rows';
 // Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
 export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
 // Distances along an outline as the generator measures them (arcs, chamfers and offsets in): where an opening's `at` falls.
