@@ -52,10 +52,19 @@ export interface TrimCheckView {
   problems: TrimPaddingProblem[];
 }
 import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
+import { FetchGate } from './fetch-gate';
+
+/**
+ * Texture-array requests in flight at once. The backend assembles arrays one at a time, so two keep it busy (one
+ * answered, the next asked) while the browser's other connections stay free for commands and reads (`FetchGate`).
+ */
+export const SLOT_FETCHES_MAX = 2;
 
 export * from './client-core';
 
 export class SessionClient extends SessionClientCore {
+  private readonly slotFetches = new FetchGate(SLOT_FETCHES_MAX);
+
   /** One entity with its full components (read-only). */
   async queryEntity(entityId: string): Promise<{ ok: true; entity: Record<string, unknown>; parentChain: string[] } | { ok: false; error: { code: string; message: string } }> {
     try {
@@ -832,13 +841,15 @@ export class SessionClient extends SessionClientCore {
    * `height`: its alpha is a height (a layer without one gets a height from its brightness).
    */
   async textureSlotBytes(layers: readonly string[], mode: string, height = false): Promise<Uint8Array> {
-    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/textures/slots`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'application/json' },
-      body: JSON.stringify({ layers, mode, ...(height ? { height: true } : {}) }),
+    return this.slotFetches.run(async () => {
+      const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/textures/slots`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'application/json' },
+        body: JSON.stringify({ layers, mode, ...(height ? { height: true } : {}) }),
+      });
+      if (!res.ok) throw { status: res.status, body: null };
+      return new Uint8Array(await res.arrayBuffer());
     });
-    if (!res.ok) throw { status: res.status, body: null };
-    return new Uint8Array(await res.arrayBuffer());
   }
 
   /**

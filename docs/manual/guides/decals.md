@@ -20,12 +20,15 @@ All use a **decal material**.
 
 ## Make a decal material
 
-1. In the project window, **create → Material**, then set its **shader** to
-   `decal`.
+1. In the project window, **create → Material** and pick **Decal** in the
+   New material dialog (or drop an image in the decal editor, below).
 2. Pick its **source**: its own textures — `map` (colour with opacity in
    alpha), and if you have them `normalMap`, `ormMap` (occlusion, roughness,
    metalness) and `emissiveMap` — or **a trim sheet's decal cell** (a trim
-   material and a cell by name; see [Trim sheets](trim-sheets.md)).
+   material and a cell by name; see [Trim sheets](trim-sheets.md)). A cell
+   takes its opacity from the sheet's alpha: a sheet exported with the
+   height in alpha (as a layered surface wants) draws its cells nearly
+   invisible.
 3. Set **blend**:
    - `blend` — the decal's lit colour over the surface by its opacity
      (signs, painted marks, leaves);

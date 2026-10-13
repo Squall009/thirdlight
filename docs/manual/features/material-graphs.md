@@ -329,7 +329,8 @@ edit mode's **Layer settings…**):
   moving prop's world layers slide), **biplanar** (top and side blended by
   the slope, two reads near the camera), or **mesh UVs** (the mesh's own
   UVs as made: a trim sheet's strips on generated walls, a model's unwrap;
-  no tiling);
+  no tiling; a block face's UVs cover the face once, so a trim layer on
+  block walls shows the whole sheet per cell face);
 - **trim sheet**: the trim material a layer follows — picking one puts the
   sheet's textures in the layer and sets mesh UVs; the layer then reads
   inside the sheet's rows (no bleeding at a distance), and generated walls

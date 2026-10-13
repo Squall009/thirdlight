@@ -19,6 +19,7 @@ import { RefPicker } from './catalog/RefPicker';
 import { OpenItemButton } from './catalog/item-opener';
 import {
   entityChoices,
+  firstReference,
   INDEX_REF_TARGETS,
   fieldAria,
   fieldLabel,
@@ -497,7 +498,7 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
   // A list of references (a HUD's documents) starts a new item at the first choice; a listed scene at the first scene.
   const fresh = (): unknown =>
     startValue(f.item, undefined, { scene: p.ctx.scenes[0]?.sceneId }) ??
-    (f.item.type === 'ref' ? (INDEX_REF_TARGETS.has(f.item.target) ? p.ctx.firstOf?.([f.item.target]) : p.ctx.refs[f.item.target as 'material']?.[0]?.id) : undefined) ??
+    (f.item.type === 'ref' ? firstReference(f.item, p.ctx) : undefined) ??
     (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
   return (
     <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
@@ -673,6 +674,8 @@ function MapWidget(p: RowProps & { aria: string }): JSX.Element {
   }
   const entries = p.value !== null && typeof p.value === 'object' ? Object.entries(p.value as Record<string, unknown>) : [];
   const editable = widgetFor(f.value) !== 'readonly';
+  // Asked while drawing: the project index answers an indexed kind's first item later, so it is known by the click.
+  if (editable && f.value.type === 'ref') firstReference(f.value, p.ctx);
   return (
     <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
       <div className="tl-field__label">{fieldLabel(f)}</div>
@@ -696,8 +699,10 @@ function MapWidget(p: RowProps & { aria: string }): JSX.Element {
             aria-label={`add ${p.aria}`}
             disabled={key.trim() === ''}
             onClick={() => {
-              const v = startValue(f.value);
-              if (v === undefined) return p.onFail(`${f.label}: pick a value after adding`);
+              // A map of references (a block type's materials by slot) starts the new entry at the first choice, as a
+              // list does: the entry's own picker then changes it (there is no picker before the entry exists).
+              const v = startValue(f.value) ?? (f.value.type === 'ref' ? firstReference(f.value, p.ctx) : undefined);
+              if (v === undefined) return p.onFail(`${f.label}: nothing to pick yet`);
               p.onEdit([...p.path, key.trim()], v);
               setKey('');
             }}

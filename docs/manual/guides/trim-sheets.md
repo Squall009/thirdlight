@@ -60,3 +60,14 @@ padding. Use the API to import a layout you keep with the texture source.
 - **No lightmaps:** trim surfaces are lit by probes and the generator's
   vertex occlusion.
 - **Sheets are textures:** at most 4,096 px a side.
+- **Two sheets on one layered surface share one row table.** Sheets from
+  different layouts disagree on some rows (a problem lists them): delete the
+  rows the walls don't use from both tables (**delete row**) so the rest
+  match.
+- **Block walls are not strips.** A block face's UVs cover the face once, so
+  a trim layer (mesh UVs) on a block shows the whole sheet on every cell
+  face. Trim rows dress generated architecture; give block walls tiling
+  layers (world or top).
+- **Decal cells need opacity in alpha.** A sheet exported with the height in
+  its albedo's alpha (for a layered surface) draws its decal cells nearly
+  invisible.
