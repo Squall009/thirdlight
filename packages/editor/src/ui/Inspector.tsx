@@ -34,7 +34,7 @@ interface Props {
   entity: ProjectedEntity | null;
   /** The object's edit mode, opened by the button under its name (null: it has none). */
   /** The object's edit mode: the button into it, and the fields it edits there instead of here (by component). */
-  editAction?: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>> } | null;
+  editAction?: { label: string; enter: () => void; skips?: Readonly<Record<string, readonly string[]>>; also?: { label: string; enter: () => void } } | null;
   gizmoMode: GizmoMode;
   onGizmoMode: (m: GizmoMode) => void;
   /** The component descriptors (null until the first game query answered). */
@@ -276,6 +276,11 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
           {editAction !== undefined && editAction !== null && (
             <button type="button" className="tl-btn tl-btn--edit-mode" title={`${editAction.label}: a full-screen editor on the Scene view (or double-click the object)`} onClick={editAction.enter}>
               {editAction.label}
+            </button>
+          )}
+          {editAction?.also !== undefined && (
+            <button type="button" className="tl-btn tl-btn--edit-mode" title={`${editAction.also.label}: a full-screen editor on the Scene view`} onClick={editAction.also.enter}>
+              {editAction.also.label}
             </button>
           )}
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />

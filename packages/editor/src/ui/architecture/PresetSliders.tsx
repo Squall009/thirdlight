@@ -1,5 +1,7 @@
 /**
- * Generated architecture in the Inspector.
+ * An architecture preset's sliders, shown where a preset is edited: the
+ * block editor's Rooms & buildings (the picked room's presets) and the
+ * Inspector of a preset open in the editor window.
  *
  * - `PresetSliders`: a preset's style, base and trim sheet, and a slider per
  *   parameter of its style (its value through the presets it derives from,
@@ -11,12 +13,11 @@
  *   makes a project preset from one. A slider tied to a trim row (a band's
  *   height, a frame's width: `arch-style-rows.ts`) shows the row's height on
  *   the sheet the preset wears, and "Snap to row" sets it to that height.
- * - `ArchitectureOutlines`: an architecture object's outlines and their
- *   presets, restyling every outline of one preset with another (the
- *   outlines stay as they are), and the sliders of the presets it uses.
+ * - `presetSlidersHost`: what the sliders read and send, from the project's
+ *   graphs and materials.
  */
 import { useEffect, useMemo, useState, type JSX } from 'react';
-import type { ArchitectureComponent, ArchitectureOutline, GraphDocument, GraphNode, GraphOp, TrimSheet } from '@thirdlight/project-model';
+import type { GraphDocument, GraphNode, GraphOp, MaterialDef, TrimSheet } from '@thirdlight/project-model';
 import {
   ARCHITECTURE_PRESET_KIND,
   ARCHITECTURE_STARTER_GRAPHS,
@@ -27,6 +28,7 @@ import {
   fitsTrimRow,
   formatRowMetres,
   resolveArchitecturePreset,
+  trimSheetOfMaterial,
   type ArchitecturePreview,
   type ArchitectureStyleParam,
 } from '@thirdlight/runtime';
@@ -52,6 +54,19 @@ interface SliderRow {
   slot: string;
   metres: number;
   real: boolean;
+}
+
+/** What every preset slider reads and sends: the project's graphs, its trim materials, graph edits and the Scene view's preview. */
+export type PresetSlidersHost = Pick<PresetSlidersProps, 'graphs' | 'sheets' | 'sheetOf' | 'onEdit' | 'onPreview'>;
+
+export function presetSlidersHost(graphs: readonly GraphDocument[], materials: readonly MaterialDef[], onEdit: PresetSlidersProps['onEdit'], onPreview: PresetSlidersProps['onPreview']): PresetSlidersHost {
+  return {
+    graphs,
+    sheets: materials.filter((m) => m.shader === 'trim').map((m) => [m.materialId, m.name ?? m.materialId] as const),
+    sheetOf: (id: string) => trimSheetOfMaterial(materials, id),
+    onEdit,
+    onPreview,
+  };
 }
 
 const archGraphsOf = (graphs: readonly GraphDocument[]): GraphDocument[] => graphs.filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
@@ -258,63 +273,5 @@ function Pick(props: { label: string; name: string; value: string; options: read
         ))}
       </select>
     </label>
-  );
-}
-
-export interface ArchitectureOutlinesProps extends Omit<PresetSlidersProps, 'presetId'> {
-  component: ArchitectureComponent;
-  onChange(next: ArchitectureComponent): void;
-}
-
-/** A room 8 × 6 m at the object's origin (drawing outlines is the room tool's). */
-const NEW_OUTLINE = (id: string): ArchitectureOutline => ({ id, preset: 'starter-room', path: { points: [[0, 0, 0], [8, 0, 0], [8, 0, 6], [0, 0, 6]], closed: true } });
-
-export function ArchitectureOutlines(props: ArchitectureOutlinesProps): JSX.Element {
-  const outlines = props.component.outlines ?? [];
-  const choices = presetChoices(props.graphs);
-  const used = [...new Set(outlines.map((o) => o.preset))];
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const setOutlines = (next: ArchitectureOutline[]): void => {
-    const { outlines: _o, ...rest } = props.component;
-    props.onChange(next.length > 0 ? { ...rest, outlines: next } : rest);
-  };
-  const restyleFrom = used.includes(from) ? from : (used[0] ?? '');
-  return (
-    <div className="tl-arch-outlines" aria-label="architecture outlines">
-      <div className="tl-inspector__subtitle">Outlines</div>
-      {outlines.map((o, i) => (
-        <Pick key={o.id} label={o.id} name={`outline ${o.id} preset`} value={o.preset} options={choices} onCommit={(v) => setOutlines(outlines.map((x, j) => (j === i ? { ...x, preset: v } : x)))} />
-      ))}
-      <button
-        type="button"
-        className="tl-btn tl-btn--small"
-        onClick={() => {
-          let n = outlines.length + 1;
-          while (outlines.some((o) => o.id === `room-${n}`)) n++;
-          setOutlines([...outlines, NEW_OUTLINE(`room-${n}`)]);
-        }}
-      >
-        Add room outline
-      </button>
-      {used.length > 0 && (
-        <div className="tl-arch-restyle">
-          <Pick label="restyle" name="restyle from" value={restyleFrom} options={used.map((id) => [id, choices.find(([c]) => c === id)?.[1] ?? id] as const)} onCommit={setFrom} />
-          <Pick label="with" name="restyle to" value={to} options={[['', '— a preset —'], ...choices]} onCommit={setTo} />
-          <button
-            type="button"
-            className="tl-btn tl-btn--small"
-            disabled={to === '' || restyleFrom === '' || to === restyleFrom}
-            title="Every outline of the first preset takes the second (the outlines stay as they are)"
-            onClick={() => setOutlines(outlines.map((o) => (o.preset === restyleFrom ? { ...o, preset: to } : o)))}
-          >
-            Restyle
-          </button>
-        </div>
-      )}
-      {used.map((id) => (
-        <PresetSliders key={id} {...props} presetId={id} />
-      ))}
-    </div>
   );
 }

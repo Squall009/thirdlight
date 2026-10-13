@@ -15,16 +15,19 @@
  * - Wall drag: one straight side of an outline moved across itself by whole
  *   cells (its corners go with it, a neighbour's wall along it too);
  *   openings on the other sides stay where they stood.
+ * - Wall and corner pieces: a kit model in place of a straight segment or a
+ *   corner of a generated wall (an override of the expanded element: the
+ *   rooms' walls, else any sweep of the component).
  *
  * Points are metres in the rooms object's frame (its position is the
  * layer's, so they are also layer metres); y is the floor height drawn on.
  */
-import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureOpening, ArchitectureOutline, ArchitecturePath } from '@thirdlight/project-model';
+import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureElement, ArchitectureModelRef, ArchitectureOpening, ArchitectureOutline, ArchitectureOverride, ArchitecturePath, ArchitectureSweep } from '@thirdlight/project-model';
 import { sampleArchitecturePath, type ArchitecturePathSamples } from '@thirdlight/runtime';
 
-export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'building' | 'door' | 'window' | 'arch' | 'walls';
+export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'building' | 'door' | 'window' | 'arch' | 'walls' | 'piece' | 'corner';
 
-/** What the Rooms tool's options panel sets. */
+/** What the Rooms tool draws with (Rooms & buildings sets it). */
 export interface RoomToolOptions {
   mode: RoomToolMode;
   /** The preset new rooms and new runs wear. */
@@ -34,9 +37,15 @@ export interface RoomToolOptions {
   facadePreset: string;
   /** The next polygon or path segment is an arc bulging this much (tan of a quarter of its angle; 0: straight). */
   bulge: number;
+  /** The kit pieces new doors and windows stand in, with the hole each takes (null: the style's reveals and frame). */
+  doorPiece: OpeningPiece | null;
+  windowPiece: OpeningPiece | null;
+  /** The kit pieces a clicked wall segment and a clicked corner take (overrides; null: none picked yet). */
+  wallModel: ArchitectureModelRef | null;
+  cornerModel: ArchitectureModelRef | null;
 }
 
-export const DEFAULT_ROOM_OPTIONS: RoomToolOptions = { mode: 'rect', roomPreset: 'starter-room', pathPreset: 'starter-fence', facadePreset: '', bulge: 0 };
+export const DEFAULT_ROOM_OPTIONS: RoomToolOptions = { mode: 'rect', roomPreset: 'starter-room', pathPreset: 'starter-fence', facadePreset: '', bulge: 0, doorPiece: null, windowPiece: null, wallModel: null, cornerModel: null };
 
 /** A new building: a hip roof over one storey (the inspector sets storeys, the roof and where the interior is). */
 export const NEW_BUILDING_ROOF = Object.freeze({ shape: 'hip' as const });
@@ -49,6 +58,26 @@ export function allOutlines(c: ArchitectureComponent | null): ArchitectureOutlin
 /** Whether an outline is one of the component's buildings. */
 export function isBuilding(c: ArchitectureComponent | null, id: string): boolean {
   return (c?.buildings ?? []).some((b) => b.id === id);
+}
+
+/** A kit piece put in new openings: the model, and the hole it takes (cells wide, metres up from the wall's foot). */
+export interface OpeningPiece {
+  model: ArchitectureModelRef;
+  cells: number;
+  bottom: number;
+  top: number;
+}
+
+/**
+ * The hole a kit piece takes: as wide as its whole cells (at least one),
+ * from its slot's sill (`sill`) up its height; a piece whose size is not
+ * known takes the opening kind's own height.
+ */
+export function openingPiece(model: ArchitectureModelRef, kind: 'door' | 'window', sill: number, size: readonly number[] | null, cellSize: readonly number[]): OpeningPiece {
+  const k = ROOM_OPENING_KINDS[kind];
+  const cells = size === null ? k.cells : Math.max(1, Math.round(size[0]! / cellSize[0]!));
+  const height = size === null ? k.top - k.bottom : size[1]!;
+  return { model: { ...model }, cells, bottom: sill, top: round6(sill + height) };
 }
 
 /** The openings the tool puts on walls: cells wide, metres up from the wall's foot, a pane or not. */
@@ -185,10 +214,11 @@ export function nearestSide(c: ArchitectureComponent | null, x: number, z: numbe
 /**
  * An opening on a side, `cells` cells wide, centred so it covers whole cells
  * (an odd count: on a cell's middle; even: on a cell line), kept inside the
- * side. Its id is the first free `<kind>-N` of the outline.
+ * side. Its id is the first free `<kind>-N` of the outline; `piece`: the kit
+ * piece that stands in it (its hole, no pane).
  */
-export function openingOn(side: OutlineSide, along: number, kind: keyof typeof ROOM_OPENING_KINDS, cellSize: readonly number[], storey: number): ArchitectureOpening | null {
-  const k = ROOM_OPENING_KINDS[kind];
+export function openingOn(side: OutlineSide, along: number, kind: keyof typeof ROOM_OPENING_KINDS, cellSize: readonly number[], storey: number, piece: OpeningPiece | null = null): ArchitectureOpening | null {
+  const k = piece === null ? ROOM_OPENING_KINDS[kind] : { ...piece, pane: false };
   const cell = Math.abs(side.b[0] - side.a[0]) >= Math.abs(side.b[2] - side.a[2]) ? cellSize[0]! : cellSize[2]!;
   const width = k.cells * cell;
   if (width > side.length + 1e-9) return null;
@@ -198,7 +228,8 @@ export function openingOn(side: OutlineSide, along: number, kind: keyof typeof R
   const taken = new Set((side.outline.openings ?? []).map((o) => o.id));
   let n = 1;
   while (taken.has(`${kind}-${n}`)) n++;
-  return { id: `${kind}-${n}`, at: round6(side.start + mid), width: round6(width), bottom: k.bottom, top: k.top, ...(k.pane ? { pane: true } : {}), ...(storey > 0 ? { storey } : {}) };
+  // A kit piece stands in the hole instead of the style's reveals, frame and pane.
+  return { id: `${kind}-${n}`, at: round6(side.start + mid), width: round6(width), bottom: k.bottom, top: k.top, ...(k.pane ? { pane: true } : {}), ...(storey > 0 ? { storey } : {}), ...(piece !== null ? { model: { ...piece.model } } : {}) };
 }
 
 /** The across direction of a side (right of travel, on the ground; unit). */
@@ -320,4 +351,100 @@ export function moveWall(c: ArchitectureComponent, id: string, index: number, of
     return x;
   };
   return { ...c, ...(c.outlines !== undefined ? { outlines: c.outlines.map(move) } : {}), ...(c.buildings !== undefined ? { buildings: c.buildings.map(move) } : {}) };
+}
+
+
+// ---- wall and corner pieces (overrides) --------------------------------------------------
+
+/** A straight segment of an expanded element's path (point `segment` to the next), in the object's frame. */
+export interface ElementSegment {
+  element: string;
+  segment: number;
+  a: Point3;
+  b: Point3;
+}
+
+/** A point of an expanded element's path (a corner a piece may stand in). */
+export interface ElementCorner {
+  element: string;
+  corner: number;
+  p: Point3;
+}
+
+/** The sweeps a piece is put on: the rooms' walls (the style's sweeps marked `wall`), else every sweep (raw elements). */
+function pieceSweeps(elements: readonly ArchitectureElement[]): ArchitectureSweep[] {
+  const sweeps = elements.filter((e): e is ArchitectureSweep => e.kind === 'sweep');
+  const walls = sweeps.filter((e) => e.wall === true);
+  return walls.length > 0 ? walls : sweeps;
+}
+
+/** The straight segment of a wall nearest a ground point (x, z) within `reach` metres (arcs and curves are left out). */
+export function nearestSegment(elements: readonly ArchitectureElement[], x: number, z: number, reach: number): ElementSegment | null {
+  let best: ElementSegment | null = null;
+  let bestD = Infinity;
+  for (const e of pieceSweeps(elements)) {
+    if (e.path.curve === true) continue;
+    const pts = e.path.points;
+    const segs = e.path.closed === true ? pts.length : pts.length - 1;
+    for (let i = 0; i < segs; i++) {
+      if ((e.path.bulges?.[i] ?? 0) !== 0) continue;
+      const a = pts[i]!;
+      const b = pts[(i + 1) % pts.length]!;
+      const dx = b[0] - a[0];
+      const dz = b[2] - a[2];
+      const l2 = dx * dx + dz * dz;
+      if (l2 === 0) continue;
+      const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[2]) * dz) / l2));
+      const d = Math.hypot(a[0] + dx * t - x, a[2] + dz * t - z);
+      if (d <= reach && d < bestD) {
+        bestD = d;
+        best = { element: e.id, segment: i, a: [...a], b: [...b] };
+      }
+    }
+  }
+  return best;
+}
+
+/** The wall corner nearest a ground point (x, z) within `reach` metres. */
+export function nearestCorner(elements: readonly ArchitectureElement[], x: number, z: number, reach: number): ElementCorner | null {
+  let best: ElementCorner | null = null;
+  let bestD = Infinity;
+  for (const e of pieceSweeps(elements)) {
+    e.path.points.forEach((p, i) => {
+      const d = Math.hypot(p[0] - x, p[2] - z);
+      if (d <= reach && d < bestD) {
+        bestD = d;
+        best = { element: e.id, corner: i, p: [...p] };
+      }
+    });
+  }
+  return best;
+}
+
+/** Whether an override stands on this segment or corner. */
+const sameSpot = (o: ArchitectureOverride, at: { element: string; segment?: number; corner?: number }): boolean => o.element === at.element && o.segment === at.segment && o.corner === at.corner;
+
+/**
+ * The component with a kit piece on a segment or corner (`model` null:
+ * the piece there taken off). One piece per spot: a new one replaces it.
+ * A kit piece's origin is its bottom centre, so a segment's stands at the
+ * segment's middle, stretched to it (the generator's default).
+ */
+export function withOverride(c: ArchitectureComponent, at: { element: string; segment: number } | { element: string; corner: number }, model: ArchitectureModelRef | null): ArchitectureComponent {
+  const kept = (c.overrides ?? []).filter((o) => !sameSpot(o, at));
+  const next: ArchitectureOverride[] = model === null ? kept : [...kept, { ...at, model: { ...model }, ...('segment' in at ? { centre: true } : {}) }];
+  const { overrides: _o, ...rest } = c;
+  return next.length > 0 ? { ...rest, overrides: next } : rest;
+}
+
+/** The outline (room, run or building) an expanded element was made from: the longest id it starts with (null: a raw element). */
+export function outlineOfElement(c: ArchitectureComponent | null, element: string): ArchitectureOutline | null {
+  let best: ArchitectureOutline | null = null;
+  for (const o of allOutlines(c)) if ((element === o.id || element.startsWith(`${o.id}-`)) && (best === null || o.id.length > best.id.length)) best = o;
+  return best;
+}
+
+/** The overrides on an outline's elements, with their place in the component's list. */
+export function overridesOf(c: ArchitectureComponent | null, outlineId: string): { index: number; override: ArchitectureOverride }[] {
+  return (c?.overrides ?? []).flatMap((o, index) => (outlineOfElement(c, o.element)?.id === outlineId ? [{ index, override: o }] : []));
 }

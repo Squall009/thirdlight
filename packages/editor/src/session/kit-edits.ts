@@ -97,3 +97,29 @@ export function withId(list: readonly string[] | undefined, id: string, on: bool
   const cur = list ?? [];
   return on ? (cur.includes(id) ? [...cur] : [...cur, id]) : cur.filter((x) => x !== id);
 }
+
+/** A kit piece offered where a model is picked (a door in an opening, a wall piece): its slot, the model, a key for pickers. */
+export interface KitPieceChoice {
+  readonly key: string;
+  readonly slot: string;
+  readonly model: { assetId: string; piece?: string };
+}
+
+/** A model reference as a picker's value (`assetId`, `#piece` after it). */
+export const modelKey = (m: { assetId: string; piece?: string }): string => (m.piece !== undefined ? `${m.assetId}#${m.piece}` : m.assetId);
+
+/** The pieces of a kit's slots, in the slots' order, each model once (null kit: none). */
+export function kitPieceChoices(kit: KitDef | null, slots: readonly string[]): KitPieceChoice[] {
+  const out: KitPieceChoice[] = [];
+  const seen = new Set<string>();
+  for (const slot of slots) {
+    for (const p of kit?.pieces?.[slot] ?? []) {
+      const model = { assetId: p.assetId, ...(p.piece !== undefined ? { piece: p.piece } : {}) };
+      const key = modelKey(model);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ key, slot, model });
+    }
+  }
+  return out;
+}

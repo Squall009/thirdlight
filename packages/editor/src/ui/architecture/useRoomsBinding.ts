@@ -1,5 +1,6 @@
 /**
- * The rooms drawn on the selected block layer, bound for its Rooms tool: the
+ * The rooms drawn on a block layer, bound for its block editor's Rooms &
+ * buildings mode: the
  * generated-architecture object whose `architecture.layer` names the layer
  * (the first such object; none until the first room is drawn), expanded with
  * the project's styles for the room plans, the walls' cell edges, buildings'
@@ -9,14 +10,50 @@
  * `createEntity`) or preview it in the Scene view while a wall is dragged.
  */
 import { useMemo } from 'react';
-import type { ArchitectureComponent, BlockLayerComponent, GraphDocument } from '@thirdlight/project-model';
-import { architectureGraphsOf, architectureStylesOf, architectureWallEdges, expandArchitecture, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from '@thirdlight/runtime';
+import type { ArchitectureComponent, ArchitectureElement, ArchitectureOutline, ArchitectureRoomPlan, BlockLayerComponent, FurnishedProp, GraphDocument } from '@thirdlight/project-model';
+import { ARCHITECTURE_PRESET_KIND, architectureGraphsOf, architectureStylesOf, architectureWallEdges, expandArchitecture, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from '@thirdlight/runtime';
 
 import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
-import { presetChoices } from './ArchitecturePanels';
-import type { RoomsBinding } from './RoomsPanel';
+import { presetChoices } from './PresetSliders';
 import { waitFor } from '../wait-for';
+
+/** The rooms object of a layer as the block editor binds it. */
+export interface RoomsBinding {
+  /** The object (null: none yet: the first room makes it). */
+  entityId: string | null;
+  component: ArchitectureComponent | null;
+  /** Its place (the layer's for a new one), and the layer's. */
+  origin: readonly number[];
+  layerOrigin: readonly number[];
+  /** Its elements as expanded (the rooms' generated walls, which wall and corner pieces go on). */
+  elements: readonly ArchitectureElement[];
+  /** Each room storey's floor plan (expanded: floors and wall tops). */
+  plans: readonly ArchitectureRoomPlan[];
+  /** Buildings' furnished and pinned props, and the rooms their programs made (expanded). */
+  props: readonly FurnishedProp[];
+  planRooms: readonly ArchitectureOutline[];
+  /** The project's room programs and furnishing sets: [id, name]. */
+  programs: readonly (readonly [string, string])[];
+  furnishings: readonly (readonly [string, string])[];
+  /** The cell edges the rooms' walls stand on (the paint brush reaches their faces). */
+  walls: ReadonlyMap<number, boolean> | null;
+  /** Every preset: [id, name]. */
+  presets: readonly (readonly [string, string])[];
+  /** The project's scenes ([id, name]) and the one the rooms are in (a building's interior goes in another). */
+  scenes: readonly (readonly [string, string])[];
+  sceneId: string | null;
+  /** Make a new scene named so (resolves its id; null: refused). */
+  createScene(name: string): Promise<string | null>;
+  /** Store the rooms (making the object on the first room). */
+  setRooms(next: ArchitectureComponent, what: string): Promise<boolean>;
+  /** Draw the object as `next` without storing it (null: as stored). */
+  preview(entityId: string, next: ArchitectureComponent | null): void;
+  /** A project preset deriving from `base` (an engine starter), worn by every room of `base` (resolves its id; null: refused). */
+  derive(base: string): Promise<string | null>;
+}
+
+const NO_ELEMENTS: readonly ArchitectureElement[] = Object.freeze([]);
 
 const NO_POSITION: readonly number[] = Object.freeze([0, 0, 0]);
 
@@ -48,6 +85,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     planRooms: expanded?.planRooms ?? [],
     programs,
     furnishings,
+    elements: expanded?.component.elements ?? NO_ELEMENTS,
     walls,
     presets,
     scenes,
@@ -80,6 +118,25 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     },
     preview(entityId, next) {
       viewportRef.current?.previewComponent(entityId, 'architecture', next);
+    },
+    async derive(base) {
+      const c = clientRef.current;
+      if (!c) return null;
+      const ids = new Set(graphs.map((g) => g.graphId));
+      let id = `${base}-1`;
+      for (let i = 2; ids.has(id); i++) id = `${base}-${i}`;
+      const name = `${presets.find(([p]) => p === base)?.[1] ?? base} (own)`;
+      const made = await c.command('setGraph', { graph: { graphId: id, kind: ARCHITECTURE_PRESET_KIND, name, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base, sheet: '' } }], edges: [] } } }, c.projection.revision);
+      reportFailure('Derive a preset', made);
+      if (!made.ok) return null;
+      // The rooms that wore the starter wear the new preset (its sliders are the project's).
+      const arch = roomsId === null ? undefined : (c.projection.getEntity(roomsId)?.components['architecture'] as ArchitectureComponent | undefined);
+      const swap = <T extends { preset: string; outside?: string }>(o: T): T => ({ ...o, ...(o.preset === base ? { preset: id } : {}), ...(o.outside === base ? { outside: id } : {}) });
+      if (arch !== undefined && roomsId !== null && [...(arch.outlines ?? []), ...(arch.buildings ?? [])].some((o) => o.preset === base || o.outside === base)) {
+        const r = await c.setComponent(roomsId, 'architecture', { ...arch, ...(arch.outlines !== undefined ? { outlines: arch.outlines.map(swap) } : {}), ...(arch.buildings !== undefined ? { buildings: arch.buildings.map(swap) } : {}) }, c.projection.revision);
+        reportFailure('Derive a preset', r);
+      }
+      return id;
     },
   };
 }

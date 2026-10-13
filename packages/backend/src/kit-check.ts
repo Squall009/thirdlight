@@ -82,7 +82,9 @@ export function createKitChecker(deps: { service: WorkspaceService; encoder: Tex
         }
         const materials = content.assets?.find((a) => a.assetId === p.assetId)?.materials;
         const checks = kitPieceChecks(f, { slot, ...(sheet !== null ? { sheet: { materialId: kit.trimMaterial!, trim: sheet.trim } } : {}), ...(materials !== undefined ? { materials } : {}) });
-        pieces.push({ ...base, present: true, pieces: f.pieces, triangles: f.triangles, lods: f.lods, collider: f.collider, ...(materials !== undefined ? { materials } : {}), checks });
+        const b = f.bounds;
+        const size = b === null ? undefined : ([0, 1, 2].map((i) => Math.round((b.max[i]! - b.min[i]!) * 1000) / 1000) as [number, number, number]);
+        pieces.push({ ...base, present: true, pieces: f.pieces, triangles: f.triangles, lods: f.lods, collider: f.collider, ...(size !== undefined ? { size } : {}), ...(materials !== undefined ? { materials } : {}), checks });
       });
     }
     let sheetReport: KitSheetReport | null = null;

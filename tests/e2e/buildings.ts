@@ -10,7 +10,7 @@
  * red row. Drawn by clicking the footprint's six corners; a door and a
  * window on the ground storey and a window above it put on the front wall
  * with the Door and Window modes (the upper one from the slice a storey
- * up); the building inspector sets two 3 m storeys, the roof's rise and
+ * up); the picked building's column sets two 3 m storeys, the roof's rise and
  * slot, takes the panes out of the windows, makes a new interior scene and
  * moves the interior 100 m along x. A fixed camera in the interior scene
  * looks at the front wall from inside. A script loads the interior scene
@@ -138,7 +138,7 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [12, 8, 12] } } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 1, 12], cell: { block: 'e2e-house-ground' } }] });
 
-  // ---- The editor: the layer's Rooms tool, Building mode, on the slice's floor (row 1, the cells' top).
+  // ---- The block editor's Rooms & buildings, the Building tool, on the slice's floor (row 1, the cells' top).
   await enterBlockEditor(page, layer);
   const blocks = editMode(page);
   // Home frames the layer (the view's direction kept), as F did on the selected layer before.
@@ -149,10 +149,10 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
     await blocks.getByLabel('slice level', { exact: true }).press('Enter');
   };
   await slice(1);
-  const rooms = blocks.getByLabel('rooms panel');
+  const rooms = blocks.getByLabel('block rooms');
   await expect(rooms).toBeVisible();
   await frameOn(page, [[218, 0, -45], [230, 0, -45], [218, 0, -33], [230, 0, -33], [219, 3, -34]]);
-  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tools' }).getByRole('button', { name, exact: true }).click();
+  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }).click();
   const roomsObject = async (): Promise<{ id: string; buildings: Building[] } | null> => {
     const ents = ((await query('queryEntities', { limit: 500, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
     const e = ents.find((x) => (x.components['architecture'] as { layer?: string } | undefined)?.layer === layer);
@@ -175,7 +175,7 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   expect((await house())!).toMatchObject({ id: 'building-1', preset: 'e2e-house-in', roof: { shape: 'hip' } });
   expect((await house())!.path.points.length).toBe(6);
 
-  // The building inspector: two 3 m storeys.
+  // The picked building's column: two 3 m storeys.
   const panel = rooms.getByLabel('building building-1 inspector');
   await expect(panel).toBeVisible();
   const setNum = async (label: string, value: string): Promise<void> => {

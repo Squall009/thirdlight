@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch } from 'react';
 
 import type { WorkspaceAction } from '../../session/editor-window';
 import type { ProjectedEntity } from '../../session/projection';
-import { editModeFor, editModeKind, isSceneMode, type EditModeKind } from './modes';
+import { editModeFor, editModeKind, editModeVia, isSceneMode, type EditModeKind } from './modes';
 
 export interface EditModeState {
   readonly kind: string;
@@ -66,12 +66,22 @@ export function useEditMode(deps: EditModeDeps) {
 
   /**
    * Open the edit mode of an object (`kind`: an object just made, maybe not in the projection yet); false when it has
-   * none. `activated`: a double-click asks, which opens only the editors that open that way.
+   * none. `activated`: a double-click asks, which opens only the editors that open that way. `railMode`: the rail's
+   * mode it opens in (absent: the one last shown).
    */
   const enter = useCallback(
-    (entityId: string, kind?: string, activated = false): boolean => {
-      const e = entitiesRef.current.find((x) => x.id === entityId);
-      const k: EditModeKind | undefined = e !== undefined ? editModeFor(e, activated) : kind !== undefined ? editModeKind(kind) : undefined;
+    (entityId: string, kind?: string, activated = false, railMode?: string): boolean => {
+      let e = entitiesRef.current.find((x) => x.id === entityId);
+      let k: EditModeKind | undefined = e !== undefined ? editModeFor(e, activated) : kind !== undefined ? editModeKind(kind) : undefined;
+      // An object that belongs to another (rooms drawn on a block layer) opens that one's editor in its mode.
+      let viaMode: string | undefined = railMode;
+      const via = k === undefined && e !== undefined ? editModeVia(e, entitiesRef.current) : undefined;
+      if (via !== undefined) {
+        e = entitiesRef.current.find((x) => x.id === via.entityId);
+        k = e !== undefined ? editModeKind(via.kind) : undefined;
+        entityId = via.entityId;
+        viaMode = via.mode;
+      }
       if (k === undefined) return false;
       if (saved.current === null) saved.current = { ids: selectionRef.current.ids, primary: selectionRef.current.primary };
       seen.current = e !== undefined;
@@ -80,7 +90,8 @@ export function useEditMode(deps: EditModeDeps) {
       owesFrame.current = scene ? null : kind !== undefined ? 'always' : 'away';
       setSelection({ ids: [], primary: null });
       const focus = scene && entityId !== '' ? entityId : null;
-      const mode = (focus !== null && isSceneMode(k) ? k.focusMode : undefined) ?? lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '';
+      const mode = viaMode ?? (focus !== null && isSceneMode(k) ? k.focusMode : undefined) ?? lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '';
+      if (viaMode !== undefined) lastMode.current.set(k.kind, viaMode);
       setState({ kind: k.kind, entityId: scene ? '' : entityId, focus, mode, context: false });
       workspaceDispatch({ type: 'view', view: 'scene' });
       workspaceDispatch({ type: 'show', on: false });

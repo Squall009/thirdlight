@@ -16,15 +16,18 @@
  * - Walls: drag a straight side across itself by whole cells (a wall the
  *   room beside it shares moves with it); the Scene view draws the moved
  *   room while dragging (only its chunks are made again), the release
- *   stores it. A click without a drag picks the room for the Inspector.
+ *   stores it. A click without a drag picks the room for the column.
+ * - Wall piece / corner piece: the wall segment or corner under the pointer
+ *   is lit; a click puts the picked kit piece there (an override of the
+ *   generated wall), Ctrl+click takes the piece there off.
  *
  * Every gesture stores ONE command (one undo step). Browser-only (three.js);
  * the geometry is `session/room-draw.ts`.
  */
 import * as THREE from 'three';
-import type { ArchitectureComponent, BlockLayerComponent } from '@thirdlight/project-model';
+import type { ArchitectureComponent, ArchitectureElement, BlockLayerComponent } from '@thirdlight/project-model';
 
-import { allOutlines, DEFAULT_ROOM_OPTIONS, moveWall, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
+import { allOutlines, DEFAULT_ROOM_OPTIONS, moveWall, nearestCorner, nearestSegment, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, outlineOfElement, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, withOverride, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
 
 /** The rooms object of the edited layer (null id and component: none yet). */
 export interface RoomsTarget {
@@ -32,6 +35,8 @@ export interface RoomsTarget {
   component: ArchitectureComponent | null;
   /** The object's position (the layer's for a new one). */
   origin: readonly number[];
+  /** Its elements as expanded (the rooms' generated walls: what wall and corner pieces go on). */
+  elements: readonly ArchitectureElement[];
 }
 
 export interface RoomToolHost {
@@ -62,13 +67,15 @@ const CLICK_PX = 4;
 
 export class RoomTool {
   private opts: RoomToolOptions = DEFAULT_ROOM_OPTIONS;
-  private target: RoomsTarget = { entityId: null, component: null, origin: [0, 0, 0] };
+  private target: RoomsTarget = { entityId: null, component: null, origin: [0, 0, 0], elements: [] };
   /** Corners of the polygon or path being drawn (object frame) and each segment's bulge. */
   private corners: Point3[] = [];
   private bulges: number[] = [];
   private rectStart: Point3 | null = null;
   private drag: { side: OutlineSide; from: [number, number]; press: [number, number]; offset: number; steps: number; t0: number } | null = null;
   private hover: Point3 | null = null;
+  /** A press the tool took and whose release has not come yet. */
+  private pressed = false;
   private readonly line: THREE.Line;
   private readonly marker: THREE.Mesh;
 
@@ -119,6 +126,7 @@ export class RoomTool {
   }
 
   pointerDown(e: PointerEvent): boolean {
+    this.pressed = true;
     const l = this.host.layer();
     const at = this.under(e.clientX, e.clientY);
     if (l === null || at === null) return true;
@@ -147,6 +155,10 @@ export class RoomTool {
       this.drawGhost(at.corner);
       return true;
     }
+    if (m === 'piece' || m === 'corner') {
+      this.putPiece(l.entityId, at.x, at.z, cs, e.ctrlKey || e.metaKey);
+      return true;
+    }
     const near = nearestSide(this.target.component, at.x, at.z, WALL_REACH_CELLS * cs[0], m !== 'walls');
     if (m === 'walls') {
       if (near === null) {
@@ -164,7 +176,7 @@ export class RoomTool {
     const o = near.side.outline;
     const storeyHeight = o.storeyHeight ?? 3;
     const storey = Math.max(0, Math.min((o.storeys ?? 1) - 1, Math.round((at.corner[1] - (o.path.points[0]?.[1] ?? 0)) / storeyHeight)));
-    const opening = openingOn(near.side, near.along, m, cs, storey);
+    const opening = openingOn(near.side, near.along, m, cs, storey, m === 'door' ? this.opts.doorPiece : m === 'window' ? this.opts.windowPiece : null);
     if (opening === null) {
       this.cb.onRefused(`The wall is too short for a${m === 'arch' ? 'n' : ''} ${m}.`);
       return true;
@@ -190,11 +202,15 @@ export class RoomTool {
       return true;
     }
     if (this.rectStart !== null || this.corners.length > 0) this.drawGhost(this.hover);
+    else if ((this.opts.mode === 'piece' || this.opts.mode === 'corner') && at !== null) this.drawSpot(at.x, at.z);
     else this.drawMarker(this.hover);
     return this.rectStart !== null;
   }
 
   pointerUp(e: PointerEvent): boolean {
+    // Every press the tool took ends here, a click as much as a drag: the view's orbit comes back on its release.
+    const pressed = this.pressed;
+    this.pressed = false;
     const l = this.host.layer();
     if (this.rectStart !== null) {
       const a = this.rectStart;
@@ -225,7 +241,7 @@ export class RoomTool {
       this.cb.onPickRoom(d.side.outline.id);
       return true;
     }
-    return false;
+    return pressed;
   }
 
   /** Enter finishes a polygon or path, Backspace takes its last corner back, Escape drops it (true: handled). */
@@ -288,6 +304,50 @@ export class RoomTool {
     const any = bulges.some((b) => b !== 0);
     await this.cb.onRooms(l.entityId, withOutline(this.target.component, l.entityId, { id, preset: this.opts.pathPreset, path: { points: pts, ...(any ? { bulges } : {}) } }), 'Draw path');
     this.cb.onPickRoom(id);
+  }
+
+  /** The wall segment or corner a piece would go on (null: none in reach). */
+  private spot(x: number, z: number, cs: readonly number[]): { element: string; segment: number; a: Point3; b: Point3 } | { element: string; corner: number; p: Point3 } | null {
+    const reach = WALL_REACH_CELLS * cs[0]!;
+    return this.opts.mode === 'piece' ? nearestSegment(this.target.elements, x, z, reach) : nearestCorner(this.target.elements, x, z, reach);
+  }
+
+  /** Put the picked wall or corner piece on the spot under the pointer (`remove`: take the piece there off). */
+  private putPiece(layerId: string, x: number, z: number, cs: readonly number[], remove: boolean): void {
+    const c = this.target.component;
+    const at = this.spot(x, z, cs);
+    const corner = this.opts.mode === 'corner';
+    if (c === null || at === null) {
+      this.cb.onRefused(corner ? "Click on a corner of a room's walls." : "Click on a room's straight wall.");
+      return;
+    }
+    const model = remove ? null : corner ? this.opts.cornerModel : this.opts.wallModel;
+    if (!remove && model === null) {
+      this.cb.onRefused(`Pick a ${corner ? 'corner' : 'wall'} piece from the kit in the column first.`);
+      return;
+    }
+    const key = 'segment' in at ? { element: at.element, segment: at.segment } : { element: at.element, corner: at.corner };
+    if (remove && !(c.overrides ?? []).some((o) => o.element === key.element && o.segment === (key as { segment?: number }).segment && o.corner === (key as { corner?: number }).corner)) return;
+    void this.cb.onRooms(layerId, withOverride(c, key, model), remove ? 'Remove piece' : corner ? 'Corner piece' : 'Wall piece');
+    this.cb.onPickRoom(outlineOfElement(c, at.element)?.id ?? null);
+    this.host.canvas.setAttribute('data-room-piece', JSON.stringify(key));
+  }
+
+  /** Light the wall segment or corner under the pointer. */
+  private drawSpot(x: number, z: number): void {
+    const l = this.host.layer();
+    const at = l === null ? null : this.spot(x, z, l.component.cellSize);
+    const off = this.offset();
+    const attr = this.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+    if (at !== null && 'segment' in at) {
+      attr.setXYZ(0, at.a[0] + off[0], at.a[1] + off[1] + 0.03, at.a[2] + off[2]);
+      attr.setXYZ(1, at.b[0] + off[0], at.b[1] + off[1] + 0.03, at.b[2] + off[2]);
+      attr.needsUpdate = true;
+      this.line.geometry.setDrawRange(0, 2);
+    }
+    this.line.visible = at !== null && 'segment' in at;
+    this.drawMarker(at === null ? null : 'segment' in at ? [(at.a[0] + at.b[0]) / 2, at.a[1], (at.a[2] + at.b[2]) / 2] : at.p);
+    this.host.canvas.setAttribute('data-room-spot', at === null ? '' : 'segment' in at ? `${at.element}:seg${at.segment}` : `${at.element}:corner${at.corner}`);
   }
 
   /** The outline being drawn (and the pointer's corner), in the layer's frame. */

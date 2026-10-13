@@ -318,6 +318,71 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
       <path d="M10 20v-5h4v5" />
     </>
   ),
+  'room-rect': (
+    <>
+      <path d="M4 6h16v12H4z" />
+      <circle cx="4" cy="6" r="1.4" />
+      <circle cx="20" cy="18" r="1.4" />
+    </>
+  ),
+  'room-polygon': (
+    <>
+      <path d="M4 8l7-4 9 5-2 10H6z" />
+      <circle cx="4" cy="8" r="1.2" />
+      <circle cx="11" cy="4" r="1.2" />
+      <circle cx="20" cy="9" r="1.2" />
+    </>
+  ),
+  'room-path': (
+    <>
+      <path d="M3 17c4-1 5-9 9-9s5 6 9 5" />
+      <path d="M6 14v4M12 8v4M18 11v4" opacity=".6" />
+    </>
+  ),
+  'room-building': (
+    <>
+      <path d="M4 20V10l8-6 8 6v10z" />
+      <path d="M4 10h16M9 20v-5h6v5" opacity=".6" />
+    </>
+  ),
+  'room-door': (
+    <>
+      <path d="M3 20h18" />
+      <path d="M7 20V5h10v15" />
+      <path d="M14 13v.5" />
+    </>
+  ),
+  'room-window': (
+    <>
+      <path d="M5 5h14v14H5z" />
+      <path d="M12 5v14M5 12h14" />
+    </>
+  ),
+  'room-arch': (
+    <>
+      <path d="M3 20h18" />
+      <path d="M6 20v-9a6 6 0 0 1 12 0v9" />
+    </>
+  ),
+  'room-walls': (
+    <>
+      <path d="M4 5h12v14H4z" />
+      <path d="M16 12h5M19 10l2 2-2 2" />
+    </>
+  ),
+  'room-piece': (
+    <>
+      <path d="M3 12h4M17 12h4" opacity=".6" />
+      <path d="M7 7h10v10H7z" />
+      <path d="M9 10h6M9 14h6" />
+    </>
+  ),
+  'room-corner': (
+    <>
+      <path d="M4 20V8M16 4H8" opacity=".6" />
+      <path d="M4 4h6v6H4z" />
+    </>
+  ),
   'block-slice': (
     <>
       <path d="M3 12l9-5 9 5-9 5z" />

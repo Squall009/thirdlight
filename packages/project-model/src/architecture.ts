@@ -218,7 +218,7 @@ export type ArchitectureElement = ArchitectureSweep | ArchitectureRepeat | Archi
 
 /** A segment or corner of a sweep (or a repeat's copy) made by a kit model instead. */
 export interface ArchitectureOverride {
-  /** The element's id. */
+  /** The element's id: one of `elements`, or one an outline or building makes (its id starts with theirs and a `-`). */
   element: string;
   /** The path segment (point i to i+1) replaced; or */
   segment?: number;
@@ -228,6 +228,12 @@ export interface ArchitectureOverride {
   model: ArchitectureModelRef;
   /** A segment's model is stretched along to the segment's length (made 1 m long along +X; absent: true). */
   stretch?: boolean;
+  /**
+   * The model's origin is its bottom centre, as a kit's pieces are made: it
+   * stands at the segment's middle, stretched about it (absent: false, at
+   * the segment's start, the model made from 0 to 1 m along +X).
+   */
+  centre?: boolean;
 }
 
 /** A flight of stairs in a room: steps from the foot's middle to the head's (object frame), as wide as given. */
@@ -282,6 +288,11 @@ export interface ArchitectureOutline {
   building?: string;
   /** The room's type a building's furnishing set places props by (absent: none). */
   roomType?: string;
+  /**
+   * A kit model the style's repeats place instead of their own piece (a
+   * run's railing or fence posts from a kit; absent: the style's piece).
+   */
+  repeatModel?: ArchitectureModelRef;
 }
 
 /** Metres a step rises when a stair names no step count. */
@@ -446,8 +457,8 @@ const SWEEP_FIELDS = [...BASE_FIELDS, 'path', 'profile', 'openings', 'wall', 'st
 const REPEAT_FIELDS = [...BASE_FIELDS, 'path', 'spacing', 'start', 'end', 'corners', 'align', 'offset', 'yaw', 'jitter', 'piece'];
 const FILL_FIELDS = [...BASE_FIELDS, 'path', 'shape', 'slot', 'trimSlot', 'height', 'rise', 'face', 'axis', 'cell', 'depth', 'overhang', 'breakRise', 'inset', 'holes'];
 const OPENING_FIELDS = ['id', 'at', 'width', 'bottom', 'top', 'reveal', 'frame', 'frameSides', 'model', 'storey', 'pane'];
-const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch'];
-const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs', 'building', 'roomType'];
+const OVERRIDE_FIELDS = ['element', 'segment', 'corner', 'reach', 'model', 'stretch', 'centre'];
+const OUTLINE_FIELDS = ['id', 'path', 'preset', 'openings', 'outside', 'storeys', 'storeyHeight', 'holes', 'stairs', 'building', 'roomType', 'repeatModel'];
 const STAIR_FIELDS = ['id', 'from', 'to', 'width', 'steps'];
 const BUILDING_FIELDS = [...OUTLINE_FIELDS.filter((k) => k !== 'building'), 'roof', 'interior', 'program', 'furnishing', 'layoutSeed', 'pins'];
 const PIN_FIELDS = ['id', 'model', 'position', 'facing', 'size'];
@@ -660,6 +671,7 @@ function validateRoom(o: Record<string, unknown>, p: string, errors: ModelErrorV
   const L = ARCHITECTURE_LIMITS;
   if (o['outside'] !== undefined && !isId(o['outside'])) err(errors, 'field_value', `${p}/outside`, 'outside names an architecture preset', o['outside']);
   if (o['roomType'] !== undefined && !isId(o['roomType'])) err(errors, 'field_value', `${p}/roomType`, 'roomType names a room type (id syntax)', o['roomType']);
+  if (o['repeatModel'] !== undefined) validateModel(o['repeatModel'], `${p}/repeatModel`, errors);
   count(o, 'storeys', p, errors, 1, L.storeys);
   num(o, 'storeyHeight', p, errors, 0.1, L.distanceMax, `0.1-${L.distanceMax} metres`);
   const holes = o['holes'];
@@ -731,6 +743,9 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
   if (!Array.isArray(els)) err(errors, 'field_type', `${path}/elements`, 'elements is a list of sweeps, repeats and fills', els);
   else els.forEach((e, i) => validateElement(e, `${path}/elements/${i}`, errors, profiles === undefined ? null : named, ids, false));
   const ovs = value['overrides'];
+  // A generated element's id starts with its outline's (or building's): a piece on a room's wall names that element.
+  const makers = [value['outlines'], value['buildings']].flatMap((list) => (Array.isArray(list) ? list.flatMap((o) => (isObj(o) && typeof o['id'] === 'string' ? [o['id']] : [])) : []));
+  const madeBy = (id: string): boolean => makers.some((m) => id.startsWith(`${m}-`));
   if (ovs !== undefined) {
     if (!Array.isArray(ovs)) err(errors, 'field_type', `${path}/overrides`, 'overrides is a list', ovs);
     else {
@@ -738,7 +753,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         const p = `${path}/overrides/${i}`;
         if (!isObj(o)) return err(errors, 'field_type', p, 'an override is {element, segment? | corner?, reach?, model, stretch?}', o);
         only(o, OVERRIDE_FIELDS, p, errors, 'override');
-        if (!isId(o['element']) || !ids.has(o['element'])) err(errors, 'field_value', `${p}/element`, 'element names one of the elements', o['element']);
+        if (!isId(o['element']) || !(ids.has(o['element']) || madeBy(o['element']))) err(errors, 'field_value', `${p}/element`, 'element names one of the elements, or one an outline or building makes (its id starts with theirs)', o['element']);
         const hasSeg = o['segment'] !== undefined;
         const hasCorner = o['corner'] !== undefined;
         if (hasSeg === hasCorner) err(errors, 'field_value', p, 'an override names a segment or a corner (one of them)');
@@ -746,6 +761,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
         num(o, 'reach', p, errors, 0.01, L.distanceMax, `0.01-${L.distanceMax} metres`);
         validateModel(o['model'], `${p}/model`, errors);
         bool(o, 'stretch', p, errors);
+        bool(o, 'centre', p, errors);
       });
     }
   }
@@ -881,7 +897,10 @@ export function architectureModelAssets(c: Pick<ArchitectureComponent, 'elements
     if (e.kind === 'repeat' && 'model' in e.piece) out.add(e.piece.model.assetId);
     if (e.kind === 'sweep') for (const o of e.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
   }
-  for (const r of [...(c?.outlines ?? []), ...(c?.buildings ?? [])]) for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
+  for (const r of [...(c?.outlines ?? []), ...(c?.buildings ?? [])]) {
+    for (const o of r.openings ?? []) if (o.model !== undefined) out.add(o.model.assetId);
+    if (r.repeatModel !== undefined) out.add(r.repeatModel.assetId);
+  }
   for (const b of c?.buildings ?? []) for (const p of b.pins ?? []) out.add(p.model.assetId);
   for (const o of c?.overrides ?? []) out.add(o.model.assetId);
   return [...out];

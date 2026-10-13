@@ -8,8 +8,8 @@ The **architecture** component stores only parameters; the meshes are made
 when a scene loads (and again when the parameters change), on generator
 workers, a chunk at a time nearest the camera first. Two primitives and
 fills build everything (MCP `setComponent "architecture"`; the Inspector
-shows its fields as JSON, and outlines styled by presets with their
-sliders — see [Architecture styles and presets](#architecture-styles-and-presets)):
+shows its fields as JSON; rooms drawn on a block layer are edited in its
+block editor's Rooms & buildings — see [Rooms and paths](#rooms-and-paths)):
 
 - **Paths** `{points: [[x, y, z], …] (m from the object's position; its
   rotation and scale are not used), closed?, bulges? (per segment: an arc,
@@ -153,15 +153,17 @@ sheet a preset names) and never touches an outline.
   vault and pilasters; a rectangular outline) and `starter-rail` (posts and
   a rail along any path), with their `-style` graphs. A project's graph of
   the same id replaces one; a project preset may derive from them.
-- **The Inspector**: an architecture object's **Outlines** (each outline's
-  preset; **Add room outline**; **Restyle** every outline of one preset with
-  another) and the sliders of the presets it uses; a preset open in the
-  graph editor shows the same sliders, its style, base and trim sheet. While
-  a slider is dragged the Scene view regenerates only the objects whose
-  outlines the preset reaches (and of those only the chunks whose elements
-  changed); releasing stores the value (one undo); ↺ takes the preset's own
-  value away. A starter's sliders are read-only: **Derive a preset** makes a
-  project preset from it and moves the object's outlines onto it.
+- **Where the sliders are**: the block editor's **Rooms & buildings** →
+  the picked room's **Preset sliders** (its inside and outside presets),
+  and the Inspector of a preset open in the editor window (its style, base
+  and trim sheet too). While a slider is dragged the Scene view regenerates
+  only the objects whose outlines the preset reaches (and of those only the
+  chunks whose elements changed); releasing stores the value (one undo); ↺
+  takes the preset's own value away. A starter's sliders are read-only:
+  **Derive a preset** makes a project preset from it and moves the rooms
+  onto it (one undo). A rooms object's Inspector shows its plain fields and
+  **Edit in block editor**; its outlines, buildings, pieces and kit are
+  edited there.
 - **At run time**: `ctx.grid.setArchitecturePreset(from, to | null)` shows
   preset `to` wherever an outline names `from` (style, values and trim
   sheet), level-wide, in the background (old chunks drawn until the new are
@@ -186,26 +188,38 @@ right of travel), a **path** an open one (a rail, a fence, a pipe). The
 layer reads them back: their walls block its grid walks, the rooms are
 its regions, its wall paint shows on their faces.
 
-- **Drawing** (the layer's Inspector → **Rooms** tool; the slice sets the
-  floor drawn on): **Rectangle** (drag corner to corner), **Polygon**
-  (click the corners; the **arc bulge** makes the next side an arc; click
-  the first corner, double-click or Enter to close), **Path** (click the
-  points; double-click or Enter ends it), **Door**, **Window** (a pane)
-  and **Arch** (two cells, no door) put on the nearest straight wall,
-  whole cells wide; **Walls** drags a straight wall across itself by whole
-  cells (a wall two rooms share moves with both), the Scene view
-  regenerating only that object's changed chunks while dragging. Points
-  snap to cell corners. Every gesture is one command (one undo); the first
-  room makes the rooms object. Backspace takes a corner back, Esc drops it.
-- **The room inspector** (pick a room in the list or with Walls): its
-  inside **preset**, an **outside preset** (dresses the walls' outer faces
-  in its wall's inside rows and runs its trims — not its walls or fills —
-  along the stretches no other room shares), **storeys** and **storey
-  height** (absent: the walls' top), each opening's place, size and pane,
-  **stairs** (Add stair: a flight along the first wall rising a storey)
-  and floor **holes**; **door piece**: an edge block type put on the
-  layer's cell edges in an opening (a live type spawns its object; scripts
-  open and close it with `ctx.grid.setEdgeOpen`).
+- **Drawing** (the block editor's **Rooms & buildings** mode; the slice
+  sets the floor drawn on): **Rect** (drag corner to corner), **Polygon**
+  (click the corners; **Arc** bends the next side; click the first corner,
+  double-click or Enter to close), **Path** (click the points;
+  double-click or Enter ends it), **Building**, **Door**, **Window** (a
+  pane, or the kit's window piece) and **Arch** (two cells, no door) put on
+  the nearest straight wall, whole cells wide; **Move walls** drags a
+  straight wall across itself by whole cells (a wall two rooms share moves
+  with both), the Scene view regenerating only that object's changed chunks
+  while dragging; **Wall piece** and **Corner piece** put the kit's piece on
+  the clicked segment or corner (Ctrl+click: off). Points snap to cell
+  corners. Every gesture is one command (one undo); the first room makes
+  the rooms object. Backspace takes a corner back, Esc drops it.
+- **Kit pieces**: the rooms' kit is `architecture.kitId`, else the layer's.
+  A door or window piece (the kit's *door* / *window* slot) goes in an
+  opening as `opening.model`, the hole sized to the piece (its slot's sill;
+  as wide as its whole cells, as tall as the piece); the style's reveals,
+  frame and pane are left out there. A *wall override* or *corner* piece is
+  an `overrides` entry on the generated wall element (`centre: true`: the
+  piece stands at the segment's middle, as a kit piece's origin is its
+  bottom centre; `stretch` off keeps its own length). A path's **repeated
+  piece** (the *railing* slot) is `outline.repeatModel`: the style's
+  repeats place it instead of their own piece.
+- **The picked room** (in the list, or with Move walls): its inside
+  **preset**, an **outside preset** (dresses the walls' outer faces in its
+  wall's inside rows and runs its trims — not its walls or fills — along
+  the stretches no other room shares), **storeys** and **storey height**
+  (absent: the walls' top), each opening's place, size, pane and **piece**,
+  its wall and corner pieces, **stairs** (Add stair: a flight along the
+  first wall rising a storey) and floor **holes**; **live door**: an edge
+  block type put on the layer's cell edges in an opening (a live type spawns
+  its object; scripts open and close it with `ctx.grid.setEdgeOpen`).
 - **Data** (`architecture.outlines[]`, additive): `outside?`, `storeys?`
   (1-1000), `storeyHeight?`, `holes? [{storey?, path (closed)}]`, `stairs?
   [{id, from [x, y, z], to [x, y, z], width, steps?}]` (the middle of the
@@ -323,14 +337,14 @@ A **building** is a room outline with a facade and a roof whose interior is
 made from the same definition, in place or in a scene of its own
 (`architecture.buildings`, additive; drawn on a block layer like rooms).
 
-- **Drawing** — the layer's **Rooms** tool, **Building** mode: click the
+- **Drawing** — the block editor's Rooms & buildings, **Building** tool: click the
   footprint's corners (an L, a T, any polygon; click the first corner,
   double-click or Enter to close). A new building wears the **new room
   preset** inside, the **new facade preset** outside (none: the inside's own
   outer faces) and a hip roof. Door, Window, Arch and Walls work on its
   walls as on a room's; a window or door on an upper storey is put from the
   slice at that storey's height.
-- **The building inspector** — inside and **facade preset**, **storeys**
+- **The picked building** — inside and **facade preset**, **storeys**
   and **storey height**, openings (place, size, pane), stairs and holes as a
   room's; **roof shape** (none, flat, gable, hip, mansard), **roof rise**
   (absent: half the footprint's deepest inset — a quarter of a rectangle's
@@ -416,14 +430,14 @@ ships none.
   **count** and the **space round it**) and **Light** nodes (one point light
   in each room of the type, **height** over the floor, **colour**,
   **intensity**, **range**; no shadow).
-- **The building inspector** (the block editor's Rooms & buildings → a building) — **room program**
+- **A building's floor plan** (the block editor's Rooms & buildings → a building) — **room program**
   and **furnishing set** pickers, **layout seed** and **New layout** (the
   next seed: rooms and props laid out again), the props list with **Pin** /
   **Unpin**: a pinned prop (`buildings[].pins [{id, model, position, facing,
   size?}]`) stays where it is whatever is made again; the furnishing places
   the rest around it. **Lock plan** stores the program's rooms as the
-  building's rooms (outlines with `building` and `roomType`: edited with
-  the Rooms tool like any room, furnished by type; the program no longer
+  building's rooms (outlines with `building` and `roomType`: edited in
+  Rooms & buildings like any room, furnished by type; the program no longer
   runs); **Detach** also pins every prop; **Unlock plan** removes the stored
   rooms.
 - **How it is made** — the rooms are room outlines inside the building: the

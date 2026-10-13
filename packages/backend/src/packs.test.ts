@@ -146,5 +146,37 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(report.sheet?.imageRead).toBe(true);
     expect(report.sheet?.report.checks.filter((c) => c.state !== 'ok')).toEqual([]);
     expect((await api(`${tb.authUrl}/api/v1/projects/${P}/kits/nope/check`, { method: 'GET', token: tb.authToken, origin: null })).status).toBe(404);
+    // Each piece's size, which an opening sized to the piece takes: the door 1 × 2 m, the window 1 × 1 m.
+    expect(report.pieces.map((p) => p.size?.slice(0, 2))).toEqual([[1, 2], [1, 1]]);
+  });
+
+  it('makes the commands of one editor action one undo step, only when nothing ran between them', async () => {
+    const graph = (graphId: string): Record<string, unknown> => ({ graph: { graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet: '' } }], edges: [] } } });
+    const graphsNow = (): string[] => {
+      const read = tb.backend._test.service.readCapturedV3(P);
+      return read.ok ? ((read.read.content as unknown as { graphs?: { graphId: string }[] }).graphs ?? []).map((g) => g.graphId).filter((id) => id.startsWith('grp-')) : [];
+    };
+    let rev = Number((await post(`/api/v1/projects/${P}/commands`, { op: 'queryProject', projectId: P, args: {} })).json['revision']);
+    const run = async (id: string, n: string): Promise<string> => {
+      const requestId = `req-${n.repeat(32)}`;
+      const r = await post(`/api/v1/projects/${P}/commands`, { op: 'setGraph', projectId: P, expectedRevision: rev, requestId, args: graph(id) });
+      expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
+      rev = Number(r.json['revision']);
+      return requestId;
+    };
+    const ids = [await run('grp-a', 'c'), await run('grp-b', 'd')];
+    // Out of order, or not the last entries: refused, nothing grouped.
+    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: [ids[1], ids[0]] })).status).toBe(409);
+    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: ['x'] })).status).toBe(400);
+    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: ids })).status).toBe(200);
+    const undo = await post(`/api/v1/projects/${P}/commands`, { op: 'undo', projectId: P, expectedRevision: rev, requestId: `req-${'e'.repeat(32)}`, args: {} });
+    expect(undo.status).toBe(200);
+    expect(graphsNow()).toEqual([]);
+    rev = Number(undo.json['revision']);
+    // A command of someone else between two: they stay apart.
+    const c = await run('grp-c', 'f');
+    await post(`/api/v1/projects/${P}/commands`, { op: 'setGraph', projectId: P, expectedRevision: rev, requestId: `req-${'1'.repeat(32)}`, args: graph('other') }).then((r) => (rev = Number(r.json['revision'])));
+    const d = await run('grp-d', '2');
+    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: [c, d] })).status).toBe(409);
   });
 });

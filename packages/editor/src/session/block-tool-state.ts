@@ -4,7 +4,8 @@
  * look, the box height, the paint layer and target, the scatter rule), the
  * slice, the selection and what was copied, the stamp, the region and the
  * metadata brush, the overlays shown, the block type open in the block type
- * editor. Modes come and go as the rail switches (each its own column), so
+ * editor, and what Rooms & buildings draws with (presets, kit pieces) and
+ * the room picked there. Modes come and go as the rail switches (each its own column), so
  * this is kept apart from them; it is never stored in the project (the
  * round brushes' settings are remembered per tool in `brush.ts`).
  *
@@ -12,6 +13,7 @@
  */
 import { DEFAULT_BRUSH, type BrushState, type CellBox, type PasteSource } from './block-brush';
 import { BLOCK_MODES, type BlockModeId } from './block-mode';
+import { DEFAULT_ROOM_OPTIONS, type RoomToolOptions } from './room-draw';
 
 /** What was copied (or cut, to be moved within its layer) from a selection. */
 export interface BlockClip {
@@ -63,6 +65,10 @@ export interface BlockToolState {
   readonly hover: string;
   /** The Build tile picked before X switched to Erase (X switches back). */
   readonly beforeErase: string | null;
+  /** What Rooms & buildings draws with (its tool's mode is the picked tile). */
+  readonly roomOpts: Omit<RoomToolOptions, 'mode'>;
+  /** The room, run or building picked in Rooms & buildings (its outline id; null: none). */
+  readonly room: string | null;
 }
 
 const DEFAULT_TILES = Object.fromEntries(BLOCK_MODES.map((m) => [m.id, m.tiles[0]?.id ?? ''])) as Record<BlockModeId, string>;
@@ -85,6 +91,8 @@ export const DEFAULT_BLOCK_TOOL_STATE: BlockToolState = Object.freeze({
   scatterRule: null,
   hover: '',
   beforeErase: null,
+  roomOpts: (({ mode: _m, ...rest }) => rest)(DEFAULT_ROOM_OPTIONS),
+  room: null,
 }) as BlockToolState;
 
 export interface BlockToolStore {

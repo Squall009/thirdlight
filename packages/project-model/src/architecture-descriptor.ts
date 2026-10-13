@@ -2,8 +2,8 @@
  * The descriptor of the `architecture` component (its own file, beside its
  * format). Elements, profiles and overrides are JSON fields: their shape is
  * a small language of operators (validated by `validateArchitectureComponent`).
- * Outlines styled by presets have their own Inspector panel (the presets'
- * sliders) beside the JSON.
+ * Outlines, buildings and overrides drawn on a block layer are edited in its
+ * block editor's Rooms & buildings mode, not in the Inspector.
  *
  * Pure data.
  */
@@ -29,7 +29,7 @@ export const architecture: ComponentDescriptor = {
     json('elements', 'Elements', 'Sweeps {id, kind: "sweep", path, profile, openings?}, repeats {id, kind: "repeat", path, spacing, piece} and fills {id, kind: "fill", path, shape, slot}.', { required: true, shape: 'ArchitectureElement[]' }),
     json('profiles', 'Profiles', 'Named cross-sections {points: [[across, up], …], slots: [row per segment], closed?, smooth?, chamfer?}.', { shape: 'Record<string, ArchitectureProfile>' }),
     json('overrides', 'Overrides', 'Kit models in place of a segment or a corner: [{element, segment | corner, model: {assetId}}].', { shape: 'ArchitectureOverride[]' }),
-    json('outlines', 'Outlines', 'Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?}] (the preset\'s style graph makes their elements; the block editor\'s Rooms & buildings draws them).', { shape: 'ArchitectureOutline[]' }),
+    json('outlines', 'Outlines', 'Rooms (closed) and runs (open) styled by presets: [{id, path, preset, openings?, outside?, storeys?, storeyHeight?, holes?, stairs?, repeatModel?}] (the preset\'s style graph makes their elements; the block editor\'s Rooms & buildings draws them).', { shape: 'ArchitectureOutline[]' }),
     json('buildings', 'Buildings', 'Rooms with a roof: [{id, path, preset, outside?, storeys?, openings?, roof?: {shape, rise?, overhang?, slot?}, interior?: {scene, offset?}}] (the block editor\'s Rooms & buildings draws them).', { shape: 'ArchitectureBuilding[]' }),
     json('masks', 'Masks', 'Painted masks presets read: {name: {points: [[x, z, radius, weight], …]}}.', { shape: 'Record<string, ArchitectureMask>' }),
     num('chunkSize', 'Chunk size', 'Metres a generated chunk covers (one draw per material each).', { min: L.chunkMin, max: L.chunkMax, step: 1, unit: 'm', default: ARCHITECTURE_CHUNK_DEFAULT }),

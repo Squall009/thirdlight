@@ -344,6 +344,12 @@ export interface WorkspaceService {
   /** Make the last `count` history entries one undo/redo step (see service.ts). */
   groupHistory(projectId: string, count: number): boolean;
 
+  /**
+   * Make the commands `requestIds` (in the order they ran) one undo/redo step,
+   * when they are the last entries applied (see service.ts).
+   */
+  groupRequests(projectId: string, requestIds: readonly string[]): boolean;
+
   /** The history groups of the entries undo and redo would take next. */
   historyGroups(projectId: string): { undo: number | null; redo: number | null };
 

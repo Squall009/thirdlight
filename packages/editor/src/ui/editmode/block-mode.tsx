@@ -18,7 +18,8 @@ import { BlockView } from '../blocks/BlockView';
 import { PaintColumn, ShapeColumn } from '../blocks/BrushColumns';
 import { BuildColumn } from '../blocks/BuildColumn';
 import { RegionsColumn } from '../blocks/RegionsColumn';
-import { RoomsColumn, RulesColumn } from '../blocks/RulesColumn';
+import { RoomsColumn } from '../blocks/RoomsColumn';
+import { RulesColumn } from '../blocks/RulesColumn';
 import type { EditModeView, ObjectEditModeKind } from './modes';
 
 const layerOf = (e: ProjectedEntity): BlockLayerComponent | undefined => e.components['blockLayer'] as BlockLayerComponent | undefined;
@@ -57,6 +58,11 @@ export const blockMode: ObjectEditModeKind = {
   },
   // The rooms and buildings drawn on the layer (generated architecture naming it).
   companions: (e, entities) => entities.filter((x) => (x.components['architecture'] as ArchitectureComponent | undefined)?.layer === e.id).map((x) => x.id),
+  // The rooms object opens its layer's editor in Rooms & buildings, which edits its rooms, buildings, pieces and kit.
+  via: (e, entities) => {
+    const layer = (e.components['architecture'] as ArchitectureComponent | undefined)?.layer;
+    return layer !== undefined && entities.some((x) => x.id === layer && layerOf(x) !== undefined) ? { entityId: layer, mode: 'rooms', label: 'Edit in block editor', skips: { architecture: ['outlines', 'buildings', 'overrides', 'kitId'] } } : null;
+  },
   column: (view) => {
     const Column = COLUMNS[view.mode as BlockModeId] ?? BuildColumn;
     return <Column key={view.mode} {...view} />;

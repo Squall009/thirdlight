@@ -101,15 +101,17 @@ export function paintMaterialOf(s: BlockSetup, materials: readonly MaterialDef[]
  * Make the layer paintable: a Layered surface whose base is the old
  * material's maps (or empty), worn by every block type of the palette that
  * wore the old one (with none, the picked type). The material and each
- * type's change are their own commands.
+ * type's change are their own commands, made one undo step.
  */
 async function makePaintable(s: BlockSetup, old: MaterialDef | null, from: BlockType | null): Promise<void> {
   const host = s.host.palette;
   const name = `${s.entity.name} layers`;
   const id = await host.newMaterialId(name);
-  if (!(await host.run(old === null ? 'Set up material' : 'Make it paintable', 'setMaterial', { material: paintableMaterial(old, id, name) }))) return;
   const wearers = old === null ? (from !== null ? [from] : []) : s.blocks.types.filter((t) => t.materials?.['*'] === old.materialId);
-  for (const t of wearers) await blockCommand(s, 'Block type material', 'setBlockType', { block: { ...t, materials: { ...(t.materials ?? {}), '*': id } } });
+  await s.blocks.grouped(async () => {
+    if (!(await host.run(old === null ? 'Set up material' : 'Make it paintable', 'setMaterial', { material: paintableMaterial(old, id, name) }))) return;
+    for (const t of wearers) await blockCommand(s, 'Block type material', 'setBlockType', { block: { ...t, materials: { ...(t.materials ?? {}), '*': id } } });
+  });
 }
 
 const PAINT_TARGETS: readonly { id: PaintTarget; label: string; hint: string }[] = [

@@ -1793,4 +1793,10 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-bpieces { display: flex; flex-direction: column; gap: 2px; }
 .tl-bpieces .tl-bpieces__rot { flex: none; width: 70px; }
 
-.tl-bcol__rooms { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
+/* Rooms & buildings: the rooms as chips; an opening or a stair as its name, its piece across, then its numbers four to a row. */
+.tl-rooms__list { display: flex; flex-wrap: wrap; gap: 4px; }
+.tl-rooms__opening { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 6px; align-items: end; padding-top: 6px; border-top: 1px solid var(--line); }
+.tl-rooms__opening > .tl-field__label:first-child { grid-column: 1 / -1; font-weight: 600; color: var(--text); }
+.tl-rooms__opening > .tl-field:has(select) { grid-column: 1 / -1; }
+.tl-rooms__opening > .tl-field { margin-bottom: 6px; min-width: 0; }
+.tl-rooms__opening .tl-input--num { width: 100%; min-width: 0; }

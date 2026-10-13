@@ -655,7 +655,7 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
 
   // The rooms' and runs' elements.
   for (const X of insts) {
-    const outline: ArchitectureOutline = { id: X.id, path: X.path, preset: X.s.o.preset, openings: [...X.openings, ...X.extra] };
+    const outline: ArchitectureOutline = { id: X.id, path: X.path, preset: X.s.o.preset, openings: [...X.openings, ...X.extra], ...(X.s.o.repeatModel !== undefined ? { repeatModel: X.s.o.repeatModel } : {}) };
     X.elements = evaluate(X.s, outline);
     // A room on a block layer: its ground floor laid just over the cells it stands on.
     if (c.layer !== undefined && X.storey === 0 && X.s.o.path.closed === true) {

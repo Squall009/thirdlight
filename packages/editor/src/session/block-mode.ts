@@ -109,7 +109,19 @@ export const BLOCK_MODES: readonly BlockMode[] = Object.freeze([
     label: 'Rooms & buildings',
     glyph: 'block-rooms',
     hint: 'Draw rooms, paths and buildings of generated architecture on the layer.',
-    tiles: [{ id: 'room', tool: 'room', label: 'Rooms', glyph: 'block-rooms', hint: 'Draw rooms, paths and buildings; put doors and windows on their walls.' }],
+    // Every tile arms the Rooms tool; its id is the tool's mode (`RoomToolMode`).
+    tiles: [
+      { id: 'rect', tool: 'room', label: 'Rect', glyph: 'room-rect', key: 'R', hint: "Drag a room from corner to corner on the slice's floor." },
+      { id: 'polygon', tool: 'room', label: 'Polygon', glyph: 'room-polygon', key: 'P', hint: 'Click the corners (Arc bends the next side); click the first corner, double-click or Enter to close.' },
+      { id: 'path', tool: 'room', label: 'Path', glyph: 'room-path', key: 'L', hint: 'Click the points of a rail, fence or pipe; double-click or Enter to finish.' },
+      { id: 'building', tool: 'room', label: 'Building', glyph: 'room-building', key: 'B', hint: "Click a building's footprint corners (an L or T too): it gets the facade preset and a hip roof; close it on the first corner." },
+      { id: 'door', tool: 'room', label: 'Door', glyph: 'room-door', key: 'D', hint: "Click a room's wall to put a door there (the kit's door piece when one is picked)." },
+      { id: 'window', tool: 'room', label: 'Window', glyph: 'room-window', key: 'W', hint: "Click a room's wall to put a window there (the kit's window piece when one is picked)." },
+      { id: 'arch', tool: 'room', label: 'Arch', glyph: 'room-arch', key: 'A', hint: "Click a room's wall: an opening two cells wide, no door." },
+      { id: 'walls', tool: 'room', label: 'Move walls', glyph: 'room-walls', key: 'M', hint: 'Drag a straight wall across by whole cells (a shared wall moves with both rooms); click a room to pick it.' },
+      { id: 'piece', tool: 'room', label: 'Wall piece', glyph: 'room-piece', key: 'O', hint: "Click a wall segment: the kit's wall piece replaces it (Ctrl+click takes it off)." },
+      { id: 'corner', tool: 'room', label: 'Corner piece', glyph: 'room-corner', key: 'K', hint: "Click a corner of the walls: the kit's corner piece stands there (Ctrl+click takes it off)." },
+    ],
   },
   {
     id: 'rules',

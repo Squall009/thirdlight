@@ -47,10 +47,11 @@
  * Architecture styles and presets: two wall styles (graphs) and presets
  * deriving from each other, the trim sheet named by the preset, outlines
  * styled by them. In the editor, a preset from the Create menu shows its
- * sliders; dragging one in the object's Inspector regenerates only the
- * room its preset styles (ready marks timed from each input), the release
- * stores the value, and the Inspector's restyle swaps the outline's preset
- * without touching it. In Play and the export: a painted mask drives the
+ * sliders; a room of it drawn on a block layer opens that layer's block
+ * editor in Rooms & buildings from its Inspector, where dragging a slider of
+ * the picked room's preset regenerates only that room (ready marks timed
+ * from each input), the release stores the value, and the room's preset
+ * picker restyles it without touching its outline. In Play and the export: a painted mask drives the
  * walls' height (every other wall 3 m tall, the rest 1 m), and a script's
  * `ctx.grid.setArchitecturePreset` swaps the last two walls' preset for one
  * with another style (another row of the sheet).
@@ -112,7 +113,7 @@ import { makePng } from './png-make';
 import { stripPatchCentre, TEST_TRIM_CELL, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
-import { chooseItem, closeEditor, createItem, editorPane, inspector, menu, openEditor, openWindow } from './ui';
+import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
@@ -503,7 +504,7 @@ const RESTYLE_SCRIPT = [
 /**
  * Styles and presets made in the project, and styled outlines: the walls (presets deriving from presets, the trim
  * sheet named by the preset, a painted mask driving the height, a script swapping a preset at run time) and a room
- * whose preset's slider is dragged in the Inspector while the Scene view regenerates it.
+ * on a block layer whose preset's slider is dragged in the block editor while the Scene view regenerates it.
  */
 async function styledArchitecture(page: Page, trimId: string): Promise<void> {
   await cmd('setGraph', { graph: { graphId: 'e2e-wall-a', kind: 'architecture-style', name: 'Wall A', graph: wallStyle('lower_wall') } });
@@ -531,13 +532,21 @@ async function styledArchitecture(page: Page, trimId: string): Promise<void> {
   const sliderPreset = (await graphsOf()).find((g) => g.name === 'Slider room')!.graphId;
   await expect(inspector(page).getByLabel('ceiling_height slider')).toBeVisible();
   await closeEditor(page);
+  // The room on an empty block layer under it (its rooms are edited in the layer's block editor).
+  const floor = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Slider floor', transform: { position: [150, -1, -80] } }))['createdId']);
+  await cmd('setComponent', { entityId: floor, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [8, 2, 6] } } });
   const room = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Slider room', transform: { position: [0, 0, 0] } }))['createdId']);
-  await cmd('setComponent', { entityId: room, component: 'architecture', value: { elements: [], outlines: [{ id: 'room', preset: sliderPreset, path: { points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true } }] } });
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${room}"]`).click();
-  const slider = inspector(page).getByLabel('ceiling_height slider');
-  await expect(slider).toBeVisible();
+  await cmd('setComponent', { entityId: room, component: 'architecture', value: { elements: [], layer: floor, outlines: [{ id: 'room', preset: sliderPreset, path: { points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true } }] } });
   // Both objects drawn whole once before the drag (the room's and the walls' ready marks).
   await expect.poll(async () => new Set((await architectureMarks(page)).ready.map((r) => (r as { object?: string }).object)).size, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${room}"]`).click();
+  await enterEditMode(page, 'Edit in block editor');
+  const column = editMode(page).getByLabel('block rooms');
+  await column.getByLabel('room room', { exact: true }).click();
+  const picked = column.getByLabel('room room inspector');
+  await picked.getByRole('button', { name: 'Preset sliders', exact: true }).click();
+  const slider = picked.getByLabel('ceiling_height slider');
+  await expect(slider).toBeVisible();
   await slider.scrollIntoViewIfNeeded();
   const box = (await slider.boundingBox())!;
   const t0 = await page.evaluate(() => {
@@ -576,13 +585,12 @@ async function styledArchitecture(page: Page, trimId: string): Promise<void> {
   expect(roomMarks.length).toBeGreaterThanOrEqual(4);
   // Only the room the preset styles was made again.
   expect(marks.filter((m) => m.object !== room)).toEqual([]);
-  // The Inspector's restyle: every outline of the slider's preset takes the starter hall (the outline stays).
-  const outlinesPanel = inspector(page).getByLabel('architecture outlines');
-  await outlinesPanel.getByLabel('restyle to').selectOption('starter-hall');
-  await outlinesPanel.getByRole('button', { name: 'Restyle', exact: true }).click();
+  // Restyled with the room's preset picker: it takes the starter hall (the outline stays).
+  await picked.getByLabel('inside preset', { exact: true }).selectOption('starter-hall');
   const outlineNow = async (): Promise<{ preset: string; path: unknown }> => ((await query('queryEntity', { entityId: room }))['entity'] as { components: { architecture: { outlines: { preset: string; path: unknown }[] } } }).components.architecture.outlines[0]!;
   await expect.poll(async () => (await outlineNow()).preset, { timeout: 15_000 }).toBe('starter-hall');
   expect((await outlineNow()).path).toEqual({ points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true });
+  await leaveEditMode(page);
 }
 const variants = new WeakMap<Page, string>();
 const variantOf = (page: Page): string => variants.get(page) ?? '';
@@ -759,7 +767,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await cmd('setComponent', { entityId: archId, component: 'architecture', value: ARCHITECTURE });
   await cmd('setComponent', { entityId: archId, component: 'materials', value: { '*': trimId } });
   await styledArchitecture(page, trimId);
-  const rooms = await drawRooms(page, cmd, query, trimId);
+  const rooms = await drawRooms(page, cmd, query, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)));
   console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
   expect(rooms.timings.drag.others).toBe(0);
   await makeLitRooms(cmd, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)));

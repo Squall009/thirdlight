@@ -160,6 +160,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.4 | Done 2026-10-13: `packs/basic-kit/` (engine content pack, built by `tools/build-basic-kit.mts`): sheet from the Texture Designer (`thirdlight/basic_kit_trim@4`, spec rows), material `basic-trim`, 6 presets (`basic-room`… baseboard 0.15625 m), 7 block types, door + window pieces, kit `basic-kit`; added by project window **Create → Basic Kit (ready-made)** / `POST …/packs/basic-kit` (ordinary commands). Download 2.62 MiB (target ≤ 4 MB). vitest +5 (`packs.test.ts`); e2e: a Basic Kit step in `block-world-uv` (auto variant 8.9 s in the fast gate, was 6.4 s; the per-renderer variants run in the full gate). Fast gate green (vitest 706 files, e2e 31, perf in limits). Asset numbers below. Owner look pending (screenshots `~/.cache/thirdlight-phase36/basic-kit/`). |
 | 36.5 | Done 2026-10-13: **Kit: <name>** editor-window tab (`ui/kit/`): slots with pictures and states (drop a GLB file or a model/piece; custom slots; weighted variants, piece of file, Replace via an in-editor model browser), trim sheet picker, picture (made from the sheet unless one is picked), notes, presets/block types with Open; the slot in the Inspector (variants, piece checks with a map-to-sheet fix, placement); the piece in a sample wall / room / alone in the preview pane (dashed cell box, red draw box, origin axes); the trim checker (row bounds and gutters over the sheet, rows table, spec checklist) and the spec page. One check module `project-model/kit-checks` (pieces from the GLB, sheet table + pixels) behind `GET …/kits/:id/check`, the kit Problems and `packs.test`. Basic Kit add = one undo/redo (history groups), MCP `tl_content_upload {addPack}`; "skyforge" gone from the pack. vitest +11; e2e: a kit step in `editor-window` (drop a corner-pivot door: origin fails; a centred one: passes) — that test 5.8 → 6.1 s in the fast gate (D253); `block-world-uv` closes the window the Basic Kit now opens (8.9 → 9.0 s). Fast gate green (vitest 708 files, e2e 36, perf in limits). Screenshots `~/.cache/thirdlight-phase36/kit-editor/` (owner look pending). |
 | 36.6a | Done 2026-10-13 (first half of 36.6; 36.6b: Rooms & buildings with the kit's pieces, RoomsPanel/ArchitecturePanels out of the Inspector): the **block editor** (`EDIT_MODES` `blocks`, `ui/blocks/`): rail Build · Shape · Paint · Regions · Rooms & buildings (interim: the Rooms tool and RoomsPanel) · Rules; palette of the layer's kit's types then its other types (model thumbnails, SVG stand-ins), New type / drop a model, 1–9; a **block type editor** detail column (looks with model browser, kit pieces, prefab, weights; collision boxes as numbers; turns, placement, connections, themes, metadata, material); the round brushes on the shared kit (one cursor, keys, opacity via shared coverages, noise mask), the slice plane + outline + chip, a shape readout; enter by double-click, Edit blocks, GameObject → Block layer (one command, one undo). `BlocksPanel` (913 lines) deleted. vitest +7 (`block-mode.test.ts`). E2E (fast gate, 2 workers): block-editor 13.3 → 7.7 s, block-layers 27.5 → 19.8 s (its two export renderers side by side): **27.5 s ≤ 28 ✓**; block files with blocks 10.2 and block-world-uv 9.7 (+ its WebGL 2 variant in the full gate) ≈ 57 s vs ≤ 52 (36.9: the template's steps and a trim of blocks/block-world-uv). Ported: block-world-uv, terrain-brushes, terrain-paint, window-tools, rooms-drawing/buildings/floor-plans, terrain-cdlod's block rules. Fast gate green (vitest 709 files, e2e 44; painted-terrain failed once, passed on rerun; village p50 5.5 / 4.6 ms within limits). Screenshots `~/.cache/thirdlight-phase36/block-editor/366a-*.png` against 06 (owner look pending). |
+| 36.6b | Done 2026-10-13 (second half of 36.6): **Rooms & buildings** is a real column (`ui/blocks/RoomsColumn.tsx`, `RoomInspector.tsx`): tiles Rect R, Polygon P, Path L, Building B, Door D, Window W, Arch A, Move walls M, **Wall piece O**, **Corner piece K**; new-room presets; **Kit pieces** (the rooms' kit, else the layer's: door / window pieces whose holes take the piece's size from the kit check, wall / corner pieces put by clicking a lit segment or corner → `overrides` with `centre`); the picked room/path/building edited in the column (presets + Preset sliders with Snap to row and Derive, storeys, openings with a piece picker writing `opening.model`, its pieces with stretch, a path's **repeated piece** = `outline.repeatModel` from the railing slot, roof, interior, floor plan, stairs, holes). `RoomsPanel` / `BuildingPlanFields` / `ArchitectureOutlines` deleted; a rooms object's Inspector: plain fields + **Edit in block editor** (opens its layer's editor in Rooms; double-click too) beside Paint vertices. **One undo** for Make it paintable, scatter rules + bake, a dropped GLB → type (+ kit), New type (+ kit), Derive (`SessionClient.grouped` → `POST …/history/group`, grouped only when nothing ran between). Found and fixed: a Rooms click left the Scene view's orbit off. vitest +8; e2e: rooms-drawing (kit door + window via the pickers, a wall piece, orbit after a click), block-editor (Make it paintable undo/redo), layered-material's slider drag in the column, block-world-uv's Snap to row in the preset's Inspector. Fast gate green (vitest 710 files, e2e 39; block-editor 7.4 s, block-layers 20.1, block-world-uv 10.0, blocks 10.2 — block files ≈ 57 s with the WebGL 2 variant, still over ≤ 52; layered-material 48.5 s; village p50 5.5 / 4.6 ms). Screenshots `~/.cache/thirdlight-phase36/rooms-mode/` (test colours; owner look pending). |
 
 **Basic Kit asset numbers** (36.4):
 
@@ -519,3 +520,76 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     input as typing. The Scene view now publishes its view-projection when it
     changes, not only while a block or terrain tool is armed (tests map
     points with it outside the editors).
+
+- 2026-10-13 (36.6b) — Rooms & buildings with the kit's pieces. Defaults
+  chosen, owner to confirm:
+  - **The mode's tools are tiles of the one Rooms tool** (the Scene view's
+    `RoomTool`, its mode the tile id): Rect, Polygon, Path, Building, Door,
+    Window, Arch, **Move walls** (was "Walls"), **Wall piece**, **Corner
+    piece**. Letters R P L B D W A M O K (C, F, X stay the shared keys).
+    What the column remembers per layer (presets, picked pieces, the picked
+    room) lives in `block-tool-state.ts` beside the other modes' state.
+  - **The rooms' kit** is `architecture.kitId` (picked in the Kit pieces
+    section), else the layer's kit; the kit's *door*, *window*,
+    *wall-override*, *corner* and *railing* slots feed the pickers. No kit:
+    the section says where to pick one (no "any model" fallback: pieces come
+    from kits, as the owner's workflow asks).
+  - **A door or window piece takes the hole its size needs**: as wide as its
+    whole cells, from its slot's sill (`KIT_STANDARD_SLOTS`: door 0, window
+    1 m) up its height. Sizes come from the kit check (`GET …/kits/:id/check`
+    now reports each piece's LOD0 size); until they arrive the kind's own
+    height is used (the column says "not read yet"). A piece in an opening
+    drops the pane (the generator places the model instead of reveals,
+    frame and pane). Picking a piece for an existing opening re-sizes its
+    hole around its middle.
+  - **Wall and corner pieces are overrides of the expanded wall element**,
+    picked in the view (the generated walls the binding already expands; the
+    style's sweeps marked `wall`, else every sweep). The format allowed an
+    override only on a stored element: it now also accepts an element id an
+    outline or building makes (its id starts with theirs) — the generated
+    ids are stable per style node. Overrides key the element's segment
+    index, so a wall moved by Move walls keeps its pieces; a room whose
+    shared wall is re-split may see a piece move to the neighbouring
+    segment (the generator re-numbers the run). Only the wall element is
+    replaced: trims (baseboard, crown) run on over a piece.
+  - **`centre` on an override (additive, schema 7)**: the generator placed a
+    segment's model at the segment's start, stretched from 0 to 1 m, while
+    the spec makes every kit piece with its origin at its bottom centre. A
+    piece put from the column sets `centre: true` (placed at the segment's
+    middle, stretched about it); absent keeps the old placement for stored
+    overrides. Corner pieces were already centred.
+  - **`outline.repeatModel` (additive, schema 7)**: a run's (or room's)
+    style repeats place the kit's railing model instead of their own piece,
+    still spaced by the style; shipped with the export
+    (`architectureModelAssets`).
+  - **The Inspector**: a rooms object (architecture naming a block layer)
+    gets **Edit in block editor** (a new `via` on edit modes: an object that
+    belongs to another opens that one's editor in a rail mode; a
+    double-click does the same) beside its own **Paint vertices**; its
+    outlines, buildings, overrides and kit are left to the editor. A
+    layerless architecture object keeps its plain (JSON) fields only: its
+    outlines' presets and sliders are no longer in the Inspector (the preset
+    document's Inspector still shows the sliders; drawing rooms needs a
+    layer). The old Inspector's **Restyle every outline of a preset** is
+    gone: the picked room's preset picker restyles one room.
+  - **One undo for multi-command actions** (36.5's history groups, now for
+    the editor): `SessionClient.grouped(action)` collects the request ids
+    of the commands an action stored and posts them to `POST
+    /api/v1/projects/:id/history/group`, which groups them only when they
+    are exactly the last applied entries (someone else's command between
+    them: 409, they stay separate steps). Used by Make it paintable, scatter
+    rules + bake, a GLB dropped on New type or a block type's looks
+    (publish + type + kit), New type (+ kit), Derive (preset + rooms). The
+    kit editor's GLB drop (36.5: two steps) is not changed here.
+  - **Found and fixed**: the Rooms tool took clicks (Door, Window, pieces,
+    polygon corners) without claiming their release, so the Scene view's
+    orbit stayed off until the next drag; the rooms e2e now orbits after a
+    click.
+  - **E2E**: no new files. rooms-drawing gains the kit step (its two GLBs
+    published from `packs/basic-kit`, the kit by command; layered-material
+    auto 53.6 → ~49 s alone); block-editor + ~1 s (undo/redo); the block
+    files stay ≈ 57 s against ≤ 52 (36.9 trims, as 36.6a noted).
+  - **Screenshots** are from the rooms e2e scene (its test sheet's flat
+    colours, the Basic Kit pieces unmapped and grey): function, not look;
+    36.9's acceptance shoots the Basic Kit flow.
+

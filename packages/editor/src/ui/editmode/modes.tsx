@@ -166,6 +166,24 @@ export interface ObjectEditModeKind extends EditModeBase {
   viewExtra?(view: EditModeView): ReactNode;
   /** Fields the Inspector leaves to the mode, by component (what only the mode edits: a terrain's tiles and rules). */
   readonly inspectorSkips?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Other objects that open this editor on the object they belong to, in
+   * one of its rail's modes (the rooms drawn on a block layer open the
+   * layer's block editor in Rooms & buildings); null: not one of them.
+   */
+  via?(e: ProjectedEntity, entities: readonly ProjectedEntity[]): EditModeVia | null;
+}
+
+/** Where an object that belongs to another opens that one's editor. */
+export interface EditModeVia {
+  /** The object the editor edits. */
+  readonly entityId: string;
+  /** The rail's mode it opens in. */
+  readonly mode: string;
+  /** The Inspector's button ("Edit in block editor"). */
+  readonly label: string;
+  /** Fields of the object's components the Inspector leaves to that mode. */
+  readonly skips?: Readonly<Record<string, readonly string[]>>;
 }
 
 export type EditModeKind = ObjectEditModeKind | SceneEditModeKind;
@@ -180,6 +198,16 @@ const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 
 export function editModeKind(kind: string): EditModeKind | undefined {
   return BY_KIND.get(kind);
+}
+
+/** The editor an object opens on the object it belongs to (undefined: none). */
+export function editModeVia(e: ProjectedEntity | null | undefined, entities: readonly ProjectedEntity[]): (EditModeVia & { kind: string }) | undefined {
+  if (e === null || e === undefined) return undefined;
+  for (const k of EDIT_MODES) {
+    const v = !isSceneMode(k) ? (k.via?.(e, entities) ?? null) : null;
+    if (v !== null) return { ...v, kind: k.kind };
+  }
+  return undefined;
 }
 
 /** The edit mode that edits an object (undefined: none); `activated`: the one a double-click opens. */

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { ArchitectureComponent } from '@thirdlight/project-model';
 import { architectureOpeningEdges, architectureWallEdges, cellKeyOf } from '@thirdlight/runtime';
 
-import { groundArea2, moveWall, nearestSide, nextOutlineId, openingOn, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline } from './room-draw';
+import { architectureStylesOf, ARCHITECTURE_STARTER_GRAPHS, expandArchitecture } from '@thirdlight/runtime';
+
+import { groundArea2, moveWall, nearestCorner, nearestSegment, nearestSide, nextOutlineId, openingOn, openingPiece, outlineOfElement, overridesOf, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOverride } from './room-draw';
+import { kitPieceChoices, modelKey } from './kit-edits';
 
 const CELL = [1, 1, 1];
 
@@ -99,5 +102,66 @@ describe('the Rooms tool', () => {
     expect(architectureOpeningEdges(o.path, door, 1, [2, 0, 0], CELL).map(([x, y, z, axis]) => cellKeyOf(x, y, z) * 2 + axis)).toEqual(opened);
     // Past the path's end (20 m round) an opening is cut there, as the generator cuts it, never wrapped onto the first side.
     expect(architectureOpeningEdges(o.path, { ...door, at: 20.5 }, 1, [0, 0, 0], CELL)).toEqual([]);
+  });
+});
+
+describe('kit pieces in rooms', () => {
+  const table = architectureStylesOf(ARCHITECTURE_STARTER_GRAPHS as never);
+  const rooms: ArchitectureComponent = {
+    elements: [],
+    outlines: [
+      { id: 'room-1', preset: 'starter-room', path: { points: [[0, 0, 0], [6, 0, 0], [6, 0, 4], [0, 0, 4]], closed: true } },
+      { id: 'room-10', preset: 'starter-room', path: { points: [[10, 0, 0], [14, 0, 0], [14, 0, 4], [10, 0, 4]], closed: true } },
+      { id: 'run-1', preset: 'starter-fence', path: { points: [[0, 0, 8], [6, 0, 8]] } },
+    ],
+  };
+  const expanded = expandArchitecture(rooms, [0, 0, 0], table).component;
+
+  it('picks a wall segment or corner of the generated walls and names the room it belongs to', () => {
+    const seg = nearestSegment(expanded.elements, 3, 0.3, 0.6)!;
+    expect(seg.segment).toBe(0);
+    expect(outlineOfElement(rooms, seg.element)?.id).toBe('room-1');
+    // room-10's walls are not taken for room-1's (the id prefix is the whole outline id).
+    expect(outlineOfElement(rooms, nearestSegment(expanded.elements, 12, 4.2, 0.6)!.element)?.id).toBe('room-10');
+    expect(nearestSegment(expanded.elements, 3, 2, 0.6)).toBeNull();
+    const corner = nearestCorner(expanded.elements, 6.2, 3.8, 0.6)!;
+    expect([corner.corner, outlineOfElement(rooms, corner.element)?.id]).toEqual([2, 'room-1']);
+  });
+
+  it('puts one piece per spot, replaces and takes it off; the expansion keeps it', () => {
+    const seg = nearestSegment(expanded.elements, 3, 0.3, 0.6)!;
+    const door = { assetId: 'kit-wall', piece: 'panel' };
+    let c = withOverride(rooms, { element: seg.element, segment: seg.segment }, door);
+    c = withOverride(c, { element: seg.element, segment: seg.segment }, { assetId: 'kit-wall-2' });
+    expect(c.overrides).toEqual([{ element: seg.element, segment: 0, model: { assetId: 'kit-wall-2' }, centre: true }]);
+    expect(overridesOf(c, 'room-1').map((o) => o.index)).toEqual([0]);
+    expect(overridesOf(c, 'room-10')).toEqual([]);
+    expect(expandArchitecture(c, [0, 0, 0], table).component.overrides).toEqual(c.overrides);
+    expect(withOverride(c, { element: seg.element, segment: 0 }, null).overrides).toBeUndefined();
+  });
+
+  it("a run's repeated piece comes from the kit: the style's copies place the model (absent: the style's own)", () => {
+    const run = (x: ArchitectureComponent): unknown[] => expandArchitecture(x, [0, 0, 0], table).component.elements.filter((e) => e.id.startsWith('run-1') && e.kind === 'repeat').map((e) => (e as { piece: unknown }).piece);
+    expect(run(rooms).every((p) => 'elements' in (p as object))).toBe(true);
+    const rail = { assetId: 'kit-rail' };
+    const c: ArchitectureComponent = { ...rooms, outlines: rooms.outlines!.map((o) => (o.id === 'run-1' ? { ...o, repeatModel: rail } : o)) };
+    expect(run(c)).toEqual(run(rooms).map(() => ({ model: rail })));
+  });
+
+  it('a door or window piece takes the hole its size needs, from its slot\'s sill', () => {
+    const side = straightSides(rooms.outlines![0]!)[0]!;
+    const door = openingPiece({ assetId: 'd' }, 'door', 0, [1, 2, 0.2], CELL);
+    const o = openingOn(side, 3.2, 'door', CELL, 0, door)!;
+    expect(o).toEqual({ id: 'door-1', at: 3.5, width: 1, bottom: 0, top: 2, model: { assetId: 'd' } });
+    // A wide window (1.6 m: two cells), no pane behind a piece; an unknown size takes the kind's height from the sill.
+    expect(openingOn(side, 3.2, 'window', CELL, 0, openingPiece({ assetId: 'w' }, 'window', 1, [1.6, 1, 0.1], CELL))).toMatchObject({ width: 2, bottom: 1, top: 2, at: 3 });
+    expect(openingPiece({ assetId: 'w' }, 'window', 1, null, CELL)).toMatchObject({ cells: 1, bottom: 1, top: 2.1 });
+  });
+
+  it("offers a kit's slot pieces once each, keyed by model", () => {
+    const kit = { kitId: 'k', name: 'K', pieces: { door: [{ assetId: 'a', piece: 'door' }, { assetId: 'a', piece: 'door', weight: 2 }], window: [{ assetId: 'b' }] } };
+    expect(kitPieceChoices(kit, ['door', 'window']).map((c) => [c.slot, c.key])).toEqual([['door', 'a#door'], ['window', 'b']]);
+    expect(kitPieceChoices(null, ['door'])).toEqual([]);
+    expect(modelKey({ assetId: 'b' })).toBe('b');
   });
 });

@@ -9,14 +9,20 @@
  * magenta (lower_wall); an arch in the front room's front wall and a door
  * in the wall the rooms share, lined up so the camera looks through both
  * into the back room; a fence path (posts and a rail, blue) drawn with the
- * Path mode in front of them, below the sight lines. The room inspector edits the door; the
- * Walls mode drags the back room's back wall three cells in and back two (the Scene view
+ * Path mode in front of them, below the sight lines. The picked room's column edits the door; Move
+ * walls drags the back room's back wall three cells in and back two (the Scene view
  * regenerates only that room's chunks while dragging), then the front room's east wall a cell in and the
  * wall the rooms share (now only partly) a cell back and both back again: the openings on the other
- * walls stay where they stood and the shared wall moves with the front room's; the block editor's
- * Paint mode paints grime (paint layer 3) on the front wall's outer face.
+ * walls stay where they stood and the shared wall moves with the front room's. Kit pieces: a kit holding
+ * the Basic Kit's door and window (set up by command) is picked for the rooms; Door and Window put its
+ * pieces (picked in the column, the holes sized to them) in the back room's west wall, Wall piece puts
+ * the window on a segment of the front room's west wall (out of the Play camera's reads). The block
+ * editor's Paint mode paints grime (paint layer 3) on the front wall's outer face.
  * Draw-to-visible and the drag's regeneration are timed from the marks.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { expect, type Locator, type Page } from './pw';
 
 import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
@@ -147,7 +153,10 @@ export async function aimCorner(page: Page, p: V3, corner: V3): Promise<{ x: num
 /** The layer's corner (cell lines) at world (x, z) on the floor: the rooms' frame is the layer's. */
 const corner = (x: number, z: number): V3 => [x - LAYER_AT[0], 1, z - LAYER_AT[2]];
 
-export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: string): Promise<{ timings: RoomsTimings; roomsId: string }> {
+/** The engine's Basic Kit models (its door and window pieces), published into the project as they are. */
+const BASIC_KIT_MODELS = join(import.meta.dirname, '../../packs/basic-kit/assets/models');
+
+export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: string, model: (bytes: Uint8Array, assetId: string) => Promise<void>): Promise<{ timings: RoomsTimings; roomsId: string }> {
   await cmd('setGraph', { graph: { graphId: 'e2e-room-a-style', kind: 'architecture-style', name: 'Room A', graph: roomStyle('crown') } });
   await cmd('setGraph', { graph: { graphId: 'e2e-room-b-style', kind: 'architecture-style', name: 'Room B', graph: roomStyle('baseboard') } });
   await cmd('setGraph', { graph: { graphId: 'e2e-fence-style', kind: 'architecture-style', name: 'Fence', graph: FENCE_STYLE } });
@@ -168,11 +177,12 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await editModeTab(page, 'Rooms & buildings');
   await blocks.getByLabel('slice level', { exact: true }).fill('1');
   await blocks.getByLabel('slice level', { exact: true }).press('Enter');
-  const rooms = blocks.getByLabel('rooms panel');
+  const rooms = blocks.getByLabel('block rooms');
   await expect(rooms).toBeVisible();
   await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
-  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tools' }).getByRole('button', { name, exact: true }).click();
-  const roomsObject = async (): Promise<{ id: string; architecture: { outlines?: { id: string; preset: string; path: { points: number[][] }; openings?: { id: string; at: number; top: number }[] }[] } } | null> => {
+  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }).click();
+  type Opening = { id: string; at: number; top: number; bottom: number; width: number; model?: { assetId: string } };
+  const roomsObject = async (): Promise<{ id: string; architecture: { kitId?: string; overrides?: { element: string; segment?: number; model: { assetId: string } }[]; outlines?: { id: string; preset: string; path: { points: number[][] }; openings?: Opening[] }[] } } | null> => {
     const ents = ((await query('queryEntities', { limit: 500, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
     const e = ents.find((x) => (x.components['architecture'] as { layer?: string } | undefined)?.layer === layer);
     return e === undefined ? null : { id: e.id, architecture: e.components['architecture'] as never };
@@ -220,7 +230,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await page.mouse.click(door.x, door.y);
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.[0]?.openings?.map((o) => o.id), { timeout: 15_000 }).toEqual(['arch-1', 'door-1']);
 
-  // The room inspector: the picked room's openings; the door's head edited there (stored).
+  // The picked room's column: its openings; the door's head edited there (stored).
   await expect(rooms.getByLabel('room room-1 inspector')).toBeVisible();
   await expect(rooms.getByLabel('opening door-1')).toBeVisible();
   await rooms.getByLabel('door-1 head').fill('2.2');
@@ -237,8 +247,8 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => o.id), { timeout: 15_000 }).toEqual(['room-1', 'room-2', 'run-1']);
   await expect(rooms.getByLabel('room run-1', { exact: true })).toBeVisible();
 
-  // Walls: drag the back room's back wall a cell in; the Scene view makes only that object again while dragging.
-  await tool('Walls');
+  // Move walls: drag the back room's back wall a cell in; the Scene view makes only that object again while dragging.
+  await tool('Move walls');
   // Three cells in and back two (five steps of the wall), released a cell in.
   const along = async (z: number): Promise<{ x: number; y: number }> => (await screen(page, [187, 0, z]))!;
   const w0 = await along(-42);
@@ -323,6 +333,62 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.[1]?.path.points.filter((p) => p[2] === 4).length, { timeout: 15_000 }).toBe(2);
   await dragWall([191, 0, -36], [192, 0, -36]);
   await expect.poll(async () => JSON.stringify((await roomsObject())?.architecture.outlines), { timeout: 15_000 }).toBe(JSON.stringify(stored?.architecture.outlines));
+
+  // ---- Kit pieces. The kit (its pieces' files published, the kit itself set up by command): the door and window, the window again as a wall piece.
+  for (const id of ['basic-door', 'basic-window']) await model(new Uint8Array(readFileSync(join(BASIC_KIT_MODELS, `${id}.glb`))), id);
+  await cmd('setKit', { kit: { kitId: 'e2e-rooms-kit', name: 'Rooms kit', pieces: { door: [{ assetId: 'basic-door', piece: 'door' }], window: [{ assetId: 'basic-window', piece: 'window' }], 'wall-override': [{ assetId: 'basic-window', piece: 'window' }] } } });
+  await rooms.getByLabel('rooms kit').selectOption('e2e-rooms-kit');
+  await expect.poll(async () => (await roomsObject())?.architecture.kitId, { timeout: 15_000 }).toBe('e2e-rooms-kit');
+  await rooms.getByLabel('door piece', { exact: true }).selectOption('basic-door#door');
+  await rooms.getByLabel('window piece', { exact: true }).selectOption('basic-window#window');
+  // The holes take the pieces' sizes once the kit's check read them: the door 1 × 2 m from the floor, the window 1 × 1 m from 1 m up.
+  await expect(rooms.getByLabel('door hole')).toHaveText('Door hole: 1 cell wide, 0–2 m', { timeout: 15_000 });
+  await expect(rooms.getByLabel('window hole')).toHaveText('Window hole: 1 cell wide, 1–2 m');
+  const backRoom = async (): Promise<Opening[] | undefined> => (await roomsObject())?.architecture.outlines?.find((o) => o.id === 'room-2')?.openings;
+  await tool('Door');
+  const kd = (await screen(page, [182, 0, -40.5]))!;
+  await page.mouse.click(kd.x, kd.y);
+  await tool('Window');
+  const kw = (await screen(page, [182, 0, -39.3]))!;
+  await page.mouse.click(kw.x, kw.y);
+  await expect
+    .poll(async () => (await backRoom())?.map((o) => `${o.id}:${o.model?.assetId}:${o.width}:${o.bottom}-${o.top}`), { timeout: 15_000 })
+    .toEqual(['door-1:basic-door:1:0-2', 'window-1:basic-window:1:1-2']);
+  await expect(rooms.getByLabel('room room-2 inspector').getByLabel('window-1 piece')).toHaveValue('basic-window#window');
+  // Wall piece: the front room's west wall (its segment lit under the pointer), one click.
+  await rooms.getByLabel('wall piece', { exact: true }).selectOption('basic-window#window');
+  await tool('Wall piece');
+  const wp = (await screen(page, [182, 0, -36]))!;
+  await page.mouse.move(wp.x - 3, wp.y);
+  await page.mouse.move(wp.x, wp.y);
+  await expect(view(page)).toHaveAttribute('data-room-spot', /^room-1-.*:seg\d$/);
+  await page.mouse.click(wp.x, wp.y);
+  await expect.poll(async () => (await roomsObject())?.architecture.overrides?.map((o) => `${o.element.startsWith('room-1-')}:${o.segment}:${o.model.assetId}`), { timeout: 15_000 }).toEqual([`true:${JSON.parse((await view(page).getAttribute('data-room-piece'))!).segment}:basic-window`]);
+  await expect(rooms.getByLabel('room room-1 inspector').getByLabel('wall pieces').getByRole('listitem')).toHaveCount(1);
+  // The view still orbits after the tool's clicks (a right drag turns it to the west walls; dragged back after).
+  const shots = process.env['TL_SHOTS'];
+  const box = (await view(page).boundingBox())!;
+  const viewProj = async (): Promise<string | null> => view(page).getAttribute('data-view-proj');
+  const viewBefore = await viewProj();
+  const orbit = async (dx: number, dy: number): Promise<void> => {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 12 });
+    await page.mouse.up({ button: 'right' });
+  };
+  await orbit(-230, -40);
+  await expect.poll(viewProj).not.toBe(viewBefore);
+  if (shots !== undefined) {
+    // Closer, for a picture: the west walls filling the view.
+    await frameOn(page, [[182, 0, -42], [182, 3.2, -42], [182, 0, -34], [182, 3.2, -34]]);
+    await page.screenshot({ path: `${shots}/rooms-kit-pieces.png` });
+    await rooms.getByLabel('room room-2', { exact: true }).click();
+    await rooms.getByLabel('room room-2 inspector').getByLabel('openings').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${shots}/rooms-kit-column.png` });
+  }
+  await orbit(230, 40);
+  if (shots === undefined) await expect.poll(viewProj).toBe(viewBefore);
+  else await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
 
   // Grime: the Paint mode, layer 3 on walls, one dab on the front wall's outer face.
   await editModeTab(page, 'Paint');

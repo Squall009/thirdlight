@@ -570,6 +570,11 @@ interface ArchitectureOutline {
   building?: string;
   /** The room's type a building's furnishing set places props by (absent: none). */
   roomType?: string;
+  /**
+   * A kit model the style's repeats place instead of their own piece (a
+   * run's railing or fence posts from a kit; absent: the style's piece).
+   */
+  repeatModel?: ArchitectureModelRef;
 }
 ```
 
@@ -581,7 +586,7 @@ Declared in `packages/project-model/src/architecture.ts`.
 ```ts
 /** A segment or corner of a sweep (or a repeat's copy) made by a kit model instead. */
 interface ArchitectureOverride {
-  /** The element's id. */
+  /** The element's id: one of `elements`, or one an outline or building makes (its id starts with theirs and a `-`). */
   element: string;
   /** The path segment (point i to i+1) replaced; or */
   segment?: number;
@@ -591,6 +596,12 @@ interface ArchitectureOverride {
   model: ArchitectureModelRef;
   /** A segment's model is stretched along to the segment's length (made 1 m long along +X; absent: true). */
   stretch?: boolean;
+  /**
+   * The model's origin is its bottom centre, as a kit's pieces are made: it
+   * stands at the segment's middle, stretched about it (absent: false, at
+   * the segment's start, the model made from 0 to 1 m along +X).
+   */
+  centre?: boolean;
 }
 ```
 

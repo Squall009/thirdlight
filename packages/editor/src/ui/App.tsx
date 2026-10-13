@@ -66,6 +66,7 @@ import { workspaceHostOf } from './workspace/workspace-host';
 import { useEditorProblems } from './shell/useEditorProblems';
 import { useBlockLayers } from './shell/useBlockLayers';
 import { publishBakeTexture } from '../viewport/bake-run';
+import { presetSlidersHost } from './architecture/PresetSliders';
 import { useTerrainTools } from './shell/useTerrainTools';
 import { useSceneEditing } from './shell/useSceneEditing';
 import { useEditorShortcuts } from './shell/useEditorShortcuts';
@@ -74,7 +75,7 @@ import { EditorDialogs } from './shell/EditorDialogs';
 import { useCuePreview } from './shell/useCuePreview';
 import { useSceneViewLending } from './shell/useSceneViewLending';
 import { EditModeShell } from './editmode/EditModeShell';
-import { editModeFor, isSceneMode, type EditModeHost } from './editmode/modes';
+import { editModeFor, editModeVia, isSceneMode, type EditModeHost } from './editmode/modes';
 import { useEditMode } from './editmode/useEditMode';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
@@ -937,6 +938,7 @@ function EditorApp(): JSX.Element {
   const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
   /** The selection's edit mode (the Inspector's Edit button). */
   const selectedEditMode = editModeFor(selected);
+  const selectedVia = editModeVia(selected, entities);
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
@@ -1057,7 +1059,14 @@ function EditorApp(): JSX.Element {
       kit={kitEditor}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
-      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) }}
+      editMode={(() => {
+        if (selected === null) return null;
+        const own = selectedEditMode === undefined ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) };
+        if (selectedVia === undefined) return own;
+        // The editor of the object it belongs to first (the rooms' block editor); its own (vertex paint) beside it.
+        const via = { label: selectedVia.label, enter: () => void editMode.enter(selectedVia.entityId, undefined, false, selectedVia.mode), ...(selectedVia.skips !== undefined ? { skips: selectedVia.skips } : {}) };
+        return own === null ? via : { ...via, also: { label: own.label, enter: own.enter } };
+      })()}
     />
   );
   /** What the edit modes read from the app. */
@@ -1074,9 +1083,11 @@ function EditorApp(): JSX.Element {
       stamps: blocks.blockStamps,
       kits: content.kits,
       graphs: content.graphs,
+      presets: presetSlidersHost(content.graphs, materials, (graphId, ops) => docCmds.sendGraphEdit({ kind: 'graph', id: graphId }, ops), (p) => void viewportRef.current?.previewArchitecture(p)),
       prefabs: prefabSummaries,
       setLayer: blocks.setEditedLayer,
       run: blocks.blockRun,
+      grouped: (action) => (clientRef.current !== null ? clientRef.current.grouped(action) : action()),
       edit: blocks.blockEdit,
       changeLayer: blocks.changeLayer,
       setFlag: (id, flag, value) => void sceneEditing.setFlag(id, flag, value),

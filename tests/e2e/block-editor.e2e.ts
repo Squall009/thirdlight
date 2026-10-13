@@ -313,12 +313,20 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect.poll(async () => (await entity(layer)).components.blockLayer?.kits).toBeUndefined();
   });
 
-  await test.step('Paint: the stand-ins read no paint; Make it paintable gives the picked type a Layered surface', async () => {
+  await test.step('Paint: the stand-ins read no paint; Make it paintable gives the picked type a Layered surface, one undo step', async () => {
     await page.keyboard.press('Shift+3');
     const banner = editMode(page).getByRole('alert', { name: 'material does not read paint' });
     await expect(banner).toBeVisible();
     await banner.getByRole('button', { name: 'make it paintable' }).click();
     await expect.poll(async () => (await typeOf('grass'))?.materials?.['*'] ?? null, { timeout: 15_000 }).not.toBeNull();
+    await expect(banner).toHaveCount(0);
+    // The material and the type that wears it are one step: one undo takes both back, one redo brings both.
+    const made = (await typeOf('grass'))!.materials!['*']!;
+    const hasMaterial = async (): Promise<boolean> => (((await query('queryIndex', { kind: 'material', ids: [made], refs: false }))['entries'] as unknown[] | undefined) ?? []).length > 0;
+    await page.keyboard.press('Control+z');
+    await expect.poll(async () => [(await typeOf('grass'))?.materials?.['*'] ?? null, await hasMaterial()], { timeout: 15_000 }).toEqual([null, false]);
+    await page.keyboard.press('Control+Shift+z');
+    await expect.poll(async () => [(await typeOf('grass'))?.materials?.['*'] ?? null, await hasMaterial()], { timeout: 15_000 }).toEqual([made, true]);
     await expect(banner).toHaveCount(0);
     await expect(editMode(page).getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Base/, /Layer 2/, /Layer 3/, /Layer 4/, /Wet/]);
   });

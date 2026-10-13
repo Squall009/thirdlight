@@ -527,7 +527,7 @@ function elementCopies(e: ArchitectureElement, c: ArchitectureComponent, s: Path
       if (o.segment >= segs) continue;
       const d0 = s.pointDist[o.segment]!;
       const d1 = o.segment + 1 < s.pointDist.length ? s.pointDist[o.segment + 1]! : s.length;
-      pathPointAt(s, d0, p, t);
+      pathPointAt(s, o.centre === true ? (d0 + d1) / 2 : d0, p, t);
       if (!keep(p[0]!, p[2]!)) continue;
       out.add(o.model, collide, `${e.id}:seg${o.segment}`, p, frameQuat(t), o.stretch === false ? 1 : d1 - d0);
     } else if (o.corner !== undefined && o.corner < s.pointDist.length) {

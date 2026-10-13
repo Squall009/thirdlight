@@ -625,7 +625,9 @@ export function evaluateStyle(style: ArchitectureStyleDef, value: (name: string)
           used.add(id);
           pieces.push({ ...v.element, id } as ArchitectureSweep | ArchitectureFill);
         }
-        if (pieces.length === 0) return null;
+        // A kit model in place of the style's piece (a run's railing from the kit): the style still spaces the copies.
+        const model = outline.repeatModel;
+        if (pieces.length === 0 && model === undefined) return null;
         const start = num(n, 'start');
         const jy = num(n, 'jitterYaw');
         const ja = num(n, 'jitterAlong');
@@ -639,7 +641,7 @@ export function evaluateStyle(style: ArchitectureStyleDef, value: (name: string)
             ...(flag(n, 'corners') ? { corners: true } : {}),
             ...(fieldOf(K, n, 'align') === false ? { align: false } : {}),
             ...(jy > 0 || ja > 0 ? { jitter: { ...(jy > 0 ? { yaw: jy } : {}), ...(ja > 0 ? { along: ja } : {}) } } : {}),
-            piece: { elements: pieces },
+            piece: model !== undefined ? { model: { ...model } } : { elements: pieces },
             ...base(n),
           },
         };

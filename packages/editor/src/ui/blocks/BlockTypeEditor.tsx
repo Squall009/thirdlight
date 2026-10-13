@@ -120,8 +120,11 @@ function LooksSection({ s, t }: { s: BlockSetup; t: BlockType }): JSX.Element {
     const tile = file === undefined ? assetDropOf(ev, 'model') : null;
     if (file === undefined && tile === null) return;
     ev.preventDefault();
-    const assetId = file !== undefined ? await s.blocks.importModel(file) : tile!.assetId;
-    if (assetId !== null) wear({ model: { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) } }, null);
+    // A dropped file is published, then worn: one undo step.
+    await s.blocks.grouped(async () => {
+      const assetId = file !== undefined ? await s.blocks.importModel(file) : tile!.assetId;
+      if (assetId !== null) await blockCommand(s, 'Edit block type', 'setBlockType', { block: withLookAdded(t, { model: { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) } }) });
+    });
   };
   const kitPieces = Object.entries(s.kit?.pieces ?? {}).flatMap(([slot, list]) => list.map((piece) => ({ slot, piece })));
   return (

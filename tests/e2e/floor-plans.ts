@@ -8,7 +8,7 @@
  * tops magenta, floor red). The program (test data): a hall the front door
  * opens into, wired to two rooms. The set (test data): two grey cabinets
  * (1.2 × 0.5 m, 1.2 m tall) against walls in every room, one light per
- * room. The building inspector picks the program and the set, pins a prop,
+ * room. The picked building's column picks the program and the set, pins a prop,
  * lays the rooms out again from a new seed (the pinned prop stays where it
  * was, the others move) and unpins it, locks the plan (its three rooms
  * stored, the props the same) and unlocks it.
@@ -105,11 +105,11 @@ export async function makeFloorPlans(page: Page, cmd: Cmd, query: Query, publish
     return e.components.architecture.buildings[0];
   };
 
-  // ---- The editor: the layer's Rooms tool, the building inspector.
+  // ---- The block editor's Rooms & buildings, the building picked in its list.
   await enterBlockEditor(page, layer);
   const blocks = editMode(page);
   await editModeTab(page, 'Rooms & buildings');
-  const rooms = blocks.getByLabel('rooms panel');
+  const rooms = blocks.getByLabel('block rooms');
   await rooms.getByLabel('building plan-house', { exact: true }).click();
   const panel = rooms.getByLabel('building plan-house floor plan');
   await expect(panel).toBeVisible();

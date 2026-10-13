@@ -50,7 +50,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { editMode, enterBlockEditor, inspector, leaveBlockEditor, menu, projectWindow } from './ui';
+import { closeEditor, editMode, enterBlockEditor, inspector, leaveBlockEditor, menu, openEditor, projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -341,7 +341,7 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   // ---- A baseboard keeps its pattern scale: a band swept along the +Z wall wears the 0.25 m baseboard row (yellow
   // over magenta). 0.4 m tall, the row shows once at its own height from the band's top and its bottom edge carries
   // on below (fitted to whole rows it would repeat twice: yellow again at 0.12 m). Its preset's slider is tied to the
-  // row: the Inspector shows the row's height, and Snap to row sets the band to it — the wall shows above it again.
+  // row: the preset's Inspector shows the row's height, and Snap to row sets the band to it — the wall shows above it again.
   await cmd('setGraph', { graph: { graphId: 'e2e-band-style', kind: 'architecture-style', name: 'Band', graph: BAND_STYLE } });
   await cmd('setGraph', { graph: { graphId: 'e2e-band', kind: 'architecture-preset', name: 'Band', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: 'e2e-band-style', base: '', sheet: 'mat-sheet' } }], edges: [] } } });
   const band = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Band', transform: { position: [...ORIGIN] } }))['createdId']);
@@ -354,12 +354,14 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
     { name: 'band at 0.2 m', at: onBand(0.2), colour: 'magenta' },
     { name: 'band at 0.12 m', at: onBand(0.12), colour: 'magenta' },
   ], 'baseboard-real-height');
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${band}"]`).click();
+  // The preset open in the editor window: its Inspector shows the sliders.
+  await openEditor(page, 'Graph', 'Band');
   await expect(inspector(page).getByLabel('band_height row')).toContainText('Row “baseboard”: 0.25 m — the part is 0.4 m');
   await inspector(page).getByRole('button', { name: 'snap band_height to row' }).click();
   const bandValue = async (): Promise<unknown> => (((await query('queryGameConfig'))['graphs'] ?? []) as { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[]).find((g) => g.graphId === 'e2e-band')?.graph.nodes.find((n) => n.type === 'value')?.data?.['value'];
   await expect.poll(bandValue).toBe(0.25);
   await expect(inspector(page).getByRole('button', { name: 'snap band_height to row' })).toHaveCount(0);
+  await closeEditor(page);
   await expectColours(view, [
     { name: 'wall above the band at 0.3 m', at: [-0.5, 0.3, 1.001], colour: 'green' },
     { name: 'band at 0.2 m', at: onBand(0.2), colour: 'yellow' },

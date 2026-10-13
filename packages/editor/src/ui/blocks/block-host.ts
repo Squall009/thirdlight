@@ -11,6 +11,7 @@ import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp
 
 import type { Cell3, CellBox } from '../../session/block-brush';
 import type { BlockEditor } from '../../viewport/block-editor';
+import type { PresetSlidersHost } from '../architecture/PresetSliders';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
 
 export interface BlockLayerRow {
@@ -42,12 +43,19 @@ export interface BlockModeHost {
   readonly kits: readonly KitDef[];
   /** The graphs (presets, room programs) the rooms of the layer are expanded with. */
   readonly graphs: readonly GraphDocument[];
+  /** What the rooms' preset sliders read and send (graph edits, the Scene view's preview). */
+  readonly presets: PresetSlidersHost;
   /** The project's prefabs (a block look can be a prefab's model). */
   readonly prefabs: readonly { readonly prefabId: string; readonly displayName: string }[];
   /** The layer the Scene view's tools edit (null: none). */
   setLayer(entityId: string | null): void;
   /** A content or scene command (true: stored). */
   run(what: string, op: string, args: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Run one user action that sends several commands as one undo step (the
+   * backend groups what it stored; see `SessionClient.grouped`).
+   */
+  grouped<T>(action: () => Promise<T>): Promise<T>;
   /** Some `editBlocks` edits of a layer (true: stored). */
   edit(what: string, entityId: string, edits: BlockEdit[]): Promise<boolean>;
   /**

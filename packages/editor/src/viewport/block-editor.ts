@@ -237,7 +237,7 @@ export class BlockEditor {
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
   private lastStroke: { tool: BlockToolId; cells: number; previewMs: number; commitMs: number | null } | null = null;
-  /** What the Rooms tool reports to (the panel sets it). */
+  /** What the Rooms tool reports to (Rooms & buildings' column sets it). */
   readonly roomHandlers: { current: Omit<RoomToolCallbacks, 'onRefused'> | null } = { current: null };
   /** The Rooms tool: rooms and paths of generated architecture drawn on the layer. */
   readonly rooms: RoomTool;

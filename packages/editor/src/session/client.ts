@@ -8,7 +8,7 @@
  */
 
 import type { FolderImportView } from './folder-upload';
-import { makeRequestId, type MutationResponse } from './envelope';
+import { makeRequestId, type MutationResponse, type Origin } from './envelope';
 import { type AssetView } from './content-projection';
 import type { DecalAtlasView } from './decal-atlas';
 import {
@@ -51,7 +51,7 @@ export interface TrimCheckView {
   transcoded: boolean;
   problems: TrimPaddingProblem[];
 }
-import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
+import { type CommandResult, type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
 import { FetchGate } from './fetch-gate';
 
 /**
@@ -64,6 +64,45 @@ export * from './client-core';
 
 export class SessionClient extends SessionClientCore {
   private readonly slotFetches = new FetchGate(SLOT_FETCHES_MAX);
+  /** The request ids of the commands stored while a `grouped` action runs (null: none runs). */
+  private groupIds: string[] | null = null;
+
+  override command(op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> {
+    const ids = this.groupIds;
+    if (ids === null) return super.command(op, args, expectedRevision, requestId, origin);
+    const rid = requestId ?? makeRequestId();
+    const p = super.command(op, args, expectedRevision, rid, origin);
+    // Registered before the caller's own continuation, so the ids are in the order the commands were stored.
+    void p.then((r) => {
+      if (r.ok) ids.push(rid);
+    });
+    return p;
+  }
+
+  /**
+   * Run one user action that sends several commands (a material and the
+   * block types that wear it) and make what it stored one undo step: the
+   * backend groups their history entries when nothing else ran between
+   * them (else they stay separate steps). Actions do not nest: an inner
+   * one joins the outer one's step.
+   */
+  async grouped<T>(action: () => Promise<T>): Promise<T> {
+    if (this.groupIds !== null) return action();
+    const ids: string[] = [];
+    this.groupIds = ids;
+    try {
+      return await action();
+    } finally {
+      this.groupIds = null;
+      if (ids.length > 1) {
+        try {
+          await this.api(`/projects/${this.cfg.projectId}/history/group`, { requestIds: ids });
+        } catch {
+          // Not grouped (someone else's command ran between them): each stays its own undo step.
+        }
+      }
+    }
+  }
 
   /** One entity with its full components (read-only). */
   async queryEntity(entityId: string): Promise<{ ok: true; entity: Record<string, unknown>; parentChain: string[] } | { ok: false; error: { code: string; message: string } }> {

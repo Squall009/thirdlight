@@ -465,6 +465,8 @@ export interface KitPieceReport {
   triangles: number[];
   lods: number[];
   collider: boolean;
+  /** LOD0's size across, up and deep in metres (absent: no geometry read): what an opening sized to the piece takes. */
+  size?: [number, number, number];
   /** The model's material map (its file's material names → project materials; absent: none). */
   materials?: Record<string, string>;
   checks: KitCheck[];

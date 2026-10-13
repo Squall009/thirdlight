@@ -1380,6 +1380,34 @@ export function createBackend(
           sendJson(res, 200, { ok: true, packs: config.engineRoot === undefined ? [] : listPacks(config.engineRoot) });
           return;
         }
+        // POST /api/v1/projects/:projectId/history/group {requestIds} — commands one user action ran made one undo step
+        if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'history' && parts[5] === 'group') {
+          if (method !== 'POST') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          const body = await readBody(req);
+          if (!body.ok) {
+            sendError(res, body.error);
+            return;
+          }
+          const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+          const ids = strict.ok ? (strict.value as { requestIds?: unknown } | null)?.requestIds : undefined;
+          if (!Array.isArray(ids) || ids.length < 2 || !ids.every((x) => typeof x === 'string')) {
+            sendError(res, sessionError('invalid_request', 'validation', 'requestIds is a list of at least 2 request ids', { path: '/requestIds' }));
+            return;
+          }
+          // Refused (409) when they are not the last entries applied: someone else's command ran between them.
+          if (service.groupRequests(projectId, ids as string[])) sendJson(res, 200, { ok: true, grouped: ids.length });
+          else sendJson(res, 409, { ok: false, error: { code: 'not_grouped', cls: 'conflict', message: 'the commands are not the last entries of the history' } });
+          return;
+        }
         // POST /api/v1/projects/:projectId/packs/:packId {origin?} — add an engine pack's items to the project
         if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'packs') {
           if (method !== 'POST') {

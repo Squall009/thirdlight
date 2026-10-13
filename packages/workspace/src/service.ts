@@ -417,6 +417,21 @@ function buildService(core: Core): WorkspaceService {
     return true;
   }
 
+  /**
+   * Group the commands a client ran for one user action (their request ids,
+   * in order): only when they are exactly the last entries applied, so a
+   * command someone else ran in between keeps them apart (false) rather
+   * than being undone with them.
+   */
+  function groupRequests(projectId: string, requestIds: readonly string[]): boolean {
+    const s = core.sessions.get(projectId);
+    const n = requestIds.length;
+    if (s === undefined || s.mode !== 'open' || n < 2 || n > s.history.cursor) return false;
+    const top = s.history.entries.slice(s.history.cursor - n, s.history.cursor);
+    if (top.some((e, i) => e.requestId !== requestIds[i])) return false;
+    return groupHistory(projectId, n);
+  }
+
   /** The history group of the entry undo would take next, and of the one redo would (null: none, or not grouped). */
   function historyGroups(projectId: string): { undo: number | null; redo: number | null } {
     const s = core.sessions.get(projectId);
@@ -660,6 +675,7 @@ function buildService(core: Core): WorkspaceService {
     flushed: whenFlushed,
     checkExternal,
     groupHistory,
+    groupRequests,
     historyGroups,
     createProjectFrom: (projectId: string, name: string, source: ProjectSource) => createProjectFrom(core, projectId, name, source),
     registerProject,

@@ -49,11 +49,14 @@ async function dropNewType(s: BlockSetup, ev: DragEvent): Promise<void> {
   const tile = file === undefined ? assetDropOf(ev, 'model') : null;
   if (file === undefined && tile === null) return;
   ev.preventDefault();
-  const assetId = file !== undefined ? await s.blocks.importModel(file) : tile!.assetId;
-  if (assetId === null) return;
-  const name = (file?.name.replace(/\.[^.]+$/, '') ?? tile?.piece ?? assetId).replace(/[_-]+/g, ' ');
-  const block = newBlockType(s.blocks.types, { model: { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) } }, name.charAt(0).toUpperCase() + name.slice(1));
-  if (await blockCommand(s, 'New block type', 'setBlockType', { block })) await addToPalette(s, block);
+  // The model published (a file), the type and its place in the kit: one undo step.
+  await s.blocks.grouped(async () => {
+    const assetId = file !== undefined ? await s.blocks.importModel(file) : tile!.assetId;
+    if (assetId === null) return;
+    const name = (file?.name.replace(/\.[^.]+$/, '') ?? tile?.piece ?? assetId).replace(/[_-]+/g, ' ');
+    const block = newBlockType(s.blocks.types, { model: { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) } }, name.charAt(0).toUpperCase() + name.slice(1));
+    if (await blockCommand(s, 'New block type', 'setBlockType', { block })) await addToPalette(s, block);
+  });
 }
 
 /** A new type joins the layer's kit (when it has one, so it shows in the palette), and becomes the brush. */
@@ -89,8 +92,9 @@ export function PaletteSection({ s, keys }: { s: BlockSetup; keys: boolean }): J
         onPick={(blockId) => s.set((st) => ({ brush: { ...st.brush, block: blockId, variant: null, rot: allowedRotations(s.typeOf.get(blockId)).includes(st.brush.rot) ? st.brush.rot : 0 }, typeOpen: null }))}
         onNew={() => {
           const block = newBlockType(s.blocks.types);
-          void blockCommand(s, 'New block type', 'setBlockType', { block }).then(async (ok) => {
-            if (ok) await addToPalette(s, block);
+          // The type and its place in the kit: one undo step.
+          void s.blocks.grouped(async () => {
+            if (await blockCommand(s, 'New block type', 'setBlockType', { block })) await addToPalette(s, block);
           });
         }}
         onDropModel={(ev) => void dropNewType(s, ev)}

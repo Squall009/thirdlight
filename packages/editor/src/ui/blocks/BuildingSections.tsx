@@ -1,19 +1,26 @@
 /**
- * A building's floor plan and furnishing in the room inspector: the room
- * program that splits its footprint into rooms and the furnishing set that
- * places props in them (the project's graphs of those kinds), the layout's
- * seed (a new seed lays rooms and props out again), and the hand edits on
- * top of the generated plan:
- * - Lock: the program's rooms are stored as the building's rooms (edited
- *   with the Rooms tool like any room); the program no longer runs.
- * - Detach: locked, and every prop pinned.
- * - Pin a prop: it stays where it is (same id) whatever is made again;
- *   unpin hands it back to the furnishing.
+ * A building's sections in Rooms & buildings' room column.
+ *
+ * - `BuildingFields`: its roof (shape, rise, overhang, the trim row it
+ *   wears) and where its interior is: in place, or a scene of its own (made
+ *   here: its doors link to the exterior's), with an offset there.
+ * - `BuildingPlanFields`: its floor plan and furnishing: the room program
+ *   that splits its footprint into rooms and the furnishing set that places
+ *   props in them (the project's graphs of those kinds), the layout's seed
+ *   (a new seed lays rooms and props out again), and the hand edits on top
+ *   of the generated plan. Lock: the program's rooms are stored as the
+ *   building's rooms (edited here like any room); the program no longer
+ *   runs. Detach: locked, and every prop pinned. Pin a prop: it stays where
+ *   it is (same id) whatever is made again; unpin hands it back.
+ *
+ * Browser-only (React).
  */
 import type { JSX } from 'react';
 import type { ArchitectureBuilding, FurnishedProp } from '@thirdlight/project-model';
+import { ARCHITECTURE_ROOF_SHAPES } from '@thirdlight/runtime';
 
-import { Num, Pick, type RoomsBinding } from './RoomsPanel';
+import type { RoomsBinding } from '../architecture/useRoomsBinding';
+import { Num, Pick, Text } from './RoomFields';
 
 const pinOf = (x: FurnishedProp): NonNullable<ArchitectureBuilding['pins']>[number] => ({ id: x.id, model: x.model, position: x.position, facing: x.facing, size: x.size });
 
@@ -58,7 +65,7 @@ export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding:
       </button>
       {!locked && (
         <>
-          <button type="button" className="tl-btn tl-btn--small" title="Store the program's rooms as the building's rooms: edit them with the Rooms tool; the program no longer runs" disabled={B.planRooms.every((o) => o.building !== bld.id)} onClick={() => lock(false)}>
+          <button type="button" className="tl-btn tl-btn--small" title="Store the program's rooms as the building's rooms: edit them here like any room; the program no longer runs" disabled={B.planRooms.every((o) => o.building !== bld.id)} onClick={() => lock(false)}>
             Lock plan
           </button>
           <button type="button" className="tl-btn tl-btn--small" title="Lock the plan and pin every prop: nothing is made again" disabled={B.planRooms.every((o) => o.building !== bld.id)} onClick={() => lock(true)}>
@@ -91,5 +98,75 @@ export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding:
         ))}
       </div>
     </div>
+  );
+}
+
+/** A building's roof and interior. */
+export function BuildingFields(p: { building: ArchitectureBuilding; binding: RoomsBinding; onSet: (next: ArchitectureBuilding, what: string) => void }): JSX.Element {
+  const bld = p.building;
+  const roof = bld.roof;
+  const setRoof = (next: ArchitectureBuilding['roof'] | undefined, what: string): void => {
+    const { roof: _r, ...rest } = bld;
+    p.onSet(next === undefined ? rest : { ...rest, roof: next }, what);
+  };
+  const roofNum = (key: 'rise' | 'overhang', v: number | undefined): void => {
+    if (roof === undefined) return;
+    const { [key]: _k, ...rest } = roof;
+    setRoof(v === undefined ? rest : { ...rest, [key]: v }, `Roof ${key}`);
+  };
+  const scenes = p.binding.scenes.filter(([id]) => id !== p.binding.sceneId);
+  const setInterior = (scene: string): void => {
+    const { interior: _i, ...rest } = bld;
+    p.onSet(scene === '' ? rest : { ...rest, interior: { ...(bld.interior?.offset !== undefined ? { offset: bld.interior.offset } : {}), scene } }, 'Building interior');
+  };
+  const offset = bld.interior?.offset ?? [0, 0, 0];
+  const setOffset = (k: number, v: number | undefined): void => {
+    if (bld.interior === undefined) return;
+    const next: [number, number, number] = [offset[0], offset[1], offset[2]];
+    next[k] = v ?? 0;
+    const { offset: _o, ...inner } = bld.interior;
+    p.onSet({ ...bld, interior: next.every((x) => x === 0) ? inner : { ...inner, offset: next } }, 'Interior offset');
+  };
+  return (
+    <>
+      <div className="tl-inspector__subtitle">Roof</div>
+      <Pick label="roof shape" value={roof?.shape ?? ''} options={[['', '— none —'], ...ARCHITECTURE_ROOF_SHAPES.map((s) => [s, s] as const)]} onCommit={(v) => setRoof(v === '' ? undefined : { ...(roof ?? {}), shape: v as NonNullable<ArchitectureBuilding['roof']>['shape'] }, 'Roof shape')} />
+      {roof !== undefined && (
+        <>
+          <Num label="roof rise" value={roof.rise} min={0} placeholder="half the deepest inset" onCommit={(v) => roofNum('rise', v)} />
+          <Num label="roof overhang" value={roof.overhang} min={0} placeholder="0.3" onCommit={(v) => roofNum('overhang', v)} />
+          <Text
+            label="roof slot"
+            value={roof.slot ?? ''}
+            placeholder="upper_wall"
+            onCommit={(v) => {
+              const { slot: _s, ...rest } = roof;
+              setRoof(v === '' ? rest : { ...rest, slot: v }, 'Roof slot');
+            }}
+          />
+        </>
+      )}
+      <div className="tl-inspector__subtitle">Interior</div>
+      <Pick label="interior" value={bld.interior?.scene ?? ''} options={[['', 'in place'], ...scenes]} onCommit={setInterior} />
+      <button
+        type="button"
+        className="tl-btn tl-btn--small"
+        title="A new scene for the interior: it is made there from this building, its doors linked to the exterior's"
+        onClick={() => {
+          void p.binding.createScene(`${bld.id} interior`).then((id) => {
+            if (id !== null) setInterior(id);
+          });
+        }}
+      >
+        New interior scene
+      </button>
+      {bld.interior !== undefined && (
+        <>
+          <Num label="interior offset x" value={offset[0]} step={1} onCommit={(v) => setOffset(0, v)} />
+          <Num label="interior offset y" value={offset[1]} step={1} onCommit={(v) => setOffset(1, v)} />
+          <Num label="interior offset z" value={offset[2]} step={1} onCommit={(v) => setOffset(2, v)} />
+        </>
+      )}
+    </>
   );
 }
