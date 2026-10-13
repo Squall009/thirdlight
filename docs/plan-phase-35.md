@@ -170,6 +170,8 @@ Rules for every item:
 | 35.6 | Done 2026-10-13: the decal editor, a **scene's** edit mode (`SceneEditModeKind`: the whole scene drawn, only objects with its component — decals — pickable, other icons hidden; `viewport/view-isolation.ts` split out of `viewport.ts`, 1,948 → 1,935 lines) from Window → Decals, the toolbar's decal button and a double-click on a decal (opens in Select with it selected); rail Place · Scatter · Select. Palette (decal materials + free trim cells on the layer palette's tiles, a cell cropped from its sheet, checker; drop or pick an image → a decal material), place/stamp/grips as before, scatter with the shared brush (`ScatterStroke`: density per m², seeded turn/size, dropped along the dab's normal; one `createEntities` a stroke), select (click, box, Shift/Ctrl, material/layer filter, drag to move), the selection's fields on many in **one** `setComponent` (additive `entityIds` + `values`, generic, follow-ups), blend on the material, Bake to model, Delete. Floating Decal window, `DecalToolPanel` and the Inspector's bake button removed. Found and fixed: the Scene view's decal pages dropped image alpha (every view-page decal drew as its rectangle). vitest: commands 3, decal editor 7; e2e `layered-material.e2e.ts` decal steps drive the editor (+ bake via a double-click, scatter, box/Shift/Ctrl, one multi-edit and its undo): 43.5 → 45.7 s (auto), 46.2 s WebGL 2; preview drawn 129–142 ms, clipped preview cut 60–80 ms. Screenshots looked at against 05 (`~/.cache/thirdlight-phase34/work/shots356/`, owner look pending). Fast gate: vitest 697 files, e2e 39 (rendering's dynamic-resolution step failed once, passed on rerun), village WebGPU p50 5.5 / WebGL 2 4.6 ms within limits. D256 found (below). |
 | 35.7 | Done 2026-10-13: the decal atlas, a drawer along the decal editor's view (`ui/decals/AtlasDrawer.tsx`, the shell's new scene-mode `drawer`): pages, images/materials, unused share, GPU memory (block-compressed, every mip), the images that set every page's size with what halving them gives, each page with its images' rectangles (hover names, click selects their decals); **Rebuild pages** composes them on the backend (`decal-atlas.ts`: `GET`/`POST …/content/decal-pages`, arrays served from the last composition) and the Scene view draws from them as Play does while they are current (`decalpages:` texture keys). The plan is the build's: the shipped materials moved into exporter `shippedMaterials` (the closure and the route call it), project-model `decalPageReport` reads `planDecalPages`. vitest: report 2, editor 2, backend 1 (the atlas's size, pages, rectangles equal a real export's; Rebuild gives the export's arrays from the cache; a new decal material makes it stale). e2e `layered-material` decal steps: the drawer lists the 3 images, hover, click-select, Rebuild → drawn from the pages (`data-tl-decal-pages` 2 arrays, 262,224 B — the drawer's number) on WebGPU and WebGL 2; made in 34–54 ms there (3 small images, pages already in the cache from Play's build ahead); a cold 2-page compose in the backend test 1.5 s (the export); the 200-image ≤ 2 s target not measured. **D256 closed** (one more frame after an in-place decal write; box-floor preview/placement steps). **Delete of many decals is one `deleteEntity`** (additive `entityIds`, `DELETE_ENTITIES_MAX`; MCP docs), used by the decal editor and the Scene view's delete; e2e: a scatter stroke box-selected, deleted, one undo. Screenshots looked at against 05 (`~/.cache/thirdlight-phase34/work/shots357/`: both renderers, the warning row; decal alpha right on WebGL 2 from view pages and composed pages). Fast gate green first run (vitest 701 files, e2e 32, village WebGPU p50 5.6 / WebGL 2 4.7 ms within limits). Owner look pending. |
 | 35.8 | Done 2026-10-13: real-browser pass on both renderers, all through the editor (MCP/commands only for the imports — the import route as the project window's —, the scene's gradient sky, Play's camera and the export route): two Studio trim sheets (stone, wood: 2048², albedo with height in A, normal, ORM; layout.json imported in each trim material's table, the rows the room doesn't use deleted so both share one table), a building drawn with the Rooms tool (2 storeys, door, windows) wearing the stone sheet, **Make it a layered surface** in the vertex paint editor, layer 2 the wood sheet, 3/4 moss and rust (512², world, tiled) from the texture browser, painted wood, moss through the noise mask, rust under the eaves, a wet corner; a block wall of a block type wearing the same material, painted with Paint texture on its walls; a terrain (GameObject → Terrain, Set up material: grass, soil, moss, cliff; painted through noise, sculpted); decals from two images (drop zone → texture), placed, a 41-decal scatter stroke, two selected and edited at once, **Rebuild pages** (2 pages 512², 699 KB, composed 1.9–2.0 s); Play from five cameras (wide and close-ups) and the static export. 56 JPEGs in `~/.cache/thirdlight-phase35/acceptance/` (looked at; owner look pending). Found and fixed: texture-array requests starved the editor's connections (D257, at most 2 in flight), a block type's Materials could not be added in the Inspector (D258, e2e `block-world-uv`). Found, logged: trim layers on block walls show the whole sheet per cell face (D259), height-in-alpha sheets draw their decal cells invisible (D260), stale material warnings in Problems (D262). §4 after: layered walls unchanged since 35.3 (no drawing code changed: 5.71 / 6.51 ms 1 / 4 layers); decal atlas, 200 images (100 pages 512²) cold **22.2 s** vs ≤ 2 s (miss, D261), warm 24 ms, off the main thread (backend pings p50 1 ms, max 276 ms). Building layer arrays (two 2048² sheets + two 512² sets) in ~104 s after the last pick. Manual: decals (New material dialog, cell opacity), trim sheets (shared rows, block walls, decal cells), layered surface UV sources checked against the editor; vertex paint matches. |
+| 35.9 | Done 2026-10-13: review fixes (decision log): the full gate's 3 failures (New material dialog in `project-items`; constant heights read as "no height" in `painted-terrain`) fixed and rerun green alone (3 passed, both renderers); block walls wear trim strips (D259, e2e `block-world-uv` pixels on both renderers, screenshot looked at); generator grime a grime effect, converted trim keeps its base tint, export-safe trim group keys (real export), byte-bounded command batches, instance resolution, neutral empty slots, terrain without mesh UVs, D260 cells opaque, the wall-stroke notice; encoder pool: atlas 200 images 52.8 → 20.2 s (D263 still over ≤ 2 s), slot arrays 107 → 31 s (D264). Fast gates: vitest 703 files, e2e 41 (area files; one expectation updated for the cell-only page), village WebGPU p50 5.5 / WebGL 2 4.8 ms within limits. Unverified by eye: the converted building's tint and grime in the editor, the Scene view's opaque sheet cells, the stretched row on cells taller than a row. |
+| Phase gate | `full --both-renderers` at `c338acd5` (2026-10-13 05:47, 2 workers): build, lint, vitest 702 passed; e2e 387 passed, 3 failed (also alone) in 24.6 min; 36 min with the rerun — **OVER BUDGET** (15 min), peak 6.7 GB, no OOM. The 3 fixed in 35.9 (`f21ab60c`) and `tools/gate.sh rerun` green (3 passed). D253 stays open with these numbers. |
 
 ## 6. Decision log
 
@@ -410,3 +412,75 @@ Rules for every item:
     the building dark overall; the window panes show the sky band. A Paint texture stroke along the block wall at 2.2 m
     stored nothing in three runs (the same stroke at 2.4 m did; not investigated further). The vertex paint editor frames
     the building small at 1080p (the wheel zooms in).
+
+- 2026-10-13 (35.9) — **Phase review** (fresh reviewer, `eb3e6dc6..c338acd5`, one page). High: the done-when is
+  unmet for block walls (D259: trim layers show the whole sheet per face) and a block-wall Paint texture stroke stored
+  nothing; decal scatter strokes of ≥ ~318 decals were refused whole (count-only chunks under the 64 KiB request cap).
+  Medium: e2e time grew despite D253; a converted trim building brightens (the grey stand-in tint dropped); generator
+  grime leaks into layer 2; D260/D261; layer arrays ~104 s with no D-row; layered trim + tiling exports fail validation
+  (`albedoHeight@trim`); an unwired Height blend's labels disagree with its compile; Make it paintable on an instance
+  gives a blank base; batch `setComponent` leaves other instance sets' paint stale; terrain + "mesh UVs" reads past
+  its arrays. Low: empty slots black/white, a failed delete chunk clears the selection, the atlas lock and its `last`
+  map, stale composed pages, `sheetProblems` on instances, `assign.slots` duplicates, instance paint-tint labels, a
+  history-style comment, `modesOf` constants, self-recorded WGSL digests, uncancellable fetch-gate requests.
+  **Fixed in 35.9**: every High and Medium except as noted below, and the Lows but the last three (D267). The phase's
+  full gate (36 min, 3 failures, each also failing alone) was fixed and its failures rerun green alone.
+  Defaults chosen, owner to confirm:
+  - **The full gate's three failures** were real: `project-items` still typed into Create → Material's old in-place
+    name (35.2 put the New material dialog there; the test now names it in the dialog), and `painted-terrain`'s
+    per-layer slots drew a cross-fade because 35.4's check called a **constant A** flat and replaced it by the
+    brightness height (128 for a plain colour), so layers whose heights are uniform (230 vs 20) blended evenly. Now
+    only an opaque A (≥ 255 − `FLAT_ALPHA_SPREAD`, give or take noise) counts as "no height"; a constant below
+    opaque is a deliberate height (a layer that is uniformly high or low wins or loses every blend crisply). The
+    import-cache marker's version went up, so files checked under the old rule are checked again.
+  - **Block walls wear trim strips (D259)**: the renderer turns a block chunk's metre UVs into strip UVs for a
+    material with a row table (a trim material, a layered surface with trim layers), as it already turned them into
+    cells for old layered materials (`block-cell-uv.ts`, kept per mesh, swapped as the material changes): a wall
+    triangle takes u along the wall in metres × its row's density ÷ the sheet's width (continuous along the wall, as
+    a generated wall's) and v across its row from the bottom to the top of the cells it spans; the layer's first
+    storey of cells wears `lower_wall`, the storeys above `upper_wall`, tops and undersides `floor` (falling back
+    along that list, then the sheet's first row). One row per cell face: the mesher makes one quad a face and a row
+    cannot repeat inside a quad, so a row shorter than the cell is stretched up the face (a generated wall stacks it
+    instead) — the owner's eyes; cutting faces at row height is the mesher's job if the stretch looks wrong.
+    Stand-ins and world-mapped model looks; a model's own UVs are left alone. e2e `block-world-uv` checks the
+    colours of a three-row sheet on a wall (lower wall only) and the tops (floor only), both renderers.
+  - **The Paint texture stroke that "stored nothing"** (35.8): the backend answers an edit that changes nothing with
+    `no_change`, which the editor took quietly while the stroke's preview vanished. An unpainted wall point already
+    holds layer 2 in full (the walls' own default), so painting layer 2 there changes nothing; the editor now says
+    so in a notice (e2e `terrain-paint`). Not the whole story: a model-level repro of the acceptance's strokes stores
+    both, and the acceptance could not be rerun (its textures are gone) — D266, watch.
+  - **Generator grime is grime, not layer 2**: the Layer weights node no longer adds the trim data's G to layer 2
+    (with a second trim sheet there the path paint showed as that sheet); it has a `grime` output (trim data G,
+    0 elsewhere) and the layered template pulls the colour toward `grimeColor` (`GRIME_COLOUR`, the trim material's
+    default, now defined once) and the surface toward matte by `grime`. Stored layered materials don't wire it: on
+    them the generator's grime simply stops showing.
+  - **A converted trim building keeps its look**: the layered template has a base-layer tint (`color`, white), and a
+    layered surface whose base layer is a trim sheet takes the tint of the material it is put over, as a trim
+    material does (generated architecture's grey stand-in `#9a968c`) — only the base layer, so moss and rust keep
+    their own colours. Layered materials made before (no `color`) stay as they are. The alternative — drop the grey
+    for trim too, so both are the sheet's own colour (brighter) — changes every trim building's look; owner decides.
+  - **Request batches by bytes too**: one chunker (`session/request-batches.ts`) cuts scatter strokes, multi-edits and
+    deletes by the op's count and by `MAX_REQUEST_BYTES` (moved to project-model's limits so the editor reads the
+    one value; commands re-exports it), keeping 1,024 bytes for the envelope. A long stroke is then several
+    commands (several undo steps), not refused whole; a refused batch ends the run and keeps what was stored and
+    still selected. `assign.slots` refuses a slot named twice but takes names the object does not draw with (slot
+    names are an open set). Batch `setComponent` refreshes the paint table of every instance set it names.
+  - **Export-safe trim groups**: the draw-time trim group key is `<key>_trim` (`TRIM_GROUP_KEY`, an identifier as the
+    runtime's key rule wants; a material that already has that key keeps one array) and drawn node ids are valid
+    ids — layered materials with trim + tiling layers failed export validation before (proved by a real export).
+  - **An unwired Height blend declares vertex paint, raw** (R–A = layers 1–4, its documented compile), not layer
+    weights, so stored programs stay and the vertex paint editor shows raw channels.
+  - **Empty slots are neutral** in a drawn layered surface (mid grey, height 0: never wins a blend; an all-empty
+    group borrows that constant layer from the other group's array).
+  - **Terrain**: a material with more than four layers draws as it is (no trim/tiling regrouping), and the terrain
+    editor offers no "mesh UVs" nor trim sheet (D265 keeps the Material editor's case).
+  - **Instances**: Make it paintable, the paint meaning and the sheet check resolve a material instance first.
+  - **Decal cells of a sheet read as a layer** are copied onto pages with A opaque, and the Scene view draws them
+    opaque before Rebuild pages (D260; owner's rule: a cell follows its sheet's declaration).
+  - **Encoding**: a KTX2 encoder pool (cores − 2, ≤ ¼ of the memory the process may use — its cgroup's cap where one
+    applies, so capped test runs keep one worker a backend — at 1.25 GiB a worker, ≤ 4); decal pages and UASTC slot
+    layers encoded side by side (joined texel-identically); ETC1S level 1 for arrays assembled on request (1.8×
+    faster, −0.09 dB; imports keep the default). Bench (`TL_BENCH=1 texture-assembly.bench.test.ts`, noisy
+    synthetic images): 200-image atlas cold 52.8 → 20.2 s (still over ≤ 2 s: D263), six slot arrays 107.2 → 31.3 s
+    (D264). The atlas composes once per project at a time with one waiting (concurrent requests share it); the last
+    compositions are kept for 16 projects; a failed re-read drops composed pages from the Scene view.
