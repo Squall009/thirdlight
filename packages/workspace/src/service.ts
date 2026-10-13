@@ -418,6 +418,18 @@ function buildService(core: Core): WorkspaceService {
   }
 
   /**
+   * Start the project's undo history afresh (nothing to undo or redo): a
+   * project just made from a template begins where the template's setup
+   * left it. False when the project is not open.
+   */
+  function forgetHistory(projectId: string): boolean {
+    const s = core.sessions.get(projectId);
+    if (s === undefined || s.mode !== 'open') return false;
+    s.history = { ...s.history, entries: [], cursor: 0 };
+    return true;
+  }
+
+  /**
    * Group the commands a client ran for one user action (their request ids,
    * in order): only when they are exactly the last entries applied, so a
    * command someone else ran in between keeps them apart (false) rather
@@ -675,6 +687,7 @@ function buildService(core: Core): WorkspaceService {
     flushed: whenFlushed,
     checkExternal,
     groupHistory,
+    forgetHistory,
     groupRequests,
     historyGroups,
     createProjectFrom: (projectId: string, name: string, source: ProjectSource) => createProjectFrom(core, projectId, name, source),

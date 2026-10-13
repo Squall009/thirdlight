@@ -20,9 +20,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { applyMutation, createCommandState } from '@thirdlight/commands';
-import type { CommandState, MutationSuccess } from '@thirdlight/commands';
-import type { SceneV3 } from '@thirdlight/project-model';
+import { capture, newAuthor, run } from '../../tools/author.mts';
 
 // Bundled to /tmp, so the template folder comes from the working directory (the repo root).
 const ROOT = resolve('templates', 'starter');
@@ -228,21 +226,6 @@ function glbMetrics(bytes: Uint8Array): Record<string, number> {
 
 /* ----------------------------------------------------------- authoring --- */
 
-interface Author { state: CommandState; counter: number; applied: Array<{ op: string; args: Record<string, unknown> }> }
-
-function run(author: Author, op: string, args: Record<string, unknown>): MutationSuccess {
-  author.counter += 1;
-  const revision = (author.state.scene as unknown as { revision: number }).revision;
-  const outcome = applyMutation(author.state, { op, projectId: PROJECT_ID, expectedRevision: revision, requestId: `req-${author.counter.toString(16).padStart(32, '0')}`, args } as never);
-  if (!outcome.ok) {
-    console.error(`FAILED at ${op}:`, JSON.stringify(outcome.result, null, 2));
-    process.exit(1);
-  }
-  author.state = outcome.state;
-  author.applied.push({ op, args });
-  return outcome.result as MutationSuccess;
-}
-
 const T = (x: number, y: number): Record<string, unknown> => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const solid = (name: string, x: number, y: number, w: number, h: number, color: string): Record<string, unknown> => ({
   kind: 'box',
@@ -273,21 +256,8 @@ function main(): void {
     ) + '\n',
   );
 
-  // The baseline is a new project's scene: its one default camera (the v3
-  // scene validator requires exactly one), 12 m in front of the z = 0 plane.
-  const author: Author = {
-    state: createCommandState(
-      {
-        schemaVersion: 3,
-        sceneId: 'scene-main',
-        revision: 0,
-        entities: [{ id: 'cam-main', name: 'Main camera', components: { transform: { position: [4, 3, 12], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } }],
-      } as unknown as SceneV3,
-      { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null } as never,
-    ),
-    counter: 0,
-    applied: [],
-  };
+  // The baseline is a new project's scene: its default camera 12 m in front of the z = 0 plane.
+  const author = newAuthor(PROJECT_ID, [4, 3, 12]);
   for (const m of models) {
     run(author, 'publishAsset', {
       mode: 'create',
@@ -324,20 +294,7 @@ function main(): void {
   run(author, 'createEntity', { kind: 'group', name: 'Ambient fill', transform: T(0, 0), components: { light: { type: 'ambient', color: '#8a94b0', intensity: 0.9 } } });
   run(author, 'createEntity', { kind: 'model', name: 'Pillar', transform: T(17, 0), model: { asset: { assetId: 'starter-pillar' } } });
 
-  const scene = author.state.scene as unknown as { revision: number; entities: Array<{ id: string; name: string }> };
-  const captured = {
-    storageVersion: 3,
-    type: 'authoring-state',
-    projectId: PROJECT_ID,
-    scene: author.state.scene,
-    content: (author.state as unknown as { content: unknown }).content,
-    recipe: { generatedBy: 'templates/starter/tools/build-template.mts', commandCount: author.applied.length, importedAt: IMPORTED_AT },
-  };
-  mkdirSync(join(ROOT, 'captured'), { recursive: true });
-  mkdirSync(join(ROOT, 'recipe'), { recursive: true });
-  writeFileSync(join(ROOT, 'captured', 'project.json'), JSON.stringify(captured, null, 2) + '\n');
-  writeFileSync(join(ROOT, 'recipe', 'commands.json'), JSON.stringify({ projectId: PROJECT_ID, importedAt: IMPORTED_AT, commands: author.applied }, null, 2) + '\n');
-  console.log(`captured ${PROJECT_ID}: revision ${scene.revision}; ${scene.entities.map((e) => `${e.id} ${e.name}`).join(', ')}`);
+  capture(author, ROOT, 'templates/starter/tools/build-template.mts', IMPORTED_AT);
   for (const m of models) console.log(`  ${m.path}: ${m.bytes.byteLength} B, ${JSON.stringify(glbMetrics(m.bytes))}`);
 }
 

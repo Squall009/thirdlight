@@ -19,7 +19,7 @@ environment presets.
 
 1. In the project window, **create ▾ → Timeline**, name it `Intro`;
    double-click opens it in the editor window. Set **Duration** 3 s,
-   **Skip action** `jump`, and add a slot `crate` with the Starter's
+   **Skip action** `jump`, and add a slot `crate` with the 2D starter's
    *Crate* as its default object.
 2. Add tracks and keys (**Add key at playhead**; drag keys along the ruler;
    the key inspector edits the selected key):

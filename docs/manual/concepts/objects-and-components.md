@@ -23,7 +23,7 @@ The full list of fields is in the reference:
 ## Components
 
 A component is one piece of what an object is or does. The Crate in the
-Starter has three: a **Transform** (where it is), a **Box** (what it looks
+2D starter has three: a **Transform** (where it is), a **Box** (what it looks
 like) and a **Collider** (what it bumps into). The Player has a Model, a
 **Player controller** (it walks and jumps with the input) and an
 **Animator**.

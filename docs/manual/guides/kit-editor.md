@@ -11,7 +11,8 @@ Double-click a kit in the project window (or make one: **Create → Kit**, or
 **Create → Basic Kit (ready-made)** for the engine's prototype kit). It
 opens as a tab of the editor window, **Kit: <name>**, with the preview pane
 and the Inspector on the right. Every change is one undo step (`setKit`, the
-same command MCP sends); a GLB file you drop is imported first, its own step.
+same command MCP sends); a GLB file you drop is imported and put in its
+slot as one step too.
 
 ## Slots and pieces
 
@@ -72,6 +73,17 @@ wrap of a field), a real height in the albedo's alpha. The pixels are read
 when the kit is first opened and on **Check all**. **Trim sheet spec** (or
 **Open the spec**) shows the spec page itself.
 
+## Swap the trim sheet
+
+**Trim sheet** on the left picks the kit's sheet from the project's trim
+materials. Picking another sheet in place of one the kit had also puts it on
+the kit's presets that name the old sheet and on its block types that wear
+it — one undo step — so the rooms and blocks built from the kit take the
+new sheet and keep their shapes. Presets and block types the kit does not
+list keep theirs. To restyle the rooms themselves with other presets, use
+**Presets in use** in the block editor's Rooms & buildings
+([generated architecture](generated-architecture.md)).
+
 ## Picture, notes and uses
 
 - **Picture and notes**: the kit's picture is its trim sheet's walls and
@@ -84,7 +96,9 @@ when the kit is first opened and on **Check all**. **Trim sheet spec** (or
 
 ## From an agent
 
-The same edits are `setKit {kit}` with the whole kit (see `op.setKit`);
+The same edits are `setKit {kit}` with the whole kit (see `op.setKit`); a
+sheet swap is that `setKit` plus a `graphEdit` per preset (its head node's
+`sheet`) and a `setBlockType` per block type;
 `tl_content_upload {addPack: "basic-kit"}` adds the Basic Kit. The checks
 are `GET /api/v1/projects/<id>/kits/<kitId>/check` (`?image=1` reads the
 sheet's pixels), the report the editor shows.

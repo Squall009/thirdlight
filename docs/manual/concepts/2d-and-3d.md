@@ -6,7 +6,7 @@ the **simulation**: where things can move and collide.
 The project setting **Physics** (`physics_dimension`, in
 **File → Project Settings… → Gameplay**) chooses it:
 
-- **2D plane** (the default, and what the Starter uses). Movement and
+- **2D plane** (the default, and what the 2D starter uses). Movement and
   collision happen in X and Y; colliders turn about Z only. The camera
   looks at the plane, so you get a side-on game drawn with 3D models and
   lights: a platformer, a side-scroller, a 2.5D puzzle game. The default
@@ -21,11 +21,18 @@ The project setting **Physics** (`physics_dimension`, in
 A 2D game is a constrained case of the same engine: the same objects,
 components, scripts, cameras, UI and export.
 
+## Starting in 3D
+
+The **3D starter** (Projects page) is a 3D project from the first moment:
+the character with a follow / orbit camera, a ground block layer on the
+Basic Kit, a small terrain, a sun and a sky. Start a 3D game there rather
+than switching a 2D one.
+
 ## Switching
 
 Switch a project to 3D in the Gameplay settings. It is refused while any
 box collider has no depth (its **Half depth**) or a collider is a polygon,
-which only exists on the 2D plane. (The Starter's boxes have no depth yet:
+which only exists on the 2D plane. (The 2D starter's boxes have no depth:
 give each collider a Half depth first.) A few gameplay blocks are 2D-plane only
 (switches, one-way colliders). "+ Add component" offers the shapes that fit
 the project's dimension.

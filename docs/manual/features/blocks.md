@@ -427,7 +427,8 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     on the change feed, undone and redone together). MCP:
     `tl_content_upload {addPack: "basic-kit"}`; over HTTP: `POST
     /api/v1/projects/<id>/packs/basic-kit`; `GET /api/v1/packs` lists the
-    packs this engine ships.
+    packs this engine ships. A project made from the **3D starter** has it
+    already (its ground block layer is built on it).
   - A block layer and an architecture object may name their kit (`kitId`,
     Inspector **Kit**); absent: none, as before.
   - Kits are editor-side: a kit has no address or labels and a build does

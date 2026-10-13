@@ -21,7 +21,7 @@ few engine tools. This keeps the engine usable for any kind of game.
   object, with its children and scripts, survives its scene being
   unloaded, reloaded or replaced by a save. Use it for the player, the
   camera, a director script that runs the whole game, the music. In the
-  Starter, the camera and the player are kept; the Hierarchy marks them
+  starters, the camera and the player are kept; the Hierarchy marks them
   **K**. The player can only leave with its scene when it is not kept.
 - **Respawn**: [`ctx.lifecycle.respawn`](../reference/script-api.md#ctx-lifecycle)
   puts the player back at a spawn point.

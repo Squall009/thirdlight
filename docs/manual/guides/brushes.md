@@ -2,10 +2,11 @@
 
 **Goal:** know what every brush setting does and the keys that change it.
 Every brush uses the same settings, the same cursor and the same keys —
-the [terrain editor](terrain.md), the [vertex paint editor](vertex-paint.md)
-and the [instance brush](instance-sets.md) in the Inspector — so what you
-learn in one works in the next. The block brush still has a panel of its
-own ([block layers](block-layers.md)).
+the [terrain editor](terrain.md), the [block editor](block-editor.md)'s
+Shape, Paint and Scatter, the [vertex paint editor](vertex-paint.md) and the
+[instance brush](instance-sets.md) in the Inspector — so what you learn in
+one works in the next. The editors themselves are compared in
+[Level editors](level-editors.md).
 
 ## The settings
 

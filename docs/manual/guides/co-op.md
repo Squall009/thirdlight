@@ -17,7 +17,7 @@ in the scene's order), so a one-player game never names it.
    a key and the pad's A button on **pad 2**). With a pad named, each
    player plays on a pad of their own; without, a binding reads the pad
    used last.
-2. **The second character.** Select the Starter's player, **Edit →
+2. **The second character.** Select the 2D starter's player, **Edit →
    Duplicate**, move the copy aside, and in the Inspector set its Player
    controller's **Move action** to `move_p2` and **Jump action** to
    `jump_p2`. Keep it in a start scene and keep **Keep loaded** ticked.

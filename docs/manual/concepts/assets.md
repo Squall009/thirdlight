@@ -2,7 +2,7 @@
 
 An **asset** is a file you bring into the project: a model (glTF/GLB, or FBX
 converted on import), a texture, a sound or music file, or a font. The
-Starter has two: the Character and Pillar models.
+2D starter has two: the Character and Pillar models.
 
 ## Files and sidecars
 

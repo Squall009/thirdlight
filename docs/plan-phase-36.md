@@ -161,6 +161,9 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.5 | Done 2026-10-13: **Kit: <name>** editor-window tab (`ui/kit/`): slots with pictures and states (drop a GLB file or a model/piece; custom slots; weighted variants, piece of file, Replace via an in-editor model browser), trim sheet picker, picture (made from the sheet unless one is picked), notes, presets/block types with Open; the slot in the Inspector (variants, piece checks with a map-to-sheet fix, placement); the piece in a sample wall / room / alone in the preview pane (dashed cell box, red draw box, origin axes); the trim checker (row bounds and gutters over the sheet, rows table, spec checklist) and the spec page. One check module `project-model/kit-checks` (pieces from the GLB, sheet table + pixels) behind `GET …/kits/:id/check`, the kit Problems and `packs.test`. Basic Kit add = one undo/redo (history groups), MCP `tl_content_upload {addPack}`; "skyforge" gone from the pack. vitest +11; e2e: a kit step in `editor-window` (drop a corner-pivot door: origin fails; a centred one: passes) — that test 5.8 → 6.1 s in the fast gate (D253); `block-world-uv` closes the window the Basic Kit now opens (8.9 → 9.0 s). Fast gate green (vitest 708 files, e2e 36, perf in limits). Screenshots `~/.cache/thirdlight-phase36/kit-editor/` (owner look pending). |
 | 36.6a | Done 2026-10-13 (first half of 36.6; 36.6b: Rooms & buildings with the kit's pieces, RoomsPanel/ArchitecturePanels out of the Inspector): the **block editor** (`EDIT_MODES` `blocks`, `ui/blocks/`): rail Build · Shape · Paint · Regions · Rooms & buildings (interim: the Rooms tool and RoomsPanel) · Rules; palette of the layer's kit's types then its other types (model thumbnails, SVG stand-ins), New type / drop a model, 1–9; a **block type editor** detail column (looks with model browser, kit pieces, prefab, weights; collision boxes as numbers; turns, placement, connections, themes, metadata, material); the round brushes on the shared kit (one cursor, keys, opacity via shared coverages, noise mask), the slice plane + outline + chip, a shape readout; enter by double-click, Edit blocks, GameObject → Block layer (one command, one undo). `BlocksPanel` (913 lines) deleted. vitest +7 (`block-mode.test.ts`). E2E (fast gate, 2 workers): block-editor 13.3 → 7.7 s, block-layers 27.5 → 19.8 s (its two export renderers side by side): **27.5 s ≤ 28 ✓**; block files with blocks 10.2 and block-world-uv 9.7 (+ its WebGL 2 variant in the full gate) ≈ 57 s vs ≤ 52 (36.9: the template's steps and a trim of blocks/block-world-uv). Ported: block-world-uv, terrain-brushes, terrain-paint, window-tools, rooms-drawing/buildings/floor-plans, terrain-cdlod's block rules. Fast gate green (vitest 709 files, e2e 44; painted-terrain failed once, passed on rerun; village p50 5.5 / 4.6 ms within limits). Screenshots `~/.cache/thirdlight-phase36/block-editor/366a-*.png` against 06 (owner look pending). |
 | 36.6b | Done 2026-10-13 (second half of 36.6): **Rooms & buildings** is a real column (`ui/blocks/RoomsColumn.tsx`, `RoomInspector.tsx`): tiles Rect R, Polygon P, Path L, Building B, Door D, Window W, Arch A, Move walls M, **Wall piece O**, **Corner piece K**; new-room presets; **Kit pieces** (the rooms' kit, else the layer's: door / window pieces whose holes take the piece's size from the kit check, wall / corner pieces put by clicking a lit segment or corner → `overrides` with `centre`); the picked room/path/building edited in the column (presets + Preset sliders with Snap to row and Derive, storeys, openings with a piece picker writing `opening.model`, its pieces with stretch, a path's **repeated piece** = `outline.repeatModel` from the railing slot, roof, interior, floor plan, stairs, holes). `RoomsPanel` / `BuildingPlanFields` / `ArchitectureOutlines` deleted; a rooms object's Inspector: plain fields + **Edit in block editor** (opens its layer's editor in Rooms; double-click too) beside Paint vertices. **One undo** for Make it paintable, scatter rules + bake, a dropped GLB → type (+ kit), New type (+ kit), Derive (`SessionClient.grouped` → `POST …/history/group`, grouped only when nothing ran between). Found and fixed: a Rooms click left the Scene view's orbit off. vitest +8; e2e: rooms-drawing (kit door + window via the pickers, a wall piece, orbit after a click), block-editor (Make it paintable undo/redo), layered-material's slider drag in the column, block-world-uv's Snap to row in the preset's Inspector. Fast gate green (vitest 710 files, e2e 39; block-editor 7.4 s, block-layers 20.1, block-world-uv 10.0, blocks 10.2 — block files ≈ 57 s with the WebGL 2 variant, still over ≤ 52; layered-material 48.5 s; village p50 5.5 / 4.6 ms). Screenshots `~/.cache/thirdlight-phase36/rooms-mode/` (test colours; owner look pending). |
+| 36.6c | Done 2026-10-13 (follow-ups): **Presets in use** (Rooms & buildings) and the layerless rooms object's Inspector (**Rooms and presets**: each outline's presets, the swap, the used presets' sliders + Derive) swap one preset for another on every room, path and building — one `setComponent`, outlines kept (`PresetSwap`, `withPresetSwapped`); the kit editor's trim sheet swap re-points the kit's presets and block types (`kitSheetSwap`, one history group); a GLB dropped or picked for a slot is one undo step. vitest +2; e2e: rooms-drawing (swap + one undo), layered-material (the walls' Inspector swap + undo), editor-window (GLB drop one undo, sheet swap one undo). Commit e8930352. |
+| 36.7 | Done 2026-10-13: `templates/starter-3d` ("3D starter"): v3 capture (3D physics, the 2D starter's character file + publish command, player, spawn, sun, sky fill) + `packs: ["basic-kit"]` added from `packs/basic-kit` at creation + `setup/pack.json` (gradient sky, 24×24 Basic Kit block ground with a wall, half step, stairs and slab, a 65-sample terrain with a layered ground material — grass/soil/rock, 9 KTX2 512² maps 1.45 MB from the Texture Designer's shared graphs — sculpted and rule-baked, a follow/orbit camera); a new project starts with no undo history. Template cards with pictures and one line in the picker (2D starter, 3D starter, Empty scene). vitest: templates.test (made, kit, material, terrain, camera target, sky, blocks, no problems, nothing to undo; ~0.3 s); e2e: projects.e2e creates it and reads Play's sky (blue band) and ground (lit, not sky). Play look on SwiftShader only (`~/.cache/thirdlight-phase34/work/s3d/p3d-play.png`); real GPU look unverified, owner look pending. |
+| 36.8 | Done 2026-10-13: new `concepts/kits-blocks-and-rooms.md` (what the engine generates, what you model, what you paint, the kit's slots, the workflow), `guides/block-editor.md`, `guides/level-editors.md` (the four editors, how each opens, the shared keys); block-layers (2D→3D steps replaced by the 3D starter), generated-architecture (Presets in use, layerless Inspector), kit-editor (one-step drop, sheet swap), trim-sheets, brushes, first-project, 2D and 3D, projects feature (templates, setup packs), blocks / architecture features; "Starter" → "2D starter" across the manual; skill trap; reference regenerated; manual-links green. Labels checked against the editor source (block modes, tiles, type editor); the picker seen in e2e screenshots. |
 
 **Basic Kit asset numbers** (36.4):
 
@@ -592,4 +595,76 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   - **Screenshots** are from the rooms e2e scene (its test sheet's flat
     colours, the Basic Kit pieces unmapped and grey): function, not look;
     36.9's acceptance shoots the Basic Kit flow.
+
+- 2026-10-13 (36.6c, follow-ups) — Defaults chosen, owner to confirm:
+  - **"Swap the style, keep the plan" is a preset swap, not a sheet swap on
+    the rooms.** Rooms name presets and presets name sheets, so the swap
+    replaces one preset with another on every outline (inside, outside,
+    facade) of the rooms object — one component value, one command, one
+    undo. It sits in Rooms & buildings as **Presets in use** and in the
+    Inspector of a rooms object on no layer (one `PresetSwap` component).
+    Derive's own swap now uses the same `withPresetSwapped`.
+  - **The kit's sheet swap re-points the kit's own parts.** Picking another
+    trim sheet for a kit that had one also sets it on the kit's presets
+    whose head names the old sheet and on the kit's block types wearing it
+    (a `setKit`, `graphEdit`s, `setBlockType`s as one history group).
+    Presets naming no sheet (they follow their base or the object) and
+    parts the kit does not list are left. No extra checkbox: the kit's sheet
+    alone changes nothing that draws.
+  - **A layerless rooms object gets a minimal section, not "attach to a
+    layer".** Attaching changes what the outlines mean (they snap to the
+    layer's cells, block its walks, become its regions) and where they stand
+    (the object sits at the layer's place), so the Inspector edits presets
+    only — each outline's inside / outside preset, the swap, the used
+    presets' sliders with Derive — and says new rooms are drawn on a layer.
+
+- 2026-10-13 (36.7) — The 3D starter. Defaults chosen, owner to confirm:
+  - **Templates gain `packs` and a setup pack.** A captured project is v3
+    and cannot hold materials, kits, block layers, terrain or a scene's
+    look, so a template now names engine packs (`template.json` `packs`)
+    and may carry `setup/pack.json` (the pack format, with `ref` /
+    `"$ref:<name>"` for objects a command made); both run through the pack
+    installer — ordinary commands — right after creation, then the project's
+    undo history is cleared (`forgetHistory`): the template is where a
+    project starts, not a step to undo. The Basic Kit is never copied into
+    the template: it is added from `packs/basic-kit` as shipped. A setup
+    that stops answers 500 naming the command (the project stays, as made).
+  - **Ground textures of its own.** The layered terrain needs tiling
+    textures the Basic Kit does not have: three Texture Designer shared
+    graphs (`mat_ground_grass`, `mat_ground_soil`, `mat_stone_cliff`)
+    rendered at 512² with the albedo + height / normal / ORM packing,
+    encoded by the template's build (ETC1S colour and ORM, UASTC + Zstd
+    normals): 1,445,655 B for nine maps (albedo 80–92 KB, normal
+    274–324 KB, ORM 79–95 KB; 10 mips each). Tiling 3 m grass and soil,
+    6 m rock; rules: soil in noise patches, rock above 24° slope.
+  - **The character is the 2D starter's** (file and publish command read
+    from `templates/starter`): 48 triangles, no LODs or `_COL` — a
+    pre-existing prototype placeholder, not a new asset.
+  - **The 2D starter and the empty project keep their dark backdrop.**
+    Giving them a sky changes the pixels of the ~30 e2e files that start
+    from the 2D starter and of most that start empty; that is a look
+    change for the owner to approve (a one-command setup pack on the 2D
+    starter would do it). The 3D starter has its gradient sky.
+  - **Pictures** are Play screenshots (SwiftShader, 1920×1080) scaled to
+    384×216 WebP by the browser (3.5 KB and 1.1 KB), sent in the template
+    list as data URLs (≤ 64 KiB, `TEMPLATE_PICTURE_MAX_BYTES`), since an
+    `<img>` cannot send the bearer token.
+  - The starter's build now shares `templates/tools/author.mts` with the
+    3D starter's. Re-running the 2D starter's build today renames its ids
+    (`box-0001` → `box-000001`: the command layer's id format changed since
+    it was captured), so its captured file is left as it was; tests name
+    those ids.
+
+- 2026-10-13 (36.8) — The manual. Defaults chosen, owner to confirm:
+  - **One concepts page answers the owner's two questions** (what the
+    engine makes vs. what you model, and the sheet everything reads), with
+    tables of the generated parts and of the kit slots, and the workflow
+    kit → block editor → rooms → paint → decals. It says plainly that the
+    `stairs` and `roof-edge` slots are kept with the kit but nothing places
+    them yet.
+  - **"Level editors" compares the four edit modes** (terrain, block, vertex
+    paint, decal) with how each opens and one table of the shared keys; the
+    kit editor is named as an editor-window tab, not an edit mode.
+  - **"Starter" is "2D starter" everywhere** (the template's name in the
+    picker changed with it).
 

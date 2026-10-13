@@ -65,6 +65,16 @@ object itself shows **Edit in block editor**, which opens the same place.
    window's **create** menu → **Graph**. A preset opened there shows its
    sliders in the Inspector.
 
+8. **Presets in use** swaps one preset for another on every room, path and
+   building at once (**rooms wearing** → **wear instead** → **Swap**): the
+   outlines, openings and pieces stay, the look changes — the trim sheet a
+   preset names comes with it. To swap the sheet under a whole kit instead,
+   use the [kit editor](kit-editor.md#swap-the-trim-sheet).
+
+A rooms object drawn on no layer (made over the API) has no outlines to
+draw here; its Inspector lists its rooms' presets with the same swap and
+the presets' sliders, and new rooms are drawn on a layer.
+
 Every change is one undo step; so is Derive (the preset and the rooms that
 take it).
 

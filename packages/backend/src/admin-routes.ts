@@ -2,7 +2,8 @@ import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
-import { loadTemplate, resolveTemplateModules } from './templates';
+import { loadTemplate, resolveTemplateModules, type TemplateSource } from './templates';
+import { loadPackDir, type PackInstaller } from './packs';
 import { engineIdentity } from './engine';
 import { installSkill } from './skill-install.mjs';
 import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
@@ -27,10 +28,36 @@ export interface AdminRoutesContext {
   readonly ensureImported?: (projectId: string) => Promise<unknown>;
   /** The texture arrays of per-layer texture slots (the export ships them assembled). */
   readonly textureSlots?: ClosureTextureSlots;
+  /** Adds engine packs and a template's setup to a new project. */
+  readonly packs?: PackInstaller;
 }
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs } = ctx;
+
+  /**
+   * A project just made from a template gets the template's packs, then its
+   * setup's commands (ordinary commands, as the editor sends), and starts
+   * with no undo history: the template is where it begins, not a step to
+   * undo. Null, or why it stopped (what ran before stays).
+   */
+  const setUpFromTemplate = (projectId: string, templateId: string, source: TemplateSource): string | null => {
+    if (source.packs.length === 0 && source.setupDir === undefined) return null;
+    if (packs === undefined) return 'packs are not available on this backend';
+    const origin = { kind: 'admin' as const, clientId: `template-${templateId}` };
+    for (const id of source.packs) {
+      const r = packs.add(projectId, id, origin);
+      if (!r.ok) return r.message;
+    }
+    if (source.setupDir !== undefined) {
+      const loaded = loadPackDir(source.setupDir, templateId);
+      if (!loaded.ok) return loaded.message;
+      const r = packs.install(projectId, loaded.pack, loaded.files, origin);
+      if (!r.ok) return r.message;
+    }
+    service.forgetHistory(projectId);
+    return null;
+  };
 
   /** Install the skill into a new folder project; a failure leaves the project created and says why. */
   const skillOutcome = (engineRoot: string, folder: string): { action: string; stamp: string | null } | { error: string } => {
@@ -64,8 +91,8 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       return;
     }
     const { projectId, name, template, folder } = parsedReq.request;
-    let result;
-    let source: Parameters<typeof service.createProjectFrom>[2] | undefined;
+    let result: ReturnType<typeof service.createProjectFrom> | undefined;
+    let source: TemplateSource | undefined;
     if (template !== undefined) {
       if (config.engineRoot === undefined) {
         sendError(res, sessionError('invalid_request', 'unavailable', 'templates need the engine root (THIRDLIGHT_ENGINE_ROOT)'), 503);
@@ -84,10 +111,16 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       }
       source = loaded.source;
     }
+    const setUp = (): string | null => (result !== undefined && result.ok && result.created && source !== undefined && template !== undefined ? setUpFromTemplate(projectId, template, source) : null);
     if (folder !== undefined) {
       // In the game's own folder: marker + thirdlight/ subfolder, registered, pinned to this engine.
       const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
       result = service.createProjectInFolder(folder, projectId, name, { ...(engine !== null ? { engine } : {}), ...(source !== undefined ? { source } : {}) });
+      const failed = setUp();
+      if (failed !== null) {
+        sendError(res, sessionError('invalid_request', 'internal', `the project was made, but its template's setup stopped: ${failed}`), 500);
+        return;
+      }
       if (result.ok && config.engineRoot !== undefined) {
         // A game folder gets the engine's agent skill, so an AI tool started there learns how to work with this engine.
         sendJson(res, result.created ? 201 : 200, { ...result, skill: skillOutcome(config.engineRoot, folder) });
@@ -95,6 +128,11 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       }
     } else if (source !== undefined) {
       result = service.createProjectFrom(projectId, name, source);
+      const failed = setUp();
+      if (failed !== null) {
+        sendError(res, sessionError('invalid_request', 'internal', `the project was made, but its template's setup stopped: ${failed}`), 500);
+        return;
+      }
     } else {
       result = service.createProject(projectId, name);
     }

@@ -1,0 +1,235 @@
+{
+  "storageVersion": 3,
+  "type": "authoring-state",
+  "projectId": "starter-3d",
+  "scene": {
+    "schemaVersion": 3,
+    "sceneId": "scene-main",
+    "revision": 5,
+    "entities": [
+      {
+        "id": "cam-main",
+        "name": "Main camera",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              6,
+              12
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "camera": {
+            "type": "perspective",
+            "fovY": 60,
+            "near": 0.1,
+            "far": 100
+          }
+        }
+      },
+      {
+        "id": "model-000001",
+        "name": "Player",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "model": {
+            "asset": {
+              "assetId": "starter-character"
+            }
+          },
+          "controller": {},
+          "modelAnimation": {
+            "assetId": "starter-character",
+            "version": 1,
+            "roles": {
+              "idle": {
+                "clipIndex": 0,
+                "clipName": "Idle"
+              },
+              "run": {
+                "clipIndex": 1,
+                "clipName": "Run"
+              },
+              "airborne": {
+                "clipIndex": 2,
+                "clipName": "Airborne"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "spawn-000001",
+        "name": "Spawn",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "playerSpawn": {}
+        }
+      },
+      {
+        "id": "light-000001",
+        "name": "Sun",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              20,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "directional",
+            "color": "#fff1dc",
+            "intensity": 2.2,
+            "direction": [
+              -0.45,
+              -0.75,
+              -0.5
+            ],
+            "castShadow": true
+          }
+        }
+      },
+      {
+        "id": "light-000002",
+        "name": "Sky fill",
+        "components": {
+          "transform": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0,
+              1
+            ],
+            "scale": [
+              1,
+              1,
+              1
+            ]
+          },
+          "light": {
+            "type": "ambient",
+            "color": "#9fb4d8",
+            "intensity": 0.35
+          }
+        }
+      }
+    ]
+  },
+  "content": {
+    "assets": [
+      {
+        "assetId": "starter-character",
+        "kind": "model",
+        "displayName": "Character",
+        "currentVersion": 1,
+        "versions": [
+          {
+            "version": 1,
+            "sourceDigest": "8cc765270e1cc320f885ef1b6bbd1a9dbccb5a26217dc4b5ee38f062d5696556",
+            "sourceByteLength": 7800,
+            "importRecipe": {
+              "profile": "gltf-glb",
+              "recipeVersion": 1,
+              "toolchain": {
+                "three": "0.186.0"
+              },
+              "extensions": []
+            },
+            "metrics": {
+              "nodes": 5,
+              "meshes": 4,
+              "primitives": 4,
+              "materials": 4,
+              "images": 0,
+              "textures": 0,
+              "vertices": 96,
+              "triangles": 48,
+              "animations": 3,
+              "animationChannels": 5,
+              "clipDurationMs": 0,
+              "decodedGeometryBytes": 2784,
+              "decodedImageBytes": 0
+            },
+            "importedAt": "2026-09-28T00:00:00Z",
+            "publishedRevision": 1
+          }
+        ]
+      }
+    ],
+    "prefabs": [],
+    "behaviors": [],
+    "settings": {
+      "physics_dimension": 3
+    },
+    "behaviorTrust": {
+      "entries": []
+    },
+    "game": null
+  },
+  "recipe": {
+    "generatedBy": "templates/starter-3d/tools/build-template.mts",
+    "commandCount": 5,
+    "importedAt": "2026-10-13T00:00:00Z"
+  }
+}

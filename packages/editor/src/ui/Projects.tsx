@@ -29,6 +29,8 @@ interface TemplateRow {
   id: string;
   name: string;
   description: string;
+  /** A picture of it (a data URL; absent: none). */
+  picture?: string;
 }
 
 const PROJECT_ID_RE = ID_RE;
@@ -220,18 +222,17 @@ export function ProjectsScreen(props: { token: string; message?: string }): JSX.
           Folder on the server (optional)
           <input name="folder" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} placeholder="/home/you/projects/my-game — empty keeps it in the Thirdlight data folder" />
         </label>
-        <label>
-          Template
-          <select name="template" value={template} onChange={(e) => setTemplate(e.target.value)}>
-            <option value="">Empty scene (camera and lights)</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.description ? ` — ${t.description}` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
+        <fieldset className="tl-projects__templates" role="radiogroup" aria-label="Template">
+          <legend>Start from</legend>
+          {[{ id: '', name: 'Empty scene', description: 'A camera and lights: nothing else.' } as TemplateRow, ...templates].map((t) => (
+            <label key={t.id} className={`tl-projects__template${template === t.id ? ' is-active' : ''}`}>
+              <input type="radio" name="template" value={t.id} checked={template === t.id} onChange={() => setTemplate(t.id)} aria-label={t.name} />
+              <span className="tl-projects__picture">{t.picture !== undefined ? <img src={t.picture} alt="" draggable={false} /> : null}</span>
+              <span className="tl-projects__template-name">{t.name}</span>
+              <span className="tl-projects__template-text">{t.description}</span>
+            </label>
+          ))}
+        </fieldset>
         {error ? <p className="tl-connect__message">{error}</p> : null}
         <button className="tl-btn" type="submit" disabled={creating}>
           {creating ? 'Creating…' : 'Create and open'}

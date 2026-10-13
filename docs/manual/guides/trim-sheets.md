@@ -29,7 +29,11 @@ of a wall as a strip of its slot's row.
    **Check padding** compares the
    albedo's padding with each row's edge and names the row that differs.
 4. Put the sheet on generated architecture: a preset's **Trim sheet**, or
-   the architecture object's **Materials** slot `architecture`.
+   the architecture object's **Materials** slot `architecture`. On block
+   faces: a block type's **Material** in the block editor's block type
+   editor. For a whole kit at once, pick it as the kit's **Trim sheet** in
+   the [kit editor](kit-editor.md#swap-the-trim-sheet): its presets and
+   block types that wore the old sheet take the new one (one undo).
 
 ## Through the API
 

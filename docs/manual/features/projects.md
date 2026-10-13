@@ -12,11 +12,24 @@ Open `http://127.0.0.1:8501/` for the picker: it lists every project under
 `~/thirdlight/projects/` and every registered folder project (see [Projects in a game's own folder](#projects-in-a-games-own-folder)), and creates new ones, empty or from a template.
 Templates are directories under the engine's `templates/`
 holding `captured/project.json` (+ `assets/`, optional `template.json` with
-`name`, `description`, `requiredModules`). `templates/starter` ("Starter")
-is the neutral one: a ground, three boxes, a character with the controller,
-a spawn point, a camera, two lights and a pillar model, with no game rules
-(it plays as a scene). It is rebuilt by
-`templates/starter/tools/build-template.mts`. The engine ships no sample
+`name`, `description`, `picture` — a small image the picker shows on the
+template's card —, `packs` — engine packs a new project gets, such as
+`basic-kit` — and `requiredModules`), and an optional `setup/pack.json`: a
+pack of asset files and commands run once the project exists (what a
+captured v3 project cannot hold: materials, terrain, block layers, the
+scene's look). A project made from a template starts with nothing to undo.
+Two ship, neither with game rules:
+
+- `templates/starter` ("2D starter"): a side-on level — a ground, three
+  boxes, a character with the controller, a spawn point, a camera, two
+  lights and a pillar model (it plays as a scene). Rebuilt by
+  `templates/starter/tools/build-template.mts`.
+- `templates/starter-3d` ("3D starter"): 3D physics, the same character with
+  a follow / orbit camera on a spawn point, a sun and a gradient sky, a
+  ground block layer on the Basic Kit (added from `packs/basic-kit` when the
+  project is made), and a 64 m terrain with a layered ground material
+  (grass, soil, rock by slope; 512² KTX2 maps, 1.4 MB). Rebuilt by
+  `templates/starter-3d/tools/build-template.mts`. The engine ships no sample
 games: games live in their own repositories.
 
 A project directory holds:
@@ -156,7 +169,7 @@ textures, 2,000 models — and 5,000 prefabs, 2,000 materials, 300 scenes and
 Thirdlight holds generic capabilities only; a game's rules are its own
 project scripts (in its own repository when it has one).
 
-- **Start from the Starter template**: ground, boxes, a character with the
+- **Start from the 2D starter template**: ground, boxes, a character with the
   controller, a spawn, a camera and lights, no game rules.
 - **Build a game from primitives and scripts**: collectibles adding to named
   counters, health on any object with `damaged`/`died` events, patrols,

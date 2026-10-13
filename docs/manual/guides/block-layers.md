@@ -13,21 +13,16 @@ the **edges** between cells instead of in them.
 
 ## In the editor
 
-**Before you start.** The Starter is a side-on game on the 2D plane: the
-player walks left and right only, and its camera looks from the side. To
-walk into a room you need a 3D project (see [2D and 3D](../concepts/2d-and-3d.md)):
-
-- Give each Starter box collider a **Half depth** (Ground, Step, Platform
-  and Crate: 0.5), then **File → Project Settings… → Gameplay → Physics**
-  `3D`. The switch is refused while any box collider has no depth; the
-  refusal names the first one.
-- Add a camera that follows the player in 3D: **GameObject → Cameras →
-  Camera**, **Rig** *Follow / orbit*, **Target** the player, **Priority**
-  10 (see [Cameras](cameras.md)). A steep **Pitch** (60 or more) looks
-  down into rooms.
-- A new layer's floor painted on row 0 stands one cell above the Starter
-  ground. Set the layer's **Position** y to `-1` so the floor's top is
-  level with it.
+**Before you start.** Make the project from the **3D starter** (Projects
+page → *3D starter*): 3D physics, a character with a follow camera, a
+ground block layer on the Basic Kit, a terrain, a sun and sky — nothing to
+switch first. Open its **Ground blocks** layer instead of making one (skip
+step 1): its row 0 is the ground already, so step 3's floor is there (the
+**Replace** tool, H, turns it to `Stone` if you like) and the walls of
+step 4 stand on row 1 as written. Its palette holds the Basic Kit's block
+types; the steps make types of your own to show how. A project that is 2D (the
+2D starter) walks only left and right: see [2D and 3D](../concepts/2d-and-3d.md).
+Every tool of the editor is listed in [The block editor](block-editor.md).
 
 How to turn, pan and zoom the Scene view while you paint:
 [Moving around the Scene view](../features/editor.md#moving-around-the-scene-view).
@@ -133,9 +128,9 @@ hand.
   with **Collision** on is pulled in under the cut roof (the roof still
   collides), so you look at the walls: turn the camera's Collision off, or
   keep its distance short enough to stay inside.
-- **Painting needs the Starter in 3D for a walkable level.** On the 2D
-  plane the player moves along X only and the camera looks from the side
-  (see *Before you start*).
+- **A walkable level needs a 3D project.** On the 2D plane the player
+  moves along X only and the camera looks from the side: start from the
+  3D starter (see *Before you start*).
 - **Lasting state of a live block goes in its cell's metadata.** A live
   block's objects are made again when their chunk reloads.
 

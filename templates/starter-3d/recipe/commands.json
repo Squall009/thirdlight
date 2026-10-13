@@ -1,0 +1,190 @@
+{
+  "projectId": "starter-3d",
+  "importedAt": "2026-10-13T00:00:00Z",
+  "commands": [
+    {
+      "op": "publishAsset",
+      "args": {
+        "mode": "create",
+        "assetId": "starter-character",
+        "kind": "model",
+        "displayName": "Character",
+        "sourceDigest": "8cc765270e1cc320f885ef1b6bbd1a9dbccb5a26217dc4b5ee38f062d5696556",
+        "sourceByteLength": 7800,
+        "importRecipe": {
+          "profile": "gltf-glb",
+          "recipeVersion": 1,
+          "toolchain": {
+            "three": "0.186.0"
+          },
+          "extensions": []
+        },
+        "metrics": {
+          "nodes": 5,
+          "meshes": 4,
+          "primitives": 4,
+          "materials": 4,
+          "images": 0,
+          "textures": 0,
+          "vertices": 96,
+          "triangles": 48,
+          "animations": 3,
+          "animationChannels": 5,
+          "clipDurationMs": 0,
+          "decodedGeometryBytes": 2784,
+          "decodedImageBytes": 0
+        },
+        "importedAt": "2026-09-28T00:00:00Z"
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "model",
+        "name": "Player",
+        "transform": {
+          "position": [
+            0,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "model": {
+          "asset": {
+            "assetId": "starter-character"
+          }
+        },
+        "components": {
+          "controller": {},
+          "modelAnimation": {
+            "assetId": "starter-character",
+            "version": 1,
+            "roles": {
+              "idle": {
+                "clipIndex": 0,
+                "clipName": "Idle"
+              },
+              "run": {
+                "clipIndex": 1,
+                "clipName": "Run"
+              },
+              "airborne": {
+                "clipIndex": 2,
+                "clipName": "Airborne"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Spawn",
+        "transform": {
+          "position": [
+            0,
+            0.91,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "playerSpawn": {}
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Sun",
+        "transform": {
+          "position": [
+            0,
+            20,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "light": {
+            "type": "directional",
+            "color": "#fff1dc",
+            "intensity": 2.2,
+            "direction": [
+              -0.45,
+              -0.75,
+              -0.5
+            ],
+            "castShadow": true
+          }
+        }
+      }
+    },
+    {
+      "op": "createEntity",
+      "args": {
+        "kind": "group",
+        "name": "Sky fill",
+        "transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "components": {
+          "light": {
+            "type": "ambient",
+            "color": "#9fb4d8",
+            "intensity": 0.35
+          }
+        }
+      }
+    }
+  ]
+}

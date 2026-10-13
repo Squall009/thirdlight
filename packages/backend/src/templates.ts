@@ -2,12 +2,16 @@
  * Project templates: directories under `<engineRoot>/templates/<id>` holding
  * `captured/project.json` (the v3 scene +
  * content) and the asset files the content references under `assets/`.
- * An optional `template.json` supplies `{ name, description }`.
+ * An optional `template.json` supplies `{ name, description, picture?,
+ * packs?, requiredModules? }`: a picture file the project picker shows, and
+ * the engine packs (`packs/<id>`) a new project gets. An optional
+ * `setup/pack.json` (a pack whose id is the template's) makes the rest by
+ * commands once the project exists (`packs.ts`).
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 
 import { physicsDimensionOf, resolveRequiredModules } from '@thirdlight/exporter';
 
@@ -17,13 +21,25 @@ export interface TemplateInfo {
   description: string;
   /** Module ids the template declares it needs (`template.json`). */
   requiredModules: string[];
+  /** The engine packs a new project gets (added after it is made, before the setup). */
+  packs: string[];
+  /** A picture of it as a data URL (absent: none), small enough to list (the picker shows it). */
+  picture?: string;
 }
+
+/** The largest picture a template lists (bytes): a card's thumbnail, not a screenshot. */
+export const TEMPLATE_PICTURE_MAX_BYTES = 64 * 1024;
+
+const PICTURE_TYPES: Readonly<Record<string, string>> = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg' };
 
 export interface TemplateSource {
   scene: unknown;
   content: unknown;
   blobs: ReadonlyMap<string, Uint8Array>;
   requiredModules: string[];
+  packs: string[];
+  /** The template's own setup pack's folder (absent: none). */
+  setupDir?: string;
 }
 /** The engine ships templates only (no sample games). */
 const ROOTS = ['templates'];
@@ -41,15 +57,23 @@ function readInfo(dir: string, id: string): TemplateInfo {
   let name = id;
   let description = '';
   let requiredModules: string[] = [];
+  let packs: string[] = [];
+  let picture: string | undefined;
   try {
-    const meta = JSON.parse(readFileSync(join(dir, 'template.json'), 'utf8')) as { name?: unknown; description?: unknown; requiredModules?: unknown };
+    const meta = JSON.parse(readFileSync(join(dir, 'template.json'), 'utf8')) as { name?: unknown; description?: unknown; requiredModules?: unknown; packs?: unknown; picture?: unknown };
     if (typeof meta.name === 'string') name = meta.name;
     if (typeof meta.description === 'string') description = meta.description;
     if (Array.isArray(meta.requiredModules)) requiredModules = meta.requiredModules.filter((m): m is string => typeof m === 'string');
+    if (Array.isArray(meta.packs)) packs = meta.packs.filter((m): m is string => typeof m === 'string' && ID_RE.test(m));
+    const type = typeof meta.picture === 'string' && !meta.picture.includes('/') && !meta.picture.includes('\\') ? PICTURE_TYPES[extname(meta.picture).toLowerCase()] : undefined;
+    if (type !== undefined) {
+      const bytes = readFileSync(join(dir, meta.picture as string));
+      if (bytes.length <= TEMPLATE_PICTURE_MAX_BYTES) picture = `data:${type};base64,${bytes.toString('base64')}`;
+    }
   } catch {
-    // no template.json: keep the id
+    // no template.json (or no picture): keep the id
   }
-  return { id, name, description, requiredModules };
+  return { id, name, description, requiredModules, packs, ...(picture !== undefined ? { picture } : {}) };
 }
 
 export function listTemplates(engineRoot: string): TemplateInfo[] {
@@ -92,7 +116,9 @@ export function loadTemplate(engineRoot: string, id: string): { ok: true; source
     }
   };
   if (existsSync(join(dir, 'assets'))) walk(join(dir, 'assets'));
-  return { ok: true, source: { scene: captured.scene, content: captured.content, blobs, requiredModules: readInfo(dir, id).requiredModules } };
+  const info = readInfo(dir, id);
+  const setupDir = join(dir, 'setup');
+  return { ok: true, source: { scene: captured.scene, content: captured.content, blobs, requiredModules: info.requiredModules, packs: info.packs, ...(existsSync(join(setupDir, 'pack.json')) ? { setupDir } : {}) } };
 }
 
 /**

@@ -5,7 +5,7 @@ play, the pause menu, settings, controls (rebinding), the save and load
 screens, and the HUD shown while playing. You draw each of these with your
 own **UI documents** and tell the shell which document is which screen.
 
-A project without a shell (the Starter has none) starts its game at once,
+A project without a shell (the 2D starter has none) starts its game at once,
 with no menus. A shell without a Pause screen gets the engine's small pause
 panel, with **Resume** only.
 

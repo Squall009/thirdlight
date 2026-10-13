@@ -343,6 +343,8 @@ export interface WorkspaceService {
 
   /** Make the last `count` history entries one undo/redo step (see service.ts). */
   groupHistory(projectId: string, count: number): boolean;
+  /** Start the project's undo history afresh (a project just made from a template); false when it is not open. */
+  forgetHistory(projectId: string): boolean;
 
   /**
    * Make the commands `requestIds` (in the order they ran) one undo/redo step,

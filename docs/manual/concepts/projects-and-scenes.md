@@ -24,7 +24,7 @@ one directory.
 | `content.json` | Project-wide settings: the gameplay settings, tags, the scene list and start scenes, input, the game shell and more. |
 | `scenes/<sceneId>.json` | One file per scene: its objects. |
 | `assets/…` | Imported files (models, textures, audio, fonts), each with a `.tlasset` sidecar beside it (its id, kind, import settings and labels). |
-| `assets/<folder>/<name>.<kind>.json` | One file per resource: a prefab, a script, a material, an animator controller, a UI document, a dialogue, a timeline and so on. Each kind has its own folder; the Starter's animator controller is `assets/animators/idle-run-airborne-01.animator.json`. |
+| `assets/<folder>/<name>.<kind>.json` | One file per resource: a prefab, a script, a material, an animator controller, a UI document, a dialogue, a timeline and so on. Each kind has its own folder; the 2D starter's animator controller is `assets/animators/idle-run-airborne-01.animator.json`. |
 | `.thirdlight/`, `cache/` | Process state and data derived from your files. Never commit them; a folder project's `.gitignore` leaves them out. |
 
 In a folder project, `project.json`, `content.json` and `scenes/` are in

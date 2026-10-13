@@ -1,0 +1,7 @@
+{
+  "name": "3D starter",
+  "description": "A 3D world to walk in: a character with the follow camera, block ground on the Basic Kit, a small terrain, a sun and sky. No game rules.",
+  "picture": "picture.webp",
+  "packs": ["basic-kit"],
+  "requiredModules": []
+}

@@ -405,7 +405,7 @@ node tools/perf/scale-summary.mjs ~/.cache/thirdlight-perf/reports/scale-*.json
 ```
 
 Presets: `full`, `caps` (every kind at the count caps older engines had), `half-caps`,
-`small`, `starter` (the Starter template, nothing generated). Options:
+`small`, `starter` (the 2D starter template, nothing generated). Options:
 `--steps files,open,commands,editor,import,play,walk,handles,dialogue,stream,export`
 (export last: it stops the backend), `--import N`, `--stream N --budget MB`,
 `--walk N`, `--lines N`, `--commands N`, `--seed N`,

@@ -1,5 +1,6 @@
 {
-  "name": "Starter",
-  "description": "A neutral starting scene: ground, a few boxes, a character with the controller, a spawn point, a camera and lights. No game rules.",
-  "requiredModules": []
+  "name": "2D starter",
+  "description": "A side-on 2D level: ground, a few boxes, a character with the controller, a spawn point, a camera and lights. No game rules.",
+  "requiredModules": [],
+  "picture": "picture.webp"
 }

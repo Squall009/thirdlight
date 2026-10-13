@@ -163,7 +163,15 @@ sheet a preset names) and never touches an outline.
   **Derive a preset** makes a project preset from it and moves the rooms
   onto it (one undo). A rooms object's Inspector shows its plain fields and
   **Edit in block editor**; its outlines, buildings, pieces and kit are
-  edited there.
+  edited there. A rooms object drawn on no layer gets **Rooms and presets**
+  in its Inspector instead: each outline's inside / outside preset, the
+  swap below and the sliders of the presets it uses (with Derive).
+- **Swap the style, keep the plan**: **Presets in use** (Rooms & buildings,
+  and the layerless Inspector) makes every room, path and building wearing
+  one preset wear another — inside, outside and facade — in one
+  `setComponent` (one undo); the outlines, openings and pieces stay. The
+  kit editor's trim sheet swap re-points the kit's presets and block types
+  to a new sheet (one undo).
 - **At run time**: `ctx.grid.setArchitecturePreset(from, to | null)` shows
   preset `to` wherever an outline names `from` (style, values and trim
   sheet), level-wide, in the background (old chunks drawn until the new are

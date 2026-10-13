@@ -1,0 +1,2929 @@
+{
+ "format": 1,
+ "packId": "starter-3d",
+ "name": "3D starter setup",
+ "description": "What the 3D starter makes by commands once a project exists: the scene’s sky, the block ground, the terrain and its material, the camera.",
+ "source": {
+  "designer": "art-factory Texture Designer",
+  "graphs": [
+   "shared/mat_ground_grass",
+   "shared/mat_ground_soil",
+   "shared/mat_stone_cliff"
+  ],
+  "size": 512,
+  "packing": "albedo + height in A, normal, ORM (a shared packing of the designer)",
+  "note": "Original content rendered from the shared library graphs (no downloaded or third-party textures)."
+ },
+ "folder": "assets/ground",
+ "assets": [
+  {
+   "assetId": "ground-grass-albedo",
+   "kind": "texture",
+   "displayName": "Ground grass: albedo + height",
+   "file": "textures/ground-grass-albedo.ktx2",
+   "sha256": "4fc9e616667308bc2cd108ce7c5fe323b8c2e0e89ece74ba25b93d0bd17b727b",
+   "bytes": 89910
+  },
+  {
+   "assetId": "ground-grass-normal",
+   "kind": "texture",
+   "displayName": "Ground grass: normal",
+   "file": "textures/ground-grass-normal.ktx2",
+   "sha256": "9506c75f741fd5184ad69fc29e9cec6b742a8c98c156341b34f9d622cc16664b",
+   "bytes": 324359
+  },
+  {
+   "assetId": "ground-grass-orm",
+   "kind": "texture",
+   "displayName": "Ground grass: occlusion, roughness, metalness",
+   "file": "textures/ground-grass-orm.ktx2",
+   "sha256": "6a2042d41d5b431fcbfa5ebcab6ce17362f230978e872311ace62a99680d3a7b",
+   "bytes": 94750
+  },
+  {
+   "assetId": "ground-soil-albedo",
+   "kind": "texture",
+   "displayName": "Ground soil: albedo + height",
+   "file": "textures/ground-soil-albedo.ktx2",
+   "sha256": "06a41cee187af097a8f2c0f39c38f33a33709e3c1123082c10d678059994bbe4",
+   "bytes": 92430
+  },
+  {
+   "assetId": "ground-soil-normal",
+   "kind": "texture",
+   "displayName": "Ground soil: normal",
+   "file": "textures/ground-soil-normal.ktx2",
+   "sha256": "a4972384a8cb4f6f0f9da2ea929e6142f821f6f0fbbd408da851ee5ee7432352",
+   "bytes": 317959
+  },
+  {
+   "assetId": "ground-soil-orm",
+   "kind": "texture",
+   "displayName": "Ground soil: occlusion, roughness, metalness",
+   "file": "textures/ground-soil-orm.ktx2",
+   "sha256": "5e37e593cb65ef81eb320d20dd1e523eb235cbc478bababc783cc972d15fb2a5",
+   "bytes": 93495
+  },
+  {
+   "assetId": "ground-rock-albedo",
+   "kind": "texture",
+   "displayName": "Ground rock: albedo + height",
+   "file": "textures/ground-rock-albedo.ktx2",
+   "sha256": "7750438f3baba280825c20fc89ba20de561f9b800b34f65f16d50937b3ab896d",
+   "bytes": 80355
+  },
+  {
+   "assetId": "ground-rock-normal",
+   "kind": "texture",
+   "displayName": "Ground rock: normal",
+   "file": "textures/ground-rock-normal.ktx2",
+   "sha256": "f7ec72b3d4ce262dd4c6046fe81b5969eb025d6fa2351172f3907e52d0f2db4e",
+   "bytes": 273789
+  },
+  {
+   "assetId": "ground-rock-orm",
+   "kind": "texture",
+   "displayName": "Ground rock: occlusion, roughness, metalness",
+   "file": "textures/ground-rock-orm.ktx2",
+   "sha256": "f94de010c29de4231e53cb47f1fcf96cb71f6f2c22122959d3f7b83c5f83e1ed",
+   "bytes": 78608
+  }
+ ],
+ "commands": [
+  {
+   "op": "setEnvironment",
+   "args": {
+    "sceneId": "scene-main",
+    "environment": {
+     "sky": {
+      "mode": "gradient",
+      "topColor": "#2f63b0",
+      "horizonColor": "#bfd3e8",
+      "bottomColor": "#6d7563",
+      "environmentIntensity": 0.6
+     },
+     "fog": {
+      "mode": "exp2",
+      "color": "#bfd3e8",
+      "density": 0.0015
+     }
+    }
+   }
+  },
+  {
+   "op": "createEntity",
+   "ref": "blocks",
+   "args": {
+    "sceneId": "scene-main",
+    "kind": "group",
+    "name": "Ground blocks",
+    "transform": {
+     "position": [
+      -12,
+      -1,
+      -12
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "components": {
+     "blockLayer": {
+      "cellSize": [
+       1,
+       1,
+       1
+      ],
+      "bounds": {
+       "min": [
+        0,
+        0,
+        0
+       ],
+       "max": [
+        24,
+        6,
+        24
+       ]
+      },
+      "kitId": "basic-kit"
+     }
+    }
+   }
+  },
+  {
+   "op": "editBlocks",
+   "args": {
+    "entityId": "$ref:blocks",
+    "edits": [
+     {
+      "kind": "fill",
+      "box": [
+       0,
+       0,
+       0,
+       24,
+       1,
+       24
+      ],
+      "cell": {
+       "block": "basic-ground"
+      }
+     },
+     {
+      "kind": "fill",
+      "box": [
+       4,
+       1,
+       17,
+       11,
+       4,
+       18
+      ],
+      "cell": {
+       "block": "basic-wall"
+      }
+     },
+     {
+      "kind": "fill",
+      "box": [
+       15,
+       1,
+       5,
+       18,
+       2,
+       8
+      ],
+      "cell": {
+       "block": "basic-half"
+      }
+     },
+     {
+      "kind": "fill",
+      "box": [
+       15,
+       1,
+       12,
+       18,
+       2,
+       13
+      ],
+      "cell": {
+       "block": "basic-stairs"
+      }
+     },
+     {
+      "kind": "fill",
+      "box": [
+       15,
+       1,
+       13,
+       18,
+       2,
+       16
+      ],
+      "cell": {
+       "block": "basic-slab"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "createEntity",
+   "ref": "terrain",
+   "args": {
+    "sceneId": "scene-main",
+    "kind": "group",
+    "name": "Terrain",
+    "transform": {
+     "position": [
+      12,
+      0,
+      -32
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "components": {
+     "terrain": {
+      "tileSamples": 65,
+      "spacing": 1,
+      "heightRange": [
+       -16,
+       48
+      ],
+      "tiles": [
+       {
+        "x": 0,
+        "z": 0
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "op": "setMaterial",
+   "args": {
+    "material": {
+     "materialId": "starter-ground",
+     "name": "Ground",
+     "shader": "standard",
+     "params": {},
+     "textures": {},
+     "parameters": [
+      {
+       "key": "albedoHeight",
+       "type": "texture",
+       "default": [
+        "ground-grass-albedo",
+        "ground-soil-albedo",
+        "ground-rock-albedo",
+        ""
+       ]
+      },
+      {
+       "key": "normals",
+       "type": "texture",
+       "default": [
+        "ground-grass-normal",
+        "ground-soil-normal",
+        "ground-rock-normal",
+        ""
+       ]
+      },
+      {
+       "key": "orm",
+       "type": "texture",
+       "default": [
+        "ground-grass-orm",
+        "ground-soil-orm",
+        "ground-rock-orm",
+        ""
+       ]
+      },
+      {
+       "key": "layerTiling",
+       "type": "vec4",
+       "default": [
+        3,
+        3,
+        6,
+        1
+       ]
+      },
+      {
+       "key": "layerProjection",
+       "type": "vec4",
+       "default": [
+        0,
+        0,
+        0,
+        0
+       ],
+       "visibility": "private"
+      },
+      {
+       "key": "biplanarDistance",
+       "type": "float",
+       "default": 60
+      },
+      {
+       "key": "layerNormalStrength",
+       "type": "vec4",
+       "default": [
+        1,
+        1,
+        1,
+        1
+       ]
+      },
+      {
+       "key": "blendDepth",
+       "type": "float",
+       "default": 0.2
+      },
+      {
+       "key": "layerContrast",
+       "type": "vec4",
+       "default": [
+        1,
+        1,
+        1,
+        1
+       ]
+      },
+      {
+       "key": "layerOffset",
+       "type": "vec4",
+       "default": [
+        0,
+        0,
+        0,
+        0
+       ]
+      },
+      {
+       "key": "color",
+       "type": "color",
+       "default": "#ffffff"
+      },
+      {
+       "key": "grime",
+       "type": "float",
+       "default": 1
+      },
+      {
+       "key": "grimeColor",
+       "type": "color",
+       "default": "#3b3328"
+      },
+      {
+       "key": "wetness",
+       "type": "float",
+       "default": 0
+      },
+      {
+       "key": "wetPooling",
+       "type": "float",
+       "default": 0.5
+      },
+      {
+       "key": "wetFlatten",
+       "type": "float",
+       "default": 0.7
+      },
+      {
+       "key": "occlusion",
+       "type": "float",
+       "default": 1
+      }
+     ],
+     "graph": {
+      "nodes": [
+       {
+        "id": "output",
+        "type": "pbr",
+        "position": [
+         0,
+         0
+        ]
+       },
+       {
+        "id": "albedoHeight",
+        "type": "parameter",
+        "position": [
+         -3360,
+         0
+        ],
+        "data": {
+         "key": "albedoHeight"
+        }
+       },
+       {
+        "id": "normals",
+        "type": "parameter",
+        "position": [
+         -720,
+         0
+        ],
+        "data": {
+         "key": "normals"
+        }
+       },
+       {
+        "id": "orm",
+        "type": "parameter",
+        "position": [
+         -1440,
+         0
+        ],
+        "data": {
+         "key": "orm"
+        }
+       },
+       {
+        "id": "tilingSplit",
+        "type": "split",
+        "position": [
+         -3360,
+         120
+        ]
+       },
+       {
+        "id": "layerTiling",
+        "type": "parameter",
+        "position": [
+         -3840,
+         0
+        ],
+        "data": {
+         "key": "layerTiling"
+        }
+       },
+       {
+        "id": "tilingMin",
+        "type": "float",
+        "position": [
+         -3840,
+         120
+        ],
+        "data": {
+         "value": 0.01
+        }
+       },
+       {
+        "id": "tilingFloor",
+        "type": "max",
+        "position": [
+         -3600,
+         0
+        ]
+       },
+       {
+        "id": "projectionSplit",
+        "type": "split",
+        "position": [
+         -3360,
+         240
+        ]
+       },
+       {
+        "id": "layerProjection",
+        "type": "parameter",
+        "position": [
+         -3600,
+         120
+        ],
+        "data": {
+         "key": "layerProjection"
+        }
+       },
+       {
+        "id": "biplanarDistance",
+        "type": "parameter",
+        "position": [
+         -3360,
+         360
+        ],
+        "data": {
+         "key": "biplanarDistance"
+        }
+       },
+       {
+        "id": "strengthSplit",
+        "type": "split",
+        "position": [
+         -960,
+         0
+        ]
+       },
+       {
+        "id": "layerNormalStrength",
+        "type": "parameter",
+        "position": [
+         -1200,
+         0
+        ],
+        "data": {
+         "key": "layerNormalStrength"
+        }
+       },
+       {
+        "id": "layerWeights",
+        "type": "layerWeights",
+        "position": [
+         -3120,
+         0
+        ]
+       },
+       {
+        "id": "layer1",
+        "type": "float",
+        "position": [
+         -3360,
+         480
+        ],
+        "data": {
+         "value": 0
+        }
+       },
+       {
+        "id": "layer2",
+        "type": "float",
+        "position": [
+         -3360,
+         600
+        ],
+        "data": {
+         "value": 1
+        }
+       },
+       {
+        "id": "layer3",
+        "type": "float",
+        "position": [
+         -3360,
+         720
+        ],
+        "data": {
+         "value": 2
+        }
+       },
+       {
+        "id": "layer4",
+        "type": "float",
+        "position": [
+         -3360,
+         840
+        ],
+        "data": {
+         "value": 3
+        }
+       },
+       {
+        "id": "albedo1",
+        "type": "projectedSample",
+        "position": [
+         -3120,
+         120
+        ]
+       },
+       {
+        "id": "albedo2",
+        "type": "projectedSample",
+        "position": [
+         -3120,
+         240
+        ]
+       },
+       {
+        "id": "albedo3",
+        "type": "projectedSample",
+        "position": [
+         -3120,
+         360
+        ]
+       },
+       {
+        "id": "albedo4",
+        "type": "projectedSample",
+        "position": [
+         -3120,
+         480
+        ]
+       },
+       {
+        "id": "heights",
+        "type": "combine",
+        "position": [
+         -2880,
+         0
+        ]
+       },
+       {
+        "id": "heightBlend",
+        "type": "heightBlend",
+        "position": [
+         -2640,
+         0
+        ]
+       },
+       {
+        "id": "blendDepth",
+        "type": "parameter",
+        "position": [
+         -2880,
+         120
+        ],
+        "data": {
+         "key": "blendDepth"
+        }
+       },
+       {
+        "id": "layerContrast",
+        "type": "parameter",
+        "position": [
+         -2880,
+         240
+        ],
+        "data": {
+         "key": "layerContrast"
+        }
+       },
+       {
+        "id": "layerOffset",
+        "type": "parameter",
+        "position": [
+         -2880,
+         360
+        ],
+        "data": {
+         "key": "layerOffset"
+        }
+       },
+       {
+        "id": "color",
+        "type": "parameter",
+        "position": [
+         -1200,
+         120
+        ],
+        "data": {
+         "key": "color"
+        }
+       },
+       {
+        "id": "baseTinted",
+        "type": "multiply",
+        "position": [
+         -960,
+         120
+        ]
+       },
+       {
+        "id": "albedoMix",
+        "type": "weightedMix",
+        "position": [
+         -720,
+         120
+        ]
+       },
+       {
+        "id": "grimeAmount",
+        "type": "saturate",
+        "position": [
+         -720,
+         240
+        ]
+       },
+       {
+        "id": "grime",
+        "type": "parameter",
+        "position": [
+         -1200,
+         240
+        ],
+        "data": {
+         "key": "grime"
+        }
+       },
+       {
+        "id": "grimeScaled",
+        "type": "multiply",
+        "position": [
+         -960,
+         240
+        ]
+       },
+       {
+        "id": "grimeColourMix",
+        "type": "lerp",
+        "position": [
+         -480,
+         0
+        ]
+       },
+       {
+        "id": "grimeColor",
+        "type": "parameter",
+        "position": [
+         -720,
+         360
+        ],
+        "data": {
+         "key": "grimeColor"
+        }
+       },
+       {
+        "id": "wetness",
+        "type": "parameter",
+        "position": [
+         -3120,
+         600
+        ],
+        "data": {
+         "key": "wetness"
+        }
+       },
+       {
+        "id": "wet",
+        "type": "max",
+        "position": [
+         -2880,
+         480
+        ]
+       },
+       {
+        "id": "wetTotal",
+        "type": "saturate",
+        "position": [
+         -2400,
+         0
+        ]
+       },
+       {
+        "id": "sceneWet",
+        "type": "sceneWetness",
+        "position": [
+         -2880,
+         600
+        ]
+       },
+       {
+        "id": "wetWithScene",
+        "type": "add",
+        "position": [
+         -2640,
+         120
+        ]
+       },
+       {
+        "id": "wetHeight",
+        "type": "dot",
+        "position": [
+         -2400,
+         120
+        ]
+       },
+       {
+        "id": "wetAboveHeight",
+        "type": "subtract",
+        "position": [
+         -2160,
+         0
+        ]
+       },
+       {
+        "id": "wetPooling",
+        "type": "parameter",
+        "position": [
+         -2160,
+         120
+        ],
+        "data": {
+         "key": "wetPooling"
+        }
+       },
+       {
+        "id": "wetPool",
+        "type": "multiply",
+        "position": [
+         -1920,
+         0
+        ]
+       },
+       {
+        "id": "wetPooled",
+        "type": "saturate",
+        "position": [
+         -1440,
+         120
+        ]
+       },
+       {
+        "id": "wetPooledSum",
+        "type": "add",
+        "position": [
+         -1680,
+         0
+        ]
+       },
+       {
+        "id": "wetFlat",
+        "type": "oneMinus",
+        "position": [
+         -960,
+         360
+        ]
+       },
+       {
+        "id": "wetFlatten",
+        "type": "parameter",
+        "position": [
+         -1440,
+         240
+        ],
+        "data": {
+         "key": "wetFlatten"
+        }
+       },
+       {
+        "id": "wetFlatAmount",
+        "type": "multiply",
+        "position": [
+         -1200,
+         360
+        ]
+       },
+       {
+        "id": "normal1",
+        "type": "projectedSample",
+        "position": [
+         -480,
+         120
+        ],
+        "data": {
+         "decode": "normal",
+         "colorSpace": "linear"
+        }
+       },
+       {
+        "id": "strength1",
+        "type": "multiply",
+        "position": [
+         -720,
+         480
+        ]
+       },
+       {
+        "id": "normal2",
+        "type": "projectedSample",
+        "position": [
+         -480,
+         240
+        ],
+        "data": {
+         "decode": "normal",
+         "colorSpace": "linear"
+        }
+       },
+       {
+        "id": "strength2",
+        "type": "multiply",
+        "position": [
+         -720,
+         600
+        ]
+       },
+       {
+        "id": "normal3",
+        "type": "projectedSample",
+        "position": [
+         -480,
+         360
+        ],
+        "data": {
+         "decode": "normal",
+         "colorSpace": "linear"
+        }
+       },
+       {
+        "id": "strength3",
+        "type": "multiply",
+        "position": [
+         -720,
+         720
+        ]
+       },
+       {
+        "id": "normal4",
+        "type": "projectedSample",
+        "position": [
+         -480,
+         480
+        ],
+        "data": {
+         "decode": "normal",
+         "colorSpace": "linear"
+        }
+       },
+       {
+        "id": "strength4",
+        "type": "multiply",
+        "position": [
+         -720,
+         840
+        ]
+       },
+       {
+        "id": "orm1",
+        "type": "projectedSample",
+        "position": [
+         -1200,
+         480
+        ],
+        "data": {
+         "colorSpace": "linear",
+         "absent": "orm"
+        }
+       },
+       {
+        "id": "orm2",
+        "type": "projectedSample",
+        "position": [
+         -1200,
+         600
+        ],
+        "data": {
+         "colorSpace": "linear",
+         "absent": "orm"
+        }
+       },
+       {
+        "id": "orm3",
+        "type": "projectedSample",
+        "position": [
+         -1200,
+         720
+        ],
+        "data": {
+         "colorSpace": "linear",
+         "absent": "orm"
+        }
+       },
+       {
+        "id": "orm4",
+        "type": "projectedSample",
+        "position": [
+         -1200,
+         840
+        ],
+        "data": {
+         "colorSpace": "linear",
+         "absent": "orm"
+        }
+       },
+       {
+        "id": "ormSplit",
+        "type": "split",
+        "position": [
+         -720,
+         960
+        ]
+       },
+       {
+        "id": "ormMix",
+        "type": "weightedMix",
+        "position": [
+         -960,
+         480
+        ]
+       },
+       {
+        "id": "wetDarken",
+        "type": "lerp",
+        "position": [
+         -480,
+         600
+        ]
+       },
+       {
+        "id": "dry",
+        "type": "float",
+        "position": [
+         -720,
+         1080
+        ],
+        "data": {
+         "value": 1
+        }
+       },
+       {
+        "id": "wetAlbedo",
+        "type": "float",
+        "position": [
+         -720,
+         1200
+        ],
+        "data": {
+         "value": 0.55
+        }
+       },
+       {
+        "id": "wetColour",
+        "type": "multiply",
+        "position": [
+         -240,
+         0
+        ]
+       },
+       {
+        "id": "grimeRoughMix",
+        "type": "lerp",
+        "position": [
+         -480,
+         720
+        ]
+       },
+       {
+        "id": "grimeRoughness",
+        "type": "float",
+        "position": [
+         -720,
+         1320
+        ],
+        "data": {
+         "value": 0.95
+        }
+       },
+       {
+        "id": "wetGloss",
+        "type": "lerp",
+        "position": [
+         -240,
+         120
+        ]
+       },
+       {
+        "id": "wetRoughness",
+        "type": "float",
+        "position": [
+         -480,
+         840
+        ],
+        "data": {
+         "value": 0.1
+        }
+       },
+       {
+        "id": "vertexOpen",
+        "type": "oneMinus",
+        "position": [
+         -480,
+         960
+        ]
+       },
+       {
+        "id": "vertexShut",
+        "type": "saturate",
+        "position": [
+         -720,
+         1440
+        ]
+       },
+       {
+        "id": "occlusion",
+        "type": "parameter",
+        "position": [
+         -1200,
+         960
+        ],
+        "data": {
+         "key": "occlusion"
+        }
+       },
+       {
+        "id": "vertexOcclusion",
+        "type": "multiply",
+        "position": [
+         -960,
+         600
+        ]
+       },
+       {
+        "id": "occluded",
+        "type": "multiply",
+        "position": [
+         -240,
+         240
+        ]
+       },
+       {
+        "id": "normalMix",
+        "type": "weightedMix",
+        "position": [
+         -240,
+         360
+        ]
+       }
+      ],
+      "edges": [
+       {
+        "id": "w1",
+        "from": {
+         "node": "layerTiling",
+         "port": "value"
+        },
+        "to": {
+         "node": "tilingFloor",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w2",
+        "from": {
+         "node": "tilingMin",
+         "port": "value"
+        },
+        "to": {
+         "node": "tilingFloor",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w3",
+        "from": {
+         "node": "tilingFloor",
+         "port": "out"
+        },
+        "to": {
+         "node": "tilingSplit",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w4",
+        "from": {
+         "node": "layerProjection",
+         "port": "value"
+        },
+        "to": {
+         "node": "projectionSplit",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w5",
+        "from": {
+         "node": "layerNormalStrength",
+         "port": "value"
+        },
+        "to": {
+         "node": "strengthSplit",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w6",
+        "from": {
+         "node": "albedoHeight",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo1",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w7",
+        "from": {
+         "node": "tilingSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "albedo1",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w8",
+        "from": {
+         "node": "projectionSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "albedo1",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w9",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo1",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w10",
+        "from": {
+         "node": "layer1",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo1",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w11",
+        "from": {
+         "node": "albedoHeight",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo2",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w12",
+        "from": {
+         "node": "tilingSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "albedo2",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w13",
+        "from": {
+         "node": "projectionSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "albedo2",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w14",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo2",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w15",
+        "from": {
+         "node": "layer2",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo2",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w16",
+        "from": {
+         "node": "albedoHeight",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo3",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w17",
+        "from": {
+         "node": "tilingSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "albedo3",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w18",
+        "from": {
+         "node": "projectionSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "albedo3",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w19",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo3",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w20",
+        "from": {
+         "node": "layer3",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo3",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w21",
+        "from": {
+         "node": "albedoHeight",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo4",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w22",
+        "from": {
+         "node": "tilingSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "albedo4",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w23",
+        "from": {
+         "node": "projectionSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "albedo4",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w24",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo4",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w25",
+        "from": {
+         "node": "layer4",
+         "port": "value"
+        },
+        "to": {
+         "node": "albedo4",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w26",
+        "from": {
+         "node": "albedo1",
+         "port": "a"
+        },
+        "to": {
+         "node": "heights",
+         "port": "x"
+        }
+       },
+       {
+        "id": "w27",
+        "from": {
+         "node": "albedo2",
+         "port": "a"
+        },
+        "to": {
+         "node": "heights",
+         "port": "y"
+        }
+       },
+       {
+        "id": "w28",
+        "from": {
+         "node": "albedo3",
+         "port": "a"
+        },
+        "to": {
+         "node": "heights",
+         "port": "z"
+        }
+       },
+       {
+        "id": "w29",
+        "from": {
+         "node": "albedo4",
+         "port": "a"
+        },
+        "to": {
+         "node": "heights",
+         "port": "w"
+        }
+       },
+       {
+        "id": "w30",
+        "from": {
+         "node": "layerWeights",
+         "port": "weights"
+        },
+        "to": {
+         "node": "heightBlend",
+         "port": "weights"
+        }
+       },
+       {
+        "id": "w31",
+        "from": {
+         "node": "heights",
+         "port": "xyzw"
+        },
+        "to": {
+         "node": "heightBlend",
+         "port": "heights"
+        }
+       },
+       {
+        "id": "w32",
+        "from": {
+         "node": "blendDepth",
+         "port": "value"
+        },
+        "to": {
+         "node": "heightBlend",
+         "port": "depth"
+        }
+       },
+       {
+        "id": "w33",
+        "from": {
+         "node": "layerContrast",
+         "port": "value"
+        },
+        "to": {
+         "node": "heightBlend",
+         "port": "contrast"
+        }
+       },
+       {
+        "id": "w34",
+        "from": {
+         "node": "layerOffset",
+         "port": "value"
+        },
+        "to": {
+         "node": "heightBlend",
+         "port": "offset"
+        }
+       },
+       {
+        "id": "w35",
+        "from": {
+         "node": "albedo1",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "baseTinted",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w36",
+        "from": {
+         "node": "color",
+         "port": "value"
+        },
+        "to": {
+         "node": "baseTinted",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w37",
+        "from": {
+         "node": "baseTinted",
+         "port": "out"
+        },
+        "to": {
+         "node": "albedoMix",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w38",
+        "from": {
+         "node": "albedo2",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "albedoMix",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w39",
+        "from": {
+         "node": "albedo3",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "albedoMix",
+         "port": "c"
+        }
+       },
+       {
+        "id": "w40",
+        "from": {
+         "node": "albedo4",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "albedoMix",
+         "port": "d"
+        }
+       },
+       {
+        "id": "w41",
+        "from": {
+         "node": "heightBlend",
+         "port": "weights"
+        },
+        "to": {
+         "node": "albedoMix",
+         "port": "weights"
+        }
+       },
+       {
+        "id": "w42",
+        "from": {
+         "node": "layerWeights",
+         "port": "grime"
+        },
+        "to": {
+         "node": "grimeScaled",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w43",
+        "from": {
+         "node": "grime",
+         "port": "value"
+        },
+        "to": {
+         "node": "grimeScaled",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w44",
+        "from": {
+         "node": "grimeScaled",
+         "port": "out"
+        },
+        "to": {
+         "node": "grimeAmount",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w45",
+        "from": {
+         "node": "albedoMix",
+         "port": "out"
+        },
+        "to": {
+         "node": "grimeColourMix",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w46",
+        "from": {
+         "node": "grimeColor",
+         "port": "value"
+        },
+        "to": {
+         "node": "grimeColourMix",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w47",
+        "from": {
+         "node": "grimeAmount",
+         "port": "out"
+        },
+        "to": {
+         "node": "grimeColourMix",
+         "port": "t"
+        }
+       },
+       {
+        "id": "w48",
+        "from": {
+         "node": "layerWeights",
+         "port": "wetness"
+        },
+        "to": {
+         "node": "wet",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w49",
+        "from": {
+         "node": "wetness",
+         "port": "value"
+        },
+        "to": {
+         "node": "wet",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w50",
+        "from": {
+         "node": "wet",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetWithScene",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w51",
+        "from": {
+         "node": "sceneWet",
+         "port": "wetness"
+        },
+        "to": {
+         "node": "wetWithScene",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w52",
+        "from": {
+         "node": "wetWithScene",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetTotal",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w53",
+        "from": {
+         "node": "heightBlend",
+         "port": "weights"
+        },
+        "to": {
+         "node": "wetHeight",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w54",
+        "from": {
+         "node": "heights",
+         "port": "xyzw"
+        },
+        "to": {
+         "node": "wetHeight",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w55",
+        "from": {
+         "node": "wetTotal",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetAboveHeight",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w56",
+        "from": {
+         "node": "wetHeight",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetAboveHeight",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w57",
+        "from": {
+         "node": "wetAboveHeight",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetPool",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w58",
+        "from": {
+         "node": "wetPooling",
+         "port": "value"
+        },
+        "to": {
+         "node": "wetPool",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w59",
+        "from": {
+         "node": "wetTotal",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetPooledSum",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w60",
+        "from": {
+         "node": "wetPool",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetPooledSum",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w61",
+        "from": {
+         "node": "wetPooledSum",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetPooled",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w62",
+        "from": {
+         "node": "wetPooled",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetFlatAmount",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w63",
+        "from": {
+         "node": "wetFlatten",
+         "port": "value"
+        },
+        "to": {
+         "node": "wetFlatAmount",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w64",
+        "from": {
+         "node": "wetFlatAmount",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetFlat",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w65",
+        "from": {
+         "node": "normals",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w66",
+        "from": {
+         "node": "tilingSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w67",
+        "from": {
+         "node": "projectionSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w68",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w69",
+        "from": {
+         "node": "layer1",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w70",
+        "from": {
+         "node": "strengthSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "strength1",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w71",
+        "from": {
+         "node": "wetFlat",
+         "port": "out"
+        },
+        "to": {
+         "node": "strength1",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w72",
+        "from": {
+         "node": "strength1",
+         "port": "out"
+        },
+        "to": {
+         "node": "normal1",
+         "port": "strength"
+        }
+       },
+       {
+        "id": "w73",
+        "from": {
+         "node": "normals",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w74",
+        "from": {
+         "node": "tilingSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w75",
+        "from": {
+         "node": "projectionSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w76",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w77",
+        "from": {
+         "node": "layer2",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w78",
+        "from": {
+         "node": "strengthSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "strength2",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w79",
+        "from": {
+         "node": "wetFlat",
+         "port": "out"
+        },
+        "to": {
+         "node": "strength2",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w80",
+        "from": {
+         "node": "strength2",
+         "port": "out"
+        },
+        "to": {
+         "node": "normal2",
+         "port": "strength"
+        }
+       },
+       {
+        "id": "w81",
+        "from": {
+         "node": "normals",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w82",
+        "from": {
+         "node": "tilingSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w83",
+        "from": {
+         "node": "projectionSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w84",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w85",
+        "from": {
+         "node": "layer3",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w86",
+        "from": {
+         "node": "strengthSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "strength3",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w87",
+        "from": {
+         "node": "wetFlat",
+         "port": "out"
+        },
+        "to": {
+         "node": "strength3",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w88",
+        "from": {
+         "node": "strength3",
+         "port": "out"
+        },
+        "to": {
+         "node": "normal3",
+         "port": "strength"
+        }
+       },
+       {
+        "id": "w89",
+        "from": {
+         "node": "normals",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w90",
+        "from": {
+         "node": "tilingSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w91",
+        "from": {
+         "node": "projectionSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w92",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w93",
+        "from": {
+         "node": "layer4",
+         "port": "value"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w94",
+        "from": {
+         "node": "strengthSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "strength4",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w95",
+        "from": {
+         "node": "wetFlat",
+         "port": "out"
+        },
+        "to": {
+         "node": "strength4",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w96",
+        "from": {
+         "node": "strength4",
+         "port": "out"
+        },
+        "to": {
+         "node": "normal4",
+         "port": "strength"
+        }
+       },
+       {
+        "id": "w97",
+        "from": {
+         "node": "orm",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm1",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w98",
+        "from": {
+         "node": "tilingSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "orm1",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w99",
+        "from": {
+         "node": "projectionSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "orm1",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w100",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm1",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w101",
+        "from": {
+         "node": "layer1",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm1",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w102",
+        "from": {
+         "node": "orm",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm2",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w103",
+        "from": {
+         "node": "tilingSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "orm2",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w104",
+        "from": {
+         "node": "projectionSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "orm2",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w105",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm2",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w106",
+        "from": {
+         "node": "layer2",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm2",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w107",
+        "from": {
+         "node": "orm",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm3",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w108",
+        "from": {
+         "node": "tilingSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "orm3",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w109",
+        "from": {
+         "node": "projectionSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "orm3",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w110",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm3",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w111",
+        "from": {
+         "node": "layer3",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm3",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w112",
+        "from": {
+         "node": "orm",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm4",
+         "port": "tex"
+        }
+       },
+       {
+        "id": "w113",
+        "from": {
+         "node": "tilingSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "orm4",
+         "port": "scale"
+        }
+       },
+       {
+        "id": "w114",
+        "from": {
+         "node": "projectionSplit",
+         "port": "w"
+        },
+        "to": {
+         "node": "orm4",
+         "port": "mode"
+        }
+       },
+       {
+        "id": "w115",
+        "from": {
+         "node": "biplanarDistance",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm4",
+         "port": "near"
+        }
+       },
+       {
+        "id": "w116",
+        "from": {
+         "node": "layer4",
+         "port": "value"
+        },
+        "to": {
+         "node": "orm4",
+         "port": "layer"
+        }
+       },
+       {
+        "id": "w117",
+        "from": {
+         "node": "orm1",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "ormMix",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w118",
+        "from": {
+         "node": "orm2",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "ormMix",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w119",
+        "from": {
+         "node": "orm3",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "ormMix",
+         "port": "c"
+        }
+       },
+       {
+        "id": "w120",
+        "from": {
+         "node": "orm4",
+         "port": "rgb"
+        },
+        "to": {
+         "node": "ormMix",
+         "port": "d"
+        }
+       },
+       {
+        "id": "w121",
+        "from": {
+         "node": "heightBlend",
+         "port": "weights"
+        },
+        "to": {
+         "node": "ormMix",
+         "port": "weights"
+        }
+       },
+       {
+        "id": "w122",
+        "from": {
+         "node": "ormMix",
+         "port": "out"
+        },
+        "to": {
+         "node": "ormSplit",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w123",
+        "from": {
+         "node": "dry",
+         "port": "value"
+        },
+        "to": {
+         "node": "wetDarken",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w124",
+        "from": {
+         "node": "wetAlbedo",
+         "port": "value"
+        },
+        "to": {
+         "node": "wetDarken",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w125",
+        "from": {
+         "node": "wetPooled",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetDarken",
+         "port": "t"
+        }
+       },
+       {
+        "id": "w126",
+        "from": {
+         "node": "grimeColourMix",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetColour",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w127",
+        "from": {
+         "node": "wetDarken",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetColour",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w128",
+        "from": {
+         "node": "wetColour",
+         "port": "out"
+        },
+        "to": {
+         "node": "output",
+         "port": "baseColor"
+        }
+       },
+       {
+        "id": "w129",
+        "from": {
+         "node": "ormSplit",
+         "port": "y"
+        },
+        "to": {
+         "node": "grimeRoughMix",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w130",
+        "from": {
+         "node": "grimeRoughness",
+         "port": "value"
+        },
+        "to": {
+         "node": "grimeRoughMix",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w131",
+        "from": {
+         "node": "grimeAmount",
+         "port": "out"
+        },
+        "to": {
+         "node": "grimeRoughMix",
+         "port": "t"
+        }
+       },
+       {
+        "id": "w132",
+        "from": {
+         "node": "grimeRoughMix",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetGloss",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w133",
+        "from": {
+         "node": "wetRoughness",
+         "port": "value"
+        },
+        "to": {
+         "node": "wetGloss",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w134",
+        "from": {
+         "node": "wetPooled",
+         "port": "out"
+        },
+        "to": {
+         "node": "wetGloss",
+         "port": "t"
+        }
+       },
+       {
+        "id": "w135",
+        "from": {
+         "node": "wetGloss",
+         "port": "out"
+        },
+        "to": {
+         "node": "output",
+         "port": "roughness"
+        }
+       },
+       {
+        "id": "w136",
+        "from": {
+         "node": "ormSplit",
+         "port": "z"
+        },
+        "to": {
+         "node": "output",
+         "port": "metalness"
+        }
+       },
+       {
+        "id": "w137",
+        "from": {
+         "node": "layerWeights",
+         "port": "occlusion"
+        },
+        "to": {
+         "node": "vertexOcclusion",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w138",
+        "from": {
+         "node": "occlusion",
+         "port": "value"
+        },
+        "to": {
+         "node": "vertexOcclusion",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w139",
+        "from": {
+         "node": "vertexOcclusion",
+         "port": "out"
+        },
+        "to": {
+         "node": "vertexShut",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w140",
+        "from": {
+         "node": "vertexShut",
+         "port": "out"
+        },
+        "to": {
+         "node": "vertexOpen",
+         "port": "in"
+        }
+       },
+       {
+        "id": "w141",
+        "from": {
+         "node": "ormSplit",
+         "port": "x"
+        },
+        "to": {
+         "node": "occluded",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w142",
+        "from": {
+         "node": "vertexOpen",
+         "port": "out"
+        },
+        "to": {
+         "node": "occluded",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w143",
+        "from": {
+         "node": "occluded",
+         "port": "out"
+        },
+        "to": {
+         "node": "output",
+         "port": "ao"
+        }
+       },
+       {
+        "id": "w144",
+        "from": {
+         "node": "normal1",
+         "port": "normal"
+        },
+        "to": {
+         "node": "normalMix",
+         "port": "a"
+        }
+       },
+       {
+        "id": "w145",
+        "from": {
+         "node": "normal2",
+         "port": "normal"
+        },
+        "to": {
+         "node": "normalMix",
+         "port": "b"
+        }
+       },
+       {
+        "id": "w146",
+        "from": {
+         "node": "normal3",
+         "port": "normal"
+        },
+        "to": {
+         "node": "normalMix",
+         "port": "c"
+        }
+       },
+       {
+        "id": "w147",
+        "from": {
+         "node": "normal4",
+         "port": "normal"
+        },
+        "to": {
+         "node": "normalMix",
+         "port": "d"
+        }
+       },
+       {
+        "id": "w148",
+        "from": {
+         "node": "heightBlend",
+         "port": "weights"
+        },
+        "to": {
+         "node": "normalMix",
+         "port": "weights"
+        }
+       },
+       {
+        "id": "w149",
+        "from": {
+         "node": "normalMix",
+         "port": "out"
+        },
+        "to": {
+         "node": "output",
+         "port": "normal"
+        }
+       }
+      ]
+     },
+     "layerNames": [
+      "Grass",
+      "Soil",
+      "Rock"
+     ]
+    },
+    "assign": {
+     "entityId": "$ref:terrain"
+    }
+   }
+  },
+  {
+   "op": "editTerrain",
+   "args": {
+    "entityId": "$ref:terrain",
+    "kind": "raise",
+    "dabs": [
+     [
+      36,
+      -22
+     ],
+     [
+      46,
+      -6
+     ],
+     [
+      34,
+      12
+     ]
+    ],
+    "radius": 12,
+    "strength": 7,
+    "falloff": "smooth"
+   }
+  },
+  {
+   "op": "editTerrain",
+   "args": {
+    "entityId": "$ref:terrain",
+    "kind": "raise",
+    "dabs": [
+     [
+      23,
+      -12
+     ]
+    ],
+    "radius": 6,
+    "strength": 2,
+    "falloff": "smooth"
+   }
+  },
+  {
+   "op": "editTerrain",
+   "args": {
+    "entityId": "$ref:terrain",
+    "kind": "noise",
+    "dabs": [
+     [
+      44,
+      0
+     ]
+    ],
+    "radius": 40,
+    "strength": 0.6,
+    "scale": 9,
+    "seed": 3,
+    "falloff": "smooth"
+   }
+  },
+  {
+   "op": "editTerrain",
+   "args": {
+    "entityId": "$ref:terrain",
+    "kind": "bake",
+    "rules": [
+     {
+      "name": "Soil in patches",
+      "layer": 1,
+      "noise": {
+       "min": 0.62,
+       "fade": 0.08,
+       "scale": 14,
+       "seed": 7
+      }
+     },
+     {
+      "name": "Rock on slopes",
+      "layer": 2,
+      "slope": {
+       "min": 24,
+       "fade": 6
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "createEntity",
+   "args": {
+    "sceneId": "scene-main",
+    "kind": "group",
+    "name": "Follow camera",
+    "transform": {
+     "position": [
+      0,
+      4,
+      9
+     ],
+     "rotation": [
+      0,
+      0,
+      0,
+      1
+     ],
+     "scale": [
+      1,
+      1,
+      1
+     ]
+    },
+    "components": {
+     "virtualCamera": {
+      "rig": "follow",
+      "target": "model-000001",
+      "targetOffset": [
+       0,
+       1.2,
+       0
+      ],
+      "distance": 8,
+      "pitch": 18,
+      "damping": 0.15,
+      "priority": 10
+     }
+    }
+   }
+  }
+ ]
+}

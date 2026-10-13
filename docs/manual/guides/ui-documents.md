@@ -32,7 +32,7 @@ switch a game mode, or a dialogue input.
    **Modal** and set **First focus** to the Resume button, so Enter and the
    pad reach it.
 4. **Show them.** **File → Project Settings… → Game shell**: a project
-   without a shell (the Starter) first needs **add game shell**, then the
+   without a shell (the 2D starter) first needs **add game shell**, then the
    **+ add** buttons for **Screens** and **HUD**. Add `HUD` under **HUD**,
    set **Screens → Pause** to `Pause`. (A game mode can show
    documents too; see [game modes](game-modes.md).)

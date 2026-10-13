@@ -13,7 +13,7 @@ change on its own. Thirdlight follows one rule for this:
 An example: ambient occlusion. A project that does not set
 `ambient_occlusion` draws GTAO, the only kind there was before the setting
 existed. A new project is made with `ambient_occlusion: 1` (SSAO, the
-faster kind) written into its settings. A new project from the Starter has
+faster kind) written into its settings. A new project from the 2D starter has
 these settings in its `content.json`:
 
 ```json

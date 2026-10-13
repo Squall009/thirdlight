@@ -1,8 +1,12 @@
 # Your first project
 
-You make a project from the **Starter** template: a small scene with a
-ground, a few boxes, a character you can walk with, a spawn point, a camera
-and two lights. It has no game rules; you add those yourself.
+You make a project from the **2D starter** template: a small side-on scene
+with a ground, a few boxes, a character you can walk with, a spawn point, a
+camera and two lights. It has no game rules; you add those yourself. For a
+3D game pick the **3D starter** instead: the same character with a follow
+camera, a block ground on the Basic Kit, a small terrain, a sun and sky (see
+[Kits, blocks and rooms](../concepts/kits-blocks-and-rooms.md)); the steps
+below are the same, its objects differ.
 
 ## In the editor
 
@@ -15,8 +19,9 @@ and two lights. It has no game rules; you add those yourself.
      the data folder (`~/thirdlight/projects/my-first-game`). Give a folder
      to keep the project inside your game's own git repository instead (see
      [Projects and scenes](../concepts/projects-and-scenes.md)).
-   - **Template**: **Starter**. (*Empty scene* gives you just a camera and
-     lights.)
+   - **Start from**: the **2D starter** card. Each template shows a picture
+     and one line on what it holds; *Empty scene* gives you just a camera
+     and lights, the *3D starter* a 3D world to walk in.
 3. Press **Create and open**. The editor opens on the new project.
 
 ## What you see
@@ -63,7 +68,7 @@ backend on its default port:
 # The templates this engine has.
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8501/api/v1/templates
 
-# Create the project from the Starter template.
+# Create the project from the 2D starter ("starter-3d" for the 3D starter).
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"projectId": "my-first-game", "name": "My first game", "template": "starter"}' \
   http://127.0.0.1:8501/api/v1/admin/projects

@@ -37,6 +37,7 @@ backups, the MCP connection) is described in
 - [The game shell](concepts/game-shell.md)
 - [Game flow belongs to your game](concepts/game-flow.md)
 - [2D and 3D](concepts/2d-and-3d.md)
+- [Kits, blocks and rooms: what to supply](concepts/kits-blocks-and-rooms.md)
 - [Existing projects keep their look](concepts/existing-projects.md)
 - [The editor and the API](concepts/editor-and-api.md)
 - [Streaming and budgets](concepts/streaming-and-budgets.md)
@@ -48,7 +49,9 @@ use and why.
 
 - [Which tool for which job](guides/which-tool.md)
 - Building worlds
+  - [Level editors: terrain, blocks, vertex paint, decals and their keys](guides/level-editors.md)
   - [Build a level with block layers](guides/block-layers.md)
+  - [The block editor: modes, palette, block types](guides/block-editor.md)
   - [Build terrain: sculpting, rule materials, scatter, splines and blocks on terrain](guides/terrain.md)
   - [Brushes: settings, cursor and keys](guides/brushes.md)
   - [Dress a scene with instance sets](guides/instance-sets.md)

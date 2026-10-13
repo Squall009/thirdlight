@@ -8,7 +8,7 @@ walks through it.
 
 | You want | Use | Why |
 |---|---|---|
-| Floors, walls, buildings, a dungeon, a tactics map | [Block layer](block-layers.md) | A grid you paint: merged meshes and colliders per chunk, cell data scripts read (`ctx.grid`), walk queries, regions, cut-aways |
+| Floors, walls, buildings, a dungeon, a tactics map | [Block layer](block-layers.md) in the [block editor](block-editor.md) (start from the 3D starter) | A grid you paint: merged meshes and colliders per chunk, cell data scripts read (`ctx.grid`), walk queries, regions, cut-aways |
 | Open ground to the horizon: hills, valleys, roads | [Terrain](terrain.md) | A heightfield with levels of detail; sculpted, painted by rules, streamed |
 | A road, a path, a river, a fence along a curve | A spline ([terrain guide](terrain.md#a-road-or-a-river-splines)) | Shapes and paints the terrain, makes its own mesh and pieces |
 | Rooms and buildings with mouldings, doors and roofs | [Generated architecture](generated-architecture.md) on a block layer | Parameters, not meshes: restyle a whole level by swapping presets |

@@ -76,8 +76,10 @@ the exact fields and ops are in `tl_docs`.
 - **Nothing plays a sound before the first key press or click**; a
   headless play-test sees sounds as pending.
 - **A rebind listens to the real device**; test input cannot answer it.
-- **Pointer picks in 3D need 3D physics**; the Starter's physics is the 2D
-  plane.
+- **Pointer picks in 3D need 3D physics**; the 2D starter's physics is the
+  2D plane. For a 3D project create from the `starter-3d` template (3D
+  physics, follow camera, Basic Kit block ground, terrain, sky) instead of
+  switching a 2D one.
 
 ## Look, cameras and lighting
 

@@ -229,7 +229,7 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
   await page.getByLabel('Project id').fill(PROJECT);
   await page.getByLabel('Name').fill('Starter capabilities');
-  await page.getByLabel('Template').selectOption('starter');
+  await page.getByRole('radiogroup', { name: 'Template' }).locator('label', { hasText: '2D starter' }).click();
   await page.getByRole('button', { name: 'Create and open' }).click();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   expect(new URL(page.url()).searchParams.get('project')).toBe(PROJECT);

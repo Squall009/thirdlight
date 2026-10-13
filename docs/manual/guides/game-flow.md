@@ -24,7 +24,7 @@ The pieces:
    ★ (start set) on **Main** only.
 2. **The director.** Click the **Main** header, **GameObject → Create
    empty**, name it `Director`, and tick **Keep loaded** in the Inspector.
-   The Starter's player and camera are kept already (the Hierarchy marks
+   The 2D starter's player and camera are kept already (the Hierarchy marks
    them **K**).
 3. **The documents.** In the project window, **create ▾ → UI document**
    three times: `Title` (a full-screen panel with a **New game** button),
@@ -42,7 +42,7 @@ The pieces:
    `title` (UI documents: Title; Physics: Hold; Pause allowed off), then
    `play` (UI documents: HUD). The first mode is the start mode.
 5. **The pause screen.** **Project Settings → Game shell**: **add game
-   shell** (the Starter has none), **+ add** under **Screens**, then
+   shell** (the 2D starter has none), **+ add** under **Screens**, then
    **Pause**: `Pause`. Leave **Title** at *none* (the title is a mode here).
 6. **The director script.** **Project Settings → Scripts → + New behavior**
    `director`, then in its Script tab:
