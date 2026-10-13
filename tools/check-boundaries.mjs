@@ -230,8 +230,9 @@ export const NODE_SIDE_ALLOWED = {
     // row rules (its trim sheets share one table) and the material instance
     // resolution (an instance's trim sheet checked as its root) and the
     // presets' row-tied sliders (a trim sheet's problems name the presets
-    // that do not fit its rows) are the project-model values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows'] },
+    // that do not fit its rows) and the kits' reference problems (what a kit
+    // names that the project lacks) are the project-model values the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows', 'kits'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.

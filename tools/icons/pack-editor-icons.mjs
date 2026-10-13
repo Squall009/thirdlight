@@ -8,10 +8,10 @@
  * The browser does the scaling and the encoding (Chromium's canvas), so the
  * repo needs no image library. Prints each file's size and the total.
  *
- *   node tools/icons/pack-editor-icons.mjs <raw dir> [group]
+ *   node tools/icons/pack-editor-icons.mjs <raw dir> [group] [name]
  *
- * With a group (kind, action, object, material) only that group's rows are packed, so
- * adding icons needs only their own raw files.
+ * With a group (kind, action, object, material) only that group's rows are packed, and
+ * with a name only that row, so adding icons needs only their own raw files.
  * `<raw dir>/<name>.png` per row of the table; a row whose `source` column
  * names a file under packages/editor/public/icons/ packs that file instead
  * (the object icons reused for their kinds).
@@ -38,6 +38,7 @@ const HAZE = 8;
 const raw = process.argv[2];
 if (raw === undefined) throw new Error('usage: node tools/icons/pack-editor-icons.mjs <raw dir> [group]');
 const only = process.argv[3];
+const onlyName = process.argv[4];
 
 const rows = readFileSync(join(REPO, 'tools', 'icons', 'editor-icons.tsv'), 'utf8')
   .split('\n')
@@ -46,7 +47,7 @@ const rows = readFileSync(join(REPO, 'tools', 'icons', 'editor-icons.tsv'), 'utf
     const [name, group, source] = l.split('\t');
     return { name, group, source: source !== undefined && source !== '' && source !== '-' ? source : null };
   })
-  .filter((r) => only === undefined || r.group === only);
+  .filter((r) => (only === undefined || r.group === only) && (onlyName === undefined || r.name === onlyName));
 
 const browser = await chromium.launch({ env: browserLaunchEnv() });
 const page = await browser.newPage();

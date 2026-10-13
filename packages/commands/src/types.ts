@@ -482,6 +482,19 @@ export interface SetCellFieldsInverse {
   restore: import('@thirdlight/project-model').CellField[];
 }
 
+/** `setKit`/`deleteKit` change data: one kit before and after (null = none). */
+export interface SetKitChange {
+  type: 'setKit';
+  kitId: string;
+  previous: import('@thirdlight/project-model').KitDef | null;
+  next: import('@thirdlight/project-model').KitDef | null;
+}
+export interface SetKitInverse {
+  kind: 'setKit';
+  kitId: string;
+  restore: import('@thirdlight/project-model').KitDef | null;
+}
+
 /** `setBlockStamp`/`deleteBlockStamp` change data. */
 export interface SetBlockStampChange {
   type: 'setBlockStamp';
@@ -928,6 +941,7 @@ export type ChangeData =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
+  | SetKitChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -981,6 +995,7 @@ export type ForwardChange =
   | SetBlockTypeChange
   | SetCellFieldsChange
   | SetBlockStampChange
+  | SetKitChange
   | SetUiChange
   | SetDialogueChange
   | SetModesChange
@@ -1178,6 +1193,7 @@ export type InverseSpec =
   | SetBlockTypeInverse
   | SetCellFieldsInverse
   | SetBlockStampInverse
+  | SetKitInverse
   | GraphEditInverse
   | SetGraphInverse
   | SetEffectInverse

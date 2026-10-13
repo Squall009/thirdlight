@@ -21,16 +21,16 @@ What the engine offers, generated from its source: the objects, components and c
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
 | [Content documents (materials to animators)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers |
-| [Content documents (effects to startScenes)](content-blocks-effects.md) | 24 sections |
-| [Content documents (assets to lighting)](content-blocks-assets.md) | assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
+| [Content documents (effects to settings)](content-blocks-effects.md) | 23 sections |
+| [Content documents (scenes to lighting)](content-blocks-scenes.md) | scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 79 sections |
+| [Command op arguments](ops-detail.md) | 81 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DecalPageRef)](types-a-d.md) | 76 sections |
-| [Types (DeclaredProperty to PointerAxisName)](types-d-p.md) | 96 sections |
-| [Types (PointerButtonName to UiTweenKind)](types-p-u.md) | 96 sections |
-| [Types (UiWidget to WindConfig)](types-u-w.md) | 10 sections |
+| [Types (DeclaredProperty to PATH_PAINT_SIDES)](types-d-p.md) | 95 sections |
+| [Types (PathPaintGrid to UiStyleValues)](types-p-u.md) | 96 sections |
+| [Types (UiTheme to WindConfig)](types-u-w.md) | 13 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
@@ -65,7 +65,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
 | [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 34 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |

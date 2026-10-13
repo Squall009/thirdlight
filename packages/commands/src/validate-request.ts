@@ -170,6 +170,9 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   'setCellFields',
   'setBlockStamp',
   'deleteBlockStamp',
+  // Kits
+  'setKit',
+  'deleteKit',
   // Project UI documents and themes
   'setUiDocument',
   'deleteUiDocument',
@@ -1330,6 +1333,8 @@ export type ValidatedOpArgs =
   | { op: 'setCellFields'; args: { fields: import('@thirdlight/project-model').CellField[] } }
   | { op: 'setBlockStamp'; args: { stamp?: import('@thirdlight/project-model').BlockStamp; stampId?: string; name?: string; entityId?: string; box?: number[] } }
   | { op: 'deleteBlockStamp'; args: { stampId: string } }
+  | { op: 'setKit'; args: { kit: import('@thirdlight/project-model').KitDef } }
+  | { op: 'deleteKit'; args: { kitId: string } }
   | { op: 'setUiDocument'; args: { document: import('@thirdlight/project-model').UiDocument } }
   | { op: 'deleteUiDocument'; args: { uiDocumentId: string } }
   | { op: 'setUiTheme'; args: { theme: import('@thirdlight/project-model').UiTheme } }
@@ -1673,6 +1678,17 @@ export function validateOpArgs(
         if (k === 'effect' ? !isPlainObject(args[k]) : typeof args[k] !== 'string') {
           return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
         }
+      }
+      return { ok: true, validated: { op, args } as ValidatedOpArgs };
+    }
+    case 'setKit':
+    case 'deleteKit': {
+      // setKit {kit}; deleteKit {kitId} (the kit's values are the model's; here the shapes).
+      const key = op === 'setKit' ? 'kit' : 'kitId';
+      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+      if (op === 'setKit' ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+        return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setKit' ? 'object ({ kitId, name, trimMaterial?, presets?, blockTypes?, pieces? })' : 'string (kitId)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }

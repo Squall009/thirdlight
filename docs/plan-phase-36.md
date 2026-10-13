@@ -156,6 +156,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.0 | Done 2026-10-13: three.js 0.186.1 is still the latest on npm; Rapier 0.21.0 (2026-09-25) exists, the pinned 0.20.0 stays (nothing here needs it). §2 re-read at `6f191f50` (block faces' trim strips, Atlas surface, trim layers / `layerSheets`, New material dialog, Texture Designer defaults, line numbers); 36.1 lower_wall 0.5 m, 36.2 block faces stack, e2e reduction target (D253) in §3. |
 | 36.1 | Done 2026-10-13: `docs/manual/guides/trim-sheet-spec.md` (sheet, row table with pixel bounds and inset v in glTF and Blender terms, ASCII layout, slot readers, maps, tiling, UVs for pieces and overrides, piece placement and names, reserved vertex colours, checklist), linked from `trim-sheets.md` (its stale "block walls are not strips" pitfall corrected) and the index. Numbers from the Texture Designer's `solve()` (2048², 512 px/m, gutter 8, align 16: rows_used 2000, fits, no warnings) and the engine's `trimSheetFromLayout` (no errors, no problems, safe mip level 4 on every row). Art-factory proposal for the owner: `~/.cache/thirdlight-phase36/art-factory-proposal.md`. Fast gate green (vitest 703, e2e 30, perf in limits). |
 | 36.2 | Done 2026-10-13: a sheet-level `realHeight` (new sheets, layout imports; a checkbox for stored ones) draws fields at their own height (last repeat cut) and trims once (fitted within 5 %, else at their own height); block walls cut where the field row repeats; Snap to row on tied sliders, mismatches in the sheet's backend problems; `TRIM_SHEET_DEFAULTS` 2048²/512, spec rows. Meshing: 16² wall chunk 2.4–2.8 → 2.6–3.0 ms, worst case (every first-storey face cut) 0.75 → 1.93 ms; `block-world-uv` 6.7 + 6.7 → 6.4 + 6.3 s. |
+| 36.3 | Done 2026-10-13: `content.kits` (a resource kind, `<name>.kit.json`; editor-only: never loadable, not shipped), `setKit`/`deleteKit` (MCP, docs, reference), references as backend Problems (`kitProblems`), `kitId` on block layers and architecture (Inspector **Kit** picker), Create → Kit + kind icon (`kinds/kit.webp` 96², 3.1 KiB) + read-only kit summary in the Inspector; block-type/layer `kits` shown as **Themes** in UI and manual. vitest +8 (kits, commands, undo/redo); e2e: one Create row in `project-items` (no new file). |
 
 ## 6. Decision log
 
@@ -254,3 +255,52 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     a 0.4 m band keeps the 0.25 m baseboard row's scale, Snap to row in the
     Inspector) and got shorter: 6.7 + 6.7 → 6.4 + 6.3 s alone (its bump
     reads settle at 250 ms polls instead of 400).
+
+- 2026-10-13 (36.3) — Kit data. Defaults chosen, owner to confirm:
+  - **A kit is a resource kind** (`kit`, list `kits`, id `kitId`, one file
+    each in `assets/kits/`), so the project window, index, search, moves and
+    file watching handle it with no kit-specific code. The kind is marked
+    **editor-only** in `RESOURCE_KIND_TABLE`: it may not get an address or
+    labels (setLabels/setAddress refuse it), and the exporter's runtime
+    content is an allow-list, so a build never carries kits. Pieces resolve
+    to concrete references where they are used (an opening's `model`, a
+    block look), so the runtime needs nothing from a kit.
+  - **References are problems, never refusals**: a kit names its trim
+    material, presets, block types and piece models; the model checks only
+    shapes, and the backend logs a Problem per kit whose parts are missing
+    or of the wrong kind (a non-trim material, a non-preset graph, a piece
+    that is not a model, a thumbnail that is not a texture). Deleting a part
+    a kit lists is never refused — the owner's "a kit references its parts".
+  - **Shape:** `{kitId, name, description?, thumbnail?, trimMaterial?,
+    presets?, blockTypes?, pieces?: {slot: [{assetId, piece?, weight?}]}}`.
+    Standard slots (`KIT_STANDARD_SLOTS`): door, window, wall-override,
+    corner, stairs, railing, roof-edge; any id-syntax name adds a custom
+    slot. A slot holds 1–8 weighted pieces, the block look bound
+    (`BLOCK_LIMITS.variants`), weights as block looks'. The data key is
+    `pieces` (not `slots`) so it doesn't read like the trim sheet's row
+    slots.
+  - **`kitId`, not `kit`, on `blockLayer` and `architecture`**: beside the
+    layer's existing `kits` (themes) a field `kit` would read as one of
+    them. Shape-checked only (a dangling id is harmless and absent = none);
+    it stays in exported scenes (a few bytes, ignored by the runtime) rather
+    than adding a strip pass to the exporter.
+  - **Until the kit editor (36.5)** a kit opens in the Inspector: its name,
+    file, Delete, and a read-only list of its trim sheet, presets, block
+    types and slots (standard slots always listed). Double-clicking any item
+    kind without an editor now shows it in the Inspector instead of doing
+    nothing.
+  - **Themes:** visible labels (block panel, the block type's and layer's
+    Inspector fields, tool docs, the manual's Blocks page) say Theme; data
+    keys (`kits`), the script calls (`ctx.grid.setKit`/`kit`) and the perf
+    tool's `--kit-swap` stay, as games call them. The MCP docs say "themes in
+    the editor" next to the key.
+  - The kit icon was generated with the Studio's container backend (Qwen
+    Image Turbo, 8 steps; the GPU was in LLM mode), the established kinds
+    prompt; `pack-editor-icons.mjs` takes an optional row name so one icon
+    packs without the others' raw files.
+
+  - The backend reads `kitProblems` through a new `@thirdlight/project-model/kits`
+    value subpath (backend → project-model is types-only otherwise; the
+    boundary check lists it with the other allowed subpaths). The regenerated
+    reference split the content pages differently (assets and prefabs now on
+    `content-blocks-scenes.md`); four manual links were moved with it.

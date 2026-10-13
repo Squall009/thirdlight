@@ -686,6 +686,8 @@ export class Projection {
       case 'setBlockType':
       case 'setCellFields':
       case 'setBlockStamp':
+      // Kits too.
+      case 'setKit':
       // UI documents and themes too.
       case 'setUi':
       // Dialogue content too.

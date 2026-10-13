@@ -65,6 +65,9 @@ export type V3MutationOp =
   | 'setCellFields'
   | 'setBlockStamp'
   | 'deleteBlockStamp'
+  // Kits
+  | 'setKit'
+  | 'deleteKit'
   | 'setUiDocument'
   | 'deleteUiDocument'
   | 'setUiTheme'
@@ -152,7 +155,7 @@ export const V3_CONTENT_KEYS = [
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
 /** The v3 mutation ops. */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setLightLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress', 'moveResources', 'renameFolder', 'createFolder', 'paintInstances', 'paintVertices', 'colliderFromModel', 'editTerrain', 'deleteBehavior', 'revokeBehaviorTrust'];
+export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setLightLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setKit', 'deleteKit', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress', 'moveResources', 'renameFolder', 'createFolder', 'paintInstances', 'paintVertices', 'colliderFromModel', 'editTerrain', 'deleteBehavior', 'revokeBehaviorTrust'];
 /** The v3 query op. */
 // queryBlocks reads block-layer cells and regions.
 // queryIndex reads the project index (assets, resources and scenes, what references what).
@@ -197,6 +200,8 @@ export const CHANGE_TYPES = [
   'setBlockType',
   'setCellFields',
   'setBlockStamp',
+  // Kits.
+  'setKit',
   'setUi',
   // Dialogue.
   'setDialogue',

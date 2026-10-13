@@ -3,7 +3,7 @@
 **Goal:** a small 3D level painted from blocks: a stone floor, a room whose
 walls stand on the cell edges, a doorway, and a roof that is hidden while the
 player is inside. Everything else a block layer can do (live blocks,
-auto-connecting walls, wall paint, kits, walking queries) is in
+auto-connecting walls, wall paint, themes, kits, walking queries) is in
 [Blocks](../features/blocks.md).
 
 A block layer is one object holding a grid of cells. Each cell shows a

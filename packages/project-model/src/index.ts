@@ -668,6 +668,8 @@ export {
   type EffectParameterType,
   type EffectSystem,
 } from './effects';
+// Kits (content.kits): a trim sheet, presets, block types and piece slots as one editor-side item.
+export { canonicalKit, canonicalKits, kitProblems, validateKit, validateKits, KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, type KitDef, type KitPiece, type KitProblemContent, type KitProblemRow } from './kits';
 // The camera framework's data (virtual cameras and camera paths).
 export {
   CAMERA_BLENDS,

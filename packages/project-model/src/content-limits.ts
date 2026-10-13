@@ -215,6 +215,7 @@ export const RESOURCE_CREATING_OPS: readonly string[] = [
   'setAnimator',
   'setGraph',
   'setEffect',
+  'setKit',
   'setScriptLibrary',
   'setUiDocument',
   'setUiTheme',

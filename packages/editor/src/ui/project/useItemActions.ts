@@ -12,7 +12,7 @@
  * Browser-only (React).
  */
 import { useCallback, useMemo, useState, type Dispatch } from 'react';
-import type { AnimatorController, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, KitDef, MaterialDef } from '@thirdlight/project-model';
 import { DIALOGUE_LIMITS, NAME_MAX, RESOURCE_KIND_TABLE, SCRIPT_LIBRARY_LIMITS, TIMELINE_LIMITS, UI_LIMITS } from '@thirdlight/project-model/limits';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { architectureGraphTemplate } from '@thirdlight/runtime';
@@ -83,11 +83,12 @@ const DELETE_OP: Readonly<Record<string, string>> = {
   uitheme: 'deleteUiTheme',
   dialogue: 'deleteDialogue',
   timeline: 'deleteTimeline',
+  kit: 'deleteKit',
 };
 
 export interface ItemActionsDeps {
   clientRef: ClientRef;
-  content: Pick<ProjectContent, 'materials' | 'graphs' | 'graphKinds' | 'animators' | 'timelines' | 'uiDocuments' | 'uiThemes'>;
+  content: Pick<ProjectContent, 'materials' | 'graphs' | 'graphKinds' | 'animators' | 'timelines' | 'uiDocuments' | 'uiThemes' | 'kits'>;
   workspaceDispatch: Dispatch<WorkspaceAction>;
   /** Show an item in the Inspector. */
   inspect: (item: ProjectItem) => void;
@@ -114,7 +115,7 @@ export interface ItemActions {
 
 export function useItemActions(deps: ItemActionsDeps): ItemActions {
   const { clientRef, content, workspaceDispatch, inspect, openDocument, onDeleted, chosenModel, clipsOf } = deps;
-  const { materials, graphs, graphKinds, animators, timelines, uiDocuments, uiThemes } = content;
+  const { materials, graphs, graphKinds, animators, timelines, uiDocuments, uiThemes, kits } = content;
   const [deleteError, setDeleteError] = useState<ItemActions['deleteError']>(null);
 
   // Standalone graph kinds (a kind owned by another document, the animator's, is made there).
@@ -133,6 +134,7 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       { key: 'library', label: 'Script library', defaultName: 'New library' },
       { key: 'ui', label: 'UI document', defaultName: 'New UI document' },
       { key: 'uitheme', label: 'UI theme', defaultName: 'New UI theme' },
+      { key: 'kit', label: 'Kit', defaultName: 'New kit' },
     ];
   }, [graphKinds]);
 
@@ -207,6 +209,10 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
         case 'uitheme':
           err = await run('setUiTheme', { theme: newUiTheme(id, name) });
           break;
+        case 'kit':
+          // An empty kit: its trim sheet, presets, block types and pieces are added to it afterwards.
+          err = await run('setKit', { kit: { kitId: id, name } satisfies KitDef });
+          break;
         default:
           return `nothing to create for ${key}`;
       }
@@ -252,6 +258,10 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
         }
         case 'effect':
           return ['renameEffect', { effectId: id, name }];
+        case 'kit': {
+          const k = one(kits, 'kitId');
+          return k === undefined ? null : ['setKit', { kit: { ...k, name } }];
+        }
         case 'dialogue':
           return ['setDialogue', { dialogue: { dialogueId: id, name } }];
         case 'library':
@@ -260,9 +270,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
           return null;
       }
     },
-    [materials, graphs, animators, timelines, uiDocuments, uiThemes],
+    [materials, graphs, animators, timelines, uiDocuments, uiThemes, kits],
   );
-  const canRename = useCallback((kind: string) => ['material', 'graph', 'animator', 'timeline', 'ui', 'uitheme', 'effect', 'dialogue', 'library'].includes(kind), []);
+  const canRename = useCallback((kind: string) => ['material', 'graph', 'animator', 'timeline', 'ui', 'uitheme', 'effect', 'dialogue', 'library', 'kit'].includes(kind), []);
   const rename = useCallback(
     async (item: ProjectItem, rawName: string): Promise<string | null> => {
       const c = clientRef.current;

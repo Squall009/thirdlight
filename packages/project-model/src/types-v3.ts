@@ -463,6 +463,8 @@ export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   cellFields?: import('./block-layers').CellField[];
   /** Saved cell patterns (absent = none). */
   blockStamps?: import('./block-layers').BlockStamp[];
+  /** Kits: a trim sheet, presets, block types and piece slots gathered as one item (editor-side; absent = none). */
+  kits?: import('./kits').KitDef[];
   /** Project UI documents drawn by the game host (absent = none). */
   uiDocuments?: import('./ui-documents').UiDocument[];
   /** UI themes (named styles and icons documents share; absent = none). */

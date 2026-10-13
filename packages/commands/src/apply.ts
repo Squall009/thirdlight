@@ -53,10 +53,11 @@ import { applyPasteEntities } from './paste-ops';
 import { applySetCollisionLayers, applySetLightLayers } from './layer-ops';
 import { applySetSaveSchema } from './save-schema-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
-import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, KitDef, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
+import { applyDeleteKit, applySetKit } from './kit-ops';
 import { applyCommitScriptLibraryStage, applyDeleteScriptLibrary, applySetScriptLibrary } from './script-library-ops';
 import { applyDeleteBlockStamp, applyDeleteBlockType, applyEditBlocks, applySetBlockStamp, applySetBlockType, applySetCellFields } from './block-ops';
 import type { BlockEdit, BlockType, CellField } from '@thirdlight/project-model';
@@ -502,6 +503,13 @@ export function applyMutation<S extends SceneDocument>(
           : va.validated.op === 'deleteEffect'
             ? applyDeleteEffect(input, a as { effectId: string })
             : applyRenameEffect(input, a as { effectId: string; name: string });
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'setKit':
+    case 'deleteKit': {
+      const a = va.validated.args as Record<string, unknown>;
+      const r = va.validated.op === 'setKit' ? applySetKit(input, a as { kit: KitDef }) : applyDeleteKit(input, a as { kitId: string });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }

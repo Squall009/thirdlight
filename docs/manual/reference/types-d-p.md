@@ -1,4 +1,4 @@
-# Types (DeclaredProperty to PointerAxisName)
+# Types (DeclaredProperty to PATH_PAINT_SIDES)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1012,6 +1012,46 @@ interface InstantiatePrefabArgs {
 }
 ```
 
+<a id="type-kit-def"></a>
+### KitDef
+
+Declared in `packages/project-model/src/kits.ts`.
+
+```ts
+interface KitDef {
+  kitId: string;
+  name: string;
+  /** What the kit is for (absent: none). */
+  description?: string;
+  /** A texture asset shown as the kit's picture (absent: none). */
+  thumbnail?: string;
+  /** The trim sheet material its presets and block faces read (absent: none). */
+  trimMaterial?: string;
+  /** Architecture preset graph ids (absent: none). */
+  presets?: string[];
+  /** Block type ids (absent: none). */
+  blockTypes?: string[];
+  /** Piece slots: slot name → its pieces, one or several weighted variants (absent: none). */
+  pieces?: Record<string, KitPiece[]>;
+}
+```
+
+<a id="type-kit-piece"></a>
+### KitPiece
+
+Declared in `packages/project-model/src/kits.ts`.
+
+```ts
+/** One model piece a slot holds: a model asset, optionally one named node of it, with a weight among the slot's pieces. */
+interface KitPiece {
+  assetId: string;
+  /** The node of the model drawn (absent: the whole model). */
+  piece?: string;
+  /** Relative weight when the slot holds several pieces (absent: 1), as a block look's. */
+  weight?: number;
+}
+```
+
 <a id="type-layer-common"></a>
 ### LayerCommon
 
@@ -1601,43 +1641,4 @@ Declared in `packages/project-model/src/vertex-paint.ts`.
 ```ts
 /** The sides of a path its paint is kept for: the faces to the left and right of travel, and the faces looking up or down. */
 const PATH_PAINT_SIDES: readonly ["left", "right", "top"];
-```
-
-<a id="type-path-paint-grid"></a>
-### PathPaintGrid
-
-Declared in `packages/project-model/src/vertex-paint.ts`.
-
-```ts
-/** One side of one path's paint: a grid of points {@link PATH_PAINT_CELL} m apart. */
-interface PathPaintGrid {
-  /** The path: `outline:<id>`, `building:<id>`, `element:<id>` (architecture) or `spline`. */
-  path: string;
-  side: PathPaintSide;
-  /** The grid's first point, in cells: along the path, and up (left/right) or across (top). */
-  origin: [number, number];
-  /** Points along and up/across. */
-  size: [number, number];
-  /** SHA-256 of the grid: 4 bytes a point, rows (up/across) of points along. */
-  paint: string;
-}
-```
-
-<a id="type-path-paint-side"></a>
-### PathPaintSide
-
-Declared in `packages/project-model/src/vertex-paint.ts`.
-
-```ts
-type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
-```
-
-<a id="type-pointer-axis-name"></a>
-### PointerAxisName
-
-Declared in `packages/project-model/src/input.ts`.
-
-```ts
-/** One axis of the pointer's movement (x, y) or the wheel. */
-type PointerAxisName = 'x' | 'y' | 'wheel';
 ```

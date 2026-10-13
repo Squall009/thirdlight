@@ -10,7 +10,8 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { MaterialDef } from '@thirdlight/project-model';
+import type { KitDef, MaterialDef } from '@thirdlight/project-model';
+import { RESOURCE_KIND_TABLE } from '@thirdlight/project-model/limits';
 
 import type { IndexEntryView } from '../../session/catalog';
 import type { PrefabSummaryView } from '../../session/prefab-projection';
@@ -22,6 +23,7 @@ import { MaterialItemInspector } from '../material/MaterialInspector';
 import type { TrimCheck } from '../material/TrimSheetTable';
 import { PrefabInspector, type PrefabInspectorProps } from '../PrefabInspector';
 import type { LoadingNameActions } from '../useLoadingNames';
+import { KitSummary, type KitSummaryProps } from './KitSummary';
 import type { ItemActions } from './useItemActions';
 
 export interface ItemInspectorProps {
@@ -37,7 +39,12 @@ export interface ItemInspectorProps {
   asset: Omit<AssetInspectorProps, 'assetId' | 'loading' | 'onDelete' | 'deleteError'>;
   materials: { list: readonly MaterialDef[]; save: (material: MaterialDef, base: MaterialDef | null) => void; error: string | null; checkTrim?: TrimCheck };
   prefab: Omit<PrefabInspectorProps, 'prefabId' | 'definition' | 'onDelete' | 'deleteError'> & { definitions: readonly PrefabSummaryView[] };
+  /** The kits, and the names of what they can name (a kit's contents are listed under it). */
+  kits?: { list: readonly KitDef[]; names: KitSummaryProps['names'] };
 }
+
+/** Kinds that are editor-side organisation: never loadable, so they have no address or labels. */
+const EDITOR_ONLY = new Set(RESOURCE_KIND_TABLE.filter((k) => k.editorOnly === true).map((k) => k.kind));
 
 /** An index entry by kind and id, read again whenever the index changed (names, files, labels change with commands). */
 function useEntry(item: ProjectItem): IndexEntryView | null | undefined {
@@ -113,7 +120,7 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
             {renameError}
           </div>
         )}
-        {p.loading !== undefined && e.kind !== 'scene' && <LoadableFields item={{ kind: e.kind, id: e.id }} address={e.address ?? null} labels={e.labels} actions={p.loading} />}
+        {p.loading !== undefined && e.kind !== 'scene' && !EDITOR_ONLY.has(e.kind) && <LoadableFields item={{ kind: e.kind, id: e.id }} address={e.address ?? null} labels={e.labels} actions={p.loading} />}
         {(opens(item) || actions.canDelete(e.kind)) && e.kind !== 'prefab' && (
           <div className="tl-assets__row">
             {opens(item) && (
@@ -145,6 +152,11 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
           {...(p.materials.checkTrim !== undefined ? { onCheckTrim: p.materials.checkTrim } : {})}
         />
       )}
+      {e.kind === 'kit' &&
+        (() => {
+          const kit = p.kits?.list.find((k) => k.kitId === e.id);
+          return kit !== undefined && p.kits !== undefined ? <KitSummary kit={kit} names={p.kits.names} /> : null;
+        })()}
       {e.kind === 'material' && p.materials.error !== null && (
         <div className="tl-assets__error" role="alert">
           {p.materials.error}

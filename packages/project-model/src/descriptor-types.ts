@@ -46,7 +46,7 @@ export const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */
-export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode';
+export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode' | 'kit';
 
 /** String formats (validation hints and widget choices). */
 export type DescriptorStringFormat = 'id' | 'name' | 'identifier' | 'keyCode' | 'counter' | 'multiline' | 'sha256' | 'materialSlot' | 'boneName' | 'socketNode' | 'ownBone';

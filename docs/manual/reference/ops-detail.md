@@ -7,7 +7,7 @@ Each op's arguments as the validator types them. The full validation rules for a
 <a id="op-acknowledgeBehaviorTrust"></a>
 ## acknowledgeBehaviorTrust
 
-Writes: [`content.behaviorTrust`](content-blocks-assets.md#content-behaviorTrust).
+Writes: [`content.behaviorTrust`](content-blocks-scenes.md#content-behaviorTrust).
 
 Arguments (`args`):
 
@@ -124,7 +124,7 @@ interface CreateFolderArgs {
 <a id="op-createPrefab"></a>
 ## createPrefab
 
-Writes: [`content.prefabs`](content-blocks-assets.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-scenes.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -143,7 +143,7 @@ interface CreatePrefabArgs {
 <a id="op-createScene"></a>
 ## createScene
 
-Writes: [`content.scenes`](content-blocks-effects.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-scenes.md#content-scenes).
 
 Arguments (`args`):
 
@@ -171,7 +171,7 @@ Arguments (`args`):
 <a id="op-deleteAsset"></a>
 ## deleteAsset
 
-Writes: [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -182,7 +182,7 @@ Arguments (`args`):
 <a id="op-deleteBehavior"></a>
 ## deleteBehavior
 
-Writes: [`content.behaviors`](content-blocks-assets.md#content-behaviors).
+Writes: [`content.behaviors`](content-blocks-scenes.md#content-behaviors).
 
 Arguments (`args`):
 
@@ -262,6 +262,17 @@ Arguments (`args`):
 { graphId: string }
 ```
 
+<a id="op-deleteKit"></a>
+## deleteKit
+
+Writes: [`content.kits`](content-blocks-effects.md#content-kits).
+
+Arguments (`args`):
+
+```ts
+{ kitId: string }
+```
+
 <a id="op-deleteMaterial"></a>
 ## deleteMaterial
 
@@ -276,7 +287,7 @@ Arguments (`args`):
 <a id="op-deletePrefab"></a>
 ## deletePrefab
 
-Writes: [`content.prefabs`](content-blocks-assets.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-scenes.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -287,7 +298,7 @@ Arguments (`args`):
 <a id="op-deleteScene"></a>
 ## deleteScene
 
-Writes: [`content.scenes`](content-blocks-effects.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-scenes.md#content-scenes).
 
 Arguments (`args`):
 
@@ -443,7 +454,7 @@ Types: [`GraphOp`](types-d-p.md#type-graph-op).
 <a id="op-importAssets"></a>
 ## importAssets
 
-Writes: [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -476,7 +487,7 @@ type ImportResourcesArgs = Record<string, never>;
 <a id="op-instantiatePrefab"></a>
 ## instantiatePrefab
 
-Writes: [`content.prefabs`](content-blocks-assets.md#content-prefabs).
+Writes: [`content.prefabs`](content-blocks-scenes.md#content-prefabs).
 
 Arguments (`args`):
 
@@ -578,7 +589,7 @@ Also `sceneId?: string` (read before validation): The scene the pasted objects g
 <a id="op-publishAsset"></a>
 ## publishAsset
 
-Writes: [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -628,7 +639,7 @@ interface PublishAssetArgs {
 <a id="op-publishBehavior"></a>
 ## publishBehavior
 
-Writes: [`content.behaviors`](content-blocks-assets.md#content-behaviors).
+Writes: [`content.behaviors`](content-blocks-scenes.md#content-behaviors).
 
 Arguments (`args`):
 
@@ -685,7 +696,7 @@ interface RenameFolderArgs {
 <a id="op-renameScene"></a>
 ## renameScene
 
-Writes: [`content.scenes`](content-blocks-effects.md#content-scenes).
+Writes: [`content.scenes`](content-blocks-scenes.md#content-scenes).
 
 Arguments (`args`):
 
@@ -702,7 +713,7 @@ type SceneIndexArgs =
 <a id="op-revokeBehaviorTrust"></a>
 ## revokeBehaviorTrust
 
-Writes: [`content.behaviorTrust`](content-blocks-assets.md#content-behaviorTrust).
+Writes: [`content.behaviorTrust`](content-blocks-scenes.md#content-behaviorTrust).
 
 Arguments (`args`):
 
@@ -713,7 +724,7 @@ Arguments (`args`):
 <a id="op-setAddress"></a>
 ## setAddress
 
-Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -742,7 +753,7 @@ Types: [`AnimatorController`](types-a-d.md#type-animator-controller).
 <a id="op-setAssetOptions"></a>
 ## setAssetOptions
 
-Writes: [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -964,10 +975,23 @@ Arguments (`args`):
 
 Types: [`InputConfig`](types-d-p.md#type-input-config).
 
+<a id="op-setKit"></a>
+## setKit
+
+Writes: [`content.kits`](content-blocks-effects.md#content-kits).
+
+Arguments (`args`):
+
+```ts
+{ kit: KitDef }
+```
+
+Types: [`KitDef`](types-d-p.md#type-kit-def).
+
 <a id="op-setLabels"></a>
 ## setLabels
 
-Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-assets.md#content-assets).
+Writes: [`content.loadable`](content-blocks-effects.md#content-loadable), [`content.assets`](content-blocks-scenes.md#content-assets).
 
 Arguments (`args`):
 
@@ -983,7 +1007,7 @@ interface SetLabelsArgs {
 <a id="op-setLighting"></a>
 ## setLighting
 
-Writes: [`content.lighting`](content-blocks-assets.md#content-lighting).
+Writes: [`content.lighting`](content-blocks-scenes.md#content-lighting).
 
 Arguments (`args`):
 
@@ -1100,7 +1124,7 @@ Types: [`DialogueSpeaker`](types-d-p.md#type-dialogue-speaker).
 <a id="op-setStartScenes"></a>
 ## setStartScenes
 
-Writes: [`content.startScenes`](content-blocks-effects.md#content-startScenes).
+Writes: [`content.startScenes`](content-blocks-scenes.md#content-startScenes).
 
 Arguments (`args`):
 
@@ -1181,7 +1205,7 @@ Arguments (`args`):
 { theme: UiTheme }
 ```
 
-Types: [`UiTheme`](types-p-u.md#type-ui-theme).
+Types: [`UiTheme`](types-u-w.md#type-ui-theme).
 
 <a id="op-undo"></a>
 ## undo

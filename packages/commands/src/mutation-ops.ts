@@ -79,6 +79,9 @@ export type V3MutationOp =
   | 'setCellFields'
   | 'setBlockStamp'
   | 'deleteBlockStamp'
+  // Kits
+  | 'setKit'
+  | 'deleteKit'
   // Project UI documents and themes
   | 'setUiDocument'
   | 'deleteUiDocument'

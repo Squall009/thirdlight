@@ -1,8 +1,53 @@
-# Types (UiWidget to WindConfig)
+# Types (UiTheme to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-theme"></a>
+### UiTheme
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+interface UiTheme {
+  uiThemeId: string;
+  name: string;
+  styles: Record<string, UiStyle>;
+  icons?: Record<string, UiIcon>;
+}
+```
+
+<a id="type-ui-tween"></a>
+### UiTween
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+interface UiTween {
+  kind: UiTweenKind;
+  /** Seconds. */
+  duration: number;
+  delay?: number;
+  easing?: UiEasing;
+  /** fade: opacity; scale/stamp: scale; slide: progress (1 = `distance` away, 0 = in place). */
+  from?: number;
+  to?: number;
+  /** slide: where it comes from. */
+  direction?: 'left' | 'right' | 'up' | 'down';
+  /** slide: px. */
+  distance?: number;
+}
+```
+
+<a id="type-ui-tween-kind"></a>
+### UiTweenKind
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiTweenKind = 'fade' | 'slide' | 'scale' | 'stamp';
+```
 
 <a id="type-ui-widget"></a>
 ### UiWidget

@@ -35,6 +35,7 @@ import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
+import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
 import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
@@ -517,7 +518,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
           connectPiece('cap', 'Cap', 'One below, none above.'),
         ], { required: true, default: {} }),
       ]),
-      map('kits', 'Kits', "What the block shows under each kit (a burnt, ruined or winter set): a layer, or a region of it, that shows the kit draws this block type instead, without changing the cells. The target keeps the layout: the same placement and footprint. A kit is every block's entry under one name.", 'Kit', obj('*', 'Swap', 'The block shown under this kit.', [
+      map('kits', 'Themes', "What the block shows under each theme (a burnt, ruined or winter set): a layer, or a region of it, that shows the theme draws this block type instead, without changing the cells. The target keeps the layout: the same placement and footprint. A theme is every block's entry under one name (stored as kits).", 'Theme', obj('*', 'Swap', 'The block shown under this theme.', [
         str('block', 'Block', 'The block type drawn instead (the same placement and footprint).', { ...ID, required: true }),
         int('variant', 'Look', "The target's look (absent: the cell's own when the target has it, else one picked by the target's weights; a connected target keeps resolving its pieces).", { min: 0, max: BLOCK_LIMITS.variants - 1 }),
         list('variants', 'Look per look', "Per look of this block (in order): the target's look shown. Wins over Look.", int('*', 'Look', 'Variant index of the target.', { min: 0, max: BLOCK_LIMITS.variants - 1 }), { maxItems: BLOCK_LIMITS.variants }),
@@ -557,6 +558,23 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       json('edges', 'Edges', 'Edge rows [x, z, y, axis, p] (the outline included).', { readOnly: true }),
     ]), { default: [] }),
     ops: ['setBlockStamp', 'deleteBlockStamp'],
+  },
+  {
+    key: 'kits',
+    label: 'Kits',
+    tooltip: 'What a level style is built from, as one item: a trim sheet material, the architecture presets using it, block types and named piece slots (door, window, wall override, corner, stairs, railing, roof edge, or names of your own). A kit names its parts; they stay ordinary items. Editor-side: a build does not ship kits.',
+    required: false,
+    value: list('kits', 'Kits', 'The project\'s kits (each its own file).', obj('*', 'Kit', 'A kit.', [
+      str('kitId', 'Id', 'The stable kit id.', { ...ID, required: true }),
+      str('name', 'Name', 'Shown in the project window.', { ...NAME, required: true }),
+      str('description', 'Description', 'What the kit is for.', { format: 'multiline', maxLength: KIT_LIMITS.descriptionChars }),
+      str('thumbnail', 'Picture', 'A texture asset shown as the kit\'s picture.', ID),
+      ref('trimMaterial', 'Trim sheet', 'The trim sheet material its presets and block faces read.', 'material'),
+      list('presets', 'Presets', 'Architecture preset graphs (styles for rooms, buildings and runs).', str('*', 'Preset', 'An architecture preset graph id.', ID), { unique: true }),
+      list('blockTypes', 'Block types', 'Block types the block editor\'s palette offers.', str('*', 'Block type', 'A block type id.', ID), { unique: true }),
+      json('pieces', 'Pieces', `Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-${KIT_LIMITS.piecesPerSlot} weighted pieces a slot). Standard slots: ${KIT_STANDARD_SLOTS.map((s) => s.slot).join(', ')}.`, { shape: 'Record<string, KitPiece[]>' }),
+    ]), { default: [] }),
+    ops: ['setKit', 'deleteKit'],
   },
   // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', 'The project\'s documents (each its own file).', json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true, shape: 'UiDocument' }), { default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
@@ -627,7 +645,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     tooltip: 'The resources (prefabs, materials, dialogue, …) a script may load by address or label; Play and export ship them even when no scene uses them.',
     required: false,
     value: list('loadable', 'Loadable resources', 'One entry per resource with an address or labels.', obj('*', 'Resource', 'A resource and the names scripts load it by.', [
-      enm('kind', 'Kind', 'The resource kind.', RESOURCE_KIND_TABLE.map((k) => k.kind), { required: true, default: 'prefab' }),
+      enm('kind', 'Kind', 'The resource kind.', RESOURCE_KIND_TABLE.filter((k) => k.editorOnly !== true).map((k) => k.kind), { required: true, default: 'prefab' }),
       str('id', 'Id', 'The resource id.', { ...ID, required: true }),
       str('address', 'Address', 'The one name a script loads it by (unique in the project).', { minLength: 1, maxLength: ADDRESS_MAX_LENGTH }),
       list('labels', 'Labels', 'Names a script loads it by, with everything else carrying them (ascending).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true }),

@@ -21,7 +21,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, KitDef, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, SceneEnvironment, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
 import type { CommandError, ChangeData, FootprintChunks } from '@thirdlight/commands';
@@ -318,6 +318,8 @@ export class SessionClientCore {
   private blockTypes: BlockType[] = [];
   private cellFields: CellField[] = [];
   private blockStamps: BlockStamp[] = [];
+  /** The kits (from queryGameConfig, then setKit changes). */
+  private kits: KitDef[] = [];
   /** Every block layer's cells (queryBlocks; the chunks a change names are read again). */
   private blockLayers = new Map<string, BlockLayerView>();
   /** Bumped whenever a layer's cells or the layer list change (the Scene view re-meshes). */
@@ -619,6 +621,8 @@ export class SessionClientCore {
         this.cellFields = Array.isArray(cellFields) ? structuredClone(cellFields) : [];
         const blockStamps = (g as { blockStamps?: BlockStamp[] }).blockStamps;
         this.blockStamps = Array.isArray(blockStamps) ? structuredClone(blockStamps) : [];
+        const kits = (g as { kits?: KitDef[] }).kits;
+        this.kits = Array.isArray(kits) ? structuredClone(kits) : [];
         const uiDocs = (g as { uiDocuments?: UiDocument[] }).uiDocuments;
         this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
         const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
@@ -948,6 +952,10 @@ export class SessionClientCore {
           const rest = this.speakers.filter((x) => x.speakerId !== change.id);
           this.speakers = change.next === null ? rest : [...rest, structuredClone(change.next as DialogueSpeaker)].sort((a, b) => (a.speakerId < b.speakerId ? -1 : 1));
         } else this.dialogueSettings = change.next === null ? null : structuredClone(change.next as DialogueSettings);
+      } else if (change.type === 'setKit') {
+        // One kit before/after (null = none).
+        const rest = this.kits.filter((k) => k.kitId !== change.kitId);
+        this.kits = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.kitId < b.kitId ? -1 : 1));
       } else if (change.type === 'setEffect') {
         // One effect before/after (null = none).
         const rest = this.effects.filter((e) => e.effectId !== change.effectId);
@@ -1539,6 +1547,11 @@ export class SessionClientCore {
   /** The standalone graph documents (the editor treats them as read-only values). */
   getGraphs(): readonly GraphDocument[] {
     return this.graphs;
+  }
+
+  /** The kits (the editor treats them as read-only values). */
+  getKits(): readonly KitDef[] {
+    return this.kits;
   }
 
   /** The visual effects (the editor treats them as read-only values). */

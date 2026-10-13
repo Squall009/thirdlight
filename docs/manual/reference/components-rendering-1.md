@@ -261,7 +261,7 @@ Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `meshes` | JSON: `VertexPaintMesh[]` ([VertexPaintMesh](types-u-w.md#type-vertex-paint-mesh)) |  |  | **Meshes.** A model's painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch). (written by a tool) |
-| `paths` | JSON: `PathPaintGrid[]` ([PathPaintGrid](types-d-p.md#type-path-paint-grid)) |  |  | **Paths.** Generated architecture's or a spline's paint in path space, which survives regeneration: [{path, side, origin, size, paint}]: path outline:<id>, building:<id>, element:<id> or spline; side left, right (wall faces) or top (faces looking up or down); a grid of points 0.25 m apart along the path and up or across it, origin and size in points; paint the SHA-256 of 4 bytes a point. (written by a tool) |
+| `paths` | JSON: `PathPaintGrid[]` ([PathPaintGrid](types-p-u.md#type-path-paint-grid)) |  |  | **Paths.** Generated architecture's or a spline's paint in path space, which survives regeneration: [{path, side, origin, size, paint}]: path outline:<id>, building:<id>, element:<id> or spline; side left, right (wall faces) or top (faces looking up or down); a grid of points 0.25 m apart along the path and up or across it, origin and size in points; paint the SHA-256 of 4 bytes a point. (written by a tool) |
 
 <a id="component-blockLayer"></a>
 ## blockLayer — Block layer
@@ -302,9 +302,10 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 | `cutaway.regions[].when` | string, 1–64 chars |  |  | **When inside.** Hide it while the subject is inside this region instead (a room round the player); empty: while the subject is under it. |
 | `cutaway.planes` | list of int, ≤ 256 items, distinct |  |  | **Height planes.** Rows: every cell from the row up is hidden while the subject is below it (the floors above a level). |
 | `cutaway.fade` | number | `0.25` | 0 – 10, step 0.05, s | **Fade.** Seconds a cut-away takes to fade out or back in (0: at once). |
-| `kits` | list of objects, ≤ 257 items |  |  | **Kits.** The kits it shows: its block types drawn as each type's swap under the kit (the Kits of the block type), without changing the cells — a dungeon and its burnt state share one layout. One kit for the whole layer and one per region at most; a region's wins where it swaps a block. Scripts change them with ctx.grid.setKit. |
-| `kits[].kit` | string, id, 1–64 chars |  |  | **Kit.** A kit name the block types swap by. (required; format id) |
+| `kits` | list of objects, ≤ 257 items |  |  | **Themes.** The themes it shows: its block types drawn as each type's swap under the theme (the Themes of the block type), without changing the cells — a dungeon and its burnt state share one layout. One theme for the whole layer and one per region at most; a region's wins where it swaps a block. Scripts change them with ctx.grid.setKit (stored as kits). |
+| `kits[].kit` | string, id, 1–64 chars |  |  | **Theme.** A theme name the block types swap by. (required; format id) |
 | `kits[].region` | string, 1–64 chars |  |  | **Region.** The region it covers (empty: the whole layer). |
+| `kitId` | kit id |  |  | **Kit.** The kit the layer is built from: the block editor offers its block types and pieces. Editor-side: the cells name their block types themselves. |
 | `walk` | object |  |  | **Walk.** How the layer is walked by ctx.grid's walk queries (walkNeighbours, path, reachable) unless a query sets its own, and the region the Problems check walks from: places to stand there that cannot be walked to are listed. |
 | `walk.from` | string, identifier, 1–64 chars |  |  | **From region.** The region the Problems check walks from (empty: no check). (format identifier) |
 | `walk.maxStep` | number |  | 0 – 64, step 0.05, m | **Step up.** How far a step may rise where two tops meet (absent: half a cell height). |

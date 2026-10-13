@@ -431,7 +431,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await cmd('setBlockType', { block: { blockId: 'ash', name: 'Ash', variants: [{ color: '#5a00b4' }], shape: 'full' } });
   await blockButton(page, 'grass').click();
   const typeForm = panel(page).getByLabel('block type form');
-  await typeForm.getByLabel('new blockType kits kit', { exact: true }).fill('burnt');
+  await typeForm.getByLabel('new blockType kits theme', { exact: true }).fill('burnt');
   await typeForm.getByRole('button', { name: 'add blockType kits', exact: true }).click();
   type Kits = Record<string, { block: string }>;
   const grassKits = async (): Promise<Kits | undefined> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; kits?: Kits }[] }).blockTypes?.find((t) => t.blockId === 'grass')?.kits;
@@ -442,7 +442,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await kitBlock.press('Enter');
   await expect.poll(grassKits).toEqual({ burnt: { block: 'ash' } });
   const violet = (r: number, g: number, b: number): boolean => b > 80 && r > b * 0.3 && r < b * 0.75 && g < b * 0.25;
-  const layerKit = panel(page).getByLabel('layer kit', { exact: true });
+  const layerKit = panel(page).getByLabel('layer theme', { exact: true });
   await expect(layerKit).toHaveValue('');
   const blockLayerOf = async (): Promise<{ cutaway?: unknown; kits?: unknown; walk?: unknown }> => ((await entity(layer)).components.blockLayer ?? {}) as { cutaway?: unknown; kits?: unknown; walk?: unknown };
   await layerKit.selectOption('burnt');
@@ -455,7 +455,7 @@ test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paint
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').restyles, { timeout: 20_000 }).toEqual(expect.objectContaining({ active: false, count: expect.any(Number) }));
   // A region's kit, cut-away and walk follow the region renamed in the panel, and go with it deleted.
   await cutBox.click();
-  await panel(page).getByLabel('kit upper', { exact: true }).selectOption('burnt');
+  await panel(page).getByLabel('theme upper', { exact: true }).selectOption('burnt');
   await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'upper' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'upper' }] }));
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { walk: { from: 'upper', maxStep: 1 } } });
   await expect.poll(async () => (await blockLayerOf()).walk).toEqual({ from: 'upper', maxStep: 1 });

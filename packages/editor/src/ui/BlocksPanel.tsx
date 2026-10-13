@@ -14,10 +14,10 @@
  *   it); the cell fields' forms; the metadata brush with the overlay toggles
  *   and legend; the selection (copy, paste, move, mirror, rotate, delete,
  *   save as stamp); the stamp library; the layer's named regions (each can
- *   be cut away and show a kit).
- * - Kits: the kit the layer shows, and one per region (the block types'
- *   kit swaps; the cells stay as they are). A region renamed or deleted here
- *   takes the layer's cut-aways and kits with it.
+ *   be cut away and show a theme).
+ * - Themes (stored as `kits`): the theme the layer shows, and one per region
+ *   (the block types' swaps; the cells stay as they are). A region renamed or
+ *   deleted here takes the layer's cut-aways and themes with it.
  * - Material rules: layers 0-3 by slope, height, cavity, noise and block
  *   type, painted when chunks are meshed (one setComponent).
  *
@@ -195,15 +195,15 @@ export function BlocksPanel(p: Props): JSX.Element {
     if (!on && cutPreview.has(previewKey(l.entityId, regionId))) previewCut(l.entityId, regionId, false);
     void p.run(on ? 'Cut away region' : 'Stop cutting region away', 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
   };
-  /** The project's kits (the names its block types swap by). */
+  /** The project's themes (the names its block types swap by; stored as kits). */
   const kitNames = useMemo(() => blockKitNames(p.types), [p.types]);
-  /** Show a kit over the layer (region null) or one region ('': none there): the layer's `kits`, one setComponent. */
+  /** Show a theme over the layer (region null) or one region ('': none there): the layer's `kits`, one setComponent. */
   const setKit = (l: BlockLayerRow, regionId: string | null, kit: string): void => {
     const kits = (l.component.kits ?? []).filter((k) => (k.region ?? null) !== regionId);
     if (kit !== '') kits.push({ kit, ...(regionId !== null ? { region: regionId } : {}) });
     // A component's fields are set one by one: an empty list is stored as none.
     const component: BlockLayerComponent = { ...l.component, kits };
-    void p.run(kit === '' ? 'Take kit off' : `Show kit ${kit}`, 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
+    void p.run(kit === '' ? 'Take theme off' : `Show theme ${kit}`, 'setComponent', { entityId: l.entityId, component: 'blockLayer', value: component });
   };
   /**
    * A region renamed (`to`) or deleted (null): the layer's cut-aways, kits
@@ -404,9 +404,9 @@ export function BlocksPanel(p: Props): JSX.Element {
               </button>
             </label>
             {kitNames.length > 0 && (
-              <label title="The kit the layer shows: its blocks drawn (and colliding, and spawning) as each block type's swap under the kit, the cells unchanged. A region can show its own (Regions).">
-                Kit{' '}
-                <select aria-label="layer kit" value={(layer.component.kits ?? []).find((k) => k.region === undefined)?.kit ?? ''} onChange={(e) => setKit(layer, null, e.target.value)}>
+              <label title="The theme the layer shows: its blocks drawn (and colliding, and spawning) as each block type's swap under the theme, the cells unchanged. A region can show its own (Regions).">
+                Theme{' '}
+                <select aria-label="layer theme" value={(layer.component.kits ?? []).find((k) => k.region === undefined)?.kit ?? ''} onChange={(e) => setKit(layer, null, e.target.value)}>
                   <option value="">(authored)</option>
                   {kitNames.map((k) => (
                     <option key={k} value={k}>
@@ -596,7 +596,7 @@ export function BlocksPanel(p: Props): JSX.Element {
                   if (patch === null) return;
                   if (patch['blockId'] !== undefined) return setError('A block type keeps its id (cells name it); make a new type instead.');
                   const block = applyPatch(editing, patch);
-                  // A kit added in the form starts as a swap to the type itself (it keeps the layout); its Block is picked next.
+                  // A theme added in the form starts as a swap to the type itself (it keeps the layout); its Block is picked next.
                   if (block.kits !== undefined) block.kits = Object.fromEntries(Object.entries(block.kits).map(([k, v]) => [k, typeOf.has(v.block) ? v : { ...v, block: editing.blockId }]));
                   void p.run('Edit block type', 'setBlockType', { block });
                 }}
@@ -846,11 +846,11 @@ export function BlocksPanel(p: Props): JSX.Element {
                   </button>
                 )}
                 {layer !== null && kitNames.length > 0 && (
-                  <select aria-label={`kit ${r.regionId}`} title="The kit this region shows (over the layer's)" value={(layer.component.kits ?? []).find((k) => k.region === r.regionId)?.kit ?? ''} onChange={(e) => setKit(layer, r.regionId, e.target.value)}>
-                    <option value="">kit: (layer's)</option>
+                  <select aria-label={`theme ${r.regionId}`} title="The theme this region shows (over the layer's)" value={(layer.component.kits ?? []).find((k) => k.region === r.regionId)?.kit ?? ''} onChange={(e) => setKit(layer, r.regionId, e.target.value)}>
+                    <option value="">theme: (layer's)</option>
                     {kitNames.map((k) => (
                       <option key={k} value={k}>
-                        kit: {k}
+                        theme: {k}
                       </option>
                     ))}
                   </select>

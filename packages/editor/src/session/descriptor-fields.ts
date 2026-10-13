@@ -671,7 +671,7 @@ export interface EntityOption {
 }
 
 /** The project items a `ref` field names that the pickers read from the project index (not a list the editor holds). */
-export const INDEX_REF_TARGETS: ReadonlySet<string> = new Set(['material', 'behavior', 'prefab']);
+export const INDEX_REF_TARGETS: ReadonlySet<string> = new Set(['material', 'behavior', 'prefab', 'kit']);
 
 /** What the reference pickers offer. */
 export interface PickerData {

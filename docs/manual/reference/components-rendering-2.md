@@ -35,4 +35,5 @@ Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load fr
 | `receiveShadow` | bool | `true` |  | **Receives shadows.** Shows the shadows falling on it. (scripts read) |
 | `layer` | string, ≤ 128 chars |  |  | **Block layer.** The block layer object the rooms are drawn on: their walls block its grid walks, rooms are its regions, its wall paint shows on them. (scripts read) |
 | `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer. (stored only when not the default; scripts read) |
+| `kitId` | kit id |  |  | **Kit.** The kit its rooms and buildings are styled from: the editor offers its presets and pieces. Editor-side: outlines name their presets and openings their models themselves. (scripts read) |
 | `baked` | string, sha256, 64 chars |  |  | **Shipped meshes.** SHA-256 of the generated meshes an export shipped (written by the export). (written by a tool; scripts read; format sha256) |

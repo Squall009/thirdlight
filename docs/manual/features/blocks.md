@@ -114,9 +114,9 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   writes), `setTypeMaterials` / `typeMaterials` (a block type's material
   swap, shown once the material has loaded), `setCutaway` /
   `setCutawaySubject` / `setCutawayPoint` (cut-aways, below), `setKit` / `kit`
-  (kit swaps, below), `walkNeighbours` / `path` / `reachable` (walking the
+  (themes, below), `walkNeighbours` / `path` / `reachable` (walking the
   layer, below), `diff` / `applyDiff` (plain
-  data for a save, the type swaps and kits included). Writes are refused
+  data for a save, the type swaps and themes included). Writes are refused
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
 - **Live blocks**: a block type marked **Live** (`live: true`, the
@@ -341,30 +341,32 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     ms against 6.5/9.3 with the same roofs never cut, GPU 10.33 vs 10.32 ms,
     main thread 6.62 vs 6.54 ms; WebGL 2 2.8/6.7 vs 2.6/6.9 ms; one shadow
     draw a frame throughout (the static map never drawn again).
-- **Kit swaps**: one layout, several looks — a dungeon and its burnt
-  or ruined state share their cells.
-  - A block type's `kits` (Blocks panel type form **Kits**, MCP
-    `setBlockType`) maps a kit name to what it shows under that kit:
+- **Themes** (stored as `kits`; not the same thing as a [kit](#kits), the
+  project item that gathers a trim sheet, presets, block types and pieces):
+  one layout, several looks — a dungeon and its burnt or ruined state share
+  their cells.
+  - A block type's `kits` (Inspector **Themes** on the block type, MCP
+    `setBlockType`) maps a theme name to what it shows under that theme:
     `{block, variant?, variants?}` — another block type of the same placement
-    (cell or edge) and footprint (checked: a kit keeps the layout), and
+    (cell or edge) and footprint (checked: a theme keeps the layout), and
     optionally its look (`variant`, or `variants`: one per look of this type).
     Without a look the cell keeps its own when the target has it, else one is
     picked by the target's weights, and a connected target resolves its
-    pieces from its (swapped) neighbours. A kit is every type's entry under
+    pieces from its (swapped) neighbours. A theme is every type's entry under
     one name; a type without an entry keeps its look.
-  - A layer's `kits: [{kit, region?}]` (Blocks panel **Kit** on the layer bar
-    and per region, Inspector, MCP `setComponent blockLayer`) — one for the
-    whole layer and one per region at most; a region's kit wins where it
+  - A layer's `kits: [{kit, region?}]` (Blocks panel **Theme** on the layer
+    bar and per region, Inspector **Themes**, MCP `setComponent blockLayer`) —
+    one for the whole layer and one per region at most; a region's theme wins where it
     swaps a block (edge pieces on the region's outline go with it). The cells,
     saves, undo and `ctx.grid.get(…).block` stay the authored ones; what is
     drawn, collides (where the target's shape differs), spawns as a live
     block and answers surface queries is the swap (`get`/`edge` report it as
     `kitBlock`, with its rotation, look and piece; an edge's `blocked` is the
     swap's).
-  - Scripts: `ctx.grid.setKit(layer, kit | null, region?)` shows a kit (null:
-    none there, the authored one included), `ctx.grid.kit(layer, region?)`
-    reads it; saved in the grid section (`diff().kits`), back to the authored
-    kits on a new run. Live blocks respawn where the swap changes their
+  - Scripts: `ctx.grid.setKit(layer, theme | null, region?)` shows a theme
+    (null: none there, the authored one included), `ctx.grid.kit(layer,
+    region?)` reads it; saved in the grid section (`diff().kits`), back to
+    the authored themes on a new run. Live blocks respawn where the swap changes their
     prefab or turn (the same prefab keeps its objects and state).
   - Drawing a swap is a *restyle*: every chunk of the layer re-meshes in the
     mesh workers, each drawing its old meshes until its new ones arrive (a
@@ -376,17 +378,40 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     `blocks.restyles` diagnostics and a `tl:blocks:restyle` mark.
   - Measured (`node tools/perf/run.mjs level --classes area
     --kit-swap`: every block type has a burnt twin, a script shows and takes
-    off the kit over the whole 100 × 100 m layer every 2 s; Iris Xe, 1080p):
+    off the theme over the whole 100 × 100 m layer every 2 s; Iris Xe, 1080p):
     a swap re-meshes the layer's 49 chunks in 300–415 ms (two workers), the
     page's own work at most 4 ms a frame; frames over 16.7 ms during swaps
     0.7 % on WebGPU and 2.4 % on WebGL 2, the class's rate without swaps
     (1.3 % / 2.4 %); whole run WebGPU p50/p95 6.6/9.8 ms, GPU 10.4 ms, main
-    6.59 ms, 259 draws. A layer with no kit is meshed as before (byte for
+    6.59 ms, 259 draws. A layer with no theme is meshed as before (byte for
     byte).
-  - Problems (Play, export): a layer whose cut-aways or kits name a region it
-    does not have, or a kit no block type has, is a warning. Renaming a
-    region in the Blocks panel renames it in the layer's cut-aways and kits
+  - Problems (Play, export): a layer whose cut-aways or themes name a region it
+    does not have, or a theme no block type has, is a warning. Renaming a
+    region in the Blocks panel renames it in the layer's cut-aways and themes
     (a second undo step); deleting it there removes those entries.
+- <a id="kits"></a>**Kits**: one project item (`content.kits`, a
+  `<name>.kit.json` file in `assets/kits/` by default) gathering what a
+  level style is built from: a **trim sheet** material, the **presets**
+  (architecture preset graphs) that use it, **block types**, and named
+  **piece slots** — door, window, wall override, corner, stairs, railing,
+  roof edge, plus slots of your own (`pieces: {slot: [{assetId, piece?,
+  weight?}, …]}`, one to eight weighted pieces a slot, as a block type has
+  looks). Pieces follow the [trim sheet spec](../guides/trim-sheet-spec.md)'s
+  placement and naming rules.
+  - Project window **Create → Kit** makes an empty one; it opens in the
+    Inspector, which lists what it holds (a kit editor to fill it is
+    coming). MCP: `setKit {kit}` / `deleteKit {kitId}`, one undo each.
+  - A kit **names** its parts and never copies them: a block type, preset or
+    trim material stays an ordinary item and may be in several kits.
+    Deleting a part is never refused because a kit lists it; a part a kit
+    names that the project lacks (or a trim material that is not a trim
+    sheet, a preset that is not an architecture preset, a piece that is not
+    a model) is a line in Problems (`tl_diagnostics`).
+  - A block layer and an architecture object may name their kit (`kitId`,
+    Inspector **Kit**); absent: none, as before.
+  - Kits are editor-side: a kit has no address or labels and a build does
+    not ship it — every place that uses a kit piece (an opening's model, a
+    block look) stores the concrete model reference.
 - **Walking a layer**: `ctx.grid.walkNeighbours(layer, [x, y, z],
   options?)`, `ctx.grid.path(layer, from, to, options?)` and
   `ctx.grid.reachable(layer, from, maxCost, options?)` (visual-script nodes
@@ -556,10 +581,10 @@ stroke or button is one undo step, and MCP can do the same.
   marks a region cut away in the game (the layer's `cutaway.regions`, one
   undo step); **Preview** then shows the Scene view as the game does while
   it is cut (it fades out; editor only, nothing stored). The Scene view has
-  no camera target, so nothing is cut there unless previewed. **Kit** (a
-  region's, and the layer's on the bar) shows a kit there (the layer's
+  no camera target, so nothing is cut there unless previewed. **Theme** (a
+  region's, and the layer's on the bar) shows a theme there (the layer's
   `kits`, one undo step); the Scene view re-meshes with it. Rename and delete
-  take the region's cut-away and kit along.
+  take the region's cut-away and theme along.
 - **Props on blocks**: Edit → Snapping settings… sets the move, rotate and
   scale steps (per project, in this browser; defaults 0.25 m, 15°, 0.25) and
   "Snap objects to block cell tops": moved and dropped objects land on the
@@ -656,6 +681,6 @@ layer**, or MCP `setComponent terrain {layers}`) makes the ground meet it:
   sank more than 2 cm below the ground). Scenery-only ground: `collision:
   false` on the terrain (gameplay queries, `ctx.grid`, stay on the block
   layer either way).
-- **Not read**: kits — a kit's shapes are not the ground the terrain
+- **Not read**: themes — a theme's shapes are not the ground the terrain
   meets (the block types are); a block type's shape changed in the content
   reaches the terrain at the next edit there.

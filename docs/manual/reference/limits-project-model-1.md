@@ -317,6 +317,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-instance-brush-defaults"></a>`INSTANCE_BRUSH_DEFAULTS` | `{"radius":2,"density":1,"spacing":0.5,"scale":[0.8,1.2],"yaw":360,"align":0,"seed":1}` | A new brush's settings (the editor's starting point). |
 | <a id="limit-instance-brush-limits"></a>`INSTANCE_BRUSH_LIMITS` | `{"dabs":256,"samples":1536,"radius":{"min":0.05,"max":50},"density":{"min":0.001,"max":100},"spacing":{"min":0,"max":50},"scale":{"min":0.01,"max":100},"yaw":{"min":0,"max":360},"align":{"min":0,"max":1},"extent":100000}` | What one stroke may carry. `dabs` and `samples` keep a stroke (with its surface, three numbers per candidate) inside one command request; the rest are the fields' sane ranges. |
 
+<a id="limits-project-model--kits"></a>
+## `kits.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-kit-limits"></a>`KIT_LIMITS` | `{"descriptionChars":1024,"piecesPerSlot":8,"weightMax":1000}` |  |
+
 <a id="limits-project-model--light-layers"></a>
 ## `light-layers.ts`
 

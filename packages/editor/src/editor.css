@@ -1105,6 +1105,7 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-uitheme__main { flex: 1; display: flex; gap: 12px; min-height: 0; overflow-y: auto; }
 .tl-uitheme__main > .tl-uidoc__panel { width: 360px; }
 .tl-uitheme__users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tl-kit-slots { list-style: none; margin: 0; padding: 0 0 0 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 
 /* The Console (Play script logs and errors with source locations). */
 .tl-console__list { list-style: none; margin: 0; padding: 0; font-size: 11px; overflow: auto; }

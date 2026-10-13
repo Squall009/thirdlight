@@ -62,4 +62,4 @@ may refer to an object in another.
   scene).
 
 Related: [objects and components](objects-and-components.md),
-[game flow](game-flow.md), [the scene list and start scenes in the reference](../reference/content-blocks-effects.md#content-scenes).
+[game flow](game-flow.md), [the scene list and start scenes in the reference](../reference/content-blocks-scenes.md#content-scenes).

@@ -18,6 +18,7 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`blockTypes`](content-blocks-effects.md#content-blockTypes) | Block types | `setBlockType`, `deleteBlockType` |
 | [`cellFields`](content-blocks-effects.md#content-cellFields) | Cell fields | `setCellFields` |
 | [`blockStamps`](content-blocks-effects.md#content-blockStamps) | Block stamps | `setBlockStamp`, `deleteBlockStamp` |
+| [`kits`](content-blocks-effects.md#content-kits) | Kits | `setKit`, `deleteKit` |
 | [`uiDocuments`](content-blocks-effects.md#content-uiDocuments) | UI documents | `setUiDocument`, `deleteUiDocument` |
 | [`modes`](content-blocks-effects.md#content-modes) | Game modes | `setModes` |
 | [`behaviorGroups`](content-blocks-effects.md#content-behaviorGroups) | Behavior groups | `setBehaviorGroups` |
@@ -35,10 +36,10 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`lightLayers`](content-blocks-effects.md#content-lightLayers) | Light layers | `setLightLayers` |
 | [`saveSchema`](content-blocks-effects.md#content-saveSchema) | Project saves | `setSaveSchema` |
 | [`settings`](content-blocks-effects.md#content-settings) | Gameplay settings | `setSettings` |
-| [`scenes`](content-blocks-effects.md#content-scenes) | Scenes | `createScene`, `renameScene`, `deleteScene` |
-| [`startScenes`](content-blocks-effects.md#content-startScenes) | Start scenes | `setStartScenes` |
-| [`assets`](content-blocks-assets.md#content-assets) | Assets | `publishAsset`, `setAssetOptions`, `deleteAsset`, `importAssets`, `setLabels`, `setAddress` |
-| [`prefabs`](content-blocks-assets.md#content-prefabs) | Prefabs | `createPrefab`, `instantiatePrefab`, `deletePrefab` |
-| [`behaviors`](content-blocks-assets.md#content-behaviors) | Behaviors | `publishBehavior`, `deleteBehavior` |
-| [`behaviorTrust`](content-blocks-assets.md#content-behaviorTrust) | Script trust | `acknowledgeBehaviorTrust`, `revokeBehaviorTrust` |
-| [`lighting`](content-blocks-assets.md#content-lighting) | Baked lighting | `setLighting` |
+| [`scenes`](content-blocks-scenes.md#content-scenes) | Scenes | `createScene`, `renameScene`, `deleteScene` |
+| [`startScenes`](content-blocks-scenes.md#content-startScenes) | Start scenes | `setStartScenes` |
+| [`assets`](content-blocks-scenes.md#content-assets) | Assets | `publishAsset`, `setAssetOptions`, `deleteAsset`, `importAssets`, `setLabels`, `setAddress` |
+| [`prefabs`](content-blocks-scenes.md#content-prefabs) | Prefabs | `createPrefab`, `instantiatePrefab`, `deletePrefab` |
+| [`behaviors`](content-blocks-scenes.md#content-behaviors) | Behaviors | `publishBehavior`, `deleteBehavior` |
+| [`behaviorTrust`](content-blocks-scenes.md#content-behaviorTrust) | Script trust | `acknowledgeBehaviorTrust`, `revokeBehaviorTrust` |
+| [`lighting`](content-blocks-scenes.md#content-lighting) | Baked lighting | `setLighting` |

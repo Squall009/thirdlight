@@ -18,6 +18,7 @@
  */
 import { audioPlaybackProblems } from './audio-gaps';
 import { createScriptNameChecker } from './script-name-problems';
+import { createKitProblemChecker } from './kit-problems';
 import { createBlockProblemChecker } from './block-problems';
 import { createPaintProblemChecker } from './paint-problems';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -450,6 +451,7 @@ export function createBackend(
     }
     reportUpgradeNotes(projectId);
     scriptNames.loaded(projectId);
+    kitProblemChecker.loaded(projectId);
     heldImages.loaded(projectId);
     blockProblems.loaded(projectId);
     paintProblems.loaded(projectId);
@@ -590,6 +592,7 @@ export function createBackend(
 
   // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
   const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
+  const kitProblemChecker = createKitProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
   const blockProblems = createBlockProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
@@ -684,6 +687,7 @@ export function createBackend(
       else missingFiles.scheduleUses(projectId);
     }
     scriptNames.changed(projectId, change);
+    kitProblemChecker.changed(projectId, change);
     heldImages.changed(projectId, change);
     blockProblems.changed(projectId, change);
     paintProblems.changed(projectId, change);
@@ -1419,6 +1423,7 @@ export function createBackend(
           const rows = materialRows(projectId);
           reportUpgradeNotes(projectId);
           scriptNames.loaded(projectId);
+          kitProblemChecker.loaded(projectId);
           heldImages.loaded(projectId);
           blockProblems.loaded(projectId);
           paintProblems.loaded(projectId);

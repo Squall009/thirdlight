@@ -1106,6 +1106,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         blockTypes: JSON.parse(JSON.stringify((state.content as { blockTypes?: unknown[] }).blockTypes ?? [])) as unknown,
         cellFields: JSON.parse(JSON.stringify((state.content as { cellFields?: unknown[] }).cellFields ?? [])) as unknown,
         blockStamps: JSON.parse(JSON.stringify((state.content as { blockStamps?: unknown[] }).blockStamps ?? [])) as unknown,
+        // Kits (editor-side: what a level style is built from).
+        kits: JSON.parse(JSON.stringify((state.content as { kits?: unknown[] }).kits ?? [])) as unknown,
         // Shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
         // Project UI documents and themes.

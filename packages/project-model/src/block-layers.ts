@@ -176,6 +176,12 @@ export interface BlockLayerComponent {
    */
   kits?: BlockLayerKit[];
   /**
+   * The kit (`content.kits`) the layer is built from: the block editor's
+   * palette and pieces come from it. Editor-side: the cells name their block
+   * types themselves (absent: none).
+   */
+  kitId?: string;
+  /**
    * How the layer is walked (`block-walk-settings.ts`): the step, drop and
    * headroom of `ctx.grid`'s walk queries, the cell field that allows
    * walking, and the region the editor's reachability check walks from
@@ -856,7 +862,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -896,6 +902,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   validateLightLayerMask(v['lightLayers'], `${path}/lightLayers`, errors, 1);
   validateBlockCutaway(v['cutaway'], `${path}/cutaway`, errors);
   validateLayerKits(v['kits'], `${path}/kits`, errors);
+  if (v['kitId'] !== undefined && (typeof v['kitId'] !== 'string' || !ID_RE.test(v['kitId']))) err(errors, 'id_invalid', `${path}/kitId`, 'kitId is a kit id', v['kitId']);
   validateBlockLayerWalk(v['walk'], `${path}/walk`, errors);
   const ao = v['vertexAO'];
   if (ao !== undefined && (!finite(ao) || ao < 0 || ao > 1)) err(errors, 'field_value', `${path}/vertexAO`, 'vertexAO is 0-1 (0: none)', ao);
@@ -920,6 +927,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.lightLayers !== undefined ? { lightLayers: c.lightLayers } : {}),
     ...(canonicalBlockCutaway(c.cutaway) !== undefined ? { cutaway: canonicalBlockCutaway(c.cutaway)! } : {}),
     ...(canonicalLayerKits(c.kits) !== undefined ? { kits: canonicalLayerKits(c.kits)! } : {}),
+    ...(c.kitId !== undefined ? { kitId: c.kitId } : {}),
     ...(canonicalBlockLayerWalk(c.walk) !== undefined ? { walk: canonicalBlockLayerWalk(c.walk)! } : {}),
     ...(c.vertexAO !== undefined && c.vertexAO > 0 ? { vertexAO: canonNum(c.vertexAO) } : {}),
     ...(c.rules !== undefined && c.rules.length > 0 ? { rules: canonicalSurfaceRules(c.rules) } : {}),

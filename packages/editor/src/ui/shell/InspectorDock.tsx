@@ -142,6 +142,8 @@ function architectureInspector(props: InspectorDockProps): {
   return { archProps, setArchitecture, derivePreset };
 }
 
+const NO_KIT_NAMES = { materials: new Map<string, string>(), graphs: new Map<string, string>(), blockTypes: new Map<string, string>() };
+
 export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const { width, selected, placement } = props;
   const { animators, behaviorViews, dialogues, effects, graphKinds, graphs, materials } = props.content;
@@ -154,6 +156,11 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const cueOwner = props.cue.previewOwnerRef.current;
   const { archProps } = architectureInspector(props);
   const item = props.inspectedItem;
+  // A kit's Inspector names its parts (built only while a kit is shown).
+  const kitNames =
+    item?.kind === 'kit'
+      ? { materials: new Map(materials.map((m) => [m.materialId, m.name])), graphs: new Map(graphs.map((g) => [g.graphId, g.name])), blockTypes: new Map(props.blocks.blockTypes.map((t) => [t.blockId, t.name])) }
+      : NO_KIT_NAMES;
   return (
     <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
     {activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
@@ -277,6 +284,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
         open={props.assets.projectWindow.open}
         inspect={props.inspect}
         openDocument={props.openDocument}
+        kits={{ list: props.content.kits, names: kitNames }}
         loading={props.assets.loadingNames}
         asset={{
           assetOptions: props.assets.assetOptions,

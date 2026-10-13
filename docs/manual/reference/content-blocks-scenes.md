@@ -1,8 +1,34 @@
-# Content documents (assets to lighting)
+# Content documents (scenes to lighting)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The project's content blocks and their fields. Paths with `[]` are list items and `{}` map values.
+
+<a id="content-scenes"></a>
+## scenes — Scenes
+
+The project's scenes.
+
+- In every project: yes
+- Written by: [`createScene`](ops-detail.md#op-createScene), [`renameScene`](ops-detail.md#op-renameScene), [`deleteScene`](ops-detail.md#op-deleteScene)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `scenes` | list of objects, ≥ 1 items |  |  | **Scenes.** At least one scene. (required) |
+| `scenes[].sceneId` | string, id, 1–64 chars |  |  | **Id.** The stable scene id. (required; written by a tool; format id) |
+| `scenes[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the scene list. (required; format name) |
+
+<a id="content-startScenes"></a>
+## startScenes — Start scenes
+
+The scenes loaded when the game starts (without a flow).
+
+- In every project: yes
+- Written by: [`setStartScenes`](ops-detail.md#op-setStartScenes)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `startScenes` | list of scene id, ≥ 1 items, distinct |  |  | **Start scenes.** At least one scene. (required) |
 
 <a id="content-assets"></a>
 ## assets — Assets

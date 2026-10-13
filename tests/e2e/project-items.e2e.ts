@@ -5,9 +5,10 @@
  * - the Create menu (its button, and a right-click on the list) makes a
  *   material, a graph material from a template, an animator controller from
  *   the chosen model's clips, a graph, an effect, a conversation, a timeline,
- *   a script library, a UI document and a UI theme, each named where the menu
- *   asks, in the folder the window shows (read back over HTTP), each with an
- *   editor opening in it;
+ *   a script library, a UI document, a UI theme and a kit, each named where
+ *   the menu asks, in the folder the window shows (read back over HTTP), each
+ *   with an editor opening in it (a kit in the Inspector, listing its slots,
+ *   with no address or labels: kits are never loadable);
  * - a click shows the item in the one Inspector: an asset's facts and
  *   placing it, a shader material's values, a prefab's "place copy", a
  *   resource's name (a rename is one command), its address and labels;
@@ -139,6 +140,7 @@ test('the bottom dock holds the project window, Console and Problems only; the W
     ['Script library', 'Scoring', 'library', 'Library'],
     ['UI document', 'Hud', 'ui', 'UI'],
     ['UI theme', 'Neutral', 'uitheme', 'UI theme'],
+    ['Kit', 'Town', 'kit', null],
   ];
   for (const [what, name, kind, editor] of made) {
     await createItem(page, what, name);
@@ -149,6 +151,13 @@ test('the bottom dock holds the project window, Console and Problems only; the W
     await expect.poll(async () => (await entry(kind, id))?.path ?? '', { message: `${kind} ${name}` }).toMatch(/^made\//);
     expect((await entry(kind, id))?.name).toBe(name);
   }
+  // The kit (made last) shows in the Inspector: its empty standard slots, its own tile picture, no address or labels.
+  const kitSide = inspector(page).getByLabel('kit inspector');
+  await expect(kitSide.getByLabel('kit pieces').locator('[data-slot="door"]')).toHaveText('Door: empty');
+  await expect(kitSide.getByLabel('kit pieces').locator('li')).toHaveCount(7);
+  await expect(kitSide.getByLabel('address', { exact: true })).toHaveCount(0);
+  const kitTile = (await projectWindow(page)).locator('[data-item-kind="kit"][data-item-id="town"] img');
+  await expect.poll(() => kitTile.evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBe(96);
   // The controller plays the chosen model's first clip.
   const animator = (await be.command({ op: 'queryIndex', projectId: be.projectId, args: { kind: 'animator', ids: ['poser'], records: true, refs: false } }))['entries'] as { record: { states: { motion: { clip: { assetId: string } } }[] } }[];
   expect(animator[0]!.record.states[0]!.motion.clip.assetId).toBe(model);

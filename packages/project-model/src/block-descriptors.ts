@@ -6,7 +6,7 @@
  *
  * Pure data.
  */
-import { lightLayerMask, list, str } from './descriptor-builders';
+import { lightLayerMask, list, ref, str } from './descriptor-builders';
 import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
 import { WALK_METRES_RANGE } from './block-walk-settings';
 import { streamingField } from './world-streaming-descriptor';
@@ -66,10 +66,11 @@ export const blockLayer: ComponentDescriptor = {
       list('planes', 'Height planes', 'Rows: every cell from the row up is hidden while the subject is below it (the floors above a level).', int('*', 'Row', 'A row of the layer.', { step: 1, min: -BLOCK_LIMITS.coordinateY, max: BLOCK_LIMITS.coordinateY }), { maxItems: BLOCK_LIMITS.layerHeight, unique: true }),
       num('fade', 'Fade', 'Seconds a cut-away takes to fade out or back in (0: at once).', { min: CUTAWAY_FADE_RANGE.min, max: CUTAWAY_FADE_RANGE.max, step: 0.05, unit: 's', default: CUTAWAY_FADE_SECONDS }),
     ]),
-    list('kits', 'Kits', "The kits it shows: its block types drawn as each type's swap under the kit (the Kits of the block type), without changing the cells — a dungeon and its burnt state share one layout. One kit for the whole layer and one per region at most; a region's wins where it swaps a block. Scripts change them with ctx.grid.setKit.", obj('*', 'Kit', 'A kit shown over the layer or a region.', [
-      str('kit', 'Kit', 'A kit name the block types swap by.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
+    list('kits', 'Themes', "The themes it shows: its block types drawn as each type's swap under the theme (the Themes of the block type), without changing the cells — a dungeon and its burnt state share one layout. One theme for the whole layer and one per region at most; a region's wins where it swaps a block. Scripts change them with ctx.grid.setKit (stored as kits).", obj('*', 'Theme', 'A theme shown over the layer or a region.', [
+      str('kit', 'Theme', 'A theme name the block types swap by.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
       str('region', 'Region', 'The region it covers (empty: the whole layer).', { minLength: 1, maxLength: 64 }),
     ]), { maxItems: BLOCK_LIMITS.regions + 1 }),
+    ref('kitId', 'Kit', 'The kit the layer is built from: the block editor offers its block types and pieces. Editor-side: the cells name their block types themselves.', 'kit'),
     obj('walk', 'Walk', "How the layer is walked by ctx.grid's walk queries (walkNeighbours, path, reachable) unless a query sets its own, and the region the Problems check walks from: places to stand there that cannot be walked to are listed.", [
       str('from', 'From region', 'The region the Problems check walks from (empty: no check).', { format: 'identifier', minLength: 1, maxLength: 64 }),
       num('maxStep', 'Step up', 'How far a step may rise where two tops meet (absent: half a cell height).', { min: WALK_METRES_RANGE.min, max: WALK_METRES_RANGE.max, step: 0.05, unit: 'm' }),

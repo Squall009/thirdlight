@@ -1,4 +1,4 @@
-# Content documents (effects to startScenes)
+# Content documents (effects to settings)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -104,7 +104,7 @@ The blocks block layers are built from: their looks, collision shape, footprint,
 | `blockTypes[].connect.pieces.cap` | object |  |  | **Cap.** One below, none above. |
 | `blockTypes[].connect.pieces.cap.variant` | int | `0` | 0 – 7, step 1 | **Look.** Variant index. (required) |
 | `blockTypes[].connect.pieces.cap.rot` | int (one of 0, 90, 180, 270) | `0` | step 1 | **Extra turn.** Degrees (edges: 0, 180). (stored only when not the default) |
-| `blockTypes[].kits` | map id → object, ≥ 1 entries |  |  | **Kits.** What the block shows under each kit (a burnt, ruined or winter set): a layer, or a region of it, that shows the kit draws this block type instead, without changing the cells. The target keeps the layout: the same placement and footprint. A kit is every block's entry under one name. |
+| `blockTypes[].kits` | map id → object, ≥ 1 entries |  |  | **Themes.** What the block shows under each theme (a burnt, ruined or winter set): a layer, or a region of it, that shows the theme draws this block type instead, without changing the cells. The target keeps the layout: the same placement and footprint. A theme is every block's entry under one name (stored as kits). |
 | `blockTypes[].kits{}.block` | string, id, 1–64 chars |  |  | **Block.** The block type drawn instead (the same placement and footprint). (required; format id) |
 | `blockTypes[].kits{}.variant` | int |  | 0 – 7, step 1 | **Look.** The target's look (absent: the cell's own when the target has it, else one picked by the target's weights; a connected target keeps resolving its pieces). |
 | `blockTypes[].kits{}.variants` | list of int, ≤ 8 items |  |  | **Look per look.** Per look of this block (in order): the target's look shown. Wins over Look. |
@@ -147,6 +147,26 @@ Saved patterns of cells (a cottage footprint, a bridge span) placed on block lay
 | `blockStamps[].columns` | JSON |  |  | **Cells.** Run-length columns [x, z, y, n, p, …] (at most 16384 cells). (required; written by a tool) |
 | `blockStamps[].edgePalette` | JSON |  |  | **Edge pieces.** The edge values the edge rows name. (written by a tool) |
 | `blockStamps[].edges` | JSON |  |  | **Edges.** Edge rows [x, z, y, axis, p] (the outline included). (written by a tool) |
+
+<a id="content-kits"></a>
+## kits — Kits
+
+What a level style is built from, as one item: a trim sheet material, the architecture presets using it, block types and named piece slots (door, window, wall override, corner, stairs, railing, roof edge, or names of your own). A kit names its parts; they stay ordinary items. Editor-side: a build does not ship kits.
+
+- In every project: no
+- Written by: [`setKit`](ops-detail.md#op-setKit), [`deleteKit`](ops-detail.md#op-deleteKit)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `kits` | list of objects | `[]` |  | **Kits.** The project's kits (each its own file). |
+| `kits[].kitId` | string, id, 1–64 chars |  |  | **Id.** The stable kit id. (required; format id) |
+| `kits[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the project window. (required; format name) |
+| `kits[].description` | string, multiline, ≤ 1024 chars |  |  | **Description.** What the kit is for. (format multiline) |
+| `kits[].thumbnail` | string, id, 1–64 chars |  |  | **Picture.** A texture asset shown as the kit's picture. (format id) |
+| `kits[].trimMaterial` | material id |  |  | **Trim sheet.** The trim sheet material its presets and block faces read. |
+| `kits[].presets` | list of string, id, 1–64 chars, distinct |  |  | **Presets.** Architecture preset graphs (styles for rooms, buildings and runs). |
+| `kits[].blockTypes` | list of string, id, 1–64 chars, distinct |  |  | **Block types.** Block types the block editor's palette offers. |
+| `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-d-p.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
 
 <a id="content-uiDocuments"></a>
 ## uiDocuments — UI documents
@@ -262,7 +282,7 @@ Named styles and icons UI documents share.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-p-u.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
+| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-u-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
 
 <a id="content-dialogues"></a>
 ## dialogues — Dialogues
@@ -446,29 +466,3 @@ Gravity, run speed, jump, slopes, and the engine settings (step rate, sound voic
 | `dynamic_resolution` | int (one of 0 = Off, 1 = On) | `0` | step 1 | **Dynamic resolution.** Lowers the render scale (down to 0.5) while the GPU takes longer than a frame (the frame-rate cap, else 60 fps) and raises it again, up to the render scale, when it has room. It changes slowly and waits longer after a change that did not hold, so it does not flicker. A player's settings field bound to dynamicResolution overrides it. |
 | `streaming_budget_mb` | int | `768` | 1 – 65536, step 1, MiB | **Streaming budget.** Memory (MiB) the streamed terrain tiles and block chunks (those with Streaming rings) may take in Play and the export: tiles and chunks kept past their rings are let go first when it is full. Rings that alone need more are reported as a problem, never cut. |
 | `architecture_ship_meshes` | int (one of 0 = Generate at load, 1 = Ship generated meshes) | `0` | step 1 | **Generated architecture.** Exports ship generated architecture as its parameters and the game generates the meshes when a scene loads (small, fast on a worker), or also ship the meshes the same generator made (larger download, nothing to generate). |
-
-<a id="content-scenes"></a>
-## scenes — Scenes
-
-The project's scenes.
-
-- In every project: yes
-- Written by: [`createScene`](ops-detail.md#op-createScene), [`renameScene`](ops-detail.md#op-renameScene), [`deleteScene`](ops-detail.md#op-deleteScene)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `scenes` | list of objects, ≥ 1 items |  |  | **Scenes.** At least one scene. (required) |
-| `scenes[].sceneId` | string, id, 1–64 chars |  |  | **Id.** The stable scene id. (required; written by a tool; format id) |
-| `scenes[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the scene list. (required; format name) |
-
-<a id="content-startScenes"></a>
-## startScenes — Start scenes
-
-The scenes loaded when the game starts (without a flow).
-
-- In every project: yes
-- Written by: [`setStartScenes`](ops-detail.md#op-setStartScenes)
-
-| Field | Type | Default | Range | Description |
-|---|---|---|---|---|
-| `startScenes` | list of scene id, ≥ 1 items, distinct |  |  | **Start scenes.** At least one scene. (required) |

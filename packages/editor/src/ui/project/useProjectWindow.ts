@@ -62,7 +62,8 @@ export function useProjectWindow(clientRef: MutableRefObject<SessionClient | nul
     if (item.kind === 'prefab' || (item.kind === 'material' && !openers.isGraphMaterial(item.id))) return openers.inspect(item);
     if (item.kind === 'envpreset') return openers.showEnvironment();
     const doc = documentOfItem(item);
-    if (doc === null) return;
+    // A kind without an editor of its own (a kit) is shown in the Inspector.
+    if (doc === null) return openers.inspect(item);
     openers.openDocument(item.kind === 'behavior' && openers.isVisualScript(item.id) ? 'visual-script' : doc.kind, doc.id);
   };
   return { folder, setFolder, commands, open };

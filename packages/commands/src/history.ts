@@ -30,6 +30,7 @@ import { withCollisionLayers, withLightLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
 import { effectsOf, withEffect } from './effect-ops';
+import { kitsOf, withKit } from './kit-ops';
 import { uiOf, withUi } from './ui-ops';
 import { dialogueValueOf, withDialogueValue } from './dialogue-ops';
 import { behaviorGroupsOf, eventCuesOf, modesOf, shellOf, withBehaviorGroups, withEventCues, withModes, withShell } from './mode-ops';
@@ -640,6 +641,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEffect(content, inv.effectId, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setKit') {
+    const before = kitsOf(content).find((k) => k.kitId === inv.kitId) ?? null;
+    const change: ChangeData = { type: 'setKit', kitId: inv.kitId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withKit(content, inv.kitId, inv.restore), change, entry.requestId);
+  }
+
   if (inv.kind === 'setAnimator') {
     const now = ((content as { animators?: AnimatorController[] }).animators ?? []).find((c) => c.controllerId === inv.controllerId);
     const change: ChangeData = { type: 'setAnimator', controllerId: inv.controllerId, previous: now !== undefined ? deepClone(now) : null, next: inv.restore === null ? null : deepClone(inv.restore) };
@@ -1177,6 +1184,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     const before = effectsOf(content).find((e) => e.effectId === f.effectId) ?? null;
     const change: ChangeData = { type: 'setEffect', effectId: f.effectId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withEffect(content, f.effectId, f.next), change, entry.requestId);
+  }
+
+  if (f.type === 'setKit') {
+    const before = kitsOf(content).find((k) => k.kitId === f.kitId) ?? null;
+    const change: ChangeData = { type: 'setKit', kitId: f.kitId, previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withKit(content, f.kitId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setAnimator') {

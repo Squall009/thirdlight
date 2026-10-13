@@ -24,6 +24,8 @@ export interface ResourceKindDef {
   readonly list: string;
   readonly idKey: string;
   readonly folder: string;
+  /** Editor-side organisation: never loadable by address or label, never shipped (absent: a game resource). */
+  readonly editorOnly?: true;
 }
 
 /** The one resource list that is not a key of the content block: the environment's presets. */
@@ -43,9 +45,12 @@ export const RESOURCE_KIND_TABLE: readonly ResourceKindDef[] = [
   { kind: 'dialogue', list: 'dialogues', idKey: 'dialogueId', folder: 'dialogue' },
   { kind: 'timeline', list: 'timelines', idKey: 'timelineId', folder: 'timelines' },
   { kind: 'envpreset', list: ENV_PRESETS_LIST, idKey: 'presetId', folder: 'environment' },
+  { kind: 'kit', list: 'kits', idKey: 'kitId', folder: 'kits', editorOnly: true },
 ];
 
 const BY_KIND = new Map(RESOURCE_KIND_TABLE.map((k) => [k.kind, k]));
+/** The resource kinds a script may load by address or label. */
+const LOADABLE_KINDS = RESOURCE_KIND_TABLE.filter((k) => k.editorOnly !== true).map((k) => k.kind);
 
 /** A resource kind by name (undefined: not a resource kind). */
 export function resourceKindDef(kind: string): ResourceKindDef | undefined {
@@ -127,7 +132,8 @@ export function validateLoadable(doc: Record<string, unknown>, errors: ModelErro
         return;
       }
       for (const k of Object.keys(e)) if (!['kind', 'id', 'address', 'labels'].includes(k)) errors.push(unexpectedField(`${p}/${pointerSegment(k)}`, k, 'kind, id, address, labels'));
-      if (typeof e['kind'] !== 'string' || !BY_KIND.has(e['kind'])) errors.push(fieldValue(`${p}/kind`, e['kind'], RESOURCE_KIND_TABLE.map((k) => k.kind).join(', '), 'a loadable entry names a resource kind'));
+      if (typeof e['kind'] !== 'string' || !BY_KIND.has(e['kind'])) errors.push(fieldValue(`${p}/kind`, e['kind'], LOADABLE_KINDS.join(', '), 'a loadable entry names a resource kind'));
+      else if (BY_KIND.get(e['kind'])!.editorOnly === true) errors.push(fieldValue(`${p}/kind`, e['kind'], LOADABLE_KINDS.join(', '), `a ${e['kind']} is editor-side organisation: a build does not ship it, so it has no address or labels`));
       if (typeof e['id'] !== 'string' || !ID_RE.test(e['id'])) errors.push(fieldValue(`${p}/id`, e['id'], 'a resource id', 'a loadable entry names a resource id'));
       if (e['address'] !== undefined && !isAddress(e['address'])) errors.push(fieldValue(`${p}/address`, e['address'], 'a letter or digit, then letters, digits, _ - . / (at most 128)', 'an address has no spaces or other punctuation'));
       const labels = e['labels'];

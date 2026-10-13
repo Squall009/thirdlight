@@ -1,8 +1,47 @@
-# Types (PointerButtonName to UiTweenKind)
+# Types (PathPaintGrid to UiStyleValues)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-path-paint-grid"></a>
+### PathPaintGrid
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+/** One side of one path's paint: a grid of points {@link PATH_PAINT_CELL} m apart. */
+interface PathPaintGrid {
+  /** The path: `outline:<id>`, `building:<id>`, `element:<id>` (architecture) or `spline`. */
+  path: string;
+  side: PathPaintSide;
+  /** The grid's first point, in cells: along the path, and up (left/right) or across (top). */
+  origin: [number, number];
+  /** Points along and up/across. */
+  size: [number, number];
+  /** SHA-256 of the grid: 4 bytes a point, rows (up/across) of points along. */
+  paint: string;
+}
+```
+
+<a id="type-path-paint-side"></a>
+### PathPaintSide
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
+```
+
+<a id="type-pointer-axis-name"></a>
+### PointerAxisName
+
+Declared in `packages/project-model/src/input.ts`.
+
+```ts
+/** One axis of the pointer's movement (x, y) or the wheel. */
+type PointerAxisName = 'x' | 'y' | 'wheel';
+```
 
 <a id="type-pointer-button-name"></a>
 ### PointerButtonName
@@ -1596,49 +1635,4 @@ interface UiStyleValues {
   /** A box shadow colour (4 px down, 12 px blur). */
   shadow?: UiColor;
 }
-```
-
-<a id="type-ui-theme"></a>
-### UiTheme
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-interface UiTheme {
-  uiThemeId: string;
-  name: string;
-  styles: Record<string, UiStyle>;
-  icons?: Record<string, UiIcon>;
-}
-```
-
-<a id="type-ui-tween"></a>
-### UiTween
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-interface UiTween {
-  kind: UiTweenKind;
-  /** Seconds. */
-  duration: number;
-  delay?: number;
-  easing?: UiEasing;
-  /** fade: opacity; scale/stamp: scale; slide: progress (1 = `distance` away, 0 = in place). */
-  from?: number;
-  to?: number;
-  /** slide: where it comes from. */
-  direction?: 'left' | 'right' | 'up' | 'down';
-  /** slide: px. */
-  distance?: number;
-}
-```
-
-<a id="type-ui-tween-kind"></a>
-### UiTweenKind
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiTweenKind = 'fade' | 'slide' | 'scale' | 'stamp';
 ```

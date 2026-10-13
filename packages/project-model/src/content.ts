@@ -31,6 +31,7 @@ import {
 import { GRAPH_KINDS } from './graph-kinds';
 import { canonicalEffects, validateEffects } from './effects';
 import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, composeBlockContent, validateBlockStamps, validateBlockTypes, validateCellFields, type BlockContentView } from './block-layers';
+import { canonicalKits, validateKits, type KitDef } from './kits';
 import { canonicalModes, validateBehaviorGroups, validateModeReferences, validateModes } from './modes';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiReferences, validateUiThemes } from './ui-documents';
 import { canonicalScriptLibraries, scriptLibraryDigest, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
@@ -125,8 +126,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable' || k === 'lightLayers' || k === 'kits'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)', 'lightLayers (optional)', 'kits (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -273,6 +274,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc['blockStamps'] !== undefined) validateBlockStamps(doc['blockStamps'], '/blockStamps', errors);
     if (errors.length === before && (doc['blockTypes'] !== undefined || doc['blockStamps'] !== undefined)) composeBlockContent(doc as unknown as BlockContentView, errors);
   }
+  // Kits (v4): their shapes; what they name is checked as problems (kits.ts), never refused.
+  if (version === 4 && doc['kits'] !== undefined && !same('kits')) validateKits(doc['kits'], '/kits', errors, trusted('kits'));
   // The named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined && !same('collisionLayers')) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
   // The light layers' names (v4).
@@ -428,7 +431,7 @@ export function isNormalizedContent(c: unknown): boolean {
 }
 
 /** The lists whose records are each a project resource (a file of its own), capped one by one. */
-const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines'] as const;
+const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines', 'kits'] as const;
 
 /** The environment's presets: a list inside `environment`, each preset its own file too. */
 function envPresetsOf(c: Record<string, unknown> | undefined): unknown {
@@ -539,6 +542,7 @@ const CANONICAL_KEYS: readonly CanonicalKey[] = [
   { key: 'blockTypes', canon: canonicalBlockTypes, present: nonEmpty },
   { key: 'cellFields', canon: canonicalCellFields, present: nonEmpty },
   { key: 'blockStamps', canon: canonicalBlockStamps, present: nonEmpty },
+  { key: 'kits', canon: canonicalKits, idOf: (k: KitDef) => k.kitId, present: nonEmpty },
   { key: 'uiDocuments', canon: canonicalUiDocuments, idOf: (d: { uiDocumentId: string }) => d.uiDocumentId, present: nonEmpty },
   { key: 'uiThemes', canon: canonicalUiThemes, idOf: (t: { uiThemeId: string }) => t.uiThemeId, present: nonEmpty },
   { key: 'modes', canon: canonicalModes, present: nonEmpty },

@@ -14,7 +14,8 @@
     "./meshopt": "./src/meshopt.ts",
     "./decal-clip-glb": "./src/decal-clip-glb.ts",
     "./layered-surface": "./src/layered-surface.ts",
-    "./arch-style-rows": "./src/arch-style-rows.ts"
+    "./arch-style-rows": "./src/arch-style-rows.ts",
+    "./kits": "./src/kits.ts"
   },
   "sideEffects": false
 }

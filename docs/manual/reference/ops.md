@@ -87,6 +87,7 @@ interface MutationFailure {
 | [`deleteEffect`](ops-detail.md#op-deleteEffect) | { effectId: string } | `effects` |
 | [`deleteEntity`](ops-detail.md#op-deleteEntity) | DeleteEntityArgs |  |
 | [`deleteGraph`](ops-detail.md#op-deleteGraph) | { graphId: string } | `graphs` |
+| [`deleteKit`](ops-detail.md#op-deleteKit) | { kitId: string } | `kits` |
 | [`deleteMaterial`](ops-detail.md#op-deleteMaterial) | { materialId: string } | `materials` |
 | [`deletePrefab`](ops-detail.md#op-deletePrefab) | { prefabId: string } | `prefabs` |
 | [`deleteScene`](ops-detail.md#op-deleteScene) | SceneIndexArgs | `scenes` |
@@ -130,6 +131,7 @@ interface MutationFailure {
 | [`setEventCues`](ops-detail.md#op-setEventCues) | { cues: EventCue[] } | `eventCues` |
 | [`setGraph`](ops-detail.md#op-setGraph) | { graph: GraphDocument } | `graphs` |
 | [`setInput`](ops-detail.md#op-setInput) | { input: InputConfig \| null } | `input` |
+| [`setKit`](ops-detail.md#op-setKit) | { kit: KitDef } | `kits` |
 | [`setLabels`](ops-detail.md#op-setLabels) | SetLabelsArgs | `loadable`, `assets` |
 | [`setLighting`](ops-detail.md#op-setLighting) | { sceneId: string; lighting: LightingBake \| null } | `lighting` |
 | [`setLightLayers`](ops-detail.md#op-setLightLayers) | { layers: string[] } | `lightLayers` |

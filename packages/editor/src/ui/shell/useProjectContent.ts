@@ -6,7 +6,7 @@
  * every applied change; the backend stays the sole authority.
  */
 import { useCallback, useState } from 'react';
-import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, TrustEntry, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, KitDef, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, TrustEntry, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import type { SessionClient } from '../../session/client';
 import type { BehaviorDeclarationView, PrefabSummaryView } from '../../session/prefab-projection';
 import type { GraphKindDef } from '../../graph/model';
@@ -34,6 +34,8 @@ export function useProjectContent() {
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
   // The visual effects.
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
+  // The kits.
+  const [kits, setKits] = useState<readonly KitDef[]>([]);
   // Conversations, speakers, the dialogue settings and the project UI (the previewer draws with it).
   const [dialogues, setDialogues] = useState<readonly DialogueDoc[]>([]);
   const [speakers, setSpeakers] = useState<readonly DialogueSpeaker[]>([]);
@@ -73,6 +75,7 @@ export function useProjectContent() {
     setShownEnvironment(stable('shownEnvironment', c.getShownEnvironment()));
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
+    setKits(c.getKits());
     setDialogues(c.getDialogues());
     setSpeakers(c.getSpeakers());
     setDialogueSettings(c.getDialogueSettings());
@@ -95,7 +98,7 @@ export function useProjectContent() {
   }, []);
 
   return {
-    graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, lighting, animators, effects, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
+    graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, lighting, animators, effects, kits, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
     timelines, scriptLibraries, uiDocuments, uiThemes, registry, prefabSummaries, declarations, behaviorViews, trustEntries, receive,
   };
 }
