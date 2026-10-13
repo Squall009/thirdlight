@@ -1589,8 +1589,17 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 /* A Check row: a warning with its fix. */
 .tl-check { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: var(--text-sm); }
 .tl-check--warn { background: var(--warn-bg); color: var(--text); }
-.tl-check b { display: block; }
+.tl-check--err { background: var(--err-bg); color: var(--text); }
+.tl-check--ok, .tl-check--info { padding: 5px 10px; }
+.tl-check__glyph { flex: none; display: inline-flex; margin-top: 1px; color: var(--text-faint); }
+.tl-check--ok .tl-check__glyph { color: var(--ok); }
+.tl-check--warn .tl-check__glyph { color: var(--warn); }
+.tl-check--err .tl-check__glyph { color: var(--err); }
+.tl-check__text { flex: 1; min-width: 0; }
+.tl-check b { display: block; font-weight: 600; }
 .tl-check p { margin: 2px 0 0; color: var(--text-dim); font-size: var(--text-xs); }
+.tl-check--ok p { display: none; }
+.tl-check--ok:hover p { display: block; }
 .tl-vpaint > .tl-check { margin: 8px 12px 0; }
 /* The decal editor: decal tiles on a checker (their alpha is their shape), a trim cell as its part of the sheet, the
    drop zone, the selection's card, the box a box selection drags out over the view. */
@@ -1644,3 +1653,93 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-atlas__rect.is-selected { border: 2px solid var(--select); }
 .tl-atlas__img { display: block; width: 100%; height: 100%; object-fit: contain; background-repeat: no-repeat; pointer-events: none; }
 .tl-atlas__caption { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The kit editor (an editor-window document): slots on the left, the trim checker in the centre; the preview pane
+   shows the picked piece and the Inspector the slot. State colours: ok green, warn amber, err red. */
+.tl-kit-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
+.tl-kit-doc__main { flex: 1; display: flex; min-height: 0; gap: 0; }
+.tl-kit-doc__side { width: 300px; flex: none; overflow-y: auto; background: var(--surface-1); border-right: 1px solid var(--line); }
+.tl-kit-doc__centre { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.tl-kit-doc__tally.is-err { background: var(--err-bg); color: var(--err); }
+.tl-kit-doc__tally.is-warn { background: var(--warn-bg); color: var(--warn); }
+.tl-kit-doc__tally.is-ok { background: var(--ok-bg); color: var(--ok); }
+.tl-kit-slots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tl-kit-slot { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; text-align: left; font: inherit; color: var(--text);
+  background: var(--surface-0); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.tl-kit-slot:hover { border-color: var(--line-strong); }
+.tl-kit-slot.is-active { background: var(--select-bg); border-color: var(--select); box-shadow: inset 0 0 0 1px var(--select-line); }
+.tl-kit-slot.is-empty { border-style: dashed; background: transparent; }
+.tl-kit-slot.is-drop { border-color: var(--select); background: var(--select-bg); border-style: solid; }
+.tl-kit-slot__thumb { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--surface-2); color: var(--text-faint); overflow: hidden; }
+.tl-kit-slot__thumb img { width: 100%; height: 100%; object-fit: contain; }
+.tl-kit-slot__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tl-kit-slot__name { font-size: var(--text-md); font-weight: 600; }
+.tl-kit-slot__sub { font-size: var(--text-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-kit-slot.is-empty .tl-kit-slot__sub { color: var(--text-faint); }
+.tl-kit-slot__state { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; }
+.tl-kit-slot__state.is-ok { color: var(--ok); background: var(--ok-bg); }
+.tl-kit-slot__state.is-warn { color: var(--warn); background: var(--warn-bg); }
+.tl-kit-slot__state.is-err { color: var(--err); background: var(--err-bg); }
+.tl-kit-slots__more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 6px; padding: 6px; font: inherit; font-size: var(--text-sm);
+  color: var(--text-dim); background: none; border: 1px dashed var(--line-strong); border-radius: 6px; cursor: pointer; }
+.tl-kit-slots__more:hover { color: var(--text); border-color: var(--select); }
+.tl-kit-slots__add { display: flex; gap: 6px; margin-top: 6px; }
+.tl-kit-slots__add .tl-input { flex: 1; }
+.tl-kit-sheet, .tl-kit-picture { display: flex; flex-direction: column; gap: 7px; }
+.tl-kit-sheet__card { display: flex; align-items: center; gap: 10px; }
+.tl-kit-sheet__thumb, .tl-kit-picture__img { flex: none; width: 48px; height: 48px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.tl-kit-sheet__thumb img, .tl-kit-picture__img img { width: 100%; height: 100%; object-fit: cover; }
+/* A picture made from the sheet shows its walls and floor (the top of the spec's layout). */
+.tl-kit-picture__img.is-sheet img { object-position: top; transform: scale(1.6); transform-origin: top; }
+.tl-kit-picture__about { resize: vertical; min-height: 48px; font: inherit; font-size: var(--text-sm); }
+.tl-kit-uses { display: flex; flex-direction: column; gap: 4px; list-style: none; margin: 0 0 8px; padding: 0; }
+.tl-kit-uses ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.tl-kit-uses li { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); }
+.tl-kit-uses li > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-kit-uses__head { font-size: var(--text-sm); font-weight: 600; color: var(--text-dim); }
+.tl-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; color: var(--text-dim); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.tl-icon-btn:hover { color: var(--text); border-color: var(--line-strong); }
+.tl-kit-spec { flex: 1; overflow: auto; padding: 12px 16px; }
+.tl-kit-spec__text { margin: 0; white-space: pre-wrap; font: 12px/1.5 ui-monospace, monospace; color: var(--text); }
+/* The trim checker: the sheet with row bounds over it, the rows, the checks. */
+.tl-trimcheck { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.tl-trimcheck__head { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--text-md); }
+.tl-trimcheck__body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr) minmax(280px, 1.2fr); gap: 12px; padding: 10px 12px; overflow: auto; align-items: start; }
+.tl-trimcheck__sheet { position: relative; aspect-ratio: 1; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.tl-trimcheck__sheet > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
+.tl-trimcheck__sheet > .tl-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 8px; text-align: center; }
+.tl-trimcheck__row { position: absolute; left: 0; right: 0; box-sizing: border-box; border: 1px solid rgba(76, 141, 255, .9); border-left-width: 3px; }
+.tl-trimcheck__row.is-warn { border-color: var(--warn); }
+.tl-trimcheck__row.is-err { border-color: var(--err); }
+.tl-trimcheck__row.is-hidden { border-color: transparent; }
+.tl-trimcheck__gutter { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(45deg, rgba(255, 255, 255, .28) 0 2px, transparent 2px 5px); }
+.tl-trimcheck__gutter.is-above { bottom: 100%; }
+.tl-trimcheck__gutter.is-below { top: 100%; }
+.tl-trimcheck__label { position: absolute; left: 2px; top: 1px; padding: 0 4px; font-size: 10px; line-height: 13px; color: #fff; background: rgba(13, 15, 19, .72); border-radius: 2px; }
+.tl-trimcheck__rows { border-collapse: collapse; font-size: var(--text-sm); width: 100%; }
+.tl-trimcheck__rows td { padding: 3px 6px; border-bottom: 1px solid var(--line); color: var(--text-dim); white-space: nowrap; }
+.tl-trimcheck__rows td.tl-trimcheck__slot { color: var(--text); }
+.tl-trimcheck__checks { display: flex; flex-direction: column; gap: 6px; }
+.tl-dot.is-ok { background: var(--ok); }
+.tl-dot.is-warn { background: var(--warn); }
+.tl-dot.is-err { background: var(--err); }
+.tl-dot.is-info { background: var(--text-faint); }
+/* The kit Inspector: a slot's variants, its piece checks, where it stands. */
+.tl-kit-variants { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tl-kit-variant { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 6px; }
+.tl-kit-variant.is-active { border-color: var(--select-line); }
+.tl-kit-variant__main { display: flex; align-items: center; gap: 10px; padding: 0; font: inherit; color: var(--text); text-align: left; background: none; border: 0; cursor: pointer; }
+.tl-kit-variant__tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.tl-kit-variant__tools select { flex: 1; min-width: 0; }
+.tl-kit-variant__weight { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--text-dim); }
+.tl-kit-variant__weight input { width: 56px; }
+.tl-kit-checks { display: flex; flex-direction: column; gap: 6px; }
+.tl-kit-place { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); }
+.tl-kit-block__facts { display: grid; grid-template-columns: 80px 1fr; gap: 3px 8px; margin: 0; font-size: var(--text-sm); }
+.tl-kit-block__facts dt { color: var(--text-dim); }
+.tl-kit-block__facts dd { margin: 0; overflow-wrap: anywhere; }
+.tl-kit-preview { display: flex; flex-direction: column; gap: 6px; }
+.tl-kit-preview__legend { display: flex; gap: 14px; font-size: var(--text-xs); color: var(--text-dim); }
+.tl-kit-preview__key::before { content: ''; display: inline-block; width: 14px; height: 9px; margin-right: 5px; vertical-align: -1px; border: 1.5px solid; }
+.tl-kit-preview__key.is-cell::before { border-color: var(--select); border-style: dashed; }
+.tl-kit-preview__key.is-draws::before { border-color: var(--err); }

@@ -393,7 +393,9 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   // upper wall's light plaster (as white stand-ins both faces would be the same).
   await (await projectWindow(page)).getByRole('button', { name: /^create/ }).click();
   await page.getByRole('menu', { name: 'create menu', exact: true }).getByRole('menuitem', { name: 'Basic Kit (ready-made)', exact: true }).click();
+  // The kit opens in the kit editor (its Inspector beside it); back to the Scene view to look at a wall of it.
   await expect(inspector(page).getByLabel('kit inspector')).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'Close the editor window', exact: true }).click();
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes?.some((t) => t.blockId === 'basic-wall'), { timeout: 30_000 }).toBe(true);
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -0.5, -1], castShadow: false } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.6 } });

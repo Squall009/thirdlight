@@ -399,8 +399,10 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   looks). Pieces follow the [trim sheet spec](../guides/trim-sheet-spec.md)'s
   placement and naming rules.
   - Project window **Create → Kit** makes an empty one; it opens in the
-    Inspector, which lists what it holds (a kit editor to fill it is
-    coming). MCP: `setKit {kit}` / `deleteKit {kitId}`, one undo each.
+    [kit editor](../guides/kit-editor.md) (a tab of the editor window: drop
+    pieces on its slots, pick its trim sheet, see each piece and the sheet
+    checked against the spec). MCP: `setKit {kit}` / `deleteKit {kitId}`,
+    one undo each.
   - A kit **names** its parts and never copies them: a block type, preset or
     trim material stays an ordinary item and may be in several kits.
     Deleting a part is never refused because a kit lists it; a part a kit
@@ -421,9 +423,11 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     `assets/basic-kit/`. The items are the project's own copies — change
     them freely, or point the kit at a sheet of your own made to the same
     spec. It is added once: a project that already has one of its items is
-    told which. Over HTTP: `POST /api/v1/projects/<id>/packs/basic-kit`
-    (each step an ordinary command, undone one at a time); `GET
-    /api/v1/packs` lists the packs this engine ships.
+    told which. Adding it is one undo step (its commands are ordinary ones
+    on the change feed, undone and redone together). MCP:
+    `tl_content_upload {addPack: "basic-kit"}`; over HTTP: `POST
+    /api/v1/projects/<id>/packs/basic-kit`; `GET /api/v1/packs` lists the
+    packs this engine ships.
   - A block layer and an architecture object may name their kit (`kitId`,
     Inspector **Kit**); absent: none, as before.
   - Kits are editor-side: a kit has no address or labels and a build does

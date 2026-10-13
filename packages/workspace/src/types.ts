@@ -341,6 +341,12 @@ export interface WorkspaceService {
    */
   runCommand(request: unknown): MutationResult;
 
+  /** Make the last `count` history entries one undo/redo step (see service.ts). */
+  groupHistory(projectId: string, count: number): boolean;
+
+  /** The history groups of the entries undo and redo would take next. */
+  historyGroups(projectId: string): { undo: number | null; redo: number | null };
+
   /**
    * Bounded queries — no mutation lock; served from
    * the last acknowledged in-memory state (never a partial state; while

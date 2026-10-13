@@ -1,5 +1,5 @@
 /**
- * A texture's tile thumbnail, made on the server: the PNG, JPEG or WebP decoded,
+ * A texture's tile thumbnail, made on the server: the PNG, JPEG or WebP decoded (a KTX2 transcoded),
  * scaled down to fit `ASSET_THUMBNAIL_EDGE` (each thumbnail pixel the mean of
  * the source pixels it covers) and written as an 8-bit RGBA PNG. The editor
  * draws a texture tile from it, never from the texture's own bytes.
@@ -11,15 +11,24 @@ import { crc32, deflateSync } from 'node:zlib';
 import { ASSET_THUMBNAIL_EDGE } from '@thirdlight/project-model/limits';
 
 import { decodeImage, sourceFormat } from './image-decode';
-import { KTX2_SOURCE_PIXELS_MAX } from './texture-encode';
+import { decodeTextureRgba, KTX2_SOURCE_PIXELS_MAX } from './texture-encode';
 
-/** The thumbnail of a PNG, JPEG or WebP image (null: not such an image, or it cannot be decoded). */
+/**
+ * The thumbnail of a PNG, JPEG or WebP image, or of a KTX2 imported as is
+ * (transcoded: its top level, its first layer) — a trim sheet's maps made
+ * outside the editor have no other image (null: not such an image, or it
+ * cannot be decoded).
+ */
 export async function makeImageThumbnail(bytes: Uint8Array, edge = ASSET_THUMBNAIL_EDGE): Promise<Uint8Array | null> {
   const format = sourceFormat(bytes);
-  if (format === null || format === 'ktx2') return null;
-  let img;
+  if (format === null) return null;
+  let img: { width: number; height: number; data: Uint8Array };
   try {
-    img = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
+    if (format === 'ktx2') {
+      const d = await decodeTextureRgba(bytes, KTX2_SOURCE_PIXELS_MAX);
+      if (!d.ok) return null;
+      img = d;
+    } else img = await decodeImage(bytes, format, KTX2_SOURCE_PIXELS_MAX);
   } catch {
     return null;
   }

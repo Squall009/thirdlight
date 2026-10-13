@@ -36,6 +36,7 @@ import type { ScriptLibrary } from '@thirdlight/project-model';
 import type { UiDocument, UiTheme } from '@thirdlight/project-model';
 import { UiDocumentEditor, type UiDocumentEditorProps } from '../uidoc/UiDocumentEditor';
 import { UiThemeDocument, type UiThemeDocumentProps } from '../uidoc/UiThemeDocument';
+import { KitDocument, type KitDocumentHost } from '../kit/KitDocument';
 
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
@@ -79,6 +80,8 @@ export interface WorkspaceHost {
     document: (uiDocumentId: string) => UiDocumentEditorProps;
     theme: (uiThemeId: string) => UiThemeDocumentProps;
   };
+  /** The kit editor's state, actions and the parts a kit names. */
+  kit: KitDocumentHost;
   /** What the editor window's preview pane builds its subjects from. */
   preview: PreviewDeps;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
@@ -225,8 +228,16 @@ const uiThemeKind: DocumentKind = {
   render: (id, host) => <UiThemeDocument key={id} {...host.ui.theme(id)} />,
 };
 
+/** A kit's slots, trim sheet and parts, checked against the trim sheet spec ("Kit: <name>"). */
+const kitKind: DocumentKind = {
+  kind: 'kit',
+  label: 'Kit',
+  name: (id, host) => host.kit.kits.find((k) => k.kitId === id)?.name ?? id,
+  render: (id, host) => <KitDocument key={id} {...host.kit} kitId={id} />,
+};
+
 /** Every document kind the editor window can open, in no particular order. */
-export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, timelineKind, dialogueKind];
+export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, timelineKind, dialogueKind, kitKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));
 export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys());

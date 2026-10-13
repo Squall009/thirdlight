@@ -224,6 +224,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           required: ['layers', 'encoding'],
           additionalProperties: false,
         },
+        addPack: { type: 'string', description: 'add an engine content pack to the project as its own items (one undo step), e.g. "basic-kit" (the Basic Kit: a spec trim sheet, presets, block types, door and window pieces and the kit naming them); goes alone' },
         jobExport: {
           type: 'object',
           description: 'an asset tool\'s job export: {path} a folder or .zip relative to the game folder, or {} with dataBase64 of a zip',
@@ -967,6 +968,13 @@ function decodeBase64(text: string): Uint8Array | null {
 
 /** Stage + upload (bounded frames) + inspect over the real backend routes. */
 async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  // An engine content pack added as the project's own items (the same route as the editor's Create menu).
+  if (a.addPack !== undefined) {
+    if (typeof a.addPack !== 'string' || a.addPack === '') return toolError('addPack names a pack, e.g. "basic-kit"');
+    if (Object.keys(a).some((k) => k !== 'addPack')) return toolError('addPack goes alone');
+    const res = await ctx.client.addPack(ctx.projectId, a.addPack, { origin: { kind: 'mcp', clientId: ctx.clientId } });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
   // Pack a texture (array) from texture assets.
   if (a.pack !== undefined) {
     if (a.dataBase64 !== undefined || a.projectPath !== undefined || a.ktx2 !== undefined) return toolError('pack goes alone (no dataBase64, projectPath or ktx2; its encoding is pack.encoding)');

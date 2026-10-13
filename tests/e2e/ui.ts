@@ -311,7 +311,7 @@ export async function openProjectSettings(page: Page, section: ProjectSettingsSe
  * The kinds of item that open in an editor, by the name the editor shows them
  * under ("Material: Glow"). "Graph" is a standalone graph or a visual script.
  */
-export type EditorKind = 'Animator' | 'Script' | 'Graph' | 'Material' | 'Effect' | 'Library' | 'Dialogue' | 'Timeline' | 'UI' | 'UI theme';
+export type EditorKind = 'Animator' | 'Script' | 'Graph' | 'Material' | 'Effect' | 'Library' | 'Dialogue' | 'Timeline' | 'UI' | 'UI theme' | 'Kit';
 
 /** The project window's `t:` filter for an editor kind; a visual script is a behavior, so "Graph" has none. */
 const ITEM_KIND_OF: Readonly<Record<EditorKind, string | null>> = {
@@ -325,6 +325,7 @@ const ITEM_KIND_OF: Readonly<Record<EditorKind, string | null>> = {
   Timeline: 'timeline',
   UI: 'ui',
   'UI theme': 'uitheme',
+  Kit: 'kit',
 };
 
 /**

@@ -2,6 +2,7 @@ import type { FolderImport, FolderImportReport } from './folder-import';
 import type { TextureExtraction, TextureExtractionReport } from './model-textures';
 import type { HeadlessEditors } from './headless';
 import type { ErosionRunner } from './erosion-runner';
+import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
@@ -298,11 +299,28 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         return;
       }
       if (result.ok) {
+        let last = result;
         if (result.duplicated === false) {
           notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
           if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
+          // One user action that ran several commands (a content pack added) is one undo/redo step:
+          // the rest of its group follows, each on the change feed; the answer is the last.
+          if (envelope.op === 'undo' || envelope.op === 'redo') {
+            const op = envelope.op;
+            const g0 = service.historyGroups(projectId);
+            const group = op === 'undo' ? g0.redo : g0.undo;
+            while (group !== null) {
+              const g = service.historyGroups(projectId);
+              if ((op === 'undo' ? g.undo : g.redo) !== group) break;
+              const r = service.runCommand({ op, projectId, expectedRevision: last.revision, requestId: `req-${randomBytes(16).toString('hex')}`, ...(envOrigin !== null ? { origin: envOrigin } : {}), args: {} });
+              if (!r.ok) break;
+              notifyMutationApplied(projectId, r.requestId, r.revision, envOrigin, r.change, (r as { sceneId?: string }).sceneId);
+              if (session) sessions.record(session, 'command', r.requestId, r.revision, nowMs());
+              last = r;
+            }
+          }
         }
-        sendJson(res, 200, result);
+        sendJson(res, 200, last);
         return;
       }
       // The response is exactly the commands.md result — pass the

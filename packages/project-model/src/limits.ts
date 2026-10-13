@@ -34,8 +34,10 @@ export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
 export { MATERIAL_LAYER_NAME_MAX, MATERIAL_SLOT_ALL, MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH, SKY_ROTATION_MAX, WET_ALBEDO_SCALE, WET_ROUGHNESS } from './materials';
 export { MAX_LOCAL_LIGHTS } from './local-lights';
-// Kits: the standard piece slots (the kit's Inspector and editor list them) and a kit's bounds.
-export { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
+// Kits: the standard piece slots and where their pieces stand (the kit editor lists them), a kit's bounds and slot
+// names, the worst of a piece's checks; the block layer's default cell (what a piece is sized against).
+export { KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, kitCheckTally, kitSlotLabel, kitSlotPlacement } from './kits';
+export { BLOCK_LAYER_DEFAULT } from './block-layers';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { DECAL_CELL_BUDGET, DECAL_LAYER_COUNT, DECAL_LAYERS_ALL, DECAL_LIMITS, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS } from './decals';
 export { DECAL_PAGE_ENCODINGS, DECAL_PAGE_LIMITS, DECAL_PAGE_SETS } from './decal-pages';

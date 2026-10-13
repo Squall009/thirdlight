@@ -24,7 +24,7 @@ import { createPortal } from 'react-dom';
 
 import { paletteKeyIndex } from '../../session/edit-keys';
 import type { PaletteLayer } from '../../session/layer-palette';
-import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
+import { ASSET_DRAG_TYPE, assetDropOf } from '../../session/placement';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useTile } from '../assets/TileImage';
 import { useAssetSummaries } from '../catalog/catalog-context';
@@ -53,10 +53,7 @@ export interface LayerPaletteProps {
 /** What a "no height" badge means, in the tile's tooltip. */
 const NO_HEIGHT_HINT = 'No height in its alpha: blends with the other layers are soft, and its brightness stands in for the height. Use an albedo with height in A (Texture Designer: albedo + height export).';
 
-const textureDrop = (ev: DragEvent): string | null => {
-  const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
-  return payload !== null && (payload.kind === undefined || payload.kind === 'texture') ? payload.assetId : null;
-};
+const textureDrop = (ev: DragEvent): string | null => assetDropOf(ev, 'texture')?.assetId ?? null;
 
 export function LayerPalette(p: LayerPaletteProps): JSX.Element {
   const latest = useRef(p);

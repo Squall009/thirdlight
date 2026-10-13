@@ -18,6 +18,7 @@
  */
 import { audioPlaybackProblems } from './audio-gaps';
 import { createScriptNameChecker } from './script-name-problems';
+import { createKitChecker } from './kit-check';
 import { createKitProblemChecker } from './kit-problems';
 import { createBlockProblemChecker } from './block-problems';
 import { createPaintProblemChecker } from './paint-problems';
@@ -595,7 +596,9 @@ export function createBackend(
 
   // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
   const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
-  const kitProblemChecker = createKitProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
+  // Kits against the trim sheet spec (the kit editor's checks); their pieces' errors join the kit Problems.
+  const kitChecker = createKitChecker({ service, encoder: textureEncoder });
+  const kitProblemChecker = createKitProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed, pieceErrors: kitChecker.pieceErrors });
   // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
   const blockProblems = createBlockProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
@@ -1400,6 +1403,23 @@ export function createBackend(
           const r = packs.add(projectId, parts[5]!, origin);
           if (r.ok) sendJson(res, 200, r);
           else sendJson(res, r.status, { ok: false, error: { code: r.code, cls: r.status === 409 ? 'conflict' : 'validation', message: r.message }, ...(r.added !== undefined ? { added: r.added } : {}) });
+          return;
+        }
+        // GET /api/v1/projects/:projectId/kits/:kitId/check[?image=1] — a kit against the trim sheet spec
+        if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'kits' && parts[6] === 'check') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          const r = await kitChecker.check(projectId, decodeURIComponent(parts[5]!), { image: query.get('image') === '1' });
+          if (r.ok) sendJson(res, 200, r);
+          else sendJson(res, 404, { ok: false, error: { code: r.code, cls: 'validation', message: r.message } });
           return;
         }
         // GET /api/v1/projects/:projectId/exports — this project's export directories

@@ -60,6 +60,7 @@ use and why.
   - [Material graphs](guides/material-graphs.md)
   - [Trim sheets](guides/trim-sheets.md)
   - [Trim sheet spec: authoring a sheet for every kit](guides/trim-sheet-spec.md)
+  - [The kit editor: slots, pieces and the trim checker](guides/kit-editor.md)
   - [Height in alpha: layers that blend along their stones](guides/height-in-alpha.md)
   - [Decals](guides/decals.md)
   - [Vertex paint](guides/vertex-paint.md)

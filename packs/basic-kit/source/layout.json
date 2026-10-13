@@ -7,7 +7,7 @@
     "a": {
      "clamp": [
       0.0039,
-      1.0
+      1
      ],
      "default": [
       0.5
@@ -41,7 +41,7 @@
      "default": [
       0.5,
       0.5,
-      1.0
+      1
      ],
      "map": "normal",
      "normal": true,
@@ -64,7 +64,7 @@
    "channels": {
     "b": {
      "default": [
-      0.0
+      0
      ],
      "map": "metallic",
      "space": "linear"
@@ -78,7 +78,7 @@
     },
     "r": {
      "default": [
-      1.0
+      1
      ],
      "map": "ao",
      "space": "linear"
@@ -122,7 +122,7 @@
   {
    "edges": null,
    "gutter_px": 8,
-   "height_m": 1.0,
+   "height_m": 1,
    "height_px": 512,
    "height_range_m": [
     0.000881,
@@ -145,16 +145,16 @@
     "value": 1.3,
     "wear": 0.03
    },
-   "period_u_m": 1.0,
-   "period_v_m": 1.0,
+   "period_u_m": 1,
+   "period_v_m": 1,
    "px": [
     8,
     520
    ],
    "repeats_u": 4,
    "repeats_v": 1,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.14,
     "u_p95": 1.176,
@@ -164,12 +164,12 @@
    },
    "seed": 251,
    "size_m": [
-    4.0,
-    1.0
+    4,
+    1
    ],
    "tile_m": [
-    1.0,
-    1.0
+    1,
+    1
    ],
    "tile_u": true,
    "tile_v": true,
@@ -177,13 +177,13 @@
    "v0_gl": 0.746094,
    "v1": 0.253906,
    "v1_gl": 0.996094,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": true
   },
   {
    "edges": null,
    "gutter_px": 8,
-   "height_m": 1.0,
+   "height_m": 1,
    "height_px": 512,
    "height_range_m": [
     0.001777,
@@ -201,16 +201,16 @@
     "sat": 0.3,
     "value": 1.1
    },
-   "period_u_m": 1.0,
-   "period_v_m": 1.0,
+   "period_u_m": 1,
+   "period_v_m": 1,
    "px": [
     536,
     1048
    ],
    "repeats_u": 4,
    "repeats_v": 1,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.057,
     "u_p95": 1.122,
@@ -220,12 +220,12 @@
    },
    "seed": 281,
    "size_m": [
-    4.0,
-    1.0
+    4,
+    1
    ],
    "tile_m": [
-    1.0,
-    1.0
+    1,
+    1
    ],
    "tile_u": true,
    "tile_v": true,
@@ -233,7 +233,7 @@
    "v0_gl": 0.488281,
    "v1": 0.511719,
    "v1_gl": 0.738281,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": true
   },
   {
@@ -242,7 +242,7 @@
    "height_m": 0.5,
    "height_px": 256,
    "height_range_m": [
-    -5.5e-05,
+    -0.000055,
     0.007818
    ],
    "kind": "tile_uv",
@@ -264,7 +264,7 @@
     "ties_down": 1,
     "value": 0.9
    },
-   "period_u_m": 1.0,
+   "period_u_m": 1,
    "period_v_m": 0.5,
    "px": [
     1064,
@@ -272,8 +272,8 @@
    ],
    "repeats_u": 4,
    "repeats_v": 1,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 19.344,
     "u_p95": 1.265,
@@ -283,11 +283,11 @@
    },
    "seed": 271,
    "size_m": [
-    4.0,
+    4,
     0.5
    ],
    "tile_m": [
-    1.0,
+    1,
     0.5
    ],
    "tile_u": true,
@@ -296,7 +296,7 @@
    "v0_gl": 0.355469,
    "v1": 0.644531,
    "v1_gl": 0.480469,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": true
   },
   {
@@ -309,7 +309,7 @@
    "height_m": 0.15625,
    "height_px": 80,
    "height_range_m": [
-    3e-06,
+    0.000003,
     0.000298
    ],
    "kind": "tile_u",
@@ -338,8 +338,8 @@
    ],
    "repeats_u": 8,
    "repeats_v": null,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.138,
     "u_p95": 1.163,
@@ -347,7 +347,7 @@
    },
    "seed": 41,
    "size_m": [
-    4.0,
+    4,
     0.15625
    ],
    "tile_m": [
@@ -360,7 +360,7 @@
    "v0_gl": 0.308594,
    "v1": 0.691406,
    "v1_gl": 0.347656,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": false
   },
   {
@@ -373,7 +373,7 @@
    "height_m": 0.125,
    "height_px": 64,
    "height_range_m": [
-    2e-06,
+    0.000002,
     0.000298
    ],
    "kind": "tile_u",
@@ -402,8 +402,8 @@
    ],
    "repeats_u": 8,
    "repeats_v": null,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.078,
     "u_p95": 1.219,
@@ -411,7 +411,7 @@
    },
    "seed": 41,
    "size_m": [
-    4.0,
+    4,
     0.125
    ],
    "tile_m": [
@@ -424,7 +424,7 @@
    "v0_gl": 0.269531,
    "v1": 0.730469,
    "v1_gl": 0.300781,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": false
   },
   {
@@ -437,7 +437,7 @@
    "height_m": 0.125,
    "height_px": 64,
    "height_range_m": [
-    2e-06,
+    0.000002,
     0.000298
    ],
    "kind": "tile_u",
@@ -466,8 +466,8 @@
    ],
    "repeats_u": 8,
    "repeats_v": null,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.103,
     "u_p95": 1.248,
@@ -475,7 +475,7 @@
    },
    "seed": 41,
    "size_m": [
-    4.0,
+    4,
     0.125
    ],
    "tile_m": [
@@ -488,7 +488,7 @@
    "v0_gl": 0.230469,
    "v1": 0.769531,
    "v1_gl": 0.261719,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": false
   },
   {
@@ -518,7 +518,7 @@
     "tie_radius": 0,
     "value": 0.85
    },
-   "period_u_m": 1.0,
+   "period_u_m": 1,
    "period_v_m": 0.25,
    "px": [
     1592,
@@ -526,8 +526,8 @@
    ],
    "repeats_u": 4,
    "repeats_v": 1,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 19.581,
     "u_p95": 1.297,
@@ -537,11 +537,11 @@
    },
    "seed": 271,
    "size_m": [
-    4.0,
+    4,
     0.25
    ],
    "tile_m": [
-    1.0,
+    1,
     0.25
    ],
    "tile_u": true,
@@ -550,7 +550,7 @@
    "v0_gl": 0.160156,
    "v1": 0.839844,
    "v1_gl": 0.222656,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": true
   },
   {
@@ -577,7 +577,7 @@
     "sat": 0.25,
     "value": 0.7
    },
-   "period_u_m": 1.0,
+   "period_u_m": 1,
    "period_v_m": 0.0625,
    "px": [
     1736,
@@ -585,8 +585,8 @@
    ],
    "repeats_u": 4,
    "repeats_v": 1,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.273,
     "u_p95": 1.466,
@@ -596,11 +596,11 @@
    },
    "seed": 281,
    "size_m": [
-    4.0,
+    4,
     0.0625
    ],
    "tile_m": [
-    1.0,
+    1,
     0.0625
    ],
    "tile_u": true,
@@ -609,7 +609,7 @@
    "v0_gl": 0.136719,
    "v1": 0.863281,
    "v1_gl": 0.152344,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": true
   },
   {
@@ -622,7 +622,7 @@
    "height_m": 0.125,
    "height_px": 64,
    "height_range_m": [
-    1.8e-05,
+    0.000018,
     0.000395
    ],
    "kind": "tile_u",
@@ -634,7 +634,7 @@
     "sat": 0.25,
     "value": 1.7
    },
-   "period_u_m": 1.0,
+   "period_u_m": 1,
    "period_v_m": null,
    "px": [
     1784,
@@ -642,8 +642,8 @@
    ],
    "repeats_u": 4,
    "repeats_v": null,
-   "scale_u": 1.0,
-   "scale_v": 1.0,
+   "scale_u": 1,
+   "scale_v": 1,
    "seam": {
     "u": 1.571,
     "u_p95": 1.575,
@@ -651,12 +651,12 @@
    },
    "seed": 31,
    "size_m": [
-    4.0,
+    4,
     0.125
    ],
    "tile_m": [
-    1.0,
-    1.0
+    1,
+    1
    ],
    "tile_u": true,
    "tile_v": false,
@@ -664,14 +664,14 @@
    "v0_gl": 0.097656,
    "v1": 0.902344,
    "v1_gl": 0.128906,
-   "wrap_u_m": 4.0,
+   "wrap_u_m": 4,
    "wrap_v": false
   },
   {
    "cells": [
     {
      "height_range_m": [
-      5.5e-05,
+      0.000055,
       0.007711
      ],
      "material": "shared/mat_concrete_cast@1",
@@ -715,7 +715,7 @@
     "uv_rect": [
      0.074219,
      0.910156,
-     1.0,
+     1,
      0.996094
     ]
    },
@@ -758,7 +758,7 @@
       "a": {
        "clamp": [
         0.0039,
-        1.0
+        1
        ],
        "default": [
         0.5
@@ -786,7 +786,7 @@
        "default": [
         0.5,
         0.5,
-        1.0
+        1
        ],
        "map": "normal",
        "normal": true,
@@ -803,7 +803,7 @@
      "channels": {
       "b": {
        "default": [
-        0.0
+        0
        ],
        "map": "metallic",
        "space": "linear"
@@ -817,7 +817,7 @@
       },
       "r": {
        "default": [
-        1.0
+        1
        ],
        "map": "ao",
        "space": "linear"
@@ -843,8 +843,7 @@
      "png": true
     }
    ],
-   "format": "packing/1",
-   "name": "skyforge"
+   "format": "packing/1"
   },
   "sheet": "thirdlight/basic_kit_trim@4",
   "sheet_doc": {
@@ -856,7 +855,7 @@
     {
      "edges": null,
      "graph": "shared/mat_ceramic_tiles@1",
-     "height_m": 1.0,
+     "height_m": 1,
      "kind": "tile_uv",
      "name": "floor",
      "note": "0.5 m light grey tiles with a visible grout: the grid reads scale",
@@ -878,7 +877,7 @@
     {
      "edges": null,
      "graph": "shared/mat_plaster_smooth@1",
-     "height_m": 1.0,
+     "height_m": 1,
      "kind": "tile_uv",
      "name": "upper_wall",
      "note": "light plaster",
@@ -1099,7 +1098,7 @@
     2048,
     2048
    ],
-   "texel_density": 512.0,
+   "texel_density": 512,
    "title": "Thirdlight Basic Kit: neutral prototype (light concrete and plaster fields, darker trims)"
   },
   "subgraphs": {
@@ -1181,9 +1180,9 @@
    }
   }
  },
- "texel_density_px_per_m": 512.0,
+ "texel_density_px_per_m": 512,
  "title": "Thirdlight Basic Kit: neutral prototype (light concrete and plaster fields, darker trims)",
  "uv_origin": "top-left",
  "warnings": [],
- "width_m": 4.0
+ "width_m": 4
 }

@@ -495,7 +495,8 @@ export const TOOL_DETAILS = {
     '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
     'jobExport {} with dataBase64 uploads a zip, whose listed files are written into a new assets/<name>/ folder. The result is the model\'s proposal (plus sourcePath: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model". ' +
     'writeTo "assets/voice/line-001.ogg" with dataBase64 writes the file into the game folder at that path instead of inspecting it (its folders are made; never over another file, ' +
-    'never into a hidden folder or the project\'s own files): upload a folder file by file this way, then import it with tl_command importAssets {folder}.',
+    'never into a hidden folder or the project\'s own files): upload a folder file by file this way, then import it with tl_command importAssets {folder}. ' +
+    'addPack "basic-kit" (alone) adds an engine content pack as the project\'s own items through ordinary commands — the Basic Kit: its trim sheet\'s maps and door and window models published into assets/basic-kit, the trim material, presets, block types and the kit — as one undo step; a project that already has any of its ids is refused (pack_present), so changed copies are never replaced.',
   tl_content_job:
     'Read one bounded content job by its jobId (a bounded uploaded/inspected job record). Unknown jobs are ' +
     'job_not_found (404); an expired/late job is job_expired (503) and its result is never applied.',
@@ -648,7 +649,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
   tl_content_upload:
     'Stage a source file (model, audio, texture, font) and return its import proposal — then commit it with tl_command publishAsset. dataBase64 uploads bytes; ' +
     'projectPath inspects a file already in the game folder; pack builds a KTX2 texture (array) from texture assets; jobExport imports an asset tool\'s export; ' +
-    'writeTo writes a file into the game folder (then tl_command importAssets {folder}).',
+    'writeTo writes a file into the game folder (then tl_command importAssets {folder}); addPack "basic-kit" adds the engine\'s Basic Kit as the project\'s own items.',
   tl_content_job: TOOL_DETAILS.tl_content_job,
   tl_input_exercise:
     'Drive a running play with step-indexed input: frames {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} in exclusive test-input mode ' +

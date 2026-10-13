@@ -15,7 +15,7 @@ import { useMemo, useRef, useState, type DragEvent, type JSX } from 'react';
 
 import { filterPalette, type DecalPaletteEntry } from '../../session/decal-editor';
 import type { PaletteLayer } from '../../session/layer-palette';
-import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
+import { ASSET_DRAG_TYPE, assetDropOf } from '../../session/placement';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { Section, Segmented } from '../editmode/controls';
 import { Glyph } from '../editmode/glyphs';
@@ -51,10 +51,7 @@ export function DecalPalette({ tools, thumbnails, onPick, active }: { tools: Dec
   );
 }
 
-const textureDrop = (ev: DragEvent): string | null => {
-  const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
-  return payload !== null && (payload.kind === undefined || payload.kind === 'texture') ? payload.assetId : null;
-};
+const textureDrop = (ev: DragEvent): string | null => assetDropOf(ev, 'texture')?.assetId ?? null;
 
 /** "Drop an image to make a decal material": a file from the desktop, a project texture, or one picked in the browser. */
 function DropZone({ tools, thumbnails }: { tools: DecalTools; thumbnails: TileThumbnails | null }): JSX.Element {

@@ -96,6 +96,8 @@ import { useDecalAtlas } from './shell/useDecalAtlas';
 import { useDecalTools } from './shell/useDecalTools';
 import { useVertexPaintTools } from './shell/useVertexPaintTools';
 import type { ReportFailure } from './shell/commands';
+import { useKitEditor } from './kit/useKitEditor';
+import type { KitDocumentHost } from './kit/KitDocument';
 
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
 setKtx2DecoderBase('./decoders/');
@@ -749,6 +751,8 @@ function EditorApp(): JSX.Element {
   const { dropAsset } = assetActions;
   const { filePicker, setFilePicker } = assets;
   const docCmds = useDocumentCommands({ clientRef, viewportRef, workspaceDispatch, setGraphFocus: docState.setGraphFocus });
+  // The kit editor (its tab and the Inspector beside it share its state).
+  const kitEditor = useKitEditor(clientRef, workspace, content.kits, ui.revision);
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
   const newMaterialId = useCallback((name: string) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())), []);
@@ -934,6 +938,16 @@ function EditorApp(): JSX.Element {
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
+  const kitHost: KitDocumentHost = {
+    editor: kitEditor,
+    kits: content.kits,
+    materials,
+    graphs: content.graphs,
+    blockTypes: blocks.blockTypes,
+    thumbnails: tileThumbnails,
+    onOpen: (kind, id) => openDocument(kind, id),
+    docs: async (topic) => clientRef.current?.docsText(topic) ?? { ok: false, error: { message: 'not connected' } },
+  };
   const workspaceHost = workspaceHostOf({
     clientRef,
     modelFilesRef,
@@ -954,6 +968,7 @@ function EditorApp(): JSX.Element {
     workspaceDispatch,
     sceneView,
     items,
+    kit: kitHost,
   });
 
   const menus = editorMenus({
@@ -1037,6 +1052,7 @@ function EditorApp(): JSX.Element {
       assetActions={assetActions}
       prefab={prefab}
       tileThumbnails={tileThumbnails}
+      kit={kitEditor}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
       editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) }}

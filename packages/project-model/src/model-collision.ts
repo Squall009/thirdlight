@@ -59,6 +59,14 @@ export interface ModelGeometryPrimitive {
   primitive: number;
   /** POSITION as stored (the node's own space, before its matrix): what vertex paint's position hash reads. */
   local: readonly number[];
+  /** With `surface`: the render level of the top-level node it is under (`_LOD<n>`; null: no level suffix). */
+  lod?: number | null;
+  /** With `surface`: the name of its glTF material (null: none or unnamed), what an asset's material map names. */
+  material?: string | null;
+  /** With `surface`: TEXCOORD_0 (u, v pairs; null: none, or not readable). */
+  uv?: readonly number[] | null;
+  /** With `surface`: the primitive carries COLOR_0. */
+  colour?: boolean;
 }
 
 export interface ModelGeometry {
@@ -221,8 +229,12 @@ export function modelNodePaths(json: Readonly<Record<string, unknown>>): Map<num
   return out;
 }
 
-/** Read a model's mesh primitives in root space. Never throws. */
-export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
+/**
+ * Read a model's mesh primitives in root space. With `surface`, each also
+ * says its render level, material name, UV0 and whether it has vertex
+ * colours (what a kit piece's checks read). Never throws.
+ */
+export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolean } = {}): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
   const chunks = glbChunks(bytes);
   if (typeof chunks === 'string') return { ok: false, message: chunks };
   const { json, bin } = chunks;
@@ -234,7 +246,9 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
   const primitives: ModelGeometryPrimitive[] = [];
   const skipped: string[] = [];
   let positionsRead = 0;
-  const visit = (index: number, parent: readonly number[], depth: number, ctx: { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean }, seen: Set<number>, path: string): void => {
+  const materials = Array.isArray(json['materials']) ? (json['materials'] as unknown[]) : [];
+  type Ctx = { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean; lod: number | null };
+  const visit = (index: number, parent: readonly number[], depth: number, ctx: Ctx, seen: Set<number>, path: string): void => {
     if (depth > READ_LIMITS.depth || seen.has(index)) return;
     const def = nodes[index];
     if (!isObj(def)) return;
@@ -246,6 +260,7 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
       collision: ctx.collision || COL_RE.test(name),
       higherLod: ctx.higherLod || (lod !== null && Number(lod[2]) > 0),
       pieceCollision: ctx.pieceCollision || (depth === 0 && COL_RE.test(name)),
+      lod: depth === 0 ? (lod !== null ? Number(lod[2]) : null) : ctx.lod,
     };
     const world = mul(parent, nodeMatrix(def));
     const mesh = typeof def['mesh'] === 'number' ? meshes[def['mesh']] : undefined;
@@ -284,12 +299,23 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
           }
           indices = idx.data.filter((i) => Number.isInteger(i) && i >= 0 && i < count);
         } else indices = Array.from({ length: count }, (_, i) => i);
-        primitives.push({ ...here, positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data });
+        const { lod: level, ...flags } = here;
+        const surface: Partial<ModelGeometryPrimitive> = {};
+        if (options.surface === true) {
+          const attrs = prim['attributes'] as Json;
+          const mat = typeof prim['material'] === 'number' ? materials[prim['material']] : undefined;
+          const uv = attrs['TEXCOORD_0'] !== undefined ? readNumbers(json, bin, attrs['TEXCOORD_0'], cache) : null;
+          surface.lod = level;
+          surface.material = isObj(mat) && typeof mat['name'] === 'string' ? mat['name'] : null;
+          surface.uv = uv !== null && typeof uv !== 'string' && uv.size === 2 ? uv.data : null;
+          surface.colour = attrs['COLOR_0'] !== undefined;
+        }
+        primitives.push({ ...flags, positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data, ...surface });
       });
     }
     visitAll(Array.isArray(def['children']) ? (def['children'] as unknown[]) : [], world, depth + 1, here, seen, `${path}/`);
   };
-  const visitAll = (list: readonly unknown[], parent: readonly number[], depth: number, ctx: { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean }, seen: Set<number>, prefix: string): void => {
+  const visitAll = (list: readonly unknown[], parent: readonly number[], depth: number, ctx: Ctx, seen: Set<number>, prefix: string): void => {
     const segments = modelNodeSegments(list.map((k) => {
       const def = typeof k === 'number' ? nodes[k] : undefined;
       return { index: typeof k === 'number' ? k : -1, name: isObj(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
@@ -298,7 +324,7 @@ export function readModelGeometry(bytes: Uint8Array): { ok: true; geometry: Mode
       if (typeof k === 'number') visit(k, parent, depth, ctx, seen, `${prefix}${segments[i]!}`);
     });
   };
-  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false }, new Set<number>(), '');
+  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false, lod: null }, new Set<number>(), '');
   if (positionsRead > READ_LIMITS.positions) return { ok: false, message: `the model holds over ${READ_LIMITS.positions} vertices; its collision geometry is not read` };
   return { ok: true, geometry: { primitives, skipped } };
 }

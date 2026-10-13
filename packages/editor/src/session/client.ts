@@ -40,7 +40,7 @@ import {
   type CompileDiagnosticView,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
-import type { MissingAssetFile, PropertyDeclaration, TrimPaddingProblem, TrimSheet } from '@thirdlight/project-model';
+import type { KitCheckReport, MissingAssetFile, PropertyDeclaration, TrimPaddingProblem, TrimSheet } from '@thirdlight/project-model';
 
 /** The backend's check of a trim sheet's image: its size, whether it was read from a lossy KTX2, the padding rows that differ. */
 export interface TrimCheckView {
@@ -80,13 +80,45 @@ export class SessionClient extends SessionClientCore {
 
   /**
    * Add an engine content pack (the Basic Kit) to the project: the backend publishes its files and runs its
-   * commands, each an ordinary command on the change feed (undone one by one). Refused when the project has
-   * any of its items already.
+   * commands, each an ordinary command on the change feed, together one undo step. Refused when the project
+   * has any of its items already.
    */
   async addPack(packId: string): Promise<{ ok: true; added: number } | { ok: false; error: { code: string; message: string } }> {
     try {
       const r = await this.api<{ ok: true; added: unknown[] }>(`/projects/${this.cfg.projectId}/packs/${encodeURIComponent(packId)}`, { origin: { kind: 'browser', clientId: this.sessionId } });
       return { ok: true, added: r.added.length };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
+   * A kit checked against the trim sheet spec on the backend: its pieces from their files, its sheet's row
+   * table, and with `image` its albedo's pixels (decoded on the backend; a sheet checked before is not
+   * decoded again).
+   */
+  async kitCheck(kitId: string, image: boolean): Promise<KitCheckReport | { ok: false; error: { code: string; message: string } }> {
+    try {
+      return await this.request<KitCheckReport>(`/projects/${this.cfg.projectId}/kits/${encodeURIComponent(kitId)}/check${image ? '?image=1' : ''}`, { method: 'GET' });
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** A page or section of the manual of this build, as text (every part joined). */
+  async docsText(topic: string): Promise<{ ok: true; title: string; text: string } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      let part = 1;
+      let title = '';
+      const texts: string[] = [];
+      for (;;) {
+        const r = await this.request<{ ok: true; title: string; text: string; parts: number }>(`/docs?topic=${encodeURIComponent(topic)}&part=${part}`, { method: 'GET' });
+        title = r.title;
+        texts.push(r.text);
+        if (part >= r.parts) break;
+        part += 1;
+      }
+      return { ok: true, title, text: texts.join('\n') };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }

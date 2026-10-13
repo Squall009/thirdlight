@@ -1779,9 +1779,9 @@ export class ContentRoutes {
 
   /**
    * A texture's thumbnail made from its image: the PNG/JPEG/WebP itself, or the
-   * image a KTX2 was encoded from (its file in the game folder). Only for the
-   * asset's current version (`digest`); null when there is no image to make
-   * it from (a KTX2 imported as is, a packed texture): the tile keeps its icon.
+   * image a KTX2 was encoded from (its file in the game folder), else the KTX2
+   * itself transcoded (one imported as is, a packed texture). Only for the
+   * asset's current version (`digest`).
    */
   private async makeTextureThumbnail(projectId: string, assetId: string, digest: string): Promise<Uint8Array | null> {
     const encoder = this.deps.textureEncoder;
@@ -1805,6 +1805,10 @@ export class ContentRoutes {
           bytes = null;
         }
       }
+    }
+    if (bytes === null) {
+      const r = this.deps.service.readBlob(projectId, { assetId, version: a.currentVersion });
+      if (r.ok) bytes = r.bytes;
     }
     if (bytes === null) return null;
     try {

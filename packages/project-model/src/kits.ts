@@ -20,6 +20,7 @@
  * Pure value validation: no I/O.
  */
 import type { ModelErrorV2 } from './errors';
+import type { KitCheck, KitCheckState } from './kit-checks';
 import { BLOCK_LIMITS } from './block-layers';
 import { resolveMaterial, type MaterialDef } from './materials';
 import { ID_RE, isValidName } from './validate';
@@ -51,18 +52,49 @@ export interface KitDef {
 }
 
 /**
- * The slots every kit offers (the kit editor lists them even when empty);
- * a kit may add slots of its own under any other slot name.
+ * Where a slot's piece stands, which its checks and the kit editor's sample
+ * wall follow: `opening` in a hole of the wall (its bottom at `sill` metres),
+ * `edge` on the wall's line in place of a stretch of it, `free` on the floor
+ * in front of it. A piece in an opening or on an edge fills whole cells up
+ * and along; a free piece only along.
  */
-export const KIT_STANDARD_SLOTS: readonly { readonly slot: string; readonly label: string }[] = Object.freeze([
-  { slot: 'door', label: 'Door' },
-  { slot: 'window', label: 'Window' },
-  { slot: 'wall-override', label: 'Wall override' },
-  { slot: 'corner', label: 'Corner' },
-  { slot: 'stairs', label: 'Stairs' },
-  { slot: 'railing', label: 'Railing' },
-  { slot: 'roof-edge', label: 'Roof edge' },
+export interface KitSlotPlacement {
+  readonly kind: 'opening' | 'edge' | 'free';
+  /** An opening's bottom above the floor (metres). */
+  readonly sill?: number;
+}
+
+export interface KitStandardSlot {
+  readonly slot: string;
+  readonly label: string;
+  readonly placement: KitSlotPlacement;
+}
+
+/**
+ * The slots every kit offers (the kit editor lists them even when empty);
+ * a kit may add slots of its own under any other slot name (placed `free`).
+ */
+export const KIT_STANDARD_SLOTS: readonly KitStandardSlot[] = Object.freeze([
+  { slot: 'door', label: 'Door', placement: { kind: 'opening', sill: 0 } },
+  { slot: 'window', label: 'Window', placement: { kind: 'opening', sill: 1 } },
+  { slot: 'wall-override', label: 'Wall override', placement: { kind: 'edge' } },
+  { slot: 'corner', label: 'Corner', placement: { kind: 'free' } },
+  { slot: 'stairs', label: 'Stairs', placement: { kind: 'free' } },
+  { slot: 'railing', label: 'Railing', placement: { kind: 'edge' } },
+  { slot: 'roof-edge', label: 'Roof edge', placement: { kind: 'free' } },
 ]);
+
+const FREE_PLACEMENT: KitSlotPlacement = Object.freeze({ kind: 'free' });
+
+/** Where a slot's piece stands (a custom slot: free). */
+export function kitSlotPlacement(slot: string): KitSlotPlacement {
+  return KIT_STANDARD_SLOTS.find((s) => s.slot === slot)?.placement ?? FREE_PLACEMENT;
+}
+
+/** A slot's label: the standard one, else its name. */
+export function kitSlotLabel(slot: string): string {
+  return KIT_STANDARD_SLOTS.find((s) => s.slot === slot)?.label ?? slot;
+}
 
 export const KIT_LIMITS = Object.freeze({
   descriptionChars: 1024,
@@ -226,4 +258,15 @@ export function kitProblems(content: KitProblemContent): KitProblemRow[] {
     if (out.length > 0) rows.push({ kitId: k.kitId, name: k.name, problems: out });
   }
   return rows;
+}
+
+/** The worst state of some kit checks (ok when empty), and their counts (the kit editor's slot states and tally). */
+export function kitCheckTally(checks: readonly Pick<KitCheck, 'state'>[]): { state: KitCheckState; errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const c of checks) {
+    if (c.state === 'err') errors += 1;
+    else if (c.state === 'warn') warnings += 1;
+  }
+  return { state: errors > 0 ? 'err' : warnings > 0 ? 'warn' : 'ok', errors, warnings };
 }

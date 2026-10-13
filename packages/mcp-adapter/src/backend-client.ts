@@ -265,6 +265,11 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/textures/pack`, body);
   }
 
+  /** POST add an engine content pack (the Basic Kit) to the project as its own items, one undo step (`{ origin }`). */
+  addPack(projectId: string, packId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/packs/${encodeURIComponent(packId)}`, body);
+  }
+
   /** POST one staged library patch, or discard a stage (`{ stageId, discard: true }`). */
   stageScriptLibrary(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/libraries/stage`, body);

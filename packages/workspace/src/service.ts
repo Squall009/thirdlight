@@ -402,6 +402,29 @@ function buildService(core: Core): WorkspaceService {
     return checkExternalV4(core, s);
   }
 
+  /**
+   * Make the last `count` history entries one step: undo and redo take them
+   * together (the backend repeats the command over the entries that share a
+   * group). Used where one user action runs several commands (a content pack
+   * added). False when the project is not open or fewer entries are applied.
+   */
+  function groupHistory(projectId: string, count: number): boolean {
+    const s = core.sessions.get(projectId);
+    if (s === undefined || s.mode !== 'open' || count < 2 || count > s.history.cursor) return false;
+    const from = s.history.cursor - count;
+    const group = s.history.entries[s.history.cursor - 1]!.seq;
+    s.history = { ...s.history, entries: s.history.entries.map((e, i) => (i >= from && i < s.history.cursor ? { ...e, group } : e)) };
+    return true;
+  }
+
+  /** The history group of the entry undo would take next, and of the one redo would (null: none, or not grouped). */
+  function historyGroups(projectId: string): { undo: number | null; redo: number | null } {
+    const s = core.sessions.get(projectId);
+    if (s === undefined) return { undo: null, redo: null };
+    const { entries, cursor } = s.history;
+    return { undo: entries[cursor - 1]?.group ?? null, redo: entries[cursor]?.group ?? null };
+  }
+
   function scan(): ScanReport {
     const report = runScan(core);
     lastScanRef[0] = report;
@@ -636,6 +659,8 @@ function buildService(core: Core): WorkspaceService {
     close,
     flushed: whenFlushed,
     checkExternal,
+    groupHistory,
+    historyGroups,
     createProjectFrom: (projectId: string, name: string, source: ProjectSource) => createProjectFrom(core, projectId, name, source),
     registerProject,
     createProjectInFolder,

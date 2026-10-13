@@ -111,6 +111,7 @@ const DOCUMENT_KIND_OF: Readonly<Record<string, string>> = {
   dialogue: 'dialogue',
   timeline: 'timeline',
   behavior: 'script',
+  kit: 'kit',
 };
 
 /** Every document kind the editor window opens, with the item kind it edits (a visual script is a behavior shown as a graph). */

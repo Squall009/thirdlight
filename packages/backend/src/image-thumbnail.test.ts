@@ -1,12 +1,14 @@
 /**
  * A texture's tile thumbnail made on the server: a PNG or JPEG image scaled
  * down to fit the thumbnail edge, each pixel the mean of the pixels it
- * covers, written as a PNG the editor draws — and nothing for what is not
- * such an image.
+ * covers, written as a PNG the editor draws; a KTX2 imported as is
+ * transcoded first — and nothing for what is not such an image.
  */
 import { describe, expect, it } from 'vitest';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 import { ASSET_THUMBNAIL_EDGE } from '@thirdlight/project-model/limits';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
 import { encodeRgbaPng, makeImageThumbnail } from './image-thumbnail';
@@ -44,5 +46,13 @@ describe('image thumbnails', () => {
     const out = decodePngRgba((await makeImageThumbnail(image(16, 8, () => [1, 2, 3, 4])))!, { inflate });
     expect(out.ok && [out.png.width, out.png.height]).toEqual([16, 8]);
     expect(await makeImageThumbnail(new TextEncoder().encode('glTF not an image'))).toBeNull();
+  });
+
+  it('a KTX2 with no image of its own (the Basic Kit sheet\'s albedo) gets a thumbnail from its pixels', async () => {
+    const ktx2 = new Uint8Array(readFileSync(resolve(import.meta.dirname, '..', '..', '..', 'packs', 'basic-kit', 'assets', 'textures', 'basic-trim-albedo.ktx2')));
+    const out = decodePngRgba((await makeImageThumbnail(ktx2))!, { inflate });
+    expect(out.ok && [out.png.width, out.png.height]).toEqual([ASSET_THUMBNAIL_EDGE, ASSET_THUMBNAIL_EDGE]);
+    // The floor row's light grey tiles at the top, not an empty picture.
+    expect(out.ok && out.png.rgba[(10 * ASSET_THUMBNAIL_EDGE + 10) * 4]!).toBeGreaterThan(60);
   });
 });

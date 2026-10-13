@@ -15,6 +15,7 @@ import { VERTEX_PAINT_USES } from '../../session/vertex-paint-brush';
 import { BrushPanel } from '../brush/BrushPanel';
 import { NoiseMask } from '../brush/NoiseMask';
 import { Banner } from '../editmode/Banner';
+import { CheckRow } from '../editmode/CheckRow';
 import { Section } from '../editmode/controls';
 import { useEditStatus } from '../editmode/edit-status';
 import type { EditModeView } from '../editmode/modes';
@@ -68,15 +69,18 @@ export function StalePaintCheck({ vp }: { vp: VertexPaintSetup }): JSX.Element |
   const stale = vp.host.paint.stale;
   if (stale === null || stale.entityId !== vp.entity.id) return null;
   return (
-    <div className="tl-check tl-check--warn" role="alert" aria-label="stale vertex paint">
-      <div>
-        <b>Paint made for an earlier version of this model</b>
-        <p>{stale.message}</p>
-      </div>
-      <button type="button" className="tl-btn tl-btn--small" onClick={() => void vp.host.paint.removeStale()} title="Remove this mesh's old paint (one undo step); then it can be painted again">
-        Remove its stale paint
-      </button>
-    </div>
+    <CheckRow
+      state="warn"
+      role="alert"
+      aria="stale vertex paint"
+      title="Paint made for an earlier version of this model"
+      detail={stale.message}
+      action={
+        <button type="button" className="tl-btn tl-btn--small" onClick={() => void vp.host.paint.removeStale()} title="Remove this mesh's old paint (one undo step); then it can be painted again">
+          Remove its stale paint
+        </button>
+      }
+    />
   );
 }
 

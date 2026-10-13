@@ -150,8 +150,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       if (head === 'pack') {
         const added = await c.addPack(arg);
         if (!added.ok) return added.error.message;
-        // A pack's kit has the pack's id: shown in the Inspector.
+        // A pack's kit has the pack's id: it opens in the kit editor.
         inspect({ kind: 'kit', id: arg });
+        openDocument('kit', arg);
         return null;
       }
       const kind = head === 'graph-material' || head === 'trim-material' ? 'material' : head === 'animator-locomotion' ? 'animator' : head;

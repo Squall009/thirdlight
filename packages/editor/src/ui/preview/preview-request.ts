@@ -11,7 +11,7 @@
  * re-render without a change does not ask again.
  */
 import { createContext, useContext, useEffect } from 'react';
-import type { AnimatorController, DialogueDocument, EffectDef, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DialogueDocument, EffectDef, KitSlotPlacement, MaterialDef, TrimSheet, UiDocument, UiTheme } from '@thirdlight/project-model';
 import type { MaterialFunctionLike } from '@thirdlight/three-adapter';
 
 import type { DialogueDocumentProps } from '../dialogue/DialogueDocument';
@@ -31,6 +31,22 @@ export type PreviewRequest =
   | { readonly kind: 'timeline'; readonly timelineId: string }
   /** A conversation played by the game's dialogue UI over its scene; `selection` offers "from the selected node". */
   | { readonly kind: 'dialogue'; readonly dialogue: DialogueDocument; readonly selection: readonly string[]; readonly source: DialoguePreviewSource }
+  /**
+   * One piece of a kit slot in a sample wall or room wearing the kit's trim sheet (or alone), with the
+   * cell it should fill and where it draws; `onState` hears how it fits.
+   */
+  | {
+      readonly kind: 'kit-piece';
+      readonly kitId: string;
+      readonly slot: string;
+      readonly assetId: string;
+      readonly piece?: string;
+      readonly placement: KitSlotPlacement;
+      readonly sheet: { readonly materialId: string; readonly trim: TrimSheet } | null;
+      readonly mapping: Readonly<Record<string, string>> | null;
+      readonly materials: readonly MaterialDef[];
+      readonly functions: readonly MaterialFunctionLike[];
+    }
   /** A UI document at a resolution over its scene, fed with the editor's mock values. */
   | { readonly kind: 'ui'; readonly doc: UiDocument; readonly themes: readonly UiTheme[]; readonly mock: Record<string, unknown>; readonly size: { w: number; h: number }; readonly assets: PreviewAssets };
 
@@ -49,6 +65,8 @@ export function previewKey(r: PreviewRequest): string {
       return `dialogue:${r.dialogue.dialogueId}`;
     case 'ui':
       return `ui:${r.doc.uiDocumentId}`;
+    case 'kit-piece':
+      return `kit-piece:${r.kitId}:${r.slot}:${r.assetId}:${r.piece ?? ''}`;
   }
 }
 

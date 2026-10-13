@@ -158,6 +158,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.2 | Done 2026-10-13: a sheet-level `realHeight` (new sheets, layout imports; a checkbox for stored ones) draws fields at their own height (last repeat cut) and trims once (fitted within 5 %, else at their own height); block walls cut where the field row repeats; Snap to row on tied sliders, mismatches in the sheet's backend problems; `TRIM_SHEET_DEFAULTS` 2048²/512, spec rows. Meshing: 16² wall chunk 2.4–2.8 → 2.6–3.0 ms, worst case (every first-storey face cut) 0.75 → 1.93 ms; `block-world-uv` 6.7 + 6.7 → 6.4 + 6.3 s. |
 | 36.3 | Done 2026-10-13: `content.kits` (a resource kind, `<name>.kit.json`; editor-only: never loadable, not shipped), `setKit`/`deleteKit` (MCP, docs, reference), references as backend Problems (`kitProblems`), `kitId` on block layers and architecture (Inspector **Kit** picker), Create → Kit + kind icon (`kinds/kit.webp` 96², 3.1 KiB) + read-only kit summary in the Inspector; block-type/layer `kits` shown as **Themes** in UI and manual. vitest +8 (kits, commands, undo/redo); e2e: one Create row in `project-items` (no new file). |
 | 36.4 | Done 2026-10-13: `packs/basic-kit/` (engine content pack, built by `tools/build-basic-kit.mts`): sheet from the Texture Designer (`thirdlight/basic_kit_trim@4`, spec rows), material `basic-trim`, 6 presets (`basic-room`… baseboard 0.15625 m), 7 block types, door + window pieces, kit `basic-kit`; added by project window **Create → Basic Kit (ready-made)** / `POST …/packs/basic-kit` (ordinary commands). Download 2.62 MiB (target ≤ 4 MB). vitest +5 (`packs.test.ts`); e2e: a Basic Kit step in `block-world-uv` (auto variant 8.9 s in the fast gate, was 6.4 s; the per-renderer variants run in the full gate). Fast gate green (vitest 706 files, e2e 31, perf in limits). Asset numbers below. Owner look pending (screenshots `~/.cache/thirdlight-phase36/basic-kit/`). |
+| 36.5 | Done 2026-10-13: **Kit: <name>** editor-window tab (`ui/kit/`): slots with pictures and states (drop a GLB file or a model/piece; custom slots; weighted variants, piece of file, Replace via an in-editor model browser), trim sheet picker, picture (made from the sheet unless one is picked), notes, presets/block types with Open; the slot in the Inspector (variants, piece checks with a map-to-sheet fix, placement); the piece in a sample wall / room / alone in the preview pane (dashed cell box, red draw box, origin axes); the trim checker (row bounds and gutters over the sheet, rows table, spec checklist) and the spec page. One check module `project-model/kit-checks` (pieces from the GLB, sheet table + pixels) behind `GET …/kits/:id/check`, the kit Problems and `packs.test`. Basic Kit add = one undo/redo (history groups), MCP `tl_content_upload {addPack}`; "skyforge" gone from the pack. vitest +11; e2e: a kit step in `editor-window` (drop a corner-pivot door: origin fails; a centred one: passes) — that test 5.8 → 6.1 s in the fast gate (D253); `block-world-uv` closes the window the Basic Kit now opens (8.9 → 9.0 s). Fast gate green (vitest 708 files, e2e 36, perf in limits). Screenshots `~/.cache/thirdlight-phase36/kit-editor/` (owner look pending). |
 
 **Basic Kit asset numbers** (36.4):
 
@@ -385,3 +386,65 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     room from `basic-room` with the Basic door and two windows — the grid
     reads, walls show plaster over concrete, frames dark, glazing bars and
     pane visible. WebGL 2 only through the e2e's reads (SwiftShader).
+
+- 2026-10-13 (36.5) — The kit editor. Defaults chosen, owner to confirm:
+  - **Layout as the mockup, but the preview lives in the editor window's
+    one preview pane** (above the Inspector), not in the document's centre:
+    the pane is the shared preview path (one renderer, `usePreview`), so the
+    centre holds the trim checker (or the spec page) and the left column the
+    slots, sheet, picture and uses. The Inspector shows the picked slot (its
+    variants, piece checks, placement, the presets that place it) or a block
+    type. Owner look pending (`~/.cache/thirdlight-phase36/kit-editor/`).
+  - **One check module, run on the backend.** `project-model/kit-checks`
+    reads a piece's GLB (the collision reader's geometry with UV0, material
+    names and levels added) and checks origin at the bottom centre and sizes
+    against whole 1 m cells (2 cm tolerance), applied transforms, `_COL`,
+    LOD0–2, UV0 inside one row's inset bounds on the parts mapped to the
+    kit's sheet, no `COLOR_0` there; and a sheet's table (size/density,
+    gutters, standard slots at the spec's bounds, the 16 px grid, safe mip
+    level 4, the table's problems) and pixels (gutters repeating rows, seams,
+    height in A). 36.4's spec assertions in `packs.test` now call it. The
+    backend serves `GET …/kits/:kitId/check[?image=1]` (piece facts cached
+    per file digest, pixel checks per image digest and table) and adds each
+    piece's **errors** to the kit's Problems line. The sheet's pixels are read
+    when a kit is first opened and on **Check all**.
+  - **Severities:** err = draws wrong (origin, transform, UVs across rows or
+    gutters, a row off the 16 px grid, an image the wrong size); warn =
+    draws but not to the spec (size off the cells, no `_COL`, missing LODs,
+    vertex colours on the sheet, size/density/gutters, a standard slot
+    missing or moved, seams, no height); info = not checked and why (no
+    sheet, a model not mapped to the sheet — with a **Use the sheet** fix).
+  - **Seams:** a wrap's mean step is compared with the larger of the 95th
+    percentile of the row's own steps and its steps at ½ and ¼ of the
+    strip (the same place of any pattern whose repeat divides 4 m), so a
+    panel joint that falls on the edge (the Basic Kit's formwork) is not a
+    seam; flagged above 1.15×.
+  - **Where a slot's piece stands** is part of the standard slot table
+    (`KIT_STANDARD_SLOTS[].placement`): door an opening on the floor, window
+    an opening 1 m up, wall override and railing on the wall's line, the
+    rest (and custom slots) free. The size check and the sample wall read it.
+  - **Custom slots** are kept in the editor until a piece is dropped on them
+    (an empty slot is not stored, as 36.3 decided).
+  - **The kit's picture** is made from its trim sheet (the walls and floor,
+    nothing stored) unless a texture is picked (`thumbnail`). For that, and
+    for the trim checker's sheet, a texture that is only a KTX2 (the Basic
+    Kit's maps) now gets a backend tile thumbnail, transcoded.
+  - A dropped GLB file is published, then set (two undo steps); a model or
+    piece dropped from the project window or picked in the browser is one.
+  - **Block types:** Open shows a read-only summary in the Inspector; 36.6's
+    block editor edits them.
+  - **The Basic Kit is one undo step** (36.4's fix): the workspace tags the
+    pack's history entries as one group (`groupHistory`), and the command
+    route repeats an undo or redo over the rest of its group (each an
+    ordinary change on the feed; the answer is the last), for the editor and
+    MCP alike. MCP adds it with `tl_content_upload {addPack: "basic-kit"}`
+    (cheap: the route existed).
+  - **No game name in engine content** (36.4's fix): `pack.json`'s packing is
+    described ("albedo + height in A, normal, ORM (a shared packing of the
+    designer)"); `source/layout.json` drops `source.packing.name` (the
+    designer's library bookkeeping; the engine's layout import never reads
+    it) and the build strips it when it copies a new layout. Re-running the
+    build gives `pack.json` and both GLBs byte for byte.
+  - One **CheckRow** for every check (kit, trim checker, the decal atlas's
+    page warning, stale vertex paint).
+

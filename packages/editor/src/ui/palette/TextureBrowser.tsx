@@ -1,7 +1,8 @@
 /**
- * The project's textures as a grid of pictures with a search box — what an
- * edit mode offers where the project window is out of reach (it lies under
- * the mode). Each picture is the backend's thumbnail of the texture; the
+ * The project's textures (or models: `kinds`) as a grid of pictures with a
+ * search box — what an edit mode or the kit editor offers where the project
+ * window is out of reach (it lies under them). Each picture is the asset's
+ * tile thumbnail (a texture's from the backend, a model's drawn once); the
  * grid reads the project index page by page as it scrolls, so a project of
  * any size opens at once.
  *
@@ -24,9 +25,10 @@ const ROW = 92;
 /** Rows in view before the grid scrolls. */
 const ROWS_SHOWN = 3;
 
-export function TextureBrowser(p: { aria: string; value: string | null; onPick: (textureId: string) => void; thumbnails: TileThumbnails | null; autoFocus?: boolean }): JSX.Element {
+export function TextureBrowser(p: { aria: string; value: string | null; onPick: (textureId: string) => void; thumbnails: TileThumbnails | null; autoFocus?: boolean; kinds?: readonly string[]; noun?: string }): JSX.Element {
   const [text, setText] = useState('');
-  const list = useIndexList({ kinds: TEXTURE_KINDS, text, sort: 'name' });
+  const noun = p.noun ?? 'textures';
+  const list = useIndexList({ kinds: p.kinds ?? TEXTURE_KINDS, text, sort: 'name' });
   const total = list.total ?? 0;
   const rows = Math.ceil(total / COLS);
   return (
@@ -35,7 +37,7 @@ export function TextureBrowser(p: { aria: string; value: string | null; onPick: 
         className="tl-input"
         type="search"
         aria-label={`${p.aria} search`}
-        placeholder="Search textures"
+        placeholder={`Search ${noun}`}
         value={text}
         autoFocus={p.autoFocus}
         onChange={(e) => setText(e.target.value)}
@@ -54,7 +56,7 @@ export function TextureBrowser(p: { aria: string; value: string | null; onPick: 
         stride={ROW}
         overscan={2}
         onRange={(from, to) => list.need(from * COLS, to * COLS)}
-        empty={<div className="tl-picker__empty">{list.total === null ? 'loading…' : text === '' ? 'No textures in the project yet: import one in the project window.' : 'nothing matches'}</div>}
+        empty={<div className="tl-picker__empty">{list.total === null ? 'loading…' : text === '' ? `No ${noun} in the project yet: import one in the project window.` : 'nothing matches'}</div>}
         renderItem={(row) => (
           <div key={row} className="tl-texbrowser__row">
             {Array.from({ length: COLS }, (_x, c) => {

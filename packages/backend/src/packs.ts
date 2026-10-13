@@ -9,7 +9,8 @@
  * folder); the pack's own commands follow (`setMaterial`, `setGraph`,
  * `setBlockType`, `setKit`), then the models' material mappings
  * (`setAssetOptions`), which name the pack's materials.
- * Every command is an ordinary one on the change feed, undone on its own.
+ * Every command is an ordinary one on the change feed; together they are one
+ * history step (`groupHistory`), so one undo takes the whole pack out again.
  * The copies are the project's: an exported game carries their bytes like
  * any asset's, and the engine's pack itself never changes.
  *
@@ -135,8 +136,14 @@ export interface PackInstallerDeps {
 
 export function createPackInstaller(deps: PackInstallerDeps) {
   const { service } = deps;
-  /** Add pack `packId` to the project; stops at the first refused command (what ran before it stays, each undoable). */
+  /** Add pack `packId` to the project; stops at the first refused command (what ran before it stays, one undo step). */
   const add = (projectId: string, packId: string, origin: { kind: 'admin' | 'browser' | 'mcp'; clientId: string }): PackAddResult => {
+    const r = addCommands(projectId, packId, origin);
+    const ran = r.ok ? r.added.length : (r.added?.length ?? 0);
+    if (ran > 1) service.groupHistory(projectId, ran);
+    return r;
+  };
+  const addCommands = (projectId: string, packId: string, origin: { kind: 'admin' | 'browser' | 'mcp'; clientId: string }): PackAddResult => {
     if (deps.engineRoot === undefined) return { ok: false, status: 503, code: 'unavailable', message: 'packs need the engine root (THIRDLIGHT_ENGINE_ROOT)' };
     const loaded = loadPack(deps.engineRoot, packId);
     if (!loaded.ok) return { ok: false, status: 404, code: 'not_found', message: loaded.message };

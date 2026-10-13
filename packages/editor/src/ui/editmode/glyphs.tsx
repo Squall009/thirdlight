@@ -188,6 +188,7 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
     </>
   ),
   check: <path d="M4 12.5l5 5L20 6.5" />,
+  cross: <path d="M6 6l12 12M18 6L6 18" />,
   frame: (
     <>
       <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />

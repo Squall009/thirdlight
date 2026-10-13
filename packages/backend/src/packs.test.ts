@@ -2,24 +2,27 @@
  * The engine's Basic Kit pack, as files and over HTTP:
  *
  * - the pack resolves: `pack.json` reads, every file matches its digest;
- * - its trim sheet is made to the trim sheet spec: 2048² at 512 px/m, 8 px
- *   gutters, the spec's slots at the spec's pixel bounds (rows at their real
- *   height), a safe mip level of 4, KTX2 maps of the sheet's size (albedo in
- *   sRGB, normal and ORM linear), the albedo's gutters repeating its rows
- *   (within the compression's tolerance), a real height in A;
- * - the door and window GLBs have `<piece>_LOD0..2` and `<piece>_COL` at the
- *   file origin, collision parts, every level's trim UVs inside one row
- *   (u = metres ÷ 4, v within a row's inset bounds), origins at the bottom
- *   centre, and triangle budgets kept;
+ * - its trim sheet passes the trim sheet spec's checklist as the kit editor
+ *   runs it (project-model `trimSpecChecks`: size, density, gutters, the
+ *   standard slots at their bounds, safe mip level, gutters repeating their
+ *   rows within the compression's tolerance, no seams, height in A), with
+ *   KTX2 maps of the sheet's size (albedo sRGB, normal and ORM linear);
+ * - the door and window pass the kit's piece checks (`kitPieceChecks`:
+ *   origin at the bottom centre, transforms applied, whole cells, `_COL`,
+ *   LOD0..2, trim UVs inside one row, no vertex colours), within their
+ *   triangle budgets;
  * - `POST …/packs/basic-kit` adds it to a project as ordinary items (the
  *   assets published and inspected, the material, presets, block types and
- *   the kit), the kit's references all resolve, and a second add is refused.
+ *   the kit) as one undo (and redo) step, the kit's references all resolve,
+ *   a second add is refused, and the kit check (`GET …/kits/basic-kit/check`)
+ *   finds its pieces and sheet to the spec.
  */
 import { resolve } from 'node:path';
 
 import type { MaterialDef } from '@thirdlight/project-model';
 import { kitProblems } from '@thirdlight/project-model/kits';
-import { TRIM_STARTER_ROWS, trimPaddingProblems, trimRowV, trimSheetSafeMipLevel, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { kitPieceChecks, pieceFacts, trimSpecChecks, type KitCheckReport } from '@thirdlight/project-model/kit-checks';
+import { TRIM_STARTER_ROWS, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
@@ -36,23 +39,6 @@ const fileOf = (assetId: string): Uint8Array => FILES.get(PACK.assets.find((a) =
 const MATERIAL = (PACK.commands.find((c) => c.op === 'setMaterial')!.args['material'] as MaterialDef);
 const SHEET = MATERIAL.trim as TrimSheet;
 
-/** The JSON chunk and the binary chunk of a GLB. */
-function glbParts(bytes: Uint8Array): { json: Record<string, any>; bin: DataView } {
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const jsonLen = dv.getUint32(12, true);
-  const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLen))) as Record<string, any>;
-  const binStart = 20 + jsonLen + 8;
-  return { json, bin: new DataView(bytes.buffer, bytes.byteOffset + binStart, dv.getUint32(20 + jsonLen, true)) };
-}
-function accessorFloats(g: { json: Record<string, any>; bin: DataView }, index: number): number[] {
-  const a = g.json['accessors'][index];
-  const view = g.json['bufferViews'][a.bufferView];
-  const n = a.count * ({ SCALAR: 1, VEC2: 2, VEC3: 3 } as Record<string, number>)[a.type]!;
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(a.componentType === 5126 ? g.bin.getFloat32(view.byteOffset + i * 4, true) : g.bin.getUint16(view.byteOffset + i * 2, true));
-  return out;
-}
-
 describe('the Basic Kit pack', () => {
   it('resolves: listed, every file present with its digest, inside the download target', () => {
     expect(listPacks(REPO).map((p) => p.packId)).toContain('basic-kit');
@@ -63,17 +49,9 @@ describe('the Basic Kit pack', () => {
   });
 
   it('has a trim sheet made to the spec', async () => {
-    expect(SHEET.size).toEqual([2048, 2048]);
-    expect(SHEET.texelDensity).toBe(512);
-    expect(SHEET.padding).toBe(8);
     expect(SHEET.realHeight).toBe(true);
-    // The spec's slots at the spec's pixel bounds (the engine's starter rows are the spec's table).
+    // The engine's starter rows are the spec's table.
     for (const r of TRIM_STARTER_ROWS) expect(SHEET.rows.find((x) => x.slot === r.slot), r.slot).toEqual(r);
-    for (const r of SHEET.rows) {
-      expect((r.bottom - r.top) % 16, r.slot).toBe(0);
-      expect((r.top - 8) % 16, r.slot).toBe(0);
-    }
-    expect(trimSheetSafeMipLevel(SHEET)).toBe(4);
     for (const id of [MATERIAL.textures['map']!, MATERIAL.textures['normalMap']!, MATERIAL.textures['ormMap']!]) {
       const k = readKtx2(fileOf(id))!;
       expect([k.width, k.height], id).toEqual([2048, 2048]);
@@ -82,67 +60,23 @@ describe('the Basic Kit pack', () => {
     }
     const albedo = await decodeTextureRgba(fileOf(MATERIAL.textures['map']!), 2048 * 2048);
     if (!albedo.ok) throw new Error(albedo.message);
-    // Gutters repeat the rows (or a field's wrap) within what ETC1S moves.
-    expect(trimPaddingProblems(albedo.data, albedo.width, albedo.height, SHEET, 24)).toEqual([]);
-    // A real height in A per row: not opaque, not one value.
-    for (const r of SHEET.rows) {
-      let lo = 255;
-      let hi = 0;
-      for (let y = r.top; y < r.bottom; y += 4) for (let x = 0; x < 2048; x += 16) {
-        const a = albedo.data[(y * 2048 + x) * 4 + 3]!;
-        lo = Math.min(lo, a);
-        hi = Math.max(hi, a);
-      }
-      expect(hi - lo, `${r.slot} height range`).toBeGreaterThan(20);
-      expect(lo, `${r.slot} is not opaque`).toBeLessThan(255);
-    }
+    // The spec's checklist, as the kit editor runs it: gutters within what ETC1S moves.
+    const report = trimSpecChecks(SHEET, { rgba: albedo.data, width: albedo.width, height: albedo.height, tolerance: 24 });
+    expect(report.checks.filter((c) => c.state !== 'ok')).toEqual([]);
+    expect(report.rows.every((r) => r.state === 'ok')).toBe(true);
   });
 
   for (const [assetId, piece, budget] of [['basic-door', 'door', 500], ['basic-window', 'window', 400]] as const) {
-    it(`${piece}: levels, collision, UVs in the rows, origin at the bottom centre`, () => {
-      const bytes = fileOf(assetId);
-      const g = glbParts(bytes);
-      const names = (g.json['nodes'] as { name: string; translation?: number[]; rotation?: number[]; scale?: number[] }[]).map((n) => n.name);
-      expect(names).toEqual([`${piece}_LOD0`, `${piece}_LOD1`, `${piece}_LOD2`, `${piece}_COL`]);
-      for (const n of g.json['nodes']) expect(n.translation ?? n.rotation ?? n.scale, n.name).toBeUndefined();
-      // The collision mesh: closed boxes, one primitive (one convex part) each.
-      const col = g.json['meshes'][g.json['nodes'][3].mesh] as { primitives: { indices: number }[] };
-      expect(col.primitives.length).toBeGreaterThan(0);
-      for (const p of col.primitives) expect(g.json['accessors'][p.indices].count).toBe(36);
-      const rows = SHEET.rows.map((r) => trimRowV(SHEET, r));
-      const tris: number[] = [];
-      for (const [level, mesh] of (g.json['meshes'] as { primitives: { attributes: Record<string, number>; indices: number; material?: number }[] }[]).slice(0, 3).entries()) {
-        let n = 0;
-        let minX = Infinity;
-        let maxX = -Infinity;
-        let minY = Infinity;
-        for (const p of mesh.primitives) {
-          const idx = accessorFloats(g, p.indices);
-          n += idx.length / 3;
-          const pos = accessorFloats(g, p.attributes['POSITION']!);
-          for (let i = 0; i < pos.length; i += 3) {
-            minX = Math.min(minX, pos[i]!);
-            maxX = Math.max(maxX, pos[i]!);
-            minY = Math.min(minY, pos[i + 1]!);
-          }
-          if (g.json['materials'][p.material!].name !== 'trim') continue;
-          // Every triangle's v inside one row's inset bounds.
-          const uv = accessorFloats(g, p.attributes['TEXCOORD_0']!);
-          for (let t = 0; t < idx.length; t += 3) {
-            const vs = [0, 1, 2].map((k) => uv[idx[t + k]! * 2 + 1]!);
-            const inRow = rows.some(([a, b]) => vs.every((v) => v >= a - 1e-6 && v <= b + 1e-6));
-            expect(inRow, `${piece} LOD${level} triangle ${t / 3}: v ${vs.join(', ')}`).toBe(true);
-          }
-        }
-        tris.push(n);
-        // Bottom centre: one cell wide, centred on x, standing on y = 0.
-        expect(minX, `LOD${level}`).toBeCloseTo(-0.5, 5);
-        expect(maxX, `LOD${level}`).toBeCloseTo(0.5, 5);
-        expect(minY, `LOD${level}`).toBeCloseTo(0, 5);
-      }
-      expect(tris[0]).toBeLessThanOrEqual(budget);
-      expect(tris[1]).toBeLessThan(tris[0]!);
-      expect(tris[2]).toBeLessThanOrEqual(tris[1]!);
+    it(`${piece}: passes the kit's piece checks within its triangle budget`, () => {
+      const facts = pieceFacts(fileOf(assetId), piece);
+      const asset = PACK.assets.find((a) => a.assetId === assetId)!;
+      const checks = kitPieceChecks(facts, { slot: piece, sheet: { materialId: MATERIAL.materialId, trim: SHEET }, materials: asset.materials! });
+      expect(checks.filter((c) => c.state !== 'ok')).toEqual([]);
+      expect(checks.map((c) => c.id)).toEqual(['origin', 'transform', 'size', 'collision', 'lods', 'uvs', 'colour']);
+      expect(facts.lods).toEqual([0, 1, 2]);
+      expect(facts.triangles[0]).toBeLessThanOrEqual(budget);
+      expect(facts.triangles[1]).toBeLessThan(facts.triangles[0]!);
+      expect(facts.triangles[2]).toBeLessThanOrEqual(facts.triangles[1]!);
     });
   }
 });
@@ -180,8 +114,37 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(c['blockTypes'].length).toBe(7);
     expect(c['assets'].find((a: { assetId: string }) => a.assetId === 'basic-door').materials).toEqual({ trim: 'basic-trim' });
     expect(kitProblems(c as never)).toEqual([]);
+    // The whole pack is one undo step, and one redo.
+    const kitsNow = (): string[] => {
+      const read = tb.backend._test.service.readCapturedV3(P);
+      return read.ok ? ((read.read.content as unknown as { kits?: { kitId: string }[] }).kits ?? []).map((k) => k.kitId) : [];
+    };
+    const assetsNow = (): string[] => {
+      const read = tb.backend._test.service.readCapturedV3(P);
+      return read.ok ? ((read.read.content as unknown as { assets?: { assetId: string }[] }).assets ?? []).map((a) => a.assetId) : [];
+    };
+    const step = async (op: 'undo' | 'redo', expectedRevision: number, n: string): Promise<number> => {
+      const u = await post(`/api/v1/projects/${P}/commands`, { op, projectId: P, expectedRevision, requestId: `req-${n.repeat(32)}`, args: {} });
+      expect(u.status, JSON.stringify(u.json).slice(0, 300)).toBe(200);
+      return Number(u.json['revision']);
+    };
+    const undone = await step('undo', r.json['revision'], 'a');
+    expect(undone).toBe(r.json['revision'] + r.json['added'].length);
+    expect(kitsNow()).toEqual([]);
+    expect(assetsNow().filter((id) => id.startsWith('basic-'))).toEqual([]);
+    await step('redo', undone, 'b');
+    expect(kitsNow()).toEqual(['basic-kit']);
+    expect(assetsNow()).toContain('basic-door');
     const again = await post(`/api/v1/projects/${P}/packs/basic-kit`);
     expect(again.status).toBe(409);
     expect(again.json['error'].code).toBe('pack_present');
+    // The kit editor's check of it: both pieces and the sheet (its pixels read) meet the spec.
+    const check = await api(`${tb.authUrl}/api/v1/projects/${P}/kits/basic-kit/check?image=1`, { method: 'GET', token: tb.authToken, origin: null });
+    expect(check.status, JSON.stringify(check.json).slice(0, 300)).toBe(200);
+    const report = check.json as KitCheckReport;
+    expect(report.pieces.map((p) => [p.slot, p.piece, p.checks.filter((c) => c.state !== 'ok').map((c) => c.id)])).toEqual([['door', 'door', []], ['window', 'window', []]]);
+    expect(report.sheet?.imageRead).toBe(true);
+    expect(report.sheet?.report.checks.filter((c) => c.state !== 'ok')).toEqual([]);
+    expect((await api(`${tb.authUrl}/api/v1/projects/${P}/kits/nope/check`, { method: 'GET', token: tb.authToken, origin: null })).status).toBe(404);
   });
 });

@@ -44,6 +44,8 @@ export interface WorkspaceHostInput {
   sceneView: PreviewDeps['sceneView'];
   /** Renaming an item (the editor header's name). */
   items: WorkspaceHost['items'];
+  /** The kit editor's tab (its state is shared with the Inspector beside it). */
+  kit: WorkspaceHost['kit'];
 }
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
@@ -136,9 +138,9 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
     preview: {
       environment: shownEnvironment as unknown as PreviewDeps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
-      loadModel: async (assetId) => {
+      loadModel: async (assetId, piece) => {
         const r = await modelFilesRef.current?.prepared(assetId);
-        const made = r?.createInstance();
+        const made = r?.createInstance(piece !== undefined ? { piece } : {});
         if (made === undefined || !made.ok) return null;
         return { root: made.instance.root, dispose: () => void made.instance.dispose() };
       },
@@ -248,6 +250,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
         onError: setUiError,
       }),
     },
+    kit: input.kit,
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
     items: input.items,
   };

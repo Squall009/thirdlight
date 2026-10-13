@@ -669,7 +669,8 @@ export {
   type EffectSystem,
 } from './effects';
 // Kits (content.kits): a trim sheet, presets, block types and piece slots as one editor-side item.
-export { canonicalKit, canonicalKits, kitProblems, validateKit, validateKits, KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, type KitDef, type KitPiece, type KitProblemContent, type KitProblemRow } from './kits';
+export { canonicalKit, canonicalKits, kitCheckTally, kitProblems, kitSlotLabel, kitSlotPlacement, validateKit, validateKits, KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, type KitDef, type KitPiece, type KitProblemContent, type KitProblemRow, type KitSlotPlacement, type KitStandardSlot } from './kits';
+export { kitPieceChecks, pieceFacts, trimSpecChecks, TRIM_SPEC, type KitCheck, type KitCheckFix, type KitCheckReport, type KitCheckState, type KitPieceReport, type KitSheetReport, type PieceCheckContext, type PieceFacts, type SheetCheckReport, type SheetImage, type SheetRowView } from './kit-checks';
 // The camera framework's data (virtual cameras and camera paths).
 export {
   CAMERA_BLENDS,

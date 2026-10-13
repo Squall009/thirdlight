@@ -55,7 +55,7 @@ export const IDS = {
 const SHEET_SOURCE = {
   designer: 'art-factory Texture Designer',
   sheet: 'thirdlight/basic_kit_trim@4',
-  packing: 'shared/skyforge (albedo + height in A, normal, ORM)',
+  packing: 'albedo + height in A, normal, ORM (a shared packing of the designer)',
   note: 'Original content rendered from the shared library graphs (no downloaded or third-party textures).',
 };
 
@@ -92,7 +92,11 @@ async function encodeMaps(dir: string): Promise<void> {
     console.log(`  ${m.file}: ${width}×${height}, ${out.byteLength} B`);
   }
   mkdirSync(join(ROOT, 'source'), { recursive: true });
-  writeFileSync(join(ROOT, 'source', 'layout.json'), readFileSync(join(dir, 'layout.json')));
+  // The layout as the engine imports it; the packing's library name is the designer's own bookkeeping
+  // (it names the library entry it was saved under), which engine content does not carry.
+  const layout = JSON.parse(readFileSync(join(dir, 'layout.json'), 'utf8')) as { source?: { packing?: { name?: unknown } } };
+  delete layout.source?.packing?.name;
+  writeFileSync(join(ROOT, 'source', 'layout.json'), `${JSON.stringify(layout, null, 1)}\n`);
 }
 
 /* --------------------------------------------------------------- GLB --- */

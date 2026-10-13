@@ -16,6 +16,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import { PreviewRenderer } from '../../viewport/preview-renderer';
 import { AnimatorPreview } from './AnimatorPreview';
 import { EffectPreview } from './EffectPreview';
+import { KitPiecePreview } from './KitPiecePreview';
 import { MaterialPreview } from './MaterialPreview';
 import { DialoguePreview, TimelinePreview, UiDocumentPreview } from './ScenePreview';
 import { previewKey, type PreviewRequest } from './preview-request';
@@ -30,6 +31,7 @@ const TITLE: Record<PreviewRequest['kind'], string> = {
   timeline: 'timeline on its scene',
   dialogue: 'conversation on its scene',
   ui: 'UI document on its scene',
+  'kit-piece': 'kit piece in a sample wall',
 };
 
 /** Kinds shown on their scene (the Scene view's canvas, not the pane's own). */
@@ -68,6 +70,7 @@ export function PreviewPane({ request, deps }: { request: PreviewRequest | null;
           {request.kind === 'timeline' && <TimelinePreview renderer={renderer} request={request} deps={deps} />}
           {request.kind === 'dialogue' && <DialoguePreview renderer={renderer} request={request} deps={deps} />}
           {request.kind === 'ui' && <UiDocumentPreview renderer={renderer} request={request} deps={deps} />}
+          {request.kind === 'kit-piece' && <KitPiecePreview renderer={renderer} request={request} deps={deps} />}
         </div>
       )}
     </section>

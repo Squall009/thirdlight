@@ -6,6 +6,8 @@
  * Ctrl+Tab), remembered over a reload. Esc or × return to the default view
  * with the selection it had; undo, the change feed and MCP edits reach the
  * open editor. The default view's centre keeps the Scene and Game views only.
+ * A kit opens in the kit editor: a GLB dropped on a slot is imported and its
+ * piece checks fail or pass; the preview pane shows the piece.
  *
  * An object's edit mode (a terrain's) takes the same place: a double-click
  * (Hierarchy, Scene view) or the Inspector's Edit opens it over the work area
@@ -17,9 +19,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type Page } from './pw';
+import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
 import { skinnedGlb } from './skinned-glb';
 import { decodePng } from './png';
 import { makePng } from './png-make';
@@ -63,7 +66,7 @@ async function doubleClickItem(page: Page, kind: string, id: string): Promise<vo
 }
 
 test('items open in a window over the editor: editor left, the one Inspector right; tabs; Esc returns with the selection', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(180_000);
   // Neutral fixtures: two declared behaviors, an object to select and (below) a one-state animator controller.
   await cmd('publishBehavior', { behaviorId: 'mover', displayName: 'Mover', mode: 'declaration-create', declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 2 }] } });
   await cmd('publishBehavior', { behaviorId: 'door', displayName: 'Door', mode: 'declaration-create', declaration: { properties: [{ key: 'open', label: 'Open', type: 'boolean', default: false }] } });
@@ -231,7 +234,40 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect(editorWindow(page)).toHaveCount(0);
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
+
+  // ---- The kit editor: a kit opens in the window; a GLB dropped on its Door slot is imported and checked
+  // (its pivot at the base's corner: the origin check fails), a fixed file dropped in its place passes; the
+  // preview pane shows the piece in the sample wall.
+  await cmd('setKit', { kit: { kitId: 'town', name: 'Town' } });
+  await doubleClickItem(page, 'kit', 'town');
+  await expect(editorTab(page, 'Kit', 'Town')).toHaveAttribute('aria-selected', 'true');
+  const kitView = editorPane(page, 'Kit', 'Town');
+  const doorSlot = kitView.getByLabel('kit slots', { exact: true }).locator('[data-slot="door"]');
+  await expect(doorSlot).toContainText('Drop a GLB or a piece');
+  const door = (centred: boolean): Buffer => multiPieceGlb([{ name: 'door', lods: [[1, 2, 0.1], [1, 2, 0.1], [1, 2, 0.1]], col: [1, 2, 0.1] }], { centred });
+  await dropFile(page, doorSlot, 'door-corner.glb', door(false));
+  const origin = inspector(page).getByLabel('piece checks').locator('[data-check="origin"]');
+  await expect(origin).toHaveAttribute('data-state', 'err', { timeout: 30_000 });
+  await expect(origin).toContainText('0.50 m right (+X)');
+  await expect(doorSlot).toHaveAttribute('data-state', 'err');
+  await expect(kitView.getByLabel('kit problems')).toHaveAttribute('data-errors', '1');
+  await expect(page.getByLabel('preview canvas')).toHaveAttribute('data-subject', /^kit-piece:town:door/);
+  await dropFile(page, doorSlot, 'door.glb', door(true));
+  await expect(origin).toHaveAttribute('data-state', 'ok', { timeout: 30_000 });
+  await expect(doorSlot).toHaveAttribute('data-state', 'ok');
+  expect(((await query('queryGameConfig'))['kits'] as { kitId: string; pieces?: Record<string, { assetId: string }[]> }[]).find((k) => k.kitId === 'town')?.pieces?.['door']?.length).toBe(1);
 });
+
+/** Drop a file from the computer on an element (what dragging a file from the desktop does). */
+async function dropFile(page: Page, target: Locator, name: string, bytes: Buffer): Promise<void> {
+  const dataTransfer = await page.evaluateHandle(({ name, b64 }) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name, { type: 'model/gltf-binary' }));
+    return dt;
+  }, { name, b64: bytes.toString('base64') });
+  await target.dispatchEvent('dragover', { dataTransfer });
+  await target.dispatchEvent('drop', { dataTransfer });
+}
 
 // One backend for both: the default view's checks run on the same fresh editor before "Open" is used.
 test('the default view keeps the Scene and Game views and the maximize toggle; "Open" beside an Inspector reference opens the item in the window; Esc returns with the selection; a terrain\'s edit mode', async ({ page }) => {

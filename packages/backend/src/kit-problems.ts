@@ -6,14 +6,18 @@
  * never refused for a kit's sake; the kit's line in the project's problems
  * (`tl_diagnostics`, the editor's Problems) says what to fix instead.
  *
+ * A piece that fails the kit's piece checks with an error (its origin off
+ * the bottom centre, transforms not applied, UVs outside the sheet's rows:
+ * project-model `kit-checks`) is named on the same line.
+ *
  * Checked when the project loads and shortly after a change that can change
  * the answer; a kit's line is logged when it appears or changes.
  */
 import { kitProblems, type KitProblemContent, type KitProblemRow } from '@thirdlight/project-model/kits';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
-/** The change types that can change what a kit's references resolve to. */
-const RELEVANT = new Set(['setKit', 'setMaterial', 'setGraph', 'setBlockType', 'publishAsset', 'removeAsset', 'importAssets', 'importResources']);
+/** The change types that can change what a kit's references resolve to (or how its pieces check). */
+const RELEVANT = new Set(['setKit', 'setMaterial', 'setGraph', 'setBlockType', 'publishAsset', 'removeAsset', 'importAssets', 'importResources', 'setAssetOptions']);
 
 /** Problems named in one line (the count says how many). */
 const NAMED_PER_LINE = 4;
@@ -38,6 +42,8 @@ export function createKitProblemChecker(deps: {
   recordProblem: (projectId: string, code: string, message: string) => void;
   logStartup: (line: string) => void;
   closed: () => boolean;
+  /** Each kit's piece errors in plain words (kit-check.ts). */
+  pieceErrors?: (projectId: string) => ReadonlyMap<string, readonly string[]>;
 }): KitProblemChecker {
   /** Per project: kit → the line last logged. */
   const last = new Map<string, Map<string, string>>();
@@ -45,7 +51,13 @@ export function createKitProblemChecker(deps: {
   const check = (projectId: string): KitProblemRow[] | null => {
     const captured = deps.service.readCapturedV3(projectId);
     if (!captured.ok) return null;
-    const rows = kitProblems(captured.read.content as unknown as KitProblemContent);
+    const content = captured.read.content as unknown as KitProblemContent;
+    const pieces = deps.pieceErrors?.(projectId) ?? new Map<string, readonly string[]>();
+    const rows: KitProblemRow[] = kitProblems(content).map((r) => ({ ...r, problems: [...r.problems, ...(pieces.get(r.kitId) ?? [])] }));
+    for (const k of content.kits ?? []) {
+      const extra = pieces.get(k.kitId);
+      if (extra !== undefined && !rows.some((r) => r.kitId === k.kitId)) rows.push({ kitId: k.kitId, name: k.name, problems: [...extra] });
+    }
     const before = last.get(projectId);
     const now = new Map<string, string>();
     for (const row of rows) {

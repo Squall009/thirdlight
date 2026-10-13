@@ -1259,6 +1259,12 @@ export interface HistoryEntry {
   inverse: InverseSpec;
   /** The chunks and regions props' footprints changed with the command, before and after. */
   footprints?: import('./block-patch').BlockLayerPatch[];
+  /**
+   * Entries of one user action that ran several commands share a group (the
+   * `seq` of its last entry): undo and redo take them together. Set by the
+   * workspace after they ran.
+   */
+  group?: number;
   /** Components the project host wrote with the command (terrains shaped by splines, a spline's made mesh), before and after. */
   follows?: import('./follow-ops').ComponentFollow[];
   /**

@@ -51,6 +51,8 @@ import type { BlockLayers } from './useBlockLayers';
 import type { PlaySession } from './usePlaySession';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
+import { KitInspector } from '../kit/KitInspector';
+import type { KitEditor } from '../kit/useKitEditor';
 
 export interface InspectorDockProps {
   width: number;
@@ -92,6 +94,8 @@ export interface InspectorDockProps {
   assetActions: AssetActions;
   prefab: PrefabAuthoring;
   tileThumbnails: TileThumbnails | null;
+  /** The kit editor: while a kit's tab is in front, the Inspector shows what is picked in it. */
+  kit: KitEditor;
   /** Select one object (a block layer chosen in its tools). */
   select: (id: string) => void;
   /** The Scene view is in front (a block layer's tools are armed only then). */
@@ -163,7 +167,9 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
       : NO_KIT_NAMES;
   return (
     <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
-    {activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
+    {placement === 'window' && props.kit.kit !== null ? (
+      <KitInspector editor={props.kit} kit={props.kit.kit} graphs={graphs} blockTypes={props.blocks.blockTypes} thumbnails={props.tileThumbnails} onOpenGraph={(id) => props.openDocument('graph', id)} />
+    ) : activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
       <div className="tl-inspector" aria-label="animator inspector">
         <div className="tl-panel__title">Inspector</div>
         <AnimatorInspector

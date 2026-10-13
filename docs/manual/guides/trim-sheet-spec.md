@@ -274,6 +274,10 @@ material. Paint wetness and layers in the editor's
 
 ## Checklist
 
+The [kit editor](kit-editor.md) runs this list on a kit's sheet and pieces
+(items 7, 8 and 10 of the sheet's are for you to check: the engine cannot
+tell a normal map's convention or a channel's meaning from its pixels).
+
 A sheet:
 
 1. 2048 × 2048 (power-of-two sides), 512 px/m, one density.

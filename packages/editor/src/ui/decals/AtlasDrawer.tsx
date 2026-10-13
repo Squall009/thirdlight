@@ -20,6 +20,7 @@ import type { DecalPaletteEntry } from '../../session/decal-editor';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { Toggle } from '../editmode/controls';
 import { Glyph } from '../editmode/glyphs';
+import { CheckRow } from '../editmode/CheckRow';
 import type { SceneModeView } from '../editmode/modes';
 import { cropStyle, useLayerThumb } from '../palette/LayerPalette';
 
@@ -90,13 +91,7 @@ export function AtlasDrawer({ host }: SceneModeView): JSX.Element {
                 <Stat label="Unused" value={formatShare(report.unused)} sub="of page area" />
                 <Stat label="GPU memory" value={formatBytes(report.gpuBytes)} sub={`${report.maps} map${report.maps === 1 ? '' : 's'} · compressed`} />
                 {offender !== null && (
-                  <div className="tl-check tl-check--warn tl-atlas__check" role="note" aria-label="page size warning">
-                    <Glyph name="warn" size={16} />
-                    <div>
-                      <b>{offender.title}</b>
-                      <p>{offender.detail}</p>
-                    </div>
-                  </div>
+                  <CheckRow state="warn" className="tl-atlas__check" role="note" aria="page size warning" title={offender.title} detail={offender.detail} />
                 )}
                 {report.notes.map((n) => (
                   <p key={n} className="tl-atlas__note">

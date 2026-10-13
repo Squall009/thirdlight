@@ -15,7 +15,8 @@
     "./decal-clip-glb": "./src/decal-clip-glb.ts",
     "./layered-surface": "./src/layered-surface.ts",
     "./arch-style-rows": "./src/arch-style-rows.ts",
-    "./kits": "./src/kits.ts"
+    "./kits": "./src/kits.ts",
+    "./kit-checks": "./src/kit-checks.ts"
   },
   "sideEffects": false
 }

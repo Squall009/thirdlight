@@ -6,7 +6,7 @@
   "source": {
     "designer": "art-factory Texture Designer",
     "sheet": "thirdlight/basic_kit_trim@4",
-    "packing": "shared/skyforge (albedo + height in A, normal, ORM)",
+    "packing": "albedo + height in A, normal, ORM (a shared packing of the designer)",
     "note": "Original content rendered from the shared library graphs (no downloaded or third-party textures)."
   },
   "folder": "assets/basic-kit",

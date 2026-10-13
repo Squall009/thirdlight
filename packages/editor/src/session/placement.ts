@@ -112,6 +112,12 @@ export function parseAssetDrag(text: string): AssetDragPayload | null {
   }
 }
 
+/** An asset tile dropped here, when it is of `kind` (a drag that does not say its kind is taken). */
+export function assetDropOf(ev: { dataTransfer: { getData(type: string): string } }, kind: string): AssetDragPayload | null {
+  const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
+  return payload !== null && (payload.kind === undefined || payload.kind === kind) ? payload : null;
+}
+
 /** What the loaded file says about one piece. */
 export interface PieceFacts {
   name: string;
