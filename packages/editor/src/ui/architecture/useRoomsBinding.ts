@@ -15,6 +15,7 @@ import { ARCHITECTURE_PRESET_KIND, architectureGraphsOf, architectureStylesOf, a
 
 import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
+import { withPresetSwapped } from '../../session/room-draw';
 import { presetChoices } from './PresetSliders';
 import { waitFor } from '../wait-for';
 
@@ -119,24 +120,32 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     preview(entityId, next) {
       viewportRef.current?.previewComponent(entityId, 'architecture', next);
     },
-    async derive(base) {
-      const c = clientRef.current;
-      if (!c) return null;
-      const ids = new Set(graphs.map((g) => g.graphId));
-      let id = `${base}-1`;
-      for (let i = 2; ids.has(id); i++) id = `${base}-${i}`;
-      const name = `${presets.find(([p]) => p === base)?.[1] ?? base} (own)`;
-      const made = await c.command('setGraph', { graph: { graphId: id, kind: ARCHITECTURE_PRESET_KIND, name, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base, sheet: '' } }], edges: [] } } }, c.projection.revision);
-      reportFailure('Derive a preset', made);
-      if (!made.ok) return null;
-      // The rooms that wore the starter wear the new preset (its sliders are the project's).
-      const arch = roomsId === null ? undefined : (c.projection.getEntity(roomsId)?.components['architecture'] as ArchitectureComponent | undefined);
-      const swap = <T extends { preset: string; outside?: string }>(o: T): T => ({ ...o, ...(o.preset === base ? { preset: id } : {}), ...(o.outside === base ? { outside: id } : {}) });
-      if (arch !== undefined && roomsId !== null && [...(arch.outlines ?? []), ...(arch.buildings ?? [])].some((o) => o.preset === base || o.outside === base)) {
-        const r = await c.setComponent(roomsId, 'architecture', { ...arch, ...(arch.outlines !== undefined ? { outlines: arch.outlines.map(swap) } : {}), ...(arch.buildings !== undefined ? { buildings: arch.buildings.map(swap) } : {}) }, c.projection.revision);
-        reportFailure('Derive a preset', r);
-      }
-      return id;
-    },
+    derive: (base) => derivePreset(clientRef, graphs, presets, base, roomsId, reportFailure),
   };
+}
+
+/**
+ * A project preset deriving from `base` (an engine starter: its sliders
+ * read-only), worn in its place by every room of rooms object `roomsId`
+ * (null: none yet). Two commands: callers run it as one undo step.
+ * Resolves the new preset's id (null: refused).
+ */
+export async function derivePreset(clientRef: ClientRef, graphs: readonly GraphDocument[], presets: readonly (readonly [string, string])[], base: string, roomsId: string | null, reportFailure: ReportFailure): Promise<string | null> {
+  const c = clientRef.current;
+  if (!c) return null;
+  const ids = new Set(graphs.map((g) => g.graphId));
+  let id = `${base}-1`;
+  for (let i = 2; ids.has(id); i++) id = `${base}-${i}`;
+  const name = `${presets.find(([p]) => p === base)?.[1] ?? base} (own)`;
+  const made = await c.command('setGraph', { graph: { graphId: id, kind: ARCHITECTURE_PRESET_KIND, name, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base, sheet: '' } }], edges: [] } } }, c.projection.revision);
+  reportFailure('Derive a preset', made);
+  if (!made.ok) return null;
+  // The rooms that wore the starter wear the new preset (its sliders are the project's).
+  const arch = roomsId === null ? undefined : (c.projection.getEntity(roomsId)?.components['architecture'] as ArchitectureComponent | undefined);
+  const next = arch === undefined ? undefined : withPresetSwapped(arch, base, id);
+  if (arch !== undefined && next !== undefined && roomsId !== null && JSON.stringify(next) !== JSON.stringify(arch)) {
+    const r = await c.setComponent(roomsId, 'architecture', next, c.projection.revision);
+    reportFailure('Derive a preset', r);
+  }
+  return id;
 }

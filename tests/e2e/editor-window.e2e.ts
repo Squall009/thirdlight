@@ -252,10 +252,32 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   await expect(doorSlot).toHaveAttribute('data-state', 'err');
   await expect(kitView.getByLabel('kit problems')).toHaveAttribute('data-errors', '1');
   await expect(page.getByLabel('preview canvas')).toHaveAttribute('data-subject', /^kit-piece:town:door/);
+  type KitRow = { kitId: string; trimMaterial?: string; pieces?: Record<string, { assetId: string }[]> };
+  const town = async (): Promise<KitRow | undefined> => ((await query('queryGameConfig'))['kits'] as KitRow[]).find((k) => k.kitId === 'town');
+  const cornerDoor = (await town())?.pieces?.['door']?.[0]?.assetId;
   await dropFile(page, doorSlot, 'door.glb', door(true));
   await expect(origin).toHaveAttribute('data-state', 'ok', { timeout: 30_000 });
   await expect(doorSlot).toHaveAttribute('data-state', 'ok');
-  expect(((await query('queryGameConfig'))['kits'] as { kitId: string; pieces?: Record<string, { assetId: string }[]> }[]).find((k) => k.kitId === 'town')?.pieces?.['door']?.length).toBe(1);
+  expect((await town())?.pieces?.['door']?.length).toBe(1);
+  // The drop published the file and put it in the slot: one undo takes both back.
+  const centredDoor = (await town())?.pieces?.['door']?.[0]?.assetId;
+  expect(centredDoor).not.toBe(cornerDoor);
+  await cmd('undo', {});
+  await expect.poll(async () => (await town())?.pieces?.['door']?.[0]?.assetId).toBe(cornerDoor);
+  expect((await listAssets()).map((a) => a.assetId)).not.toContain(centredDoor);
+
+  // Swapping the kit's trim sheet re-points the kit's block types that wore the old one, in one undo step.
+  const trim = { size: [256, 256], texelDensity: 64, padding: 8, rows: [{ slot: 'floor', top: 8, bottom: 72, tileV: true }] };
+  for (const id of ['trim-a', 'trim-b']) await cmd('setMaterial', { material: { materialId: id, name: id === 'trim-a' ? 'Trim A' : 'Trim B', shader: 'trim', params: {}, textures: {}, trim } });
+  await cmd('setBlockType', { block: { blockId: 'town-wall', name: 'Town wall', variants: [{ color: '#ffffff' }], shape: 'full', materials: { '*': 'trim-a' } } });
+  await cmd('setKit', { kit: { ...(await town())!, trimMaterial: 'trim-a', blockTypes: ['town-wall'] } });
+  const wallMaterial = async (): Promise<string | undefined> => ((await query('queryGameConfig'))['blockTypes'] as { blockId: string; materials?: Record<string, string> }[]).find((t) => t.blockId === 'town-wall')?.materials?.['*'];
+  await kitView.getByLabel('kit trim sheet').selectOption('trim-b');
+  await expect.poll(wallMaterial).toBe('trim-b');
+  expect((await town())?.trimMaterial).toBe('trim-b');
+  await cmd('undo', {});
+  await expect.poll(wallMaterial).toBe('trim-a');
+  expect((await town())?.trimMaterial).toBe('trim-a');
 });
 
 /** Drop a file from the computer on an element (what dragging a file from the desktop does). */

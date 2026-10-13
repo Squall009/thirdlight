@@ -3,11 +3,11 @@
  * replaced, weighted and removed (an emptied slot leaves the kit), custom
  * slot names, and slot states from a check report.
  */
-import type { KitCheckReport, KitDef } from '@thirdlight/project-model';
+import type { BlockType, GraphDocument, KitCheckReport, KitDef } from '@thirdlight/project-model';
 import { KIT_LIMITS } from '@thirdlight/project-model/limits';
 import { describe, expect, it } from 'vitest';
 
-import { assignPiece, customSlotName, kitSlots, kitTally, removePiece, setPieceNode, setPieceWeight, slotState, withId } from './kit-edits';
+import { assignPiece, customSlotName, kitSheetSwap, kitSlots, kitTally, removePiece, setPieceNode, setPieceWeight, slotState, withId } from './kit-edits';
 
 const KIT: KitDef = { kitId: 'k', name: 'K', pieces: { door: [{ assetId: 'd1' }], 'shop-sign': [{ assetId: 's', piece: 'sign' }] } };
 
@@ -59,5 +59,18 @@ describe('kit edits', () => {
     expect(kitTally(report)).toEqual({ errors: 1, warnings: 1 });
     expect(withId(['a'], 'b', true)).toEqual(['a', 'b']);
     expect(withId(['a', 'b'], 'a', false)).toEqual(['b']);
+  });
+
+  it("swapping the kit's trim sheet re-points only its parts that wore the old one", () => {
+    const preset = (graphId: string, sheet: string): GraphDocument => ({ graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet } }], edges: [] } }) as GraphDocument;
+    const graphs = [preset('room', 'old'), preset('hall', ''), preset('other', 'old')];
+    const types = [{ blockId: 'wall', name: 'Wall', materials: { '*': 'old', top: 'grass' } }, { blockId: 'slab', name: 'Slab', materials: { '*': 'stone' } }, { blockId: 'loose', name: 'Loose', materials: { '*': 'old' } }] as unknown as BlockType[];
+    const kit: KitDef = { kitId: 'k', name: 'K', trimMaterial: 'old', presets: ['room', 'hall'], blockTypes: ['wall', 'slab'] };
+    const swap = kitSheetSwap(kit, 'old', 'new', graphs, types);
+    // The room names the old sheet: re-pointed; the hall follows its base; "other" is not the kit's.
+    expect(swap.presets).toEqual([{ graphId: 'room', ops: [{ op: 'setNodeData', id: 'preset', data: { style: '', base: 'starter-room', sheet: 'new' } }] }]);
+    // The wall's "*" slot wore it (its top keeps grass); the slab wears stone; "loose" is not the kit's.
+    expect(swap.blockTypes).toEqual([{ blockId: 'wall', name: 'Wall', materials: { '*': 'new', top: 'grass' } }]);
+    expect(kitSheetSwap(kit, 'old', 'old', graphs, types)).toEqual({ presets: [], blockTypes: [] });
   });
 });

@@ -221,6 +221,16 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect(view(page)).toHaveAttribute('data-room-hover', corner(192, -38).join(','));
   await page.mouse.up();
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-a', 'room-2:e2e-room-b']);
+  // Presets in use: Room A swapped for Room B on every room (the outlines kept), one undo takes it back.
+  const swap = rooms.getByLabel('swap presets');
+  await swap.getByLabel('rooms wearing').selectOption('e2e-room-a');
+  await swap.getByLabel('wear instead').selectOption('e2e-room-b');
+  const pointsBefore = JSON.stringify((await roomsObject())?.architecture.outlines?.map((o) => o.path.points));
+  await swap.getByRole('button', { name: 'Swap on 1 outline' }).click();
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-b', 'room-2:e2e-room-b']);
+  expect(JSON.stringify((await roomsObject())?.architecture.outlines?.map((o) => o.path.points))).toBe(pointsBefore);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-a', 'room-2:e2e-room-b']);
   await tool('Arch');
   const arch = (await screen(page, [190, 0, -34]))!;
   await page.mouse.click(arch.x, arch.y);

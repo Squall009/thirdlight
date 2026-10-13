@@ -19,8 +19,11 @@ import { MaterialMappingEditor } from '../material/MaterialInspector';
 import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
 import { GraphInspector } from '../../graph/GraphInspector';
-import { PresetSliders, presetSlidersHost } from '../architecture/PresetSliders';
-import { ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
+import { PresetSliders, presetChoices, presetSlidersHost } from '../architecture/PresetSliders';
+import { RoomsObjectSection } from '../architecture/RoomsObjectSection';
+import { derivePreset } from '../architecture/useRoomsBinding';
+import type { ArchitectureComponent } from '@thirdlight/project-model';
+import { ARCHITECTURE_MATERIAL_SLOT, ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
 import { behaviorPortContext } from '../../session/behavior-graph';
@@ -299,6 +302,20 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
   const { writeFootprint, snapLocal } = props.blocks;
+  // A rooms object drawn on no block layer edits its rooms' presets here (one on a layer: in its block editor).
+  const arch = selected?.components['architecture'] as ArchitectureComponent | undefined;
+  const layerless = arch !== undefined && (arch.layer === undefined || !entities.some((e) => e.id === arch.layer && e.components['blockLayer'] !== undefined));
+  const roomsSection = (() => {
+    if (selected === null || arch === undefined || !layerless) return null;
+    const graphs = props.content.graphs;
+    const host = presetSlidersHost(graphs, materials, (graphId, ops) => props.docCmds.sendGraphEdit({ kind: 'graph', id: graphId }, ops), (p: ArchitecturePreview | null) => void viewportRef.current?.previewArchitecture(p));
+    const mats = selected.components['materials'] as Readonly<Record<string, string>> | undefined;
+    const derive = (base: string): void => {
+      const c = clientRef.current;
+      if (c !== null) void c.grouped(() => derivePreset(clientRef, graphs, presetChoices(graphs), base, selected.id, reportFailure));
+    };
+    return <RoomsObjectSection component={arch} host={host} objectSheet={mats?.[ARCHITECTURE_MATERIAL_SLOT] ?? mats?.['*'] ?? null} onChange={(next) => void editComponent(selected.id, 'architecture', Object.fromEntries((['outlines', 'buildings'] as const).filter((k) => arch[k] !== undefined || next[k] !== undefined).map((k) => [k, next[k] ?? null])))} onDerive={derive} />;
+  })();
   return (
     <Inspector
       entity={selected}
@@ -384,6 +401,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
         selected === null
           ? {}
           : {
+              ...(roomsSection !== null ? { architecture: roomsSection } : {}),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">

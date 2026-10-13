@@ -6,7 +6,7 @@
  *
  * Pure: no DOM.
  */
-import type { KitCheckReport, KitCheckState, KitDef, KitPiece, KitPieceReport, KitSlotPlacement } from '@thirdlight/project-model';
+import type { BlockType, GraphDocument, GraphOp, KitCheckReport, KitCheckState, KitDef, KitPiece, KitPieceReport, KitSlotPlacement } from '@thirdlight/project-model';
 import { KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, kitCheckTally, kitSlotLabel, kitSlotPlacement } from '@thirdlight/project-model/limits';
 
 export interface KitSlotView {
@@ -122,4 +122,36 @@ export function kitPieceChoices(kit: KitDef | null, slots: readonly string[]): K
     }
   }
   return out;
+}
+
+/** What swapping a kit's trim sheet changes besides the kit: its presets' sheet and its block types' materials. */
+export interface KitSheetSwap {
+  /** Each preset of the kit that names the old sheet: the graph edit naming the new one. */
+  presets: { graphId: string; ops: GraphOp[] }[];
+  /** Each block type of the kit wearing the old sheet: the type wearing the new one in its place. */
+  blockTypes: BlockType[];
+}
+
+/**
+ * The kit's parts re-pointed from trim material `from` to `to`: a preset
+ * whose own head names `from` names `to` (a preset naming no sheet, or
+ * another, is left: it follows its base or the object), a block type's
+ * material slots holding `from` hold `to`. Only the kit's own presets and
+ * block types: parts it does not list keep their sheet.
+ */
+export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: readonly GraphDocument[], blockTypes: readonly BlockType[]): KitSheetSwap {
+  if (from === to) return { presets: [], blockTypes: [] };
+  const presets: KitSheetSwap['presets'] = [];
+  for (const id of kit.presets ?? []) {
+    const head = graphs.find((g) => g.graphId === id)?.graph.nodes.find((n) => n.type === 'preset');
+    if (head === undefined || head.data?.['sheet'] !== from) continue;
+    presets.push({ graphId: id, ops: [{ op: 'setNodeData', id: head.id, data: { ...head.data, sheet: to } }] });
+  }
+  const types: BlockType[] = [];
+  for (const id of kit.blockTypes ?? []) {
+    const t = blockTypes.find((b) => b.blockId === id);
+    if (t?.materials === undefined || !Object.values(t.materials).includes(from)) continue;
+    types.push({ ...t, materials: Object.fromEntries(Object.entries(t.materials).map(([slot, m]) => [slot, m === from ? to : m])) });
+  }
+  return { presets, blockTypes: types };
 }

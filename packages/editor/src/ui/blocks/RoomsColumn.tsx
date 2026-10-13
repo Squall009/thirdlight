@@ -13,6 +13,8 @@
  *   its slot's sill (`KIT_STANDARD_SLOTS`).
  * - **Rooms**: the list; the picked one is edited below it
  *   (`RoomInspector`).
+ * - **Presets in use**: every room wearing one preset swapped to another,
+ *   the outlines kept (`PresetSwap`).
  *
  * Browser-only (React).
  */
@@ -24,6 +26,7 @@ import { ARCHITECTURE_MATERIAL_SLOT } from '@thirdlight/runtime';
 import { blockModeOf } from '../../session/block-mode';
 import { kitPieceChoices, modelKey, type KitPieceChoice } from '../../session/kit-edits';
 import { allOutlines, isBuilding, openingPiece, type RoomToolMode, type RoomToolOptions } from '../../session/room-draw';
+import { PresetSwap } from '../architecture/PresetSwap';
 import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { SliderField } from '../brush/SliderField';
 import { Section } from '../editmode/controls';
@@ -187,6 +190,11 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
               </button>
             ))}
           </div>
+        </Section>
+      )}
+      {b !== undefined && outlines.length > 0 && (
+        <Section title="Presets in use">
+          <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
         </Section>
       )}
       {b !== undefined && room !== null && (

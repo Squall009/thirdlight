@@ -14,8 +14,9 @@
  *   or alone; the Inspector beside it the slot (its variants, piece checks,
  *   placement) or a block type.
  *
- * Every edit is one `setKit` (one undo step); a dropped GLB is published
- * first (its own step).
+ * Every edit is one undo step: one `setKit`; a dropped GLB published and put
+ * in its slot; a trim sheet swapped together with the kit's presets and
+ * block types that wore the old one.
  *
  * Browser-only (React).
  */
@@ -67,10 +68,12 @@ export async function dropOnSlot(ev: DragEvent, editor: KitEditor, kit: KitDef, 
   const tile = file === undefined ? assetDropOf(ev, 'model') : null;
   if (file === undefined && tile === null) return;
   ev.preventDefault();
-  const assetId = file !== undefined ? await editor.importModel(file) : tile!.assetId;
-  if (typeof assetId !== 'string') return;
-  editor.setPick({ kind: 'slot', slot, index: index ?? (kit.pieces?.[slot]?.length ?? 0) });
-  await editor.save(assignPiece(editor.kit ?? kit, slot, index, { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) }));
+  await editor.grouped(async () => {
+    const assetId = file !== undefined ? await editor.importModel(file) : tile!.assetId;
+    if (typeof assetId !== 'string') return;
+    editor.setPick({ kind: 'slot', slot, index: index ?? (kit.pieces?.[slot]?.length ?? 0) });
+    await editor.save(assignPiece(editor.kit ?? kit, slot, index, { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) }));
+  });
 }
 
 /** Whether a drag carries something a slot takes (a file, a model tile). */
@@ -196,7 +199,7 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
             )}
           </Section>
           <Section title="Trim sheet">
-            <SheetCard kit={kit} sheets={sheets} sheetDef={sheetDef} report={report} thumbnails={p.thumbnails} onPick={(id) => save(id === '' ? withoutKey(kit, 'trimMaterial') : { ...kit, trimMaterial: id })} onOpen={(id) => p.onOpen('material', id)} />
+            <SheetCard kit={kit} sheets={sheets} sheetDef={sheetDef} report={report} thumbnails={p.thumbnails} onPick={(id) => (id === '' ? save(withoutKey(kit, 'trimMaterial')) : void editor.swapSheet(kit, id))} onOpen={(id) => p.onOpen('material', id)} />
           </Section>
           <Section title="Picture and notes" open={false}>
             <PictureCard kit={kit} albedo={(sheetDef?.textures['map'] as string | undefined) ?? null} thumbnails={p.thumbnails} onSave={save} />
@@ -310,6 +313,7 @@ function SheetCard(p: { kit: KitDef; sheets: readonly MaterialDef[]; sheetDef: M
           </option>
         ))}
       </select>
+      {p.kit.trimMaterial !== undefined && <p className="tl-hint">Another sheet here also goes on the kit's presets and block types that wear this one (one undo): the rooms and blocks keep their shapes.</p>}
     </div>
   );
 }

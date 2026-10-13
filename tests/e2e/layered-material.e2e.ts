@@ -591,6 +591,18 @@ async function styledArchitecture(page: Page, trimId: string): Promise<void> {
   await expect.poll(async () => (await outlineNow()).preset, { timeout: 15_000 }).toBe('starter-hall');
   expect((await outlineNow()).path).toEqual({ points: [[150, 0, -80], [158, 0, -80], [158, 0, -74], [150, 0, -74]], closed: true });
   await leaveEditMode(page);
+  // The walls are drawn on no layer: their Inspector lists the outlines' presets and swaps one for another on all
+  // of them (C → B on the last two), one undo taking it back for the picture's reads.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${walls}"]`).click();
+  const wallsRooms = inspector(page).getByLabel('architecture rooms');
+  await expect(wallsRooms.getByLabel('w4 (path)')).toHaveValue('e2e-c');
+  const wallPresets = async (): Promise<string[]> => ((await query('queryEntity', { entityId: walls }))['entity'] as { components: { architecture: { outlines: { preset: string }[] } } }).components.architecture.outlines.map((o) => o.preset);
+  await wallsRooms.getByLabel('rooms wearing').selectOption('e2e-c');
+  await wallsRooms.getByLabel('wear instead').selectOption('e2e-b');
+  await wallsRooms.getByRole('button', { name: 'Swap on 2 outlines' }).click();
+  await expect.poll(wallPresets, { timeout: 15_000 }).toEqual(['e2e-a', 'e2e-a', 'e2e-a', 'e2e-a', 'e2e-b', 'e2e-b']);
+  await page.keyboard.press('Control+z');
+  await expect.poll(wallPresets, { timeout: 15_000 }).toEqual(['e2e-a', 'e2e-a', 'e2e-a', 'e2e-a', 'e2e-c', 'e2e-c']);
 }
 const variants = new WeakMap<Page, string>();
 const variantOf = (page: Page): string => variants.get(page) ?? '';

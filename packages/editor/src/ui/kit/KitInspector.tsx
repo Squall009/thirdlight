@@ -71,8 +71,10 @@ function SlotInspector(p: KitInspectorProps & { slot: string; index: number }): 
     ev.target.value = '';
     setAnchor(null);
     if (f === undefined) return;
-    void editor.importModel(f).then((id) => {
-      if (typeof id === 'string') save(assignPiece(editor.kit ?? kit, slot, at, { assetId: id }));
+    // Published and put in the slot: one undo step.
+    void editor.grouped(async () => {
+      const id = await editor.importModel(f);
+      if (typeof id === 'string') await editor.save(assignPiece(editor.kit ?? kit, slot, at, { assetId: id }));
     });
   };
   const tally = report === undefined ? null : { errors: report.checks.filter((c) => c.state === 'err').length, warnings: report.checks.filter((c) => c.state === 'warn').length };

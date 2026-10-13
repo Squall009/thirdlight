@@ -2,8 +2,9 @@
  * The kit editor's state and actions, shared by the kit's document tab and
  * the Inspector beside it: which kit is in front, what is picked in it (a
  * slot and one of its variants, or a block type), the backend's check of it
- * against the trim sheet spec, and the edits — each one `setKit` (one undo
- * step), a dropped GLB published first (its own step), a fix one command.
+ * against the trim sheet spec, and the edits — each one undo step: one
+ * `setKit`, a dropped GLB published and put in its slot, a trim sheet
+ * swapped with the presets and block types that wore the old one, a fix.
  *
  * The check is asked again shortly after the kit (or anything its pieces
  * read) changes; the sheet's pixels are read when a kit is first opened and
@@ -15,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KitCheckReport, KitDef } from '@thirdlight/project-model';
 
 import { activeDoc, type WorkspaceState } from '../../session/editor-window';
+import { kitSheetSwap } from '../../session/kit-edits';
 import { mergeDocumentEdit } from '../../session/own-commands';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import { refusal, type ClientRef } from '../shell/commands';
@@ -37,6 +39,13 @@ export interface KitEditor {
   checkAll: () => void;
   /** Store the kit as `next` (one `setKit`); resolves with a refusal or null. */
   save: (next: KitDef) => Promise<string | null>;
+  /**
+   * The kit's trim sheet swapped for `to`: the kit, and its presets and block types that wore the old sheet
+   * (`kitSheetSwap`), in one undo step.
+   */
+  swapSheet: (kit: KitDef, to: string) => Promise<void>;
+  /** Run an action whose commands are one undo step (a dropped GLB published, then put in its slot). */
+  grouped: <T>(action: () => Promise<T>) => Promise<T>;
   /** Publish a dropped GLB as a model asset; its id, or why not. */
   importModel: (file: File) => Promise<string | { message: string }>;
   /** Map a model's source material to a material (one `setAssetOptions`, the rest of its map kept). */
@@ -134,10 +143,33 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     [clientRef],
   );
 
+  const grouped = useCallback(<T,>(action: () => Promise<T>): Promise<T> => (clientRef.current !== null ? clientRef.current.grouped(action) : action()), [clientRef]);
+
+  const swapSheet = useCallback(
+    async (target: KitDef, to: string) => {
+      const c = clientRef.current;
+      if (c === null) return;
+      const from = target.trimMaterial;
+      const parts = from === undefined ? { presets: [], blockTypes: [] } : kitSheetSwap(target, from, to, c.getGraphs(), c.getBlockTypes());
+      await c.grouped(async () => {
+        if ((await save({ ...target, trimMaterial: to })) !== null) return;
+        for (const g of parts.presets) {
+          const err = refusal(await c.command('graphEdit', { owner: { kind: 'graph', id: g.graphId }, ops: g.ops }, c.projection.revision));
+          if (err !== null) return setError(err);
+        }
+        for (const block of parts.blockTypes) {
+          const err = refusal(await c.command('setBlockType', { block }, c.projection.revision));
+          if (err !== null) return setError(err);
+        }
+      });
+    },
+    [clientRef, save],
+  );
+
   const pick = kitId === null ? null : (picks[kitId] ?? null);
   const setPick = useCallback((p: KitPick | null) => {
     if (kitId !== null) setPicks((m) => ({ ...m, [kitId]: p }));
   }, [kitId]);
 
-  return { kitId, kit, pick, setPick, report: report !== null && report.kitId === kitId ? report : null, checking, checkAll, save, importModel, mapMaterial, busy, error };
+  return { kitId, kit, pick, setPick, report: report !== null && report.kitId === kitId ? report : null, checking, checkAll, save, swapSheet, grouped, importModel, mapMaterial, busy, error };
 }

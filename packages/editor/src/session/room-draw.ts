@@ -163,6 +163,33 @@ export function withOutlineSet(c: ArchitectureComponent, id: string, next: Archi
   return outlines.length > 0 ? { ...rest, outlines } : rest;
 }
 
+/** The presets a component's rooms, runs and buildings wear (inside, outside or facade), each with how many outlines wear it, in first-use order. */
+export function presetUses(c: ArchitectureComponent | null): { preset: string; outlines: number }[] {
+  const counts = new Map<string, number>();
+  for (const o of allOutlines(c)) for (const p of new Set([o.preset, ...(o.outside !== undefined ? [o.outside] : [])])) counts.set(p, (counts.get(p) ?? 0) + 1);
+  return [...counts].map(([preset, outlines]) => ({ preset, outlines }));
+}
+
+/**
+ * Every room, run and building wearing preset `from` (inside, outside or
+ * facade) wears `to` instead; the outlines, openings and pieces stay as they
+ * are — the "swap the style, keep the plan" edit, one component value so one
+ * command. Unchanged when nothing wears `from`.
+ */
+export function withPresetSwapped(c: ArchitectureComponent, from: string, to: string): ArchitectureComponent {
+  if (from === to) return c;
+  const swap = <T extends ArchitectureOutline>(o: T): T => {
+    if (o.preset !== from && o.outside !== from) return o;
+    const next: T = { ...o, ...(o.preset === from ? { preset: to } : {}) };
+    if (o.outside === from) next.outside = to;
+    return next;
+  };
+  const out: ArchitectureComponent = { ...c };
+  if (c.outlines !== undefined) out.outlines = c.outlines.map(swap);
+  if (c.buildings !== undefined) out.buildings = c.buildings.map(swap);
+  return out;
+}
+
 /** A straight side of an outline: its index, ends, and the distance along the outline to its start. */
 export interface OutlineSide {
   outline: ArchitectureOutline;

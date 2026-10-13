@@ -4,7 +4,7 @@ import { architectureOpeningEdges, architectureWallEdges, cellKeyOf } from '@thi
 
 import { architectureStylesOf, ARCHITECTURE_STARTER_GRAPHS, expandArchitecture } from '@thirdlight/runtime';
 
-import { groundArea2, moveWall, nearestCorner, nearestSegment, nearestSide, nextOutlineId, openingOn, openingPiece, outlineOfElement, overridesOf, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOverride } from './room-draw';
+import { groundArea2, moveWall, nearestCorner, nearestSegment, nearestSide, nextOutlineId, openingOn, openingPiece, outlineOfElement, overridesOf, presetUses, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOverride, withPresetSwapped } from './room-draw';
 import { kitPieceChoices, modelKey } from './kit-edits';
 
 const CELL = [1, 1, 1];
@@ -163,5 +163,22 @@ describe('kit pieces in rooms', () => {
     expect(kitPieceChoices(kit, ['door', 'window']).map((c) => [c.slot, c.key])).toEqual([['door', 'a#door'], ['window', 'b']]);
     expect(kitPieceChoices(null, ['door'])).toEqual([]);
     expect(modelKey({ assetId: 'b' })).toBe('b');
+  });
+
+  it('swaps one preset for another on every room, run and building, the outlines kept', () => {
+    const path = { points: [[0, 0, 0], [4, 0, 0], [4, 0, 4]] as [number, number, number][], closed: true };
+    const c: ArchitectureComponent = {
+      elements: [],
+      outlines: [{ id: 'a', preset: 'stone', path, openings: [{ id: 'door-1', at: 1, width: 1, bottom: 0, top: 2 }] }, { id: 'b', preset: 'wood', outside: 'stone', path }, { id: 'fence', preset: 'rail', path: { ...path, closed: false } }],
+      buildings: [{ id: 'house', preset: 'wood', outside: 'stone', path, roof: { shape: 'hip' } }],
+    };
+    expect(presetUses(c)).toEqual([{ preset: 'stone', outlines: 3 }, { preset: 'wood', outlines: 2 }, { preset: 'rail', outlines: 1 }]);
+    const next = withPresetSwapped(c, 'stone', 'brick');
+    expect(next.outlines!.map((o) => [o.preset, o.outside])).toEqual([['brick', undefined], ['wood', 'brick'], ['rail', undefined]]);
+    expect(next.buildings![0]).toMatchObject({ preset: 'wood', outside: 'brick', roof: { shape: 'hip' } });
+    // The plan stays: paths and openings are the same values.
+    expect(next.outlines![0]!.path).toBe(path);
+    expect(next.outlines![0]!.openings).toEqual(c.outlines![0]!.openings);
+    expect(presetUses(next).map((u) => u.preset)).toEqual(['brick', 'wood', 'rail']);
   });
 });
