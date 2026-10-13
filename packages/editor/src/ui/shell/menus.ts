@@ -48,6 +48,8 @@ export interface EditorMenuInput {
   openProjectSettings: () => void;
   /** Open a floating tool window over the Scene view (or bring it to the front). */
   showToolWindow: (id: ToolWindowId) => void;
+  /** Window → Decals: the decal editor (a scene's edit mode). */
+  openDecals: () => void;
   /** GameObject → Create prefab from selection. */
   createPrefabFromSelection: () => void;
   /** GameObject → Block layer (a new layer, selected so its tools show). */
@@ -61,7 +63,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
   const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -235,6 +237,8 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         'separator',
         // Scene settings float over the Scene view (it previews them): the editor window steps aside.
         ...TOOL_WINDOWS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => showToolWindow(t.id) })),
+        // The decal editor takes the work area over (a scene's edit mode on the Scene view).
+        { label: 'Decals', onSelect: openDecals },
         'separator',
         // A tool window shows in the default view: the editor window steps aside.
         ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => { workspaceDispatch({ type: 'show', on: false }); setBottomTab(t.id); } })),

@@ -18,7 +18,7 @@ import { SettingsColumn } from '../terrain/SettingsMode';
 import { StackColumn } from '../terrain/StackMode';
 import type { TerrainColumnProps } from '../terrain/terrain-column';
 import { TilesColumn } from '../terrain/TilesMode';
-import type { EditModeKind } from './modes';
+import type { ObjectEditModeKind } from './modes';
 
 /**
  * How much ground the view spans on entering the terrain editor (metres): a
@@ -57,7 +57,7 @@ const COLUMNS: Readonly<Record<TerrainModeId, (p: TerrainColumnProps) => JSX.Ele
   settings: SettingsColumn,
 };
 
-export const terrainMode: EditModeKind = {
+export const terrainMode: ObjectEditModeKind = {
   kind: 'terrain',
   label: 'Terrain editor',
   action: 'Edit terrain',

@@ -1,5 +1,5 @@
 /**
- * The Window menu's floating tool windows (Lighting, Environment, Decals): which are
+ * The Window menu's floating tool windows (Lighting, Environment): which are
  * open, in which order they stack, and where each stands, remembered per
  * browser like the dock sizes (presentation only, never project data).
  *
@@ -9,17 +9,13 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 
-export type ToolWindowId = 'lighting' | 'environment' | 'decals';
+export type ToolWindowId = 'lighting' | 'environment';
 
 /** The tool windows in the order the Window menu lists them. */
 export const TOOL_WINDOWS: ReadonlyArray<{ id: ToolWindowId; label: string }> = [
   { id: 'lighting', label: 'Lighting' },
   { id: 'environment', label: 'Environment' },
-  { id: 'decals', label: 'Decals' },
 ];
-
-/** Windows that arm a Scene view tool while open: never reopened by a reload (the tool would take the next click unasked). */
-const ARMS_A_TOOL: readonly ToolWindowId[] = ['decals'];
 
 /** A window's box in the work area (px from its top-left corner). */
 export interface ToolWindowPlace {
@@ -57,7 +53,7 @@ function load(): Stored {
   try {
     const v = JSON.parse(window.localStorage.getItem(KEY) ?? 'null') as { open?: unknown; places?: unknown } | null;
     if (v === null) return { open: [], places: {} };
-    const open = Array.isArray(v.open) ? [...new Set(v.open.filter(isId))].filter((id) => !ARMS_A_TOOL.includes(id)) : [];
+    const open = Array.isArray(v.open) ? [...new Set(v.open.filter(isId))] : [];
     const places: Stored['places'] = {};
     if (typeof v.places === 'object' && v.places !== null) {
       for (const [k, p] of Object.entries(v.places as Record<string, unknown>)) {

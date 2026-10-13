@@ -619,7 +619,7 @@ export class RenderGraph {
       const part: Part = { object: o, owner: sub, root, offset, gates, listed: false, hidden: false, hiddenAbove: above, matrixAutoUpdate: o.matrixAutoUpdate, matrixWorldAutoUpdate: o.matrixWorldAutoUpdate, posed };
       // Placed (static, loose) or posed by its hierarchy (animated): either way the scene's own matrix walks
       // (the renderer's, the batcher's, the texture streamer's) have nothing to compose for it. A posed part
-      // left to them was composed again on every walk (Skyforge's village: ~170 character parts, 1–2 walks a frame).
+      // left to them was composed again on every walk (a village-sized level with ~170 character parts: 1–2 walks a frame).
       o.matrixAutoUpdate = false;
       o.matrixWorldAutoUpdate = false;
       // Posed by its hierarchy every frame: its shadow is drawn every frame, never cached.

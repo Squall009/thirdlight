@@ -176,7 +176,8 @@ function prepare(deps: BakeDeps, lightModes: readonly ('baked' | 'mixed')[]): Pr
 }
 
 /**
- * Publish one baked file as a texture asset: a new version of `reuse` when
+ * Publish one image file (a bake's atlas, an image dropped on the decal
+ * editor's palette) as a texture asset: a new version of `reuse` when
  * that asset still exists (a re-bake), else a new asset. Its asset id, or why
  * it failed (`what` names the file in the message).
  */

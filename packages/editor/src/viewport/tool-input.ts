@@ -17,13 +17,12 @@ import * as THREE from 'three';
 import type { InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { commitValue, type HandleShape } from '../session/handles';
-import type { DecalToolSettings } from '../session/decal-place';
 import type { BrushStore } from '../session/brush';
 import type { HelperOverlay } from './helper-overlay';
 import { InstanceBrushTool, type InstanceBrushDeps } from './instance-brush';
 import { BlockEditor, type BlockEditorCallbacks, type BlockEditorHost } from './block-editor';
 import { TerrainEditor, type TerrainEditorCallbacks, type TerrainEditorHost } from './terrain-editor';
-import { DecalTool, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
+import { DecalTool, type DecalArm, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
 import { VertexPaintTool, type VertexPaintArm, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
 
 /** A pointer that moved less than this (px) between down and up is a click. */
@@ -207,10 +206,13 @@ export class ViewportTools {
     const decalCb = (): DecalToolCallbacks | null => this.decalCb;
     this.decal = new DecalTool(host.decal, {
       place: (args) => decalCb()?.place(args) ?? Promise.resolve(null),
-      turn: (id, t) => decalCb()?.turn(id, t) ?? Promise.resolve(false),
+      placeMany: (items) => decalCb()?.placeMany(items) ?? Promise.resolve(null),
+      transform: (id, t) => decalCb()?.transform(id, t) ?? Promise.resolve(false),
       resize: (id, d) => decalCb()?.resize(id, d) ?? Promise.resolve(false),
+      select: (ids, primary) => decalCb()?.select(ids, primary),
+      remove: (ids) => decalCb()?.remove(ids),
       refused: (m) => decalCb()?.refused(m),
-    });
+    }, CLICK_SLOP_PX);
     this.paint = new VertexPaintTool(host.paint, { stroke: (args) => this.paintCb?.stroke(args) ?? Promise.resolve({ ok: false, message: 'the Scene view is not connected' }), refused: (m) => this.paintCb?.refused(m) });
     this.router = new ToolRouter({ canvas: () => host.canvas(), setOrbit: (on) => (host.orbit.enabled = on) }, [this.paintTool(), this.blockTool(), this.terrainTool(), this.decalTool(), this.handleTool(), this.brushTool()], ['block', 'terrain', 'handles', 'brush', 'decal', 'paint']);
   }
@@ -255,10 +257,10 @@ export class ViewportTools {
     this.host.reselect();
   }
 
-  /** The Decal tool armed with these settings in `sceneId`, its edits sent through `cb` (null: off). */
-  setDecalTool(settings: DecalToolSettings | null, sceneId: string | null, cb: DecalToolCallbacks | null): void {
+  /** The decal editor's tool armed (null: off), its edits sent through `cb`. */
+  setDecalTool(arm: DecalArm | null, cb: DecalToolCallbacks | null): void {
     this.decalCb = cb;
-    this.decal.arm(settings, sceneId);
+    this.decal.arm(arm);
     this.host.reselect();
     this.host.requestRender();
   }
@@ -349,17 +351,15 @@ export class ViewportTools {
     return {
       name: 'decal',
       armed: () => d.armed(),
-      // The turn and size grips (a press elsewhere may still be its click that places).
-      pointerDown: (e) => (d.pointerDown(e) ? 'capture' : null),
+      // Grips, a scatter stroke, a select press or box (a press in Place may still be its click that places).
+      pointerDown: (e) => d.pointerDown(e),
       pointerMove: (e) => d.pointerMove(e),
-      pointerUp: (e) => (d.dragging() && d.pointerUp(e, CLICK_SLOP_PX) === 'drag' ? 'stop' : null),
-      // A click places a decal (it picks nothing); its press also went to the orbit controls.
-      click: (e) => {
-        const r = d.pointerUp(e, CLICK_SLOP_PX);
-        return r === null ? null : r === 'drag' ? 'stop' : 'pass';
-      },
+      pointerUp: (e) => (d.dragging() && d.pointerUp(e) ? 'stop' : null),
+      // A click in Place places a decal; its press also went to the orbit controls.
+      click: (e) => (d.click(e) ? 'pass' : null),
       leave: () => d.leave(),
       cancel: () => d.cancel(),
+      key: (e) => d.key(e),
     };
   }
 

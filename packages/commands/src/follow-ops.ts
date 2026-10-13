@@ -1,8 +1,9 @@
 /**
  * Components written because of a command, in the same transaction: a
  * terrain shaped again by the splines the command added, moved, changed or
- * removed, a spline's made mesh and pieces (the project host's), and a baked
- * decal's object turning into a model of the baked file (the publish's own).
+ * removed, a spline's made mesh and pieces (the project host's), a baked
+ * decal's object turning into a model of the baked file (the publish's own),
+ * and the further objects of a `setComponent` given several (its own).
  *
  * The host plans its follow-ups after the command's own change (it reads and
  * publishes blobs, which the pure layer cannot), then hands them here; an op
@@ -14,10 +15,13 @@
  * Neither re-plans: the values are what the command made.
  */
 import { gateResultState } from './ops';
-import type { CommandState, HistoryEntry, MutationSuccess, SceneDocument } from './types';
+import type { CommandState, HistoryEntry, MutationSuccess, OwnedComponent, SceneDocument } from './types';
 
-/** The components a follow-up can write. */
-export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model' | 'materials';
+/**
+ * The components a follow-up can write: the host's and ops' own, and any
+ * owned component a `setComponent` writes on more objects than its first.
+ */
+export type FollowedComponent = 'terrain' | 'spline' | 'decal' | 'model' | 'materials' | OwnedComponent;
 
 /** One component written with a command (null: absent). */
 export interface ComponentFollow {

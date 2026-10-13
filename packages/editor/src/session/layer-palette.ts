@@ -40,6 +40,12 @@ export interface PaletteLayer {
   readonly badge?: string;
   /** It stands for wetness, not a texture (drawn as water). */
   readonly wet?: boolean;
+  /** The part of the texture's picture shown, as fractions [x, y, width, height] (a trim sheet's decal cell); absent: all of it. */
+  readonly crop?: readonly [number, number, number, number];
+  /** Its picture has a shape in its alpha (a decal): drawn on a checker. */
+  readonly checker?: boolean;
+  /** The tile's accessible name (absent: "layer N"). */
+  readonly aria?: string;
 }
 
 /** What the palette knows of an object's material. */

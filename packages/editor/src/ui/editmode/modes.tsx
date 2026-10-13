@@ -1,14 +1,16 @@
 /**
  * The edit-mode registry.
  *
- * An edit mode is a full-screen editor for one object on the live Scene view
- * (a terrain; later a mesh's vertex paint, decals, a block layer). An object
- * type registers its mode here, as a document kind registers in
- * `workspace/kinds.tsx`: which objects it edits, its rail of modes with
- * their hints, the settings column of each, the Scene view's tools its keys
- * reach, and how the object is framed. The shell (`EditModeShell`) — the
- * header, the rail, the lent Scene view, isolation, the status line, the
- * keys, Done and Play — is the same for every mode.
+ * An edit mode is a full-screen editor on the live Scene view: of one object
+ * (a terrain, a model's vertex paint, a block layer) or of the scene (its
+ * decals). A mode registers here, as a document kind registers in
+ * `workspace/kinds.tsx`: which objects it edits (an object's mode) or opens
+ * on (a scene's), its rail of modes with their hints, the settings column of
+ * each, the Scene view's tools its keys reach, and how the view is set up —
+ * the object alone and framed, or the whole scene with only the objects of
+ * one component pickable. The shell (`EditModeShell`) — the header, the
+ * rail, the lent Scene view, isolation, the status line, the keys, Done and
+ * Play — is the same for every mode.
  *
  * Browser-only (React).
  */
@@ -18,8 +20,10 @@ import type { KeyHint } from '../../session/edit-keys';
 import type { EffectiveEntityFlags } from '../../session/hierarchy';
 import type { ProjectedEntity } from '../../session/projection';
 import type { PaletteHost } from '../palette/MaterialLayers';
+import type { DecalTools } from '../shell/useDecalTools';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
+import { decalMode } from './decal-mode';
 import { terrainMode } from './terrain-mode';
 import { vertexPaintMode } from './vertex-paint-mode';
 import type { RailItem } from './ToolRail';
@@ -30,6 +34,12 @@ export interface EditModeHost {
   terrain: Pick<TerrainTools, 'terrainEditor' | 'terrainRun' | 'stageFile'>;
   /** The vertex paint brush's wiring: armed on the edited object, its stale paint. */
   paint: VertexPaintTools;
+  /** The decal editor's wiring: its tool, selection, settings and commands. */
+  decals: DecalTools;
+  /** The scene's objects (a scene's mode reads the ones it edits). */
+  entities: readonly ProjectedEntity[];
+  /** The scene new objects go into (the active one; null: none). */
+  scene: { readonly sceneId: string; readonly name: string } | null;
   /** An object's effective flags (locked, inactive). */
   flags: (entityId: string) => EffectiveEntityFlags | undefined;
   /** The project's block layers (a conversion's sources). */
@@ -54,15 +64,23 @@ export interface EditModeView {
   readonly host: EditModeHost;
 }
 
-export interface EditModeKind {
+/** What a scene's mode's column is drawn from. */
+export interface SceneModeView {
+  /** The rail's mode shown. */
+  readonly mode: string;
+  readonly host: EditModeHost;
+  /** The object it was opened on (a double-click on a decal), selected on entering; null: none. */
+  readonly focus: string | null;
+}
+
+/** What every edit mode declares. */
+interface EditModeBase {
   /** Stable identifier (`[a-z][a-z0-9-]*`). */
   readonly kind: string;
   /** The header's editor name ("Terrain editor"). */
   readonly label: string;
   /** The Inspector's button that opens it ("Edit terrain"). */
   readonly action: string;
-  /** Whether it edits this object. */
-  applies(e: ProjectedEntity): boolean;
   /**
    * Whether a double-click on the object (Hierarchy, Scene view) opens it
    * (absent: yes). An editor every object of a common kind has (vertex paint
@@ -70,12 +88,42 @@ export interface EditModeKind {
    * doing what it does for those objects.
    */
   readonly activates?: boolean;
-  /** A short fact for the header ("4 tiles · 2 × 2 · 256 m each"). */
-  meta?(e: ProjectedEntity): string;
   /** The rail, in order (Shift+1 is the first). */
   readonly rail: readonly EditRailMode[];
   /** The Scene view's tools (`SceneTool` names on the view's tool router) whose keys this mode routes. */
   readonly tools: readonly string[];
+}
+
+/** A scene's edit mode (decals): the whole scene is drawn, only the objects with its component are picked. */
+export interface SceneEditModeKind extends EditModeBase {
+  readonly scope: 'scene';
+  /** The objects it opens on (a double-click, the Inspector's button), focused when it opens. */
+  applies(e: ProjectedEntity): boolean;
+  /** The objects it edits: those that carry this component (the view's isolation). */
+  readonly component: string;
+  /** The rail mode it opens in on an object (absent: the one last shown): a decal double-clicked opens in Select. */
+  readonly focusMode?: string;
+  /** The header's icon (an object icon kind). */
+  readonly icon: string;
+  /** A short fact for the header ("14 decals · 2 materials"). */
+  meta?(view: SceneModeView): string;
+  /** A note before the header's undo ("Only decals can be picked"). */
+  readonly note?: string;
+  /** The isolation chip's words over the view. */
+  readonly chip: ReactNode;
+  /** The settings column of the mode shown. */
+  column(view: SceneModeView): ReactNode;
+  /** What the editor lays over the Scene view in every mode (its tool armed, drawers). */
+  viewExtra?(view: SceneModeView): ReactNode;
+}
+
+/** An object's edit mode (a terrain, a model's vertex paint): it alone is drawn (Context: the rest too, not pickable). */
+export interface ObjectEditModeKind extends EditModeBase {
+  readonly scope?: 'object';
+  /** Whether it edits this object. */
+  applies(e: ProjectedEntity): boolean;
+  /** A short fact for the header ("4 tiles · 2 × 2 · 256 m each"). */
+  meta?(e: ProjectedEntity): string;
   /** The object's box in its own frame for Home (absent: the meshes it draws). */
   bounds?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
   /**
@@ -99,8 +147,13 @@ export interface EditModeKind {
   readonly inspectorSkips?: Readonly<Record<string, readonly string[]>>;
 }
 
+export type EditModeKind = ObjectEditModeKind | SceneEditModeKind;
+
+/** Whether a mode edits the scene rather than one object. */
+export const isSceneMode = (k: EditModeKind): k is SceneEditModeKind => k.scope === 'scene';
+
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
-export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, vertexPaintMode];
+export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, vertexPaintMode, decalMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 

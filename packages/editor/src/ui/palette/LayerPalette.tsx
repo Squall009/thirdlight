@@ -9,6 +9,8 @@
  *   window (it goes into that layer's slot); an empty slot and the "Add
  *   layer" tile also open a texture picker on a click.
  * - `keys`: the number keys 1–9 pick a tile (the edit modes' key map).
+ * - The decal editor shows its decals on the same tiles (a trim sheet's cell
+ *   as its part of the sheet's picture, on a checker for the alpha).
  * - A layer whose albedo has no height in A (the backend's check) wears a
  *   small "no height" badge: its blends are soft until a texture with one
  *   takes its place.
@@ -17,7 +19,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type JSX, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { paletteKeyIndex } from '../../session/edit-keys';
@@ -96,7 +98,7 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
       type="button"
       role="radio"
       aria-checked={p.picked}
-      aria-label={`layer ${l.index + 1}`}
+      aria-label={l.aria ?? `layer ${l.index + 1}`}
       className={`tl-ptile${p.picked ? ' is-active' : ''}${l.empty === true && l.wet !== true ? ' tl-ptile--empty' : ''}${l.wet === true ? ' tl-ptile--wet' : ''}${over ? ' is-drop' : ''}`}
       title={l.wet === true ? `${l.name}: darkens and adds shine over any layer` : l.empty === true ? `${l.name}: no texture yet (it draws the first filled layer's). Drop a texture here, or click to pick one.` : `${l.name}${l.sub !== undefined ? ` · ${l.sub}` : ''}${l.noHeight === true ? `\n${NO_HEIGHT_HINT}` : ''}`}
       disabled={p.disabled}
@@ -119,8 +121,8 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
         p.onDropTexture!(l.index, id);
       }}
     >
-      <span className="tl-ptile__thumb" data-thumb={thumb.state}>
-        {l.wet === true ? <Glyph name="drop" size={20} /> : thumb.url !== null ? <img src={thumb.url} alt="" draggable={false} /> : l.colour !== undefined ? <i style={{ background: l.colour }} /> : l.empty === true ? <PlusGlyph /> : null}
+      <span className={`tl-ptile__thumb${l.checker === true ? ' tl-ptile__thumb--checker' : ''}`} data-thumb={thumb.state}>
+        {l.wet === true ? <Glyph name="drop" size={20} /> : thumb.url !== null ? l.crop !== undefined ? <i className="tl-ptile__crop" style={cropStyle(thumb.url, l.crop)} /> : <img src={thumb.url} alt="" draggable={false} /> : l.colour !== undefined ? <i style={{ background: l.colour }} /> : l.empty === true ? <PlusGlyph /> : null}
       </span>
       <span className="tl-ptile__idx">{l.badge ?? l.index + 1}</span>
       {l.noHeight === true && (
@@ -166,6 +168,12 @@ function AddTile(p: LayerPaletteProps & { index: number }): JSX.Element {
       {p.compact !== true && <span className="tl-ptile__sub">drop a texture</span>}
     </button>
   );
+}
+
+/** A part of a picture filling the tile: the picture scaled so the part spans the tile, moved so the part shows. */
+export function cropStyle(url: string, [x, y, w, h]: readonly [number, number, number, number]): CSSProperties {
+  const at = (p: number, size: number): string => (size >= 1 ? '0%' : `${(p / (1 - size)) * 100}%`);
+  return { backgroundImage: `url("${url}")`, backgroundSize: `${100 / Math.max(w, 1e-3)}% ${100 / Math.max(h, 1e-3)}%`, backgroundPosition: `${at(x, w)} ${at(y, h)}` };
 }
 
 function PlusGlyph(): JSX.Element {

@@ -7,7 +7,7 @@ from the surfaces in a box at load). The data — the decal component, decal
 layers, decal materials and the decal cells of trim sheets — saves,
 reopens, travels through MCP and ships with an export; the
 [decal pages](#decal-pages) put the decal materials' images on texture
-arrays; the Scene view's [Decal tool](#the-decal-tool) places them; scripts
+arrays; the [decal editor](#the-decal-editor) places, scatters and edits them; scripts
 [spawn](#decals-spawned-by-scripts) short-lived ones. How-to:
 [Decals](../guides/decals.md). For colour and weights painted on a mesh's
 vertices see [Vertex paint](vertex-paint.md).
@@ -378,34 +378,66 @@ only, or a mark on terrain.
   decal's first mesh: `{decal, ms, where}`) and `tl:decal:clip-ready`.
   `?decals=off` leaves clipped decals out too.
 
-## The Decal tool
+## The decal editor
 
-The Scene view places decals with the **Decal tool** (the tool row's
-**decal** button, or **Window → Decals**; armed while its window is open
-over the Scene view, where it takes the left click from selection and the
-block and terrain tools):
+Decals are placed, scattered and edited in the **decal editor**, a
+full-screen edit mode on the Scene view (the shared edit-mode shell of the
+terrain and vertex paint editors; [Brushes](../guides/brushes.md) for the
+shared brush). Open it from **Window → Decals**, the tool row's **decal**
+button (which also closes it), a double-click on a decal in the Hierarchy
+or the Scene view (it opens in Select with that decal selected) or a decal's
+**Edit decals** button in the Inspector; **Done** or Esc leaves it.
 
-- **What:** a decal material, or a trim sheet's decal cell by name (picking
-  a cell no decal material draws makes one, one `setMaterial`, sized at the
-  sheet's texel density); the mode, the box's width, height and depth, and
-  an angle about the normal.
-- **Preview:** the decal under the pointer is drawn as it would be placed,
-  projected or clipped, through the same path as a stored one (a clipped
-  preview is cut at once; an empty result is final, not waited on).
-- **Place:** a click is one `createEntity` with the decal component (one
-  undo step) — the box centred on the surface point, its +Z along the
-  surface normal; on a floor or ceiling the image's top points to −Z,
-  elsewhere up the slope.
-- **Stamp:** Shift+click adds a random turn (± the stamp turn) and size
-  factor (stamp size min to max) drawn from the seed and the stamp's
-  number: the same clicks with the same seed give the same decals.
-- **Adjust:** the selected decal shows a ring about its normal with a turn
-  knob (one `setTransform` on release, 15° steps with snapping) and a corner
-  grip that scales width and height together (one `setComponent`); both
-  preview while dragging, Esc drops the drag.
+- **The whole scene draws, only decals can be picked:** clicks and boxes
+  never select anything else, and the other objects' icons stand aside. The
+  rest of the scene is still where decals land.
+- **Palette:** every decal material and every trim sheet decal cell without
+  a material, as pictures (a cell shows its part of the sheet; picking it
+  makes its decal material, one `setMaterial`, sized at the sheet's texel
+  density), filtered All · Materials · Trim cells; 1–9 pick. Drop an image
+  file or a project texture on **Drop an image to make a decal material**
+  (or click it to pick a texture or a file): it is imported and becomes a
+  decal material, picked to place.
+- **Place:** the decal under the pointer is drawn as it would be placed,
+  projected or clipped, through the same path as a stored one; a click is
+  one `createEntity` with the decal component (the box centred on the
+  surface point, its +Z along the surface normal; on a floor or ceiling the
+  image's top points to −Z, elsewhere up the slope). Shift+click stamps,
+  each with a random turn and size drawn from the seed and its number.
+- **Scatter:** drag the shared brush over the surfaces: the picked decal at
+  a **density** (per m² of surface, never closer than half the even
+  spacing), each with a random turn and size from the **seed**. Each place
+  is dropped onto the surface along the dab's normal, so walls and slopes
+  take marks as floors do. A stroke is one `createEntities` (one undo); one
+  longer than a command holds
+  ([`CREATE_ENTITIES_MAX`](../reference/limits-project-model-1.md#limit-create-entities-max))
+  goes on as the next stroke.
+- **Select:** a click picks the decal under the pointer, Shift adds, Ctrl
+  removes; a drag on empty ground (or any drag with the **Box** tool) picks
+  the decals whose middle is in the box. **Filter** limits picking to one
+  material or one decal layer. A drag on a selected decal moves it over the
+  surfaces (its turn about the normal kept; one `setTransform`). Del
+  deletes the selection, Esc clears it (a second Esc leaves).
+- **The selection's fields** — width, height, depth, projection, opacity
+  per channel, angle and far fades, edge fades and order — edit every
+  selected decal at once: one `setComponent` with the others in
+  `entityIds` (each with its own value in `values` where the rest of the
+  field differs: a width set on decals of different heights keeps each
+  height). A field they disagree on says "mixed". **Blend** is the
+  material's (one `setMaterial`: every decal of that material changes; it
+  applies to clipped and mesh decals). **Select same** selects every decal
+  of the selection's material; picking a palette entry with decals selected
+  gives them that material. **Bake to model** bakes each selected clipped
+  decal.
+- **Adjust:** the primary selected decal (the last picked) shows a ring
+  about its normal with a turn knob (one `setTransform` on release, 15°
+  steps with snapping) and a corner grip that scales width and height
+  together (one `setComponent`); both preview while dragging, Esc drops the
+  drag.
 
-Its settings are remembered per browser, never in the project. A reload
-leaves its window closed, so the left click selects again.
+Its settings (what is placed, the stamp and scatter settings, the brush
+size) are remembered per browser, never in the project. The Inspector keeps
+a decal's plain fields.
 
 ## Decals spawned by scripts
 

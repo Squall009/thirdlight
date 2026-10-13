@@ -39,6 +39,8 @@ export interface SliderFieldProps {
   /** The brush colour on the fill (the brush's size and strength). */
   accent?: boolean;
   disabled?: boolean;
+  /** The objects edited disagree on it (a selection of many): the field says "mixed" and the thumb stands at `value` (the first one's). */
+  mixed?: boolean;
   /** The tooltip: what the setting does and its keys. */
   hint?: string;
   onChange: (value: number) => void;
@@ -118,7 +120,7 @@ export function SliderField(p: SliderFieldProps): JSX.Element {
   };
 
   const name = p.aria ?? p.label.toLowerCase();
-  const shown = (p.value * scale).toFixed(decimals);
+  const shown = p.mixed === true ? 'mixed' : (p.value * scale).toFixed(decimals);
   const frac = toFrac(p.value);
   const keysHint = 'Drag, type, scroll or use the arrow keys.';
   const finish = (): void => {
@@ -128,7 +130,7 @@ export function SliderField(p: SliderFieldProps): JSX.Element {
     if (text.trim() !== '' && Number.isFinite(v)) commit(v / scale);
   };
   return (
-    <div ref={row} className={`tl-slider${p.accent === true ? ' is-accent' : ''}${p.disabled === true ? ' is-disabled' : ''}`} title={p.hint !== undefined ? `${p.hint} ${keysHint}` : keysHint}>
+    <div ref={row} className={`tl-slider${p.accent === true ? ' is-accent' : ''}${p.disabled === true ? ' is-disabled' : ''}${p.mixed === true ? ' is-mixed' : ''}`} title={p.hint !== undefined ? `${p.hint} ${keysHint}` : keysHint}>
       <span className="tl-slider__label">{p.label}</span>
       <span
         ref={track}
@@ -138,7 +140,7 @@ export function SliderField(p: SliderFieldProps): JSX.Element {
         aria-label={`${name} slider`}
         aria-valuemin={p.min * scale}
         aria-valuemax={p.max * scale}
-        aria-valuenow={Number(shown)}
+        aria-valuenow={Number((p.value * scale).toFixed(decimals))}
         aria-disabled={p.disabled === true}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

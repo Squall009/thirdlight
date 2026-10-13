@@ -61,7 +61,7 @@ Tags: setTags {tags: [{bit?, name}]} replaces the project tag registry (up to 32
 <a id="tool-tl_command-content-ops"></a>
 ### `tl_command`: Content ops and setComponent
 
-Content ops: publishAsset, publishBehavior, setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that field, null removes an optional one; on an object without the component a complete value adds it; value null removes the component — every owned component, box/camera/model included; model {piece: name|null} changes the piece), setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab.
+Content ops: publishAsset, publishBehavior, setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that field, null removes an optional one; on an object without the component a complete value adds it; value null removes the component — every owned component, box/camera/model included; model {piece: name|null} changes the piece; entityIds: [ids] gives more objects the same value in one undo step, values: [one partial value per entityIds entry] their own), setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab.
 
 <a id="tool-tl_command-script-properties"></a>
 ### `tl_command`: Script properties

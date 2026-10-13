@@ -1273,7 +1273,7 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 /* ---- Edit modes: an object's full-screen editor on the lent Scene view (ui/editmode). ---- */
 .tl-editmode { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--surface-0); }
 .tl-editmode__body { flex: 1; display: flex; min-height: 0; }
-.tl-editmode__view { flex: 1; position: relative; min-width: 0; background: var(--viewport-bg); overflow: hidden; }
+.tl-editmode__view { flex: 1; position: relative; min-width: 0; background: var(--viewport-bg); overflow: hidden; user-select: none; -webkit-user-select: none; }
 .tl-editmode__canvas { position: absolute; inset: 0; }
 .tl-editmode__column { flex: none; width: var(--editmode-col); display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-left: 1px solid var(--line); }
 .tl-editmode__column-head { flex: none; display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 6px; font-size: var(--text-md); }
@@ -1591,3 +1591,27 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-check b { display: block; }
 .tl-check p { margin: 2px 0 0; color: var(--text-dim); font-size: var(--text-xs); }
 .tl-vpaint > .tl-check { margin: 8px 12px 0; }
+/* The decal editor: decal tiles on a checker (their alpha is their shape), a trim cell as its part of the sheet, the
+   drop zone, the selection's card, the box a box selection drags out over the view. */
+.tl-ptile__thumb--checker { background-color: #2a2f37; background-image: linear-gradient(45deg, #353b45 25%, transparent 25%, transparent 75%, #353b45 75%), linear-gradient(45deg, #353b45 25%, transparent 25%, transparent 75%, #353b45 75%);
+  background-size: 12px 12px; background-position: 0 0, 6px 6px; }
+.tl-ptile__thumb--checker img { object-fit: contain; }
+.tl-ptile__thumb .tl-ptile__crop { background-repeat: no-repeat; }
+.tl-dropzone { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 32px; padding: 6px 8px; font: inherit; font-size: var(--text-sm); cursor: pointer;
+  color: var(--text-dim); background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); }
+.tl-dropzone:hover:not(:disabled), .tl-dropzone.is-drop { color: var(--text); border-color: var(--select); background: var(--select-bg); }
+.tl-decals__filters { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.tl-decals__filters .tl-input { flex: 1; min-width: 0; height: 24px; padding: 0 4px; font-size: var(--text-xs); }
+.tl-decals__actions { display: flex; gap: 8px; margin-top: 4px; }
+.tl-decals__actions .tl-btn { display: inline-flex; align-items: center; gap: 5px; }
+.tl-decal-sel { display: flex; align-items: center; gap: 10px; }
+.tl-decal-sel__thumb { position: relative; flex: none; width: 38px; height: 38px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: #2a2f37; background-repeat: no-repeat; }
+.tl-decal-sel__thumb.is-stacked { box-shadow: 3px -3px 0 -1px var(--surface-2), 3px -3px 0 0 var(--line-strong); }
+.tl-decal-sel__text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tl-decal-sel__text b { font-size: var(--text-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-decal-sel__text span { font-size: var(--text-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-sec__sub { margin-top: 4px; font-size: var(--text-xs); font-weight: var(--weight-bold); letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); }
+.tl-slider.is-mixed .tl-slider__num input { color: var(--text-dim); font-style: italic; }
+.tl-slider.is-mixed .tl-slider__thumb { opacity: .45; }
+.tl-emh__note { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; font-size: var(--text-sm); color: var(--text-dim); white-space: nowrap; }
+.tl-decal-box { position: absolute; pointer-events: none; border: 1px solid var(--select); background: var(--select-bg); z-index: 3; }

@@ -67,7 +67,7 @@ export const OBJECT_FRAME_KEY = '__tlObjectFrame';
  * fps on WebGPU, GPU-bound). The level's dense static geometry is the
  * occluder; what stands in front of it still passes the depth test. An order,
  * not a sort function: a comparator reading a flag per comparison cost
- * 0.1 ms a frame in the sorts of Skyforge's village.
+ * 0.1 ms a frame in the sorts of a village-sized level.
  */
 export const MERGED_RENDER_ORDER = -1;
 

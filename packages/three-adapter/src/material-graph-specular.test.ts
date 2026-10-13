@@ -104,7 +104,7 @@ describe('the PBR output\'s specular ports', () => {
   });
 
   it('three reads a GLB\'s KHR_materials_specular into the same two values a graph maps', async () => {
-    // What a Blender export with "Specular IOR Level" 0.3 writes (Skyforge's models): factor 0.6, a tinted colour.
+    // What a Blender export with "Specular IOR Level" 0.3 writes (a typical game model's): factor 0.6, a tinted colour.
     const gltf = {
       asset: { version: '2.0' },
       extensionsUsed: ['KHR_materials_specular'],

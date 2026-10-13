@@ -11,13 +11,6 @@ The limits and defaults `@thirdlight/commands` defines, by source file. Values a
 |---|---|---|
 | <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The canonical request byte cap (65 536). |
 
-<a id="limits-commands--ops"></a>
-## `ops.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-create-entities-max"></a>`CREATE_ENTITIES_MAX` | `1024` | The most entities one `createEntities` may create (folders' children included; the 64 KiB request cap bounds it too). |
-
 <a id="limits-commands--terrain-erosion-ops"></a>
 ## `terrain-erosion-ops.ts`
 

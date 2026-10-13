@@ -1,8 +1,15 @@
-# Limits and defaults: project-model (part 2, from `model-lod.ts`)
+# Limits and defaults: project-model (part 2, from `model-collision.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--model-collision"></a>
+## `model-collision.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-model-read-limits"></a>`MODEL_READ_LIMITS` | `{"depth":256,"positions":4000000}` | Bounds on what one read decodes (the importer's caps keep stored files far below them). |
 
 <a id="limits-project-model--model-lod"></a>
 ## `model-lod.ts`

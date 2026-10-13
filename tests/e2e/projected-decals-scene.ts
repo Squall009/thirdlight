@@ -25,7 +25,7 @@
  * the mark is clipped again, gone where the block was (a stale mesh would
  * hang in the air) and still on the block beside it; Play and the export
  * draw it so too. The wall's clipped decal is then baked to a model (the
- * Inspector's "Bake to model"): a model asset of the same mark, drawn as a
+ * decal editor's "Bake to model"): a model asset of the same mark, drawn as a
  * mesh decal where the decal was.
  *
  * Change while the game runs: a green decal carried by a mover goes 2.4 m
@@ -358,6 +358,9 @@ export const TOOL_CLIPPED_AT: V3 = [248.45, 1, 25.55];
 export const TOOL_READS: readonly V3[] = [[254.25, 0, 32.25], [248.7, 1, 25.8]];
 /** Its stamps (Shift+click), on the bare terrain beside the first. */
 const TOOL_STAMPS: readonly V3[] = [[255.8, 0, 33.6], [256.4, 0, 30.8]];
+/** A scatter stroke's ends, on the bare terrain west of the decals. */
+const SCATTER_FROM: V3 = [236.5, 0, 31];
+const SCATTER_TO: V3 = [239.5, 0, 31];
 
 type Query = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Shot = () => Promise<{ png: Buffer; read: (p: V3) => Rgb }>;
@@ -368,9 +371,11 @@ interface ToolState {
   stamps: number;
   placed: number;
   clippedPreview: boolean;
+  selection: string[];
+  stroke: { places: number; stored: number; first?: string; last?: string } | null;
 }
 interface ToolEntity {
-  components: { transform: { position: number[]; rotation: number[] }; decal?: { size: number[]; material: string; mode?: string } };
+  components: { transform: { position: number[]; rotation: number[] }; decal?: { size: number[]; material: string; mode?: string; opacity?: Record<string, number> } };
 }
 
 /** A vector turned by a quaternion [x, y, z, w]. */
@@ -384,14 +389,19 @@ function turned(q: readonly number[], v: V3): number[] {
 const near = (a: readonly number[], b: readonly number[], tol: number): boolean => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]!) <= tol);
 
 /**
- * Drive the Scene view's Decal tool over the decal scene: open it from the
- * toolbar, pick the green mark (the picker also lists the trim sheet's decal
- * cell by name), see the projected preview under the pointer, click to place
- * (one createEntity), turn it with the knob and scale it with the corner
- * (each one command, each undone), Shift+click two stamps (seeded turns and
- * sizes; undone one step each), then the clipped preview and a clipped
- * placement on the block tops. Two decals stay (the projected one and the
- * clipped one): their ids. `undo` is the editor's Edit → Undo; `selectOther` selects an object away from them.
+ * Drive the decal editor over the decal scene: open it from the toolbar's
+ * decal button (the whole scene drawn, only decals pickable), pick the green
+ * mark in the palette (it also shows the trim sheet's decal cell's material), see
+ * the projected preview under the pointer, click to place (one createEntity),
+ * turn it with the knob and scale it with the corner (each one command, each
+ * undone), Shift+click two stamps (seeded turns and sizes; undone one step
+ * each), scatter a stroke with the brush (one createEntities, one undo), then
+ * select: a box round the placed decal, Shift+box to add the terrain's decal,
+ * Ctrl+click to take it off and Shift+click to add it again, one opacity
+ * edited on both (one setComponent, one undo), then a clipped placement on
+ * the block tops. Two decals stay (the projected one and the clipped one):
+ * their ids. `undo` is the editor's Edit → Undo; `selectOther` selects an
+ * object away from them (after Done: the Hierarchy is under the editor).
  */
 export async function driveDecalTool(page: Page, view: Locator, query: Query, undo: () => Promise<void>, selectOther: () => Promise<void>, shot: Shot, what: string): Promise<{ projected: string; clipped: string }> {
   const state = async (): Promise<ToolState | null> => {
@@ -402,33 +412,37 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     const r = await query('queryEntity', { entityId: id });
     return r['ok'] === false ? null : ((r as { entity: ToolEntity }).entity ?? null);
   };
+  const greenAt = async (p: V3, message: string): Promise<number> => {
+    const t0 = Date.now();
+    let last: Rgb = [0, 0, 0];
+    await expect.poll(async () => isDecalGreen((last = (await shot()).read(p))), { timeout: 15_000, intervals: [100], message }).toBe(true).catch((e: unknown) => {
+      console.log(`decal editor ${what} (failed): ${message} read ${last.map((v) => v.toFixed(0)).join(',')}`);
+      throw e;
+    });
+    return Date.now() - t0;
+  };
+
+  // The editor from the toolbar: the whole scene drawn, only decals pickable; its palette lists the decal materials and the sheet's cell.
+  await page.getByRole('button', { name: 'decal', exact: true }).click();
+  const mode = page.locator('section[data-edit-mode="decals"]');
+  await expect(mode).toBeVisible();
+  await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { component?: string; context?: boolean }).toMatchObject({ component: 'decal', context: true });
+  await expect(mode.getByLabel('isolation')).toContainText('decals pickable');
+  const column = mode.getByLabel('edit mode settings');
+  const palette = column.getByRole('radiogroup', { name: 'decal palette', exact: true });
+  await expect(palette.getByRole('radio', { name: 'decal Green mark' })).toBeVisible();
+  // The trim sheet's cell, drawn by its decal material (Stain), as its part of the sheet's picture.
+  await expect(palette.getByRole('radio', { name: 'decal Stain' })).toBeVisible();
+  await palette.getByRole('radio', { name: 'decal Green mark' }).click();
+  await column.getByLabel('decal width', { exact: true }).fill('1.2');
+  await column.getByLabel('decal width', { exact: true }).press('Enter');
+  // The view moved into the editor: positions are read off it from here on.
   const box = (await view.boundingBox())!;
   const at = async (p: V3): Promise<{ x: number; y: number }> => {
     const s = (await sceneViewProjector(view))(p);
     expect(s, `${p.join(',')} on the Scene view`).not.toBeNull();
     return { x: box.x + s!.x, y: box.y + s!.y };
   };
-  const greenAt = async (p: V3, message: string): Promise<number> => {
-    const t0 = Date.now();
-    let last: Rgb = [0, 0, 0];
-    await expect.poll(async () => isDecalGreen((last = (await shot()).read(p))), { timeout: 15_000, intervals: [100], message }).toBe(true).catch((e: unknown) => {
-      console.log(`decal tool ${what} (failed): ${message} read ${last.map((v) => v.toFixed(0)).join(',')}`);
-      throw e;
-    });
-    return Date.now() - t0;
-  };
-
-  // The tool from the toolbar; the picker lists the decal materials and the sheet's cell by its name.
-  await page.getByRole('button', { name: 'decal', exact: true }).click();
-  const panel = page.getByLabel('decal tool');
-  await expect(panel).toBeVisible();
-  const picker = panel.getByLabel('decal to place');
-  const options = await picker.locator('option').allTextContents();
-  expect(options).toContain('Green mark');
-  expect(options.some((o) => /\(Trim \/ sign\)$/.test(o))).toBe(true);
-  await picker.selectOption('mat-pd-green');
-  await panel.getByLabel('decal width').fill('1.2');
-  await panel.getByLabel('decal width').press('Enter');
 
   // The projected preview under the pointer: facing up out of the terrain, drawn green before anything is stored.
   const p = await at(TOOL_AT);
@@ -440,7 +454,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   const previewMs = await greenAt(TOOL_AT, 'the projected preview drawn');
   expect((await state())!.placed).toBe(0);
 
-  // A click places it: one createEntity, the new decal selected (its grips shown).
+  // A click places it: one createEntity, the new decal selected (its outline and grips shown).
   await page.mouse.click(p.x, p.y);
   await expect.poll(async () => (await state())?.target ?? null, { message: 'the placed decal selected' }).not.toBeNull();
   const projected = (await state())!.target!;
@@ -459,17 +473,19 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     }, { message: `the ${kind} grip at ${world.join(',')} (want ${want.x.toFixed(0)},${want.y.toFixed(0)})` }).toBe(true);
     return got!;
   };
-  // Turn: the knob dragged to the decal's +X side turns it −90° about its normal.
-  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> => {
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }, mods: string[] = []): Promise<void> => {
     await page.mouse.move(from.x, from.y);
+    for (const m of mods) await page.keyboard.down(m);
     await page.mouse.down();
     for (let i = 1; i <= 6; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 6, from.y + ((to.y - from.y) * i) / 6);
     await page.mouse.up();
+    for (const m of mods) await page.keyboard.up(m);
   };
+  // Turn: the knob dragged to the decal's +X side turns it −90° about its normal.
   await drag(await grip('turn', [TOOL_AT[0], TOOL_AT[1], TOOL_AT[2] - r]), await at([TOOL_AT[0] + r, TOOL_AT[1], TOOL_AT[2]]));
   let rot: number[] = [];
   await expect.poll(async () => near(turned((rot = (await entity(projected))!.components.transform.rotation), [0, 1, 0]), [1, 0, 0], 0.01), { message: 'the decal turned' }).toBe(true).catch(async (e: unknown) => {
-    console.log(`decal tool ${what} (failed): rotation ${JSON.stringify(rot)}, its image's top along ${turned(rot, [0, 1, 0]).map((v) => v.toFixed(2))}; tool ${JSON.stringify(await state())}; notice ${await page.locator('.tl-notice').allTextContents()}`);
+    console.log(`decal editor ${what} (failed): rotation ${JSON.stringify(rot)}, its image's top along ${turned(rot, [0, 1, 0]).map((v) => v.toFixed(2))}; tool ${JSON.stringify(await state())}; notice ${await page.locator('.tl-notice').allTextContents()}`);
     throw e;
   });
   await undo();
@@ -480,12 +496,12 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await drag(await grip('size', [TOOL_AT[0] + 0.6, TOOL_AT[1], TOOL_AT[2] - 0.5]), await at([TOOL_AT[0] + 1.2, TOOL_AT[1], TOOL_AT[2] - 1]));
   let size: number[] = [];
   await expect.poll(async () => ((size = (await entity(projected))!.components.decal!.size), Math.abs(size[0]! / 1.2 - 2) < 0.2 && Math.abs(size[0]! / 1.2 - size[1]!) < 0.01 && size[2] === 0.5), { message: 'the decal scaled' }).toBe(true).catch(async (e: unknown) => {
-    console.log(`decal tool ${what} (failed): size ${JSON.stringify(size)}; tool ${JSON.stringify(await state())}; notice ${await page.locator('.tl-notice').allTextContents()}`);
+    console.log(`decal editor ${what} (failed): size ${JSON.stringify(size)}; tool ${JSON.stringify(await state())}; notice ${await page.locator('.tl-notice').allTextContents()}`);
     throw e;
   });
   await undo();
   await expect.poll(async () => (await entity(projected))!.components.decal!.size, { message: 'the scale undone' }).toEqual([1.2, 1, 0.5]);
-  // The selected decal's ring (read against the picture once it is deselected, at the end).
+  // The selected decal's ring (read against the picture once Esc has cleared the selection).
   await page.mouse.move(box.x + 20, box.y + box.height - 20);
   await page.waitForTimeout(250);
   const withRing = decodePng((await shot()).png);
@@ -520,8 +536,64 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => (await entity(stamps[0]!)) === null, { message: 'the first stamp undone' }).toBe(true);
   expect(await entity(projected)).not.toBeNull();
 
+  // Scatter: a stroke of the shared brush over bare terrain lays decals at the density, stored as one createEntities; one undo takes them all.
+  await mode.getByRole('tab', { name: 'Scatter' }).click();
+  await column.getByLabel('brush size', { exact: true }).fill('2');
+  await column.getByLabel('brush size', { exact: true }).press('Enter');
+  await column.getByLabel('decal scatter density', { exact: true }).fill('2');
+  await column.getByLabel('decal scatter density', { exact: true }).press('Enter');
+  await drag(await at(SCATTER_FROM), await at(SCATTER_TO));
+  let stroke: ToolState['stroke'] = null;
+  await expect.poll(async () => ((stroke = (await state())?.stroke ?? null), stroke !== null && stroke.stored > 0 && stroke.stored === stroke.places), { message: 'the scatter stroke stored' }).toBe(true);
+  const scattered = stroke as unknown as NonNullable<ToolState['stroke']>;
+  expect(scattered.places).toBeGreaterThanOrEqual(4);
+  const first = (await entity(scattered.first!))!.components;
+  expect(first.decal!.material).toBe('mat-pd-green');
+  expect(first.transform.position[0]!).toBeGreaterThan(SCATTER_FROM[0] - 1.5);
+  expect(first.transform.position[0]!).toBeLessThan(SCATTER_TO[0] + 1.5);
+  await undo();
+  await expect.poll(async () => `${(await entity(scattered.first!)) === null} ${(await entity(scattered.last!)) === null}`, { message: 'one undo takes the stroke' }).toBe('true true');
+
+  // Select: the Box tool picks the decals whose middle is in the box (Shift adds); Ctrl+click takes one off, Shift+click adds it.
+  await mode.getByRole('tab', { name: 'Select' }).click();
+  await column.getByRole('button', { name: /^Box/ }).click();
+  const around = async (c: V3, k = 0.4): Promise<[{ x: number; y: number }, { x: number; y: number }]> => [await at([c[0] - k, c[1], c[2] - k]), await at([c[0] + k, c[1], c[2] + k])];
+  await drag(...(await around(TOOL_AT)));
+  await expect.poll(async () => (await state())?.selection, { message: 'the box selects the placed decal' }).toEqual([projected]);
+  const terrainAt: V3 = [243, 0, 29];
+  await drag(...(await around(terrainAt)), ['Shift']);
+  await expect.poll(async () => (await state())?.selection.length, { message: 'Shift+box adds the terrain decal' }).toBe(2);
+  const other = (await state())!.selection.find((id) => id !== projected)!;
+  await column.getByRole('button', { name: /^Click/ }).click();
+  const t = await at(terrainAt);
+  await page.keyboard.down('Control');
+  await page.mouse.click(t.x, t.y);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await state())?.selection, { message: 'Ctrl+click takes it off' }).toEqual([projected]);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(t.x, t.y);
+  await page.keyboard.up('Shift');
+  await expect.poll(async () => (await state())?.selection, { message: 'Shift+click adds it again' }).toEqual([projected, other]);
+  await expect(column.getByLabel('selected decals')).toContainText('2 decals selected');
+  // One field on both: one setComponent (one undo puts both back); the sizes differ, so it says "mixed" where they do.
+  await expect(column.getByLabel('selection width', { exact: true })).toHaveValue('mixed');
+  await column.getByLabel('selection opacity albedo', { exact: true }).fill('40');
+  await column.getByLabel('selection opacity albedo', { exact: true }).press('Enter');
+  await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity?.albedo, (await entity(other))!.components.decal!.opacity?.albedo], { message: 'the opacity set on both' }).toEqual([0.4, 0.4]);
+  await undo();
+  await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity, (await entity(other))!.components.decal!.opacity], { message: 'one undo puts both back' }).toEqual([undefined, undefined]);
+  // Esc clears the selection before it leaves the editor: the ring goes (read against the picture with it, the view unmoved).
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state())?.selection).toEqual([]);
+  await expect(mode).toBeVisible();
+  await page.mouse.move(box.x + 20, box.y + box.height - 20);
+  await page.waitForTimeout(250);
+  const ringSeen = ringOn(withRing, decodePng((await shot()).png), ringAt);
+  expect(ringSeen, `the decal ring drawn (${what}): ${ringSeen} of ${ringAt.length} points`).toBeGreaterThanOrEqual(16);
+
   // Clipped: the preview is a mesh cut from the block tops under the pointer, drawn at once; a click places it.
-  await panel.getByLabel('decal mode').selectOption('clipped');
+  await mode.getByRole('tab', { name: 'Place' }).click();
+  await column.getByRole('radio', { name: 'Clipped' }).click();
   const c = await at(TOOL_CLIPPED_AT);
   const hovered = Date.now();
   await page.mouse.move(c.x, c.y);
@@ -534,23 +606,22 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     return id === null || id === projected ? null : ((await entity(id))?.components.decal?.mode ?? null);
   }, { message: 'the clipped decal placed' }).toBe('clipped');
   const clipped = (await state())!.target!;
-  // Away from the decals (empty sky: no preview), the tool closed from the toolbar and another object selected (the
-  // selected decal's grips and handles stand over its mark): both stored marks drawn.
+  // Away from the decals (empty sky: no preview), the editor closed with Done and another object selected (the
+  // selected decal's grips stand over its mark): both stored marks drawn.
   await page.mouse.move(box.x + 20, box.y + box.height - 20);
   await expect.poll(async () => (await state())?.preview ?? null).toBeNull();
-  await page.getByRole('button', { name: 'decal', exact: true }).click();
-  await expect(panel).toBeHidden();
+  await column.getByRole('radio', { name: 'Projected' }).click();
+  await mode.getByRole('button', { name: /Done/ }).click();
+  await expect(mode).toBeHidden();
   await expect.poll(async () => view.getAttribute('data-decal-tool')).toBeNull();
   await selectOther();
   await greenAt(TOOL_READS[0]!, 'the placed projected decal');
   await greenAt(TOOL_READS[1]!, 'the placed clipped decal');
-  const ringSeen = ringOn(withRing, decodePng((await shot()).png), ringAt);
-  expect(ringSeen, `the decal ring drawn (${what}): ${ringSeen} of ${ringAt.length} points`).toBeGreaterThanOrEqual(16);
-  console.log(`decal tool ${what}: projected preview drawn ${previewMs} ms after the pointer came; clipped preview cut ${clippedMs} ms after`);
+  console.log(`decal editor ${what}: projected preview drawn ${previewMs} ms after the pointer came; clipped preview cut ${clippedMs} ms after; a scatter stroke laid ${scattered.places} decals`);
   return { projected, clipped };
 }
 
-/** How many of the ring's points show its yellow (changed from the picture without it) within 3 px. */
+/** How many of the ring's points show its blue (changed from the picture without it) within 3 px. */
 function ringOn(withRing: Image, without: Image, points: readonly ({ x: number; y: number } | null)[]): number {
   let seen = 0;
   for (const p of points) {
@@ -561,7 +632,7 @@ function ringOn(withRing: Image, without: Image, points: readonly ({ x: number; 
         if (x < 0 || y < 0 || x >= withRing.width || y >= withRing.height) continue;
         const [r1, g1, b1] = withRing.pixel(x, y);
         const [r0, g0, b0] = without.pixel(x, y);
-        hit = Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0) > 60 && r1 > b1 + 60 && g1 > b1 + 30;
+        hit = Math.abs(r1 - r0) + Math.abs(g1 - g0) + Math.abs(b1 - b0) > 60 && b1 > r1 + 60;
       }
     if (hit) seen += 1;
   }

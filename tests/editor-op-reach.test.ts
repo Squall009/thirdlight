@@ -27,8 +27,6 @@ const EDITOR_SRC = resolve(import.meta.dirname, '..', 'packages', 'editor', 'src
 const API_ONLY: Readonly<Record<string, string>> = {
   importResources:
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
-  createEntities:
-    'bulk creation for build scripts and agents (up to 1024 objects in one revision); the editor creates objects one at a time (createEntity, pasteEntities, instantiatePrefab, a folder with children)',
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

@@ -11,6 +11,7 @@
  * **source** publication is refused before any stage/digest work.
  */
 import { ID_RE } from '@thirdlight/project-model';
+import type { ComponentFollow } from './follow-ops';
 
 import {
   BEHAVIOR_ENTRY_PATH,
@@ -749,54 +750,35 @@ function withComponent(entity: EntityV3, component: string, value: unknown): Ent
   return { ...cloned, components } as unknown as EntityV3;
 }
 
-export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOutcome {
-  const catalog = contentOf(input.content);
-  const index = input.scene.entities.findIndex((e) => e.id === args.entityId);
-  if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
+/** One object's planned `setComponent` write: its index, the value before, the value to write (null: removed) and the fields named. */
+interface ComponentWrite {
+  index: number;
+  previous: unknown | null;
+  next: Record<string, unknown> | null;
+  changedFields: string[];
+}
+
+/** What `value` makes of one object's component (not yet validated with the scene), or why it cannot. */
+function planComponentWrite(input: OpInput, catalog: ContentDocument, entityId: string, component: OwnedComponent, value: Record<string, unknown> | null, path: string): { ok: true; write: ComponentWrite } | { ok: false; error: CommandError } {
+  const index = input.scene.entities.findIndex((e) => e.id === entityId);
+  if (index < 0) return { ok: false, error: entityNotFound(entityId) };
   const entity = input.scene.entities[index] as EntityV3;
-  const components = componentsRecord(entity);
-  const currentComponent = components[args.component];
-  const removable = componentIsRemovable(args.component);
-  if (currentComponent === undefined && !removable) {
-    return { ok: false, error: componentMissing(args.entityId, args.component) };
+  const currentComponent = componentsRecord(entity)[component];
+  if (currentComponent === undefined && !componentIsRemovable(component)) {
+    return { ok: false, error: componentMissing(entityId, component) };
   }
 
   // Removal (`value: null`) is available for every owned component (phase
   // box/camera/model too; the resulting scene is validated as always).
-  if (args.value === null) {
+  if (value === null) {
     const previous = deepClone(currentComponent);
-    const newEntity = withComponent(entity, args.component, null);
-    const nextEntities = [...input.scene.entities];
-    nextEntities[index] = newEntity;
-    const resultScene = { ...input.scene, revision: input.scene.revision + 1, entities: nextEntities };
-    const gate = gateResultState(
-      { scene: input.scene, content: catalog, manifest: input.manifest },
-      resultScene,
-      catalog,
-    );
-    if (!gate.ok) return gate;
-    const change: SetComponentChange = {
-      type: 'setComponent',
-      id: args.entityId,
-      component: args.component,
-      previous,
-      next: null,
-      // Optional fields count only when the removed value had them (a collider's flag and layers, every controller and spawn field).
-      changedFields: COMPONENT_FIELD_ORDER[args.component].filter((f) => (args.component !== 'controller' && args.component !== 'playerSpawn' && !(args.component === 'collider' && f !== 'shape')) || (previous as Record<string, unknown> | null)?.[f] !== undefined),
-    };
-    return {
-      ok: true,
-      op: {
-        scene: gate.scene,
-        content: gate.content,
-        change,
-        inverse: { kind: 'setComponent', id: args.entityId, component: args.component, restore: previous },
-      },
-    };
+    // Optional fields count only when the removed value had them (a collider's flag and layers, every controller and spawn field).
+    const changedFields = COMPONENT_FIELD_ORDER[component].filter((f) => (component !== 'controller' && component !== 'playerSpawn' && !(component === 'collider' && f !== 'shape')) || (previous as Record<string, unknown> | null)?.[f] !== undefined);
+    return { ok: true, write: { index, previous, next: null, changedFields } };
   }
 
-  if (args.component === 'model' && args.value['asset'] !== undefined) {
-    const asset = args.value['asset'] as { assetId: string };
+  if (component === 'model' && value['asset'] !== undefined) {
+    const asset = value['asset'] as { assetId: string };
     if (!catalog.assets.some((a) => a.assetId === asset.assetId)) {
       return { ok: false, error: assetReferenceMissing(asset.assetId) };
     }
@@ -806,42 +788,61 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     ? {}
     : (deepClone(currentComponent) as Record<string, unknown>);
   const changedFields: string[] = [];
-  if (args.component === 'materials' || args.component === 'materialParams') {
+  if (component === 'materials' || component === 'materialParams') {
     // A material mapping is replaced whole (its keys are material names); so are the parameter overrides (keys are materialIds).
     for (const k of Object.keys(candidate)) delete candidate[k];
-    Object.assign(candidate, deepClone(args.value));
+    Object.assign(candidate, deepClone(value));
     const before = (currentComponent ?? {}) as Record<string, unknown>;
-    for (const k of [...new Set([...Object.keys(before), ...Object.keys(args.value)])].sort()) {
-      if (before[k] !== (args.value as Record<string, unknown>)[k]) changedFields.push(k);
+    for (const k of [...new Set([...Object.keys(before), ...Object.keys(value)])].sort()) {
+      if (before[k] !== (value as Record<string, unknown>)[k]) changedFields.push(k);
     }
   }
-  const fieldOrder = COMPONENT_FIELD_ORDER[args.component];
+  const fieldOrder = COMPONENT_FIELD_ORDER[component];
   for (const f of fieldOrder) {
-    if (Object.prototype.hasOwnProperty.call(args.value, f)) {
+    if (Object.prototype.hasOwnProperty.call(value, f)) {
       // `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && (f === 'oneWay' || f === 'layers')) || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow' || f === 'lightLayers' || f === 'localLights' || f === 'decalLayers')))) delete candidate[f];
-      else candidate[f] = deepClone(args.value[f]);
+      if (value[f] === null && (isV3Component(component) || (component === 'collider' && (f === 'oneWay' || f === 'layers')) || component === 'controller' || (component === 'model' && f === 'piece') || ((component === 'box' || component === 'model') && (f === 'castShadow' || f === 'receiveShadow' || f === 'lightLayers' || f === 'localLights' || f === 'decalLayers')))) delete candidate[f];
+      else candidate[f] = deepClone(value[f]);
       changedFields.push(f);
     }
   }
   // The six v3 components are validated before application —
   // the model owns field values, the command layer owns the role stages 2–4.
-  if (isV3Component(args.component)) {
-    const errors = validateV3ComponentValue(args.component, candidate, '/args/value', input.scene.schemaVersion === 4 ? 4 : 3);
+  if (isV3Component(component)) {
+    const errors = validateV3ComponentValue(component, candidate, path, input.scene.schemaVersion === 4 ? 4 : 3);
     if (errors.length > 0) return { ok: false, error: commandErrorFromModel(errors[0] as ModelErrorV3) };
-    if (args.component === 'modelAnimation') {
+    if (component === 'modelAnimation') {
       const version = animationVersionOf(assetsOf(catalog), candidate['assetId'], candidate['version']);
       const clips = (version?.metrics as { animations?: unknown } | undefined)?.animations;
       if (typeof clips === 'number') {
-        const roleError = validateAnimationRoleRange(candidate['roles'], clips, '/args/value/roles');
+        const roleError = validateAnimationRoleRange(candidate['roles'], clips, `${path}/roles`);
         if (roleError !== null) return { ok: false, error: roleError };
       }
     }
   }
-  const newEntity = withComponent(entity, args.component, candidate);
+  return { ok: true, write: { index, previous, next: candidate, changedFields } };
+}
+
+/**
+ * `setComponent`: one object's component (and, with `entityIds`, the same
+ * fields on more objects) in one transaction — one revision, one undo. The
+ * first object's write is the change; the others' go with it as follow-ups
+ * (each object's own value before and after), so an edit of many selected
+ * objects is one history entry and one validation of the scene.
+ */
+export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOutcome {
+  const catalog = contentOf(input.content);
+  const ids = [args.entityId, ...(args.entityIds ?? [])];
+  const writes: ComponentWrite[] = [];
+  for (const [i, id] of ids.entries()) {
+    const own = i > 0 && args.values !== undefined;
+    const planned = planComponentWrite(input, catalog, id, args.component, own ? (args.values![i - 1] as Record<string, unknown>) : args.value, own ? `/args/values/${i - 1}` : '/args/value');
+    if (!planned.ok) return planned;
+    writes.push(planned.write);
+  }
   const nextEntities = [...input.scene.entities];
-  nextEntities[index] = newEntity;
+  for (const w of writes) nextEntities[w.index] = withComponent(nextEntities[w.index] as EntityV3, args.component, w.next);
   const resultScene = { ...input.scene, revision: input.scene.revision + 1, entities: nextEntities };
 
   const gate = gateResultState(
@@ -850,23 +851,25 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     catalog,
   );
   if (!gate.ok) return gate;
-  const canonicalEntity = gate.scene.entities[index] as EntityV3;
-  const next = deepClone(componentsRecord(canonicalEntity)[args.component]);
+  const canonical = (w: ComponentWrite): unknown | null => (w.next === null ? null : deepClone(componentsRecord(gate.scene.entities[w.index] as EntityV3)[args.component]));
+  const main = writes[0] as ComponentWrite;
   const change: SetComponentChange = {
     type: 'setComponent',
     id: args.entityId,
     component: args.component,
-    previous,
-    next,
-    changedFields,
+    previous: main.previous,
+    next: canonical(main),
+    changedFields: main.changedFields,
   };
+  const follows: ComponentFollow[] = writes.slice(1).map((w, i) => ({ entityId: ids[i + 1] as string, component: args.component, restore: w.previous, next: canonical(w) }));
   return {
     ok: true,
     op: {
       scene: gate.scene,
       content: gate.content,
       change,
-      inverse: { kind: 'setComponent', id: args.entityId, component: args.component, restore: previous },
+      inverse: { kind: 'setComponent', id: args.entityId, component: args.component, restore: main.previous },
+      ...(follows.length > 0 ? { follows } : {}),
     },
   };
 }

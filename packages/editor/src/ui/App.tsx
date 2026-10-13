@@ -72,7 +72,7 @@ import { EditorDialogs } from './shell/EditorDialogs';
 import { useCuePreview } from './shell/useCuePreview';
 import { useSceneViewLending } from './shell/useSceneViewLending';
 import { EditModeShell } from './editmode/EditModeShell';
-import { editModeFor, type EditModeHost } from './editmode/modes';
+import { editModeFor, isSceneMode, type EditModeHost } from './editmode/modes';
 import { useEditMode } from './editmode/useEditMode';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
@@ -91,7 +91,7 @@ import { useInstanceBrush } from './instances/InstanceBrush';
 import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
-import { useDecalTool } from './tools/DecalToolPanel';
+import { useDecalTools } from './shell/useDecalTools';
 import { useVertexPaintTools } from './shell/useVertexPaintTools';
 import type { ReportFailure } from './shell/commands';
 
@@ -738,9 +738,10 @@ function EditorApp(): JSX.Element {
   const docCmds = useDocumentCommands({ clientRef, viewportRef, workspaceDispatch, setGraphFocus: docState.setGraphFocus });
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
-  // The Decal tool is armed while its window floats over the Scene view.
-  const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
-  // The vertex paint mode likewise, while its window floats over the Scene view.
+  const newMaterialId = useCallback((name: string) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())), []);
+  // The decal editor's selection, settings and commands (its tool is armed while the mode shows).
+  const decalTools = useDecalTools({ clientRef, viewportRef, materials, sceneId: activeScene?.sceneId ?? null, newMaterialId, setNotice, reportFailure });
+  // The vertex paint editor's brush wiring.
   const vertexPaint = useVertexPaintTools({ clientRef, viewportRef, setNotice });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
@@ -968,6 +969,7 @@ function EditorApp(): JSX.Element {
     },
     openProjectSettings: () => settingsWindow.show(),
     showToolWindow,
+    openDecals: () => void editMode.open('decals'),
     createPrefabFromSelection: () => void prefab.createPrefabFromSelection(),
     createBlockLayer: () => void blocks.createBlockLayer(),
     createTerrain: () => void terrainTools.createTerrain(),
@@ -1017,20 +1019,23 @@ function EditorApp(): JSX.Element {
       tileThumbnails={tileThumbnails}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
-      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) }}
+      editMode={selectedEditMode === undefined || selected === null ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) }}
     />
   );
   /** What the edit modes read from the app. */
   const editModeHost: EditModeHost = {
     terrain: terrainTools,
     paint: vertexPaint,
+    decals: decalTools,
+    entities,
+    scene: activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name },
     flags: (id) => hierarchyFlags.get(id),
     blockLayers: blocks.blockRows,
     palette: {
       thumbnails: tileThumbnails,
       materials,
       run: terrainTools.terrainRun,
-      newMaterialId: (name) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())),
+      newMaterialId,
       openMaterial: (id) => openDocument('material', id),
       heightInAlpha: (ids) => clientRef.current?.heightInAlpha(ids) ?? Promise.resolve(null),
     },
@@ -1050,8 +1055,8 @@ function EditorApp(): JSX.Element {
         playing={playing}
         snapping={snapping}
         onToggleSnapping={() => setSnapping((v) => !v)}
-        decalTool={toolWindows.isOpen('decals')}
-        onToggleDecalTool={() => (toolWindows.isOpen('decals') ? toolWindows.close('decals') : showToolWindow('decals'))}
+        decalTool={editMode.shown && editMode.state?.kind === 'decals'}
+        onToggleDecalTool={() => (editMode.state?.kind === 'decals' ? editMode.leave() : void editMode.open('decals'))}
         lighting={lightingMode}
         onToggleLighting={() => {
           const next = lightingMode === 'game' ? 'editor' : 'game';
@@ -1249,7 +1254,6 @@ function EditorApp(): JSX.Element {
           content={content}
           docCmds={docCmds}
           bake={bake}
-          decalTool={decalTool}
           entities={entities}
           sceneHeaders={sceneHeaders}
           activateScene={(sceneId) => void sceneAction({ kind: 'activate', sceneId })}

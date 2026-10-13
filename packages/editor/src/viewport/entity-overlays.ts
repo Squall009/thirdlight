@@ -57,6 +57,8 @@ export class EntityOverlays {
   private gizmos = { icons: true, lights: true };
   /** The objects an edit mode edits: their own icons stand aside (the object itself is what is seen and worked on). */
   private editing: ReadonlySet<string> = new Set();
+  /** A scene's edit mode is open: no icon is drawn. */
+  private allEditing = false;
   private selectedId: string | null = null;
   private iconTable: IconTable = [];
 
@@ -116,7 +118,7 @@ export class EntityOverlays {
     for (const [id, b] of this.built) {
       if (b.icon !== null) b.icon.visible = this.iconShown(id);
       b.group.traverse((o) => {
-        if (o.userData['gizmo'] === 'light') o.visible = g.lights;
+        if (o.userData['gizmo'] === 'light') o.visible = g.lights && !this.allEditing;
       });
     }
   }
@@ -125,15 +127,25 @@ export class EntityOverlays {
    * The objects an edit mode edits (empty: none). Their icons are not drawn
    * meanwhile: a terrain's icon floats in the middle of the ground being
    * sculpted, hiding it and catching nothing (the mode picks no objects).
+   * `all`: no object's icon is drawn (a scene's mode shows the whole scene,
+   * where the others' icons would stand over the decals being worked on and
+   * pick nothing).
    */
-  setEditing(ids: ReadonlySet<string>): void {
+  setEditing(ids: ReadonlySet<string>, all = false): void {
     this.editing = ids;
-    for (const [id, b] of this.built) if (b.icon !== null) b.icon.visible = this.iconShown(id);
+    this.allEditing = all;
+    for (const [id, b] of this.built) {
+      if (b.icon !== null) b.icon.visible = this.iconShown(id);
+      // A light's reach and direction go with its icon in a scene's mode.
+      b.group.traverse((o) => {
+        if (o.userData['gizmo'] === 'light') o.visible = this.gizmos.lights && !all;
+      });
+    }
     this.host.requestRender();
   }
 
   private iconShown(id: string): boolean {
-    return this.gizmos.icons && !this.editing.has(id);
+    return this.gizmos.icons && !this.allEditing && !this.editing.has(id);
   }
 
   /** The selected entity's icon wears its selected artwork. */

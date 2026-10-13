@@ -110,7 +110,7 @@ export const TOOL_DETAILS = {
     'tl_inspect target="project" (tags) and each entity shows its own and effective tag names. Content ops: publishAsset, publishBehavior, ' +
     'setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that ' +
     'field, null removes an optional one; on an object without the component a complete value adds it; value null removes the ' +
-    'component — every owned component, box/camera/model included; model {piece: name|null} changes the piece), setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
+    'component — every owned component, box/camera/model included; model {piece: name|null} changes the piece; entityIds: [ids] gives more objects the same value in one undo step, values: [one partial value per entityIds entry] their own), setSettings, acknowledgeBehaviorTrust, createPrefab, ' +
     'instantiatePrefab. Script properties: publishBehavior {behaviorId, displayName, mode: declaration-create|declaration-update, declaration: {properties: [{key, label, ' +
     'type: number|boolean|string|enum|vec3|entityRef|assetRef, default, min?, max?, step?, maxLength?, values? (enum), bounds? (vec3), visibility?: public|private (default public), ' +
     'group?, header?, tooltip?}]}}; public properties are shown in the Inspector of every object with the script and set per object with setBehaviorProperties ' +

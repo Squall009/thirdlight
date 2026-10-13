@@ -12,6 +12,7 @@
 
 import { withoutLayersOf } from './block-ops';
 import {
+  CREATE_ENTITIES_MAX,
   serializeCanonical,
   validateContentV3,
   validateEnvelopeV3,
@@ -499,8 +500,7 @@ export function applyCreateEntity(
   };
 }
 
-/** The most entities one `createEntities` may create (folders' children included; the 64 KiB request cap bounds it too). */
-export const CREATE_ENTITIES_MAX = 1024;
+export { CREATE_ENTITIES_MAX };
 
 /**
  * `createEntities {entities}` — several creates in one

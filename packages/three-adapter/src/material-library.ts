@@ -310,7 +310,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    * The shared wind and clock block (TSL uniforms). In the render group, not
    * each object's: a uniform of the default (object) group is copied into
    * every drawn object's own buffer, so the clock changing each frame rewrote
-   * one buffer per wind-swayed object per pass (Skyforge's village: 126
+   * one buffer per wind-swayed object per pass (a village-sized level: 126
    * writes a frame); in the render group it is one write per pass.
    */
   const nodeGlobals = {

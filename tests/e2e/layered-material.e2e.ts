@@ -798,9 +798,13 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await cmd('editBlocks', { entityId: decalSetup.blocksId, edits: [{ kind: 'cells', at: [...REMESH_CELL], cell: null }] });
   await expectClipped(sceneShot, `${variant} Scene view`, true);
   // Bake to model: the wall's clipped decal becomes a model asset placed on its object (the decal component goes); the mark stays.
+  // A double-click on the decal's row opens the decal editor in Select with it selected; Bake to model is the selection's.
   await page.locator('.tl-hierarchy__filter').fill('Clipped on the wall');
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.clippedWallId}"]`).click({ timeout: 10_000 });
-  await inspector(page).getByRole('button', { name: 'Bake to model' }).click({ timeout: 10_000 });
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.clippedWallId}"]`).dblclick({ timeout: 10_000 });
+  const decalEditor = page.locator('section[data-edit-mode="decals"]');
+  await expect(decalEditor.getByRole('tab', { name: 'Select' })).toHaveAttribute('aria-selected', 'true');
+  await expect(decalEditor.getByLabel('selected decals')).toContainText('Clipped on the wall');
+  await decalEditor.getByRole('button', { name: 'Bake to model' }).click({ timeout: 10_000 });
   type Baked = { components: { model?: { asset?: { assetId?: string } }; decal?: unknown } };
   let baked: Baked | null = null;
   await expect.poll(async () => {
@@ -809,6 +813,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   }, { timeout: 30_000, message: 'the wall decal baked to a model' }).toBe('true true');
   const bakedAsset = (baked as Baked | null)!.components.model!.asset!.assetId!;
   console.log(`clipped decal ${variant} baked to model ${bakedAsset}`);
+  await decalEditor.getByRole('button', { name: /Done/ }).click();
+  await expect(decalEditor).toBeHidden();
   // One command: the asset's material map came with it, and one Undo takes the whole bake back (the decal again, no
   // model, no asset); Redo bakes it again.
   const bakedAssets = (): Promise<{ assets?: { assetId: string; materials?: Record<string, string> }[] }> => query('queryAssets', { ids: [bakedAsset], includeVersions: false }) as never;
@@ -824,7 +830,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   // The terrain tile selected again (its gizmo away from the reads): the baked object's gizmo stood over the wall's mark.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
   await expectClipped(sceneShot, `${variant} Scene view (baked)`, true);
-  // The Decal tool: a projected and a clipped decal placed with it stay (its turns, scales and stamps are undone).
+  // The decal editor: a projected and a clipped decal placed in it stay (its turns, scales, stamps, scatter stroke and multi-edit are undone).
   const selectTile = (): Promise<void> => page.locator(`.tl-hierarchy__list li[data-entity-id="${decalSetup.focusId}"]`).click({ timeout: 10_000 });
   const tool = await driveDecalTool(page, sceneView, query, () => menu(page, 'Edit', 'Undo'), selectTile, sceneShot, variant);
   const decalCount = decalSetup.decals - 1 + 2;
@@ -999,7 +1005,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await expect.poll(async () => {
     const img = decodePng(await canvas.screenshot());
     return TOOL_READS.map((p) => isDecalGreen(colourAt(img, onDecals(p, img.width, img.height))));
-  }, { timeout: 30_000, message: `the Decal tool's decals (${tool.projected}, ${tool.clipped}) in Play` }).toEqual([true, true]);
+  }, { timeout: 30_000, message: `the decal editor's decals (${tool.projected}, ${tool.clipped}) in Play` }).toEqual([true, true]);
   await expectClipped(async () => {
     const png = await canvas.screenshot();
     const img = decodePng(png);
@@ -1014,7 +1020,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await expectChanges(canvas, `${variant} Play`, false);
   const projected = (await diagnostics())['projectedDecals'] as { decals: number; drawn: number; unplaced: number; cells: number; entries: number; dropped: number; builds: number; buildMs: number; updates: number; spawned: number; receiverDraws: number } | undefined;
   console.log(`projected decals ${variant} Play: ${JSON.stringify(projected ?? null)}`);
-  // Every one drawn (the trim cell's stain out of sight too, the spawn, the Decal tool's), none over the overlap budget, only the draws they reach blending them;
+  // Every one drawn (the trim cell's stain out of sight too, the spawn, the decal editor's), none over the overlap budget, only the draws they reach blending them;
   // the moving one and the spawn changed the index in place.
   expect(projected).toMatchObject({ decals: decalSetup.projected + 3, drawn: decalSetup.projected + 3, unplaced: 0, dropped: 0, spawned: 1 });
   expect(projected!.receiverDraws).toBeGreaterThan(0);

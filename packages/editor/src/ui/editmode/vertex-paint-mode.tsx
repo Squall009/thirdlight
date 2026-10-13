@@ -20,7 +20,7 @@ import { ChannelsColumn } from '../vertexpaint/ChannelsColumn';
 import { MaterialColumn } from '../vertexpaint/MaterialColumn';
 import { PaintColumn } from '../vertexpaint/PaintColumn';
 import { VertexPaintView } from '../vertexpaint/PaintView';
-import type { EditModeKind, EditModeView } from './modes';
+import type { EditModeView, ObjectEditModeKind } from './modes';
 
 const has = (e: ProjectedEntity, c: string): boolean => e.components[c] !== undefined;
 
@@ -41,7 +41,7 @@ function kindOf(e: ProjectedEntity): string {
 
 const COLUMNS: Readonly<Record<string, (v: EditModeView) => JSX.Element>> = { paint: PaintColumn, channels: ChannelsColumn, material: MaterialColumn };
 
-export const vertexPaintMode: EditModeKind = {
+export const vertexPaintMode: ObjectEditModeKind = {
   kind: 'vertex-paint',
   label: 'Vertex paint',
   action: 'Paint vertices',

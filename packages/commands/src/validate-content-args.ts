@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, SET_COMPONENT_ENTITIES_MAX, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { COMPONENT_FIELD_ORDER, SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -581,12 +581,44 @@ export const SET_COMPONENT_NAMES: readonly OwnedComponent[] = OWNED;
 const COMPONENT_EXPECTED =
   'one of "box", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 
+export { SET_COMPONENT_ENTITIES_MAX };
+
 export function validateSetComponentArgs(
+  args: Record<string, unknown>,
+): ArgsOk<SetComponentArgs> | { ok: false; error: CommandError } {
+  const { entityIds, ...one } = args;
+  if (entityIds === undefined) return validateSetComponentOne(one);
+  if (!Array.isArray(entityIds)) return { ok: false, error: fieldType('/args/entityIds', entityIds, `array of 1-${SET_COMPONENT_ENTITIES_MAX} entity IDs`) };
+  if (entityIds.length < 1 || entityIds.length > SET_COMPONENT_ENTITIES_MAX) {
+    return { ok: false, error: fieldValue('/args/entityIds', entityIds.length, `1-${SET_COMPONENT_ENTITIES_MAX} entity IDs`, `setComponent writes 1 to ${SET_COMPONENT_ENTITIES_MAX} further entities`) };
+  }
+  for (let i = 0; i < entityIds.length; i++) {
+    if (typeof entityIds[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, entityIds[i], 'string (entity ID)') };
+  }
+  if (new Set(entityIds).size !== entityIds.length || entityIds.includes(one['entityId'])) {
+    return { ok: false, error: fieldValue('/args/entityIds', entityIds, 'distinct entity IDs other than entityId', 'an entity is named twice') };
+  }
+  const { values, ...first } = one;
+  const r = validateSetComponentOne(first);
+  if (!r.ok) return r;
+  if (values === undefined) return { ok: true, args: { ...r.args, entityIds: entityIds as string[] } };
+  if (!Array.isArray(values) || values.length !== entityIds.length) return { ok: false, error: fieldType('/args/values', values, `array of ${entityIds.length} partial values (one per entityIds entry)`) };
+  const checked: Record<string, unknown>[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const v = validateSetComponentOne({ entityId: entityIds[i], component: first['component'], value: values[i] });
+    if (!v.ok) return { ok: false, error: { ...v.error, path: v.error.path?.replace(/^\/args\/value/, `/args/values/${i}`) } as CommandError };
+    if (v.args.value === null) return { ok: false, error: fieldType(`/args/values/${i}`, null, 'object (a partial value; a removal goes in value)') };
+    checked.push(v.args.value);
+  }
+  return { ok: true, args: { ...r.args, entityIds: entityIds as string[], values: checked } };
+}
+
+function validateSetComponentOne(
   args: Record<string, unknown>,
 ): ArgsOk<SetComponentArgs> | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
     if (key !== 'entityId' && key !== 'component' && key !== 'value') {
-      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'entityId, component, value') };
+      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'entityId, component, value, entityIds and values (optional)') };
     }
   }
   if (args['entityId'] === undefined) {

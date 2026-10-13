@@ -537,6 +537,10 @@ export {
   DECAL_LAYERS_ALL,
   DECAL_MODES,
   decalLayersOf,
+  // The decal editor's fields: the channels a projected decal changes, the layer count, a mesh decal's blends (decals.ts).
+  DECAL_CHANNELS,
+  DECAL_LAYER_COUNT,
+  DECAL_BLENDS,
   // The editor's Decal tool: a trim cell's size at its sheet's density, and the seeded turns and sizes of its stamps.
   trimCellMetres,
   trimCellOf,

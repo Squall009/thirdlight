@@ -3,7 +3,8 @@
  *
  * Left, the object's icon over its editor's name and the object's name, and
  * a small fact about it (a terrain's tiles). Right, the mode's own extras,
- * the Context toggle (the rest of the scene shown, not pickable), undo and
+ * a note (a scene's mode: what can be picked), the Context toggle (an
+ * object's mode: the rest of the scene shown, not pickable), undo and
  * redo of the one history, and Done (Esc). The brand-coloured stripe on top
  * says a mode is open.
  *
@@ -24,8 +25,11 @@ export interface EditModeHeaderProps {
   meta?: string;
   /** The mode's own controls, before Context. */
   extra?: ReactNode;
-  context: boolean;
-  onContext: () => void;
+  /** The Context toggle (absent: none — a scene's mode already shows the whole scene). */
+  context?: boolean;
+  onContext?: () => void;
+  /** A note before undo ("Only decals can be picked"). */
+  note?: string;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -46,18 +50,26 @@ export function EditModeHeader(p: EditModeHeaderProps): JSX.Element {
       {p.meta !== undefined && <span className="tl-emh__meta">{p.meta}</span>}
       <span className="tl-emh__spacer" />
       {p.extra}
-      <button
-        type="button"
-        className={`tl-chipbtn${p.context ? ' is-on' : ''}`}
-        aria-pressed={p.context}
-        aria-label="Context"
-        title="Show the rest of the scene around it (it cannot be picked) (C)"
-        onClick={p.onContext}
-      >
-        <Glyph name="ghost" size={16} />
-        Context
-        <Kbd k="C" />
-      </button>
+      {p.note !== undefined && (
+        <span className="tl-emh__note">
+          <Glyph name="info" size={14} />
+          {p.note}
+        </span>
+      )}
+      {p.onContext !== undefined && (
+        <button
+          type="button"
+          className={`tl-chipbtn${p.context === true ? ' is-on' : ''}`}
+          aria-pressed={p.context === true}
+          aria-label="Context"
+          title="Show the rest of the scene around it (it cannot be picked) (C)"
+          onClick={p.onContext}
+        >
+          <Glyph name="ghost" size={16} />
+          Context
+          <Kbd k="C" />
+        </button>
+      )}
       <span className="tl-emh__sep" />
       <button type="button" className="tl-iconbtn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!p.canUndo} onClick={p.onUndo}>
         <Glyph name="undo" size={18} />

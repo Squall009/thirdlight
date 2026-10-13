@@ -11,17 +11,24 @@
  * shows again when the Scene view is back. It closes by itself when its
  * object is gone or no longer has what it edits (deleted, undone).
  *
+ * A scene's mode (decals) opens on no object: from its menu entry or button,
+ * or from a double-click on one of the objects it edits, which it then has
+ * selected (`focus`). It closes only with Done.
+ *
  * Browser-only (React).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch } from 'react';
 
 import type { WorkspaceAction } from '../../session/editor-window';
 import type { ProjectedEntity } from '../../session/projection';
-import { editModeFor, editModeKind, type EditModeKind } from './modes';
+import { editModeFor, editModeKind, isSceneMode, type EditModeKind } from './modes';
 
 export interface EditModeState {
   readonly kind: string;
+  /** The edited object ('' for a scene's mode). */
   readonly entityId: string;
+  /** A scene's mode: the object it was opened on (selected on entering); null: none. */
+  readonly focus: string | null;
   /** The rail's mode shown. */
   readonly mode: string;
   /** The rest of the scene shown around the object (not pickable). */
@@ -68,9 +75,13 @@ export function useEditMode(deps: EditModeDeps) {
       if (k === undefined) return false;
       if (saved.current === null) saved.current = { ids: selectionRef.current.ids, primary: selectionRef.current.primary };
       seen.current = e !== undefined;
-      owesFrame.current = kind !== undefined ? 'always' : 'away';
+      const scene = isSceneMode(k);
+      // A scene's mode keeps the view where it is (it shows the whole scene).
+      owesFrame.current = scene ? null : kind !== undefined ? 'always' : 'away';
       setSelection({ ids: [], primary: null });
-      setState({ kind: k.kind, entityId, mode: lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '', context: false });
+      const focus = scene && entityId !== '' ? entityId : null;
+      const mode = (focus !== null && isSceneMode(k) ? k.focusMode : undefined) ?? lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '';
+      setState({ kind: k.kind, entityId: scene ? '' : entityId, focus, mode, context: false });
       workspaceDispatch({ type: 'view', view: 'scene' });
       workspaceDispatch({ type: 'show', on: false });
       closeSettings();
@@ -78,6 +89,9 @@ export function useEditMode(deps: EditModeDeps) {
     },
     [setSelection, workspaceDispatch, closeSettings],
   );
+
+  /** Open a scene's mode by its kind (a menu entry, a toolbar button): no object is focused. */
+  const open = useCallback((kind: string): boolean => enter('', kind), [enter]);
 
   /** Close the mode (Done): the selection from before it opened comes back. */
   const leave = useCallback(() => {
@@ -106,17 +120,18 @@ export function useEditMode(deps: EditModeDeps) {
 
   const toggleContext = useCallback(() => setState((s) => (s === null ? s : { ...s, context: !s.context })), []);
 
-  const entity = state === null ? undefined : entities.find((e) => e.id === state.entityId);
   const kind = state === null ? undefined : editModeKind(state.kind);
-  // Gone, or no longer what the mode edits (deleted, its component removed, undone): the mode closes.
+  const scene = kind !== undefined && isSceneMode(kind);
+  const entity = state === null || scene ? undefined : entities.find((e) => e.id === state.entityId);
+  // Gone, or no longer what the mode edits (deleted, its component removed, undone): an object's mode closes.
   useEffect(() => {
-    if (state === null) return;
+    if (state === null || scene) return;
     if (entity !== undefined) seen.current = true;
     if ((entity === undefined && seen.current) || (entity !== undefined && kind?.applies(entity) !== true)) leave();
-  }, [state, entity, kind, leave]);
+  }, [state, entity, kind, scene, leave]);
 
-  const shown = state !== null && entity !== undefined && kind !== undefined && sceneInFront;
-  return { state, entity, kind, shown, enter, leave, setMode, toggleContext, frameOwed, frameDone };
+  const shown = state !== null && kind !== undefined && (scene || entity !== undefined) && sceneInFront;
+  return { state, entity, kind, shown, enter, open, leave, setMode, toggleContext, frameOwed, frameDone };
 }
 
 export type EditMode = ReturnType<typeof useEditMode>;

@@ -31,6 +31,19 @@ export const MAX_SOURCE_BYTES = 33_554_432;
 export const MAX_PREFAB_ENTITIES = 1024;
 export const MAX_PREFAB_DEPTH = 16;
 export const MAX_PREFAB_BYTES = MAX_CONTENT_FILE_BYTES;
+/**
+ * The most entities one `createEntities` creates (folders' children
+ * included; the 64 KiB request bound bounds it too). A request's size, not a
+ * cap on objects in a project: a larger batch (a long scatter stroke) goes as
+ * more requests.
+ */
+export const CREATE_ENTITIES_MAX = 1024;
+/**
+ * The most further objects one `setComponent` writes (`entityIds`): a
+ * request's size, not a cap on objects in a project — a larger selection is
+ * edited in more requests (the 64 KiB request bound holds about this many ids).
+ */
+export const SET_COMPONENT_ENTITIES_MAX = 1024;
 /** The most overrides one prefab instantiation request carries (commands and the editor's planner check it). */
 export const MAX_PREFAB_OVERRIDES = 64;
 export const MAX_ENUM_VALUES = 32;

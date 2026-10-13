@@ -221,6 +221,30 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
     </>
   ),
   drop: <path d="M12 3c3 4.5 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-6.5 6-11z" />,
+  place: (
+    <>
+      <path d="M12 21s-6-5.6-6-10.5a6 6 0 0 1 12 0C18 15.4 12 21 12 21z" />
+      <circle cx="12" cy="10.5" r="2.2" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
+      <path d="M11 11l7 3.2-3 1-1 3z" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v6M12 7.5v.5" />
+    </>
+  ),
+  bake: (
+    <>
+      <path d="M12 3v10M8 9l4 4 4-4" />
+      <path d="M4 15v4h16v-4" />
+    </>
+  ),
 };
 
 /** A glyph by name (an unknown name draws an empty box of the same size). */

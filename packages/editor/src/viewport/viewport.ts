@@ -48,7 +48,7 @@ import {
   type SceneAdapter,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -65,8 +65,7 @@ import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import type { BlockEditor, BlockEditorCallbacks } from './block-editor';
 import type { TerrainEditor, TerrainEditorCallbacks } from './terrain-editor';
-import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
-import type { DecalToolSettings } from '../session/decal-place';
+import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalArm, type DecalToolCallbacks } from './decal-tool';
 import type { VertexPaintArm, VertexPaintToolCallbacks } from './vertex-paint-tool';
 import type { BrushStore } from '../session/brush';
 import { CLICK_SLOP_PX, ViewportTools } from './tool-input';
@@ -74,6 +73,7 @@ import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
 import type { ProbeBakeHost } from './probe-bake-inputs';
 import { SceneVisibility } from './scene-visibility';
+import { ViewIsolationState, type ViewIsolation } from './view-isolation';
 import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
 import type { SceneViewAssets } from './scene-assets';
@@ -112,12 +112,7 @@ export interface ViewportCallbacks {
  */
 export const WORK_VIEW_SKY = 0.12;
 
-/** An edit mode's isolation: the objects it edits, and whether the rest of the scene is shown as context. */
-export interface ViewIsolation {
-  readonly ids: readonly string[];
-  /** The rest drawn too (still not pickable). */
-  readonly context: boolean;
-}
+export type { ViewIsolation } from './view-isolation';
 
 const GROUND_SIZE = 20;
 /** The Scene view's background where the project draws no sky. */
@@ -169,8 +164,22 @@ export class Viewport {
   private readonly overlay = new THREE.Group();
   private readonly entityOverlays: EntityOverlays;
   private selectedId: string | null = null;
-  /** An edit mode's isolation (the edited objects and their descendants), null while none is open. */
-  private isolation: { ids: ReadonlySet<string>; given: ViewIsolation } | null = null;
+  /** An edit mode's isolation: what is drawn and what can be hit while a mode is open. */
+  private readonly isolation = new ViewIsolationState({
+    subtreeIds: (id) => this.subtreeIds(id),
+    withComponent: (c) => this.projected.filter((e) => e.components[c] !== undefined).map((e) => e.id),
+    drawOnly: (ids) => this.adapter.setIsolation?.(ids),
+    showGround: (on) => {
+      this.grid.visible = on && this.gizmos.grid;
+      this.ground.visible = this.grid.visible;
+    },
+    editing: (ids, all) => {
+      this.entityOverlays.setEditing(ids, all);
+      this.helpers.sync(this.helperEntities());
+    },
+    publish: (state) => this.root.setAttribute('data-isolation', state),
+    requestRender: () => this.requestRender(),
+  });
   /** Effective flags from the last sync (inactive = hidden, locked = not pickable/movable). */
   private hierarchyFlags: ReadonlyMap<string, EffectiveEntityFlags> = new Map();
   private folderIds = new Set<string>();
@@ -271,7 +280,13 @@ export class Viewport {
         overlay: this.overlay,
         camera: this.camera,
         canvas: () => this.root,
-        surfaceAt: (x, y) => decalSurfaceOf(this.castScene(x, y), this.raycaster.ray, (o) => this.adapter.entityOf?.(o) ?? null, (id, wx, wz) => this.adapter.terrains?.()?.field(id)?.sample(wx, wz)?.normal ?? null),
+        surfaceAt: (x, y) => decalSurfaceOf(this.castScene(x, y, true), this.raycaster.ray, (o) => this.adapter.entityOf?.(o) ?? null, (id, wx, wz) => this.adapter.terrains?.()?.field(id)?.sample(wx, wz)?.normal ?? null),
+        surfaceOnRay: (o, d, far) => decalSurfaceOf(this.castRay(o, d, far), this.raycaster.ray, (x) => this.adapter.entityOf?.(x) ?? null, (id, wx, wz) => this.adapter.terrains?.()?.field(id)?.sample(wx, wz)?.normal ?? null),
+        decals: () => this.projected.filter((e) => e.components['decal'] !== undefined && this.hierarchyFlags.get(e.id)?.active !== false && this.hierarchyFlags.get(e.id)?.locked !== true).map((e) => ({ id: e.id, trs: { position: e.position, rotation: e.rotation, scale: e.scale }, decal: e.components['decal'] as DecalComponent })),
+        parentWorld: (id) => {
+          const p = this.synced.get(id)?.parentId ?? null;
+          return p === null ? null : this.worldOf(p);
+        },
         setPreview: (e) => (this.source.setExtra(e), this.adapter.sync?.()),
         previewTransform: (id, t) => (this.source.setOverride(id, t), this.requestRender()),
         previewDecal: (id, decal) => void this.previewComponent(id, 'decal', decal),
@@ -883,22 +898,34 @@ export class Viewport {
     return [t.x, t.y, t.z];
   }
 
-  /** What a ray from the view hits among the drawn objects and the entities' overlays (nearest first). */
-  private castScene(clientX: number, clientY: number): THREE.Intersection[] {
+  /** What a ray from the view hits among the drawn objects and the entities' overlays (nearest first); `all`: what an edit mode cannot pick too (a decal is placed on any surface). */
+  private castScene(clientX: number, clientY: number, all = false): THREE.Intersection[] {
     const rect = this.root.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.castTargets();
+    if (all) return hits;
+    // In an edit mode only the edited objects are hit (the rest, shown as context or not, is never picked or painted).
+    const entityOf = (o: THREE.Object3D): string | null => this.adapter.entityOf?.(o) ?? null;
+    return this.isolation.hits(hits, (o) => drawOwner(o, entityOf));
+  }
+
+  /** What a ray from a world point hits within `far` metres among the drawn objects (nearest first; a decal scatter's drop). */
+  private castRay(origin: readonly number[], dir: readonly number[], far: number): THREE.Intersection[] {
+    this.raycaster.set(new THREE.Vector3(origin[0], origin[1], origin[2]), new THREE.Vector3(dir[0], dir[1], dir[2]).normalize());
+    this.raycaster.far = far;
+    const hits = this.castTargets();
+    this.raycaster.far = Infinity;
+    return hits;
+  }
+
+  /** The raycaster's hits among the drawables (those drawn through batches too; the batches' own meshes stand for objects picked themselves) — not the view's overlay group. */
+  private castTargets(): THREE.Intersection[] {
     this.adapter.sync?.();
     const scene = this.adapter.threeScene?.();
     if (scene === undefined) return [];
-    // The drawables (those drawn through batches too; the batches' own meshes stand for objects picked themselves) — not the view's overlay group.
     const targets = (this.adapter.pickables?.() ?? scene.children).filter((o) => o !== this.overlay && o.userData['tlBatch'] !== true);
-    const hits = this.raycaster.intersectObjects(targets, true).filter((h) => h.object.visible);
-    // In an edit mode only the edited objects are hit (the rest, shown as context or not, is never picked or painted).
-    const iso = this.isolation;
-    if (iso === null) return hits;
-    const entityOf = (o: THREE.Object3D): string | null => this.adapter.entityOf?.(o) ?? null;
-    return hits.filter((h) => iso.ids.has(drawOwner(h.object, entityOf) ?? ''));
+    return this.raycaster.intersectObjects(targets, true).filter((h) => h.object.visible);
   }
 
   /**
@@ -1059,62 +1086,24 @@ export class Viewport {
   }
 
   /**
-   * An edit mode's isolation (null: none). Only the edited objects and their
-   * descendants are drawn (with `context`, the rest too); nothing else is hit
-   * by a click or a tool, the gizmo, the selection outline and the other
+   * An edit mode's isolation (null: none, `view-isolation.ts`): what is
+   * drawn and hit meanwhile; the gizmo, the selection outline and the other
    * objects' helpers stand aside.
    */
   setIsolation(iso: ViewIsolation | null): void {
-    if (iso === null && this.isolation === null) return;
-    this.isolation = iso === null ? null : { ids: this.isolatedIds(iso), given: iso };
-    this.applyIsolation();
-    this.entityOverlays.setEditing(iso === null ? new Set() : new Set(iso.ids));
-    this.helpers.sync(this.helperEntities());
+    if (!this.isolation.set(iso)) return;
     this.setSelected(this.selectedId);
   }
 
-  private isolatedIds(iso: ViewIsolation): Set<string> {
-    const ids = new Set<string>();
-    for (const id of iso.ids) for (const x of this.subtreeIds(id)) ids.add(x);
-    return ids;
-  }
-
-  /** A child added to (or moved out of) an edited object while its mode is open is drawn (or hidden) like the rest. */
-  private followIsolation(): void {
-    const iso = this.isolation;
-    if (iso === null) return;
-    const ids = this.isolatedIds(iso.given);
-    if (ids.size === iso.ids.size && [...ids].every((id) => iso.ids.has(id))) return;
-    this.isolation = { ids, given: iso.given };
-    this.applyIsolation();
-  }
-
-  /**
-   * The grid and its dark ground square, unless an edit mode isolates its
-   * object: they lie at y = 0, where a terrain's ground usually is, so they
-   * fight it in depth or show through wherever it dips below — dark shapes
-   * on the one object the mode is meant to show.
-   */
+  /** The grid and its ground square, unless an edit mode hides the rest of the scene (`view-isolation.ts`). */
   private syncGround(): void {
-    const iso = this.isolation;
-    const on = this.gizmos.grid && (iso === null || iso.given.context);
-    this.grid.visible = on;
-    this.ground.visible = on;
-  }
-
-  /** The adapter draws as the isolation says (again after a renderer backend change). */
-  private applyIsolation(): void {
-    const iso = this.isolation;
-    this.syncGround();
-    this.adapter.setIsolation?.(iso === null || iso.given.context ? null : iso.ids);
-    this.root.setAttribute('data-isolation', iso === null ? '' : JSON.stringify({ ids: [...iso.given.ids], context: iso.given.context, drawn: iso.ids.size }));
-    this.requestRender();
+    this.grid.visible = this.gizmos.grid && !this.isolation.hidesRest;
+    this.ground.visible = this.grid.visible;
   }
 
   /** The entities whose helpers are drawn: the shown ones, only the edited ones in an edit mode. */
   private helperEntities(): ProjectedEntity[] {
-    const iso = this.isolation;
-    return this.projected.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false && (iso === null || iso.ids.has(e.id)));
+    return this.projected.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false && this.isolation.shows(e.id));
   }
 
   /** A key for the Scene view's armed tools (only those named, when given); true when one took it. */
@@ -1258,7 +1247,7 @@ export class Viewport {
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // An edit mode's isolation: drawables hidden and swept at this frame (tests and the perf check read it).
-    if (this.isolation !== null) {
+    if (this.isolation.active) {
       const d = adapter.isolationDiagnostics?.();
       if (d !== undefined) this.root.setAttribute('data-isolated-draws', `${d.hidden} ${d.swept}`);
     }
@@ -1323,7 +1312,7 @@ export class Viewport {
     this.helpers.setCanvas(next);
     this.rendererInfoNow = { requested: preference, source, backend: null, api: null, state: 'initialising', reason: 'choosing a backend', recoveries: 0 };
     this.adapter = this.makeAdapter(next);
-    this.applyIsolation();
+    this.isolation.apply();
     this.lookApplied = null;
     this.applyLightingMode();
     if (this.environmentSet) this.setEnvironment(this.environmentValue);
@@ -1415,7 +1404,7 @@ export class Viewport {
       }
     }
     this.source.sync(entities, full ? null : changed);
-    if (structural) this.followIsolation();
+    if (structural) this.isolation.follow();
     // Automatic lighting follows whether the scene has a light.
     this.applyLightingMode();
     this.syncVirtualCameraPreviews(entities);
@@ -1432,7 +1421,6 @@ export class Viewport {
     this.outlineDirty = true;
     // A selection that became locked or a folder loses its gizmo.
     if (this.selectedId !== null && !this.draggingGizmo && (selectionTouched || structural)) this.setSelected(this.selectedId);
-    else if (selectionTouched) this.tools.decal.setTarget(this.synced.get(this.selectedId ?? '') ?? null);
     const ms = Math.round((performance.now() - t0) * 100) / 100;
     this.root.setAttribute('data-sync', JSON.stringify({ entities: entities.length, processed: changed.length, removed: removed.size, full, ms }));
     this.render();
@@ -1504,7 +1492,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
-    const target = this.tools.router.anyArmed(id) || this.isolation !== null ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
+    const target = this.tools.router.anyArmed(id) || this.isolation.active ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.gizmoProxy : null;
     if (id && target) {
       if (!this.draggingGizmo) this.placeGizmoFrame();
       if (this.gizmo.object !== target) this.gizmo.attach(target);
@@ -1515,7 +1503,6 @@ export class Viewport {
       this.gizmoTargetId = null;
     }
     this.helpers.setSelected(id);
-    this.tools.decal.setTarget(id === null ? null : (this.synced.get(id) ?? null));
     this.stampGizmoCounts();
     this.render();
   }
@@ -1544,7 +1531,7 @@ export class Viewport {
     this.selectionOutline?.dispose();
     this.selectionOutline = null;
     const id = this.selectedId;
-    const box = id === null || this.hierarchyFlags.get(id)?.active === false || this.isolation !== null ? null : this.boundsOf([id], () => true);
+    const box = id === null || this.hierarchyFlags.get(id)?.active === false || this.isolation.active ? null : this.boundsOf([id], () => true);
     // Which entity wears the outline (tests read it).
     this.root.setAttribute('data-selection-outline', box === null || box.isEmpty() ? '' : id!);
     if (box === null || box.isEmpty()) return;
@@ -1619,7 +1606,7 @@ export class Viewport {
 
   /** A double-click on an object opens its edit mode (never while a tool owns the clicks or a mode is open). */
   private onDoubleClick = (e: MouseEvent): void => {
-    if (e.button !== 0 || this.isolation !== null || this.tools.router.anyArmed(this.selectedId)) return;
+    if (e.button !== 0 || this.isolation.active || this.tools.router.anyArmed(this.selectedId)) return;
     const id = this.pick(e.clientX, e.clientY);
     if (id !== null) this.cb.onDoublePick?.(id);
   };
@@ -1643,7 +1630,7 @@ export class Viewport {
     // A tool's gesture ends (its press never reached the orbit controls), or a tool acts on the click.
     if (this.tools.router.pointerUp(e)) return;
     // A left click (no drag, not on a gizmo handle) picks or deselects; in an edit mode its tools own the clicks.
-    if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null || this.isolation !== null) return;
+    if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null || this.isolation.active) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
     // With an instance set selected, a click on one of its copies selects that copy.
     const sel = this.selectedId;
@@ -1702,9 +1689,9 @@ export class Viewport {
     this.tools.setInstanceBrush(entityId, store, brush);
   }
 
-  /** The Decal tool armed with these settings in `sceneId`, its edits sent through `cb` (null: off; the gizmo stands aside while it is on). */
-  setDecalTool(settings: DecalToolSettings | null, sceneId: string | null, cb: DecalToolCallbacks | null): void {
-    this.tools.setDecalTool(settings, sceneId, cb);
+  /** The decal editor's tool armed (null: off), its edits sent through `cb`. */
+  setDecalTool(arm: DecalArm | null, cb: DecalToolCallbacks | null): void {
+    this.tools.setDecalTool(arm, cb);
   }
 
   /** The vertex paint brush armed on an object, its strokes sent through `cb` (null: off; the gizmo stands aside while it is on). */

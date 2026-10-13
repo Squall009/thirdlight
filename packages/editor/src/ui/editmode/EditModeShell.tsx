@@ -9,7 +9,8 @@
  * column on the right and the status line with its hints and keys.
  *
  * While it shows, the view draws only the edited object (Context: the rest
- * too, not pickable), and the keys of the one key map (`edit-keys.ts`) work:
+ * too, not pickable) — a scene's mode draws the whole scene with only its
+ * objects pickable — and the keys of the one key map (`edit-keys.ts`) work:
  * Esc leaves (after a stroke in flight is cancelled), C toggles Context,
  * Home frames the object, Shift+number picks a mode; other keys go to the
  * mode's Scene-view tools. Edits are the same commands as anywhere else, so
@@ -21,12 +22,12 @@ import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
 
 import { editKeyAction, sharedKeyHints } from '../../session/edit-keys';
 import type { Viewport } from '../../viewport/viewport';
-import { iconSrc, iconTitle, objectIconFor, type IconTable } from '../../viewport/icons';
+import { iconSrc, iconTitle, objectIconFor, type IconKind, type IconTable } from '../../viewport/icons';
 import type { SceneViewLending } from '../shell/useSceneViewLending';
 import { isTyping } from '../workspace/EditorWindow';
 import { EditModeHeader } from './EditModeHeader';
 import { EditStatusContext, type EditStatus } from './edit-status';
-import type { EditModeHost } from './modes';
+import { isSceneMode, type EditModeHost } from './modes';
 import { StatusHints } from './StatusHints';
 import { ToolRail } from './ToolRail';
 import type { EditMode } from './useEditMode';
@@ -71,14 +72,15 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     };
   }, []);
 
-  // Only the edited object drawn (the rest too with Context), and only it hit.
+  // Only the edited object drawn (the rest too with Context), and only it hit; a scene's mode: the whole scene drawn, only its component's objects hit.
   const entityId = state?.entityId ?? null;
   const context = state?.context ?? false;
+  const component = kind !== undefined && isSceneMode(kind) ? kind.component : null;
   useEffect(() => {
     if (entityId === null) return undefined;
-    p.viewportRef.current?.setIsolation({ ids: [entityId], context });
+    p.viewportRef.current?.setIsolation(component !== null ? { ids: [], context: true, component } : { ids: [entityId], context });
     return () => p.viewportRef.current?.setIsolation(null);
-  }, [entityId, context, p.viewportRef]);
+  }, [entityId, context, component, p.viewportRef]);
 
   /** Whether the object shows in the view now (a few points over its middle find it). */
   const onScreen = (id: string): boolean => {
@@ -98,7 +100,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     const attempt = (): void => {
       const { mode, viewportRef } = latest.current;
       const owed = mode.frameOwed();
-      if (mode.entity === undefined || mode.kind === undefined || owed === null) return;
+      if (mode.entity === undefined || mode.kind === undefined || isSceneMode(mode.kind) || owed === null) return;
       const area = mode.kind.workArea?.(mode.entity) ?? null;
       const keepIf = owed === 'away' ? (mode.kind.bounds?.(mode.entity) ?? null) : null;
       const keep = owed === 'away' && (mode.kind.framesOnEnter !== true || onScreen(mode.entity.id));
@@ -123,29 +125,35 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         if (viewportRef.current?.toolKey(e, k.tools) === true) e.preventDefault();
         return;
       }
+      // A scene's mode has no object to frame or show alone: Home and C are not its keys.
+      if (isSceneMode(k) && (action.kind === 'context' || action.kind === 'frame')) return;
       e.preventDefault();
       if (action.kind === 'done') mode.leave();
       else if (action.kind === 'context') mode.toggleContext();
       else if (action.kind === 'mode') mode.setMode(k.rail[action.index]!.id);
-      else if (mode.entity !== undefined) viewportRef.current?.frameEntity(mode.entity.id, k.bounds?.(mode.entity) ?? undefined);
+      else if (mode.entity !== undefined && !isSceneMode(k)) viewportRef.current?.frameEntity(mode.entity.id, k.bounds?.(mode.entity) ?? undefined);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  if (state === null || entity === undefined || kind === undefined) return null;
+  if (state === null || kind === undefined) return null;
+  const scene = isSceneMode(kind);
+  if (!scene && entity === undefined) return null;
   const rail = kind.rail.find((r) => r.id === state.mode) ?? kind.rail[0]!;
-  const icon = objectIconFor(entity, p.icons);
+  const sceneView = { mode: rail.id, host: p.host, focus: state.focus };
+  const icon = scene ? null : objectIconFor(entity!, p.icons);
+  const name = scene ? (p.host.scene?.name ?? 'Scene') : entity!.name;
+  const meta = scene ? kind.meta?.(sceneView) : kind.meta?.(entity!);
   return (
-    <section className="tl-editmode" aria-label="edit mode" data-edit-mode={kind.kind} data-entity-id={entity.id}>
+    <section className="tl-editmode" aria-label="edit mode" data-edit-mode={kind.kind} data-entity-id={scene ? '' : entity!.id}>
       <EditModeHeader
-        icon={iconSrc(icon.kind)}
-        iconTitle={iconTitle(icon)}
+        icon={iconSrc(scene ? (kind.icon as IconKind) : icon!.kind)}
+        iconTitle={scene ? kind.label : iconTitle(icon!)}
         editorLabel={kind.label}
-        objectName={entity.name}
-        {...(kind.meta !== undefined ? { meta: kind.meta(entity) } : {})}
-        context={state.context}
-        onContext={p.mode.toggleContext}
+        objectName={name}
+        {...(meta !== undefined ? { meta } : {})}
+        {...(scene ? (kind.note !== undefined ? { note: kind.note } : {}) : { context: state.context, onContext: p.mode.toggleContext })}
         canUndo={p.canUndo}
         canRedo={p.canRedo}
         onUndo={p.onUndo}
@@ -157,7 +165,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         <div className="tl-editmode__view">
           {/* Empty for React: the Scene view's canvas is put here (and taken back) by the editor. */}
           <div className="tl-editmode__canvas" ref={viewHost} />
-          <ViewportChrome objectName={entity.name} context={state.context} extra={kind.viewExtra?.({ entity, mode: rail.id, host: p.host })} />
+          {scene ? <ViewportChrome objectName={name} context chip={kind.chip} extra={kind.viewExtra?.(sceneView)} /> : <ViewportChrome objectName={name} context={state.context} extra={kind.viewExtra?.({ entity: entity!, mode: rail.id, host: p.host })} />}
           {p.notice !== null && (
             <div className="tl-notice" role="alert">
               <span>{p.notice}</span>
@@ -172,12 +180,12 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
             <b>{rail.label}</b>
             {status !== null && status.tool !== rail.label && <span className="tl-editmode__tool">{status.tool}</span>}
           </div>
-          <div className="tl-editmode__column-body" key={entity.id}>
-            <EditStatusContext.Provider value={setStatus}>{kind.column({ entity, mode: rail.id, host: p.host })}</EditStatusContext.Provider>
+          <div className="tl-editmode__column-body" key={scene ? kind.kind : entity!.id}>
+            <EditStatusContext.Provider value={setStatus}>{scene ? kind.column(sceneView) : kind.column({ entity: entity!, mode: rail.id, host: p.host })}</EditStatusContext.Provider>
           </div>
         </aside>
       </div>
-      <StatusHints tool={status?.tool ?? rail.label} text={status?.text ?? rail.hint} keys={[...(status?.keys ?? []), ...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length)]} {...(status?.right !== undefined ? { right: status.right } : {})} />
+      <StatusHints tool={status?.tool ?? rail.label} text={status?.text ?? rail.hint} keys={[...(status?.keys ?? []), ...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length).filter((h) => !scene || (h.label !== 'Context' && h.label !== 'Frame'))]} {...(status?.right !== undefined ? { right: status.right } : {})} />
     </section>
   );
 }

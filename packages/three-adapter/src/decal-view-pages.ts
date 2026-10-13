@@ -66,6 +66,9 @@ export function createDecalViewPages(): DecalViewPages {
   const material = (colour: N): THREE.MeshBasicNodeMaterial => {
     const m = new THREE.MeshBasicNodeMaterial();
     m.colorNode = colour;
+    // Written as is, alpha and all: a node material with normal blending that is not transparent writes alpha 1,
+    // which drew every view-page decal as its whole rectangle (the image's alpha is the mark's shape).
+    m.blending = THREE.NoBlending;
     m.depthTest = false;
     m.depthWrite = false;
     m.toneMapped = false;

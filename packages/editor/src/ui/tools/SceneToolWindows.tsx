@@ -13,7 +13,6 @@ import { probesAreStale } from '../../viewport/probe-bake-run';
 import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
-import { DecalToolPanel, type DecalToolState } from './DecalToolPanel';
 import { LightingPanel } from '../LightingPanel';
 import type { SceneHeaderView } from '../Hierarchy';
 import type { ClientRef, ViewportRef } from '../shell/commands';
@@ -62,7 +61,6 @@ export interface SceneToolWindowsProps {
   content: ProjectContent;
   docCmds: DocumentCommands;
   bake: LightingBakeState;
-  decalTool: DecalToolState;
   entities: ProjectedEntity[];
   /** The open scenes, the active one marked. */
   sceneHeaders: readonly SceneHeaderView[] | null;
@@ -80,9 +78,7 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
   const { saveEnvironment, saveSceneEnvironment, materialError } = p.docCmds;
   const b = p.bake;
   const body = (id: ToolWindowId): JSX.Element =>
-    id === 'decals' ? (
-      <DecalToolPanel tool={p.decalTool} />
-    ) : id === 'environment' ? (
+    id === 'environment' ? (
       <EnvironmentPanel
         environment={environment}
         onSave={(env) => void saveEnvironment(env, environment)}

@@ -1547,6 +1547,18 @@ export interface SetComponentArgs {
    *  add-capable component (the collider/controller pair and the six v3 ones) and is
    *  never a removal for `box`/`camera`/`model`. */
   value: Record<string, unknown> | null;
+  /**
+   * More objects that take the same `value` (each merged into its own
+   * component, as `entityId`'s is), in the same transaction: one revision,
+   * one undo — an edit of a multi-selection. Distinct, without `entityId`.
+   */
+  entityIds?: string[];
+  /**
+   * With `entityIds`: each further object's own partial value, in the same
+   * order (absent: `value` for each) — a field edited on a multi-selection
+   * whose other parts differ per object (one decal's width among sizes).
+   */
+  values?: Record<string, unknown>[];
 }
 
 /** `applySurfacePreset` args. */

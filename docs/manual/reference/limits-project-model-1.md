@@ -166,6 +166,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-audio-max-late-ms-limit"></a>`AUDIO_MAX_LATE_MS_LIMIT` | `60000` | The largest lateness bound a caller may set (ms): a minute, longer than any wait for one file. |
 | <a id="limit-audio-voice-cap"></a>`AUDIO_VOICE_CAP` | `32` | The engine cap on concurrent sound voices (the `audio_voices` setting's maximum): mixing cost per voice, as common engines' real-voice defaults. |
 | <a id="limit-audio-voices-default"></a>`AUDIO_VOICES_DEFAULT` | `8` | The `audio_voices` default: enough for overlapping effects in any scene. |
+| <a id="limit-create-entities-max"></a>`CREATE_ENTITIES_MAX` | `1024` | The most entities one `createEntities` creates (folders' children included; the 64 KiB request bound bounds it too). A request's size, not a cap on objects in a project: a larger batch (a long scatter stroke) goes as more requests. |
 | <a id="limit-declaration-string-length-default"></a>`DECLARATION_STRING_LENGTH_DEFAULT` | `256` | A declared `string` property's length (code points) when it sets no `maxLength`, and the largest `maxLength` it may set. |
 | <a id="limit-default-asset-folder"></a>`DEFAULT_ASSET_FOLDER` | `"assets"` | The folder of the game folder uploads land in when the user names none. |
 | <a id="limit-index-page-default"></a>`INDEX_PAGE_DEFAULT` | `256` |  |
@@ -199,6 +200,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-texture-versions"></a>`MAX_TEXTURE_VERSIONS` | `8` | Versions of one texture asset record (PNG/JPEG/WebP/KTX2). |
 | <a id="limit-max-total-decoded-bytes"></a>`MAX_TOTAL_DECODED_BYTES` | `536870912` | The total decoded bytes of one model (`decodedGeometryBytes + decodedImageBytes`). |
 | <a id="limit-model-json-chunk-bytes-max"></a>`MODEL_JSON_CHUNK_BYTES_MAX` | `8388608` | The largest JSON chunk of an imported GLB (bytes). |
+| <a id="limit-set-component-entities-max"></a>`SET_COMPONENT_ENTITIES_MAX` | `1024` | The most further objects one `setComponent` writes (`entityIds`): a request's size, not a cap on objects in a project — a larger selection is edited in more requests (the 64 KiB request bound holds about this many ids). |
 
 <a id="limits-project-model--content-settings"></a>
 ## `content-settings.ts`
@@ -367,10 +369,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |
 | <a id="limit-max-material-slots"></a>`MAX_MATERIAL_SLOTS` | `32` | Most material slots one object or asset maps. |
 | <a id="limit-sky-rotation-max"></a>`SKY_ROTATION_MAX` | `360` | The largest turn a sky's `rotation` takes either way (degrees; one full turn). |
-
-<a id="limits-project-model--model-collision"></a>
-## `model-collision.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-model-read-limits"></a>`MODEL_READ_LIMITS` | `{"depth":256,"positions":4000000}` | Bounds on what one read decodes (the importer's caps keep stored files far below them). |

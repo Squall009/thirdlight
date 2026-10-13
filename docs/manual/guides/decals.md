@@ -35,36 +35,50 @@ All use a **decal material**.
 4. Where two decals overlap, the one with the higher **sortOrder** draws on
    top (−1000 to 1000; decals always draw before water and effects).
 
-## Place it with the Decal tool
+## Place it in the decal editor
 
-The quickest way to put marks on a level: the **decal** button in the tool
-row (or **Window → Decals**) opens the Decals window over the Scene view.
-While it is open, the Scene view's left click places decals instead of
-selecting:
+The quickest way to put marks on a level: **Window → Decals** (or the
+**decal** button in the tool row) opens the **decal editor** over the work
+area. The whole scene stays drawn; only decals can be picked. Its rail has
+three modes (Shift+1–3):
 
-1. Pick **decal**: a decal material, or a trim sheet's decal cell by name
-   (a cell no decal material draws yet gets one when you pick it, sized at
-   the sheet's texel density).
-2. Pick **mode** (`projected` or `clipped`, see below), the **width**,
-   **height** and **depth** of the box, and an **angle** to turn the image.
-3. Move the pointer over a surface: the decal shows there as it will be
+1. **Place.** Pick a decal in the palette (a decal material, or a trim
+   sheet's decal cell: a cell gets its decal material when you pick it,
+   sized at the sheet's texel density). No decal material yet? Drop an
+   image file (a PNG with the mark's shape in its alpha) on **Drop an image
+   to make a decal material**, or click it to pick a texture. Set
+   **Projection** (Projected or Clipped, see below), the **width**,
+   **height** and **depth** of the box, and a **turn**.
+2. Move the pointer over a surface: the decal shows there as it will be
    placed, facing out of the surface (on a floor the image's top points to
-   −Z, on a wall up the wall).
-4. **Click** to place it: one object with a Decal component (one undo
-   step). It is selected: drag its **knob** (the ring's handle) to turn it
-   about the surface normal (15° steps with snapping on), its **corner** to
-   scale its width and height; each drag is one undo step, Esc drops it.
-5. **Shift+click** stamps more: each with a random turn (up to ± **stamp
-   turn**) and size (between **stamp size min** and **max**) drawn from the
-   **seed**, so the same clicks with the same seed give the same marks.
+   −Z, on a wall up the wall). **Click** to place it: one undo step. It is
+   selected: drag its **knob** (the ring's handle) to turn it about the
+   surface normal (15° steps with snapping on), its **corner** to scale its
+   width and height; each drag is one undo step, Esc drops it.
+3. **Shift+click** stamps more: each with a random turn and size (the
+   **Stamps** section) drawn from the **seed**, so the same clicks with the
+   same seed give the same marks.
+4. **Scatter.** Drag over the ground, a wall or a slope to scatter the
+   picked decal: **density** decals per square metre, each turned and sized
+   at random from the seed. The brush is the shared one (`[` `]` size, F
+   then drag to resize in the view). Each stroke is one undo step.
+5. **Select.** Click a decal; Shift+click adds, Ctrl+click removes; drag on
+   empty ground (or with the **Box** tool) for a box. **Filter** picks only
+   one material's decals, or one decal layer's. With several selected, the
+   **Selection** fields change all of them at once (one undo step): size,
+   projection, opacity per channel, fades and order; a field they disagree
+   on says "mixed". Drag a selected decal to move it over the surfaces;
+   **Del** deletes the selection; **Esc** clears it.
 
-Close the window (or press **decal** again) to select with the left click
-again. The tool sends the same commands as MCP (`createEntity` with the
-decal component, `setTransform`, `setComponent`), below.
+**Done** (or Esc with nothing selected) leaves the editor. A double-click
+on a decal in the Hierarchy or the Scene view opens it in Select with that
+decal selected. The editor sends the same commands as MCP
+(`createEntity`, `createEntities`, `setTransform`, `setComponent` with
+`entityIds`), below.
 
 ## Project it onto a surface
 
-By hand, or to set what the tool does not:
+By hand, or to set what the editor does not:
 
 1. Create an empty object where the mark goes and **+ Add component →
    Decal**; pick the decal material.
@@ -120,9 +134,10 @@ The mesh is made again by itself when what is under it changes (blocks
 edited, a wall's preset or slider changed, a model reimported); nothing is
 stored but the box.
 
-To edit a mark by hand, select it and press **Bake to model** in its Decal
-section: the clipped mesh becomes a model asset (its decal material
-mapped) placed on the same object, and the decal component goes. It is an
+To edit a mark by hand, select it in the decal editor and press **Bake to
+model** in the Selection section: the clipped mesh becomes a model asset
+(its decal material mapped) placed on the same object, and the decal
+component goes. It is an
 ordinary model asset from then on: reimport an edited file over it.
 
 ```json
