@@ -165,6 +165,8 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.7 | Done 2026-10-13: `templates/starter-3d` ("3D starter"): v3 capture (3D physics, the 2D starter's character file + publish command, player, spawn, sun, sky fill) + `packs: ["basic-kit"]` added from `packs/basic-kit` at creation + `setup/pack.json` (gradient sky, 24×24 Basic Kit block ground with a wall, half step, stairs and slab, a 65-sample terrain with a layered ground material — grass/soil/rock, 9 KTX2 512² maps 1.45 MB from the Texture Designer's shared graphs — sculpted and rule-baked, a follow/orbit camera); a new project starts with no undo history. Template cards with pictures and one line in the picker (2D starter, 3D starter, Empty scene). vitest: templates.test (made, kit, material, terrain, camera target, sky, blocks, no problems, nothing to undo; ~0.3 s); e2e: projects.e2e creates it and reads Play's sky (blue band) and ground (lit, not sky). Play look on SwiftShader only (`~/.cache/thirdlight-phase34/work/s3d/p3d-play.png`); real GPU look unverified, owner look pending. |
 | 36.8 | Done 2026-10-13: new `concepts/kits-blocks-and-rooms.md` (what the engine generates, what you model, what you paint, the kit's slots, the workflow), `guides/block-editor.md`, `guides/level-editors.md` (the four editors, how each opens, the shared keys); block-layers (2D→3D steps replaced by the 3D starter), generated-architecture (Presets in use, layerless Inspector), kit-editor (one-step drop, sheet swap), trim-sheets, brushes, first-project, 2D and 3D, projects feature (templates, setup packs), blocks / architecture features; "Starter" → "2D starter" across the manual; skill trap; reference regenerated; manual-links green. Labels checked against the editor source (block modes, tiles, type editor); the picker seen in e2e screenshots. |
 | 36.9 | Done 2026-10-13: the owner's flow through the UI only, Iris Xe, 1920×1080, WebGPU and WebGL 2 (62 JPEGs, `~/.cache/thirdlight-phase36/acceptance/`): 3D starter from the picker → Basic Kit in the kit editor → a second sheet made to the spec in the Texture Designer (`thirdlight/village_trim@1`: wood floor, stucco over rubble, painted trims; 3 PNGs imported + layout.json, checker all green) swapped in → door and window GLBs dropped (checks pass after **Use the sheet**) → block editor: walls (Line), **Make it paintable**, moss (layer 2, noise mask) on the ground, Base + moss at the foot + Wet on walls, a room and a building with the kit's door and windows, **Presets in use** swap → two leak decals (decal editor, dropped PNG) → Play, export served statically; Problems empty; no MCP call, no JSON field. Fixed: the editor grid z-fought a floor at y = 0 (dark streaks over the 3D starter's ground); a ninth import within an hour was refused (`open_stages`: an inspected stage now gives way, vitest `asset-import-stages`); a kit's sheet swap left its pieces on the old sheet (now `setAssetOptions` in the group, vitest); block Paint's layer texture came without its normal/ORM (shares the palette's `withTextureSet`; 8 material Problems went with it); the 3D starter's pale sky (horizon/fog `#9fbfe3`); manual steps (trim sheet maps, wall paint, sheet swap). §4: block editor entry on a 1024² layer (4,096 chunks, 4.46 M tris) **158–268 ms WebGPU, 188–294 ms WebGL 2** (≤ 300 ✓, first entry the slowest); theme swap, `level --classes area --kit-swap` (49 chunks) **414–500 / 395–466 ms** in the mesh workers, view update ≤ 3.7 ms (≤ 1 s ✓; 30.8 had 300–415 ms); Basic Kit **2,747,456 B** (≤ 4 MB ✓; a new 3D project adds the template's ground maps, 1,445,655 B). E2E (D253), 2 workers, both renderers, same hour: block-editor + block-layers 28.4 → **23.1–23.5 s** (≤ 28 ✓), the four block files 59.9 → **49.2–50.0 s** (≤ 52 ✓): WebGL 2 pass of block-world-uv sends commands for the editor steps, blocks places by command, block-layers' Play pixel checks left to the export, a 1 s cut-away fade, dig at 2.5 s. D268–D270 logged. Fast gate: vitest 711, e2e 38 green (editor-window's sheet-swap undo raced the history group: fixed; rendering render-scale failed once, passed on rerun); village perf missed twice on WebGL 2 p50 (5.1 vs 4.84): A/B against 6f191f50 interleaved, equal in rounds 1–2 (4.9/5.0 vs 4.8/5.3 ms WebGL 2, 5.6/5.6 vs 5.5/5.7 WebGPU), round 3 under another backend's browser — host state (D199). Owner look pending. |
+| 36.10 | Done 2026-10-13: review fixes (decision log), every High and Medium: a room with wall/corner pieces deletes and renames (its overrides go or follow; e2e step in rooms-drawing); **Layer size** in the block editor's Regions (bounds as numbers, Grow / Shrink every side, a shrink past a block refused and said; e2e in block-editor); the kit preview's sample wall wears the block strips (`trimStripUvs`, real height honoured); a failed template setup takes the project back (retry with the same id works; a folder project keeps the user's files and gets its agent skill on success); pack add validates first and undoes what ran on a refusal; `grouped` groups only the action's own commands (an explicit scope) and history/group only the caller's own entries; kit sheet swap asks about shared parts, loads every piece first, rolls back on a refusal; kit piece checks incremental by digest, no count cap; segment pieces one cell long, drawn once per cell; `repeatModel` only on the post/rail repeat; plus the cheap lows. vitest 713 files (new: `client.test.ts`, `kit-check.test.ts`; templates, packs, kit-checks, room-draw, architecture-pieces, layered-surface extended); fast gate: editor-window, layered-material, projects, block-world-uv green; block-editor's new Layer size step typed into a box the shrink's echo re-made (test waits for it now), then green with the village perf check (WebGPU p50 5.6, WebGL 2 4.7 ms). The block editor's Layer size seen in the failure shot (refusal notice shown); the rest unverified by eye. D271–D273 logged. |
+| Phase gate | `full --both-renderers` at `9243d79f` (2026-10-13 18:18, 2 workers): build, lint, vitest 711 files passed; e2e **390 passed** in 22.1 min (43.5 min of test time: terrain-cdlod 204 s, memory 116 s, layered-material 102 s, rendering 85 s the largest); **28 min — OVER BUDGET** (15 min); memory peak **7.0 GB, at the 7G cap** (no OOM). Not rerun after 36.10 (fast gates of the touched areas). D253 updated. |
 
 **Basic Kit asset numbers** (36.4):
 
@@ -704,3 +706,59 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     are waited out three times: Play and two exports).
   - **Not done here:** the kit editor's dark preview walls (D269), the white
     wait while layer arrays build and the other lows (D270).
+
+- 2026-10-13 (36.10) — **Phase review** (fresh reviewer, `6f191f50..9243d79f`, main report + three
+  addenda). High: a room with a wall or corner piece could not be deleted or renamed (its overrides
+  outlived it and the model refused the component). Medium: the 3D starter's block layer bounds were a
+  read-only JSON field (no way to enlarge the ground without MCP); the kit preview laid out strip UVs a
+  third time (fixed 0.5 m quads, bevel stretched 3.2×, realHeight ignored); a failed template setup left a
+  half-made, registered project (retry refused, folder case without its agent skill); a pack add that
+  stopped partway stranded half its items after a restart; `SessionClient.grouped` swallowed every command
+  the client sent meanwhile; the kit sheet swap moved parts other kits share, skipped unloaded pieces and
+  was not atomic; kit Problems re-parsed every piece on each edit behind a 128-entry cache; spec and code
+  disagreed on a segment piece's length; `repeatModel` replaced every repeat of a style. Lows: upper-storey
+  pieces unpickable, opening hole sizing, copied constants, `pieceBase` copy, the >400k-tri UV check, a
+  digest-less sheet cache key, the size check's cell, group undo stopping silently, history/group open to
+  anyone's entries, `layerSheetMismatches` and realHeight, floor-row seams at the 720 m UV period,
+  self-confirming key tests, the 3D starter character, Basic Kit pieces under the spec's triangle guide.
+  **Fixed in 36.10**: every High and Medium and the Lows but those in D271. Defaults chosen, owner to confirm:
+  - **Bounds live in Regions → Layer size**, as numbers per axis plus Grow / Shrink every side by a step
+    (default 8 cells, across only: up and down are typed). Cells keep their place (the object's position is
+    cell 0's corner); a shrink past a block is refused by the backend and said in the column, so a resize
+    never deletes blocks. One `setComponent` each.
+  - **The kit preview's sample is a block wall**: cut per cell (and where a real-height field repeats) and
+    given the strip UVs block faces wear (`trimStripUvs`, now exported by three-adapter), so the preview
+    shows the first storey's lower wall, the upper wall above and the floor row on tops exactly as a block
+    layer draws them; the reveals of a door hole are block faces too. The bevel row is no longer drawn on
+    the wall's top (block tops wear the floor row).
+  - **A failed template setup is rolled back**, not reported as created-but-degraded: the project and its
+    registration go (after pending writes are flushed); a folder project unregisters and removes only what
+    creation added (the marker, `thirdlight/`, new top-level entries; a folder that did not exist goes
+    whole). A rollback that fails says the project was left and must be deleted.
+  - **Pack add is all or nothing**: every id, `$ref` and file is checked before the first command; a
+    command refused partway undoes the entries already applied (newest first, on the change feed) and the
+    answer says nothing was added; a clash names the taken ids and says to rename or delete them. A prefix
+    or rename option was not added (refs inside graphs and kits would need rewriting).
+  - **Grouping is explicit**: `grouped(action)` hands the action a scope; only commands sent through it
+    join the undo step, a nested `grouped` on the scope joins on purpose, and the backend groups only
+    entries carrying the caller's own origin (403 `not_own_commands` otherwise). A group undo that stops
+    partway answers 200 with `groupIncomplete` and the editor puts it in its error state (display unverified).
+  - **Kit sheet swap with shared parts asks**: "Swap all users of these parts", "Skip shared parts" or
+    Cancel (the parts and the other kits named); every piece asset is loaded first; a refusal re-points
+    what already ran back, in the same undo step.
+  - **Kit piece checks are incremental**: a kit is re-checked only when the digest of its inputs (kit
+    item, resolved sheet, layer cell, each piece's file digest and material map) changes; piece facts are
+    cached by file digest with no count cap and dropped when no kit names the piece; the size check uses
+    the cell of the block layer that names the kit.
+  - **One segment-piece rule**: a kit piece (`centre: true`) is modelled one cell long and drawn once per
+    cell of the segment (the nearest whole count, each scaled to fill), the cell being the layer's along
+    the segment (1 m off a layer); raw overrides keep the 1 m stretch. `ARCHITECTURE_GENERATOR_VERSION`
+    2 → 3 (cached chunks are made again). The spec page says the same.
+  - **The 3D starter's character stays the 2D starter's 48-triangle placeholder** (no LODs, no `_COL`):
+    at 48 triangles an LOD chain has nothing to remove and a character collides with its controller's
+    capsule, not a `_COL` mesh; it is a prototype to replace with a game-ready character, logged (D272),
+    not dressed up as one.
+  - **D269 (dark preview walls)** not re-measured: the sample's UVs changed, its lighting did not; left
+    open for the owner's look.
+  - **The trim checker's labels** of thin rows step into up to three lanes across the sheet instead of
+    stacking on each other (hover shows the slot name); unverified in a browser.
