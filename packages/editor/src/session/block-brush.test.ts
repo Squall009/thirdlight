@@ -22,7 +22,6 @@ import {
   type Cell3,
   type StrokeContext,
   sculptEdit,
-  dabSpacing,
   toolSculpts,
 } from './block-brush';
 import { enumColors, fieldColor, overlayColor, overlayLegend, parseMetaValue } from './block-overlay';
@@ -265,13 +264,11 @@ describe('snapping settings', () => {
 
 describe('terrain brushes', () => {
   it('a dab is one sculpt edit: raise, lower with the toggle, smooth and flatten blend at most 1; the brush block grows empty ground', () => {
-    const brush = { ...DEFAULT_BRUSH, radius: 4, strength: 2 };
-    expect(sculptEdit('height', [3.5, 2], brush, false, 0, { block: 'stone' })).toEqual({ kind: 'sculpt', op: 'raise', at: [3.5, 2], radius: 4, strength: 2, cell: { block: 'stone' } });
-    expect(sculptEdit('height', [3.5, 2], brush, true, 0, { block: 'stone' })).toEqual({ kind: 'sculpt', op: 'lower', at: [3.5, 2], radius: 4, strength: 2 });
-    expect(sculptEdit('smooth', [1, 1], brush, false, 0, null)).toEqual({ kind: 'sculpt', op: 'smooth', at: [1, 1], radius: 4, strength: 1 });
-    expect(sculptEdit('flatten', [1, 1], brush, false, 5.25, null)).toEqual({ kind: 'sculpt', op: 'flatten', at: [1, 1], radius: 4, strength: 1, height: 5.25 });
-    expect(dabSpacing(1)).toBe(0.5);
-    expect(dabSpacing(8)).toBe(2);
+    const dab = { radius: 4, strength: 2 };
+    expect(sculptEdit('height', [3.5, 2], dab, false, 0, { block: 'stone' })).toEqual({ kind: 'sculpt', op: 'raise', at: [3.5, 2], radius: 4, strength: 2, cell: { block: 'stone' } });
+    expect(sculptEdit('height', [3.5, 2], dab, true, 0, { block: 'stone' })).toEqual({ kind: 'sculpt', op: 'lower', at: [3.5, 2], radius: 4, strength: 2 });
+    expect(sculptEdit('smooth', [1, 1], dab, false, 0, null)).toEqual({ kind: 'sculpt', op: 'smooth', at: [1, 1], radius: 4, strength: 1 });
+    expect(sculptEdit('flatten', [1, 1], dab, false, 5.25, null)).toEqual({ kind: 'sculpt', op: 'flatten', at: [1, 1], radius: 4, strength: 1, height: 5.25 });
     expect(['height', 'smooth', 'flatten', 'column'].map((t) => toolSculpts(t as 'height'))).toEqual([true, true, true, false]);
   });
 
@@ -280,7 +277,7 @@ describe('terrain brushes', () => {
     const layer: BlockLayerComponent = { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [16, 16, 16] } };
     const base = new BlockGrid(layer);
     applyBlockEdits(base, [{ kind: 'fill', box: [0, 0, 0, 16, 4, 16], cell: { block: 'stone' } }], { types, stamps: new Map() });
-    const dabs = [0, 1, 2, 3].map((i) => sculptEdit('height', [4 + i * dabSpacing(3), 8], { ...DEFAULT_BRUSH, radius: 3, strength: 0.5 }, false, 0, null));
+    const dabs = [0, 1, 2, 3].map((i) => sculptEdit('height', [4 + i * 0.75, 8], { radius: 3, strength: 0.5 }, false, 0, null));
     const preview = BlockGrid.from(layer, base.toData('l', null, base.chunkKeys()));
     for (const d of dabs) applyBlockEdits(preview, [d], { types, stamps: new Map() });
     const stored = BlockGrid.from(layer, base.toData('l', null, base.chunkKeys()));

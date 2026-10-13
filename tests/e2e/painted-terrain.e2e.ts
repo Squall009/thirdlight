@@ -40,7 +40,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { count, isBlue, isGreenish, isMagenta, isRed, materials, packNormalAndOrm, publishKtx2SlotSources, publishLayerSources, reds, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
-import { menu, projectWindow, openWindow, closeEditor, createItem, editorPane, openEditor } from './ui';
+import { menu, projectWindow, closeEditor, createItem, editorPane, openEditor } from './ui';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -238,8 +238,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
     }
     return true;
   };
-  // The Blocks tab publishes the view's projection (the block tools map cells to the screen); it is closed again for the pictures.
-  await openWindow(page, 'Blocks');
+  // The view publishes its projection (cells are mapped to the screen); the layer is not selected for the pictures.
   await expect(viewport).toHaveAttribute('data-view-proj', /\[/);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   for (let i = 0; i < 40 && !(await inView()); i++) {

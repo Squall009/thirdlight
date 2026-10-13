@@ -8,7 +8,7 @@
  * unlit material whose texture is a ramp in red, one repeat per 4 m. With the
  * model's own coordinates every cell shows the same patch of the ramp (the
  * same narrow red band, starting over at each cell edge). With the block
- * type's texture mapping set to world in the Blocks panel (read back over
+ * type's texture mapping set to world in the block editor's block type editor (read back over
  * HTTP), the tops show the ramp once across the four cells: red rises along
  * the row and does not jump back at any cell edge.
  *
@@ -50,7 +50,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { inspector, menu, openWindow, projectWindow } from './ui';
+import { editMode, enterBlockEditor, inspector, leaveBlockEditor, menu, projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -271,7 +271,7 @@ async function frameRow(page: Page, view: Locator, points?: readonly (readonly [
   expect(await inView()).toBe(true);
 }
 
-for (const variant of RENDERER_VARIANTS) test(`block looks with world texture coordinates: a 4 m texture runs across four cells without a seam, set in the Blocks panel (${variant})`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`block looks with world texture coordinates: a 4 m texture runs across four cells without a seam, set in the block type editor (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, RENDERER_VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend(`world-uv-${randomUUID().slice(0, 8)}`);
@@ -282,7 +282,7 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   await publishBytes(be, new Uint8Array(makePng(256, 16, (x) => [x, 0, 96, 255])), 'texture', 'ramp', 'ramp');
   await publishBytes(be, new Uint8Array(multiPieceGlb([{ name: 'tile', lods: [[1, 1, 1]] }], { lightmapUv: true, centred: true })), 'model', 'kit', 'kit');
   await cmd('setMaterial', { material: { materialId: 'mat-ramp', name: 'Ramp', shader: 'unlit', params: { tiling: [1 / RAMP_METRES, 1 / RAMP_METRES] }, textures: { map: 'ramp' } } });
-  // The type's material is picked in the Blocks panel's form below (a slot added, then its picker).
+  // The type's material is picked in the block type editor below.
   await cmd('setBlockType', { block: { blockId: 'tile', name: 'Tile', variants: [{ model: { assetId: 'kit', piece: 'tile' } }], shape: 'full' } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
@@ -296,17 +296,17 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   const view = page.locator('canvas.tl-viewport');
   await expectRendererBackend(view, variant);
   await expect.poll(async () => JSON.parse((await view.getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(1);
-  await openWindow(page, 'Blocks');
   await expect(view).toHaveAttribute('data-view-proj', /\[/);
-  // The material for every slot ("*"), added in the block type form: the new entry starts at the first material, its picker sets Ramp.
-  const panel = page.getByLabel('blocks panel');
-  const form = panel.getByLabel('block type form');
+  /** Edit the tile block type in the block editor's block type editor, then leave the editor (the pictures are of the whole scene). */
+  const editTile = async (change: (editor: Locator) => Promise<void>): Promise<void> => {
+    await enterBlockEditor(page, layer);
+    await editMode(page).getByRole('radio', { name: 'block tile', exact: true }).click();
+    await change(editMode(page).getByLabel('block type editor', { exact: true }));
+    await leaveBlockEditor(page);
+  };
+  // The material for every slot ("*"), picked in the block type editor's Material section.
   const typeMaterials = async (): Promise<unknown> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; materials?: unknown }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.materials;
-  await panel.getByRole('button', { name: 'block tile', exact: true }).click();
-  await form.getByLabel('new blockType materials slot', { exact: true }).fill('*');
-  await form.getByRole('button', { name: 'add blockType materials' }).click();
-  await expect.poll(typeMaterials).toEqual({ '*': expect.any(String) });
-  await form.getByRole('combobox', { name: 'blockType materials *', exact: true }).selectOption({ label: 'Ramp' });
+  await editTile((ed) => ed.getByLabel('material for all', { exact: true }).selectOption({ label: 'Ramp' }));
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-ramp' });
   await frameRow(page, view);
   // The objects' icons (the layer's, the lights') would cover the tops.
@@ -315,8 +315,8 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   // The model's own coordinates (the default): the same patch of the ramp in every cell.
   const own = await scenePicture(view, samePatchPerCell, 'model-uv');
 
-  // World coordinates, chosen in the Blocks panel's block type form; read back over HTTP.
-  await form.getByLabel('blockType uv', { exact: true }).selectOption('world');
+  // World coordinates, chosen in the block type editor; read back over HTTP.
+  await editTile((ed) => ed.getByRole('radiogroup', { name: 'block texture coordinates' }).getByRole('radio', { name: 'World metres' }).click());
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; uv?: string }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.uv).toBe('world');
   const world = await scenePicture(view, oneRampAcross, 'world-uv');
 
@@ -325,7 +325,12 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   // each 1 m face — the mesher cuts the face where the row repeats — not once stretched, nor the whole sheet a metre.
   await publishBytes(be, new Uint8Array(makePng(256, 256, (_x, y) => SHEET_COLOURS(y))), 'texture', 'sheet', 'sheet');
   await cmd('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: { map: 'sheet' }, trim: SHEET } });
-  await form.getByRole('combobox', { name: 'blockType materials *', exact: true }).selectOption({ label: 'Sheet' });
+  // Later material swaps as MCP sends them (the editor's picker was driven above).
+  const tileMaterial = async (materialId: string): Promise<void> => {
+    const tile = ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes!.find((t) => t.blockId === 'tile')!;
+    await cmd('setBlockType', { block: { ...tile, materials: { '*': materialId } } });
+  };
+  await tileMaterial('mat-sheet');
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-sheet' });
   await expectColours(view, [
     // The +X end wall, z 0 (world): cyan, green, cyan, green from the bottom (stretched once it would be cyan, cyan, green, green).
@@ -360,14 +365,11 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
     { name: 'band at 0.2 m', at: onBand(0.2), colour: 'yellow' },
     { name: 'band at 0.06 m', at: onBand(0.06), colour: 'magenta' },
   ], 'baseboard-snapped');
-  // Back to the layer's block type form.
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
-  await panel.getByRole('button', { name: 'block tile', exact: true }).click();
 
   // ---- Normal maps on the world-mapped kit: the standard shader with a map tilted toward the image's top right.
   await publishBytes(be, new Uint8Array(makePng(16, 16, () => [204, 204, 200, 255])), 'texture', 'tilt', 'tilt');
   await cmd('setMaterial', { material: { materialId: 'mat-bump', name: 'Bump', shader: 'standard', params: { color: '#b4b4b4', roughness: 0.9 }, textures: { normalMap: 'tilt' } } });
-  await form.getByRole('combobox', { name: 'blockType materials *', exact: true }).selectOption({ label: 'Bump' });
+  await tileMaterial('mat-bump');
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-bump' });
   // One sun, a faint ambient, no sky light.
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#000000', intensity: 1, environmentIntensity: 0 } } });

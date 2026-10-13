@@ -10,8 +10,8 @@
  *   is moved by its title bar and resized by its corner; where it stands and
  *   whether it is open are remembered over a reload; the Game view sets them
  *   aside, the Scene view brings them back.
- * - A block layer's tools show in the Inspector while a block layer is
- *   selected (GameObject → Block layer makes one), and nowhere else.
+ * - A block layer's Inspector shows its plain fields and Edit blocks, no
+ *   block tools (those are the block editor's).
  * - GameObject → Create prefab from selection and the Hierarchy's context
  *   menu make a prefab from the selection.
  * - An audio asset chosen in the project window shows in the Inspector with
@@ -71,7 +71,7 @@ const boxOf = async (l: Locator): Promise<{ x: number; y: number; width: number;
 };
 
 // One editor for both: the selection part runs in the project the tool windows part leaves (Main active, its objects new).
-test('Lighting and Environment float over the Scene view and edit the scene they name; two scenes; a block layer\'s tools, a prefab from the selection, an audio asset\'s Inspector, Project Settings → Audio', async ({ page }) => {
+test('Lighting and Environment float over the Scene view and edit the scene they name; two scenes; a block layer\'s Inspector, a prefab from the selection, an audio asset\'s Inspector, Project Settings → Audio', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('window-tools-scenes');
   await cmd('createScene', { sceneId: 'scene-two', name: 'Two' });
@@ -168,10 +168,10 @@ test('Lighting and Environment float over the Scene view and edit the scene they
   await env.getByRole('button', { name: 'Close the Environment window' }).click();
   await expect(lit).toHaveCount(0);
   await expect(env).toHaveCount(0);
-  await test.step("a block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio", () => selectionTools(page));
+  await test.step("a block layer's Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio", () => selectionTools(page));
 });
 
-/** A block layer's tools in the Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio (an editor open, Main active). */
+/** A block layer's Inspector; a prefab from the selection; an audio asset's Inspector; Project Settings → Audio (an editor open, Main active). */
 async function selectionTools(page: Page): Promise<void> {
   const be = beOf();
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [0, 0, 0] } }))['createdId']);
@@ -179,36 +179,15 @@ async function selectionTools(page: Page): Promise<void> {
   const crate = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Crate', transform: { position: [3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#a07040' } } }))['createdId']);
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Barrel', transform: { position: [-3, 0.5, 0] }, box: { size: [1, 1, 1], material: { color: '#4070a0' } } });
   const sound = await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
-  const tools = inspector(page).getByLabel('blocks panel', { exact: true });
 
-  // ---- Block tools: shown while a block layer is selected, with that layer.
-  await expect(tools).toHaveCount(0);
+  // ---- A block layer's Inspector holds no block tools (they are the block editor's): its plain fields and Edit blocks.
   await row(page, 'Ground').click();
-  await expect(tools).toBeVisible();
-  await expect(tools.getByLabel('block layer')).toHaveValue(layer);
-  await page.screenshot({ path: 'test-results/window-tools-blocks.png' });
+  await expect(inspector(page).getByRole('button', { name: 'Edit blocks', exact: true })).toBeVisible();
+  await expect(inspector(page).getByLabel('blocks panel', { exact: true })).toHaveCount(0);
   const canvas = page.locator('canvas.tl-viewport');
-  await expect(canvas).toHaveAttribute('data-block-tool', 'single');
-  // Armed, the tools own the left button: the layer's move gizmo stands aside; disarmed ("Edit cells" off) it is back.
-  await expect(canvas).toHaveAttribute('data-gizmo-grab', 'null');
-  await tools.getByLabel('edit cells').uncheck();
-  await expect(canvas).toHaveAttribute('data-block-tool', '');
+  // Nothing armed: the layer's move gizmo is there as for any object.
+  await expect(canvas).not.toHaveAttribute('data-block-tool', /./);
   await expect(canvas).not.toHaveAttribute('data-gizmo-grab', 'null');
-  await tools.getByLabel('edit cells').check();
-  await expect(canvas).toHaveAttribute('data-gizmo-grab', 'null');
-  await row(page, 'Crate').click();
-  await expect(tools).toHaveCount(0);
-  await expect(canvas).toHaveAttribute('data-block-tool', '');
-  await expect(canvas).not.toHaveAttribute('data-gizmo-grab', 'null');
-  // GameObject → Block layer: a new layer, selected, its tools showing.
-  await menu(page, 'GameObject', 'Block layer');
-  await expect(tools).toBeVisible();
-  const layers = async (): Promise<string[]> => ((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.filter((e) => e.components['blockLayer'] !== undefined).map((e) => e.id);
-  await expect.poll(async () => (await layers()).length).toBe(2);
-  const made = (await layers()).find((id) => id !== layer)!;
-  await expect(tools.getByLabel('block layer')).toHaveValue(made);
-  // Choosing the other layer in the tools selects it.
-  await tools.getByLabel('block layer').selectOption(layer);
   await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`)).toHaveAttribute('aria-selected', 'true');
 
   // ---- A prefab from the selection: the GameObject menu, then the Hierarchy's context menu.

@@ -32,7 +32,7 @@
  * Pure: no DOM, no three.js.
  */
 import { edgeInBounds } from '@thirdlight/runtime';
-import type { BlockCell, BlockEdge, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush, PaintTarget } from '@thirdlight/project-model';
+import type { BlockCell, BlockEdge, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, BrushMask, CellMetaValue, PaintBrush, PaintTarget } from '@thirdlight/project-model';
 
 export type Cell3 = [number, number, number];
 
@@ -40,30 +40,6 @@ export type Cell3 = [number, number, number];
 export type CellBox = [number, number, number, number, number, number];
 
 export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region' | 'room';
-
-/** The block tools a block layer's Inspector offers (label, key, what it does). */
-export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
-  { id: 'single', label: 'Paint', hint: 'Paint the brush block cell by cell (drag); an edge piece (wall, door, fence) goes on the cell edges you drag over.' },
-  { id: 'line', label: 'Line', hint: 'Drag a straight line of blocks; an edge piece runs along the grid line between two corners.' },
-  { id: 'rect', label: 'Rectangle', hint: 'Drag a one-cell-thick rectangle; an edge piece draws its outline (the walls of a room).' },
-  { id: 'box', label: 'Box', hint: 'Drag a rectangle; it is filled up to the box height. An edge piece draws the outline on every row up to the box height (walls that tall).' },
-  { id: 'flood', label: 'Flood', hint: 'Fill the connected cells equal to the clicked one.' },
-  { id: 'column', label: 'Raise / lower', hint: 'Raise the columns you drag over by one cell (lower: Ctrl held or the Lower toggle).' },
-  { id: 'height', label: 'Height', hint: 'Terrain: raise the ground smoothly under a round brush as you drag (lower: Ctrl held or the Lower toggle); the tops slope.' },
-  { id: 'smooth', label: 'Smooth', hint: 'Terrain: even out the ground under the brush as you drag (slopes soften, cliffs wear down).' },
-  { id: 'flatten', label: 'Flatten', hint: 'Terrain: level the ground under the brush to the height where the drag starts.' },
-  { id: 'paint', label: 'Paint texture', hint: 'Terrain (the Paint mode): paint a material layer (1-4) or wetness onto the ground under a round brush as you drag (erase: Ctrl held or the Lower / remove toggle); a painted terrain material shows it.' },
-  { id: 'scatter', label: 'Scatter', hint: "Put the chosen scatter rule's copies on the tops under a round brush as you drag, whatever its conditions (take them off: Ctrl held or the Lower / remove toggle); a bake keeps both." },
-  { id: 'erase', label: 'Erase', hint: 'Erase cells (drag); with an edge piece as the brush block, the edges you drag over.' },
-  { id: 'eyedropper', label: 'Pick', hint: 'Take the clicked cell\'s block, rotation and variant as the brush.' },
-  { id: 'replace', label: 'Replace all', hint: 'Replace every block of the clicked cell\'s type in the layer with the brush block.' },
-  { id: 'meta', label: 'Metadata', hint: 'Paint the chosen metadata field value (drag; Rectangle shape for an area).' },
-  { id: 'select', label: 'Select', hint: 'Drag a box of cells; then move, copy, paste, mirror, rotate or save it as a stamp.' },
-  { id: 'paste', label: 'Paste', hint: 'Click to paste the copied cells with their min corner at the cell.' },
-  { id: 'stamp', label: 'Stamp', hint: 'Click to place the chosen stamp with its min corner at the cell.' },
-  { id: 'region', label: 'Region', hint: 'Drag a rectangle to add it to the chosen region (remove: Ctrl held).' },
-  { id: 'room', label: 'Rooms', hint: 'Draw rooms (rectangle, polygon with arcs) and paths (rails, fences, pipes) of generated architecture on the cells; put doors and windows on their walls; drag walls.' },
-];
 
 /** Tools that add cells (their target is the empty cell in front of the face under the pointer). */
 export function toolAdds(tool: BlockToolId): boolean {
@@ -159,42 +135,41 @@ export interface BrushState {
   randomize: boolean;
   /** Box brush height in cells. */
   height: number;
-  /** Terrain brushes: the radius in cells. */
-  radius: number;
-  /** Terrain brushes: cells per dab at the centre (height), the blend toward the target per dab (smooth, flatten; at most 1). */
-  strength: number;
-  /** The paint brush (radius in cells, strength 0-1, falloff, channel 0-3 a material layer, 4 wetness). */
-  paint: PaintBrush;
+  /** The paint brush's channel: 0-3 a material layer, 4 the wetness. */
+  paintChannel: number;
   /** What the paint brush paints: the tops, the walls (a layer with wall paint) or both. */
   paintTarget: PaintTarget;
-  /** The scatter brush's rule ('': none chosen); its radius is the terrain brushes'. */
+  /** The scatter brush's rule ('': none chosen). */
   scatterRule: string;
 }
 
-/** A 3-cell brush raising a quarter cell per dab: a few drags make a hill, one pass a gentle bump. */
-/** A 3-cell soft brush, a third of the way per dab: a drag or two covers a patch, one pass blends its edge. */
-export const DEFAULT_PAINT_BRUSH: PaintBrush = { radius: 3, strength: 0.35, falloff: 'smooth', channel: 1 };
+export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, paintChannel: 1, paintTarget: 'tops', scatterRule: '' };
 
-export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25, paint: DEFAULT_PAINT_BRUSH, paintTarget: 'tops', scatterRule: '' };
+/** A round brush's dab in the layer's cells: its radius and its amount (cells per dab for height, a blend for the rest). */
+export interface DabBrush {
+  radius: number;
+  strength: number;
+}
 
-/** One scatter brush dab at `at` (columns): the `scatter` edit (`erase` takes the rule's copies off). */
-export function scatterEdit(at: readonly [number, number], brush: BrushState, erase: boolean): BlockEdit {
-  return { kind: 'scatter', rule: brush.scatterRule, at: [at[0], at[1]], radius: brush.radius, ...(erase ? { erase: true } : {}) };
+/** One scatter brush dab at `at` (columns): the `scatter` edit of `rule` (`erase` takes the rule's copies off). */
+export function scatterEdit(at: readonly [number, number], rule: string, radius: number, erase: boolean): BlockEdit {
+  return { kind: 'scatter', rule, at: [at[0], at[1]], radius, ...(erase ? { erase: true } : {}) };
 }
 
 /** One terrain brush dab at `at` (columns): the `sculpt` edit; `level` is the flatten height (rows). */
-export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [number, number], brush: BrushState, invert: boolean, level: number, cell: BlockCell | null): BlockEdit {
+export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [number, number], dab: DabBrush, invert: boolean, level: number, cell: BlockCell | null): BlockEdit {
   const op = tool === 'height' ? (invert ? 'lower' : 'raise') : tool;
-  const strength = tool === 'height' ? brush.strength : Math.min(1, brush.strength);
-  return { kind: 'sculpt', op, at: [at[0], at[1]], radius: brush.radius, strength, ...(op === 'flatten' ? { height: level } : {}), ...(cell !== null && op !== 'lower' ? { cell } : {}) };
+  const strength = tool === 'height' ? dab.strength : Math.min(1, dab.strength);
+  return { kind: 'sculpt', op, at: [at[0], at[1]], radius: dab.radius, strength, ...(op === 'flatten' ? { height: level } : {}), ...(cell !== null && op !== 'lower' ? { cell } : {}) };
 }
 
 /**
  * One paint dab at `at` (columns): the `paint` edit (`erase` takes the
  * channel away). Walls (or both) are painted around the point at `rows`
- * (the height the pointer hit).
+ * (the height the pointer hit). `extras`: the stroke's curve hardness,
+ * opacity and noise mask, sent only when they change something.
  */
-export function paintEdit(at: readonly [number, number], brush: PaintBrush, erase: boolean, target: PaintTarget = 'tops', rows = 0): BlockEdit {
+export function paintEdit(at: readonly [number, number], brush: PaintBrush, erase: boolean, target: PaintTarget = 'tops', rows = 0, extras: { hardness?: number; opacity?: number; mask?: BrushMask } = {}): BlockEdit {
   return {
     kind: 'paint',
     at: [at[0], at[1]],
@@ -204,12 +179,8 @@ export function paintEdit(at: readonly [number, number], brush: PaintBrush, eras
     ...(brush.falloff !== 'smooth' ? { falloff: brush.falloff } : {}),
     ...(erase ? { erase: true } : {}),
     ...(target !== 'tops' ? { target, y: Math.round(rows * 1000) / 1000 } : {}),
+    ...extras,
   };
-}
-
-/** How far the brush centre moves (columns) before the next dab: a quarter of the radius, at least half a column. */
-export function dabSpacing(radius: number): number {
-  return Math.max(0.5, radius / 4);
 }
 
 /** The allowed rotations of a block type (absent: all four; an edge piece turns end for end only). */

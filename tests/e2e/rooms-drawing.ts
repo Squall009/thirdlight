@@ -1,5 +1,5 @@
 /**
- * Rooms and paths drawn with a block layer's Rooms tool in the real editor
+ * Rooms and paths drawn in the block editor's Rooms & buildings mode in the real editor
  * (shared by the layered-material spec, whose trim sheet, fixed Play camera
  * and export the rooms are read with).
  *
@@ -13,13 +13,13 @@
  * Walls mode drags the back room's back wall three cells in and back two (the Scene view
  * regenerates only that room's chunks while dragging), then the front room's east wall a cell in and the
  * wall the rooms share (now only partly) a cell back and both back again: the openings on the other
- * walls stay where they stood and the shared wall moves with the front room's; the Paint texture
- * tool paints grime (paint layer 3) on the front wall's outer face.
+ * walls stay where they stood and the shared wall moves with the front room's; the block editor's
+ * Paint mode paints grime (paint layer 3) on the front wall's outer face.
  * Draw-to-visible and the drag's regeneration are timed from the marks.
  */
 import { expect, type Locator, type Page } from './pw';
 
-import { inspector } from './ui';
+import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -160,14 +160,14 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [10, 4, 8] }, wallPaint: true } });
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 10, 1, 8], cell: { block: 'e2e-ground' } }] });
 
-  // ---- The editor: the layer's Rooms tool on the slice's floor (row 1, the cells' top).
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
-  const blocks = inspector(page).getByLabel('blocks panel');
-  await expect(blocks).toBeVisible();
-  await page.keyboard.press('f');
-  await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Rooms', exact: true }).click();
-  await blocks.getByLabel('slice', { exact: true }).fill('1');
-  await blocks.getByLabel('slice', { exact: true }).press('Enter');
+  // ---- The block editor's Rooms & buildings mode on the slice's floor (row 1, the cells' top).
+  await enterBlockEditor(page, layer);
+  const blocks = editMode(page);
+  // Home frames the layer (the view's direction kept), as F did on the selected layer before.
+  await page.keyboard.press('Home');
+  await editModeTab(page, 'Rooms & buildings');
+  await blocks.getByLabel('slice level', { exact: true }).fill('1');
+  await blocks.getByLabel('slice level', { exact: true }).press('Enter');
   const rooms = blocks.getByLabel('rooms panel');
   await expect(rooms).toBeVisible();
   await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
@@ -324,20 +324,22 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await dragWall([191, 0, -36], [192, 0, -36]);
   await expect.poll(async () => JSON.stringify((await roomsObject())?.architecture.outlines), { timeout: 15_000 }).toBe(JSON.stringify(stored?.architecture.outlines));
 
-  // Grime: the Paint texture tool, paint layer 3 on walls, one dab on the front wall's outer face.
-  await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Paint texture', exact: true }).click();
-  await blocks.getByLabel('paint channel').selectOption('2');
-  await blocks.getByLabel('paint target').selectOption('walls');
-  await blocks.getByLabel('paint radius').fill('1');
-  await blocks.getByLabel('paint strength').fill('1');
-  await blocks.getByLabel('paint falloff').selectOption('constant');
+  // Grime: the Paint mode, layer 3 on walls, one dab on the front wall's outer face.
+  await editModeTab(page, 'Paint');
+  await blocks.getByRole('radio', { name: 'paint layer 3', exact: true }).click();
+  await blocks.getByRole('radiogroup', { name: 'paint target' }).getByRole('radio', { name: 'Walls', exact: true }).click();
+  for (const [field, value] of [['brush size', '2'], ['brush strength', '100']] as const) {
+    await blocks.getByLabel(field, { exact: true }).fill(value);
+    await blocks.getByLabel(field, { exact: true }).press('Enter');
+  }
+  await blocks.getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
   const dab = (await screen(page, [184.5, 2.4, -34]))!;
   await page.mouse.click(dab.x, dab.y);
   // Stored on the layer: the wall points of its chunk (the generated faces read them).
   await expect
     .poll(async () => (((await query('queryBlocks', { entityId: layer, chunks: [[0, 0]] })) as { chunks?: { chunk: { wallPaint?: string } | null }[] }).chunks ?? []).some((c) => (c.chunk?.wallPaint ?? '') !== ''), { timeout: 15_000 })
     .toBe(true);
-  await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Rooms', exact: true }).click();
+  await leaveEditMode(page);
   return {
     roomsId,
     timings: { drawToVisible, drag: { regenerations: mine.length, median: med(mine), worst: Math.max(...mine), others: drag.ready.filter((r) => r.object !== roomsId).length, madeMedian: med(drag.chunks) } },

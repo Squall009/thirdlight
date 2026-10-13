@@ -584,7 +584,7 @@ export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommand
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridChunkChange, type GridCollisionRingChange, type GridCutawayState, type GridDiff, type GridKitChange, type GridArchitectureChange, type GridDoorLink, type GridDoorSide, type GridEdge, type GridEdgeInput, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';
 export { type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace } from './grid-walk';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
-export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';
+export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';
 // What an unpainted wall point holds (the editor says why a wall stroke of that layer stores nothing).
 export { UNPAINTED_WALL } from '@thirdlight/project-model';
 // The editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).

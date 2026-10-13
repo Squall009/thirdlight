@@ -32,44 +32,43 @@ walk into a room you need a 3D project (see [2D and 3D](../concepts/2d-and-3d.md
 How to turn, pan and zoom the Scene view while you paint:
 [Moving around the Scene view](../features/editor.md#moving-around-the-scene-view).
 
-1. **GameObject → Block layer** makes a layer of 1 m cells and selects it.
-   Its Inspector shows the layer's fields, then the block tools, with
-   **Edit cells** on.
-2. In **Palette**, press **+ Block type**. It is made at once as `Block 1`
-   with the id `block` (the next one `block-2`); the id never changes, and
-   scripts and the API use it. Rename it `Stone` in its **Name** field and
-   keep the shape `full`. Each new type gets its own stand-in colour; its
-   **Looks** (colours, a model) show read-only in the Inspector and are set
-   with the API (`setBlockType`, below). Make a second type `Wall` and set
-   **Placement** to **Edge**.
-3. Pick `Stone`, choose **Rectangle** and drag over the ground: one floor
-   row. The row the tools use where no block is under the pointer is the
-   **Slice** (PageUp / PageDown); with a block under it, an adding tool
-   places on the face under the pointer.
+1. **GameObject → Block layer** makes a layer of 1 m cells and opens it in
+   the **block editor** (a full-screen mode on the Scene view: its modes on
+   the left — Build, Shape, Paint, Regions, Rooms & buildings, Rules —, its
+   settings on the right, Done or Esc to leave). Later, double-click the
+   layer in the Hierarchy, or press **Edit blocks** in its Inspector.
+2. In Build's **Palette**, press **New type**: a coloured stand-in, `Block 1`
+   with the id `block` (the next one `block-2`; the id never changes, and
+   scripts and the API use it). The **Block type** column beside the
+   palette edits the picked type: rename it `Stone`, keep **Collision**
+   Full. Its **Looks** take a model (drop one, or pick it), a kit piece or a
+   colour, each with a weight. Make a second type `Wall` and set
+   **Placement** to **On a cell edge**. With a kit on the layer (the
+   palette's picker), its block types fill the palette.
+3. Pick `Stone` (or press its number), choose **Rect** (R) and drag over the
+   ground: one floor row. The row the tools use where no block is under the
+   pointer is the **Slice** (PageUp / PageDown; its plane and outline show
+   in the view); with a block under it, an adding tool places on the face
+   under the pointer.
 4. Pick `Wall`, raise the slice to 1 and drag the room's outline over the
-   floor with **Rectangle**: walls on the cell edges, one row high. For
-   taller walls use **Box** with **Box height** 3: it draws the outline on
-   three rows in one stroke. (A second Rectangle stroke goes on the face
-   under the pointer: drag it from one wall-top corner to the opposite
-   one.)
-5. **Erase** one wall edge for a doorway, row by row. The outline under
+   floor with **Rect**: walls on the cell edges, one row high. For taller
+   walls use **Box** (B) with **Box height** 3: it draws the outline on
+   three rows in one stroke. (A second Rect stroke goes on the face under
+   the pointer: drag it from one wall-top corner to the opposite one.)
+5. **Erase** (X) one wall edge for a doorway, row by row. The outline under
    the pointer shows the edge it will take: the cell edge nearest the
    pointer, on the row in front of the face under it. For the bottom row
    point at the floor right next to the wall; for a higher row point at
-   the wall's face at that height. (The Slice's faint blue plane tints what
-   lies below it.) **Rotate** (Q) turns an edge piece end for end (0° or
-   180°).
-6. **The roof.** Pick `Stone`, choose **Rectangle**, set the Slice to the
-   row above the walls and drag from one wall-top corner to the opposite
-   one.
-7. **Select** the roof's cells (the Slice on the roof's row), type a name
-   such as `room` in the field beside **+ Region** (the button stays off
-   until it has one), then press **+ Region**: it takes the selection. Tick
-   **Cut** on the region: its cells are hidden in the game while the
-   camera's target stands under it. **Preview** shows that in the Scene
-   view.
-8. Turn **Edit cells** off and press **▶ play**. Walk in: the roof fades
-   out above you.
+   the wall's face at that height. **T** turns an edge piece end for end
+   (0° or 180°).
+6. **The roof.** Pick `Stone`, choose **Rect**, set the Slice to the row
+   above the walls and drag from one wall-top corner to the opposite one.
+7. **Select** (S) the roof's cells (the Slice on the roof's row). In
+   **Regions**, type a name such as `room` beside **+ Region**, then press
+   it: the region takes the selection. Tick **Cut away** on it: its cells
+   are hidden in the game while the camera's target stands under it.
+   **Preview** shows that in the Scene view.
+8. Press **Done** and **▶ play**. Walk in: the roof fades out above you.
 
 Each stroke and button is one command and one undo step (Ctrl+Z).
 
@@ -127,8 +126,8 @@ hand.
   of bounds (a larger box is refused with `limits_exceeded`), 16 layers with
   cells per scene, 256 edits and 64 KiB per `editBlocks` request. See
   [Limits](limits.md).
-- **Random look** off paints the chosen look *pinned*: a connected block
-  then stops following its neighbours.
+- **A fixed look** (Placement → Look) paints that look *pinned*: a
+  connected block then stops following its neighbours.
 - **Cut-aways are drawing only.** Collision, grid queries and shadows stay;
   the Scene view cuts nothing unless you press Preview. A follow camera
   with **Collision** on is pulled in under the cut roof (the roof still

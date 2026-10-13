@@ -253,7 +253,11 @@ export class BrushHud {
   private el: HTMLDivElement | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {}
+  /** `ghost`: the readout of a shape being drawn (the block editor's), in the state colour rather than the brush's. */
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly kind: 'brush' | 'ghost' = 'brush',
+  ) {}
 
   /** Show `value` and `detail` by the screen point (client px); `ms`: hide after that long (absent: until hidden). */
   show(at: { x: number; y: number }, value: string, detail: string, ms?: number): void {
@@ -262,9 +266,9 @@ export class BrushHud {
     if (this.el === null || this.el.parentElement !== host) {
       this.el?.remove();
       this.el = document.createElement('div');
-      this.el.className = 'tl-brush-hud';
+      this.el.className = this.kind === 'ghost' ? 'tl-brush-hud tl-brush-hud--ghost' : 'tl-brush-hud';
       this.el.setAttribute('role', 'status');
-      this.el.setAttribute('aria-label', 'brush readout');
+      this.el.setAttribute('aria-label', this.kind === 'ghost' ? 'shape readout' : 'brush readout');
       host.appendChild(this.el);
     }
     const el = this.el;

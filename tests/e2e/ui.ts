@@ -151,26 +151,42 @@ async function openToolWindow(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Show a block layer's tools: they are in the Inspector while a block layer
- * is selected, so the first block layer in the Hierarchy is selected.
+ * "Blocks": the first block layer in the Hierarchy selected, so the Inspector
+ * shows its plain fields and its Edit blocks button (the block tools are in
+ * the block editor: `enterBlockEditor`).
  */
 async function openBlockTools(page: Page): Promise<void> {
   await leaveEditorWindow(page);
-  const panel = page.getByLabel('blocks panel', { exact: true });
-  if (await panel.isVisible()) return;
-  await page.locator('.tl-hierarchy__list li[data-block-layer]').first().click();
-  await expect(panel).toBeVisible();
+  await leaveEditMode(page);
+  const row = page.locator('.tl-hierarchy__list li[data-block-layer]').first();
+  if (!(await row.evaluate((el) => el.classList.contains('is-selected')))) await row.click();
+  await expect(inspector(page).getByRole('button', { name: 'Edit blocks', exact: true })).toBeVisible();
 }
 
 /**
- * Put a block layer's tools away by deselecting the layer (Ctrl+click its
- * row): they were a dock tab that showing another tab closed, and specs that
- * read the Scene view's pixels after that expect them disarmed.
+ * Put a selected block layer aside (Ctrl+click its row) and close the block
+ * editor: specs that read the Scene view's pixels after that expect no
+ * selection outline and the whole scene drawn.
  */
 async function leaveBlockTools(page: Page): Promise<void> {
-  if (!(await page.getByLabel('blocks panel', { exact: true }).isVisible())) return;
-  await page.locator('.tl-hierarchy__list li.tl-row.is-selected[data-block-layer]').first().click({ modifiers: ['ControlOrMeta'] });
-  await expect(page.getByLabel('blocks panel', { exact: true })).toHaveCount(0);
+  await leaveEditMode(page);
+  const selected = page.locator('.tl-hierarchy__list li.tl-row.is-selected[data-block-layer]');
+  if ((await selected.count()) === 0) return;
+  await selected.first().click({ modifiers: ['ControlOrMeta'] });
+  await expect(selected).toHaveCount(0);
+}
+
+/** Close the block editor and put the layer it selected aside (pictures of the whole scene follow). */
+export async function leaveBlockEditor(page: Page): Promise<void> {
+  await leaveBlockTools(page);
+}
+
+/** Open the block editor on a block layer (its Hierarchy row double-clicked; the first layer when no id is given). */
+export async function enterBlockEditor(page: Page, entityId?: string): Promise<void> {
+  await leaveEditorWindow(page);
+  await leaveEditMode(page);
+  await page.locator(entityId === undefined ? '.tl-hierarchy__list li[data-block-layer]' : `.tl-hierarchy__list li[data-entity-id="${entityId}"]`).first().dblclick();
+  await expect(editMode(page)).toHaveAttribute('data-edit-mode', 'blocks');
 }
 
 /** Show a tool window (Lighting, Environment, Blocks, Console, Problems, Materials, Behaviors, …). */

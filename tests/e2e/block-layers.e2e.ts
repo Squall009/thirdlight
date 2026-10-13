@@ -15,7 +15,7 @@
  * The static export, served with the backend stopped, does the same.
  *
  * A beacon block type shows a prefab: its root's base model is drawn in the
- * chunk; the Blocks panel's block type form turns it live, so in Play and
+ * chunk; the block editor's block type editor turns it live, so in Play and
  * the export each beacon cell also spawns the prefab's magenta post as an
  * object of the game (counted in Play's diagnostics, seen in the pictures
  * on both renderers), and the dug column's beacon goes with its cell.
@@ -54,7 +54,7 @@ import { expect, test, type Page } from './pw';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
 import { multiPieceGlb } from './multi-piece-glb';
-import { closeProjectSettings, openProjectSettings, openWindow } from './ui';
+import { closeProjectSettings, editMode, leaveEditMode, openProjectSettings } from './ui';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 
@@ -299,7 +299,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setComponent', { entityId: beacon, component: 'model', value: { asset: { assetId: 'beacon-base' } } });
   await cmd('createEntity', { sceneId: 'scene-kit', parentId: beacon, kind: 'box', name: 'Beacon post', transform: { position: [0, 0.85, 0] }, box: { size: [0.4, 1.5, 0.4], material: { color: '#ff00ff' } } });
   await cmd('createPrefab', { prefabId: 'beacon', displayName: 'Beacon', sourceEntityId: beacon });
-  // Not live yet: the Blocks panel's block type form turns it live.
+  // Not live yet: the block type editor turns it live.
   await cmd('setBlockType', { block: { blockId: 'beacon', name: 'Beacon', variants: [{ prefab: 'beacon' }], shape: 'none' } });
   // Edge pieces: a cyan wall (a stand-in slab) and a live gate (a logic-only root with an orange leaf).
   await cmd('setBlockType', { block: { blockId: 'wall', name: 'Wall', variants: [{ color: '#00d8f0' }], shape: 'full', placement: 'edge' } });
@@ -497,15 +497,15 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
 
-  // The Blocks panel's block type form turns the beacon live (one setBlockType), read back over HTTP.
-  await openWindow(page, 'Blocks');
-  const blocksPanel = page.getByLabel('blocks panel');
-  await blocksPanel.getByRole('button', { name: 'block beacon', exact: true }).click();
-  const liveBox = blocksPanel.getByLabel('block type form').getByLabel('blockType live', { exact: true });
+  // The block editor's block type editor turns the beacon live (one setBlockType), read back over HTTP.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).dblclick();
+  await editMode(page).getByRole('radio', { name: 'block beacon', exact: true }).click();
+  const liveBox = editMode(page).getByLabel('block type editor', { exact: true }).getByRole('switch', { name: 'block live' });
   await expect(liveBox).not.toBeChecked();
   await liveBox.click();
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; live?: boolean }[] }).blockTypes?.find((t) => t.blockId === 'beacon')?.live).toBe(true);
   await expect(liveBox).toBeChecked();
+  await leaveEditMode(page);
 
   // …and JSON text, one column per line (a diff shows the columns that changed), once the project asks for it
   // in its settings: the chunk file is rewritten in the same save.
@@ -605,57 +605,45 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   expect([blob.subarray(0, 4).toString('latin1'), blob[5]]).toEqual(['TLBK', 2]);
   expect(createHash('sha256').update(blob).digest('hex')).toBe(entry.chunkData);
   const site = await serveDir(dir);
-  const game = await page.context().newPage();
-  const errors: string[] = [];
-  game.on('pageerror', (e) => errors.push(e.message));
-  const logs: string[] = [];
-  game.on('console', (m) => logs.push(m.text()));
-  try {
-    await game.goto(site.url);
-    const canvas = game.locator('canvas').first();
-    const observe = (): Promise<Observation | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
-    // The rest is read before the dig, from the simulation: it does not wait for the first drawn frame.
-    await expectRestsOnBlocks(observe, 'export', topY);
-    await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
-    const roofInExport = await roofBeforeDig(() => canvas.screenshot(), observe);
-    await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export' }).toBeGreaterThan(500);
-    await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export' }).toBeGreaterThan(30);
-    await expect.poll(async () => cyanPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export' }).toBeGreaterThan(80);
-    await expect.poll(async () => orangePixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export' }).toBeGreaterThan(30);
-    await expectConnectedWall(() => canvas.screenshot(), 'the export');
-    await expectFallsThrough(observe, 'export').catch((e: Error) => {
-      throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
-    });
-    await expectRoofsCut(() => canvas.screenshot(), 'the export', roofInExport);
-    await expectBurntBanner(() => canvas.screenshot(), 'the export');
-    expect(errors).toEqual([]);
-    // The other renderer reads the same chunk data (on a GPU the default above is WebGPU).
-    if (gpuAvailable()) {
-      expect(await canvas.getAttribute('data-tl-renderer')).toBe('webgpu');
-      const gl = await page.context().newPage();
-      gl.on('pageerror', (e) => errors.push(`webgl2: ${e.message}`));
-      try {
-        await gl.goto(`${site.url}?renderer=webgl2`);
-        const glCanvas = gl.locator('canvas').first();
-        const glObserve = (): Promise<Observation | null> => gl.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
-        await expectRestsOnBlocks(glObserve, 'export (WebGL 2)', topY);
-        await expect.poll(async () => glCanvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe('webgl2');
-        const roofOnWebGl = await roofBeforeDig(() => glCanvas.screenshot(), glObserve);
-        await expect.poll(async () => greenPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'grass-green pixels in the export on WebGL 2' }).toBeGreaterThan(500);
-        await expect.poll(async () => magentaPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the beacons\' posts in the export on WebGL 2' }).toBeGreaterThan(30);
-        await expect.poll(async () => cyanPixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the edge wall in the export on WebGL 2' }).toBeGreaterThan(80);
-        await expect.poll(async () => orangePixels(decodePng(await glCanvas.screenshot())), { timeout: 30_000, message: 'the live gate in the export on WebGL 2' }).toBeGreaterThan(30);
-        await expectConnectedWall(() => glCanvas.screenshot(), 'the export on WebGL 2');
-        await expectFallsThrough(glObserve, 'export (WebGL 2)');
-        await expectRoofsCut(() => glCanvas.screenshot(), 'the export on WebGL 2', roofOnWebGl);
-        await expectBurntBanner(() => glCanvas.screenshot(), 'the export on WebGL 2');
-        expect(errors).toEqual([]);
-      } finally {
-        await gl.close();
-      }
+  /**
+   * One renderer's run of the export: it rests on the blocks, draws them (the beacons' posts, the edge wall, the live
+   * gate, the connected wall's pieces), falls through the dug hole, cuts the roof and shows the burnt kit. On a GPU
+   * the default draws with WebGPU and a second page forces WebGL 2 on the same chunk data; the two run side by side.
+   */
+  const runExport = async (renderer: 'webgpu' | 'webgl2' | null): Promise<void> => {
+    const game = await page.context().newPage();
+    const errors: string[] = [];
+    game.on('pageerror', (e) => errors.push(e.message));
+    const logs: string[] = [];
+    game.on('console', (m) => logs.push(m.text()));
+    const what = renderer === 'webgl2' ? 'the export on WebGL 2' : 'the export';
+    try {
+      await game.goto(renderer === 'webgl2' ? `${site.url}?renderer=webgl2` : site.url);
+      const canvas = game.locator('canvas').first();
+      const observe = (): Promise<Observation | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? null) as Observation | null);
+      // The rest is read before the dig, from the simulation: it does not wait for the first drawn frame.
+      await expectRestsOnBlocks(observe, what, topY);
+      await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
+      if (renderer !== null) await expect.poll(async () => canvas.getAttribute('data-tl-renderer'), { timeout: 60_000 }).toBe(renderer);
+      const roof = await roofBeforeDig(() => canvas.screenshot(), observe);
+      await expect.poll(async () => greenPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: `grass-green pixels in ${what}` }).toBeGreaterThan(500);
+      await expect.poll(async () => magentaPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: `the beacons' posts in ${what}` }).toBeGreaterThan(30);
+      await expect.poll(async () => cyanPixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: `the edge wall in ${what}` }).toBeGreaterThan(80);
+      await expect.poll(async () => orangePixels(decodePng(await canvas.screenshot())), { timeout: 30_000, message: `the live gate in ${what}` }).toBeGreaterThan(30);
+      await expectConnectedWall(() => canvas.screenshot(), what);
+      await expectFallsThrough(observe, what).catch((e: Error) => {
+        throw new Error(`${e.message}\nconsole: ${logs.slice(-20).join(' | ')}`);
+      });
+      await expectRoofsCut(() => canvas.screenshot(), what, roof);
+      await expectBurntBanner(() => canvas.screenshot(), what);
+      expect(errors).toEqual([]);
+    } finally {
+      await game.close();
     }
+  };
+  try {
+    await Promise.all(gpuAvailable() ? [runExport('webgpu'), runExport('webgl2')] : [runExport(null)]);
   } finally {
-    await game.close();
     await site.close();
   }
 });

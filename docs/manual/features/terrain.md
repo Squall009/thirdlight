@@ -397,7 +397,7 @@ camera while the game runs — with one rule list format on both, so a block
 area and the terrain around it are dressed alike.
 
 - **Scatter rules** (`terrain.scatter`, `blockLayer.scatter`; the terrain
-  editor's **Scatter** mode, the Blocks panel's **Scatter…**: one card per
+  editor's **Scatter** mode, the block editor's **Rules** mode: one card per
   rule, every field on it): each rule has
   an `id` (1-32 of A-Z a-z 0-9 _ -), a model `asset {assetId, piece?}`, a
   `density` (candidate places per m² where every condition holds fully), a
@@ -429,7 +429,7 @@ area and the terrain around it are dressed alike.
   in 7 ms (188 copies; 30 ms at 16 times the density), a 16 m raise's
   rectangle in 0.6-5 ms; the landscape perf class's 144 tiles in 0.9 s
   (one command). The terrain editor's button is **Bake rules**.
-- **The Scatter brush** (the terrain editor's **Scatter by hand**: Place, B, and Take off, X; the Blocks tools'
+- **The Scatter brush** (the terrain editor's **Scatter by hand**: Place, B, and Take off, X; the block editor's
   **Scatter**, MCP `editTerrain {kind: "scatter", rule, dabs, radius,
   erase?}` and `editBlocks {kind: "scatter", rule, at, radius, erase?}`):
   the rule's candidate places under the brush get a copy whatever the

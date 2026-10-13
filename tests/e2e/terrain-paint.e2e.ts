@@ -1,6 +1,5 @@
 /**
- * The Blocks panel's Paint mode ("Paint texture") in the real
- * editor against a real backend. A flat block layer (32 × 16 × 32 cells of
+ * The block editor's Paint mode in the real editor against a real backend. A flat block layer (32 × 16 × 32 cells of
  * 1 × 0.5 × 1 m, its top at y = 0) wears the height-blended layers material
  * (the three texture arrays packed through the pack route; layer 3 blue). A
  * drag paints layer 3 under the round brush — previewed as the dabs land,
@@ -26,7 +25,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { ALBEDO_HEIGHT_LAYERS, count, isBlue, isGreenish, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, reds, useArrays, type Pred } from './painted-layers';
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { openWindow, closeEditor, createItem } from './ui';
+import { closeEditor, createItem, editMode, editModeTab, enterBlockEditor, leaveEditMode, openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -45,9 +44,21 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 
 const ORIGIN = [-16, -2, -16] as const;
 type V3 = [number, number, number];
-const view = (page: Page) => page.locator('.tl-viewport');
-const panel = (page: Page) => page.getByLabel('blocks panel');
-const tool = (page: Page, name: string) => panel(page).getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name, exact: true });
+const view = (page: Page) => page.locator('canvas.tl-viewport');
+
+/** The block editor's Paint mode with the brush set: the layer tile (1–4), where it paints, its size across (m), full strength, a hard edge. */
+async function paintBrush(page: Page, layer: number, target: 'Tops' | 'Walls', size: number): Promise<void> {
+  const mode = editMode(page);
+  await editModeTab(page, 'Paint');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'paint');
+  await mode.getByRole('radio', { name: `paint layer ${layer}`, exact: true }).click();
+  await mode.getByRole('radiogroup', { name: 'paint target' }).getByRole('radio', { name: target, exact: true }).click();
+  for (const [field, value] of [['brush size', String(size)], ['brush strength', '100']] as const) {
+    await mode.getByLabel(field, { exact: true }).fill(value);
+    await mode.getByLabel(field, { exact: true }).press('Enter');
+  }
+  await mode.getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
+}
 
 async function screen(page: Page, p: V3): Promise<{ x: number; y: number }> {
   const m = JSON.parse((await view(page).getAttribute('data-view-proj'))!) as number[];
@@ -162,19 +173,13 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
 
   await closeEditor(page);
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(4);
-  await openWindow(page, 'Blocks');
-  await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
+  await enterBlockEditor(page, layer);
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   // Nothing blue before painting (the layer is all layer 1: red).
   await expect.poll(() => blueNear(page, ground(16, 16)), { timeout: 30_000 }).toBe(0);
 
-  // ---- Paint layer 3 across the middle: one command of paint dabs.
-  await tool(page, 'Paint texture').click();
-  await expect(view(page)).toHaveAttribute('data-block-tool', 'paint');
-  await panel(page).getByLabel('paint channel').selectOption('2');
-  await panel(page).getByLabel('paint radius').fill('3');
-  await panel(page).getByLabel('paint strength').fill('1');
-  await panel(page).getByLabel('paint falloff').selectOption('constant');
+  // ---- Paint layer 3 across the middle (a 3-cell radius): one command of paint dabs.
+  await paintBrush(page, 3, 'Tops', 6);
   const r0 = await revision();
   await drag(page, [ground(14, 16), ground(18, 16)]);
   await expect.poll(async () => vertex(await paint(layer), 16, 16), { timeout: 20_000 }).toEqual([0, 0, 255, 0, 0]);
@@ -239,20 +244,15 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
   // Unpainted: layer 2 (green) up the wall, the top's layer 1 (red) wrapped over the lip.
   await expect.poll(() => near(page, wall(6), isGreenish, 24), { timeout: 30_000 }).toBeGreaterThan(40);
   expect(await near(page, wall(9.7), isRed, 12)).toBeGreaterThan(4);
-  // Paint on Walls: layer 3 dragged up the face from its foot (the panel's brush starts afresh after the reload).
-  await tool(page, 'Paint texture').click();
-  await panel(page).getByLabel('paint channel').selectOption('2');
-  await panel(page).getByLabel('paint target').selectOption('walls');
-  await panel(page).getByLabel('paint radius').fill('1');
-  await panel(page).getByLabel('paint strength').fill('1');
-  await panel(page).getByLabel('paint falloff').selectOption('constant');
+  // Paint on Walls in the block editor: layer 2 first, then layer 3 dragged up the face from its foot.
+  await enterBlockEditor(page, layer);
+  await paintBrush(page, 2, 'Walls', 2);
   // Layer 2 on unpainted walls (which already show it) stores nothing, and the editor says why.
-  await panel(page).getByLabel('paint channel').selectOption('1');
   const rWall = await revision();
   await drag(page, [wall(4.6), wall(6), wall(7.4)]);
-  await expect(page.locator('.tl-notice')).toContainText('Unpainted walls already show layer 2', { timeout: 15_000 });
+  await expect(editMode(page).locator('.tl-notice')).toContainText('Unpainted walls already show layer 2', { timeout: 15_000 });
   expect(await revision()).toBe(rWall);
-  await panel(page).getByLabel('paint channel').selectOption('2');
+  await editMode(page).getByRole('radio', { name: 'paint layer 3', exact: true }).click();
   const r1 = await revision();
   await drag(page, [wall(4.6), wall(6), wall(7.4)]);
   await expect.poll(async () => Object.keys(await wallPaint(layer)).length, { timeout: 20_000 }).toBe(1);
@@ -260,6 +260,7 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
   // The moss shows on the wall; the tops keep their paint (one stroke on the walls only).
   await expect.poll(() => near(page, wall(6), isBlue, 24), { timeout: 30_000 }).toBeGreaterThan(40);
   expect(await paint(layer)).toEqual(erased);
+  await leaveEditMode(page);
   // Rain: the scene's wetness darkens the ground (the template adds the scene's wetness to the painted one).
   const dry = await medianRed(page);
   await openWindow(page, 'Environment');

@@ -59,8 +59,8 @@
  * tool on a floor of cells — two rooms sharing a wall, an arch in the
  * front one and a door in the shared wall, a fence path — the door edited
  * in the room inspector, a wall dragged (only the rooms object made again,
- * timed from each input), grime painted on a wall with the Paint texture
- * tool. In Play and the export: the front wall's rows, the grime, the shared
+ * timed from each input), grime painted on a wall with the block editor's
+ * Paint mode. In Play and the export: the front wall's rows, the grime, the shared
  * wall's front face through the arch, the back room through the door and a
  * fence post each show their colour.
  *

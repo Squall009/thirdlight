@@ -1181,6 +1181,8 @@ export class Viewport {
   private failuresMark = '';
   /** The view's pose last stamped on the canvas. */
   private poseMark = '';
+  /** The view-projection matrix last stamped on the canvas. */
+  private viewProjMark = '';
 
   /** Schedule one render on the next animation frame (coalesces bursts). */
   requestRender(): void {
@@ -1222,12 +1224,13 @@ export class Viewport {
     // Animated materials (wind, water) tick with the frame (the adapter ticks them) and keep the view drawing;
     // nothing else draws unless something asked for a frame (render on demand).
     const animated = this.assets.materialLibrary.animated();
-    // While the block tools are on, the view-projection matrix (tests map cells to the screen).
     const terrain = adapter.terrainDiagnostics?.() ?? null;
-    if (this.tools.router.anyArmed(this.selectedId) || terrain !== null) {
-      this.camera.updateMatrixWorld();
-      const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-      this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
+    // The view-projection matrix when it changes (tests map cells and world points to the screen).
+    this.camera.updateMatrixWorld();
+    const viewProj = JSON.stringify(new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).elements.map((v) => Math.round(v * 1e6) / 1e6));
+    if (viewProj !== this.viewProjMark) {
+      this.viewProjMark = viewProj;
+      this.root.setAttribute('data-view-proj', viewProj);
     }
     this.followProbeDebug(adapter);
     const drawn = adapter.renderFrame();

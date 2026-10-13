@@ -1,9 +1,9 @@
 /**
- * The terrain brushes of the Blocks panel in the real editor against a real
- * backend: a flat block layer (32 × 16 × 32 cells of 1 × 0.5 × 1 m, its top
- * two metres up) is sculpted in the Scene view. A Height drag raises a smooth
+ * The block editor's Shape mode in the real editor against a real backend: a
+ * flat block layer (32 × 16 × 32 cells of 1 × 0.5 × 1 m, its top two metres
+ * up) is sculpted in the Scene view with the shared brush. A Raise drag raises a smooth
  * hill (one editBlocks: the stroke's `sculpt` dabs; sloped top cells, every
- * shared vertex joined), Ctrl + a Height drag lowers, Smooth softens the
+ * shared vertex joined), Ctrl + a Raise drag lowers, Smooth softens the
  * hill's peak, Flatten levels the ground to the height where its drag
  * starts. Undo and redo step through the strokes one each; a reload of the
  * editor shows the stored terrain (the same cells from the backend, the same
@@ -15,7 +15,7 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors, refusedObjects } from './console-errors';
-import { openWindow } from './ui';
+import { editMode, editModeTab, enterBlockEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -37,9 +37,18 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 const ORIGIN = [-16, -2, -16] as const;
 type V3 = [number, number, number];
 
-const view = (page: Page) => page.locator('.tl-viewport');
-const panel = (page: Page) => page.getByLabel('blocks panel');
-const tool = (page: Page, name: string) => panel(page).getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name, exact: true });
+const view = (page: Page) => page.locator('canvas.tl-viewport');
+
+/** Pick a Shape tool and set its brush (each tool keeps its own): size across in metres, strength in percent, the height step in metres. */
+async function shapeTool(page: Page, name: string, size: number, strength: number, heightStep?: number): Promise<void> {
+  const mode = editMode(page);
+  await mode.getByRole('toolbar', { name: 'shape tool' }).getByRole('button', { name, exact: true }).click();
+  const fields: [string, number][] = [['brush size', size], ['brush strength', strength], ...(heightStep !== undefined ? [['height step', heightStep] as [string, number]] : [])];
+  for (const [field, value] of fields) {
+    await mode.getByLabel(field, { exact: true }).fill(String(value));
+    await mode.getByLabel(field, { exact: true }).press('Enter');
+  }
+}
 
 /** World → client pixels through the Scene view's published view-projection matrix. */
 async function screen(page: Page, p: V3): Promise<{ x: number; y: number }> {
@@ -81,7 +90,7 @@ async function drag(page: Page, points: V3[], modifier?: 'Control'): Promise<voi
 /** The world point on the flat top over layer column (x, z). */
 const ground = (x: number, z: number, rows = 4): V3 => [ORIGIN[0] + x, ORIGIN[1] + rows * 0.5, ORIGIN[2] + z];
 
-test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels; one undo step each; the terrain survives a reload', async ({ page }) => {
+test('block terrain brushes in the block editor: Raise raises and lowers, Smooth softens, Flatten levels; one undo step each; the terrain survives a reload', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('terrain-brushes-e2e');
   // The brush's ring is drawn while the pointer is over the terrain; three logs an error for any object it refuses.
@@ -95,15 +104,13 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(4);
-  await openWindow(page, 'Blocks');
-  await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
+  await enterBlockEditor(page, layer);
+  await editModeTab(page, 'Shape');
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
 
-  // ---- Height: a drag across the middle raises a hill in one command.
-  await tool(page, 'Height').click();
+  // ---- Raise: a drag across the middle raises a hill in one command (4 cells either way, a cell a dab: 0.5 m at full strength).
+  await shapeTool(page, 'Raise', 8, 100, 0.5);
   await expect(view(page)).toHaveAttribute('data-block-tool', 'height');
-  await panel(page).getByLabel('brush radius').fill('4');
-  await panel(page).getByLabel('brush strength').fill('1');
   const r0 = await revision();
   await drag(page, [ground(14, 16), ground(18, 16)]);
   await expect.poll(async () => (await heights(layer, 16, 16))?.[0] ?? 0, { timeout: 20_000 }).toBeGreaterThan(5);
@@ -124,19 +131,19 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   expect(a[2]).toBe(b[3]);
   const peak = b[0]!;
 
-  // ---- Height with Ctrl: lowers (a dip elsewhere).
+  // ---- Raise with Ctrl: lowers (a dip elsewhere).
   await drag(page, [ground(6, 12), ground(7, 12)], 'Control');
   await expect.poll(async () => (await heights(layer, 6, 12))?.[0] ?? 99, { timeout: 20_000, message: `lowered: ${await view(page).getAttribute('data-block-stroke')} rev ${await revision()}` }).toBeLessThan(4);
   expect(await revision()).toBe(r0 + 2);
 
   // ---- Smooth over the hill: the peak comes down.
-  await tool(page, 'Smooth').click();
+  await shapeTool(page, 'Smooth', 8, 100);
   await drag(page, [ground(15, 16, peak), ground(17, 16, peak)]);
   await expect.poll(async () => (await heights(layer, 16, 16))?.[0] ?? 99, { timeout: 20_000 }).toBeLessThan(peak);
   expect(await revision()).toBe(r0 + 3);
 
   // ---- Flatten, starting on the flat ground outside the dip: levels the dip back to 4 rows (there and back).
-  await tool(page, 'Flatten').click();
+  await shapeTool(page, 'Flatten', 8, 100);
   await drag(page, [ground(1, 12), ground(11, 12), ground(1, 12)]);
   await expect.poll(async () => JSON.stringify(await heights(layer, 6, 12)), { timeout: 20_000 }).toBe('[4,4,4,4]');
   expect(await revision()).toBe(r0 + 4);

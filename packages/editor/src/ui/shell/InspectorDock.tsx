@@ -20,7 +20,6 @@ import { AnimatorInspector } from '../animator/AnimatorInspector';
 import { PlayDebugView } from '../PlayDebugView';
 import { GraphInspector } from '../../graph/GraphInspector';
 import { ArchitectureOutlines, PresetSliders, type PresetSlidersProps } from '../architecture/ArchitecturePanels';
-import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { ARCHITECTURE_MATERIAL_SLOT, ARCHITECTURE_PRESET_KIND, trimSheetOfMaterial, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
@@ -29,7 +28,6 @@ import { materialPortContext } from '../../session/material-graph';
 import { SURFACE_PRESET_NAMES, type SurfacePresetName } from '../../session/media';
 import type { GizmoMode } from '../../viewport/viewport';
 import type { TileThumbnails } from '../../viewport/thumbnails';
-import { BlocksPanel } from '../BlocksPanel';
 import { InstanceBrushPanel, type useInstanceBrush } from '../instances/InstanceBrush';
 import { ItemInspector } from '../project/ItemInspector';
 import type { ItemActions } from '../project/useItemActions';
@@ -343,9 +341,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { settings, tags } = props.settings;
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
-  const { writeFootprint, snapLocal, blockEditor, blockRows, blockTypes, cellFields, blockStamps, blockHandlersRef, blockRun, blockEdit, createBlockLayer } = props.blocks;
-  // The rooms drawn on the selected block layer (its Rooms tool).
-  const rooms = useRoomsBinding(selected !== null && selected.components['blockLayer'] !== undefined ? selected : null, entities, props.content.graphs, clientRef, viewportRef, reportFailure);
+  const { writeFootprint, snapLocal } = props.blocks;
   return (
     <Inspector
       entity={selected}
@@ -431,29 +427,6 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
         selected === null
           ? {}
           : {
-              // The selected block layer's tools: they edit it in the Scene view.
-              blockLayer: (
-                <BlocksPanel
-                  editor={blockEditor}
-                  visible={props.placement === 'dock' && props.sceneInFront}
-                  layers={blockRows}
-                  layerId={selected.id}
-                  onLayer={(id) => id !== null && props.select(id)}
-                  types={blockTypes}
-                  fields={cellFields}
-                  stamps={blockStamps}
-                  registry={registry}
-                  fieldContext={fieldContext}
-                  thumbnails={props.tileThumbnails}
-                  handlers={blockHandlersRef}
-                  run={blockRun}
-                  edit={blockEdit}
-                  onCreateLayer={() => void createBlockLayer()}
-                  onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
-                  onNotice={setNotice}
-                  {...(rooms !== undefined ? { rooms } : {})}
-                />
-              ),
               // An architecture object's outlines, their presets and the presets' sliders.
               architecture: (
                 <ArchitectureOutlines

@@ -1,9 +1,9 @@
 /**
- * Block-layer editing: the block tools' layers, types, cell fields and
- * stamps (the tools show in the Inspector while a block layer is selected,
- * and edit that layer), the Scene view's block tools, props' block
- * footprints and cell-top snapping. `receive` copies the layers from the
- * session client after every applied change and hands them to the Scene view.
+ * Block-layer editing: the block editor's layers, types, cell fields and
+ * stamps (the block editor edits the layer it is open on), the Scene view's
+ * block tools, props' block footprints and cell-top snapping. `receive`
+ * copies the layers from the session client after every applied change and
+ * hands them to the Scene view.
  *
  * Footprints and snapping read world places (parents' transforms applied)
  * through the model's helpers, as the command layer does: a prop or a layer
@@ -14,7 +14,7 @@ import { SessionClient, type BlockLayerView } from '../../session/client';
 import { effectiveFlagsOf } from '../../session/hierarchy';
 import { presetValue } from '../../session/descriptor-fields';
 import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockLayerComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
-import type { BlockLayerRow, BlockPanelHandlers } from '../BlocksPanel';
+import type { BlockLayerRow, BlockModeHandlers } from '../blocks/block-host';
 import type { BlockEditor } from '../../viewport/block-editor';
 import { BlockGrid, footprintCells, footprintEdits, footprintPlaces, placeInWorld, pointInParent, yawQuarterTurns, type FootprintNode } from '@thirdlight/runtime';
 import { round4, snapToCellTop, type PropLayer } from '../../session/block-footprint';
@@ -29,15 +29,13 @@ export interface BlockLayersDeps {
   cellTops: boolean;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
-  /** The selected object: the tools edit it while it is a block layer. */
-  selectedId: string | null;
-  /** Select an object (a new layer is selected, so its tools show). */
-  select: (id: string) => void;
+  /** A new block layer was made: its editor opens (or it is selected). */
+  created: (id: string) => void;
 }
 
 export function useBlockLayers(deps: BlockLayersDeps) {
-  const { clientRef, viewportRef, registry, cellTops, reportFailure, setNotice, selectedId, select } = deps;
-  // Block-layer editing (the tools in the Inspector and the Scene view's block tools).
+  const { clientRef, viewportRef, registry, cellTops, reportFailure, setNotice, created } = deps;
+  // Block-layer editing (the block editor and the Scene view's block tools).
   const [blockEditor, setBlockEditor] = useState<BlockEditor | null>(null);
   const [blockRows, setBlockRows] = useState<readonly BlockLayerRow[]>([]);
   const [blockTypes, setBlockTypes] = useState<readonly BlockType[]>([]);
@@ -46,7 +44,7 @@ export function useBlockLayers(deps: BlockLayersDeps) {
   const [blockLayerId, setBlockLayerId] = useState<string | null>(null);
   const blockLayerIdRef = useRef<string | null>(null);
   blockLayerIdRef.current = blockLayerId;
-  const blockHandlersRef = useRef<BlockPanelHandlers | null>(null);
+  const blockHandlersRef = useRef<BlockModeHandlers | null>(null);
   /** Each layer's cells as a grid (props snap to them and footprints read them), by the client's block revision. */
   const propGridsRef = useRef<{ revision: number; grids: Map<string, BlockGrid> }>({ revision: -1, grids: new Map() });
   /** The block layers props sit on (their cells as grids, rebuilt when the client's cells change). */
@@ -144,17 +142,34 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     return r.ok;
   }, [clientRef, reportFailure]);
   const blockEdit = useCallback((what: string, entityId: string, edits: BlockEdit[]) => blockRun(what, 'editBlocks', { entityId, edits }), [blockRun]);
+  /**
+   * A layer's own settings changed as they are when the command is sent (own commands go one at a time, each
+   * applied before the next is built), so a second quick change is made on top of the first.
+   */
+  const changeLayer = useCallback(async (what: string, entityId: string, change: (c: BlockLayerComponent) => BlockLayerComponent | null): Promise<boolean> => {
+    const c = clientRef.current;
+    if (!c) return false;
+    let skipped = false;
+    const r = await c.command('setComponent', () => {
+      const now = (c.projection.getEntity(entityId)?.components as { blockLayer?: BlockLayerComponent } | undefined)?.blockLayer;
+      const value = now === undefined ? null : change(now);
+      if (value === null) skipped = true;
+      return { entityId, component: 'blockLayer', value: value ?? now };
+    }, c.projection.revision);
+    if (skipped || (!r.ok && (r.response as { code?: string }).code === 'no_change')) return false;
+    reportFailure(what, r);
+    return r.ok;
+  }, [clientRef, reportFailure]);
+  // A new layer is one command (the object with its layer), so one undo takes it away and closes its editor.
   const createBlockLayer = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
     const value = presetValue(registry, 'blockLayer');
     if (value === null) return setNotice('New block layer failed: the component defaults have not arrived yet');
-    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Block layer', transform: { position: [0, 0, 0] } }, c.projection.revision);
+    const res = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Block layer', transform: { position: [0, 0, 0] }, components: { blockLayer: value } }, c.projection.revision);
     if (!res.ok || res.createdId === undefined) return reportFailure('New block layer', res);
-    const id = res.createdId;
-    reportFailure('New block layer', await c.command('setComponent', { entityId: id, component: 'blockLayer', value }, c.projection.revision));
-    select(id);
-  }, [clientRef, registry, reportFailure, setNotice, select]);
+    created(res.createdId);
+  }, [clientRef, registry, reportFailure, setNotice, created]);
 
   /** The Scene view's block tools edit the chosen layer (none: no layer chosen, or it is gone). */
   const pushLayer = useCallback((c: SessionClient, layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: BlockLayerView['chunks']; origin: number[] }>, rows: readonly BlockLayerRow[]) => {
@@ -165,17 +180,17 @@ export function useBlockLayers(deps: BlockLayersDeps) {
   }, [viewportRef]);
   const rowsRef = useRef<readonly BlockLayerRow[]>([]);
   rowsRef.current = blockRows;
-  // Selecting a block layer makes it the one the tools edit (the Inspector shows its tools).
-  useEffect(() => {
+  /** The layer the block editor is open on becomes the one the Scene view's tools edit (null: none). */
+  const setEditedLayer = useCallback((id: string | null) => {
+    if (id === blockLayerIdRef.current) return;
+    blockLayerIdRef.current = id;
+    setBlockLayerId(id);
     const c = clientRef.current;
-    if (c === null || selectedId === null || selectedId === blockLayerIdRef.current) return;
-    const l = c.getBlockLayers().get(selectedId);
-    const e = c.projection.getEntity(selectedId);
-    if (l === undefined || e === undefined) return;
-    blockLayerIdRef.current = selectedId;
-    setBlockLayerId(selectedId);
-    pushLayer(c, new Map([[selectedId, { component: l.component, chunks: l.chunks, origin: e.position }]]), rowsRef.current);
-  }, [clientRef, selectedId, pushLayer, blockRows]);
+    if (c === null) return;
+    const l = id === null ? undefined : c.getBlockLayers().get(id);
+    const e = id === null ? undefined : c.projection.getEntity(id);
+    pushLayer(c, l === undefined || e === undefined ? new Map() : new Map([[id!, { component: l.component, chunks: l.chunks, origin: e.position }]]), rowsRef.current);
+  }, [clientRef, pushLayer]);
 
   /** The block layers (cells, block types) at their entities' positions, for the tools and the Scene view. */
   const receive = useCallback((c: SessionClient, stable: Stable) => {
@@ -204,8 +219,8 @@ export function useBlockLayers(deps: BlockLayersDeps) {
   }, [viewportRef, pushLayer]);
 
   return {
-    blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setBlockLayerId, blockLayerIdRef, blockHandlersRef,
-    propLayers, writeFootprint, snapLocal, blockRun, blockEdit, createBlockLayer, receive,
+    blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setEditedLayer, blockLayerIdRef, blockHandlersRef,
+    propLayers, writeFootprint, snapLocal, blockRun, blockEdit, changeLayer, createBlockLayer, receive,
   };
 }
 

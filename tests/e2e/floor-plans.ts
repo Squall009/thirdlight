@@ -24,7 +24,7 @@ import { architectureStylesOf, expandArchitecture, facingDir, type ArchitectureC
 
 import { expect, type Page } from './pw';
 import { multiPieceGlb } from './multi-piece-glb';
-import { inspector } from './ui';
+import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
 import { ENTER_KEY } from './buildings';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -106,10 +106,9 @@ export async function makeFloorPlans(page: Page, cmd: Cmd, query: Query, publish
   };
 
   // ---- The editor: the layer's Rooms tool, the building inspector.
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
-  const blocks = inspector(page).getByLabel('blocks panel');
-  await expect(blocks).toBeVisible();
-  await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Rooms', exact: true }).click();
+  await enterBlockEditor(page, layer);
+  const blocks = editMode(page);
+  await editModeTab(page, 'Rooms & buildings');
   const rooms = blocks.getByLabel('rooms panel');
   await rooms.getByLabel('building plan-house', { exact: true }).click();
   const panel = rooms.getByLabel('building plan-house floor plan');
@@ -152,6 +151,7 @@ export async function makeFloorPlans(page: Page, cmd: Cmd, query: Query, publish
   await expect.poll(async () => (await places()).size, { timeout: 15_000 }).toBe(after.size);
   await panel.getByRole('button', { name: 'Unlock plan' }).click();
   await expect.poll(stored, { timeout: 15_000 }).toBe(0);
+  await leaveEditMode(page);
 
   // ---- The plans scene: its camera (above every other) looks straight down; a key loads it.
   const plansScene = 'e2e-plans';

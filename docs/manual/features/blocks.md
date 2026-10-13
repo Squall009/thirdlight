@@ -78,7 +78,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   outside the view. The Scene view, Play and exports draw layers through the
   same code (WebGPU and WebGL 2).
 - **Texture mapping** (`uv` on a block type, and optionally on each look;
-  the block type form in the Blocks panel, MCP `setBlockType`): `model` (the
+  the block editor's block type editor, MCP `setBlockType`): `model` (the
   default) keeps a model's own texture coordinates; `world` gives the look
   texture coordinates from its place in the layer, in **metres** from the
   layer's origin, so a texture runs on across cells without a seam (a kit
@@ -120,7 +120,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   (`false`) when they do not fit; at most 4,096 per step. Visual-script nodes
   exist for the calls.
 - **Live blocks**: a block type marked **Live** (`live: true`, the
-  Blocks panel's block type form) spawns each of its prefab looks as real
+  block type editor's **Spawns its prefab as a live object**) spawns each of its prefab looks as real
   objects of the game, per cell — a door, a lamp, a trigger, a sound, with
   their scripts, movers, lights and children. What a door does is the
   prefab's scripts (the game's), not the engine's.
@@ -295,7 +295,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   paint shows between cell corners). `paint` edits take `target: "walls"`
   or `"both"` (absent: tops) and the brush centre's height `y` (rows): every
   exposed wall point within the radius, by distance in metres. In the
-  editor: Paint texture, **On** Tops / Walls / Tops and walls, dragged over
+  editor: the block editor's Paint mode, **Paint on** Tops / Walls / Both, dragged over
   the wall's face. Wall points stay where they are when heights change.
   Templates made by this engine add the scene's **wetness** (the scene look's
   `wetness`, 0–1, rain; presets blend it) to the painted one, let water pool
@@ -354,7 +354,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     picked by the target's weights, and a connected target resolves its
     pieces from its (swapped) neighbours. A theme is every type's entry under
     one name; a type without an entry keeps its look.
-  - A layer's `kits: [{kit, region?}]` (Blocks panel **Theme** on the layer
+  - A layer's `kits: [{kit, region?}]` (the block editor's Regions → **Theme** on the layer
     bar and per region, Inspector **Themes**, MCP `setComponent blockLayer`) —
     one for the whole layer and one per region at most; a region's theme wins where it
     swaps a block (edge pieces on the region's outline go with it). The cells,
@@ -387,7 +387,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     byte).
   - Problems (Play, export): a layer whose cut-aways or themes name a region it
     does not have, or a theme no block type has, is a warning. Renaming a
-    region in the Blocks panel renames it in the layer's cut-aways and themes
+    region in the block editor's Regions renames it in the layer's cut-aways and themes
     (a second undo step); deleting it there removes those entries.
 - <a id="kits"></a>**Kits**: one project item (`content.kits`, a
   `<name>.kit.json` file in `assets/kits/` by default) gathering what a
@@ -481,7 +481,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   (the area class 6.6/9.7 ms with it, 6.6/9.6 without). Use it where
   indirect light dominates (interiors, shade, a quality level without SSAO);
   a layer with baked lightmaps has its occlusion in the bake already.
-- **Material rules** (`blockLayer.rules`, the Blocks panel's **Rules…**):
+- **Material rules** (`blockLayer.rules`, the block editor's **Rules** mode):
   the terrain's rule list (see [Terrain: material rules](terrain.md#terrain)), for layers 0-3, plus **block types**
   and **cell metadata** conditions; evaluated at every vertex when a chunk is
   meshed (in the mesh workers) — walls and steep tops by their own slope,
@@ -564,7 +564,7 @@ stroke or button is one undo step, and MCP can do the same.
   (terrain, 25.20: a round brush over the ground with Radius and Strength —
   Height raises or, with Ctrl, lowers the ground with sloped tops, Smooth
   evens it out, Flatten levels it to the height where the drag starts; a
-  drag is one undo step), Paint texture (the Paint mode, 25.21: a round
+  drag is one undo step), Paint (the block editor's Paint mode, 25.21: a round
   brush painting material layer 1–4 or wetness with Radius, Strength and
   Falloff, **On** the tops, the walls (a layer with Wall paint) or both;
   Ctrl or "Lower / remove" erases; a drag is one undo step), Pick (the eyedropper takes a

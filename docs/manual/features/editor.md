@@ -331,8 +331,8 @@ The Scene view's camera turns around a point in front of it:
 - **F** moves the point to the selected object's origin and keeps the
   distance. A block layer's origin is its corner, not its middle: after F,
   wheel in or pan to the cells.
-- While a block layer's **Edit cells** is on, the left button belongs to
-  the block tools: **right drag** or **Alt + left drag** turns the view,
+- In the block editor the left button belongs to the block tools:
+  **right drag** or **Alt + left drag** turns the view,
   **middle drag** pans, the wheel zooms. Space + drag paints there; it does
   not pan.
 - A larger browser window gives the Scene view more room; the Project /

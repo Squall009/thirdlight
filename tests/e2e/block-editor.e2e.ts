@@ -1,41 +1,41 @@
 /**
- * Block-layer editing in the real editor against a real
- * backend.
+ * The block editor in the real editor against a real backend.
  *
- * A 64 × 64 × 16 layer (the interactive-editing target size) starts with its
- * lower half filled (32,768 cells). The Blocks panel and the Scene view then
- * paint with the single-cell brush, rectangle and box, flood fill, pick with
- * the eyedropper, replace all of a type, raise a column, erase, undo and redo
- * (one step per stroke), paint metadata and show it as an overlay (red pixels
- * in the Scene view), select, copy, paste and mirror a selection, save it as a
- * stamp and place the stamp, lock and hide the layer. With an edge piece
- * (a wall) as the brush, the rectangle draws a room's outline on the cell
- * edges, the brush and eraser take the edges dragged over and the line runs
- * along a grid line (turned end for end), each one undo step; the block type
- * form turns a block type into an edge piece. The form gives a block type
- * connection pieces (straight, end): a line of it draws straight pieces ended
- * by end pieces, and erasing a cell in the run makes two more ends (pixels in
- * the Scene view). The Edit menu's snapping
- * settings change the gizmo's step, and with cell-top snapping on a prop
- * dragged over the layer lands on the cells and its block footprint writes
- * its metadata beneath it, in the same undo step as the move (undo and redo
- * take both); deleting the prop clears the cells and undo restores them; a prop
- * under a moved group snaps and writes its footprint where it stands in the
- * world. The Inspector edits the layer's cell size with x and z as one value
- * (cells are square from above); a command with x ≠ z is refused. A region marked cut away in the Blocks panel
- * is hidden in the Scene view while its preview is on (pixels). The layer's Kit (Blocks panel) shows the grass as its
- * burnt swap in the Scene view (pixels) without changing a cell; a region's kit, and its cut-away, follow the region
- * when it is renamed and go when it is deleted. The Problems window lists a block left floating and the places a walk
- * from the layer's start region cannot reach (the backend's checks once edits settle). Every result is read back from the backend
- * (`queryBlocks`, `queryEntity`); the stroke latency is measured.
+ * A 64 × 16 × 64 layer (the interactive-editing target size) starts with its
+ * lower half filled (32,768 cells), built from a kit. A double-click on its
+ * Hierarchy row opens the block editor (the kit's block types first in the
+ * palette, then the other types the layer holds). One path per tool family
+ * through the editor and the Scene view: a single-cell stroke (one command,
+ * one undo step, its latency measured), a rectangle with its readout, a
+ * flood fill, the eyedropper (I) and replace, a selection saved as a stamp
+ * and placed, an edge piece's rectangle (a room's outline on the cell
+ * edges), the slice (PageUp). The block type editor edits a type in plain
+ * controls: custom collision boxes, a model look from the model browser and
+ * its weight, a connection piece, a theme. Regions: a rectangle of metadata
+ * and its overlay, a region cut away and themed that follows its rename and
+ * goes with its deletion. Paint: Make it paintable gives the stand-ins a
+ * Layered surface. Lock: the tools refuse. Esc leaves; the Inspector's Edit
+ * blocks opens it again; GameObject → Block layer opens a new layer's editor,
+ * and one undo takes the layer away and closes it.
+ *
+ * Outside the editor: with cell-top snapping on, a prop dragged over the
+ * layer lands on the cells and its block footprint writes its metadata
+ * beneath it in the same undo step as the move; the Inspector edits the
+ * layer's cell size with x and z as one value (cells are square from above).
+ *
+ * Every result is read back from the backend (`queryBlocks`, `queryEntity`,
+ * `queryGameConfig`). Browser-free checks (stroke edits, the brush's dabs,
+ * the block type editor's edits, region follow-ups, the paint palette) are in
+ * vitest (`block-brush.test.ts`, `block-mode.test.ts`).
  */
 import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
-import { decodePng, type Image } from './png';
-import { menuItem, openWindow, projectWindow } from './ui';
+import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb } from './multi-piece-glb';
+import { decodePng } from './png';
+import { editMode, editModeTab, inspector, leaveEditMode, menu, menuItem } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -62,7 +62,7 @@ const top = (x: number, y: number, z: number): V3 => [ORIGIN[0] + x + 0.5, ORIGI
 /** A point at the middle of row `y` over the cell (x, z) (a rectangle stroke's plane). */
 const mid = (x: number, y: number, z: number): V3 => [ORIGIN[0] + x + 0.5, ORIGIN[1] + y + 0.5, ORIGIN[2] + z + 0.5];
 
-const view = (page: Page) => page.locator('.tl-viewport');
+const view = (page: Page) => page.locator('canvas.tl-viewport');
 
 /** World → client pixels through the Scene view's published view-projection matrix. */
 async function screen(page: Page, p: V3): Promise<{ x: number; y: number }> {
@@ -101,12 +101,16 @@ async function cells(layer: string, box: number[]): Promise<Map<string, { block?
 const blockAt = async (layer: string, x: number, y: number, z: number): Promise<string | null> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.block ?? null;
 const cellCount = async (layer: string): Promise<number> => ((await query('queryBlocks')) as { layers: { entityId: string; cells: number }[] }).layers.find((l) => l.entityId === layer)?.cells ?? 0;
 
-type EntityView = { active?: boolean; locked?: boolean; components: { transform: { position: number[] }; blockLayer?: { cellSize: number[] } } };
+type EntityView = { active?: boolean; locked?: boolean; components: { transform: { position: number[] }; blockLayer?: { cellSize: number[]; cutaway?: unknown; kits?: unknown; walk?: unknown } } };
 async function entity(id: string): Promise<EntityView> {
   return ((await query('queryEntity', { entityId: id })) as { entity: EntityView }).entity;
 }
+type TypeView = { blockId: string; shape: string; boxes?: number[][]; variants: { model?: { assetId: string }; weight?: number; color?: string }[]; connect?: unknown; kits?: unknown; materials?: Record<string, string> };
+const typeOf = async (id: string): Promise<TypeView | undefined> => ((await query('queryGameConfig')) as { blockTypes?: TypeView[] }).blockTypes?.find((t) => t.blockId === id);
 
-function countPixels(img: Image, test: (r: number, g: number, b: number) => boolean): number {
+const red = (r: number, g: number, b: number): boolean => r > 170 && g < 90 && b < 90;
+function countPixels(png: Buffer, test: (r: number, g: number, b: number) => boolean): number {
+  const img = decodePng(png);
   let n = 0;
   for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
     const [r, g, b] = img.pixel(x, y);
@@ -114,454 +118,273 @@ function countPixels(img: Image, test: (r: number, g: number, b: number) => bool
   }
   return n;
 }
-const red = (r: number, g: number, b: number): boolean => r > 170 && g < 90 && b < 90;
-const green = (r: number, g: number, b: number): boolean => g > r + 35 && g > b + 35 && g > 60;
 
-const panel = (page: Page) => page.getByLabel('blocks panel');
-const tool = (page: Page, name: string) => panel(page).getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name, exact: true });
-const blockButton = (page: Page, id: string) => panel(page).getByRole('button', { name: `block ${id}`, exact: true });
+const tile = (page: Page, id: string) => editMode(page).getByRole('radio', { name: `block ${id}`, exact: true });
+const tool = (page: Page, name: string) => editMode(page).getByRole('toolbar', { name: 'block tool' }).getByRole('button', { name, exact: true });
+const typeEditor = (page: Page) => editMode(page).getByLabel('block type editor', { exact: true });
 
-test('the Blocks panel paints, fills, picks, replaces, selects, stamps and paints metadata; props snap to cell tops', async ({ page }) => {
-  test.setTimeout(420_000);
+test('the block editor builds, fills, picks, replaces, stamps and draws walls; edits block types, regions, metadata and paint; props snap to cell tops', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
   be = await startBackend('block-editor-e2e');
   await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }] });
-  for (const [blockId, color] of [['stone', '#6b7280'], ['grass', '#3fa34d'], ['sand', '#d8c27a'], ['door', '#a05020']] as const) await cmd('setBlockType', { block: { blockId, name: blockId[0]!.toUpperCase() + blockId.slice(1), variants: [{ color }], shape: 'full' } });
+  for (const [blockId, color] of [['stone', '#6b7280'], ['grass', '#3fa34d'], ['sand', '#d8c27a']] as const) await cmd('setBlockType', { block: { blockId, name: blockId[0]!.toUpperCase() + blockId.slice(1), variants: [{ color }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'wall', name: 'Wall', variants: [{ color: '#20c8f0' }], shape: 'full', placement: 'edge' } });
-  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] } }))['createdId']);
-  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } });
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 8, 64], cell: { block: 'stone' } }] });
+  await cmd('setKit', { kit: { kitId: 'yard', name: 'Yard', blockTypes: ['stone', 'grass', 'wall'] } });
+  await publishBytes(be, new Uint8Array(multiPieceGlb([{ name: 'crate', lods: [[1, 1, 1]] }], { centred: true })), 'model', 'crate', 'Crate');
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [...ORIGIN] }, components: { blockLayer: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] }, kitId: 'yard' } } }))['createdId']);
+  // A sand cell the kit does not hold: the palette lists it after the kit's types.
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 8, 64], cell: { block: 'stone' } }, { kind: 'cells', at: [63, 7, 63], cell: { block: 'sand' } }] });
   expect(await cellCount(layer)).toBe(32_768);
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(16);
-  await openWindow(page, 'Blocks');
-  await expect(panel(page).getByLabel('block layer')).toHaveValue(layer);
-  await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
-  await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
 
-  // ---- Problems: the backend checks the layer once its edits settle (off the editor's frame). A block left floating
-  // is listed with its cell; with a walk region, the places a walk from it cannot reach (a pillar too tall to step
-  // onto) are listed. Cleared again, the layer is as it was.
-  await openWindow(page, 'Problems');
-  const problemLine = (code: string) => page.locator(`.tl-problem__message[title^="${code} "]`);
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [60, 13, 60], cell: { block: 'stone' } }] });
-  await expect(problemLine('block_floating')).toHaveCount(1, { timeout: 15_000 });
-  await expect(problemLine('block_floating')).toHaveText(`block layer "${layer}": 1 block in 1 group floats (nothing joins it to the layer's lowest blocks), at [60, 13, 60] (scene "scene-main")`);
-  const layerValue = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } };
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [60, 13, 60], cell: null }, { kind: 'fill', box: [30, 8, 30, 33, 12, 33], cell: { block: 'stone' } }, { kind: 'region', regionId: 'start', op: 'set', boxes: [[0, 8, 0, 4, 9, 4]] }] });
-  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, walk: { from: 'start' } } });
-  await expect(problemLine('block_unreachable')).toHaveCount(1, { timeout: 15_000 });
-  await expect(problemLine('block_unreachable')).toContainText('9 of 4096 places to stand cannot be walked to from region "start"');
-  await expect(problemLine('block_unreachable')).toContainText('at [30, 11, 30], [30, 11, 31], [30, 11, 32], [31, 11, 30], …');
-  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { ...layerValue, walk: null } });
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [30, 8, 30, 33, 12, 33], cell: null }, { kind: 'region', regionId: 'start', op: 'delete' }] });
-  expect(await cellCount(layer)).toBe(32_768);
-  await openWindow(page, 'Blocks');
+  await test.step('a Hierarchy double-click opens the block editor; the palette is the kit\'s types, then the layer\'s others', async () => {
+    await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).dblclick();
+    await expect(editMode(page)).toHaveAttribute('data-edit-mode', 'blocks');
+    await expect(editMode(page).getByRole('radiogroup', { name: 'block palette' }).getByRole('radio')).toHaveText([/Stone/, /Grass/, /Wall/, /Sand.*not in the kit/]);
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
+    await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
+  });
 
-  // ---- single-cell brush: a drag over three tops paints three cells in one command.
-  await blockButton(page, 'grass').click();
-  const a = await aim(page, top(8, 7, 8), [8, 8, 8]);
-  const b = await screen(page, top(10, 7, 8));
-  const revBefore = Number((await query('queryProject')).revision);
-  await stroke(page, [a, b]);
-  await expect.poll(() => blockAt(layer, 10, 8, 8)).toBe('grass');
-  expect(await blockAt(layer, 8, 8, 8)).toBe('grass');
-  expect(await blockAt(layer, 9, 8, 8)).toBe('grass');
-  expect(Number((await query('queryProject')).revision)).toBe(revBefore + 1);
-  // The view writes the stroke's record once its command came back (the backend's data can be read first).
-  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"single"/);
-  const timing = JSON.parse((await view(page).getAttribute('data-block-stroke'))!) as { tool: string; cells: number; previewMs: number; commitMs: number };
-  expect(timing.tool).toBe('single');
-  expect(timing.cells).toBe(3);
-  test.info().annotations.push({ type: 'block stroke latency (64×64×16)', description: `preview ${timing.previewMs} ms (worst pointer move), commit ${timing.commitMs} ms (release → stored)` });
-  console.log(`block stroke latency at 64×64×16: preview ${timing.previewMs} ms, commit ${timing.commitMs} ms`);
-  // Interactive: a pointer move's preview well inside a frame budget on a loaded host; the commit one round trip.
-  expect(timing.previewMs).toBeLessThan(200);
-  expect(timing.commitMs).toBeLessThan(5_000);
+  await test.step('single: a drag over three tops is one command and one undo step', async () => {
+    await page.keyboard.press('2');
+    await expect(tile(page, 'grass')).toHaveAttribute('aria-checked', 'true');
+    await expect(typeEditor(page)).toHaveAttribute('data-block-type', 'grass');
+    const a = await aim(page, top(8, 7, 8), [8, 8, 8]);
+    const b = await screen(page, top(10, 7, 8));
+    const revBefore = Number((await query('queryProject')).revision);
+    await stroke(page, [a, b]);
+    await expect.poll(() => blockAt(layer, 10, 8, 8)).toBe('grass');
+    expect(await blockAt(layer, 9, 8, 8)).toBe('grass');
+    expect(Number((await query('queryProject')).revision)).toBe(revBefore + 1);
+    await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"single"/);
+    const timing = JSON.parse((await view(page).getAttribute('data-block-stroke'))!) as { cells: number; previewMs: number; commitMs: number };
+    expect(timing.cells).toBe(3);
+    test.info().annotations.push({ type: 'block stroke latency (64×64×16)', description: `preview ${timing.previewMs} ms (worst pointer move), commit ${timing.commitMs} ms (release → stored)` });
+    expect(timing.previewMs).toBeLessThan(200);
+    expect(timing.commitMs).toBeLessThan(5_000);
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => cellCount(layer)).toBe(32_768);
+    await page.keyboard.press('Control+y');
+    await expect.poll(() => cellCount(layer)).toBe(32_771);
+  });
 
-  // ---- undo / redo: one step for the whole stroke.
-  await page.keyboard.press('Control+z');
-  await expect.poll(() => cellCount(layer)).toBe(32_768);
-  await page.keyboard.press('Control+y');
-  await expect.poll(() => cellCount(layer)).toBe(32_771);
+  await test.step('rect (R) shows its size while dragged; flood (G) fills the connected top row', async () => {
+    await page.keyboard.press('r');
+    await expect(tool(page, 'Rect')).toHaveAttribute('aria-pressed', 'true');
+    const a = await aim(page, top(4, 7, 4), [4, 8, 4]);
+    await page.mouse.down();
+    await page.mouse.move(...((p) => [p.x, p.y] as const)(await screen(page, mid(6, 8, 6))), { steps: 6 });
+    await expect(page.getByRole('status', { name: 'shape readout' })).toContainText('3 × 3 m');
+    await page.mouse.up();
+    void a;
+    await expect.poll(() => cellCount(layer)).toBe(32_771 + 9);
+    expect(await blockAt(layer, 6, 9, 6)).toBeNull();
+    await page.keyboard.press('4');
+    await page.keyboard.press('g');
+    await aim(page, top(2, 7, 10), [2, 7, 10]);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect.poll(() => blockAt(layer, 40, 7, 40)).toBe('sand');
+    expect(await blockAt(layer, 40, 6, 40)).toBe('stone');
+  });
 
-  // ---- rectangle: a 3 × 3 one-cell-thick fill on the row above the tops.
-  await tool(page, 'Rectangle').click();
-  await stroke(page, [await aim(page, top(4, 7, 4), [4, 8, 4]), await screen(page, mid(6, 8, 6))]);
-  await expect.poll(() => cellCount(layer)).toBe(32_771 + 9);
-  expect(await blockAt(layer, 6, 8, 6)).toBe('grass');
-  expect(await blockAt(layer, 6, 9, 6)).toBeNull();
+  await test.step('pick (I) takes a cell\'s block; replace (H) turns every block of a type into the brush\'s', async () => {
+    await page.keyboard.press('i');
+    await aim(page, top(8, 8, 8), [8, 8, 8]);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(tile(page, 'grass')).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('1');
+    await page.keyboard.press('h');
+    await aim(page, top(2, 7, 10), [2, 7, 10]);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect.poll(() => blockAt(layer, 63, 7, 63)).toBe('stone');
+  });
 
-  // ---- box: the rectangle raised to the box height (2).
-  await tool(page, 'Box').click();
-  await expect(panel(page).getByLabel('box height')).toHaveValue('2');
-  await stroke(page, [await aim(page, top(12, 7, 4), [12, 8, 4]), await screen(page, mid(13, 8, 5))]);
-  await expect.poll(() => cellCount(layer)).toBe(32_780 + 8);
-  expect(await blockAt(layer, 13, 9, 5)).toBe('grass');
+  await test.step('select (S), save the selection as a stamp, place it', async () => {
+    await page.keyboard.press('s');
+    await stroke(page, [await aim(page, top(8, 8, 8), [8, 8, 8]), await screen(page, mid(10, 8, 8))]);
+    await expect(view(page)).toHaveAttribute('data-block-selection', '8,8,8,11,9,9');
+    await expect(editMode(page).getByLabel('selection box')).toContainText('3 cells');
+    await editMode(page).getByLabel('stamp name').fill('Row piece');
+    await editMode(page).getByRole('button', { name: 'Save as stamp', exact: true }).click();
+    await expect(tool(page, 'Stamp')).toHaveAttribute('aria-pressed', 'true');
+    expect(errors).toEqual([]);
+    await aim(page, top(8, 7, 11), [8, 8, 11]);
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect.poll(() => blockAt(layer, 10, 8, 11)).toBe('grass');
+    expect(await blockAt(layer, 8, 8, 11)).toBe('grass');
+    await page.keyboard.press('Escape');
+    await expect(view(page)).toHaveAttribute('data-block-selection', '');
+    await expect(editMode(page)).toBeVisible();
+  });
 
-  // ---- flood: the connected stone of the top row becomes sand.
-  await blockButton(page, 'sand').click();
-  await tool(page, 'Flood').click();
-  const fl = await aim(page, top(2, 7, 10), [2, 7, 10]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 63, 7, 63)).toBe('sand');
-  void fl;
-  expect(await blockAt(layer, 63, 6, 63)).toBe('stone');
+  await test.step('an edge piece\'s rect draws a room\'s outline on the cell edges in one command', async () => {
+    type EdgeBox = { edges: number[][] };
+    const edgesIn = async (box: number[]): Promise<EdgeBox> => ((await query('queryBlocks', { entityId: layer, box })) as { box: EdgeBox }).box;
+    const floorAt = (x: number, z: number): V3 => [ORIGIN[0] + x, ORIGIN[1] + 8, ORIGIN[2] + z];
+    await page.keyboard.press('3');
+    await page.keyboard.press('r');
+    const near = await screen(page, floorAt(1.1, 8.5));
+    await page.mouse.move(near.x - 3, near.y);
+    await page.mouse.move(near.x, near.y);
+    await expect(view(page)).toHaveAttribute('data-block-edge', '1,8,8,0');
+    const roomRev = Number((await query('queryProject')).revision);
+    await stroke(page, [await screen(page, floorAt(1, 8)), await screen(page, floorAt(4, 10))]);
+    await expect.poll(async () => (await edgesIn([1, 8, 8, 4, 9, 10])).edges.length).toBe(10);
+    expect(Number((await query('queryProject')).revision)).toBe(roomRev + 1);
+  });
 
-  // ---- eyedropper: the grass cell becomes the brush.
-  await tool(page, 'Pick').click();
-  await aim(page, top(8, 8, 8), [8, 8, 8]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(blockButton(page, 'grass')).toHaveAttribute('aria-pressed', 'true');
+  await test.step('PageUp moves the slice: the chip and the view follow', async () => {
+    const slice = Number(await view(page).getAttribute('data-block-slice'));
+    await page.keyboard.press('PageUp');
+    await expect(view(page)).toHaveAttribute('data-block-slice', String(slice + 1));
+    await expect(editMode(page).getByRole('group', { name: 'slice' })).toContainText(`level ${slice + 1}`);
+    await page.keyboard.press('PageDown');
+    await expect(view(page)).toHaveAttribute('data-block-slice', String(slice));
+  });
 
-  // ---- replace all of a type: every sand cell becomes stone.
-  await blockButton(page, 'stone').click();
-  await tool(page, 'Replace all').click();
-  await aim(page, top(2, 7, 10), [2, 7, 10]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 63, 7, 63)).toBe('stone');
-  expect(await blockAt(layer, 0, 7, 0)).toBe('stone');
+  await test.step('the block type editor: custom boxes, a model look and its weight, a connection piece, a theme', async () => {
+    await page.keyboard.press('2');
+    const ed = typeEditor(page);
+    await expect(ed).toHaveAttribute('data-block-type', 'grass');
+    await ed.getByRole('radiogroup', { name: 'block collision' }).getByRole('radio', { name: 'Boxes', exact: true }).click();
+    await expect.poll(async () => (await typeOf('grass'))?.boxes).toEqual([[0, 0, 0, 1, 1, 1]]);
+    const toY = ed.getByLabel('box 1 to y', { exact: true });
+    await toY.fill('0.5');
+    await toY.press('Enter');
+    await expect.poll(async () => (await typeOf('grass'))?.boxes).toEqual([[0, 0, 0, 1, 0.5, 1]]);
+    await ed.getByRole('button', { name: 'add a model look', exact: true }).click();
+    await page.getByRole('dialog', { name: 'block look picker' }).getByRole('option', { name: 'Crate', exact: true }).click();
+    await expect.poll(async () => (await typeOf('grass'))?.variants.map((v) => v.model?.assetId ?? v.color)).toEqual(['#3fa34d', 'crate']);
+    const weight = ed.getByLabel('look 2 weight', { exact: true });
+    await weight.fill('3');
+    await weight.press('Enter');
+    await expect.poll(async () => (await typeOf('grass'))?.variants[1]?.weight).toBe(3);
+    await ed.getByRole('switch', { name: 'block connects' }).click();
+    await expect(ed.getByRole('switch', { name: 'block connects' })).toBeChecked();
+    await ed.getByLabel('piece straight look', { exact: true }).selectOption('1');
+    await expect.poll(async () => (await typeOf('grass'))?.connect).toEqual({ pieces: { straight: { variant: 1 } } });
+    await ed.getByLabel('new theme', { exact: true }).fill('burnt');
+    await ed.getByRole('button', { name: '+ Theme', exact: true }).click();
+    await expect.poll(async () => (await typeOf('grass'))?.kits).toEqual({ burnt: { block: 'grass' } });
+    await ed.getByLabel('theme burnt block', { exact: true }).selectOption('sand');
+    await expect.poll(async () => (await typeOf('grass'))?.kits).toEqual({ burnt: { block: 'sand' } });
+  });
 
-  // ---- raise a column (the brush block on top), undo and redo it.
-  await tool(page, 'Raise / lower').click();
-  await aim(page, top(1, 7, 6), [1, 7, 6]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 1, 8, 6)).toBe('stone');
-  await page.keyboard.press('Control+z');
-  await expect.poll(() => blockAt(layer, 1, 8, 6)).toBeNull();
-  await page.keyboard.press('Control+y');
-  await expect.poll(() => blockAt(layer, 1, 8, 6)).toBe('stone');
+  await test.step('Regions: a metadata rectangle and its overlay; a region cut away and themed follows its rename', async () => {
+    await page.keyboard.press('Shift+4');
+    await expect(editMode(page).getByRole('tab', { name: 'Regions', exact: true })).toHaveAttribute('aria-selected', 'true');
+    const col = editMode(page).getByLabel('edit mode settings');
+    await page.keyboard.press('m');
+    await col.getByLabel('metadata field').selectOption('hazard');
+    await col.getByRole('radiogroup', { name: 'metadata shape' }).getByRole('radio', { name: 'Rectangle' }).click();
+    await stroke(page, [await aim(page, top(0, 7, 0), [0, 7, 0]), await screen(page, mid(3, 7, 5))]);
+    await expect.poll(async () => [...(await cells(layer, [0, 7, 0, 4, 8, 6])).values()].filter((c) => c.meta['hazard'] === true).length).toBe(24);
+    const redOff = countPixels(await view(page).screenshot(), red);
+    await col.getByRole('button', { name: 'overlay hazard' }).click();
+    await expect.poll(async () => Number((await view(page).getAttribute('data-block-overlay')) ?? 0)).toBe(24);
+    await expect.poll(async () => countPixels(await view(page).screenshot(), red), { timeout: 20_000, message: 'the overlay in the Scene view' }).toBeGreaterThan(redOff + 150);
+    await col.getByRole('button', { name: 'overlay hazard' }).click();
+    await expect(view(page)).toHaveAttribute('data-block-overlay', '0');
+    await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'region', regionId: 'upper', op: 'set', boxes: [[0, 8, 0, 64, 16, 64]] }] });
+    await col.getByLabel('cut away upper', { exact: true }).click();
+    await expect.poll(async () => (await entity(layer)).components.blockLayer?.cutaway).toEqual({ regions: [{ region: 'upper' }] });
+    await col.getByLabel('theme upper', { exact: true }).selectOption('burnt');
+    await col.getByLabel('layer theme', { exact: true }).selectOption('burnt');
+    // The themes in any order (each select is its own command).
+    const themes = async (): Promise<string[]> => ((await entity(layer)).components.blockLayer?.kits as { kit: string; region?: string }[] | undefined ?? []).map((k) => `${k.kit}@${k.region ?? ''}`).sort();
+    await expect.poll(themes).toEqual(['burnt@', 'burnt@upper']);
+    await col.getByRole('button', { name: 'rename upper', exact: true }).click();
+    const rename = col.getByLabel('rename region upper', { exact: true });
+    await rename.fill('top');
+    await rename.press('Enter');
+    await expect.poll(async () => [(await entity(layer)).components.blockLayer?.cutaway, await themes()]).toEqual([{ regions: [{ region: 'top' }] }, ['burnt@', 'burnt@top']]);
+    await col.getByRole('button', { name: 'delete region top', exact: true }).click();
+    await expect.poll(async () => [(await entity(layer)).components.blockLayer?.cutaway, await themes()]).toEqual([undefined, ['burnt@']]);
+    await col.getByLabel('layer theme', { exact: true }).selectOption('');
+    await expect.poll(async () => (await entity(layer)).components.blockLayer?.kits).toBeUndefined();
+  });
 
-  // ---- erase one of the painted cells (the row becomes asymmetric for the mirror below).
-  await tool(page, 'Erase').click();
-  await aim(page, top(10, 8, 8), [10, 8, 8]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 10, 8, 8)).toBeNull();
+  await test.step('Paint: the stand-ins read no paint; Make it paintable gives the picked type a Layered surface', async () => {
+    await page.keyboard.press('Shift+3');
+    const banner = editMode(page).getByRole('alert', { name: 'material does not read paint' });
+    await expect(banner).toBeVisible();
+    await banner.getByRole('button', { name: 'make it paintable' }).click();
+    await expect.poll(async () => (await typeOf('grass'))?.materials?.['*'] ?? null, { timeout: 15_000 }).not.toBeNull();
+    await expect(banner).toHaveCount(0);
+    await expect(editMode(page).getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Base/, /Layer 2/, /Layer 3/, /Layer 4/, /Wet/]);
+  });
 
-  // ---- select, copy, paste, mirror.
-  await tool(page, 'Select').click();
-  await stroke(page, [await aim(page, top(8, 8, 8), [8, 8, 8]), await screen(page, mid(10, 8, 8))]);
-  await expect(view(page)).toHaveAttribute('data-block-selection', '8,8,8,11,9,9');
-  await expect(panel(page).getByLabel('selection box')).toContainText('3 cells');
-  await page.keyboard.press('Control+c');
-  await expect(tool(page, 'Paste')).toHaveAttribute('aria-pressed', 'true');
-  await aim(page, top(8, 7, 12), [8, 8, 12]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 9, 8, 12)).toBe('grass');
-  expect(await blockAt(layer, 8, 8, 12)).toBe('grass');
-  expect(await blockAt(layer, 10, 8, 12)).toBeNull();
-  await panel(page).getByRole('button', { name: 'Mirror X', exact: true }).click();
-  await expect.poll(() => blockAt(layer, 8, 8, 8)).toBeNull();
-  expect(await blockAt(layer, 9, 8, 8)).toBe('grass');
-  expect(await blockAt(layer, 10, 8, 8)).toBe('grass');
+  await test.step('locked, the tools refuse and nothing changes', async () => {
+    await page.keyboard.press('Shift+1');
+    const before = await cellCount(layer);
+    const lock = editMode(page).getByRole('switch', { name: 'lock layer' });
+    await editMode(page).getByRole('button', { name: 'Layer', exact: true }).click();
+    await lock.click();
+    await expect.poll(async () => (await entity(layer)).locked).toBe(true);
+    await page.keyboard.press('q');
+    const at = await aim(page, top(3, 7, 9), [3, 8, 9]);
+    await page.mouse.click(at.x, at.y);
+    await expect(editMode(page).getByRole('alert').filter({ hasText: /layer is locked/ })).toBeVisible();
+    expect(await cellCount(layer)).toBe(before);
+    await lock.click();
+    await expect.poll(async () => (await entity(layer)).locked ?? false).toBe(false);
+  });
 
-  // ---- save the selection as a stamp, place it elsewhere.
-  await panel(page).getByLabel('stamp name').fill('Row piece');
-  await panel(page).getByRole('button', { name: 'Save as stamp', exact: true }).click();
-  await expect(panel(page).getByRole('button', { name: 'place stamp row-piece' })).toBeVisible();
-  await panel(page).getByRole('button', { name: 'place stamp row-piece' }).click();
-  await expect(tool(page, 'Stamp')).toHaveAttribute('aria-pressed', 'true');
-  await aim(page, top(4, 7, 12), [4, 8, 12]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 6, 8, 12)).toBe('grass');
-  expect(await blockAt(layer, 5, 8, 12)).toBe('grass');
-  expect(await blockAt(layer, 4, 8, 12)).toBeNull();
+  await test.step('Esc leaves; Edit blocks opens it again; GameObject → Block layer opens a new layer, one undo takes it away', async () => {
+    await page.keyboard.press('Escape');
+    await expect(editMode(page)).toHaveCount(0);
+    await expect(view(page)).toHaveAttribute('data-block-tool', '');
+    await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
+    await inspector(page).getByRole('button', { name: 'Edit blocks', exact: true }).click();
+    await expect(editMode(page)).toHaveAttribute('data-entity-id', layer);
+    await leaveEditMode(page);
+    await menu(page, 'GameObject', 'Block layer');
+    await expect(editMode(page)).toHaveAttribute('data-edit-mode', 'blocks');
+    const made = await editMode(page).getAttribute('data-entity-id');
+    expect(made).not.toBe(layer);
+    await page.keyboard.press('Control+z');
+    await expect(editMode(page)).toHaveCount(0);
+    await expect.poll(async () => ((await query('queryBlocks')) as { layers: { entityId: string }[] }).layers.map((l) => l.entityId)).toEqual([layer]);
+  });
 
-  // ---- edge pieces: the wall as the brush draws on the cell edges of the row above the tops (its floor at y = 0.5),
-  //      over free cells near the layer's -x side.
-  type EdgeBox = { edges: number[][]; edgePalette: { block: string; rot?: number }[] };
-  const edgesIn = async (box: number[]): Promise<EdgeBox> => ((await query('queryBlocks', { entityId: layer, box })) as { box: EdgeBox }).box;
-  /** A point on that floor (cells x, z). */
-  const floorAt = (x: number, z: number): V3 => [ORIGIN[0] + x, ORIGIN[1] + 8, ORIGIN[2] + z];
-  await blockButton(page, 'wall').click();
-  await tool(page, 'Rectangle').click();
-  // The hover snaps to the nearest cell edge.
-  const near = await screen(page, floorAt(1.1, 8.5));
-  await page.mouse.move(near.x - 3, near.y);
-  await page.mouse.move(near.x, near.y);
-  await expect(view(page)).toHaveAttribute('data-block-edge', '1,8,8,0');
-  // A rectangle from corner (1, 8) to (4, 10): the room's outline, 2 × 3 + 2 × 2 edges in one command.
-  const room = [1, 8, 8, 4, 9, 10];
-  const roomRev = Number((await query('queryProject')).revision);
-  await stroke(page, [await screen(page, floorAt(1, 8)), await screen(page, floorAt(4, 10))]);
-  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(10);
-  expect(Number((await query('queryProject')).revision)).toBe(roomRev + 1);
-  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"rect".*"edges":true/);
-  // Drawn in the Scene view (the wall's cyan stand-ins).
-  const cyan = (r: number, g: number, b: number): boolean => g > r + 60 && b > r + 60;
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), cyan), { timeout: 20_000, message: 'the walls in the Scene view' }).toBeGreaterThan(60);
-  await page.keyboard.press('Control+z');
-  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(0);
-  await page.keyboard.press('Control+y');
-  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(10);
-  // The brush takes the edges it is dragged along: the z = 11 line over x 1-3.
-  await tool(page, 'Paint').click();
-  await stroke(page, [await screen(page, floorAt(1.5, 11.05)), await screen(page, floorAt(3.5, 11.05))]);
-  await expect.poll(async () => (await edgesIn([1, 8, 11, 4, 9, 12])).edges.filter((e) => e[2] === 11 && e[3] === 1).length).toBe(3);
-  // The eraser takes one edge of the room.
-  await tool(page, 'Erase').click();
-  const gap = await screen(page, floorAt(2.5, 8.05));
-  await page.mouse.move(gap.x, gap.y);
-  await expect(view(page)).toHaveAttribute('data-block-edge', '2,8,8,1');
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(async () => (await edgesIn(room)).edges.length).toBe(9);
-  // A line along the x = 5 grid line, the brush turned end for end (an edge piece turns 0 / 180 only).
-  await panel(page).getByRole('button', { name: 'rotate brush' }).click();
-  await expect(panel(page).getByRole('button', { name: 'rotate brush' })).toHaveText('Rotate 180°');
-  await tool(page, 'Line').click();
-  await stroke(page, [await screen(page, floorAt(5, 8)), await screen(page, floorAt(5.1, 11.3))]);
-  const line = [5, 8, 8, 6, 9, 11];
-  await expect.poll(async () => (await edgesIn(line)).edges.filter((e) => e[0] === 5 && e[3] === 0).length).toBe(3);
-  expect((await edgesIn(line)).edgePalette).toEqual([{ block: 'wall', rot: 180 }]);
-  // A box with an edge piece: the outline on every row up to the box height (2), walls two rows tall in one command.
-  await tool(page, 'Box').click();
-  await stroke(page, [await screen(page, floorAt(1, 13)), await screen(page, floorAt(3, 15))]);
-  await expect.poll(async () => (await edgesIn([1, 8, 13, 4, 10, 16])).edges.length).toBe(16);
-  await expect(view(page)).toHaveAttribute('data-block-stroke', /"tool":"box".*"edges":true/);
-  await panel(page).getByRole('button', { name: 'rotate brush' }).click();
-  // The block type form makes a block type an edge piece.
-  await blockButton(page, 'door').click();
-  await panel(page).getByLabel('block type form').getByLabel('blockType placement', { exact: true }).selectOption('edge');
-  await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; placement?: string }[] }).blockTypes?.find((t) => t.blockId === 'door')?.placement).toBe('edge');
+  await test.step('cell-top snapping: a prop dragged over the layer lands on the cells, its footprint written with the move', async () => {
+    await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
+    const dialog = page.getByRole('dialog', { name: 'Snapping settings' });
+    await dialog.getByLabel('snap to cell tops').check();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }, { key: 'lot', type: 'int', default: 0, min: 0, max: 99 }] });
+    const hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
+    await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { lot: 7 } } });
+    await dragGizmoX(page, hut);
+    await expect.poll(async () => (await entity(hut)).components.transform.position[1]).toBe(0.5);
+    const p = (await entity(hut)).components.transform.position;
+    expect(p[2]).toBe(-5.5);
+    const cx = p[0]! - ORIGIN[0] - 0.5;
+    const lotAt = async (x: number, y: number, z: number): Promise<unknown> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.meta['lot'];
+    await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
+    // One undo takes the move and the footprint back.
+    await page.keyboard.press('Control+z');
+    await expect.poll(async () => (await entity(hut)).components.transform.position).toEqual([-4.5, 3, -5.5]);
+    expect(await lotAt(cx, 7, 2)).toBe(0);
+  });
 
-  // ---- auto-connect: the block type form gives a rampart its straight (yellow) and end (red) pieces; a line of it
-  //      draws yellow runs ended in red, and erasing a cell in the middle makes two more ends.
-  await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#404040' }, { color: '#f0e000' }, { color: '#e01010' }], shape: 'full' } });
-  await blockButton(page, 'rampart').click();
-  const form = panel(page).getByLabel('block type form');
-  await form.getByRole('button', { name: 'add blockType connect', exact: true }).click();
-  type Connect = { pieces: Record<string, { variant: number }> };
-  const connectOf = async (): Promise<Connect | undefined> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; connect?: Connect }[] }).blockTypes?.find((t) => t.blockId === 'rampart')?.connect;
-  await expect.poll(connectOf).toEqual({ pieces: {} });
-  for (const [piece, variant] of [['straight', '1'], ['end', '2']] as const) {
-    await form.getByRole('button', { name: `add blockType connect pieces ${piece}`, exact: true }).click();
-    const field = form.getByLabel(`blockType connect pieces ${piece} variant`, { exact: true });
-    await field.fill(variant);
-    await field.press('Enter');
-  }
-  await expect.poll(connectOf).toEqual({ pieces: { end: { variant: 2 }, straight: { variant: 1 } } });
-  const yellow = (r: number, g: number, b: number): boolean => r > 120 && g > 110 && b < Math.min(r, g) * 0.4 && Math.abs(r - g) < 60;
-  // The end pieces' red, lit or in shade.
-  const endRed = (r: number, g: number, b: number): boolean => r > 90 && g < r * 0.3 && b < r * 0.3;
-  const shot = async (f: (r: number, g: number, b: number) => boolean): Promise<number> => countPixels(decodePng(await view(page).screenshot()), f);
-  const redBefore = await shot(endRed);
-  await tool(page, 'Line').click();
-  await stroke(page, [await aim(page, top(7, 7, 10), [7, 8, 10]), await screen(page, top(11, 7, 10))]);
-  await expect.poll(async () => [...(await cells(layer, [7, 8, 10, 12, 9, 11])).values()].filter((c) => c.block === 'rampart').length).toBe(5);
-  await expect.poll(() => shot(yellow), { timeout: 20_000, message: 'the straight pieces (yellow) in the Scene view' }).toBeGreaterThan(100);
-  const endsRed = await shot(endRed);
-  expect(endsRed).toBeGreaterThan(redBefore + 20);
-  await tool(page, 'Erase').click();
-  await aim(page, top(9, 8, 10), [9, 8, 10]);
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect.poll(() => blockAt(layer, 9, 8, 10)).toBeNull();
-  await expect.poll(() => shot(endRed), { timeout: 20_000, message: 'two more end pieces (red) beside the gap' }).toBeGreaterThan(endsRed + 20);
-
-  // ---- metadata paint (a rectangle of hazard = true) and its overlay.
-  await panel(page).getByLabel('metadata field').selectOption('hazard');
-  await panel(page).getByLabel('metadata shape').selectOption('rect');
-  await tool(page, 'Metadata').click();
-  await stroke(page, [await aim(page, top(0, 7, 0), [0, 7, 0]), await screen(page, mid(3, 7, 5))]);
-  await expect.poll(async () => [...(await cells(layer, [0, 7, 0, 4, 8, 6])).values()].filter((c) => c.meta['hazard'] === true).length).toBe(24);
-  expect((await cells(layer, [4, 7, 0, 5, 8, 1])).get('4,7,0')?.meta['hazard']).toBe(false);
-  const redOff = countPixels(decodePng(await view(page).screenshot()), red);
-  await panel(page).getByLabel('overlay hazard').check();
-  await expect.poll(async () => Number((await view(page).getAttribute('data-block-overlay')) ?? 0)).toBe(24);
-  await expect(panel(page).getByLabel('overlay legend')).toContainText('hazard');
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), red), { timeout: 20_000, message: 'red overlay pixels in the Scene view' }).toBeGreaterThan(redOff + 150);
-  await panel(page).getByLabel('overlay hazard').uncheck();
-  await expect(view(page)).toHaveAttribute('data-block-overlay', '0');
-
-  // ---- lock: the tools refuse and nothing changes; unlock.
-  const before = await cellCount(layer);
-  await panel(page).getByRole('button', { name: 'lock layer' }).click();
-  await expect.poll(async () => (await entity(layer)).locked).toBe(true);
-  await expect(panel(page).getByRole('button', { name: 'lock layer' })).toHaveAttribute('aria-pressed', 'true');
-  await tool(page, 'Paint').click();
-  await blockButton(page, 'grass').click();
-  const lockedAt = await aim(page, top(3, 7, 9), [3, 8, 9]);
-  await page.mouse.click(lockedAt.x, lockedAt.y);
-  await expect(page.getByText(/layer is locked/)).toBeVisible();
-  expect(await cellCount(layer)).toBe(before);
-  await panel(page).getByRole('button', { name: 'lock layer' }).click();
-  await expect.poll(async () => (await entity(layer)).locked ?? false).toBe(false);
-
-  // ---- hide: the layer's blocks leave the Scene view; show again.
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), green), { timeout: 20_000 }).toBeGreaterThan(200);
-  await panel(page).getByRole('button', { name: 'hide layer' }).click();
-  await expect.poll(async () => (await entity(layer)).active).toBe(false);
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), green), { timeout: 20_000, message: 'no grass pixels while the layer is hidden' }).toBeLessThan(20);
-  await panel(page).getByRole('button', { name: 'hide layer' }).click();
-  await expect.poll(async () => (await entity(layer)).active ?? true).toBe(true);
-
-  // ---- cut-away: a region over the painted rows, marked cut away in the Blocks panel (one setComponent); its preview
-  // fades those rows out of the Scene view, leaving the stone tops under them, and back in.
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'region', regionId: 'upper', op: 'set', boxes: [[0, 8, 0, 64, 16, 64]] }] });
-  const cutBox = panel(page).getByLabel('cut away upper', { exact: true });
-  await expect(cutBox).not.toBeChecked();
-  await cutBox.click();
-  await expect.poll(async () => ((await entity(layer)).components.blockLayer as { cutaway?: unknown } | undefined)?.cutaway).toEqual({ regions: [{ region: 'upper' }] });
-  await expect(cutBox).toBeChecked();
-  const previewCut = panel(page).getByRole('button', { name: 'preview cut-away upper' });
-  // Grass (the brush's hover outline, still on the view, adds a few green pixels of its own).
-  const grass = (r: number, g: number, b: number): boolean => green(r, g, b) && b < r + 35;
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000 }).toBeGreaterThan(200);
-  const grassShown = countPixels(decodePng(await view(page).screenshot()), grass);
-  await previewCut.click();
-  await expect(previewCut).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass rows cut away' }).toBeLessThan(grassShown / 5);
-  await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').cutaway, { timeout: 20_000 }).toEqual(expect.objectContaining({ zones: 1, cut: 1, fading: 0 }));
-  await previewCut.click();
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass back after the preview' }).toBeGreaterThan(200);
-  await cutBox.click();
-  await expect.poll(async () => ((await entity(layer)).components.blockLayer as { cutaway?: unknown } | undefined)?.cutaway).toBeUndefined();
-
-  // ---- kits: the block type form gives grass a burnt swap (violet ash); the layer's Kit shows it in the Scene view, the
-  // cells stay grass.
-  await cmd('setBlockType', { block: { blockId: 'ash', name: 'Ash', variants: [{ color: '#5a00b4' }], shape: 'full' } });
-  await blockButton(page, 'grass').click();
-  const typeForm = panel(page).getByLabel('block type form');
-  await typeForm.getByLabel('new blockType kits theme', { exact: true }).fill('burnt');
-  await typeForm.getByRole('button', { name: 'add blockType kits', exact: true }).click();
-  type Kits = Record<string, { block: string }>;
-  const grassKits = async (): Promise<Kits | undefined> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; kits?: Kits }[] }).blockTypes?.find((t) => t.blockId === 'grass')?.kits;
-  // A new kit starts as a swap to the type itself; then its Block is picked.
-  await expect.poll(grassKits).toEqual({ burnt: { block: 'grass' } });
-  const kitBlock = typeForm.getByLabel('blockType kits burnt block', { exact: true });
-  await kitBlock.fill('ash');
-  await kitBlock.press('Enter');
-  await expect.poll(grassKits).toEqual({ burnt: { block: 'ash' } });
-  const violet = (r: number, g: number, b: number): boolean => b > 80 && r > b * 0.3 && r < b * 0.75 && g < b * 0.25;
-  const layerKit = panel(page).getByLabel('layer theme', { exact: true });
-  await expect(layerKit).toHaveValue('');
-  const blockLayerOf = async (): Promise<{ cutaway?: unknown; kits?: unknown; walk?: unknown }> => ((await entity(layer)).components.blockLayer ?? {}) as { cutaway?: unknown; kits?: unknown; walk?: unknown };
-  await layerKit.selectOption('burnt');
-  await expect.poll(async () => (await blockLayerOf()).kits).toEqual([{ kit: 'burnt' }]);
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), violet), { timeout: 20_000, message: 'the grass shown burnt' }).toBeGreaterThan(200);
-  expect(countPixels(decodePng(await view(page).screenshot()), grass)).toBeLessThan(grassShown / 5);
-  const stored = [...(await cells(layer, [0, 0, 0, 64, 16, 64])).values()].map((c) => c.block);
-  expect(stored).toContain('grass');
-  expect(stored).not.toContain('ash');
-  await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{}').restyles, { timeout: 20_000 }).toEqual(expect.objectContaining({ active: false, count: expect.any(Number) }));
-  // A region's kit, cut-away and walk follow the region renamed in the panel, and go with it deleted.
-  await cutBox.click();
-  await panel(page).getByLabel('theme upper', { exact: true }).selectOption('burnt');
-  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'upper' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'upper' }] }));
-  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { walk: { from: 'upper', maxStep: 1 } } });
-  await expect.poll(async () => (await blockLayerOf()).walk).toEqual({ from: 'upper', maxStep: 1 });
-  await panel(page).getByRole('button', { name: 'rename upper', exact: true }).click();
-  const renameInput = panel(page).getByLabel('rename region upper', { exact: true });
-  await renameInput.fill('top');
-  await renameInput.press('Enter');
-  await expect.poll(async () => blockLayerOf()).toEqual(expect.objectContaining({ cutaway: { regions: [{ region: 'top' }] }, kits: [{ kit: 'burnt' }, { kit: 'burnt', region: 'top' }], walk: { from: 'top', maxStep: 1 } }));
-  await panel(page).getByRole('button', { name: 'delete region top', exact: true }).click();
-  await expect.poll(async () => { const c = await blockLayerOf(); return [c.cutaway, c.kits, c.walk]; }).toEqual([undefined, [{ kit: 'burnt' }], { maxStep: 1 }]);
-  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { walk: null } });
-  // The authored looks again.
-  await layerKit.selectOption('');
-  await expect.poll(async () => (await blockLayerOf()).kits).toBeUndefined();
-  await expect.poll(async () => countPixels(decodePng(await view(page).screenshot()), grass), { timeout: 20_000, message: 'the grass back without the kit' }).toBeGreaterThan(200);
-  expect(countPixels(decodePng(await view(page).screenshot()), violet)).toBeLessThan(20);
-
-  // ---- snapping settings: a 1 m move step moves an object in whole metres.
-  await projectWindow(page);
-  await expect(view(page)).toHaveAttribute('data-block-tool', '');
-  await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
-  const dialog = page.getByRole('dialog', { name: 'Snapping settings' });
-  await dialog.getByLabel('Move step (m)').fill('1');
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  const mover = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Mover', transform: { position: [0.3, 0.5, -3] }, box: { size: [1, 1, 1], material: { color: '#dd44dd' } } }))['createdId']);
-  await dragGizmoX(page, mover);
-  await expect.poll(async () => (await entity(mover)).components.transform.position[0]).not.toBe(0.3);
-  const moved = (await entity(mover)).components.transform.position;
-  expect(Number.isInteger(moved[0])).toBe(true);
-  await expect(view(page)).toHaveAttribute('data-snap-step', '1');
-
-  // ---- cell-top snapping and a prop's block footprint.
-  await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
-  await dialog.getByLabel('snap to cell tops').check();
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  // A field of its own for the footprint (cells read back with the fields' defaults filled in).
-  await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }, { key: 'lot', type: 'int', default: 0, min: 0, max: 99 }] });
-  const hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
-  await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { lot: 7 } } });
-  await dragGizmoX(page, hut);
-  await expect.poll(async () => (await entity(hut)).components.transform.position[1]).toBe(0.5);
-  const p = (await entity(hut)).components.transform.position;
-  // On the top of the column under it: a cell centre on x and z, on the row-7 tops (y = 0.5).
-  expect(p[2]).toBe(-5.5);
-  expect((((p[0]! - ORIGIN[0] - 0.5) % 1) + 1) % 1).toBe(0);
-  const cx = p[0]! - ORIGIN[0] - 0.5;
-  await expect.poll(async () => (await cells(layer, [cx, 7, 2, cx + 1, 8, 3])).get(`${cx},7,2`)?.meta['lot']).toBe(7);
-  // The footprint is written with the move, so one undo takes both back: the hut returns to y = 3 and
-  // the footprint to the row-9 cell it wrote when the component was set there.
-  const lotAt = async (x: number, y: number, z: number): Promise<unknown> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.meta['lot'];
-  expect(await lotAt(3, 9, 2)).not.toBe(7);
-  await page.keyboard.press('Control+z');
-  await expect.poll(async () => (await entity(hut)).components.transform.position).toEqual([-4.5, 3, -5.5]);
-  expect(await lotAt(cx, 7, 2)).toBe(0);
-  expect(await lotAt(3, 9, 2)).toBe(7);
-  await page.keyboard.press('Control+y');
-  await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
-  expect(await lotAt(3, 9, 2)).not.toBe(7);
-  // Deleting the prop (as MCP sends it) clears its cells; the editor's undo brings them back with it.
-  await cmd('deleteEntity', { entityId: hut });
-  expect(await lotAt(cx, 7, 2)).toBe(0);
-  await page.keyboard.press('Control+z');
-  await expect.poll(() => lotAt(cx, 7, 2)).toBe(7);
-  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${hut}"]`)).toHaveCount(1);
-
-  // A prop under a moved group: the Inspector's snap and "Write to cells" pick the cells under its world place,
-  // the ones the backend's moves write and clear. Column (40, 40) is untouched: its top is row 7.
-  expect(await blockAt(layer, 40, 7, 40)).toBe('stone');
-  expect(await blockAt(layer, 40, 8, 40)).toBeNull();
-  const yard = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Yard', transform: { position: [0.25, 1, 3] } }))['createdId']);
-  // World (32.6, 4, 32.5): over cell (40, 40).
-  const shed = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: yard, kind: 'box', name: 'Shed', transform: { position: [32.35, 3, 29.5] }, box: { size: [1, 1, 1], material: { color: '#88dd44' } } }))['createdId']);
-  await cmd('setComponent', { entityId: shed, component: 'blockFootprint', value: { layer, set: { lot: 9 } } });
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${shed}"]`).click();
-  await page.locator('.tl-inspector').getByRole('button', { name: 'Snap to cell top' }).click();
-  // On the row-7 top at the cell's centre in the world (x 32.5, y 0.5, z 32.5), stored local to the group.
-  await expect.poll(async () => (await entity(shed)).components.transform.position).toEqual([32.25, -0.5, 29.5]);
-  await expect.poll(() => lotAt(40, 7, 40)).toBe(9);
-  // Cleared by hand, "Write to cells" writes it again on the same cell.
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'meta', set: { lot: null }, at: [40, 7, 40] }] });
-  expect(await lotAt(40, 7, 40)).toBe(0);
-  await page.locator('.tl-inspector').getByRole('button', { name: 'Write to cells' }).click();
-  await expect.poll(() => lotAt(40, 7, 40)).toBe(9);
-
-  // ---- the Inspector's cell size: cells are square from above, so x and z are edited as one value.
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
-  const inspector = page.locator('.tl-inspector');
-  const cellSize = async (): Promise<number[] | undefined> => (await entity(layer)).components.blockLayer?.cellSize;
-  const cellField = (axis: string) => inspector.getByLabel(`blockLayer cellSize ${axis}`, { exact: true });
-  await cellField('x').fill('2');
-  await cellField('x').press('Enter');
-  await expect.poll(cellSize).toEqual([2, 1, 2]);
-  await expect(cellField('z')).toHaveValue('2');
-  await cellField('z').fill('0.5');
-  await cellField('z').press('Enter');
-  await expect.poll(cellSize).toEqual([0.5, 1, 0.5]);
-  await expect(cellField('x')).toHaveValue('0.5');
-  await cellField('y').fill('0.25');
-  await cellField('y').press('Enter');
-  await expect.poll(cellSize).toEqual([0.5, 0.25, 0.5]);
-  // A command (as MCP sends it) with x ≠ z is refused, naming both values and the rule.
-  const refused = await be!.command({ op: 'setComponent', projectId: be!.projectId, expectedRevision: Number((await query('queryProject')).revision), requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-block-editor' }, args: { entityId: layer, component: 'blockLayer', value: { cellSize: [2, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } } });
-  expect(refused['ok']).toBe(false);
-  expect(JSON.stringify(refused)).toContain('field_value');
-  expect(JSON.stringify(refused)).toMatch(/x \(2\) and z \(1\).*square from above/);
-  expect(await cellSize()).toEqual([0.5, 0.25, 0.5]);
+  await test.step('the Inspector edits the cell size with x and z as one value', async () => {
+    await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
+    const cellField = (axis: string) => inspector(page).getByLabel(`blockLayer cellSize ${axis}`, { exact: true });
+    await cellField('x').fill('2');
+    await cellField('x').press('Enter');
+    await expect.poll(async () => (await entity(layer)).components.blockLayer?.cellSize).toEqual([2, 1, 2]);
+    await expect(cellField('z')).toHaveValue('2');
+  });
 });
 
 /** Select an object in the Hierarchy and drag its gizmo's X arrow (one setTransform on release). */

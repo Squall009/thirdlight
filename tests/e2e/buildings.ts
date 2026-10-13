@@ -1,5 +1,5 @@
 /**
- * A building drawn with a block layer's Rooms tool (Building mode) in the
+ * A building drawn in the block editor's Rooms & buildings mode (Building) in the
  * real editor, its interior a scene of its own (shared by the
  * layered-material spec, whose trim sheet, fixed Play camera and export it
  * is read with).
@@ -24,7 +24,7 @@
 import { expect, type Page } from './pw';
 
 import { aimCorner, frameOn, screen } from './rooms-drawing';
-import { inspector } from './ui';
+import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -139,14 +139,14 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 1, 12], cell: { block: 'e2e-house-ground' } }] });
 
   // ---- The editor: the layer's Rooms tool, Building mode, on the slice's floor (row 1, the cells' top).
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).click();
-  const blocks = inspector(page).getByLabel('blocks panel');
-  await expect(blocks).toBeVisible();
-  await page.keyboard.press('f');
-  await blocks.getByRole('toolbar', { name: 'block tools' }).getByRole('button', { name: 'Rooms', exact: true }).click();
+  await enterBlockEditor(page, layer);
+  const blocks = editMode(page);
+  // Home frames the layer (the view's direction kept), as F did on the selected layer before.
+  await page.keyboard.press('Home');
+  await editModeTab(page, 'Rooms & buildings');
   const slice = async (n: number): Promise<void> => {
-    await blocks.getByLabel('slice', { exact: true }).fill(String(n));
-    await blocks.getByLabel('slice', { exact: true }).press('Enter');
+    await blocks.getByLabel('slice level', { exact: true }).fill(String(n));
+    await blocks.getByLabel('slice level', { exact: true }).press('Enter');
   };
   await slice(1);
   const rooms = blocks.getByLabel('rooms panel');
@@ -218,6 +218,7 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   await setNum('interior offset x', String(INTERIOR_OFFSET[0]));
   await expect.poll(async () => (await house())?.interior?.offset, { timeout: 15_000 }).toEqual([...INTERIOR_OFFSET]);
   const interiorScene = (await house())!.interior!.scene;
+  await leaveEditMode(page);
 
   // The interior scene's camera, and the script that goes through the door on a key.
   await cmd('createEntity', { sceneId: interiorScene, parentId: null, kind: 'group', name: 'Interior camera', transform: { position: [...INTERIOR_CAMERA.at], rotation: [0, 1, 0, 0] }, components: { virtualCamera: { rig: 'fixed', priority: 10, blend: 'cut', fovY: INTERIOR_CAMERA.fovY, near: 0.05, far: 60 } } });

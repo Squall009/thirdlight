@@ -45,10 +45,15 @@ function load(projectId: string | null): WorkspaceState {
   }
 }
 
+/** Inputs nothing is typed into: a switch or a colour clicked last keeps the window's keys working (Esc, a tool's letter). */
+const UNTYPED_INPUTS: ReadonlySet<string> = new Set(['checkbox', 'radio', 'color', 'button', 'submit', 'reset', 'file', 'range']);
+
 /** Whether a key goes to a field being typed in (window keys leave it alone). */
 export const isTyping = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
-  return el !== null && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable === true);
+  if (el === null) return false;
+  if (el.tagName === 'INPUT') return !UNTYPED_INPUTS.has((el as HTMLInputElement).type);
+  return el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable === true;
 };
 
 /**

@@ -226,7 +226,7 @@ its regions, its wall paint shows on their faces.
   in it (a door: its own open state decides). Each room storey is a region
   (`ctx.grid.regions/region/inRegion`: the outline's id, `-s1`, `-s2`… up).
   A room's ground floor lies 1 cm over the cells it stands on. The layer's
-  **wall paint** (Paint texture, On: Walls) reaches the rooms' walls and is
+  **wall paint** (the block editor's Paint, Paint on: Walls) reaches the rooms' walls and is
   read onto the generated vertices (paint layer 3 as grime, the wetness as
   wetness), made again with them, so it stays where it was painted; a
   chunk's key carries the paint it reads (a stroke re-makes only those).
@@ -416,7 +416,7 @@ ships none.
   **count** and the **space round it**) and **Light** nodes (one point light
   in each room of the type, **height** over the floor, **colour**,
   **intensity**, **range**; no shadow).
-- **The building inspector** (Rooms tool → a building) — **room program**
+- **The building inspector** (the block editor's Rooms & buildings → a building) — **room program**
   and **furnishing set** pickers, **layout seed** and **New layout** (the
   next seed: rooms and props laid out again), the props list with **Pin** /
   **Unpin**: a pinned prop (`buildings[].pins [{id, model, position, facing,

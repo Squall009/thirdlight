@@ -234,6 +234,96 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
       <path d="M11 11l7 3.2-3 1-1 3z" />
     </>
   ),
+  // The block editor's modes and tools: cells drawn as isometric cubes.
+  'block-build': (
+    <>
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
+      <path d="M4 7.5l8 4.5 8-4.5M12 12v9" />
+    </>
+  ),
+  'block-single': (
+    <>
+      <path d="M12 5l6 3.4v6.8L12 18.6l-6-3.4V8.4z" />
+      <path d="M6 8.4l6 3.4 6-3.4M12 11.8v6.8" />
+    </>
+  ),
+  'block-line': (
+    <>
+      <path d="M3 15l4-2 4 2-4 2zM9 12l4-2 4 2-4 2zM15 9l4-2 4 2-4 2" transform="translate(-1 0)" />
+      <path d="M2 15v2l4 2 4-2v-2M14 9v2l4 2 4-2V9" opacity=".55" transform="translate(-1 0)" />
+    </>
+  ),
+  'block-rect': (
+    <>
+      <path d="M12 6l8 4-8 4-8-4z" />
+      <path d="M4 10v3l8 4 8-4v-3" />
+    </>
+  ),
+  'block-box': (
+    <>
+      <path d="M12 3l8 4-8 4-8-4z" />
+      <path d="M4 7v8l8 4 8-4V7M12 11v8" />
+      <path d="M4 11l8 4 8-4" opacity=".5" />
+    </>
+  ),
+  'block-flood': (
+    <>
+      <path d="M5 10l7-4 7 4-7 4z" />
+      <path d="M5 10v4l7 4 7-4v-4" />
+      <path d="M17 3c0 0 2 2.4 2 3.6a2 2 0 0 1-4 0C15 5.4 17 3 17 3z" />
+    </>
+  ),
+  'block-column': (
+    <>
+      <path d="M8 6l4-2 4 2v12l-4 2-4-2z" />
+      <path d="M8 6l4 2 4-2M12 8v12M8 12l4 2 4-2" opacity=".6" />
+    </>
+  ),
+  'block-pick': (
+    <>
+      <path d="M14 4l6 6M12 6l6 6-8 8H6v-4z" />
+      <path d="M17 3l4 4" />
+    </>
+  ),
+  'block-replace': (
+    <>
+      <path d="M4 7l4-2 4 2-4 2zM4 7v4l4 2 4-2V7" />
+      <path d="M12 15l4-2 4 2-4 2zM12 15v4l4 2 4-2v-4" />
+      <path d="M15 4h3a2 2 0 0 1 2 2v3M9 20H6a2 2 0 0 1-2-2v-3" />
+    </>
+  ),
+  'block-paste': (
+    <>
+      <path d="M8 4h8v3H8zM6 6H5v15h14V6h-1" />
+      <path d="M12 11l4 2-4 2-4-2zM8 13v3l4 2 4-2v-3" />
+    </>
+  ),
+  'block-regions': (
+    <>
+      <path d="M4 7l8-4 8 4-8 4z" strokeDasharray="2 2" />
+      <path d="M4 13l8 4 8-4M4 17l8 4 8-4" />
+    </>
+  ),
+  'block-meta': (
+    <>
+      <path d="M4 9l8-4 8 4-8 4z" />
+      <path d="M4 9v6l8 4 8-4V9" />
+      <path d="M17 2h4v4h-4z" />
+    </>
+  ),
+  'block-rooms': (
+    <>
+      <path d="M3 11l9-7 9 7" />
+      <path d="M5 9.5V20h14V9.5" />
+      <path d="M10 20v-5h4v5" />
+    </>
+  ),
+  'block-slice': (
+    <>
+      <path d="M3 12l9-5 9 5-9 5z" />
+      <path d="M3 16l9 5 9-5" opacity=".5" />
+    </>
+  ),
   info: (
     <>
       <circle cx="12" cy="12" r="9" />

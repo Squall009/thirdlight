@@ -8,7 +8,6 @@
 import { useEffect, type MutableRefObject } from 'react';
 import { Gesture } from '../../session/gesture';
 import { activeDoc, type WorkspaceState } from '../../session/editor-window';
-import type { BlockPanelHandlers } from '../BlocksPanel';
 import type { GizmoMode } from '../../viewport/viewport';
 import type { ViewportRef } from './commands';
 import type { SceneEditing } from './useSceneEditing';
@@ -20,7 +19,6 @@ export interface EditorShortcutsDeps {
   workspaceRef: MutableRefObject<WorkspaceState>;
   /** An edit mode shows over the default view. */
   editModeShownRef: MutableRefObject<boolean>;
-  blockHandlersRef: MutableRefObject<BlockPanelHandlers | null>;
   selectedIdRef: MutableRefObject<string | null>;
   setSelectedId: (id: string | null) => void;
   setGizmoMode: (mode: GizmoMode) => void;
@@ -28,7 +26,7 @@ export interface EditorShortcutsDeps {
 }
 
 export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
-  const { viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode } = deps;
+  const { viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, selectedIdRef, setSelectedId, setGizmoMode } = deps;
   const { undo, redo, del, editRef } = deps.scene;
   // Local snapping is a gesture option: default on, Shift disables it for the
   // gesture in flight (never persisted). Esc cancels the
@@ -51,10 +49,6 @@ export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
       if (!typing && sceneHidden && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
         e.preventDefault();
         void (e.key.toLowerCase() === 'z' && !e.shiftKey ? undo() : redo());
-        return;
-      }
-      if (!typing && !sceneHidden && blockHandlersRef.current?.onKey(e) === true) {
-        e.preventDefault();
         return;
       }
       // The instance brush, armed, takes the shared brush keys ([ ] size, F resize in the view, X paint/erase) before the scene's.

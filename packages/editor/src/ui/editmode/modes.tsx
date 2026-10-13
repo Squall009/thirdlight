@@ -6,7 +6,8 @@
  * decals). A mode registers here, as a document kind registers in
  * `workspace/kinds.tsx`: which objects it edits (an object's mode) or opens
  * on (a scene's), its rail of modes with their hints, the settings column of
- * each, the Scene view's tools its keys reach, and how the view is set up —
+ * each (and the detail column beside it that edits the item picked there),
+ * the Scene view's tools its keys reach, and how the view is set up —
  * the object alone and framed, or the whole scene with only the objects of
  * one component pickable. The shell (`EditModeShell`) — the header, the
  * rail, the lent Scene view, isolation, the status line, the keys, Done and
@@ -19,11 +20,13 @@ import type { ReactNode } from 'react';
 import type { KeyHint } from '../../session/edit-keys';
 import type { EffectiveEntityFlags } from '../../session/hierarchy';
 import type { ProjectedEntity } from '../../session/projection';
+import type { BlockModeHost } from '../blocks/block-host';
 import type { PaletteHost } from '../palette/MaterialLayers';
 import type { DecalAtlas } from '../shell/useDecalAtlas';
 import type { DecalTools } from '../shell/useDecalTools';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
+import { blockMode } from './block-mode';
 import { decalMode } from './decal-mode';
 import { terrainMode } from './terrain-mode';
 import { vertexPaintMode } from './vertex-paint-mode';
@@ -39,6 +42,8 @@ export interface EditModeHost {
   decals: DecalTools;
   /** The decal atlas: the pages Play and the export will use, Rebuild pages, what the Scene view draws from. */
   decalAtlas: DecalAtlas;
+  /** The block editor's wiring: the Scene view's block tools, the block content and its commands. */
+  blocks: BlockModeHost;
   /** The scene's objects (a scene's mode reads the ones it edits). */
   entities: readonly ProjectedEntity[];
   /** The scene new objects go into (the active one; null: none). */
@@ -146,6 +151,17 @@ export interface ObjectEditModeKind extends EditModeBase {
   readonly framesOnEnter?: boolean;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
+  /**
+   * The detail column beside it, editing what is picked in the settings
+   * column (the block editor's block type); null or absent: none in this
+   * mode. On a narrow window it folds into the settings column's end.
+   */
+  detail?(view: EditModeView): ReactNode;
+  /**
+   * Other objects drawn and picked with the edited one (absent: none): what
+   * belongs to it, as the rooms drawn on a block layer do.
+   */
+  companions?(e: ProjectedEntity, entities: readonly ProjectedEntity[]): readonly string[];
   /** What the editor lays over the Scene view in every mode (chips beside the isolation chip, a toast). */
   viewExtra?(view: EditModeView): ReactNode;
   /** Fields the Inspector leaves to the mode, by component (what only the mode edits: a terrain's tiles and rules). */
@@ -158,7 +174,7 @@ export type EditModeKind = ObjectEditModeKind | SceneEditModeKind;
 export const isSceneMode = (k: EditModeKind): k is SceneEditModeKind => k.scope === 'scene';
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
-export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, vertexPaintMode, decalMode];
+export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, blockMode, vertexPaintMode, decalMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 

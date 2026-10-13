@@ -17,11 +17,19 @@
  * never climbs onto the cells it has just painted; where no block is under
  * the pointer the target is the slice plane.
  *
- * The terrain brushes (height, smooth, flatten) aim at the ground itself
- * (the layer's drawn surface under the pointer) and drop `sculpt` dabs along
- * the drag — each previewed on the layer copy as it lands, all of them sent
- * as one `editBlocks` on release. The Paint mode (the `paint`
- * tool) works the same way with `paint` dabs of the paint brush.
+ * The round brushes (height, smooth, flatten, paint, scatter) aim at the
+ * ground itself (the layer's drawn surface under the pointer) and drop dabs
+ * along the drag — each previewed on the layer copy as it lands, all of them
+ * sent as one `editBlocks` on release. Their settings are the shared brush's
+ * (`session/brush.ts`: size across in metres, strength, opacity, falloff,
+ * spacing, invert, the noise mask), turned into cells by `blockDab`; the
+ * keys and in-view drags are the shared ones (`brush-control.ts`) and the
+ * cursor is the one every brush draws. A paint stroke's dabs share one
+ * coverage per surface, so its preview holds the opacity as the command
+ * holding all of them does.
+ *
+ * The slice is drawn as a plane with its outline in the state colour; while
+ * a shape tool is dragged a readout by the pointer says its size.
  *
  * With an edge piece as the brush block (a wall, door, fence) the drawing
  * tools work on cell edges: the target is the edge of the target cell's row
@@ -36,6 +44,7 @@ import * as THREE from 'three';
 import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, UNPAINTED_WALL, applyBlockEdits, cellOfKey, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdge, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
+import type { StrokeCoverage } from '@thirdlight/project-model';
 import {
   DEFAULT_BRUSH,
   beginStroke,
@@ -50,7 +59,6 @@ import {
   nearestCorner,
   nearestEdge,
   clipBox,
-  dabSpacing,
   extendStroke,
   lineCells,
   rectBetween,
@@ -72,14 +80,19 @@ import {
   type StrokeContext,
 } from '../session/block-brush';
 import { overlayColor } from '../session/block-overlay';
+import { BLOCK_DEFAULT_BRUSH, blockDab, blockDabStep, blockToolUses, isBlockBrushTool, type BlockBrushTool } from '../session/block-mode';
+import { brushStrokeExtras, strokeMask, type BrushSettings, type BrushStore } from '../session/brush';
 import { RoomTool, type RoomToolCallbacks } from './room-tool';
-import { BrushCursor } from './brush-cursor';
+import { BrushControl } from './brush-control';
+import { BrushCursor, BrushHud, tokenColour } from './brush-cursor';
 
-/** What the panel sets (the tool, the brush and its options). */
+/** What the block editor's column sets (the tool, the brush and its options). */
 export interface BlockToolOptions {
   tool: BlockToolId;
   brush: BrushState;
-  /** Lower columns / remove from a region (the panel's toggle; Ctrl held inverts it for one stroke). */
+  /** A round brush's shared settings (the column shows them; keys and in-view drags change them); null: not a round brush. */
+  store: BrushStore | null;
+  /** Lower columns / remove from a region (Ctrl held inverts it for one stroke). The round brushes read their store's invert. */
   invert: boolean;
   meta: { field: string; value: import('@thirdlight/project-model').CellMetaValue | null; occupiedOnly: boolean; shape: 'cells' | 'rect' } | null;
   region: string | null;
@@ -131,12 +144,22 @@ export interface BlockEditorHost {
   armed?(on: boolean): void;
 }
 
+/** A point of the layer's drawn surface under the pointer: columns x, z and rows up, and the face's normal there (null: the slice plane). */
+interface SurfacePoint {
+  x: number;
+  z: number;
+  rows: number;
+  normal: THREE.Vector3 | null;
+}
+
 const HOVER_ADD = 0x6ee7a0;
 const HOVER_HIT = 0xffc857;
 const HOVER_ERASE = 0xff6b6b;
 const SELECTION = 0xffe066;
 const REGION = 0x4cc9f0;
 const GHOST = 0x9ad7ff;
+/** The slice plane's opacity: enough to see which row the tools work on, little enough to see the blocks through it. */
+const SLICE_FILL = 0.07;
 
 function edgesBox(color: number): THREE.LineSegments {
   const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
@@ -171,7 +194,7 @@ export class BlockEditor {
   private types = new Map<string, BlockType>();
   private fields: readonly CellField[] = [];
   private stamps = new Map<string, BlockStamp>();
-  private opts: BlockToolOptions = { tool: 'single', brush: DEFAULT_BRUSH, invert: false, meta: null, region: null, stamp: null, paste: null, pasteSize: null };
+  private opts: BlockToolOptions = { tool: 'single', brush: DEFAULT_BRUSH, store: null, invert: false, meta: null, region: null, stamp: null, paste: null, pasteSize: null };
   private slice = 0;
   private shownFields = new Set<string>();
   private showRegions = false;
@@ -179,6 +202,7 @@ export class BlockEditor {
   // Scene objects.
   private gridLines: THREE.LineSegments | null = null;
   private slicePlane: THREE.Mesh | null = null;
+  private sliceOutline: THREE.LineSegments | null = null;
   private readonly hover = edgesBox(HOVER_ADD);
   private readonly ghost: THREE.Mesh;
   private readonly ghostEdges = edgesBox(GHOST);
@@ -194,10 +218,21 @@ export class BlockEditor {
   private previewChunks = new Set<string>();
   private previewMs = 0;
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
-  /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
-  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint' | 'scatter'; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean } | null = null;
+  /**
+   * A round brush's stroke: its dabs (sent on release), the last dab's centre (columns), the flatten height (rows),
+   * the settings it began with (a key mid-stroke changes the next one) and its paint coverages (one per surface).
+   */
+  private sculpt: { tool: BlockBrushTool; dabs: BlockEdit[]; last: [number, number, number]; level: number; invert: boolean; settings: BrushSettings; coverages: Map<string, StrokeCoverage | null> } | null = null;
   /** The round brushes' cursor (the one every brush shares). */
   private readonly cursor: BrushCursor;
+  /** The brush keys, F / Shift+F drags and Ctrl (shared with every Scene-view brush). */
+  private readonly control: BrushControl;
+  private unstore: (() => void) | null = null;
+  /** The surface under the pointer the cursor was last laid on (cells), redrawn when the brush changes. */
+  private lastAt: SurfacePoint | null = null;
+  /** The readout of a shape being dragged (its size, what it places). */
+  private readonly readout: BrushHud;
+  private pointer: { x: number; y: number } | null = null;
   /** An edge stroke in flight: its row, its press and current corner (line, rectangle), the edges it collected (paint, erase) and the last point (cells). */
   private edgeStroke: { tool: BlockToolId; row: number; start: [number, number]; end: [number, number]; edges: Edge4[]; seen: Set<string>; last: [number, number] } | null = null;
   /** Measured stroke timings (tests read them from the canvas). */
@@ -223,6 +258,13 @@ export class BlockEditor {
     this.root.add(this.hover, this.ghost, this.ghostEdges, this.selectionBox);
     // The round brushes' footprint, laid on the tops under the pointer.
     this.cursor = new BrushCursor(this.root, 'block-brush-cursor');
+    this.control = new BrushControl({
+      canvas: host.canvas,
+      surfaceAt: (x, y) => this.metresOf(this.surfaceUnder(x, y)),
+      distance: (a, b) => Math.hypot(a.x - b.x, a.z - b.z),
+      ctrlChanged: () => this.drawRing(this.lastAt),
+    });
+    this.readout = new BrushHud(host.canvas, 'ghost');
     host.scene.add(this.root);
     const rh = this.roomHandlers;
     this.rooms = new RoomTool(
@@ -250,6 +292,11 @@ export class BlockEditor {
     if (this.active === on) return;
     this.active = on;
     if (!on) this.cancel();
+    this.control.arm(on);
+    if (!on) {
+      this.cursor.hide();
+      this.readout.hide();
+    }
     this.syncVisibility();
     this.host.canvas.setAttribute('data-block-tool', on ? this.opts.tool : '');
     this.host.armed?.(on);
@@ -303,6 +350,12 @@ export class BlockEditor {
   setOptions(o: BlockToolOptions): void {
     if (o.tool !== 'room' && this.opts.tool === 'room') this.rooms.cancel();
     if (o.tool === 'room') this.placeBox(this.hover, null);
+    if (o.store !== this.opts.store) {
+      this.unstore?.();
+      // A key, a drag or the column changed the brush: the cursor follows at once.
+      this.unstore = o.store?.subscribe(() => this.drawRing(this.lastAt)) ?? null;
+    }
+    this.control.setStore(o.store, blockToolUses(o.tool));
     this.opts = o;
     // The terrain brushes show their round footprint instead of a cell.
     if (toolDabs(o.tool)) this.placeBox(this.hover, null);
@@ -403,13 +456,15 @@ export class BlockEditor {
   /** A press in the Scene view: begins a stroke when the tools are armed (true: consumed). */
   pointerDown(e: PointerEvent): boolean {
     if (!this.active || e.button !== 0 || e.altKey) return false;
+    // F / Shift+F: a click sets what was dragged.
+    if (this.control.press()) return true;
     const layer = this.layer;
     if (layer === null) {
-      this.cb.onRefused('Select a block layer first (its tools are in the Inspector).');
+      this.cb.onRefused('Open a block layer in the block editor first.');
       return true;
     }
     if (layer.locked && this.opts.tool !== 'eyedropper' && this.opts.tool !== 'select') {
-      this.cb.onRefused('The layer is locked (unlock it in its tools in the Inspector or in the Hierarchy).');
+      this.cb.onRefused('The layer is locked (unlock it in the block editor or the Hierarchy).');
       return true;
     }
     if (layer.hidden) {
@@ -417,22 +472,23 @@ export class BlockEditor {
       return true;
     }
     if (this.opts.tool === 'room') return this.rooms.pointerDown(e);
-    if (toolDabs(this.opts.tool)) {
+    const tool = this.opts.tool;
+    if (isBlockBrushTool(tool)) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
       if (at === null) return true;
-      this.strokeInvert = this.opts.invert !== (e.ctrlKey || e.metaKey);
+      this.strokeInvert = this.control.inverted();
       this.previewMs = 0;
       this.previewChunks.clear();
       this.scratch = null;
-      if (this.opts.tool === 'scatter' && this.opts.brush.scatterRule === '') {
-        this.cb.onRefused('Choose a scatter rule to paint (make one with Scatter…).');
+      if (tool === 'scatter' && this.opts.brush.scatterRule === '') {
+        this.cb.onRefused('Pick a scatter rule to paint with (make one in Rules → Scatter).');
         return true;
       }
-      if (this.opts.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer?.component.wallPaint !== true) {
-        this.cb.onRefused('This layer\'s walls show the paint of the tops above them: turn on Wall paint in its Block layer settings to paint walls.');
+      if (tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer?.component.wallPaint !== true) {
+        this.cb.onRefused("This layer's walls show the paint of the tops above them: turn on \"Walls have their own paint\" (Paint) to paint walls.");
         return true;
       }
-      this.sculpt = { tool: this.opts.tool, dabs: [], last: [at.x, at.z, at.rows], level: at.rows, invert: this.strokeInvert };
+      this.sculpt = { tool, dabs: [], last: [at.x, at.z, at.rows], level: at.rows, invert: this.strokeInvert, settings: this.settings(), coverages: new Map() };
       this.addDab(at.x, at.z, at.rows);
       this.drawRing(at);
       return true;
@@ -464,19 +520,22 @@ export class BlockEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
+    this.pointer = { x: e.clientX, y: e.clientY };
     if (this.opts.tool === 'room') return this.rooms.pointerMove(e);
     if (toolDabs(this.opts.tool) || this.sculpt !== null) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
+      if (this.control.move(e, this.metresOf(at))) return true;
       this.drawRing(at);
       const k = this.sculpt;
       if (k === null || at === null) return k !== null;
-      // Dabs every quarter radius along the drag (a fast drag leaves no gaps).
-      const step = dabSpacing(this.brushRadius());
+      // Dabs at the brush's spacing along the drag (a fast drag leaves no gaps).
+      const cs = this.layer?.component.cellSize ?? [1, 1, 1];
+      const step = blockDabStep(k.settings, cs);
       const dx = at.x - k.last[0];
       const dz = at.z - k.last[1];
       // Up a wall the drag moves in height (rows, in cell widths for the spacing).
       const dy = at.rows - k.last[2];
-      const dyCells = k.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && this.layer !== null ? (dy * this.layer.component.cellSize[1]) / this.layer.component.cellSize[0] : 0;
+      const dyCells = k.tool === 'paint' && this.opts.brush.paintTarget !== 'tops' ? (dy * cs[1]!) / cs[0]! : 0;
       const n = Math.floor(Math.hypot(dx, dz, dyCells) / step);
       for (let i = 1; i <= n; i++) this.addDab(k.last[0] + (dx * i) / n, k.last[1] + (dz * i) / n, k.last[2] + (dy * i) / n);
       if (n > 0) k.last = [at.x, at.z, at.rows];
@@ -506,6 +565,7 @@ export class BlockEditor {
     }
     const s = this.stroke;
     if (s === null) {
+      this.readout.hide();
       // Hover: the target cell outline and the readout.
       const t = this.resolveTarget(e.clientX, e.clientY, null);
       this.target = t;
@@ -522,6 +582,7 @@ export class BlockEditor {
       if (freehand && s.cells.length > before) this.previewFreehand(s.cells.slice(before));
       this.drawStroke();
     }
+    this.showReadout(s);
     return true;
   }
 
@@ -536,19 +597,39 @@ export class BlockEditor {
     const k = this.sculpt;
     if (k !== null) {
       this.sculpt = null;
-      void this.finishSculpt(k.dabs);
+      void this.finishSculpt(k.tool, k.dabs);
       return true;
     }
     const s = this.stroke;
     if (s === null) return false;
     this.stroke = null;
+    this.readout.hide();
     void e;
     void this.finishStroke(s);
     return true;
   }
 
-  /** Esc: drop the stroke in flight (nothing is sent). */
+  /** A brush key (`[` / `]`, F, X, …) the edit mode routed here; true when taken. */
+  key(e: KeyboardEvent): boolean {
+    if (!this.active || !isBlockBrushTool(this.opts.tool)) return false;
+    return this.control.key(e);
+  }
+
+  /** The pointer left the view: the cursor and its readout go (a stroke in flight keeps going). */
+  leave(): void {
+    this.pointer = null;
+    this.readout.hide();
+    if (this.sculpt !== null || !this.control.leave()) return;
+    this.lastAt = null;
+    this.cursor.hide();
+    this.host.canvas.setAttribute('data-block-brush', '');
+    this.host.requestRender();
+  }
+
+  /** Esc: drop the stroke in flight (nothing is sent), or put back what F was dragging. */
   cancel(): boolean {
+    if (this.control.cancel()) return true;
+    this.readout.hide();
     if (this.rooms.cancel()) return true;
     if (this.edgeStroke !== null) {
       this.edgeStroke = null;
@@ -685,7 +766,7 @@ export class BlockEditor {
    * surface (its chunk meshes, so a sloped top is hit where it is), as layer
    * columns and rows; with nothing drawn under it, the slice plane's top.
    */
-  private surfaceUnder(clientX: number, clientY: number): { x: number; z: number; rows: number } | null {
+  private surfaceUnder(clientX: number, clientY: number): SurfacePoint | null {
     const layer = this.layer;
     if (layer === null) return null;
     const ray = this.ray(clientX, clientY);
@@ -693,23 +774,42 @@ export class BlockEditor {
     const cs = layer.component.cellSize;
     const hits = this.raycaster.intersectObjects(this.host.view().layerMeshes(layer.entityId), false);
     let p: THREE.Vector3 | null = hits[0]?.point ?? null;
+    let normal: THREE.Vector3 | null = hits[0]?.face !== undefined && hits[0]?.face !== null ? hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld) : null;
     // A room's wall in front of the blocks: the paint lands on it (its faces read the layer's wall points there).
     const wall = this.roomWallHit(ray, o, cs);
-    if (wall !== null && (p === null || wall.distanceTo(ray.origin) < p.distanceTo(ray.origin))) p = wall;
-    if (p === null) p = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + (this.slice + 1) * cs[1])), new THREE.Vector3());
+    if (wall !== null && (p === null || wall.point.distanceTo(ray.origin) < p.distanceTo(ray.origin))) {
+      p = wall.point;
+      normal = wall.normal;
+    }
+    if (p === null) {
+      p = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -(o.y + (this.slice + 1) * cs[1])), new THREE.Vector3());
+      normal = null;
+    }
     if (p === null) return null;
     const x = (p.x - o.x) / cs[0];
     const z = (p.z - o.z) / cs[2];
     const b = layer.component.bounds;
     if (x < b.min[0] || x > b.max[0] || z < b.min[2] || z > b.max[2]) return null;
-    return { x, z, rows: (p.y - o.y) / cs[1] };
+    return { x, z, rows: (p.y - o.y) / cs[1], normal };
+  }
+
+  /** A surface point in the layer's metres (the brush keys' F drag measures on it). */
+  private metresOf(at: SurfacePoint | null): THREE.Vector3 | null {
+    const cs = this.layer?.component.cellSize;
+    return at === null || cs === undefined ? null : new THREE.Vector3(at.x * cs[0], at.rows * cs[1], at.z * cs[2]);
+  }
+
+  /** The round brush's settings now (its store's; the defaults before a column gave one). */
+  private settings(): BrushSettings {
+    return this.opts.store?.get() ?? BLOCK_DEFAULT_BRUSH;
   }
 
   /** Where the ray first meets a wall of the rooms drawn on the layer (on the cell edge's plane; world), or null. */
-  private roomWallHit(ray: THREE.Ray, o: { x: number; y: number; z: number }, cs: readonly number[]): THREE.Vector3 | null {
+  private roomWallHit(ray: THREE.Ray, o: { x: number; y: number; z: number }, cs: readonly number[]): { point: THREE.Vector3; normal: THREE.Vector3 } | null {
     const walls = this.roomWalls;
     if (walls === null) return null;
     let best = Infinity;
+    let bestAxis = 0;
     const d = ray.direction;
     const r0 = [ray.origin.x - o.x, ray.origin.y - o.y, ray.origin.z - o.z];
     for (const [k, blocks] of walls) {
@@ -728,52 +828,66 @@ export class BlockEditor {
       const span = axis === 0 ? cs[2]! : cs[0]!;
       if (hy < y * cs[1]! || hy > (y + 1) * cs[1]! || ha < lo || ha > lo + span) continue;
       best = t;
+      bestAxis = axis;
     }
-    return best === Infinity ? null : ray.at(best, new THREE.Vector3());
+    if (best === Infinity) return null;
+    // The face looking back at the ray.
+    const n = bestAxis === 0 ? new THREE.Vector3(-Math.sign(d.x) || 1, 0, 0) : new THREE.Vector3(0, 0, -Math.sign(d.z) || 1);
+    return { point: ray.at(best, new THREE.Vector3()), normal: n };
   }
 
-  /** The round brush's radius in cells: the paint brush's for the paint tool, else the terrain brush's. */
-  private brushRadius(): number {
-    return this.opts.tool === 'paint' || this.sculpt?.tool === 'paint' ? this.opts.brush.paint.radius : this.opts.brush.radius;
-  }
-
-  private drawRing(at: { x: number; z: number; rows: number } | null): void {
+  /** The brush's cursor laid where the pointer is (on a wall face when the paint brush paints walls and the pointer is on one). */
+  private drawRing(at: SurfacePoint | null): void {
     const layer = this.layer;
+    this.lastAt = at;
     this.host.canvas.setAttribute('data-block-brush', at === null ? '' : `${at.x.toFixed(3)},${at.z.toFixed(3)},${at.rows.toFixed(3)}`);
-    if (layer === null || at === null) {
+    const tool = this.sculpt?.tool ?? this.opts.tool;
+    if (layer === null || at === null || !isBlockBrushTool(tool)) {
       this.cursor.hide();
     } else {
       const cs = layer.component.cellSize;
-      const paint = this.opts.tool === 'paint' || this.sculpt?.tool === 'paint';
-      const b = this.opts.brush;
-      const invert = this.sculpt?.invert ?? this.opts.invert;
-      this.cursor.setLook({ falloff: paint ? b.paint.falloff : 'smooth', hardness: b.paint.hardness ?? 0.5, strength: paint ? b.paint.strength : Math.min(1, b.strength), mask: null, state: invert ? 'erase' : 'paint' });
-      const r = this.brushRadius();
-      this.cursor.place({ centre: new THREE.Vector3(at.x * cs[0], at.rows * cs[1], at.z * cs[2]), rx: r * cs[0], rz: r * cs[2], fill: this.sculpt === null });
+      const b = this.sculpt?.settings ?? this.settings();
+      const uses = blockToolUses(tool);
+      const invert = this.sculpt?.invert ?? this.control.inverted();
+      this.cursor.setLook({ falloff: uses.includes('falloff') ? b.falloff : 'smooth', hardness: b.hardness, strength: uses.includes('strength') ? Math.min(1, b.strength) : 0, mask: strokeMask(b, uses), state: invert ? 'erase' : 'paint' });
+      const r = blockDab(tool, b, cs).radius;
+      const onWall = tool === 'paint' && this.opts.brush.paintTarget !== 'tops' && at.normal !== null && Math.abs(at.normal.y) < 0.5;
+      this.cursor.place({ centre: new THREE.Vector3(at.x * cs[0], at.rows * cs[1], at.z * cs[2]), rx: r * cs[0], rz: r * cs[2], maskOrigin: [0, 0], fill: this.sculpt === null, ...(onWall ? { normal: at.normal! } : {}) });
+      this.host.canvas.setAttribute('data-block-cursor', JSON.stringify({ radius: Math.round(r * cs[0] * 1000) / 1000, state: this.cursor.state(), mask: strokeMask(b, uses) !== null, wall: onWall }));
     }
     this.host.requestRender();
   }
 
-  /** One dab of the terrain brush in flight: previewed on the layer copy at once, sent with the others on release. */
+  /** One dab of the round brush in flight: previewed on the layer copy at once, sent with the others on release. */
   private addDab(x: number, z: number, rows: number): void {
     const k = this.sculpt;
-    if (k === null || k.dabs.length >= BLOCK_EDIT_MAX_EDITS) return;
+    const layer = this.layer;
+    if (k === null || layer === null || k.dabs.length >= BLOCK_EDIT_MAX_EDITS) return;
     const b = this.opts.brush;
-    // The brush block grows empty ground (raising where nothing stands yet).
-    const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
-    // The paint tool paints the surface under the paint brush (invert: erase).
-    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert, b.paintTarget, rows) : k.tool === 'scatter' ? scatterEdit([x, z], b, k.invert) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
-    k.dabs.push(dab);
-    this.previewEdits([dab]);
+    const s = k.settings;
+    const dab = blockDab(k.tool, s, layer.component.cellSize);
+    let edit: BlockEdit;
+    if (k.tool === 'paint') {
+      // The paint tool paints the surface under the brush (invert: erase), with the stroke's opacity, curve and mask.
+      edit = paintEdit([x, z], { radius: dab.radius, strength: dab.strength, falloff: s.falloff, channel: b.paintChannel }, k.invert, b.paintTarget, rows, brushStrokeExtras(s, blockToolUses('paint')));
+    } else if (k.tool === 'scatter') {
+      edit = scatterEdit([x, z], b.scatterRule, dab.radius, k.invert);
+    } else {
+      // The brush block grows empty ground (raising where nothing stands yet).
+      const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
+      edit = sculptEdit(k.tool, [x, z], dab, k.invert, k.level, cell);
+    }
+    k.dabs.push(edit);
+    this.previewEdits([edit], k.coverages);
   }
 
-  private async finishSculpt(dabs: BlockEdit[]): Promise<void> {
+  private async finishSculpt(tool: BlockBrushTool, dabs: BlockEdit[]): Promise<void> {
     const layer = this.layer;
     if (layer === null || dabs.length === 0) return;
     const previewMs = this.previewMs;
     const t0 = performance.now();
     const ok = await this.cb.onCommit(layer.entityId, dabs);
-    this.lastStroke = { tool: this.opts.tool, cells: dabs.length, previewMs: Math.round(previewMs * 100) / 100, commitMs: Math.round((performance.now() - t0) * 100) / 100 };
+    this.lastStroke = { tool, cells: dabs.length, previewMs: Math.round(previewMs * 100) / 100, commitMs: Math.round((performance.now() - t0) * 100) / 100 };
     this.host.canvas.setAttribute('data-block-stroke', JSON.stringify(this.lastStroke));
     if (!ok) {
       this.restorePreview();
@@ -873,13 +987,16 @@ export class BlockEditor {
     this.previewEdits(edits);
   }
 
-  /** Apply edits to the layer copy and re-mesh the chunks they touched (a stroke's local preview). */
-  private previewEdits(edits: readonly BlockEdit[]): void {
+  /**
+   * Apply edits to the layer copy and re-mesh the chunks they touched (a stroke's local preview). `coverages`: a
+   * paint stroke's, shared by its dabs, so the opacity holds across them as in the command that sends them all.
+   */
+  private previewEdits(edits: readonly BlockEdit[], coverages?: Map<string, StrokeCoverage | null>): void {
     const layer = this.layer;
     if (layer === null || layer.component.metadataOnly === true) return;
     const t0 = performance.now();
     if (this.scratch === null) this.scratch = BlockGrid.from(layer.component, { entityId: layer.entityId, chunks: [...layer.chunks.values()] });
-    const res = applyBlockEdits(this.scratch, edits, { types: this.types, stamps: this.stamps, ...(this.roomWalls !== null ? { walls: this.roomWalls } : {}) });
+    const res = applyBlockEdits(this.scratch, edits, { types: this.types, stamps: this.stamps, ...(this.roomWalls !== null ? { walls: this.roomWalls } : {}), ...(coverages !== undefined ? { coverages } : {}) });
     if (!res.ok) return;
     const dirty = this.scratch.takeDirty().chunks;
     const view = this.host.view();
@@ -1046,6 +1163,11 @@ export class BlockEditor {
       disposeTree(this.slicePlane);
       this.slicePlane = null;
     }
+    if (this.sliceOutline !== null) {
+      this.sliceOutline.removeFromParent();
+      disposeTree(this.sliceOutline);
+      this.sliceOutline = null;
+    }
     const layer = this.layer;
     if (layer === null) return;
     const cs = layer.component.cellSize;
@@ -1068,12 +1190,20 @@ export class BlockEditor {
     this.gridLines.renderOrder = 10;
     this.gridLines.name = 'block-grid';
     this.root.add(this.gridLines);
+    // The slice: a faint plane in the state colour with its outline, so the row the tools work on reads at a glance.
+    const select = tokenColour('--select');
     const plane = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
     plane.rotateX(-Math.PI / 2);
     plane.translate((x0 + x1) / 2, y - 0.001, (z0 + z1) / 2);
-    this.slicePlane = new THREE.Mesh(plane, new THREE.MeshBasicMaterial({ color: 0x3a86ff, transparent: true, opacity: 0.06, depthWrite: false, side: THREE.DoubleSide }));
+    this.slicePlane = new THREE.Mesh(plane, new THREE.MeshBasicMaterial({ color: select, transparent: true, opacity: SLICE_FILL, depthWrite: false, side: THREE.DoubleSide }));
     this.slicePlane.renderOrder = 9;
+    this.slicePlane.name = 'block-slice';
     this.root.add(this.slicePlane);
+    const outline = new THREE.BufferGeometry();
+    outline.setAttribute('position', new THREE.Float32BufferAttribute([x0, y, z0, x1, y, z0, x1, y, z0, x1, y, z1, x1, y, z1, x0, y, z1, x0, y, z1, x0, y, z0], 3));
+    this.sliceOutline = new THREE.LineSegments(outline, new THREE.LineBasicMaterial({ color: select, transparent: true, opacity: 0.9, depthTest: false }));
+    this.sliceOutline.renderOrder = 11;
+    this.root.add(this.sliceOutline);
     this.host.canvas.setAttribute('data-block-slice', String(this.slice));
   }
 
@@ -1169,7 +1299,26 @@ export class BlockEditor {
     this.host.canvas.setAttribute('data-block-overlay', String(total));
   }
 
+  /** The readout of a shape stroke by the pointer: its size in metres, the cells it covers, what it places. */
+  private showReadout(s: Stroke): void {
+    const layer = this.layer;
+    if (layer === null || this.pointer === null || !(toolRect(s.tool, this.opts.meta?.shape) || s.tool === 'line')) return;
+    const cs = layer.component.cellSize;
+    const box = clipBox(s.tool === 'select' ? boxBetween(s.start, s.end) : s.tool === 'line' ? boxBetween(s.start, s.end) : rectBetween(s.start, s.end, s.tool === 'box' ? this.opts.brush.height : 1), layer.component.bounds);
+    if (box === null) return this.readout.hide();
+    const w = (box[3] - box[0]) * cs[0];
+    const d = (box[5] - box[2]) * cs[2];
+    const n = s.tool === 'line' ? lineCells(s.start, s.end).length : (box[3] - box[0]) * (box[4] - box[1]) * (box[5] - box[2]);
+    const t = this.opts.brush.block !== null ? this.types.get(this.opts.brush.block) : undefined;
+    const what = s.tool === 'select' ? `${n} cells selected` : s.tool === 'region' ? `${n} cells · region ${this.opts.region ?? '(none)'}` : s.tool === 'meta' ? `${n} cells · ${this.opts.meta?.field ?? ''}` : `${n} ${t?.name ?? 'cells'}`;
+    const fmt = (m: number): string => (Number.isInteger(m) ? String(m) : m.toFixed(2));
+    this.readout.show(this.pointer, `${fmt(w)} × ${fmt(d)} m`, `${what} · release to ${s.tool === 'select' ? 'select' : 'place'} · Esc cancels`);
+  }
+
   dispose(): void {
+    this.unstore?.();
+    this.control.dispose();
+    this.readout.dispose();
     this.root.removeFromParent();
     disposeTree(this.root);
   }

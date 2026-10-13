@@ -6,7 +6,9 @@
  * input): the header (what is edited, Context, undo, Done), the rail of the
  * editor's modes on the left, the live Scene view in the middle — its own
  * canvas, lent with input, never a second renderer — the mode's settings
- * column on the right and the status line with its hints and keys.
+ * column on the right (with its detail column beside it, folded into the
+ * settings column on a narrow window) and the status line with its hints
+ * and keys.
  *
  * While it shows, the view draws only the edited object (Context: the rest
  * too, not pickable) — a scene's mode draws the whole scene with only its
@@ -18,7 +20,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type JSX, type RefObject } from 'react';
 
 import { editKeyAction, sharedKeyHints } from '../../session/edit-keys';
 import type { Viewport } from '../../viewport/viewport';
@@ -51,6 +53,21 @@ export interface EditModeShellProps {
 /** Points a side the view is sampled at to tell whether an object is on screen (a mode that frames on entering keeps a view that shows it). */
 const ON_SCREEN_GRID = 5;
 
+/** Narrower than this, a detail column folds into the settings column (the view keeps room to work in). */
+const DETAIL_COLUMN_MIN_WIDTH = '(min-width: 1440px)';
+
+/** Whether the window is wide enough for a detail column beside the settings column. */
+function useWideWindow(): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      const q = window.matchMedia(DETAIL_COLUMN_MIN_WIDTH);
+      q.addEventListener('change', l);
+      return () => q.removeEventListener('change', l);
+    },
+    () => window.matchMedia(DETAIL_COLUMN_MIN_WIDTH).matches,
+  );
+}
+
 /** The shell while a mode shows (rendered only then). */
 export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const { state, entity, kind } = p.mode;
@@ -58,6 +75,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const latest = useRef(p);
   latest.current = p;
   const [status, setStatus] = useState<EditStatus | null>(null);
+  const wide = useWideWindow();
 
   // The Scene view's canvas, lent with input while the shell shows.
   useEffect(() => {
@@ -72,15 +90,17 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     };
   }, []);
 
-  // Only the edited object drawn (the rest too with Context), and only it hit; a scene's mode: the whole scene drawn, only its component's objects hit.
+  // Only the edited object drawn (and what belongs to it; the rest too with Context), and only those hit; a scene's
+  // mode: the whole scene drawn, only its component's objects hit.
   const entityId = state?.entityId ?? null;
   const context = state?.context ?? false;
   const component = kind !== undefined && isSceneMode(kind) ? kind.component : null;
+  const companions = kind !== undefined && !isSceneMode(kind) && entity !== undefined ? (kind.companions?.(entity, p.host.entities) ?? []).join('\u0000') : '';
   useEffect(() => {
     if (entityId === null) return undefined;
-    p.viewportRef.current?.setIsolation(component !== null ? { ids: [], context: true, component } : { ids: [entityId], context });
+    p.viewportRef.current?.setIsolation(component !== null ? { ids: [], context: true, component } : { ids: [entityId, ...(companions === '' ? [] : companions.split('\u0000'))], context });
     return () => p.viewportRef.current?.setIsolation(null);
-  }, [entityId, context, component, p.viewportRef]);
+  }, [entityId, context, component, companions, p.viewportRef]);
 
   /** Whether the object shows in the view now (a few points over its middle find it). */
   const onScreen = (id: string): boolean => {
@@ -145,6 +165,8 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const icon = scene ? null : objectIconFor(entity!, p.icons);
   const name = scene ? (p.host.scene?.name ?? 'Scene') : entity!.name;
   const meta = scene ? kind.meta?.(sceneView) : kind.meta?.(entity!);
+  const objectView = scene ? null : { entity: entity!, mode: rail.id, host: p.host };
+  const detail = objectView === null || isSceneMode(kind) ? null : (kind.detail?.(objectView) ?? null);
   return (
     <section className="tl-editmode" aria-label="edit mode" data-edit-mode={kind.kind} data-entity-id={scene ? '' : entity!.id}>
       <EditModeHeader
@@ -182,9 +204,17 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
             {status !== null && status.tool !== rail.label && <span className="tl-editmode__tool">{status.tool}</span>}
           </div>
           <div className="tl-editmode__column-body" key={scene ? kind.kind : entity!.id}>
-            <EditStatusContext.Provider value={setStatus}>{scene ? kind.column(sceneView) : kind.column({ entity: entity!, mode: rail.id, host: p.host })}</EditStatusContext.Provider>
+            <EditStatusContext.Provider value={setStatus}>
+              {scene ? kind.column(sceneView) : kind.column(objectView!)}
+              {detail !== null && !wide && <div className="tl-editmode__folded">{detail}</div>}
+            </EditStatusContext.Provider>
           </div>
         </aside>
+        {detail !== null && wide && (
+          <aside className="tl-editmode__detail" aria-label="edit mode detail" key={entity!.id}>
+            {detail}
+          </aside>
+        )}
       </div>
       <StatusHints tool={status?.tool ?? rail.label} text={status?.text ?? rail.hint} keys={[...(status?.keys ?? []), ...(rail.keys ?? []), ...sharedKeyHints(kind.rail.length).filter((h) => !scene || (h.label !== 'Context' && h.label !== 'Frame'))]} {...(status?.right !== undefined ? { right: status.right } : {})} />
     </section>

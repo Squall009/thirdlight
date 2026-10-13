@@ -202,7 +202,9 @@ export function Popover(p: { anchor: HTMLElement; onClose: () => void; title: Re
   useLayoutEffect(() => {
     const put = (): void => {
       const a = p.anchor.getBoundingClientRect();
-      const column = p.anchor.closest('.tl-editmode__column, .tl-dock, aside')?.getBoundingClientRect() ?? a;
+      // From the detail column it opens left of the settings column too: into the view, never over the column beside it.
+      const inDetail = p.anchor.closest('.tl-editmode__detail') !== null;
+      const column = (inDetail ? p.anchor.closest('.tl-editmode')?.querySelector('.tl-editmode__column') : p.anchor.closest('.tl-editmode__column, .tl-dock, aside'))?.getBoundingClientRect() ?? a;
       const h = Math.min(box.current?.offsetHeight ?? 200, window.innerHeight - 16);
       const top = Math.max(8, Math.min(window.innerHeight - h - 8, a.top + a.height / 2 - 28));
       setPlace((was) => (was !== null && was.top === top && was.right === window.innerWidth - column.left + 10 ? was : { right: window.innerWidth - column.left + 10, top, arrow: a.top + a.height / 2 - top }));

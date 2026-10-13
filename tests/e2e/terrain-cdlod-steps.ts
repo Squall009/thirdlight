@@ -16,7 +16,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
-import { closeEditor, editMode, editModeTab, editorPane, enterEditMode, leaveEditMode, menu, openEditor, openWindow } from './ui';
+import { closeEditor, editMode, editModeTab, editorPane, enterBlockEditor, enterEditMode, leaveEditMode, menu, openEditor } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 import { count, frameShareNear, meanDiff, projectWith, share, type CameraView, type V3 } from './frame-reading';
 
@@ -1549,13 +1549,10 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   await rules.getByRole('listitem', { name: 'rule 1' }).locator('.tl-rule__head').click();
   await expect(rules.getByRole('listitem', { name: 'rule 1' }).locator('.tl-rule__sum')).toHaveText(`Slope above ${STEEP_RULE.slope.min}°`);
 
-  // The block layer's Rules: the same cards, the same slope rule (its layers 1-4 picked by number).
-  await clickRow(page, blocks);
-  await openWindow(page, 'Blocks');
-  const panel = page.getByLabel('blocks panel');
-  await expect(panel.getByLabel('block layer')).toHaveValue(blocks);
-  await panel.getByRole('button', { name: /^Rules/ }).click();
-  const blockRules = panel.getByRole('group', { name: 'material rules' });
+  // The block editor's Rules: the same cards, the same slope rule (its layers 1-4 picked by number).
+  await enterBlockEditor(page, blocks);
+  await editModeTab(page, 'Rules');
+  const blockRules = editMode(page).getByRole('group', { name: 'material rules' });
   await blockRules.getByRole('button', { name: 'add rule' }).click();
   await blockRules.getByRole('radiogroup', { name: 'rule 1 layer' }).getByRole('radio', { name: String(STEEP_RULE.layer + 1), exact: true }).click();
   await fill(blockRules, 'rule 1 slope', `>${STEEP_RULE.slope.min}`);
@@ -1563,6 +1560,7 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   await blockRules.getByRole('button', { name: 'apply rules' }).click();
   const blockRulesStored = async (): Promise<unknown> => (((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: { blockLayer?: { rules?: unknown } } }[] }).entities.find((e) => e.id === blocks)?.components.blockLayer?.rules ?? null);
   await expect.poll(blockRulesStored, { timeout: 30_000 }).toEqual([STEEP_RULE]);
+  await leaveEditMode(page);
 
   // Layer 5 (index 4) gets settings of its own in the material's layer table.
   await openEditor(page, 'Material', 'Terrain layers');
@@ -1722,13 +1720,10 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'undone: the posts are back' }).toBe(near(posts));
   await pickTool(page, 'Raise');
 
-  // The terrace's Scatter: posts on its flat tops (rows 2), none over its sloped cell (0, 1, 0).
-  await clickRow(page, terrace);
-  await openWindow(page, 'Blocks');
-  const panel = page.getByLabel('blocks panel');
-  await expect(panel.getByLabel('block layer')).toHaveValue(terrace);
-  await panel.getByRole('button', { name: /^Scatter.*…$/ }).click();
-  const blockRules = panel.getByRole('group', { name: 'scatter rules' });
+  // The terrace's Scatter rules in the block editor: posts on its flat tops (rows 2), none over its sloped cell (0, 1, 0).
+  await enterBlockEditor(page, terrace);
+  await editModeTab(page, 'Rules');
+  const blockRules = editMode(page).getByRole('group', { name: 'scatter rules' });
   await blockRules.getByRole('button', { name: 'add scatter rule' }).click();
   const blockText = async (label: string, value: number | string): Promise<void> => {
     const f = blockRules.getByRole('textbox', { name: label, exact: true });

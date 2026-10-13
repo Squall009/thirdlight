@@ -284,8 +284,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`smoothed block-layer tops
   await expectRendererBackend(view, variant);
   await expect.poll(async () => JSON.parse((await view.getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(2);
 
-  // Frame the ground: the block tools publish the view's projection; zoom out until the ground's row is in view.
-  await openWindow(page, 'Blocks');
+  // Frame the ground with the view's published projection: zoom out until the ground's row is in view.
   const host = view;
   await expect(host).toHaveAttribute('data-view-proj', /\[/);
   const box = (await view.boundingBox())!;

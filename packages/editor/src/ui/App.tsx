@@ -65,6 +65,7 @@ import { useDocumentCommands } from './workspace/useDocumentCommands';
 import { workspaceHostOf } from './workspace/workspace-host';
 import { useEditorProblems } from './shell/useEditorProblems';
 import { useBlockLayers } from './shell/useBlockLayers';
+import { publishBakeTexture } from '../viewport/bake-run';
 import { useTerrainTools } from './shell/useTerrainTools';
 import { useSceneEditing } from './shell/useSceneEditing';
 import { useEditorShortcuts } from './shell/useEditorShortcuts';
@@ -244,10 +245,11 @@ function EditorApp(): JSX.Element {
   const [snapping, setSnapping] = useState(true);
   // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
-  const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
-  const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
   /** Opens an object's edit mode (set once the edit mode's hook below is made; false: the object has none). */
   const enterEditModeRef = useRef<(entityId: string, kind?: string, activated?: boolean) => boolean>(() => false);
+  // A new block layer opens in the block editor (one undo takes it away and closes the editor).
+  const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, created: (id) => void (enterEditModeRef.current(id, 'blocks') || setSelectedId(id)) });
+  const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
   /** An edit mode shows (the default view's shortcuts stand aside). */
   const editModeShownRef = useRef(false);
   const terrainTools = useTerrainTools({ clientRef, viewportRef, reportFailure, setNotice, created: (id) => void (enterEditModeRef.current(id, 'terrain') || setSelectedId(id)) });
@@ -673,7 +675,7 @@ function EditorApp(): JSX.Element {
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
   const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
-  useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, blockHandlersRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
+  useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
   // An object's full-screen editor on the Scene view (terrain): set aside while the Scene view is not in front.
   const editMode = useEditMode({ entities, selection, setSelection, workspaceDispatch, closeSettings, sceneInFront: centerTab === 'scene' && !windowOpen && !settingsWindow.open });
   enterEditModeRef.current = editMode.enter;
@@ -1064,6 +1066,39 @@ function EditorApp(): JSX.Element {
     paint: vertexPaint,
     decals: decalTools,
     decalAtlas,
+    blocks: {
+      editor: blocks.blockEditor,
+      rows: blocks.blockRows,
+      types: blocks.blockTypes,
+      fields: blocks.cellFields,
+      stamps: blocks.blockStamps,
+      kits: content.kits,
+      graphs: content.graphs,
+      prefabs: prefabSummaries,
+      setLayer: blocks.setEditedLayer,
+      run: blocks.blockRun,
+      edit: blocks.blockEdit,
+      changeLayer: blocks.changeLayer,
+      setFlag: (id, flag, value) => void sceneEditing.setFlag(id, flag, value),
+      notice: setNotice,
+      handlers: blockHandlersRef,
+      importModel: async (file) => {
+        const c = clientRef.current;
+        if (c === null) return null;
+        if (!/\.glb$/i.test(file.name)) {
+          setNotice(`${file.name}: a block look is a GLB file (export glTF binary from the modelling tool).`);
+          return null;
+        }
+        const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+        if (typeof id === 'string') return id;
+        setNotice(id.message);
+        return null;
+      },
+      openKit: (kitId) => openDocument('kit', kitId),
+      clientRef,
+      viewportRef,
+      reportFailure,
+    },
     entities,
     scene: activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name },
     flags: (id) => hierarchyFlags.get(id),

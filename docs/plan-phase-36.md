@@ -159,6 +159,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.3 | Done 2026-10-13: `content.kits` (a resource kind, `<name>.kit.json`; editor-only: never loadable, not shipped), `setKit`/`deleteKit` (MCP, docs, reference), references as backend Problems (`kitProblems`), `kitId` on block layers and architecture (Inspector **Kit** picker), Create → Kit + kind icon (`kinds/kit.webp` 96², 3.1 KiB) + read-only kit summary in the Inspector; block-type/layer `kits` shown as **Themes** in UI and manual. vitest +8 (kits, commands, undo/redo); e2e: one Create row in `project-items` (no new file). |
 | 36.4 | Done 2026-10-13: `packs/basic-kit/` (engine content pack, built by `tools/build-basic-kit.mts`): sheet from the Texture Designer (`thirdlight/basic_kit_trim@4`, spec rows), material `basic-trim`, 6 presets (`basic-room`… baseboard 0.15625 m), 7 block types, door + window pieces, kit `basic-kit`; added by project window **Create → Basic Kit (ready-made)** / `POST …/packs/basic-kit` (ordinary commands). Download 2.62 MiB (target ≤ 4 MB). vitest +5 (`packs.test.ts`); e2e: a Basic Kit step in `block-world-uv` (auto variant 8.9 s in the fast gate, was 6.4 s; the per-renderer variants run in the full gate). Fast gate green (vitest 706 files, e2e 31, perf in limits). Asset numbers below. Owner look pending (screenshots `~/.cache/thirdlight-phase36/basic-kit/`). |
 | 36.5 | Done 2026-10-13: **Kit: <name>** editor-window tab (`ui/kit/`): slots with pictures and states (drop a GLB file or a model/piece; custom slots; weighted variants, piece of file, Replace via an in-editor model browser), trim sheet picker, picture (made from the sheet unless one is picked), notes, presets/block types with Open; the slot in the Inspector (variants, piece checks with a map-to-sheet fix, placement); the piece in a sample wall / room / alone in the preview pane (dashed cell box, red draw box, origin axes); the trim checker (row bounds and gutters over the sheet, rows table, spec checklist) and the spec page. One check module `project-model/kit-checks` (pieces from the GLB, sheet table + pixels) behind `GET …/kits/:id/check`, the kit Problems and `packs.test`. Basic Kit add = one undo/redo (history groups), MCP `tl_content_upload {addPack}`; "skyforge" gone from the pack. vitest +11; e2e: a kit step in `editor-window` (drop a corner-pivot door: origin fails; a centred one: passes) — that test 5.8 → 6.1 s in the fast gate (D253); `block-world-uv` closes the window the Basic Kit now opens (8.9 → 9.0 s). Fast gate green (vitest 708 files, e2e 36, perf in limits). Screenshots `~/.cache/thirdlight-phase36/kit-editor/` (owner look pending). |
+| 36.6a | Done 2026-10-13 (first half of 36.6; 36.6b: Rooms & buildings with the kit's pieces, RoomsPanel/ArchitecturePanels out of the Inspector): the **block editor** (`EDIT_MODES` `blocks`, `ui/blocks/`): rail Build · Shape · Paint · Regions · Rooms & buildings (interim: the Rooms tool and RoomsPanel) · Rules; palette of the layer's kit's types then its other types (model thumbnails, SVG stand-ins), New type / drop a model, 1–9; a **block type editor** detail column (looks with model browser, kit pieces, prefab, weights; collision boxes as numbers; turns, placement, connections, themes, metadata, material); the round brushes on the shared kit (one cursor, keys, opacity via shared coverages, noise mask), the slice plane + outline + chip, a shape readout; enter by double-click, Edit blocks, GameObject → Block layer (one command, one undo). `BlocksPanel` (913 lines) deleted. vitest +7 (`block-mode.test.ts`). E2E (fast gate, 2 workers): block-editor 13.3 → 7.7 s, block-layers 27.5 → 19.8 s (its two export renderers side by side): **27.5 s ≤ 28 ✓**; block files with blocks 10.2 and block-world-uv 9.7 (+ its WebGL 2 variant in the full gate) ≈ 57 s vs ≤ 52 (36.9: the template's steps and a trim of blocks/block-world-uv). Ported: block-world-uv, terrain-brushes, terrain-paint, window-tools, rooms-drawing/buildings/floor-plans, terrain-cdlod's block rules. Fast gate green (vitest 709 files, e2e 44; painted-terrain failed once, passed on rerun; village p50 5.5 / 4.6 ms within limits). Screenshots `~/.cache/thirdlight-phase36/block-editor/366a-*.png` against 06 (owner look pending). |
 
 **Basic Kit asset numbers** (36.4):
 
@@ -448,3 +449,73 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   - One **CheckRow** for every check (kit, trim checker, the decal atlas's
     page warning, stale vertex paint).
 
+
+- 2026-10-13 (36.6a) — The block editor, first half (36.6b: Rooms &
+  buildings with the kit's piece picker, segment overrides, preset sliders,
+  and `RoomsPanel` / `ArchitecturePanels` leaving the Inspector). Defaults
+  chosen, owner to confirm:
+  - **The rail: Build, Shape, Paint, Regions, Rooms & buildings, Rules.**
+    The plan's five groups plus **Rules** (material rules, scatter rules and
+    the scatter brush: the old panel's Rules… and Scatter… had to go
+    somewhere, and the terrain editor has them as modes too). Rooms &
+    buildings is wired to the existing Rooms tool and `RoomsPanel` as the
+    interim (no new UI there yet). The mockup's **Kit** rail item is not
+    built: the kit is the palette's picker, and the kit editor (an editor
+    window) edits it.
+  - **Build's tools and keys:** Single Q, Line L, Rect R, Box B, Flood G,
+    **Column U** (C is Context), Erase X (X switches to Erase and back, as
+    Paint's X does), Pick I, Replace H, Stamp K, Paste V, and **Select S**
+    (added: the selection is what Copy, Move, Mirror, Turn, Delete and
+    Save as stamp work on). **T turns** the brush (the mockup's key; Q is
+    Single). Shape: Raise Q, Lower W, Smooth E, Flatten R (the terrain
+    editor's letters). Regions: Region R, Metadata M. The old panel's
+    "None" palette entry (flood erases) is gone: Erase empties cells.
+  - **The round brushes are the shared kit** (one store per tool,
+    `brushStore('blocks', tool)`): size across in metres (radius = half of
+    it in cells across x), a height dab moves the ground by **height step ×
+    strength** (rows), spacing a share of the size; paint sends opacity,
+    curve hardness and the noise mask (`brushStrokeExtras`), and a stroke's
+    preview shares one coverage map across its dabs
+    (`BlockEditContext.coverages`), so the preview holds the opacity as the
+    command does (vitest). The one cursor, laid on a wall's face when Paint
+    paints walls; the shared keys ([ ], F, Shift+F, X, Ctrl).
+  - **Paint's palette** is the material the block types wear (the picked
+    type's "*" material, else the first palette type's): a layered surface
+    shows Base, 2, 3, 4 by name and picture and Wet (`blockPaintChannels`,
+    from `layerWeights`). A material that reads no paint gets the banner and
+    **Make it paintable**, but **the tools stay usable**: block paint is
+    stored data that rules read and that the walls of rooms on the layer
+    wear through their own material (the rooms e2e paints grime that way).
+    Make it paintable is a `setMaterial` and one `setBlockType` per type
+    that wore the old material (several undo steps: the editor has no
+    multi-command group; the Basic Kit's grouping is the backend's).
+  - **The palette** is the layer's kit's block types, then the other types
+    its cells hold (marked "not in the kit"), "New type" last (a click: a
+    stand-in; a model tile or GLB dropped on it: a type wearing it, added to
+    the kit so it stays in the palette); a toggle shows every type. Tiles
+    are the backend's model thumbnails, or the stand-in drawn as an SVG
+    isometric block of its shape in its colour or its material's colour
+    texture (no second renderer).
+  - **The block type editor is a detail column** (300 px, beside the
+    settings column in Build and Shape; folded into the column's end below
+    1440 px, a shell slot every mode can use). Looks (model browser, kit
+    pieces, a GLB or model dropped, colour, weight, UVs), collision with
+    custom boxes as numbers, fills-the-cell, footprint, turns, placement
+    (edge, blocking, live), connections (with, each piece's look and
+    turn), themes, metadata defaults and material — each one `setBlockType`.
+    A prefab look is added from the project's prefabs.
+  - **The layer's own settings** (kit, themes, cut-aways, wall paint, rules)
+    are built on the component as it is when the command is sent (the
+    client's lazy command arguments): two quick changes both stick, which
+    the old panel's stale copy lost.
+  - **What the view shows:** the layer and the rooms drawn on it (a mode's
+    new `companions`), the slice as a faint plane with an outline in the
+    state colour and a chip (PageUp / PageDown), a readout by the pointer
+    while a shape is dragged ("3 × 3 m · 9 Stone · release to place"). The
+    mockup's "levels above the slice faded" is not built (it needs a
+    per-row fade in the chunk renderer).
+  - **Found and fixed:** a switch or colour field clicked last swallowed
+    the edit modes' window keys (Esc, tool letters): `isTyping` counted every
+    input as typing. The Scene view now publishes its view-projection when it
+    changes, not only while a block or terrain tool is armed (tests map
+    points with it outside the editors).
