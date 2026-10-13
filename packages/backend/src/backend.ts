@@ -1380,7 +1380,10 @@ export function createBackend(
           sendJson(res, 200, { ok: true, packs: config.engineRoot === undefined ? [] : listPacks(config.engineRoot) });
           return;
         }
-        // POST /api/v1/projects/:projectId/history/group {requestIds} — commands one user action ran made one undo step
+        // POST /api/v1/projects/:projectId/history/group {requestIds, origin} — commands one user action ran made one
+        // undo step. Only the caller's own: every entry must carry the origin the caller sends (as it sent it on those
+        // commands), so a client cannot fold an agent's or another tab's commands into its step. Not a mutation (no
+        // revision, no change event): it only changes how far one undo goes.
         if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'history' && parts[5] === 'group') {
           if (method !== 'POST') {
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
@@ -1403,8 +1406,16 @@ export function createBackend(
             sendError(res, sessionError('invalid_request', 'validation', 'requestIds is a list of at least 2 request ids', { path: '/requestIds' }));
             return;
           }
-          // Refused (409) when they are not the last entries applied: someone else's command ran between them.
-          if (service.groupRequests(projectId, ids as string[])) sendJson(res, 200, { ok: true, grouped: ids.length });
+          const origin = strict.ok ? (strict.value as { origin?: { kind?: unknown; clientId?: unknown } } | null)?.origin : undefined;
+          if (origin === undefined || origin === null || typeof origin !== 'object' || !['browser', 'mcp', 'admin'].includes(origin.kind as string) || typeof origin.clientId !== 'string' || origin.clientId.length === 0 || origin.clientId.length > 128) {
+            sendError(res, sessionError('invalid_request', 'validation', 'origin is the {kind, clientId} the commands were sent with', { path: '/origin' }));
+            return;
+          }
+          // Refused (409) when they are not the last entries applied (someone else's command ran between them), or
+          // (403) when one of them is not the caller's.
+          const grouped = service.groupRequests(projectId, ids as string[], { kind: origin.kind as 'browser' | 'mcp' | 'admin', clientId: origin.clientId });
+          if (grouped === 'grouped') sendJson(res, 200, { ok: true, grouped: ids.length });
+          else if (grouped === 'not_own') sendJson(res, 403, { ok: false, error: { code: 'not_own_commands', cls: 'validation', message: 'only the commands the caller sent can be grouped' } });
           else sendJson(res, 409, { ok: false, error: { code: 'not_grouped', cls: 'conflict', message: 'the commands are not the last entries of the history' } });
           return;
         }

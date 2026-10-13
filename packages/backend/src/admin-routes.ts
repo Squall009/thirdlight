@@ -1,5 +1,5 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules, type TemplateSource } from './templates';
@@ -7,7 +7,7 @@ import { loadPackDir, type PackInstaller } from './packs';
 import { engineIdentity } from './engine';
 import { installSkill } from './skill-install.mjs';
 import { parseAdminNoArgsBody, parseAdminCreateProjectRequest, parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
-import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
+import { DEFAULT_PROJECT_SUBDIR, MARKER_FILE, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
 import { nodeGzip } from './gzip-port';
@@ -32,6 +32,9 @@ export interface AdminRoutesContext {
   readonly packs?: PackInstaller;
 }
 
+/** A game folder's entries before a project was made in it ('absent': there was no folder; 'unknown': it could not be read). */
+type FolderBefore = ReadonlySet<string> | 'absent' | 'unknown';
+
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
   const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs } = ctx;
 
@@ -39,7 +42,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
    * A project just made from a template gets the template's packs, then its
    * setup's commands (ordinary commands, as the editor sends), and starts
    * with no undo history: the template is where it begins, not a step to
-   * undo. Null, or why it stopped (what ran before stays).
+   * undo. Null, or why it stopped (the caller takes the project back).
    */
   const setUpFromTemplate = (projectId: string, templateId: string, source: TemplateSource): string | null => {
     if (source.packs.length === 0 && source.setupDir === undefined) return null;
@@ -57,6 +60,52 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     }
     service.forgetHistory(projectId);
     return null;
+  };
+
+  /**
+   * Take back a project whose template setup stopped, so a retry with the
+   * same id starts clean: an in-tree project's folder is deleted (all of it
+   * was made just now). A folder project is unregistered and loses what
+   * creation made — its marker, its `thirdlight/` folder and the entries
+   * that were not in the game folder before — never what the user had there
+   * (files written into a folder the user already had stay). Null, or why
+   * it could not be taken back.
+   */
+  const takeBack = async (projectId: string, folder: FolderBefore | null): Promise<string | null> => {
+    // Commands answer before their files are written: those writes land first, then nothing of the project is left to land.
+    await service.flushed();
+    if (folder === null) {
+      const released = service.releaseWorkspace(projectId);
+      if (!released.ok) return released.error.message ?? released.error.code;
+      try {
+        rmSync(join(config.dataRoot, 'projects', projectId), { recursive: true, force: true });
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+      return null;
+    }
+    const gone = service.unregisterProject(projectId);
+    if (!gone.ok) return gone.error.message ?? gone.error.code;
+    try {
+      if (folder === 'absent') rmSync(gone.folder, { recursive: true, force: true });
+      else {
+        for (const name of [MARKER_FILE, DEFAULT_PROJECT_SUBDIR]) rmSync(join(gone.folder, name), { recursive: true, force: true });
+        if (folder !== 'unknown') for (const name of readdirSync(gone.folder)) if (!folder.has(name)) rmSync(join(gone.folder, name), { recursive: true, force: true });
+      }
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+    return null;
+  };
+
+  /** The answer to a template setup that stopped: the project is taken back (or, failing that, said to be left). */
+  const setupFailed = async (res: ServerResponse, projectId: string, failed: string, folder: FolderBefore | null): Promise<void> => {
+    const stuck = await takeBack(projectId, folder);
+    const message =
+      stuck === null
+        ? `the template's setup stopped at ${failed}; the project was not made (try again once that is fixed)`
+        : `the template's setup stopped at ${failed}, and the half-made project could not be taken back (${stuck}): delete project "${projectId}" before trying again`;
+    sendError(res, sessionError('invalid_request', 'internal', message), 500);
   };
 
   /** Install the skill into a new folder project; a failure leaves the project created and says why. */
@@ -115,10 +164,17 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     if (folder !== undefined) {
       // In the game's own folder: marker + thirdlight/ subfolder, registered, pinned to this engine.
       const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
+      // What the folder held before, so taking a failed setup back removes only what creation made.
+      let before: FolderBefore;
+      try {
+        before = existsSync(folder) ? new Set(readdirSync(folder)) : 'absent';
+      } catch {
+        before = 'unknown';
+      }
       result = service.createProjectInFolder(folder, projectId, name, { ...(engine !== null ? { engine } : {}), ...(source !== undefined ? { source } : {}) });
       const failed = setUp();
       if (failed !== null) {
-        sendError(res, sessionError('invalid_request', 'internal', `the project was made, but its template's setup stopped: ${failed}`), 500);
+        await setupFailed(res, projectId, failed, before);
         return;
       }
       if (result.ok && config.engineRoot !== undefined) {
@@ -130,7 +186,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       result = service.createProjectFrom(projectId, name, source);
       const failed = setUp();
       if (failed !== null) {
-        sendError(res, sessionError('invalid_request', 'internal', `the project was made, but its template's setup stopped: ${failed}`), 500);
+        await setupFailed(res, projectId, failed, null);
         return;
       }
     } else {

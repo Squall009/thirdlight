@@ -2,10 +2,12 @@
  * Templates declare their dependencies; creation refuses a template whose
  * declared modules this engine does not provide. The 3D starter gets the
  * Basic Kit and its setup's commands at creation, and starts with nothing
- * to undo.
+ * to undo. A setup that stops takes the project back (in the data root or
+ * in a game folder, never the user's files), so the same id can be made
+ * again.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Backend } from './backend';
 import { createTestBackend } from './testing';
@@ -23,6 +25,18 @@ function copyTree(from: string, to: string): void {
   }
 }
 const ADMIN = 'admin-templates-test';
+
+let setupRoot = '';
+/** The broken template's setup: a material, then (unless mended) a graph whose id is not an id. */
+function writeSetup(mended: boolean): void {
+  const dir = join(setupRoot, 'templates', 'broken-setup', 'setup');
+  mkdirSync(dir, { recursive: true });
+  const commands = [
+    { op: 'setMaterial', args: { material: { materialId: 'setup-paint', name: 'Paint', shader: 'standard', params: {}, textures: {} } } },
+    ...(mended ? [] : [{ op: 'setGraph', args: { graph: { graphId: 'Not An Id' } } }]),
+  ];
+  writeFileSync(join(dir, 'pack.json'), JSON.stringify({ format: 1, packId: 'broken-setup', name: 'broken setup', description: 'test', folder: 'assets/setup', assets: [], commands }));
+}
 
 describe('template dependencies at creation', () => {
   let engineRoot: string;
@@ -115,6 +129,87 @@ describe('template dependencies at creation', () => {
     expect(character?.components['modelAnimation']).toBeUndefined();
     const problems = await fetch(`${base}/api/v1/projects/t3/problems`, { headers: { authorization: `Bearer ${ADMIN}`, origin: AUTHORING_ORIGIN } });
     expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
+  });
+});
+
+describe('a template whose setup stops', () => {
+  let engineRoot: string;
+  let backend: Backend;
+  let teardown: () => Promise<void>;
+  let base: string;
+  let dataRoot: string;
+  beforeAll(async () => {
+    engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
+    setupRoot = engineRoot;
+    const broken = join(engineRoot, 'templates', 'broken-setup');
+    mkdirSync(join(broken, 'captured'), { recursive: true });
+    copyTree(join(REPO_ROOT, 'templates', 'starter', 'captured', 'project.json'), join(broken, 'captured', 'project.json'));
+    copyTree(join(REPO_ROOT, 'templates', 'starter', 'assets'), join(broken, 'assets'));
+    writeFileSync(join(broken, 'template.json'), JSON.stringify({ name: 'broken setup', description: 'test', requiredModules: [] }));
+    writeSetup(false);
+    const t = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], engineRoot, tokens: [{ token: ADMIN, scope: 'admin' }] });
+    backend = t.backend;
+    teardown = t.teardown;
+    dataRoot = join(t.root, 'data');
+    base = `http://127.0.0.1:${backend.portAuthoring}`;
+  }, 60000);
+  afterAll(async () => {
+    await teardown();
+    rmSync(engineRoot, { recursive: true, force: true });
+  });
+  const create = (projectId: string, folder?: string) =>
+    fetch(`${base}/api/v1/admin/projects`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId, name: projectId, template: 'broken-setup', ...(folder !== undefined ? { folder } : {}) }),
+    });
+  const listed = async (): Promise<string[]> => ((await (await fetch(`${base}/api/v1/projects`, { headers: { authorization: `Bearer ${ADMIN}` } })).json()) as { projects: { projectId: string }[] }).projects.map((p) => p.projectId);
+
+  it('takes the project back and names the command; the same id works once the setup is mended', async () => {
+    writeSetup(false);
+    const res = await create('b1');
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('setGraph');
+    expect(body.error.message).toContain('was not made');
+    expect(await listed()).not.toContain('b1');
+    expect(existsSync(join(dataRoot, 'projects', 'b1'))).toBe(false);
+    writeSetup(true);
+    const again = await create('b1');
+    expect(again.status, (await again.clone().text()).slice(0, 400)).toBe(201);
+    const read = backend._test.service.readCapturedV3('b1');
+    if (!read.ok) throw new Error('no project');
+    expect((read.read.content as unknown as { materials: { materialId: string }[] }).materials.map((m) => m.materialId)).toContain('setup-paint');
+  });
+
+  it('in a game folder: unregisters it, removes only what creation made, keeps the user\'s files; the retry gets the agent skill', async () => {
+    writeSetup(false);
+    const game = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-game-'));
+    try {
+      writeFileSync(join(game, 'notes.txt'), 'mine');
+      const res = await create('b2', game);
+      expect(res.status).toBe(500);
+      expect(((await res.json()) as { error: { message: string } }).error.message).toContain('setGraph');
+      expect(readdirSync(game)).toEqual(['notes.txt']);
+      expect(readFileSync(join(game, 'notes.txt'), 'utf8')).toBe('mine');
+      expect(backend._test.service.registeredProjects().map((r) => r.projectId)).not.toContain('b2');
+      writeSetup(true);
+      const again = await create('b2', game);
+      expect(again.status, (await again.clone().text()).slice(0, 400)).toBe(201);
+      expect(Object.keys((await again.json()) as object)).toContain('skill');
+      // A folder that was not there before goes again as a whole.
+      writeSetup(false);
+      const parent = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-games-'));
+      try {
+        const made = await create('b3', join(parent, 'new-game'));
+        expect(made.status, (await made.clone().text()).slice(0, 400)).toBe(500);
+        expect(readdirSync(parent)).toEqual([]);
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(game, { recursive: true, force: true });
+    }
   });
 });
 

@@ -20,6 +20,7 @@ import type {
   HistoryDepths,
   MutationResult,
   MutationSuccess,
+  Origin,
 } from '@thirdlight/commands';
 import type { EntityV3, Manifest } from '@thirdlight/project-model';
 import type { LoadDetail } from './errors';
@@ -348,9 +349,9 @@ export interface WorkspaceService {
 
   /**
    * Make the commands `requestIds` (in the order they ran) one undo/redo step,
-   * when they are the last entries applied (see service.ts).
+   * when they are the last entries applied and all `origin`'s (see service.ts).
    */
-  groupRequests(projectId: string, requestIds: readonly string[]): boolean;
+  groupRequests(projectId: string, requestIds: readonly string[], origin: Origin): 'grouped' | 'not_last' | 'not_own';
 
   /** The history groups of the entries undo and redo would take next. */
   historyGroups(projectId: string): { undo: number | null; redo: number | null };

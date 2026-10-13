@@ -50,6 +50,14 @@ describe('kit piece checks', () => {
     expect(kitPieceChecks(pieceFacts(bytes, 'door'), { slot: 'door' }).find((c) => c.id === 'uvs')!.state).toBe('info');
     expect(kitPieceChecks(pieceFacts(new Uint8Array(8)), ctx)[0]).toMatchObject({ id: 'file', state: 'err' });
   });
+
+  it('a file too large for the UV check says its UVs were not checked (never ok)', () => {
+    const f = pieceFacts(slab('door', { vRange: [FRAME_V[0], FRAME_V[1] + 0.05] }), 'door');
+    expect(f.uvSkipped).toBe(false);
+    // As a file over the UV check's triangle budget reads: its v ranges stop being collected.
+    const big = { ...f, uvSkipped: true, surfaces: f.surfaces.map((s) => ({ ...s, v: [] })) };
+    expect(kitPieceChecks(big, ctx).find((c) => c.id === 'uvs')).toMatchObject({ state: 'info', title: 'UVs not checked' });
+  });
 });
 
 /** A sheet image made to its table: every row a pattern that repeats 4× across and (fields) in v, gutters filled, height in A. */

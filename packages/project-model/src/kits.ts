@@ -101,7 +101,7 @@ export const KIT_LIMITS = Object.freeze({
   /** A slot holds as many weighted pieces as a block type has looks. */
   piecesPerSlot: BLOCK_LIMITS.variants,
   /** A piece's weight range, a block look's. */
-  weightMax: 1000,
+  weightMax: BLOCK_LIMITS.variantWeight,
 });
 
 /** A slot's name: the id syntax (lower case, digits, `-`, `_`). */

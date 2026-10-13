@@ -32,7 +32,7 @@ export const blockLayer: ComponentDescriptor = {
   category: 'Rendering',
   value: obj('blockLayer', 'Block layer', "The grid: cell size and bounds. The object's position is the min corner of cell [0, 0, 0].", [
     vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]). Cells are square from above: x and z are one value, only the height y differs.', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'], same: [0, 2] }),
-    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024).', { required: true }),
+    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). Change it in the block editor: Regions, Layer size.', { required: true }),
     bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
     bool('collision', 'Collision', "The blocks' collision shapes are colliders (3D projects).", { default: true }),
     bool('castShadow', 'Cast shadows', "The blocks cast the directional light's shadow.", { default: true }),

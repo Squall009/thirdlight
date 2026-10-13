@@ -124,6 +124,15 @@ export function kitPieceChoices(kit: KitDef | null, slots: readonly string[]): K
   return out;
 }
 
+/** A part of a kit that another kit lists too: a sheet swap that moves it moves it for that kit as well. */
+export interface SharedKitPart {
+  kind: 'preset' | 'blockType' | 'asset';
+  /** The graph, block type or model asset id. */
+  id: string;
+  /** The names of the other kits that list it. */
+  kits: string[];
+}
+
 /** What swapping a kit's trim sheet changes besides the kit: its presets' sheet, its block types' and its pieces' materials. */
 export interface KitSheetSwap {
   /** Each preset of the kit that names the old sheet: the graph edit naming the new one. */
@@ -132,7 +141,31 @@ export interface KitSheetSwap {
   blockTypes: BlockType[];
   /** Each piece model of the kit with a material mapped to the old sheet: its whole mapping with the new one in its place. */
   assets: { assetId: string; materials: Record<string, string> }[];
+  /** The parts above that other kits list too (they would move for those kits as well). */
+  shared: SharedKitPart[];
 }
+
+/** A preset's head re-pointed from sheet `from` to `to` (null: its head names another sheet, or none). */
+export function repointPreset(graph: GraphDocument | undefined, from: string, to: string): GraphOp[] | null {
+  const head = graph?.graph.nodes.find((n) => n.type === 'preset');
+  if (head === undefined || head.data?.['sheet'] !== from) return null;
+  return [{ op: 'setNodeData', id: head.id, data: { ...head.data, sheet: to } }];
+}
+
+/** A block type wearing `to` in each material slot that held `from` (null: no slot held it). */
+export function repointBlockType(t: BlockType | undefined, from: string, to: string): BlockType | null {
+  if (t?.materials === undefined || !Object.values(t.materials).includes(from)) return null;
+  return { ...t, materials: Object.fromEntries(Object.entries(t.materials).map(([slot, m]) => [slot, m === from ? to : m])) };
+}
+
+/** A model's material mapping with `to` wherever it held `from` (null: it held it nowhere). */
+export function repointMapping(mapping: Readonly<Record<string, string>> | undefined, from: string, to: string): Record<string, string> | null {
+  if (mapping === undefined || !Object.values(mapping).includes(from)) return null;
+  return Object.fromEntries(Object.entries(mapping).map(([source, m]) => [source, m === from ? to : m]));
+}
+
+/** The kit's piece model asset ids, each once. */
+export const kitPieceAssets = (kit: KitDef): string[] => [...new Set(Object.values(kit.pieces ?? {}).flatMap((list) => list.map((p) => p.assetId)))];
 
 /**
  * The kit's parts re-pointed from trim material `from` to `to`: a preset
@@ -142,30 +175,53 @@ export interface KitSheetSwap {
  * material mapping (`assetMaterials`: the model's current mapping), since the
  * pieces are UV'd against the sheet's rows and must keep wearing the kit's
  * sheet. Only the kit's own presets, block types and pieces: parts it does
- * not list keep their sheet.
+ * not list keep their sheet. A part that another of `kits` lists too is
+ * reported in `shared`: presets, block types and asset mappings are the
+ * project's, not the kit's, so re-pointing it changes it for that kit too
+ * (the editor asks before doing that).
  */
-export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: readonly GraphDocument[], blockTypes: readonly BlockType[], assetMaterials: (assetId: string) => Readonly<Record<string, string>> | undefined = () => undefined): KitSheetSwap {
-  if (from === to) return { presets: [], blockTypes: [], assets: [] };
+export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: readonly GraphDocument[], blockTypes: readonly BlockType[], assetMaterials: (assetId: string) => Readonly<Record<string, string>> | undefined = () => undefined, kits: readonly KitDef[] = []): KitSheetSwap {
+  if (from === to) return { presets: [], blockTypes: [], assets: [], shared: [] };
+  const others = kits.filter((k) => k.kitId !== kit.kitId);
+  const shared: SharedKitPart[] = [];
+  const share = (kind: SharedKitPart['kind'], id: string, lists: (k: KitDef) => boolean): void => {
+    const names = others.filter(lists).map((k) => k.name);
+    if (names.length > 0) shared.push({ kind, id, kits: names });
+  };
   const presets: KitSheetSwap['presets'] = [];
   for (const id of kit.presets ?? []) {
-    const head = graphs.find((g) => g.graphId === id)?.graph.nodes.find((n) => n.type === 'preset');
-    if (head === undefined || head.data?.['sheet'] !== from) continue;
-    presets.push({ graphId: id, ops: [{ op: 'setNodeData', id: head.id, data: { ...head.data, sheet: to } }] });
+    const ops = repointPreset(graphs.find((g) => g.graphId === id), from, to);
+    if (ops === null) continue;
+    presets.push({ graphId: id, ops });
+    share('preset', id, (k) => (k.presets ?? []).includes(id));
   }
   const types: BlockType[] = [];
   for (const id of kit.blockTypes ?? []) {
-    const t = blockTypes.find((b) => b.blockId === id);
-    if (t?.materials === undefined || !Object.values(t.materials).includes(from)) continue;
-    types.push({ ...t, materials: Object.fromEntries(Object.entries(t.materials).map(([slot, m]) => [slot, m === from ? to : m])) });
+    const t = repointBlockType(blockTypes.find((b) => b.blockId === id), from, to);
+    if (t === null) continue;
+    types.push(t);
+    share('blockType', id, (k) => (k.blockTypes ?? []).includes(id));
   }
   const assets: KitSheetSwap['assets'] = [];
-  const seen = new Set<string>();
-  for (const piece of Object.values(kit.pieces ?? {}).flat()) {
-    if (seen.has(piece.assetId)) continue;
-    seen.add(piece.assetId);
-    const mapping = assetMaterials(piece.assetId);
-    if (mapping === undefined || !Object.values(mapping).includes(from)) continue;
-    assets.push({ assetId: piece.assetId, materials: Object.fromEntries(Object.entries(mapping).map(([source, m]) => [source, m === from ? to : m])) });
+  for (const assetId of kitPieceAssets(kit)) {
+    const materials = repointMapping(assetMaterials(assetId), from, to);
+    if (materials === null) continue;
+    assets.push({ assetId, materials });
+    share('asset', assetId, (k) => kitPieceAssets(k).includes(assetId));
   }
-  return { presets, blockTypes: types, assets };
+  return { presets, blockTypes: types, assets, shared };
+}
+
+/** The swap without its shared parts (they keep their sheet for every kit that lists them). */
+export function withoutShared(swap: KitSheetSwap): KitSheetSwap {
+  const of = (kind: SharedKitPart['kind']): Set<string> => new Set(swap.shared.filter((p) => p.kind === kind).map((p) => p.id));
+  const presets = of('preset');
+  const types = of('blockType');
+  const assets = of('asset');
+  return {
+    presets: swap.presets.filter((p) => !presets.has(p.graphId)),
+    blockTypes: swap.blockTypes.filter((t) => !types.has(t.blockId)),
+    assets: swap.assets.filter((a) => !assets.has(a.assetId)),
+    shared: [],
+  };
 }

@@ -206,7 +206,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
           presets={s.blocks.presets}
           objectSheet={objectSheet}
           edgeTypes={s.blocks.types.filter((t) => t.placement === 'edge')}
-          onDerive={(base) => void s.blocks.grouped(() => b.derive(base))}
+          onDerive={(base) => void s.blocks.grouped((g) => b.derive(base, g.clientRef))}
           onPick={(id) => s.set({ room: id })}
         />
       )}

@@ -56,13 +56,13 @@ export function RulesColumn({ entity, host }: EditModeView): JSX.Element {
           disabled={s.locked}
           onApply={(scatter) =>
             // The rules on the component, then every chunk baked with them: one undo step.
-            s.blocks.grouped(async () => {
-              const stored = await s.blocks.changeLayer(scatter.length > 0 ? 'Set scatter rules' : 'Remove scatter rules', entity.id, (now) => {
+            s.blocks.grouped(async (g) => {
+              const stored = await g.changeLayer(scatter.length > 0 ? 'Set scatter rules' : 'Remove scatter rules', entity.id, (now) => {
                 const { scatter: _old, ...rest } = now;
                 return scatter.length > 0 ? { ...rest, scatter } : rest;
               });
               if (!stored) return false;
-              return blockCommand(s, 'Bake scatter', 'editBlocks', { entityId: entity.id, edits: [{ kind: 'bakeScatter' }] });
+              return blockCommand({ blocks: g }, 'Bake scatter', 'editBlocks', { entityId: entity.id, edits: [{ kind: 'bakeScatter' }] });
             })
           }
         />

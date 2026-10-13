@@ -5,6 +5,8 @@
  * against the trim sheet spec, and the edits — each one undo step: one
  * `setKit`, a dropped GLB published and put in its slot, a trim sheet
  * swapped with the presets and block types that wore the old one, a fix.
+ * The multi-command ones send through their `grouped` scope, so an edit made
+ * elsewhere while they run (a slow upload) is not undone with them.
  *
  * The check is asked again shortly after the kit (or anything its pieces
  * read) changes; the sheet's pixels are read when a kit is first opened and
@@ -13,10 +15,11 @@
  * Browser-only (React).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { KitCheckReport, KitDef } from '@thirdlight/project-model';
+import type { BlockType, KitCheckReport, KitDef } from '@thirdlight/project-model';
 
 import { activeDoc, type WorkspaceState } from '../../session/editor-window';
-import { kitSheetSwap } from '../../session/kit-edits';
+import type { CommandResult, SessionClient } from '../../session/client';
+import { kitPieceAssets, kitSheetSwap, repointBlockType, repointMapping, repointPreset, withoutShared, type SharedKitPart } from '../../session/kit-edits';
 import { mergeDocumentEdit } from '../../session/own-commands';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import { refusal, type ClientRef } from '../shell/commands';
@@ -27,7 +30,18 @@ export type KitPick = { kind: 'slot'; slot: string; index: number } | { kind: 'b
 /** How long after a change the check is asked again (ms): a burst of edits asks once. */
 const RECHECK_MS = 150;
 
-export interface KitEditor {
+/** The kit edits a user action sends (through the client, or a grouped action's scope). */
+export interface KitEdits {
+  /** Store the kit as `next` (one `setKit`); resolves with a refusal or null. */
+  save: (next: KitDef) => Promise<string | null>;
+  /** Publish a dropped GLB as a model asset; its id, or why not. */
+  importModel: (file: File) => Promise<string | { message: string }>;
+}
+
+/** What a sheet swap does with parts other kits list too: move them for every kit, or leave them. */
+export type SharedSwapChoice = 'all' | 'skip';
+
+export interface KitEditor extends KitEdits {
   /** The kit of the tab in front of the editor window (null: no kit tab in front). */
   kitId: string | null;
   kit: KitDef | null;
@@ -37,17 +51,15 @@ export interface KitEditor {
   /** A check is running (the pixels are being read when `pixels`). */
   checking: { pixels: boolean } | null;
   checkAll: () => void;
-  /** Store the kit as `next` (one `setKit`); resolves with a refusal or null. */
-  save: (next: KitDef) => Promise<string | null>;
   /**
    * The kit's trim sheet swapped for `to`: the kit, and its presets, block types and piece models that wore the old sheet
-   * (`kitSheetSwap`), in one undo step.
+   * (`kitSheetSwap`), in one undo step. When some of those parts are other kits' too and `shared` is not given, nothing
+   * is sent and the shared parts are returned for the user to choose; else null. A refusal part way takes back what
+   * already ran and says why.
    */
-  swapSheet: (kit: KitDef, to: string) => Promise<void>;
-  /** Run an action whose commands are one undo step (a dropped GLB published, then put in its slot). */
-  grouped: <T>(action: () => Promise<T>) => Promise<T>;
-  /** Publish a dropped GLB as a model asset; its id, or why not. */
-  importModel: (file: File) => Promise<string | { message: string }>;
+  swapSheet: (kit: KitDef, to: string, shared?: SharedSwapChoice) => Promise<SharedKitPart[] | null>;
+  /** Run an action whose edits (sent through `edits`) are one undo step (a dropped GLB published, then put in its slot). */
+  grouped: <T>(action: (edits: KitEdits) => Promise<T>) => Promise<T>;
   /** Map a model's source material to a material (one `setAssetOptions`, the rest of its map kept). */
   mapMaterial: (assetId: string, source: string, materialId: string) => Promise<void>;
   /** What is being done ("Importing door.glb…"), shown in the toolbar. */
@@ -101,9 +113,8 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     if (kitId !== null) void run(kitId, true);
   }, [kitId, run]);
 
-  const save = useCallback(
-    async (next: KitDef): Promise<string | null> => {
-      const c = clientRef.current;
+  const saveVia = useCallback(
+    async (c: SessionClient | null, next: KitDef): Promise<string | null> => {
       if (c === null) return 'not connected';
       const base = kits.find((k) => k.kitId === next.kitId) ?? null;
       // Re-applied onto the kit as it is when sent, so a quick second edit keeps the first.
@@ -112,25 +123,23 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
       setError(err);
       return err;
     },
-    [clientRef, kits],
+    [kits],
   );
+  const save = useCallback((next: KitDef) => saveVia(clientRef.current, next), [clientRef, saveVia]);
 
-  const importModel = useCallback(
-    async (file: File): Promise<string | { message: string }> => {
-      const c = clientRef.current;
-      if (c === null) return { message: 'not connected' };
-      if (!/\.glb$/i.test(file.name)) return { message: `${file.name}: a kit piece is a GLB file (export glTF binary from the modelling tool).` };
-      setBusy(`Importing ${file.name}…`);
-      try {
-        const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
-        if (typeof id !== 'string') setError(id.message);
-        return id;
-      } finally {
-        setBusy(null);
-      }
-    },
-    [clientRef],
-  );
+  const importVia = useCallback(async (c: SessionClient | null, file: File): Promise<string | { message: string }> => {
+    if (c === null) return { message: 'not connected' };
+    if (!/\.glb$/i.test(file.name)) return { message: `${file.name}: a kit piece is a GLB file (export glTF binary from the modelling tool).` };
+    setBusy(`Importing ${file.name}…`);
+    try {
+      const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      if (typeof id !== 'string') setError(id.message);
+      return id;
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+  const importModel = useCallback((file: File) => importVia(clientRef.current, file), [clientRef, importVia]);
 
   const mapMaterial = useCallback(
     async (assetId: string, source: string, materialId: string) => {
@@ -143,29 +152,79 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     [clientRef],
   );
 
-  const grouped = useCallback(<T,>(action: () => Promise<T>): Promise<T> => (clientRef.current !== null ? clientRef.current.grouped(action) : action()), [clientRef]);
+  const grouped = useCallback(
+    <T,>(action: (edits: KitEdits) => Promise<T>): Promise<T> => {
+      const c = clientRef.current;
+      const editsOf = (via: SessionClient | null): KitEdits => ({ save: (next) => saveVia(via, next), importModel: (file) => importVia(via, file) });
+      return c !== null ? c.grouped((g) => action(editsOf(g))) : action(editsOf(null));
+    },
+    [clientRef, saveVia, importVia],
+  );
 
   const swapSheet = useCallback(
-    async (target: KitDef, to: string) => {
+    async (target: KitDef, to: string, shared?: SharedSwapChoice): Promise<SharedKitPart[] | null> => {
       const c = clientRef.current;
-      if (c === null) return;
+      if (c === null) return null;
       const from = target.trimMaterial;
-      const parts = from === undefined ? { presets: [], blockTypes: [], assets: [] } : kitSheetSwap(target, from, to, c.getGraphs(), c.getBlockTypes(), (id) => (c.content.getAsset(id) as { materials?: Record<string, string> } | undefined)?.materials);
-      await c.grouped(async () => {
-        if ((await save({ ...target, trimMaterial: to })) !== null) return;
-        for (const g of parts.presets) {
-          const err = refusal(await c.command('graphEdit', { owner: { kind: 'graph', id: g.graphId }, ops: g.ops }, c.projection.revision));
-          if (err !== null) return setError(err);
-        }
-        for (const block of parts.blockTypes) {
-          const err = refusal(await c.command('setBlockType', { block }, c.projection.revision));
-          if (err !== null) return setError(err);
-        }
-        for (const a of parts.assets) {
-          const err = refusal(await c.command('setAssetOptions', { assetId: a.assetId, materials: a.materials }, c.projection.revision));
-          if (err !== null) return setError(err);
-        }
-      });
+      if (from === undefined || from === to) {
+        await save({ ...target, trimMaterial: to });
+        return null;
+      }
+      if (!c.getMaterials().some((m) => m.materialId === to)) {
+        setError(`The trim sheet ${to} is not in the project.`);
+        return null;
+      }
+      // The pieces' material mappings are read from their summaries, which are loaded on demand.
+      await c.catalog.ensureAssets(kitPieceAssets(target));
+      const mappingOf = (id: string): Readonly<Record<string, string>> | undefined => (c.content.getAsset(id) as { materials?: Record<string, string> } | undefined)?.materials;
+      const plan = kitSheetSwap(target, from, to, c.getGraphs(), c.getBlockTypes(), mappingOf, c.getKits());
+      if (plan.shared.length > 0 && shared === undefined) return plan.shared;
+      const parts = shared === 'skip' ? withoutShared(plan) : plan;
+      // Each part as a step that re-points it from one sheet to the other, built from the project as it is when sent
+      // (an edit made since the plan is kept); run backwards, a step takes itself back.
+      type Step = (g: SessionClient, a: string, b: string) => Promise<CommandResult>;
+      const kitStep: Step = (g, _a, b) => g.command('setKit', () => ({ kit: { ...(g.getKits().find((k) => k.kitId === target.kitId) ?? target), trimMaterial: b } }), g.projection.revision);
+      const steps: Step[] = [
+        kitStep,
+        ...parts.presets.map(({ graphId }): Step => (g, a, b) =>
+          g.command('graphEdit', () => {
+            const graph = g.getGraphs().find((x) => x.graphId === graphId);
+            const head = graph?.graph.nodes.find((x) => x.type === 'preset');
+            // A head that no longer names the sheet is sent as it is (nothing changes).
+            return { owner: { kind: 'graph', id: graphId }, ops: repointPreset(graph, a, b) ?? (head !== undefined ? [{ op: 'setNodeData', id: head.id, data: head.data ?? {} }] : []) };
+          }, g.projection.revision),
+        ),
+        ...parts.blockTypes.map(({ blockId }): Step => (g, a, b) => {
+          const now = (): BlockType | undefined => g.getBlockTypes().find((t) => t.blockId === blockId);
+          return g.command('setBlockType', () => ({ block: repointBlockType(now(), a, b) ?? now() }), g.projection.revision);
+        }),
+        ...parts.assets.map(({ assetId }): Step => (g, a, b) => g.command('setAssetOptions', () => ({ assetId, materials: repointMapping(mappingOf(assetId), a, b) ?? mappingOf(assetId) ?? {} }), g.projection.revision)),
+      ];
+      // A part that no longer wore the sheet when its step was sent is left as it is.
+      const failed = (r: CommandResult): string | null => (!r.ok && (r.response as { code?: string }).code === 'no_change' ? null : refusal(r));
+      setBusy('Swapping the trim sheet…');
+      try {
+        await c.grouped(async (g) => {
+          let done = 0;
+          let err: string | null = null;
+          for (const step of steps) {
+            err = failed(await step(g, from, to));
+            if (err !== null) break;
+            done++;
+          }
+          if (err === null) return setError(null);
+          // All or nothing: what already ran goes back to the old sheet (in the same undo step, which then changes nothing).
+          const undoErrors: string[] = [];
+          for (let i = done - 1; i >= 0; i--) {
+            const back = failed(await steps[i]!(g, to, from));
+            if (back !== null) undoErrors.push(back);
+          }
+          setError(`The trim sheet was not swapped: ${err}${undoErrors.length > 0 ? ` (and taking back what had changed was refused too: ${undoErrors.join('; ')})` : ''}`);
+        });
+      } finally {
+        setBusy(null);
+      }
+      return null;
     },
     [clientRef, save],
   );

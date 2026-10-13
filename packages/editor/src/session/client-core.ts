@@ -1208,7 +1208,9 @@ export class SessionClientCore {
         // The projection advances via the `mutation.applied` WS event (deduped
         // by requestId); the HTTP ack only drives the save status.
         this.save = 'saved';
-        this.error = null;
+        // An undo or redo of a grouped step that the backend could not take whole: shown, not passed off as done.
+        const incomplete = (r as { groupIncomplete?: { code: string; message: string } }).groupIncomplete;
+        this.error = incomplete !== undefined ? { code: incomplete.code, message: incomplete.message } : null;
         this.conflict = null;
         this.emit();
         const createdId = (r as { createdId?: unknown }).createdId;

@@ -11,13 +11,24 @@
  * project-model `kit-checks`) is named on the same line.
  *
  * Checked when the project loads and shortly after a change that can change
- * the answer; a kit's line is logged when it appears or changes.
+ * the answer (a kit's pieces only when that kit's inputs changed); a kit's
+ * line is logged when it appears or changes.
  */
 import { kitProblems, type KitProblemContent, type KitProblemRow } from '@thirdlight/project-model/kits';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The change types that can change what a kit's references resolve to (or how its pieces check). */
-const RELEVANT = new Set(['setKit', 'setMaterial', 'setGraph', 'setBlockType', 'publishAsset', 'removeAsset', 'importAssets', 'importResources', 'setAssetOptions']);
+const RELEVANT = new Set(['setKit', 'setMaterial', 'setGraph', 'setBlockType', 'publishAsset', 'removeAsset', 'importAssets', 'importResources', 'setAssetOptions', 'createEntity', 'deleteEntity', 'pasteEntities']);
+/** A block layer's fields a kit's piece checks read (the cell its pieces are sized in). */
+const LAYER_FIELDS = new Set(['kitId', 'cellSize']);
+
+/** Whether a change can change a kit's answer; only the kits whose inputs changed are then checked again (kit-check.ts). */
+function matters(change: unknown): boolean {
+  const c = change as { type?: unknown; component?: unknown; changedFields?: unknown } | null;
+  if (typeof c?.type !== 'string') return false;
+  if (RELEVANT.has(c.type)) return true;
+  return c.type === 'setComponent' && c.component === 'blockLayer' && (!Array.isArray(c.changedFields) || c.changedFields.some((f) => LAYER_FIELDS.has(f as string)));
+}
 
 /** Problems named in one line (the count says how many). */
 const NAMED_PER_LINE = 4;
@@ -81,8 +92,7 @@ export function createKitProblemChecker(deps: {
       if (!last.has(projectId)) safeCheck(projectId);
     },
     changed(projectId, change) {
-      const type = (change as { type?: unknown } | null)?.type;
-      if (typeof type !== 'string' || !RELEVANT.has(type) || deps.closed() || timers.has(projectId)) return;
+      if (!matters(change) || deps.closed() || timers.has(projectId)) return;
       const t = setTimeout(() => {
         timers.delete(projectId);
         if (!deps.closed()) safeCheck(projectId);

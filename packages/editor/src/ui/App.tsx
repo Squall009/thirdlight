@@ -76,6 +76,7 @@ import { useCuePreview } from './shell/useCuePreview';
 import { useSceneViewLending } from './shell/useSceneViewLending';
 import { EditModeShell } from './editmode/EditModeShell';
 import { editModeFor, editModeVia, isSceneMode, type EditModeHost } from './editmode/modes';
+import type { BlockModeHost } from './blocks/block-host';
 import { useEditMode } from './editmode/useEditMode';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
@@ -1069,47 +1070,56 @@ function EditorApp(): JSX.Element {
       })()}
     />
   );
+  /**
+   * The block editor's host; with `via` (a grouped action's scope) its commands and model publishes are that
+   * action's own, so the action's steps are grouped and nothing else sent meanwhile joins them.
+   */
+  const blockModeHost = (via?: SessionClient): BlockModeHost => ({
+    editor: blocks.blockEditor,
+    rows: blocks.blockRows,
+    types: blocks.blockTypes,
+    fields: blocks.cellFields,
+    stamps: blocks.blockStamps,
+    kits: content.kits,
+    graphs: content.graphs,
+    presets: presetSlidersHost(content.graphs, materials, (graphId, ops) => docCmds.sendGraphEdit({ kind: 'graph', id: graphId }, ops), (p) => void viewportRef.current?.previewArchitecture(p)),
+    prefabs: prefabSummaries,
+    setLayer: blocks.setEditedLayer,
+    run: (what, op, args) => blocks.blockRun(what, op, args, via),
+    // A scope's own `grouped` joins its action.
+    grouped: (action) => {
+      const c = via ?? clientRef.current;
+      return c !== null ? c.grouped((g) => action(blockModeHost(g))) : action(blockModeHost());
+    },
+    edit: (what, entityId, edits) => blocks.blockEdit(what, entityId, edits, via),
+    changeLayer: (what, entityId, change) => blocks.changeLayer(what, entityId, change, via),
+    setFlag: (id, flag, value) => void sceneEditing.setFlag(id, flag, value),
+    notice: setNotice,
+    handlers: blockHandlersRef,
+    importModel: async (file) => {
+      const c = via ?? clientRef.current;
+      if (c === null) return null;
+      if (!/\.glb$/i.test(file.name)) {
+        setNotice(`${file.name}: a block look is a GLB file (export glTF binary from the modelling tool).`);
+        return null;
+      }
+      const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      if (typeof id === 'string') return id;
+      setNotice(id.message);
+      return null;
+    },
+    openKit: (kitId) => openDocument('kit', kitId),
+    clientRef: via === undefined ? clientRef : { current: via },
+    viewportRef,
+    reportFailure,
+  });
   /** What the edit modes read from the app. */
   const editModeHost: EditModeHost = {
     terrain: terrainTools,
     paint: vertexPaint,
     decals: decalTools,
     decalAtlas,
-    blocks: {
-      editor: blocks.blockEditor,
-      rows: blocks.blockRows,
-      types: blocks.blockTypes,
-      fields: blocks.cellFields,
-      stamps: blocks.blockStamps,
-      kits: content.kits,
-      graphs: content.graphs,
-      presets: presetSlidersHost(content.graphs, materials, (graphId, ops) => docCmds.sendGraphEdit({ kind: 'graph', id: graphId }, ops), (p) => void viewportRef.current?.previewArchitecture(p)),
-      prefabs: prefabSummaries,
-      setLayer: blocks.setEditedLayer,
-      run: blocks.blockRun,
-      grouped: (action) => (clientRef.current !== null ? clientRef.current.grouped(action) : action()),
-      edit: blocks.blockEdit,
-      changeLayer: blocks.changeLayer,
-      setFlag: (id, flag, value) => void sceneEditing.setFlag(id, flag, value),
-      notice: setNotice,
-      handlers: blockHandlersRef,
-      importModel: async (file) => {
-        const c = clientRef.current;
-        if (c === null) return null;
-        if (!/\.glb$/i.test(file.name)) {
-          setNotice(`${file.name}: a block look is a GLB file (export glTF binary from the modelling tool).`);
-          return null;
-        }
-        const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
-        if (typeof id === 'string') return id;
-        setNotice(id.message);
-        return null;
-      },
-      openKit: (kitId) => openDocument('kit', kitId),
-      clientRef,
-      viewportRef,
-      reportFailure,
-    },
+    blocks: blockModeHost(),
     entities,
     scene: activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name },
     flags: (id) => hierarchyFlags.get(id),

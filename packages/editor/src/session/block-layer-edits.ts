@@ -2,12 +2,13 @@
  * The block editor's edits of a block layer's own settings, as data: a
  * region cut away or not, the theme the layer (or one region) shows, and a
  * region renamed or deleted — the layer's cut-aways, themes and walk start
- * follow it (or let it go). Each gives the component one `setComponent`
+ * follow it (or let it go) — and the layer's bounds grown or shrunk. Each gives the component one `setComponent`
  * stores; null when nothing changes.
  *
  * Pure.
  */
 import type { BlockCutaway, BlockLayerComponent } from '@thirdlight/project-model';
+import { BLOCK_LIMITS } from '@thirdlight/project-model/limits';
 
 /** The layer with a region cut away in the game (or not): `cutaway.regions`, an empty cut-away stored as none. */
 export function withCutaway(c: BlockLayerComponent, regionId: string, on: boolean): BlockLayerComponent {
@@ -57,4 +58,32 @@ export function withRegionFollowed(c: BlockLayerComponent, from: string, to: str
     next.cutaway = cutaway;
   }
   return next;
+}
+
+type Vec3 = [number, number, number];
+
+/**
+ * The layer with new bounds in cells (max exclusive), or a plain refusal:
+ * whole cells, max above min on every axis, within the coordinate range and
+ * the largest layer `BLOCK_LIMITS` allows. Cells outside the new bounds are
+ * not dropped here: the backend refuses bounds that leave a cell outside, so
+ * shrinking never deletes blocks silently.
+ */
+export function withBounds(c: BlockLayerComponent, min: readonly number[], max: readonly number[]): { ok: true; component: BlockLayerComponent | null } | { ok: false; message: string } {
+  const lo = [0, 1, 2].map((i) => Math.round(min[i] ?? Number.NaN)) as Vec3;
+  const hi = [0, 1, 2].map((i) => Math.round(max[i] ?? Number.NaN)) as Vec3;
+  if ([...lo, ...hi].some((v) => !Number.isFinite(v))) return { ok: false, message: 'Bounds need a whole number of cells on every side.' };
+  const reach = [BLOCK_LIMITS.coordinateXZ, BLOCK_LIMITS.coordinateY, BLOCK_LIMITS.coordinateXZ];
+  if ([0, 1, 2].some((i) => Math.abs(lo[i]!) > reach[i]! || Math.abs(hi[i]!) > reach[i]!)) return { ok: false, message: `Bounds stay within ±${BLOCK_LIMITS.coordinateXZ} cells across and ±${BLOCK_LIMITS.coordinateY} up.` };
+  if ([0, 1, 2].some((i) => hi[i]! <= lo[i]!)) return { ok: false, message: 'Each side must be at least one cell: the far edge beyond the near one.' };
+  const span = [BLOCK_LIMITS.layerWidth, BLOCK_LIMITS.layerHeight, BLOCK_LIMITS.layerWidth];
+  if ([0, 1, 2].some((i) => hi[i]! - lo[i]! > span[i]!)) return { ok: false, message: `A layer is at most ${BLOCK_LIMITS.layerWidth} × ${BLOCK_LIMITS.layerHeight} × ${BLOCK_LIMITS.layerWidth} cells.` };
+  const same = [0, 1, 2].every((i) => lo[i] === c.bounds.min[i] && hi[i] === c.bounds.max[i]);
+  return { ok: true, component: same ? null : { ...c, bounds: { min: lo, max: hi } } };
+}
+
+/** The bounds grown by `cells` on every side across (x and z; negative shrinks), up and down left alone. */
+export function boundsGrown(c: BlockLayerComponent, cells: number): { min: Vec3; max: Vec3 } {
+  const { min, max } = c.bounds;
+  return { min: [min[0] - cells, min[1], min[2] - cells], max: [max[0] + cells, max[1], max[2] + cells] };
 }

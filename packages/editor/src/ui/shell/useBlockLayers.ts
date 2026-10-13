@@ -133,21 +133,22 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     if (!v) return;
     v.setCellTopSnap(cellTops ? snapLocal : null);
   }, [cellTops, snapLocal, blockEditor, viewportRef]);
-  const blockRun = useCallback(async (what: string, op: string, args: Record<string, unknown>): Promise<boolean> => {
-    const c = clientRef.current;
+  // `via`: the scope of a grouped action (`SessionClient.grouped`), so the command is that action's own.
+  const blockRun = useCallback(async (what: string, op: string, args: Record<string, unknown>, via?: SessionClient): Promise<boolean> => {
+    const c = via ?? clientRef.current;
     if (!c) return false;
     const r = await c.command(op, args, c.projection.revision);
     if (!r.ok && (r.response as { code?: string }).code === 'no_change') return false;
     reportFailure(what, r);
     return r.ok;
   }, [clientRef, reportFailure]);
-  const blockEdit = useCallback((what: string, entityId: string, edits: BlockEdit[]) => blockRun(what, 'editBlocks', { entityId, edits }), [blockRun]);
+  const blockEdit = useCallback((what: string, entityId: string, edits: BlockEdit[], via?: SessionClient) => blockRun(what, 'editBlocks', { entityId, edits }, via), [blockRun]);
   /**
    * A layer's own settings changed as they are when the command is sent (own commands go one at a time, each
    * applied before the next is built), so a second quick change is made on top of the first.
    */
-  const changeLayer = useCallback(async (what: string, entityId: string, change: (c: BlockLayerComponent) => BlockLayerComponent | null): Promise<boolean> => {
-    const c = clientRef.current;
+  const changeLayer = useCallback(async (what: string, entityId: string, change: (c: BlockLayerComponent) => BlockLayerComponent | null, via?: SessionClient): Promise<boolean> => {
+    const c = via ?? clientRef.current;
     if (!c) return false;
     let skipped = false;
     const r = await c.command('setComponent', () => {

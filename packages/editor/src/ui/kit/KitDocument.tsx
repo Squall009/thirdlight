@@ -16,7 +16,8 @@
  *
  * Every edit is one undo step: one `setKit`; a dropped GLB published and put
  * in its slot; a trim sheet swapped together with the kit's presets and
- * block types that wore the old one.
+ * block types that wore the old one. A swap that would move parts other kits
+ * list too asks first whether to move them for every kit or leave them.
  *
  * Browser-only (React).
  */
@@ -26,7 +27,7 @@ import { kitSlotPlacement } from '@thirdlight/project-model/limits';
 import { ARCHITECTURE_PRESET_KIND } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from '@thirdlight/three-adapter';
 
-import { assignPiece, customSlotName, kitSlots, kitTally, slotReports, slotState, withId, type KitSlotView } from '../../session/kit-edits';
+import { assignPiece, customSlotName, kitSlots, kitTally, slotReports, slotState, withId, type KitSlotView, type SharedKitPart } from '../../session/kit-edits';
 import { trimSheetMaterials } from '../../session/layer-palette';
 import { ASSET_DRAG_TYPE, assetDropOf } from '../../session/placement';
 import type { TileThumbnails } from '../../viewport/thumbnails';
@@ -40,7 +41,8 @@ import { TextureBrowser } from '../palette/TextureBrowser';
 import { useLayerThumb } from '../palette/LayerPalette';
 import { usePreview } from '../preview/preview-request';
 import { TrimChecker } from './TrimChecker';
-import type { KitEditor } from './useKitEditor';
+import { Dialog } from '../Dialog';
+import type { KitEditor, SharedSwapChoice } from './useKitEditor';
 
 export interface KitDocumentHost {
   editor: KitEditor;
@@ -68,11 +70,11 @@ export async function dropOnSlot(ev: DragEvent, editor: KitEditor, kit: KitDef, 
   const tile = file === undefined ? assetDropOf(ev, 'model') : null;
   if (file === undefined && tile === null) return;
   ev.preventDefault();
-  await editor.grouped(async () => {
-    const assetId = file !== undefined ? await editor.importModel(file) : tile!.assetId;
+  await editor.grouped(async (ed) => {
+    const assetId = file !== undefined ? await ed.importModel(file) : tile!.assetId;
     if (typeof assetId !== 'string') return;
     editor.setPick({ kind: 'slot', slot, index: index ?? (kit.pieces?.[slot]?.length ?? 0) });
-    await editor.save(assignPiece(editor.kit ?? kit, slot, index, { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) }));
+    await ed.save(assignPiece(editor.kit ?? kit, slot, index, { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) }));
   });
 }
 
@@ -86,6 +88,8 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
   const [adding, setAdding] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [spec, setSpec] = useState(false);
+  /** A sheet swap waiting for the user's choice about the parts other kits list too. */
+  const [swapAsk, setSwapAsk] = useState<{ to: string; shared: SharedKitPart[] } | null>(null);
   const report = editor.report;
   const sheets = useMemo(() => trimSheetMaterials(p.materials), [p.materials]);
   const sheetDef = kit?.trimMaterial !== undefined ? (p.materials.find((m) => m.materialId === kit.trimMaterial) ?? null) : null;
@@ -134,8 +138,39 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
     editor.setPick({ kind: 'slot', slot: made.slot, index: 0 });
   };
   const presets = p.graphs.filter((g) => g.kind === ARCHITECTURE_PRESET_KIND);
+  const swapSheet = (to: string, shared?: SharedSwapChoice): void => {
+    setSwapAsk(null);
+    void editor.swapSheet(kit, to, shared).then((ask) => {
+      if (ask !== null) setSwapAsk({ to, shared: ask });
+    });
+  };
+  const partName = (part: SharedKitPart): string =>
+    part.kind === 'preset' ? `Style preset ${presets.find((g) => g.graphId === part.id)?.name ?? part.id}` : part.kind === 'blockType' ? `Block type ${p.blockTypes.find((b) => b.blockId === part.id)?.name ?? part.id}` : `Model ${part.id}`;
   return (
     <div className="tl-kit-doc" aria-label="kit editor">
+      {swapAsk !== null && (
+        <Dialog title="Parts other kits use too" onClose={() => setSwapAsk(null)}>
+          <p>These parts would change to the new trim sheet, but other kits use them too:</p>
+          <ul aria-label="shared kit parts">
+            {swapAsk.shared.map((part) => (
+              <li key={`${part.kind}:${part.id}`}>
+                {partName(part)} — also in {part.kits.join(', ')}
+              </li>
+            ))}
+          </ul>
+          <div className="tl-btnrow">
+            <button type="button" className="tl-btn" title="Those kits' parts change to the new sheet as well" onClick={() => swapSheet(swapAsk.to, 'all')}>
+              Swap all users of these parts
+            </button>
+            <button type="button" className="tl-btn" title="Only the parts this kit alone uses change; the shared ones keep the old sheet" onClick={() => swapSheet(swapAsk.to, 'skip')}>
+              Skip shared parts
+            </button>
+            <button type="button" className="tl-btn" onClick={() => setSwapAsk(null)}>
+              Cancel
+            </button>
+          </div>
+        </Dialog>
+      )}
       <EditorToolbar label="kit toolbar">
         <ToolButton action="compile" label="Check all" primary title="Check every piece and the trim sheet against the spec (reads the sheet's pixels again)" onClick={editor.checkAll} disabled={editor.checking !== null} />
         <ToolButton action="add" label="Add slot" title="A slot of your own (a shop sign, a lamp): drop a piece on it to keep it" onClick={() => setAdding('')} />
@@ -199,7 +234,7 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
             )}
           </Section>
           <Section title="Trim sheet">
-            <SheetCard kit={kit} sheets={sheets} sheetDef={sheetDef} report={report} thumbnails={p.thumbnails} onPick={(id) => (id === '' ? save(withoutKey(kit, 'trimMaterial')) : void editor.swapSheet(kit, id))} onOpen={(id) => p.onOpen('material', id)} />
+            <SheetCard kit={kit} sheets={sheets} sheetDef={sheetDef} report={report} thumbnails={p.thumbnails} onPick={(id) => (id === '' ? save(withoutKey(kit, 'trimMaterial')) : swapSheet(id))} onOpen={(id) => p.onOpen('material', id)} />
           </Section>
           <Section title="Picture and notes" open={false}>
             <PictureCard kit={kit} albedo={(sheetDef?.textures['map'] as string | undefined) ?? null} thumbnails={p.thumbnails} onSave={save} />

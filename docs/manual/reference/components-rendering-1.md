@@ -285,7 +285,7 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `cellSize` | vec3 [x, y, z] | `[1,1,1]` | 0.05 – 64, step 0.05, m | **Cell size.** Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]). Cells are square from above: x and z are one value, only the height y differs. (required) |
-| `bounds` | JSON |  |  | **Bounds.** The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). (required) |
+| `bounds` | JSON |  |  | **Bounds.** The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). Change it in the block editor: Regions, Layer size. (required) |
 | `metadataOnly` | bool | `false` |  | **Metadata only.** Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn. |
 | `collision` | bool | `true` |  | **Collision.** The blocks' collision shapes are colliders (3D projects). |
 | `castShadow` | bool | `true` |  | **Cast shadows.** The blocks cast the directional light's shadow. |

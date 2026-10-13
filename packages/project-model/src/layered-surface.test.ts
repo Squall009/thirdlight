@@ -89,6 +89,8 @@ describe('the layered surface', () => {
     expect(layerSheetMismatches({ layerSheets: ['a', 'a2', 'a'] }, sheetOf)).toEqual([]);
     expect(layerSheetMismatches({ layerSheets: ['a', 'b'] }, sheetOf)).toEqual([{ layer: 1, sheet: 'b', differ: [a.rows[1]!.slot] }]);
     expect(layerSheetMismatches({ layerSheets: ['a', 'b'] }, (id) => (id === 'b' ? { ...a, padding: a.padding + 2 } : a))).toEqual([{ layer: 1, sheet: 'b', differ: ['padding'] }]);
+    // A real-height sheet and a whole-rows one lay a wall's rows differently: a mismatch even with the same rows.
+    expect(layerSheetMismatches({ layerSheets: ['a', 'b'] }, (id) => (id === 'b' ? { ...a, realHeight: a.realHeight !== true } : a))).toEqual([{ layer: 1, sheet: 'b', differ: ['realHeight'] }]);
   });
 
   it('layerSheets: trim material ids (or ""), kept canonical, its root\'s on an instance; a build may carry the rows', () => {

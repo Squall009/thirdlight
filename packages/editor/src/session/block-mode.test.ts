@@ -4,7 +4,7 @@ import { BlockGrid, applyBlockEdits, strokeCoverage } from '@thirdlight/runtime'
 
 import { paintEdit } from './block-brush';
 import { BLOCK_DEFAULT_BRUSH, BLOCK_MODES, BLOCK_WET_CHANNEL, blockDab, blockDabStep, blockPaintChannels, blockToolUses } from './block-mode';
-import { isCutAway, themeOf, withCutaway, withRegionFollowed, withTheme as withLayerTheme } from './block-layer-edits';
+import { boundsGrown, isCutAway, themeOf, withBounds, withCutaway, withRegionFollowed, withTheme as withLayerTheme } from './block-layer-edits';
 import { connectPiecesOf, duplicateBlockType, newBlockType, withBoxValue, withConnectPiece, withConnectWith, withLook, withLookAdded, withMetadata, withoutLook, withPlacement, withRotations, withShape, withTheme } from './block-type-edits';
 import { RESERVED_TOOL_KEYS } from './edit-keys';
 import { layeredMaterial } from './material-graph';
@@ -131,5 +131,16 @@ describe('the block layer\'s own settings', () => {
     expect([gone.cutaway, gone.kits, gone.walk]).toEqual([{}, [{ kit: 'burnt' }], { maxStep: 1 }]);
     expect(withRegionFollowed(layer, 'nothing', 'x')).toBeNull();
     expect(withCutaway(withCutaway(layer, 'a', true), 'a', false).cutaway).toEqual({});
+  });
+
+  it('bounds grown, kept, and refused when empty, too large or out of range (the block editor e2e stores them through the backend)', () => {
+    const grown = boundsGrown(layer, 8);
+    expect(grown).toEqual({ min: [-8, 0, -8], max: [16, 8, 16] });
+    const ok = withBounds(layer, grown.min, grown.max);
+    expect(ok.ok && ok.component?.bounds).toEqual(grown);
+    expect(withBounds(layer, [0, 0, 0], [8, 8, 8])).toEqual({ ok: true, component: null });
+    for (const [min, max] of [[[0, 0, 0], [0, 8, 8]], [[0, 0, 0], [2000, 8, 8]], [[-5000, 0, 0], [8, 8, 8]], [[0, 0, 0], [8, Number.NaN, 8]]] as const) {
+      expect(withBounds(layer, min, max).ok).toBe(false);
+    }
   });
 });

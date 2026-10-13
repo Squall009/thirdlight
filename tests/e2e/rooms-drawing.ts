@@ -16,7 +16,8 @@
  * walls stay where they stood and the shared wall moves with the front room's. Kit pieces: a kit holding
  * the Basic Kit's door and window (set up by command) is picked for the rooms; Door and Window put its
  * pieces (picked in the column, the holes sized to them) in the back room's west wall, Wall piece puts
- * the window on a segment of the front room's west wall (out of the Play camera's reads). The block
+ * the window on a segment of the front room's west wall (out of the Play camera's reads); a third room with a
+ * wall piece is deleted, its piece with it. The block
  * editor's Paint mode paints grime (paint layer 3) on the front wall's outer face.
  * Draw-to-visible and the drag's regeneration are timed from the marks.
  */
@@ -399,6 +400,25 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await orbit(230, 40);
   if (shots === undefined) await expect.poll(viewProj).toBe(viewBefore);
   else await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
+
+  // A room with a wall piece deletes cleanly: its pieces go with it (a piece naming a wall nothing makes is refused).
+  // A small third room in front of the layer (by command: drawing is covered above), a wall piece on its west wall, Delete.
+  const current = (await roomsObject())!.architecture;
+  await cmd('setComponent', { entityId: roomsId, component: 'architecture', value: { ...current, outlines: [...(current.outlines ?? []), { id: 'room-3', preset: 'e2e-room-b', path: { points: [[2, 1, 9], [2, 1, 11], [0, 1, 11], [0, 1, 9]], closed: true } }] } });
+  const synced = Number((await query('queryProject')).revision);
+  await expect(page.locator('.tl-statusbar__rev')).toHaveText(`revision ${synced}`, { timeout: 15_000 });
+  await tool('Wall piece');
+  const w3 = (await screen(page, [182, 0, -32]))!;
+  await page.mouse.move(w3.x - 3, w3.y);
+  await page.mouse.move(w3.x, w3.y);
+  await expect(view(page)).toHaveAttribute('data-room-spot', /^room-3-.*:seg\d$/);
+  await page.mouse.click(w3.x, w3.y);
+  await expect.poll(async () => (await roomsObject())?.architecture.overrides?.filter((o) => o.element.startsWith('room-3-')).length, { timeout: 15_000 }).toBe(1);
+  await rooms.getByLabel('room room-3', { exact: true }).click();
+  await rooms.getByLabel('delete room-3', { exact: true }).click();
+  await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => o.id), { timeout: 15_000 }).toEqual(['room-1', 'room-2', 'run-1']);
+  expect((await roomsObject())?.architecture.overrides?.map((o) => o.element.startsWith('room-1-'))).toEqual([true]);
+  await expect(rooms.getByLabel('room room-3', { exact: true })).toHaveCount(0);
 
   // Grime: the Paint mode, layer 3 on walls, one dab on the front wall's outer face.
   await editModeTab(page, 'Paint');

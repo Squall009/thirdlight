@@ -156,7 +156,7 @@ export class RoomTool {
       return true;
     }
     if (m === 'piece' || m === 'corner') {
-      this.putPiece(l.entityId, at.x, at.z, cs, e.ctrlKey || e.metaKey);
+      this.putPiece(l.entityId, at.x, at.z, at.corner[1], cs, e.ctrlKey || e.metaKey);
       return true;
     }
     const near = nearestSide(this.target.component, at.x, at.z, WALL_REACH_CELLS * cs[0], m !== 'walls');
@@ -202,7 +202,7 @@ export class RoomTool {
       return true;
     }
     if (this.rectStart !== null || this.corners.length > 0) this.drawGhost(this.hover);
-    else if ((this.opts.mode === 'piece' || this.opts.mode === 'corner') && at !== null) this.drawSpot(at.x, at.z);
+    else if ((this.opts.mode === 'piece' || this.opts.mode === 'corner') && at !== null) this.drawSpot(at.x, at.z, at.corner[1]);
     else this.drawMarker(this.hover);
     return this.rectStart !== null;
   }
@@ -306,16 +306,16 @@ export class RoomTool {
     this.cb.onPickRoom(id);
   }
 
-  /** The wall segment or corner a piece would go on (null: none in reach). */
-  private spot(x: number, z: number, cs: readonly number[]): { element: string; segment: number; a: Point3; b: Point3 } | { element: string; corner: number; p: Point3 } | null {
+  /** The wall segment or corner a piece would go on (null: none in reach); `y` is the slice's floor, which picks the storey. */
+  private spot(x: number, z: number, y: number, cs: readonly number[]): { element: string; segment: number; a: Point3; b: Point3 } | { element: string; corner: number; p: Point3 } | null {
     const reach = WALL_REACH_CELLS * cs[0]!;
-    return this.opts.mode === 'piece' ? nearestSegment(this.target.elements, x, z, reach) : nearestCorner(this.target.elements, x, z, reach);
+    return this.opts.mode === 'piece' ? nearestSegment(this.target.elements, x, z, reach, y) : nearestCorner(this.target.elements, x, z, reach, y);
   }
 
   /** Put the picked wall or corner piece on the spot under the pointer (`remove`: take the piece there off). */
-  private putPiece(layerId: string, x: number, z: number, cs: readonly number[], remove: boolean): void {
+  private putPiece(layerId: string, x: number, z: number, y: number, cs: readonly number[], remove: boolean): void {
     const c = this.target.component;
-    const at = this.spot(x, z, cs);
+    const at = this.spot(x, z, y, cs);
     const corner = this.opts.mode === 'corner';
     if (c === null || at === null) {
       this.cb.onRefused(corner ? "Click on a corner of a room's walls." : "Click on a room's straight wall.");
@@ -334,9 +334,9 @@ export class RoomTool {
   }
 
   /** Light the wall segment or corner under the pointer. */
-  private drawSpot(x: number, z: number): void {
+  private drawSpot(x: number, z: number, y: number): void {
     const l = this.host.layer();
-    const at = l === null ? null : this.spot(x, z, l.component.cellSize);
+    const at = l === null ? null : this.spot(x, z, y, l.component.cellSize);
     const off = this.offset();
     const attr = this.line.geometry.getAttribute('position') as THREE.BufferAttribute;
     if (at !== null && 'segment' in at) {

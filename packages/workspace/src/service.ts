@@ -35,7 +35,7 @@ import {
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 
-import type { CommandError, MutationResult } from '@thirdlight/commands';
+import type { CommandError, MutationResult, Origin } from '@thirdlight/commands';
 import type { Manifest } from '@thirdlight/project-model';
 import {
   parseDocumentBytes,
@@ -432,16 +432,19 @@ function buildService(core: Core): WorkspaceService {
   /**
    * Group the commands a client ran for one user action (their request ids,
    * in order): only when they are exactly the last entries applied, so a
-   * command someone else ran in between keeps them apart (false) rather
-   * than being undone with them.
+   * command someone else ran in between keeps them apart (`not_last`) rather
+   * than being undone with them; and only the caller's own (each entry's
+   * origin is `origin`), so one writer cannot fold another's commands (an
+   * agent's, another tab's) into its undo step (`not_own`).
    */
-  function groupRequests(projectId: string, requestIds: readonly string[]): boolean {
+  function groupRequests(projectId: string, requestIds: readonly string[], origin: Origin): 'grouped' | 'not_last' | 'not_own' {
     const s = core.sessions.get(projectId);
     const n = requestIds.length;
-    if (s === undefined || s.mode !== 'open' || n < 2 || n > s.history.cursor) return false;
+    if (s === undefined || s.mode !== 'open' || n < 2 || n > s.history.cursor) return 'not_last';
     const top = s.history.entries.slice(s.history.cursor - n, s.history.cursor);
-    if (top.some((e, i) => e.requestId !== requestIds[i])) return false;
-    return groupHistory(projectId, n);
+    if (top.some((e, i) => e.requestId !== requestIds[i])) return 'not_last';
+    if (top.some((e) => e.origin === null || e.origin.kind !== origin.kind || e.origin.clientId !== origin.clientId)) return 'not_own';
+    return groupHistory(projectId, n) ? 'grouped' : 'not_last';
   }
 
   /** The history group of the entry undo would take next, and of the one redo would (null: none, or not grouped). */

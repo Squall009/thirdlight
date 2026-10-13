@@ -32,7 +32,7 @@ to do and its keys.
 | **Build** | Put and take blocks: Single (Q), Line (L), Rect (R), Box (B), Flood (G), Column (U), Erase (X), Pick (I), Replace (H), Stamp (K), Paste (V), Select (S). |
 | **Shape** | Slope the ground's tops with a round brush: Raise (Q), Lower (W), Smooth (E), Flatten (R). |
 | **Paint** | Paint the layered material's layers and wetness on the tops and walls: Paint (B), Erase (X). |
-| **Regions** | Named boxes of cells — cut-aways (a roof hidden while the player is under it), themes — and cell metadata: Region (R), Metadata (M). |
+| **Regions** | Named boxes of cells — cut-aways (a roof hidden while the player is under it), themes — and cell metadata: Region (R), Metadata (M). **Layer size** sets the layer's bounds in cells (numbers per axis, or **Grow / Shrink every side** by a step); blocks keep their place, and a layer can't shrink past a block. |
 | **Rooms & buildings** | Generated rooms, paths and buildings on the layer, with the kit's doors and windows ([Generate rooms and buildings](generated-architecture.md)). |
 | **Rules** | Material rules (layers laid by height, slope, noise) and scatter rules (models placed on the tops), and the Scatter brush (B). |
 

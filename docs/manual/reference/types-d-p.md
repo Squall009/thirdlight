@@ -1,8 +1,26 @@
-# Types (DeclaredProperty to PATH_PAINT_SIDES)
+# Types (DecalPageRef to PartialTransformArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-decal-page-ref"></a>
+### DecalPageRef
+
+Declared in `packages/project-model/src/decal-pages.ts`.
+
+```ts
+/** The place a build hands the runtime with a decal material (`decalPage`): the rectangle and each set's array and layer. */
+interface DecalPageRef {
+  /** [u0, v0, u1, v1] on the page, 0–1 from its top-left, inset half a texel. */
+  rect: [number, number, number, number];
+  /** The deepest mip level sampling may reach. */
+  mip: number;
+  albedo?: DecalPageLayerRef;
+  normal?: DecalPageLayerRef;
+  orm?: DecalPageLayerRef;
+}
+```
 
 <a id="type-declared-property"></a>
 ### DeclaredProperty
@@ -1612,33 +1630,4 @@ interface PartialTransformArgs {
   rotation?: readonly number[];
   scale?: readonly number[];
 }
-```
-
-<a id="type-paste-entities-args"></a>
-### PasteEntitiesArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/**
- * `pasteEntities`: create copies of full entity values in one transaction
- * (Duplicate, Copy/Paste — also across scenes). See `paste-ops.ts`.
- */
-interface PasteEntitiesArgs {
-  entities: { id: string; parentId?: string; components: Record<string, unknown> }[];
-  /** The parent of the pasted roots (null = scene root); absent = each root's own parentId. */
-  parentId?: string | null;
-  /** Added to the positions of the copies placed in world space. */
-  offset?: [number, number, number];
-}
-```
-
-<a id="type-path-paint-sides"></a>
-### PATH_PAINT_SIDES
-
-Declared in `packages/project-model/src/vertex-paint.ts`.
-
-```ts
-/** The sides of a path its paint is kept for: the faces to the left and right of travel, and the faces looking up or down. */
-const PATH_PAINT_SIDES: readonly ["left", "right", "top"];
 ```

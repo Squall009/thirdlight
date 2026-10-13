@@ -27,10 +27,10 @@ What the engine offers, generated from its source: the objects, components and c
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 81 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to DecalPageRef)](types-a-d.md) | 76 sections |
-| [Types (DeclaredProperty to PATH_PAINT_SIDES)](types-d-p.md) | 95 sections |
-| [Types (PathPaintGrid to UiStyleValues)](types-p-u.md) | 96 sections |
-| [Types (UiTheme to WindConfig)](types-u-w.md) | 13 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)](types-a-d.md) | 75 sections |
+| [Types (DecalPageRef to PartialTransformArgs)](types-d-p.md) | 94 sections |
+| [Types (PasteEntitiesArgs to UiStyle)](types-p-u.md) | 97 sections |
+| [Types (UiStyleValues to WindConfig)](types-u-w.md) | 14 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |

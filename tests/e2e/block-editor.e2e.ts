@@ -311,6 +311,23 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect.poll(async () => [(await entity(layer)).components.blockLayer?.cutaway, await themes()]).toEqual([undefined, ['burnt@']]);
     await col.getByLabel('layer theme', { exact: true }).selectOption('');
     await expect.poll(async () => (await entity(layer)).components.blockLayer?.kits).toBeUndefined();
+    // The layer's size: grown on every side by the step, typed back, and a shrink past a block refused and said.
+    type Bounds = { min: number[]; max: number[] };
+    const bounds = async (): Promise<Bounds> => (await entity(layer)).components.blockLayer?.bounds as Bounds;
+    const b0 = await bounds();
+    await col.getByLabel('bounds step', { exact: true }).fill('2');
+    await col.getByRole('button', { name: 'Grow every side', exact: true }).click();
+    await expect.poll(bounds).toEqual({ min: [b0.min[0]! - 2, b0.min[1], b0.min[2]! - 2], max: [b0.max[0]! + 2, b0.max[1], b0.max[2]! + 2] });
+    await col.getByRole('button', { name: 'Shrink every side', exact: true }).click();
+    await expect.poll(bounds).toEqual(b0);
+    const from = col.getByLabel('bounds from x', { exact: true });
+    // The boxes show the stored bounds again before typing (a box re-made by the shrink's echo would drop the typing).
+    await expect(from).toHaveValue(String(b0.min[0]));
+    await from.fill(String(b0.min[0]! + 4));
+    await from.press('Enter');
+    await expect(col.getByRole('alert')).toContainText("can't shrink past a block");
+    await expect(from).toHaveValue(String(b0.min[0]));
+    expect(await bounds()).toEqual(b0);
   });
 
   await test.step('Paint: the stand-ins read no paint; Make it paintable gives the picked type a Layered surface, one undo step', async () => {

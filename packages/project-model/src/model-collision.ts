@@ -28,11 +28,15 @@ import { COMPONENTS as GLTF_COMPONENTS, COMPONENT_TYPES as GLTF_COMPONENT_TYPES,
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const LOD_RE = /^(.*)_LOD(\d+)$/i;
-const COL_RE = /^(.*)_COL$/i;
+/** A render level's node name (`rock_LOD1`: the piece, the level). */
+export const MODEL_LOD_RE = /^(.*)_LOD(\d+)$/i;
+/** A collision node's name (`rock_COL`). */
+export const MODEL_COL_RE = /^(.*)_COL$/i;
+const LOD_RE = MODEL_LOD_RE;
+const COL_RE = MODEL_COL_RE;
 
-/** A piece's base name (`rock_LOD1` → `rock`, `rock_COL` → `rock`). */
-function baseName(name: string): string {
+/** A piece's base name (`rock_LOD1` → `rock`, `rock_COL` → `rock`): the one naming rule for a model's pieces. */
+export function modelPieceName(name: string): string {
   const lod = LOD_RE.exec(name);
   if (lod !== null && lod[1] !== undefined && lod[1] !== '') return lod[1];
   const col = COL_RE.exec(name);
@@ -79,8 +83,8 @@ export interface ModelGeometry {
 export const MODEL_READ_LIMITS = Object.freeze({ depth: 256, positions: 4_000_000 });
 const READ_LIMITS = MODEL_READ_LIMITS;
 
-/** Column-major 4×4 of a node (its matrix, else T·R·S). */
-function nodeMatrix(def: Json): number[] {
+/** Column-major 4×4 of a glTF node (its matrix, else T·R·S). */
+export function modelNodeMatrix(def: Readonly<Record<string, unknown>>): number[] {
   const nums = (v: unknown, n: number): number[] | null => (Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x)) ? (v as number[]) : null);
   const m = nums(def['matrix'], 16);
   if (m !== null) return [...m];
@@ -256,13 +260,13 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
     const name = typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '';
     const lod = LOD_RE.exec(name);
     const here = {
-      piece: depth === 0 ? baseName(name) : ctx.piece,
+      piece: depth === 0 ? modelPieceName(name) : ctx.piece,
       collision: ctx.collision || COL_RE.test(name),
       higherLod: ctx.higherLod || (lod !== null && Number(lod[2]) > 0),
       pieceCollision: ctx.pieceCollision || (depth === 0 && COL_RE.test(name)),
       lod: depth === 0 ? (lod !== null ? Number(lod[2]) : null) : ctx.lod,
     };
-    const world = mul(parent, nodeMatrix(def));
+    const world = mul(parent, modelNodeMatrix(def));
     const mesh = typeof def['mesh'] === 'number' ? meshes[def['mesh']] : undefined;
     if (isObj(mesh) && Array.isArray(mesh['primitives'])) {
       (mesh['primitives'] as unknown[]).forEach((prim, pi) => {

@@ -330,6 +330,8 @@ export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, insta
 // Block layers — merged chunk meshes (the Play/export adapter and the editor's Scene view share it).
 export { BlockLayerView, MESH_APPLY_BUDGET_MS, SYNC_MESH_BUDGET_MS, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWorkerFactory, type MeshWorkerPort } from './block-mesh-pool';
+// The strip UVs block faces wear under a trim sheet (the kit preview's sample wall wears the same).
+export { trimStripUvs, trimWallRowSteps } from './block-cell-uv';
 // Probe lighting: the probe light every lit material samples, and the editor's probe debug view.
 export { isProbeLighting, PROBES_URL_PARAM, probesFromUrl, ProbeLighting } from './probe-lighting';
 export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, probeWeight, type PackedProbeTile } from './probe-pack';

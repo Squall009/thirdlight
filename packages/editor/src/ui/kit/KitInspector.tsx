@@ -72,9 +72,9 @@ function SlotInspector(p: KitInspectorProps & { slot: string; index: number }): 
     setAnchor(null);
     if (f === undefined) return;
     // Published and put in the slot: one undo step.
-    void editor.grouped(async () => {
-      const id = await editor.importModel(f);
-      if (typeof id === 'string') await editor.save(assignPiece(editor.kit ?? kit, slot, at, { assetId: id }));
+    void editor.grouped(async (ed) => {
+      const id = await ed.importModel(f);
+      if (typeof id === 'string') await ed.save(assignPiece(editor.kit ?? kit, slot, at, { assetId: id }));
     });
   };
   const tally = report === undefined ? null : { errors: report.checks.filter((c) => c.state === 'err').length, warnings: report.checks.filter((c) => c.state === 'warn').length };

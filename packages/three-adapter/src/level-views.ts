@@ -88,12 +88,14 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
       const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
       if (Object.keys(mapping).length > 0) d.materials.apply(mesh, mapping, null);
     },
-    // The first trim sheet among the type's materials (a stand-in wears one; a world-mapped model rarely more) sets its wall cuts.
+    // The first trim sheet among the materials the type's meshes wear sets its wall cuts: a type's walls are cut once
+    // (a stand-in wears one sheet; a world-mapped model rarely more). A model's own material the type maps to another
+    // is not worn, so it is read through the same mapping applyMaterials draws with.
     wallRowsOf: (type) => {
       const library = d.materials;
       if (library?.trimSheetOf === undefined) return null;
       const ids = new Set(Object.values(type.materials ?? {}));
-      for (const v of type.variants) if (v.model !== undefined) for (const id of Object.values(d.assetMaterials(v.model.assetId) ?? {})) ids.add(id);
+      for (const v of type.variants) if (v.model !== undefined) for (const id of Object.values({ ...(d.assetMaterials(v.model.assetId) ?? {}), ...(type.materials ?? {}) })) ids.add(id);
       for (const id of ids) {
         const sheet = library.trimSheetOf(id);
         const steps = sheet !== null ? trimWallRowSteps(sheet) : null;

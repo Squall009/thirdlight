@@ -460,6 +460,19 @@ export function evaluateStyle(style: ArchitectureStyleDef, value: (name: string)
       ...(material !== '' ? { material } : sheet !== null ? { material: sheet } : {}),
     };
   };
+  /**
+   * The one repeat a run's kit model stands in for: the posts on the run's
+   * own line (a repeat wired straight from the Outline), else the first
+   * repeat the Output takes. Other repeats (pilasters on an offset line)
+   * keep the style's piece.
+   */
+  const kitRepeat = ((): string | null => {
+    if (outline.repeatModel === undefined) return null;
+    const output = [...style.nodes.values()].find((n) => n.type === 'output');
+    const repeats = (output === undefined ? [] : source(output, 'elements')).map((s) => style.nodes.get(s.node)).filter((n): n is GraphNode => n?.type === 'repeat');
+    const onLine = repeats.find((r) => style.nodes.get(source(r, 'path')[0]?.node ?? '')?.type === 'outline');
+    return (onLine ?? repeats[0])?.id ?? null;
+  })();
   const evaluate = (id: string): Value => {
     if (memo.has(id)) return memo.get(id)!;
     const n = style.nodes.get(id);
@@ -626,7 +639,7 @@ export function evaluateStyle(style: ArchitectureStyleDef, value: (name: string)
           pieces.push({ ...v.element, id } as ArchitectureSweep | ArchitectureFill);
         }
         // A kit model in place of the style's piece (a run's railing from the kit): the style still spaces the copies.
-        const model = outline.repeatModel;
+        const model = n.id === kitRepeat ? outline.repeatModel : undefined;
         if (pieces.length === 0 && model === undefined) return null;
         const start = num(n, 'start');
         const jy = num(n, 'jitterYaw');

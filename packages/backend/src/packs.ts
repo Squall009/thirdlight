@@ -16,6 +16,8 @@
  *
  * A pack is added once: a project that has any of its ids is refused (named),
  * so a second add never replaces what the project changed in its copies.
+ * An add is whole or nothing: checked first, and taken back when a command
+ * is refused partway.
  *
  * A template's own setup is a pack too (`templates/<id>/setup/`): what a v3
  * captured project cannot hold (materials, terrain, block layers, the scene's
@@ -65,6 +67,14 @@ export interface PackCommand {
 }
 
 const REF_PREFIX = '$ref:';
+
+/** The names every `"$ref:<name>"` string in `value` stands for. */
+function refsIn(value: unknown): string[] {
+  if (typeof value === 'string') return value.startsWith(REF_PREFIX) ? [value.slice(REF_PREFIX.length)] : [];
+  if (Array.isArray(value)) return value.flatMap(refsIn);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(refsIn);
+  return [];
+}
 
 /** `args` with every `"$ref:<name>"` string replaced by the id made under that name (an unknown name is left: the command refuses it). */
 function withRefs(value: unknown, refs: ReadonlyMap<string, string>): unknown {
@@ -170,27 +180,78 @@ export interface PackInstallerDeps {
 
 export function createPackInstaller(deps: PackInstallerDeps) {
   const { service } = deps;
-  /** Add pack `packId` to the project; stops at the first refused command (what ran before it stays, one undo step). */
+  /** Add pack `packId` to the project: all of it, or nothing (see `install`). */
   const add = (projectId: string, packId: string, origin: Origin): PackAddResult => {
     if (deps.engineRoot === undefined) return { ok: false, status: 503, code: 'unavailable', message: 'packs need the engine root (THIRDLIGHT_ENGINE_ROOT)' };
     const loaded = loadPack(deps.engineRoot, packId);
     if (!loaded.ok) return { ok: false, status: 404, code: 'not_found', message: loaded.message };
     return install(projectId, loaded.pack, loaded.files, origin);
   };
-  /** Add a loaded pack (an engine pack, a template's setup) to the project, as `add` does. */
+  /**
+   * Add a loaded pack (an engine pack, a template's setup) to the project:
+   * every command, as one undo step, or none. What can be known beforehand
+   * is checked first (the ids it makes are free, every `$ref` names an
+   * earlier command's object, every file is there and accepted by the
+   * importer); a command refused partway takes back what ran before it, so
+   * no half-added pack outlives the in-memory undo history (a restart).
+   */
   const install = (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): PackAddResult => {
     const r = addCommands(projectId, pack, files, origin);
-    const ran = r.ok ? r.added.length : (r.added?.length ?? 0);
-    if (ran > 1) service.groupHistory(projectId, ran);
-    return r;
+    if (r.ok) {
+      if (r.added.length > 1) service.groupHistory(projectId, r.added.length);
+      return r;
+    }
+    const ran = r.added ?? [];
+    if (ran.length === 0) return r;
+    // Newest first: each undo takes back the command applied last.
+    let left = ran.length;
+    while (left > 0) {
+      const u = runCommandNow(service, projectId, 'undo', {}, origin);
+      if (!u.ok) break;
+      deps.onApplied(projectId, u.result, origin);
+      left -= 1;
+    }
+    if (left === 0) return { ...r, added: [], message: `${r.message} (nothing of ${pack.name} was added)` };
+    const stay = ran.slice(0, left);
+    return { ...r, added: stay, message: `${r.message}; taking back what ran before it stopped failed, so these stay: ${stay.map((a) => `${a.op} ${a.id}`).join(', ')}` };
+  };
+  /** Why the pack cannot be added before anything runs (null: nothing found). */
+  const refusal = (content: Record<string, unknown>, pack: Pack, files: ReadonlyMap<string, Uint8Array>): PackAddResult | null => {
+    const ids = packIds(pack);
+    const taken = ids.filter(({ list, key, id }) => Array.isArray(content[list]) && (content[list] as Record<string, unknown>[]).some((r) => r[key] === id));
+    if (taken.length > 0) {
+      const named = taken.map((t) => `${t.id} (${t.list})`).join(', ');
+      const message =
+        taken.length === ids.length
+          ? `the project already has ${pack.name} (a pack is added once; its copies are the project's to change)`
+          : `${pack.name} uses ids the project's own items already have: ${named}. Rename those items (or delete them) and add ${pack.name} again; a pack is added once and never replaces an item.`;
+      return { ok: false, status: 409, code: 'pack_present', message };
+    }
+    for (const a of pack.assets) if (!files.has(a.file)) return { ok: false, status: 400, code: 'pack_invalid', message: `pack "${pack.packId}": ${a.file} is missing` };
+    const made = new Set<string>();
+    for (const c of pack.commands) {
+      const unknown = refsIn(c.args).find((name) => !made.has(name));
+      if (unknown !== undefined) return { ok: false, status: 400, code: 'pack_invalid', message: `pack "${pack.packId}": ${c.op} names "${REF_PREFIX}${unknown}", which no earlier command makes` };
+      if (c.ref !== undefined) made.add(c.ref);
+    }
+    return null;
   };
   const addCommands = (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): PackAddResult => {
     const packId = pack.packId;
     const captured = service.readCapturedV3(projectId);
     if (!captured.ok) return { ok: false, status: 404, code: captured.error.code, message: captured.error.message ?? captured.error.code };
-    const content = captured.read.content as unknown as Record<string, unknown>;
-    const taken = packIds(pack).filter(({ list, key, id }) => Array.isArray(content[list]) && (content[list] as Record<string, unknown>[]).some((r) => r[key] === id));
-    if (taken.length > 0) return { ok: false, status: 409, code: 'pack_present', message: `the project already has ${pack.name}'s ${taken.map((t) => t.id).join(', ')} (a pack is added once; its copies are the project's to change)` };
+    const refused = refusal(captured.read.content as unknown as Record<string, unknown>, pack, files);
+    if (refused !== null) return refused;
+    // Every file held and inspected before the first command: a file the importer refuses stops the add with nothing run.
+    const inspected: { asset: PackAsset; sourceDigest: string; sourceByteLength: number; importRecipe?: unknown; metrics?: unknown }[] = [];
+    for (const a of pack.assets) {
+      const bytes = files.get(a.file)!;
+      const held = service.holdAssetBytes(projectId, bytes);
+      if (!held.ok) return { ok: false, status: 500, code: held.error.code, message: `${a.file}: ${held.error.message ?? held.error.code}` };
+      const p = deps.inspector(bytes, importJobPort(deps.now, 'pack', a.displayName), { kind: a.kind }) as unknown as { status: string; sourceDigest: string; sourceByteLength: number; importRecipe?: unknown; metrics?: unknown; diagnostics?: { message?: string }[] };
+      if (p.status !== 'ok') return { ok: false, status: 400, code: 'import_rejected', message: `${a.file}: ${p.diagnostics?.[0]?.message ?? 'not accepted by the importer'}` };
+      inspected.push({ asset: a, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics });
+    }
     const added: { op: string; id: string }[] = [];
     let revision = captured.read.revision;
     const refs = new Map<string, string>();
@@ -204,26 +265,21 @@ export function createPackInstaller(deps: PackInstallerDeps) {
       if (ref !== undefined && typeof made === 'string') refs.set(ref, made);
       return null;
     };
-    for (const a of pack.assets) {
-      const bytes = files.get(a.file)!;
-      const held = service.holdAssetBytes(projectId, bytes);
-      if (!held.ok) return { ok: false, status: 500, code: held.error.code, message: `${a.file}: ${held.error.message ?? held.error.code}`, added };
-      const p = deps.inspector(bytes, importJobPort(deps.now, 'pack', a.displayName), { kind: a.kind }) as unknown as { status: string; sourceDigest: string; sourceByteLength: number; importRecipe?: unknown; metrics?: unknown; diagnostics?: { message?: string }[] };
-      if (p.status !== 'ok') return { ok: false, status: 400, code: 'import_rejected', message: `${a.file}: ${p.diagnostics?.[0]?.message ?? 'not accepted by the importer'}`, added };
+    for (const { asset: a, ...p } of inspected) {
       const importedAt = new Date(deps.now()).toISOString().replace(/\.\d{3}Z$/, 'Z');
-      const refused = run('publishAsset', { mode: 'create', assetId: a.assetId, kind: a.kind, displayName: a.displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt, folder: pack.folder }, a.assetId);
-      if (refused !== null) return refused;
+      const stopped = run('publishAsset', { mode: 'create', assetId: a.assetId, kind: a.kind, displayName: a.displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt, folder: pack.folder }, a.assetId);
+      if (stopped !== null) return stopped;
     }
     for (const c of pack.commands) {
       const id = packIds({ ...pack, assets: [], commands: [c] })[0]?.id ?? c.ref ?? c.op;
-      const refused = run(c.op, c.args, id, c.ref);
-      if (refused !== null) return refused;
+      const stopped = run(c.op, c.args, id, c.ref);
+      if (stopped !== null) return stopped;
     }
     // Material mappings last: they name the pack's materials, made just above.
     for (const a of pack.assets) {
       if (a.materials === undefined) continue;
-      const refused = run('setAssetOptions', { assetId: a.assetId, materials: a.materials }, a.assetId);
-      if (refused !== null) return refused;
+      const stopped = run('setAssetOptions', { assetId: a.assetId, materials: a.materials }, a.assetId);
+      if (stopped !== null) return stopped;
     }
     return { ok: true, packId, revision, added };
   };

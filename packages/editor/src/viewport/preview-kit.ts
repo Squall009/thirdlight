@@ -2,18 +2,19 @@
  * The preview pane's kit piece subject: one piece of a kit slot standing
  * where the engine would put it — in an opening of a sample wall (a door, a
  * window), on the wall's line (an edge piece), on the floor before it — or
- * alone. The wall and floor wear the kit's trim sheet with strip UVs as the
- * generator lays them (the floor row on the floor, the lower wall row on
- * the first metre, the upper wall row above, the bevel on the top; each
- * field repeating at its height), so a piece is judged against the sheet it
- * will meet. Two boxes say whether it fits: dashed blue, the cell it should
+ * alone. The wall and floor are a block wall and floor and wear the kit's
+ * trim sheet with the strip UVs block faces wear (`trimStripUvs`: the first
+ * storey of cells the lower wall row, the storeys above the upper wall, tops
+ * the floor; on a sheet drawing rows at their real height a field repeats at
+ * its own height, the faces cut where it repeats), so a piece is judged
+ * against the sheet as it * will meet. Two boxes say whether it fits: dashed blue, the cell it should
  * fill; solid red, where it draws; small axes mark its file origin.
  *
  * Browser-only.
  */
 import type { KitSlotPlacement } from '@thirdlight/project-model';
-import { trimRowOf, trimRowMetres, trimU, trimV, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
-import { disposeObjectTree, type MaterialDefLike, type MaterialFunctionLike } from '@thirdlight/three-adapter';
+import { TRIM_PIECE_PLACE_TOLERANCE, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
+import { disposeObjectTree, trimStripUvs, trimWallRowSteps, type MaterialDefLike, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
 
 import type { PreviewStage, PreviewSubject } from './preview-renderer';
@@ -22,12 +23,11 @@ export type KitPreviewMode = 'wall' | 'room' | 'alone';
 
 /** The sample wall's length and height, and how far a free piece stands before it (metres). */
 const WALL = { length: 5, height: 3, thickness: 0.2, freeAhead: 1 } as const;
-/** The quads' grid on the wall: every field row the spec lays out repeats at a multiple of it. */
-const STEP = 0.5;
 
 const CELL_COLOR = 0x4f8cff;
 const DRAW_COLOR = 0xff5a5a;
 
+/** Positions, normals and metre UVs as a block chunk has them (a wall's v is −y, a top's u, v are x, z). */
 interface Geo {
   pos: number[];
   nrm: number[];
@@ -35,7 +35,7 @@ interface Geo {
   idx: number[];
 }
 
-/** One quad (corners counter-clockwise seen from where it faces) with its four UVs. */
+/** One quad (corners counter-clockwise seen from where it faces) with its four metre UVs. */
 function quad(g: Geo, c: readonly [number, number, number][], n: readonly [number, number, number], uv: readonly [number, number][]): void {
   const b = g.pos.length / 3;
   for (let i = 0; i < 4; i++) {
@@ -46,83 +46,71 @@ function quad(g: Geo, c: readonly [number, number, number][], n: readonly [numbe
   g.idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
 }
 
-/** Strip UVs of a face `x0..x1` along and `y0..y1` up, on the row `slot` (a field repeats at its height). */
-function stripUv(sheet: TrimSheet | null, slot: string, x0: number, x1: number, y0: number, y1: number): [number, number][] {
-  const row = sheet === null ? null : (trimRowOf(sheet, slot) ?? sheet.rows[0] ?? null);
-  if (sheet === null || row === null) return [[x0 / 4, y0], [x1 / 4, y0], [x1 / 4, y1], [x0 / 4, y1]];
-  const h = trimRowMetres(sheet, row);
-  // v counts from the row's top: the face's top edge is its top within the repeat it lies in.
-  const base = Math.floor((y0 + 1e-6) / h) * h;
-  const t = (y: number): number => 1 - (y - base) / h;
-  return [
-    [trimU(sheet, row, x0), trimV(sheet, row, t(y0))],
-    [trimU(sheet, row, x1), trimV(sheet, row, t(y0))],
-    [trimU(sheet, row, x1), trimV(sheet, row, t(y1))],
-    [trimU(sheet, row, x0), trimV(sheet, row, t(y1))],
-  ];
+/** Sorted, de-duplicated cut positions within `lo..hi` (both ends kept). */
+function cuts(lo: number, hi: number, extra: Iterable<number>, step: number, from = lo): number[] {
+  const out = new Set<number>([lo, hi]);
+  if (step > 0) for (let v = from + step; v < hi - 1e-6; v += step) if (v > lo + 1e-6) out.add(Math.round(v * 1e4) / 1e4);
+  for (const v of extra) if (v > lo + 1e-6 && v < hi - 1e-6) out.add(v);
+  return [...out].sort((a, b) => a - b);
 }
-
-/** The row a wall face at height `y` wears (as block walls: the lower wall below a metre, the upper above). */
-const wallRow = (y: number): string => (y < 1 - 1e-6 ? 'lower_wall' : 'upper_wall');
 
 /**
  * A wall along x (centred), its front facing +z, with a hole `hole` (x0, x1,
- * y0, y1; null: none): front and back faces in 0.5 m quads, the top and the
- * hole's reveals.
+ * y0, y1; null: none), cut as the block mesher cuts a wall: at every cell
+ * across and up, and on a real-height sheet where a field row repeats
+ * (`trimWallRowSteps`); front and back faces, the top and the hole's reveals.
  */
-function wallGeometry(sheet: TrimSheet | null, hole: [number, number, number, number] | null): Geo {
+function wallGeometry(sheet: TrimSheet | null, cell: number, hole: [number, number, number, number] | null): Geo {
   const g: Geo = { pos: [], nrm: [], uv: [], idx: [] };
   const half = WALL.length / 2;
   const zf = WALL.thickness / 2;
   const inHole = (x: number, y: number): boolean => hole !== null && x > hole[0] + 1e-6 && x < hole[1] - 1e-6 && y > hole[2] + 1e-6 && y < hole[3] - 1e-6;
-  // Hole edges join the quad grid so no quad straddles them.
-  const xs = new Set<number>();
-  const ys = new Set<number>();
-  for (let x = -half; x <= half + 1e-6; x += STEP) xs.add(Math.round(x * 1000) / 1000);
-  for (let y = 0; y <= WALL.height + 1e-6; y += STEP) ys.add(Math.round(y * 1000) / 1000);
-  if (hole !== null) {
-    xs.add(hole[0]).add(hole[1]);
-    ys.add(hole[2]).add(hole[3]);
-  }
-  const X = [...xs].filter((x) => x >= -half - 1e-6 && x <= half + 1e-6).sort((a, b) => a - b);
-  const Y = [...ys].filter((y) => y >= -1e-6 && y <= WALL.height + 1e-6).sort((a, b) => a - b);
+  const steps = sheet === null ? null : trimWallRowSteps(sheet);
+  const X = cuts(-half, half, hole === null ? [] : [hole[0], hole[1]], cell, -half);
+  const first = Math.min(cell, WALL.height);
+  const ys = [...cuts(0, first, [], steps?.[0] ?? 0, 0), ...cuts(first, WALL.height, [], cell, first), ...cuts(first, WALL.height, [], steps?.[1] ?? 0, 0)];
+  const Y = cuts(0, WALL.height, [...ys, ...(hole === null ? [] : [hole[2], hole[3]])], 0);
   for (let i = 0; i + 1 < X.length; i++) for (let j = 0; j + 1 < Y.length; j++) {
     const x0 = X[i]!, x1 = X[i + 1]!, y0 = Y[j]!, y1 = Y[j + 1]!;
     if (inHole((x0 + x1) / 2, (y0 + y1) / 2)) continue;
-    // A quad never crosses a row repeat: the grid lines fall on every field height of the spec.
-    const row = wallRow((y0 + y1) / 2);
-    quad(g, [[x0, y0, zf], [x1, y0, zf], [x1, y1, zf], [x0, y1, zf]], [0, 0, 1], stripUv(sheet, row, x0, x1, y0, y1));
-    quad(g, [[x1, y0, -zf], [x0, y0, -zf], [x0, y1, -zf], [x1, y1, -zf]], [0, 0, -1], stripUv(sheet, row, -x1, -x0, y0, y1));
+    quad(g, [[x0, y0, zf], [x1, y0, zf], [x1, y1, zf], [x0, y1, zf]], [0, 0, 1], [[x0, -y0], [x1, -y0], [x1, -y1], [x0, -y1]]);
+    quad(g, [[x1, y0, -zf], [x0, y0, -zf], [x0, y1, -zf], [x1, y1, -zf]], [0, 0, -1], [[-x1, -y0], [-x0, -y0], [-x0, -y1], [-x1, -y1]]);
   }
   const top = WALL.height;
-  quad(g, [[-half, top, zf], [half, top, zf], [half, top, -zf], [-half, top, -zf]], [0, 1, 0], stripUv(sheet, 'bevel', -half, half, 0, WALL.thickness));
+  quad(g, [[-half, top, zf], [half, top, zf], [half, top, -zf], [-half, top, -zf]], [0, 1, 0], [[-half, zf], [half, zf], [half, -zf], [-half, -zf]]);
   if (hole !== null) {
     const [x0, x1, y0, y1] = hole;
-    const reveal = (c: [number, number, number][], n: [number, number, number], len: number): void => quad(g, c, n, stripUv(sheet, 'frame', 0, len, 0, Math.min(WALL.thickness, 0.125)));
-    reveal([[x0, y0, zf], [x0, y0, -zf], [x0, y1, -zf], [x0, y1, zf]], [1, 0, 0], y1 - y0);
-    reveal([[x1, y0, -zf], [x1, y0, zf], [x1, y1, zf], [x1, y1, -zf]], [-1, 0, 0], y1 - y0);
-    reveal([[x0, y1, zf], [x0, y1, -zf], [x1, y1, -zf], [x1, y1, zf]], [0, -1, 0], x1 - x0);
-    if (y0 > 1e-6) reveal([[x0, y0, -zf], [x0, y0, zf], [x1, y0, zf], [x1, y0, -zf]], [0, 1, 0], x1 - x0);
+    // Reveals as a block hole's faces: the sides walls (u across the wall's depth), the head and sill tops.
+    quad(g, [[x0, y0, zf], [x0, y0, -zf], [x0, y1, -zf], [x0, y1, zf]], [1, 0, 0], [[zf, -y0], [-zf, -y0], [-zf, -y1], [zf, -y1]]);
+    quad(g, [[x1, y0, -zf], [x1, y0, zf], [x1, y1, zf], [x1, y1, -zf]], [-1, 0, 0], [[-zf, -y0], [zf, -y0], [zf, -y1], [-zf, -y1]]);
+    quad(g, [[x0, y1, zf], [x0, y1, -zf], [x1, y1, -zf], [x1, y1, zf]], [0, -1, 0], [[x0, zf], [x0, -zf], [x1, -zf], [x1, zf]]);
+    if (y0 > 1e-6) quad(g, [[x0, y0, -zf], [x0, y0, zf], [x1, y0, zf], [x1, y0, -zf]], [0, 1, 0], [[x0, -zf], [x0, zf], [x1, zf], [x1, -zf]]);
   }
   return g;
 }
 
-/** A floor `size` square at y = 0 on the floor row (its 1 m tiles across). */
-function floorGeometry(sheet: TrimSheet | null, size: number, z0: number): Geo {
+/** A floor `size` square at y = 0, one quad a cell, as block tops are. */
+function floorGeometry(cell: number, size: number, z0: number): Geo {
   const g: Geo = { pos: [], nrm: [], uv: [], idx: [] };
   const half = size / 2;
-  for (let x = -half; x < half - 1e-6; x += 1) for (let z = z0; z < z0 + size - 1e-6; z += 1) {
-    const uv = stripUv(sheet, 'floor', x, x + 1, 0, 1);
-    quad(g, [[x, 0, z + 1], [x + 1, 0, z + 1], [x + 1, 0, z], [x, 0, z]], [0, 1, 0], uv);
+  for (let x = -half; x < half - 1e-6; x += cell) for (let z = z0; z < z0 + size - 1e-6; z += cell) {
+    const x1 = Math.min(x + cell, half), z1 = Math.min(z + cell, z0 + size);
+    quad(g, [[x, 0, z1], [x1, 0, z1], [x1, 0, z], [x, 0, z]], [0, 1, 0], [[x, z1], [x1, z1], [x1, z], [x, z]]);
   }
   return g;
 }
 
-function meshOf(g: Geo): THREE.Mesh {
+/** The metre UVs as the sheet's strips (no sheet: metres, the sample is plain). */
+function stripped(g: Geo, sheet: TrimSheet | null, cell: number): Float32Array {
+  const metres = new Float32Array(g.uv);
+  return sheet === null ? metres : trimStripUvs(metres, g.pos, g.idx, [cell, cell, cell], sheet);
+}
+
+function meshOf(g: Geo, sheet: TrimSheet | null, cell: number): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(g.pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(g.nrm, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.uv, 2));
+  geo.setAttribute('uv', new THREE.BufferAttribute(stripped(g, sheet, cell), 2));
   geo.setIndex(g.idx);
   return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb8b4ac, roughness: 0.9 }));
 }
@@ -248,17 +236,18 @@ export class KitPieceSubject implements PreviewSubject {
     const cell = this.cellBox(size);
     const p = this.scene.placement;
     const hole: [number, number, number, number] | null = p.kind === 'free' ? null : [cell.min.x, cell.max.x, cell.min.y, Math.min(cell.max.y, WALL.height)];
-    const parts = [meshOf(wallGeometry(sheet, hole))];
+    const c = this.scene.cell;
+    const parts = [meshOf(wallGeometry(sheet, c, hole), sheet, c)];
     if (this.mode === 'room') {
       const side = (sign: number): THREE.Mesh => {
-        const m = meshOf(wallGeometry(sheet, null));
+        const m = meshOf(wallGeometry(sheet, c, null), sheet, c);
         m.rotation.y = sign * (Math.PI / 2);
         m.position.set(-sign * (WALL.length / 2), 0, WALL.length / 2);
         return m;
       };
       parts.push(side(1), side(-1));
-      parts.push(meshOf(floorGeometry(sheet, WALL.length, 0)));
-    } else parts.push(meshOf(floorGeometry(sheet, WALL.length, -1)));
+      parts.push(meshOf(floorGeometry(c, WALL.length, 0), sheet, c));
+    } else parts.push(meshOf(floorGeometry(c, WALL.length, -1), sheet, c));
     for (const m of parts) {
       this.sample.add(m);
       if (this.scene.sheet !== null) this.undo.push(stage.library.apply(m, { '*': this.scene.sheet.materialId }));
@@ -292,7 +281,7 @@ export class KitPieceSubject implements PreviewSubject {
     axes.renderOrder = 11;
     this.overlay.add(axes);
     const off = draws.getCenter(new THREE.Vector3()).sub(cell.getCenter(new THREE.Vector3()));
-    this.onState?.(Math.abs(off.x) > 0.02 || Math.abs(draws.min.y - cell.min.y) > 0.02 ? `draws ${off.x.toFixed(2)} m along, ${(draws.min.y - cell.min.y).toFixed(2)} m up from its cell` : 'fills its cell');
+    this.onState?.(Math.abs(off.x) > TRIM_PIECE_PLACE_TOLERANCE || Math.abs(draws.min.y - cell.min.y) > TRIM_PIECE_PLACE_TOLERANCE ? `draws ${off.x.toFixed(2)} m along, ${(draws.min.y - cell.min.y).toFixed(2)} m up from its cell` : 'fills its cell');
     const view = this.mode === 'alone' ? draws.clone().union(cell) : new THREE.Box3().setFromObject(this.holder);
     stage.frame(view, this.mode === 'alone' ? new THREE.Vector3(0.8, 0.5, 1.2) : new THREE.Vector3(0.35, 0.35, 1), this.mode === 'alone' ? 1 : 0.8);
   }

@@ -456,7 +456,7 @@ const rowText = (r: TrimRow): string => `${r.top}-${r.bottom}${r.texelDensity !=
  * Where a layered material's trim sheets disagree with its first one: per
  * other layer whose sheet's row table differs, the sheet, and the rows (by
  * slot) that differ — missing on one side, or at other pixels or density —
- * plus `size`, `padding` or `texelDensity` when those differ. One table is
+ * plus `size`, `padding`, `texelDensity` or `realHeight` when those differ. One table is
  * read for every trim layer, so a differing sheet draws its strips from the
  * wrong rows. A sheet that names no trim material is left to the reference
  * check.
@@ -474,6 +474,8 @@ export function layerSheetMismatches(m: { readonly layerSheets?: readonly string
     if (x.rows.size[0] !== first.rows.size[0] || x.rows.size[1] !== first.rows.size[1]) differ.push('size');
     if (x.rows.padding !== first.rows.padding) differ.push('padding');
     if (x.rows.texelDensity !== first.rows.texelDensity) differ.push('texelDensity');
+    // Real-height sheets lay a wall's rows at their own metres, the others fit them to whole rows: one rule is read for every layer.
+    if ((x.rows.realHeight === true) !== (first.rows.realHeight === true)) differ.push('realHeight');
     const other = rowsOf(x.rows);
     for (const slot of new Set([...base.keys(), ...other.keys()])) if (base.get(slot) !== other.get(slot)) differ.push(slot);
     if (differ.length > 0) out.push({ layer: x.layer, sheet: x.id, differ });

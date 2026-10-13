@@ -4,7 +4,9 @@
  * or not (with a preview in the Scene view) and showing a theme of its own;
  * the theme over the whole layer; and the cell metadata — the metadata
  * brush (a field and its value, cells or a rectangle), the overlay that
- * colours fields in the view, and the fields every cell can carry.
+ * colours fields in the view, and the fields every cell can carry; and the
+ * layer's size (its bounds in cells, grown or shrunk by numbers or a step on
+ * every side).
  *
  * Region edits are `editBlocks` (one undo step each); a rename or delete
  * then lets the layer's cut-aways, themes and walk follow (one
@@ -18,7 +20,7 @@ import type { CellField, CellFieldType, CellMetaValue } from '@thirdlight/projec
 import { blockKitNames } from '@thirdlight/runtime';
 
 import { blockModeOf } from '../../session/block-mode';
-import { isCutAway, themeOf, withCutaway, withRegionFollowed, withTheme } from '../../session/block-layer-edits';
+import { boundsGrown, isCutAway, themeOf, withBounds, withCutaway, withRegionFollowed, withTheme } from '../../session/block-layer-edits';
 import { enumColors, fieldColor, overlayLegend } from '../../session/block-overlay';
 import { newBlockId } from '../../session/block-type-edits';
 import { Section, Segmented, Toggle } from '../editmode/controls';
@@ -191,6 +193,107 @@ function ThemeSection({ s }: { s: BlockSetup }): JSX.Element {
             ))}
           </select>
         </div>
+      )}
+    </Section>
+  );
+}
+
+const BOUNDS_AXES = [
+  { label: 'Across (x)', axis: 0 },
+  { label: 'Up (y)', axis: 1 },
+  { label: 'Deep (z)', axis: 2 },
+] as const;
+
+/**
+ * The layer's bounds as numbers (from / to cells on each axis, the far edge
+ * exclusive) and a grow / shrink step on every side across: one
+ * `setComponent` each. Cells keep their place (the object's position is
+ * cell 0's corner), so growing towards minus adds room without moving
+ * anything; shrinking past a block is refused by the backend and said.
+ */
+function BoundsSection({ s }: { s: BlockSetup }): JSX.Element {
+  const { min, max } = s.component.bounds;
+  const cell = s.component.cellSize;
+  const [step, setStep] = useState(8);
+  const [error, setError] = useState<string | null>(null);
+  /** Bumped when a typed value is refused, so the number boxes show the stored bounds again. */
+  const [typed, setTyped] = useState(0);
+  const apply = (lo: readonly number[], hi: readonly number[], what: string): void => {
+    const r = withBounds(s.component, lo, hi);
+    if (!r.ok) return setError(r.message);
+    setError(null);
+    if (r.component === null) return;
+    void store(s, what, (c) => {
+      const now = withBounds(c, lo, hi);
+      return now.ok ? now.component : null;
+    }).then((ok) => {
+      if (ok) return;
+      // Bounds are the only change, so a refusal means a block lies outside them; the boxes go back to what is stored.
+      setError("Blocks lie outside those bounds: a layer can't shrink past a block.");
+      setTyped((n) => n + 1);
+    });
+  };
+  const size = [0, 1, 2].map((i) => max[i]! - min[i]!);
+  return (
+    <Section title="Layer size" aside={<span className="tl-sec__note">{size.join(' × ')} cells</span>}>
+      <div className="tl-bbox" aria-label="layer bounds">
+        {BOUNDS_AXES.map(({ label, axis }) => (
+          <div key={axis} className="tl-bbox__row">
+            <span className="tl-bbox__label">{label}</span>
+            {(['from', 'to'] as const).map((end) => {
+              const v = (end === 'from' ? min : max)[axis]!;
+              return (
+                <label key={end} className="tl-bbox__num">
+                  {end}
+                  <input
+                    className="tl-input"
+                    type="number"
+                    step={1}
+                    aria-label={`bounds ${end} ${'xyz'[axis]}`}
+                    defaultValue={v}
+                    key={`${v}:${typed}`}
+                    disabled={s.locked}
+                    onBlur={(e) => {
+                      const n = Number(e.target.value);
+                      if (n === v) return;
+                      const lo = [...min];
+                      const hi = [...max];
+                      (end === 'from' ? lo : hi)[axis] = n;
+                      apply(lo, hi, 'Resize layer');
+                    }}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="tl-btnrow">
+        <label className="tl-bbox__num">
+          step
+          <input className="tl-input" type="number" min={1} step={1} aria-label="bounds step" value={step} onChange={(e) => setStep(Math.max(1, Math.round(Number(e.target.value)) || 1))} />
+        </label>
+        <button type="button" className="tl-btn tl-btn--small" disabled={s.locked} onClick={() => {
+          const g = boundsGrown(s.component, step);
+          apply(g.min, g.max, `Grow layer by ${step}`);
+        }}>
+          Grow every side
+        </button>
+        <button type="button" className="tl-btn tl-btn--small" disabled={s.locked} onClick={() => {
+          const g = boundsGrown(s.component, -step);
+          apply(g.min, g.max, `Shrink layer by ${step}`);
+        }}>
+          Shrink every side
+        </button>
+      </div>
+      <p className="tl-hint">
+        {size[0]! * cell[0]!} × {size[1]! * cell[1]!} × {size[2]! * cell[2]!} m. Blocks keep their place; a layer can't shrink past a block.
+      </p>
+      {error !== null && (
+        <p className="tl-error" role="alert">
+          {error}
+        </p>
       )}
     </Section>
   );
@@ -372,6 +475,7 @@ export function RegionsColumn({ entity, host }: EditModeView): JSX.Element {
       <RegionsSection s={s} />
       <ThemeSection s={s} />
       <MetadataSection s={s} />
+      <BoundsSection s={s} />
     </div>
   );
 }

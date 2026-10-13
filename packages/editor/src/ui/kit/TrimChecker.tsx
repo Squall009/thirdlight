@@ -20,6 +20,27 @@ const ORDER: Record<KitCheck['state'], number> = { err: 0, warn: 1, info: 2, ok:
 
 const metres = (m: number): string => `${Number(m.toFixed(4))} m`;
 
+/** A row label's height as a share of the drawn sheet (13 px on the ~290 px the checker shows the sheet at). */
+const LABEL_SHARE = 0.045;
+/** Label lanes across the sheet: a label that would cover the one above moves one lane right. */
+const LABEL_LANES = 3;
+
+/**
+ * The lane of each row's label, so labels of thin rows (a baseboard, a
+ * bevel: a few pixels tall when drawn) sit side by side instead of on top of
+ * each other: the first lane whose last label ends above this row's top.
+ */
+function labelLanes(rows: readonly { top: number }[], height: number): number[] {
+  const ends: number[] = [];
+  return rows.map((r) => {
+    const top = r.top / height;
+    let lane = ends.findIndex((end) => end <= top);
+    if (lane < 0) lane = ends.length < LABEL_LANES ? ends.length : ends.indexOf(Math.min(...ends));
+    ends[lane] = top + LABEL_SHARE;
+    return lane;
+  });
+}
+
 export function TrimChecker(p: { sheet: KitSheetReport | null; hasSheet: boolean; albedo: string | null; thumbnails: TileThumbnails | null; onSpec: () => void }): JSX.Element {
   const [bounds, setBounds] = useState(true);
   const [gutters, setGutters] = useState(true);
@@ -34,6 +55,7 @@ export function TrimChecker(p: { sheet: KitSheetReport | null; hasSheet: boolean
   }
   const [w, h] = s.trim.size;
   const checks = [...s.report.checks].sort((a, b) => ORDER[a.state] - ORDER[b.state]);
+  const lanes = labelLanes(s.report.rows, h);
   return (
     <div className="tl-trimcheck" aria-label="trim checker">
       <div className="tl-trimcheck__head">
@@ -49,7 +71,7 @@ export function TrimChecker(p: { sheet: KitSheetReport | null; hasSheet: boolean
       <div className="tl-trimcheck__body">
         <div className="tl-trimcheck__sheet" aria-label="trim sheet with row bounds" data-thumb={thumb.state}>
           {thumb.url !== null ? <img src={thumb.url} alt="" draggable={false} /> : <span className="tl-hint">{p.albedo === null ? 'The material has no albedo map.' : 'Reading the picture…'}</span>}
-          {s.report.rows.map((r) => (
+          {s.report.rows.map((r, i) => (
             <div key={r.slot} className={`tl-trimcheck__row is-${r.state}${bounds ? '' : ' is-hidden'}`} style={{ top: `${(r.top / h) * 100}%`, height: `${((r.bottom - r.top) / h) * 100}%` }} data-row={r.slot}>
               {gutters && (
                 <>
@@ -57,13 +79,17 @@ export function TrimChecker(p: { sheet: KitSheetReport | null; hasSheet: boolean
                   <span className="tl-trimcheck__gutter is-below" style={{ height: `${(s.trim.padding / (r.bottom - r.top)) * 100}%` }} />
                 </>
               )}
-              {bounds && <span className="tl-trimcheck__label">{r.slot}</span>}
+              {bounds && (
+                <span className="tl-trimcheck__label" style={{ left: `calc(${(lanes[i]! * 100) / LABEL_LANES}% + 2px)` }} title={r.slot}>
+                  {r.slot}
+                </span>
+              )}
             </div>
           ))}
         </div>
         <table className="tl-trimcheck__rows" aria-label="trim rows">
           <tbody>
-            {s.report.rows.map((r) => (
+            {s.report.rows.map((r, i) => (
               <tr key={r.slot} data-row={r.slot} data-state={r.state}>
                 <td>
                   <span className={`tl-dot is-${r.state}`} aria-label={r.state} />

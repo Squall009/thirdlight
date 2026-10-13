@@ -55,10 +55,13 @@ block editor's Rooms & buildings — see [Rooms and paths](#rooms-and-paths)):
   wear `trimSlot`). Vaults and roofs need a rectangular path (four corners
   at right angles); any other is reported and left unfilled. `holes:
   [closed paths]` cut a flat or coffered fill (a stairwell).
-- **Overrides** `[{element, segment | corner, reach?, model, stretch?}]`: a
-  kit model UV'd against the row layout in place of a segment (made 1 m
-  long along +X, stretched to the segment unless `stretch: false`) or a
-  corner (the sweep left out `reach` m either side).
+- **Overrides** `[{element, segment | corner, reach?, model, stretch?, centre?}]`: a
+  kit model UV'd against the row layout in place of a segment or a corner
+  (the sweep left out `reach` m either side). A kit piece (`centre: true`,
+  what the block editor's Wall piece puts) is modelled one cell long along
+  +X and drawn once per cell of the segment; a raw override (no `centre`)
+  is made 1 m long and stretched to the segment. `stretch: false` keeps
+  one copy at its own size.
 - **The rest**: `chunkSize` (m, default 16: one worker job and one draw per
   material per chunk; 32 halves the draws again, its dense chunks take
   longer than 5 ms to make), `seed`, `ao: {strength? (0.6), radius? (0.5 m)}`

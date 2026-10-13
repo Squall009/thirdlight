@@ -109,9 +109,9 @@ async function makePaintable(s: BlockSetup, old: MaterialDef | null, from: Block
   const name = `${s.entity.name} layers`;
   const id = await host.newMaterialId(name);
   const wearers = old === null ? (from !== null ? [from] : []) : s.blocks.types.filter((t) => t.materials?.['*'] === old.materialId);
-  await s.blocks.grouped(async () => {
-    if (!(await host.run(old === null ? 'Set up material' : 'Make it paintable', 'setMaterial', { material: paintableMaterial(old, id, name) }))) return;
-    for (const t of wearers) await blockCommand(s, 'Block type material', 'setBlockType', { block: { ...t, materials: { ...(t.materials ?? {}), '*': id } } });
+  await s.blocks.grouped(async (g) => {
+    if (!(await blockCommand({ blocks: g }, old === null ? 'Set up material' : 'Make it paintable', 'setMaterial', { material: paintableMaterial(old, id, name) }))) return;
+    for (const t of wearers) await blockCommand({ blocks: g }, 'Block type material', 'setBlockType', { block: { ...t, materials: { ...(t.materials ?? {}), '*': id } } });
   });
 }
 

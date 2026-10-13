@@ -1,8 +1,37 @@
-# Types (PathPaintGrid to UiStyleValues)
+# Types (PasteEntitiesArgs to UiStyle)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-paste-entities-args"></a>
+### PasteEntitiesArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/**
+ * `pasteEntities`: create copies of full entity values in one transaction
+ * (Duplicate, Copy/Paste — also across scenes). See `paste-ops.ts`.
+ */
+interface PasteEntitiesArgs {
+  entities: { id: string; parentId?: string; components: Record<string, unknown> }[];
+  /** The parent of the pasted roots (null = scene root); absent = each root's own parentId. */
+  parentId?: string | null;
+  /** Added to the positions of the copies placed in world space. */
+  offset?: [number, number, number];
+}
+```
+
+<a id="type-path-paint-sides"></a>
+### PATH_PAINT_SIDES
+
+Declared in `packages/project-model/src/vertex-paint.ts`.
+
+```ts
+/** The sides of a path its paint is kept for: the faces to the left and right of travel, and the faces looking up or down. */
+const PATH_PAINT_SIDES: readonly ["left", "right", "top"];
+```
 
 <a id="type-path-paint-grid"></a>
 ### PathPaintGrid
@@ -1599,40 +1628,5 @@ interface UiStyle extends UiStyleValues {
   focus?: UiStyleValues;
   pressed?: UiStyleValues;
   disabled?: UiStyleValues;
-}
-```
-
-<a id="type-ui-style-values"></a>
-### UiStyleValues
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-/** The closed set of style properties (never raw CSS). */
-interface UiStyleValues {
-  color?: UiColor;
-  background?: UiColor;
-  /** A texture asset drawn behind the widget (stretched, or 9-sliced with `slice`). */
-  backgroundImage?: string;
-  /** 9-slice insets of `backgroundImage` in image pixels: [top, right, bottom, left]. */
-  slice?: [number, number, number, number];
-  opacity?: number;
-  /** A font asset of the project, or a generic family: sans, serif, mono, rounded. */
-  font?: string;
-  fontSize?: number;
-  bold?: boolean;
-  italic?: boolean;
-  align?: 'left' | 'center' | 'right';
-  lineHeight?: number;
-  letterSpacing?: number;
-  /** One number (all sides) or [top, right, bottom, left], px. */
-  padding?: number | [number, number, number, number];
-  radius?: number;
-  borderWidth?: number;
-  borderColor?: UiColor;
-  /** A text shadow colour (1 px down, 2 px blur). */
-  textShadow?: UiColor;
-  /** A box shadow colour (4 px down, 12 px blur). */
-  shadow?: UiColor;
 }
 ```

@@ -53,9 +53,10 @@ export interface BlockModeHost {
   run(what: string, op: string, args: Record<string, unknown>): Promise<boolean>;
   /**
    * Run one user action that sends several commands as one undo step (the
-   * backend groups what it stored; see `SessionClient.grouped`).
+   * backend groups what it stored; see `SessionClient.grouped`). The action
+   * sends through the host it is given: only those commands are its own.
    */
-  grouped<T>(action: () => Promise<T>): Promise<T>;
+  grouped<T>(action: (host: BlockModeHost) => Promise<T>): Promise<T>;
   /** Some `editBlocks` edits of a layer (true: stored). */
   edit(what: string, entityId: string, edits: BlockEdit[]): Promise<boolean>;
   /**

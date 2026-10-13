@@ -30,7 +30,7 @@ import { authoredSegments, type PathSamples, pathPointAt, samplePath } from './a
 import { fillBaseY, fillOutline, fillPolygon, writeFill } from './arch-fill';
 import { openingSpan, writeFrame, writeReveals } from './arch-opening';
 import { profileBounds, resolveProfile, type SweepCut, type SweepFrames, sweepFrames, sweepPointAt, sweepProfile } from './arch-sweep';
-import { CHUNK_SIZE as BLOCK_CHUNK_CELLS } from './block-layers';
+import { BLOCK_LAYER_DEFAULT, CHUNK_SIZE as BLOCK_CHUNK_CELLS } from './block-layers';
 import { layerSheetRows } from './layered-surface';
 import { paintArchitectureColours } from './trim-paint';
 import {
@@ -44,6 +44,7 @@ import {
   type ArchitectureElement,
   type ArchitectureFill,
   type ArchitectureModelRef,
+  type ArchitectureOverride,
   type ArchitectureProfile,
   type ArchitectureRepeat,
   type ArchitectureSweep,
@@ -54,7 +55,7 @@ import { INSTANCE_FLOATS } from './types-v3';
 import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
-export const ARCHITECTURE_GENERATOR_VERSION = 2;
+export const ARCHITECTURE_GENERATOR_VERSION = 3;
 /** The most metres between a sweep's cross-sections (its vertex density for AO and paint). */
 export const ARCHITECTURE_SWEEP_CELL = 1;
 
@@ -527,7 +528,11 @@ function elementCopies(e: ArchitectureElement, c: ArchitectureComponent, s: Path
       if (o.segment >= segs) continue;
       const d0 = s.pointDist[o.segment]!;
       const d1 = o.segment + 1 < s.pointDist.length ? s.pointDist[o.segment + 1]! : s.length;
-      pathPointAt(s, o.centre === true ? (d0 + d1) / 2 : d0, p, t);
+      if (o.centre === true) {
+        centredSegmentCopies(o, c, s, d0, d1, `${e.id}:seg${o.segment}`, collide, keep, out);
+        continue;
+      }
+      pathPointAt(s, d0, p, t);
       if (!keep(p[0]!, p[2]!)) continue;
       out.add(o.model, collide, `${e.id}:seg${o.segment}`, p, frameQuat(t), o.stretch === false ? 1 : d1 - d0);
     } else if (o.corner !== undefined && o.corner < s.pointDist.length) {
@@ -550,6 +555,35 @@ function elementCopies(e: ArchitectureElement, c: ArchitectureComponent, s: Path
       if (!keep(k.x, k.z)) continue;
       out.add(e.piece.model, collide, `${e.id}:${k.index}`, [k.x, k.y, k.z], yawQuat(k.cos, k.sin));
     }
+  }
+}
+
+/**
+ * A kit piece on a segment (origin at its bottom centre): modelled one cell
+ * long, as a block layer's edge pieces are, and drawn as a block edge run
+ * is, one copy per cell along the segment. A segment that is no whole
+ * number of cells (a diagonal) takes the nearest count, each copy scaled to
+ * fill it. The cell is the layer's along the segment's main axis (1 m off a
+ * layer). Stretch off: one copy at its own size at the segment's middle.
+ */
+function centredSegmentCopies(o: ArchitectureOverride, c: ArchitectureComponent, s: PathSamples, d0: number, d1: number, id: string, collide: boolean, keep: (x: number, z: number) => boolean, out: Copies): void {
+  const p = [0, 0, 0];
+  const t = [0, 0, 0];
+  if (o.stretch === false) {
+    pathPointAt(s, (d0 + d1) / 2, p, t);
+    if (keep(p[0]!, p[2]!)) out.add(o.model, collide, id, p, frameQuat(t));
+    return;
+  }
+  pathPointAt(s, (d0 + d1) / 2, p, t);
+  const cs = c.paint?.cellSize ?? BLOCK_LAYER_DEFAULT.cellSize;
+  const cell = Math.abs(t[0]!) >= Math.abs(t[2]!) ? cs[0]! : cs[2]!;
+  const count = Math.max(1, Math.round((d1 - d0) / cell - 1e-6));
+  const step = (d1 - d0) / count;
+  for (let k = 0; k < count; k++) {
+    pathPointAt(s, d0 + (k + 0.5) * step, p, t);
+    if (!keep(p[0]!, p[2]!)) continue;
+    // The first copy keeps the segment's own id, so a one-cell segment's copy is named as before.
+    out.add(o.model, collide, k === 0 ? id : `${id}.${k}`, p, frameQuat(t), step / cell);
   }
 }
 

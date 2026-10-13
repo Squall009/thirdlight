@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to DecalPageRef)
+# Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -594,12 +594,18 @@ interface ArchitectureOverride {
   corner?: number;
   reach?: number;
   model: ArchitectureModelRef;
-  /** A segment's model is stretched along to the segment's length (made 1 m long along +X; absent: true). */
+  /**
+   * A segment's model fills the segment (absent: true): stretched to its
+   * length (made 1 m long along +X), or with `centre` one copy per cell.
+   * Off: placed once at its own size.
+   */
   stretch?: boolean;
   /**
-   * The model's origin is its bottom centre, as a kit's pieces are made: it
-   * stands at the segment's middle, stretched about it (absent: false, at
-   * the segment's start, the model made from 0 to 1 m along +X).
+   * The model is a kit piece: modelled one cell long along +X with its
+   * origin at its bottom centre, as a block layer's edge pieces are, and
+   * drawn one copy per cell along the segment (the layer's cell; 1 m off a
+   * layer), or once at the segment's middle with stretch off (absent: false,
+   * at the segment's start, the model made from 0 to 1 m along +X).
    */
   centre?: boolean;
 }
@@ -1413,23 +1419,5 @@ interface DecalPageLayerRef {
   /** The texture array (a texture asset id of the build). */
   texture: string;
   layer: number;
-}
-```
-
-<a id="type-decal-page-ref"></a>
-### DecalPageRef
-
-Declared in `packages/project-model/src/decal-pages.ts`.
-
-```ts
-/** The place a build hands the runtime with a decal material (`decalPage`): the rectangle and each set's array and layer. */
-interface DecalPageRef {
-  /** [u0, v0, u1, v1] on the page, 0–1 from its top-left, inset half a texel. */
-  rect: [number, number, number, number];
-  /** The deepest mip level sampling may reach. */
-  mip: number;
-  albedo?: DecalPageLayerRef;
-  normal?: DecalPageLayerRef;
-  orm?: DecalPageLayerRef;
 }
 ```

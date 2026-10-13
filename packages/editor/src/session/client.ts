@@ -64,44 +64,52 @@ export * from './client-core';
 
 export class SessionClient extends SessionClientCore {
   private readonly slotFetches = new FetchGate(SLOT_FETCHES_MAX);
-  /** The request ids of the commands stored while a `grouped` action runs (null: none runs). */
-  private groupIds: string[] | null = null;
-
-  override command(op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> {
-    const ids = this.groupIds;
-    if (ids === null) return super.command(op, args, expectedRevision, requestId, origin);
-    const rid = requestId ?? makeRequestId();
-    const p = super.command(op, args, expectedRevision, rid, origin);
-    // Registered before the caller's own continuation, so the ids are in the order the commands were stored.
-    void p.then((r) => {
-      if (r.ok) ids.push(rid);
-    });
-    return p;
-  }
-
   /**
    * Run one user action that sends several commands (a material and the
-   * block types that wear it) and make what it stored one undo step: the
-   * backend groups their history entries when nothing else ran between
-   * them (else they stay separate steps). Actions do not nest: an inner
-   * one joins the outer one's step.
+   * block types that wear it) and make what it stored one undo step. The
+   * action gets `scope`: the client as the action sees it. Only commands
+   * sent through the scope (directly, or by a client method called on it,
+   * such as a model publish) are the action's own; anything sent through the
+   * client itself meanwhile (an Inspector edit while a slow GLB uploads)
+   * stays its own step. Browsers have no async context to tell the two
+   * apart, so the scope is passed explicitly. `scope.grouped` joins the
+   * action's step rather than starting another. The backend groups the
+   * entries only when nothing else ran between them (else each stays a step).
    */
-  async grouped<T>(action: () => Promise<T>): Promise<T> {
-    if (this.groupIds !== null) return action();
+  async grouped<T>(action: (scope: SessionClient) => Promise<T>): Promise<T> {
     const ids: string[] = [];
-    this.groupIds = ids;
+    const scope = this.commandScope(ids);
     try {
-      return await action();
+      return await action(scope);
     } finally {
-      this.groupIds = null;
       if (ids.length > 1) {
         try {
-          await this.api(`/projects/${this.cfg.projectId}/history/group`, { requestIds: ids });
+          await this.api(`/projects/${this.cfg.projectId}/history/group`, { requestIds: ids, origin: { kind: 'browser', clientId: this.sessionId } });
         } catch {
           // Not grouped (someone else's command ran between them): each stays its own undo step.
         }
       }
     }
+  }
+
+  /** The client as one `grouped` action sees it: its stored commands' request ids go to `ids`, in the order they were stored. */
+  private commandScope(ids: string[]): SessionClient {
+    const send = (op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> => {
+      const rid = requestId ?? makeRequestId();
+      const p = this.command(op, args, expectedRevision, rid, origin);
+      // Registered before the caller's own continuation, so the ids are in the order the commands were stored.
+      void p.then((r) => {
+        if (r.ok) ids.push(rid);
+      });
+      return p;
+    };
+    const join = <T>(action: (scope: SessionClient) => Promise<T>): Promise<T> => action(scope);
+    // Every other member is the client's own; methods run with the scope as `this`, so their commands are recorded.
+    const scope: SessionClient = new Proxy(this, {
+      get: (target, prop, receiver) => (prop === 'command' ? send : prop === 'grouped' ? join : Reflect.get(target, prop, receiver)),
+      set: (target, prop, value) => Reflect.set(target, prop, value),
+    });
+    return scope;
   }
 
   /** One entity with its full components (read-only). */

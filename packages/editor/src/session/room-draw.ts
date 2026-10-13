@@ -63,21 +63,29 @@ export function isBuilding(c: ArchitectureComponent | null, id: string): boolean
 /** A kit piece put in new openings: the model, and the hole it takes (cells wide, metres up from the wall's foot). */
 export interface OpeningPiece {
   model: ArchitectureModelRef;
+  /** Cells wide on the layer's x cells (what the column shows); a wall along z counts its own cells from `width`. */
   cells: number;
+  /** The piece's own width in metres, when known: the hole is the whole cells that hold it, on the wall's axis. */
+  width?: number;
   bottom: number;
   top: number;
 }
 
+/** The whole cells a piece `width` metres wide needs (at least one; a width a hair over a cell line is that many cells). */
+export function cellsFor(width: number, cell: number): number {
+  return Math.max(1, Math.ceil(width / cell - 1e-6));
+}
+
 /**
- * The hole a kit piece takes: as wide as its whole cells (at least one),
- * from its slot's sill (`sill`) up its height; a piece whose size is not
- * known takes the opening kind's own height.
+ * The hole a kit piece takes: the whole cells that hold its width (at
+ * least one), from its slot's sill (`sill`) up its height; a piece whose
+ * size is not known takes the opening kind's own size.
  */
 export function openingPiece(model: ArchitectureModelRef, kind: 'door' | 'window', sill: number, size: readonly number[] | null, cellSize: readonly number[]): OpeningPiece {
   const k = ROOM_OPENING_KINDS[kind];
-  const cells = size === null ? k.cells : Math.max(1, Math.round(size[0]! / cellSize[0]!));
+  const cells = size === null ? k.cells : cellsFor(size[0]!, cellSize[0]!);
   const height = size === null ? k.top - k.bottom : size[1]!;
-  return { model: { ...model }, cells, bottom: sill, top: round6(sill + height) };
+  return { model: { ...model }, cells, ...(size !== null ? { width: size[0]! } : {}), bottom: sill, top: round6(sill + height) };
 }
 
 /** The openings the tool puts on walls: cells wide, metres up from the wall's foot, a pane or not. */
@@ -151,8 +159,23 @@ export function withBuilding(c: ArchitectureComponent | null, layerId: string, b
   return { ...base, buildings: [...(base.buildings ?? []), b] };
 }
 
-/** The component with one outline or building replaced (null removes it). */
+/**
+ * The component with one outline or building replaced (null removes it).
+ * The pieces on its walls go with it: removed with it, renamed with it
+ * (an override names its element by the outline's id, and one naming an
+ * element nothing makes is refused).
+ */
 export function withOutlineSet(c: ArchitectureComponent, id: string, next: ArchitectureOutline | null): ArchitectureComponent {
+  const out = withOutlineOnly(c, id, next);
+  if (next !== null && next.id === id) return out;
+  const mine = new Set(overridesOf(c, id).map((x) => x.index));
+  if (mine.size === 0) return out;
+  const overrides = (c.overrides ?? []).flatMap((o, i) => (!mine.has(i) ? [o] : next === null ? [] : [{ ...o, element: next.id + o.element.slice(id.length) }]));
+  const { overrides: _v, ...rest } = out;
+  return overrides.length > 0 ? { ...rest, overrides } : rest;
+}
+
+function withOutlineOnly(c: ArchitectureComponent, id: string, next: ArchitectureOutline | null): ArchitectureComponent {
   if (isBuilding(c, id)) {
     const buildings = (c.buildings ?? []).flatMap((o) => (o.id !== id ? [o] : next !== null ? [next as ArchitectureBuilding] : []));
     const { buildings: _b, ...rest } = c;
@@ -238,6 +261,31 @@ export function nearestSide(c: ArchitectureComponent | null, x: number, z: numbe
   return best;
 }
 
+/** A side's cell along it: the layer's x cell for a side along x, its z cell for one along z. */
+export function sideCell(side: OutlineSide, cellSize: readonly number[]): number {
+  return Math.abs(side.b[0] - side.a[0]) >= Math.abs(side.b[2] - side.a[2]) ? cellSize[0]! : cellSize[2]!;
+}
+
+/**
+ * Where an opening `cells` cells wide stands on a side near `along`
+ * (metres from the side's start): centred so it covers whole cells (an
+ * odd count: on a cell's middle; even: on a cell line), kept inside the
+ * side; `at` is along the whole outline. Null: the side is too short.
+ */
+export function placeOnSide(side: OutlineSide, along: number, cells: number, cellSize: readonly number[]): { at: number; width: number } | null {
+  const cell = sideCell(side, cellSize);
+  const width = cells * cell;
+  if (width > side.length + 1e-9) return null;
+  let mid = cells % 2 === 1 ? (Math.floor(along / cell) + 0.5) * cell : Math.round(along / cell) * cell;
+  mid = Math.max(width / 2, Math.min(side.length - width / 2, mid));
+  return { at: round6(side.start + mid), width: round6(width) };
+}
+
+/** The cells a piece takes on a side: from its own width on the side's axis when known. */
+function pieceCellsOn(side: OutlineSide, piece: Pick<OpeningPiece, 'cells' | 'width'>, cellSize: readonly number[]): number {
+  return piece.width === undefined ? piece.cells : cellsFor(piece.width, sideCell(side, cellSize));
+}
+
 /**
  * An opening on a side, `cells` cells wide, centred so it covers whole cells
  * (an odd count: on a cell's middle; even: on a cell line), kept inside the
@@ -245,18 +293,35 @@ export function nearestSide(c: ArchitectureComponent | null, x: number, z: numbe
  * piece that stands in it (its hole, no pane).
  */
 export function openingOn(side: OutlineSide, along: number, kind: keyof typeof ROOM_OPENING_KINDS, cellSize: readonly number[], storey: number, piece: OpeningPiece | null = null): ArchitectureOpening | null {
-  const k = piece === null ? ROOM_OPENING_KINDS[kind] : { ...piece, pane: false };
-  const cell = Math.abs(side.b[0] - side.a[0]) >= Math.abs(side.b[2] - side.a[2]) ? cellSize[0]! : cellSize[2]!;
-  const width = k.cells * cell;
-  if (width > side.length + 1e-9) return null;
-  const odd = k.cells % 2 === 1;
-  let mid = odd ? (Math.floor(along / cell) + 0.5) * cell : Math.round(along / cell) * cell;
-  mid = Math.max(width / 2, Math.min(side.length - width / 2, mid));
+  const k = piece === null ? ROOM_OPENING_KINDS[kind] : { ...piece, cells: pieceCellsOn(side, piece, cellSize), pane: false };
+  const place = placeOnSide(side, along, k.cells, cellSize);
+  if (place === null) return null;
   const taken = new Set((side.outline.openings ?? []).map((o) => o.id));
   let n = 1;
   while (taken.has(`${kind}-${n}`)) n++;
   // A kit piece stands in the hole instead of the style's reveals, frame and pane.
-  return { id: `${kind}-${n}`, at: round6(side.start + mid), width: round6(width), bottom: k.bottom, top: k.top, ...(k.pane ? { pane: true } : {}), ...(storey > 0 ? { storey } : {}), ...(piece !== null ? { model: { ...piece.model } } : {}) };
+  return { id: `${kind}-${n}`, at: place.at, width: place.width, bottom: k.bottom, top: k.top, ...(k.pane ? { pane: true } : {}), ...(storey > 0 ? { storey } : {}), ...(piece !== null ? { model: { ...piece.model } } : {}) };
+}
+
+/** The straight side an opening stands on (by its `at` along the outline; null: on an arc or curve, or past the end). */
+export function sideOfOpening(o: ArchitectureOutline, at: number): OutlineSide | null {
+  const sides = straightSides(o);
+  const total = sides.reduce((t, s) => t + s.length, 0);
+  const d = o.path.closed === true && total > 0 && sides.length === (o.path.points.length) ? ((at % total) + total) % total : at;
+  return sides.find((s) => d >= s.start - 1e-9 && d <= s.start + s.length + 1e-9) ?? null;
+}
+
+/**
+ * An opening given a kit piece's hole: the whole cells holding the piece on
+ * its wall's axis, re-centred on whole cells near where it stood. A string
+ * when it cannot be: the wall is too short, or it is not a straight wall.
+ */
+export function openingResized(o: ArchitectureOutline, opening: ArchitectureOpening, piece: Pick<OpeningPiece, 'cells' | 'width'>, cellSize: readonly number[]): { at: number; width: number } | string {
+  const side = sideOfOpening(o, opening.at);
+  if (side === null) return `${opening.id} is not on a straight wall: the piece cannot be sized to it.`;
+  const cells = pieceCellsOn(side, piece, cellSize);
+  const place = placeOnSide(side, opening.at - side.start, cells, cellSize);
+  return place ?? `The wall is too short for this piece (${cells} cell${cells === 1 ? '' : 's'} wide).`;
 }
 
 /** The across direction of a side (right of travel, on the ground; unit). */
@@ -405,8 +470,18 @@ function pieceSweeps(elements: readonly ArchitectureElement[]): ArchitectureSwee
   return walls.length > 0 ? walls : sweeps;
 }
 
-/** The straight segment of a wall nearest a ground point (x, z) within `reach` metres (arcs and curves are left out). */
-export function nearestSegment(elements: readonly ArchitectureElement[], x: number, z: number, reach: number): ElementSegment | null {
+/**
+ * How near a wall point is to the pointer: on the ground within `reach`
+ * metres, then by height when the pointer's is known (`y`: the floor it is
+ * on), so an upper storey's wall, standing over the ground storey's, is
+ * picked from its own floor.
+ */
+function pickDistance(ground: number, footY: number, y: number | undefined): number {
+  return y === undefined ? ground : Math.hypot(ground, footY - y);
+}
+
+/** The straight segment of a wall nearest a point within `reach` metres on the ground (`y`: the pointer's floor height; arcs and curves are left out). */
+export function nearestSegment(elements: readonly ArchitectureElement[], x: number, z: number, reach: number, y?: number): ElementSegment | null {
   let best: ElementSegment | null = null;
   let bestD = Infinity;
   for (const e of pieceSweeps(elements)) {
@@ -422,8 +497,9 @@ export function nearestSegment(elements: readonly ArchitectureElement[], x: numb
       const l2 = dx * dx + dz * dz;
       if (l2 === 0) continue;
       const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[2]) * dz) / l2));
-      const d = Math.hypot(a[0] + dx * t - x, a[2] + dz * t - z);
-      if (d <= reach && d < bestD) {
+      const g = Math.hypot(a[0] + dx * t - x, a[2] + dz * t - z);
+      const d = pickDistance(g, a[1] + (b[1] - a[1]) * t, y);
+      if (g <= reach && d < bestD) {
         bestD = d;
         best = { element: e.id, segment: i, a: [...a], b: [...b] };
       }
@@ -432,14 +508,15 @@ export function nearestSegment(elements: readonly ArchitectureElement[], x: numb
   return best;
 }
 
-/** The wall corner nearest a ground point (x, z) within `reach` metres. */
-export function nearestCorner(elements: readonly ArchitectureElement[], x: number, z: number, reach: number): ElementCorner | null {
+/** The wall corner nearest a point within `reach` metres on the ground (`y`: the pointer's floor height). */
+export function nearestCorner(elements: readonly ArchitectureElement[], x: number, z: number, reach: number, y?: number): ElementCorner | null {
   let best: ElementCorner | null = null;
   let bestD = Infinity;
   for (const e of pieceSweeps(elements)) {
     e.path.points.forEach((p, i) => {
-      const d = Math.hypot(p[0] - x, p[2] - z);
-      if (d <= reach && d < bestD) {
+      const g = Math.hypot(p[0] - x, p[2] - z);
+      const d = pickDistance(g, p[1], y);
+      if (g <= reach && d < bestD) {
         bestD = d;
         best = { element: e.id, corner: i, p: [...p] };
       }

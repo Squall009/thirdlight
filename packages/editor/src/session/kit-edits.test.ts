@@ -7,7 +7,7 @@ import type { BlockType, GraphDocument, KitCheckReport, KitDef } from '@thirdlig
 import { KIT_LIMITS } from '@thirdlight/project-model/limits';
 import { describe, expect, it } from 'vitest';
 
-import { assignPiece, customSlotName, kitSheetSwap, kitSlots, kitTally, removePiece, setPieceNode, setPieceWeight, slotState, withId } from './kit-edits';
+import { assignPiece, customSlotName, kitSheetSwap, kitSlots, kitTally, removePiece, setPieceNode, setPieceWeight, slotState, withId, withoutShared } from './kit-edits';
 
 const KIT: KitDef = { kitId: 'k', name: 'K', pieces: { door: [{ assetId: 'd1' }], 'shop-sign': [{ assetId: 's', piece: 'sign' }] } };
 
@@ -74,6 +74,18 @@ describe('kit edits', () => {
     expect(swap.blockTypes).toEqual([{ blockId: 'wall', name: 'Wall', materials: { '*': 'new', top: 'grass' } }]);
     // The door's trim material was mapped to the old sheet (once, though two slots name the file); the window's to another; the crate is not the kit's.
     expect(swap.assets).toEqual([{ assetId: 'door', materials: { trim: 'new', glass: 'glass' } }]);
-    expect(kitSheetSwap(kit, 'old', 'old', graphs, types)).toEqual({ presets: [], blockTypes: [], assets: [] });
+    expect(swap.shared).toEqual([]);
+    expect(kitSheetSwap(kit, 'old', 'old', graphs, types)).toEqual({ presets: [], blockTypes: [], assets: [], shared: [] });
+
+    // Another kit listing the room preset and the door model: those would move for it too, so they are reported
+    // with its name; the wall, which only this kit lists, is not. The kit itself is not "another kit".
+    const kits: KitDef[] = [kit, { kitId: 'b', name: 'Market', presets: ['room'], blockTypes: ['slab'], pieces: { door: [{ assetId: 'door' }] } }, { kitId: 'c', name: 'Harbour', pieces: { stairs: [{ assetId: 'door', piece: 'step' }] } }];
+    const both = kitSheetSwap(kit, 'old', 'new', graphs, types, (id) => mappings[id], kits);
+    expect(both.shared).toEqual([
+      { kind: 'preset', id: 'room', kits: ['Market'] },
+      { kind: 'asset', id: 'door', kits: ['Market', 'Harbour'] },
+    ]);
+    // "Skip shared parts": only the wall moves.
+    expect(withoutShared(both)).toEqual({ presets: [], blockTypes: swap.blockTypes, assets: [], shared: [] });
   });
 });

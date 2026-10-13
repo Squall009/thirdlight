@@ -226,12 +226,18 @@ export interface ArchitectureOverride {
   corner?: number;
   reach?: number;
   model: ArchitectureModelRef;
-  /** A segment's model is stretched along to the segment's length (made 1 m long along +X; absent: true). */
+  /**
+   * A segment's model fills the segment (absent: true): stretched to its
+   * length (made 1 m long along +X), or with `centre` one copy per cell.
+   * Off: placed once at its own size.
+   */
   stretch?: boolean;
   /**
-   * The model's origin is its bottom centre, as a kit's pieces are made: it
-   * stands at the segment's middle, stretched about it (absent: false, at
-   * the segment's start, the model made from 0 to 1 m along +X).
+   * The model is a kit piece: modelled one cell long along +X with its
+   * origin at its bottom centre, as a block layer's edge pieces are, and
+   * drawn one copy per cell along the segment (the layer's cell; 1 m off a
+   * layer), or once at the segment's middle with stretch off (absent: false,
+   * at the segment's start, the model made from 0 to 1 m along +X).
    */
   centre?: boolean;
 }

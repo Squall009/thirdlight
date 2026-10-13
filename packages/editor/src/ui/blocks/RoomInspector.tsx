@@ -9,13 +9,13 @@
  *
  * Browser-only (React).
  */
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureModelRef, ArchitectureOpening, ArchitectureOutline, BlockType } from '@thirdlight/project-model';
 import { architectureOpeningEdges } from '@thirdlight/runtime';
 
 import { edgesEdit } from '../../session/block-brush';
 import { modelKey, type KitPieceChoice } from '../../session/kit-edits';
-import { isBuilding, overridesOf, withOutlineSet, withOverride } from '../../session/room-draw';
+import { isBuilding, openingResized, overridesOf, withOutlineSet, withOverride, type OpeningPiece } from '../../session/room-draw';
 import type { RoomsBinding } from '../architecture/useRoomsBinding';
 import { PresetSliders, type PresetSlidersHost } from '../architecture/PresetSliders';
 import { Section, Toggle } from '../editmode/controls';
@@ -31,7 +31,7 @@ export interface RoomPieces {
   /** A model in words (its asset's name, its piece). */
   label(m: ArchitectureModelRef): string;
   /** The hole a door or window piece takes (its size from the kit's check when known). */
-  hole(m: ArchitectureModelRef, kind: 'door' | 'window'): { cells: number; bottom: number; top: number };
+  hole(m: ArchitectureModelRef, kind: 'door' | 'window'): Pick<OpeningPiece, 'cells' | 'width' | 'bottom' | 'top'>;
 }
 
 export interface RoomInspectorProps {
@@ -57,25 +57,30 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
   const closed = room.path.closed === true;
   const kind = building !== null ? 'building' : closed ? 'room' : 'path';
   const cs = s.component.cellSize;
+  // Why the last opening edit was not made (shown in the openings until the next edit).
+  const [refusal, setRefusal] = useState<string | null>(null);
   const set = (next: ArchitectureOutline | null, what: string): void => {
     if (b.component === null) return;
     void b.setRooms(withOutlineSet(b.component, room.id, next), what);
     if (next === null) p.onPick(null);
   };
   const setOpening = (i: number, next: ArchitectureOpening | null, what?: string): void => {
+    setRefusal(null);
     const list = (room.openings ?? []).flatMap((o, j) => (j !== i ? [o] : next !== null ? [next] : []));
     const { openings: _o, ...rest } = room;
     set(list.length > 0 ? { ...rest, openings: list } : rest, what ?? (next === null ? 'Remove opening' : 'Edit opening'));
   };
-  // A kit piece in an opening takes the hole it needs (centred where the opening stood); none: the style's reveals and frame.
+  // A kit piece in an opening takes the whole cells it needs on its wall's axis, re-centred on whole cells where the
+  // opening stood (refused when the wall is too short); none: the style's reveals and frame.
   const setOpeningPiece = (i: number, o: ArchitectureOpening, key: string): void => {
     const choice = [...p.pieces.door, ...p.pieces.window].find((c) => c.key === key);
     const { model: _m, ...rest } = o;
     if (choice === undefined) return setOpening(i, rest, 'Opening piece off');
     const hole = p.pieces.hole(choice.model, choice.slot === 'window' ? 'window' : 'door');
-    const cell = cs[0]!;
+    const place = openingResized(room, o, hole, cs);
+    if (typeof place === 'string') return setRefusal(place);
     const { pane: _p, ...unglazed } = rest;
-    setOpening(i, { ...unglazed, width: hole.cells * cell, bottom: hole.bottom, top: hole.top, model: { ...choice.model } }, 'Opening piece');
+    setOpening(i, { ...unglazed, at: place.at, width: place.width, bottom: hole.bottom, top: hole.top, model: { ...choice.model } }, 'Opening piece');
   };
   const putLiveDoor = (o: ArchitectureOpening, blockId: string): void => {
     const offset = [0, 1, 2].map((i) => (b.origin[i] ?? 0) - (b.layerOrigin[i] ?? 0));
@@ -153,6 +158,11 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
       </Section>
       <Section title="Openings" aside={<span className="tl-sec__note">{room.openings?.length ?? 0}</span>}>
         {(room.openings ?? []).length === 0 && <p className="tl-hint">None yet: Door, Window or Arch, then click the wall.</p>}
+        {refusal !== null && (
+          <p className="tl-hint" role="status" aria-label="opening refused">
+            {refusal}
+          </p>
+        )}
         {(room.openings ?? []).map((o, i) => (
           <div key={o.id} className="tl-rooms__opening" aria-label={`opening ${o.id}`}>
             <span className="tl-field__label">{o.id}</span>
@@ -195,7 +205,7 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
                   <span className="tl-blist__name" title={o.element}>
                     {o.segment !== undefined ? `Wall ${o.segment + 1}` : `Corner ${(o.corner ?? 0) + 1}`} · {p.pieces.label(o.model)}
                   </span>
-                  {o.segment !== undefined && <Toggle label="Stretch" aria={`stretch ${o.element}:${spot}`} on={o.stretch !== false} onChange={(on) => b.component !== null && setComponent({ ...b.component, overrides: (b.component.overrides ?? []).map((x, j) => (j === index ? (on ? (({ stretch: _s, ...r }) => r)(x) : { ...x, stretch: false }) : x)) }, 'Piece stretch')} hint="On: the piece is stretched to the segment's length (made 1 m long). Off: placed once at its own size." />}
+                  {o.segment !== undefined && <Toggle label="Stretch" aria={`stretch ${o.element}:${spot}`} on={o.stretch !== false} onChange={(on) => b.component !== null && setComponent({ ...b.component, overrides: (b.component.overrides ?? []).map((x, j) => (j === index ? (on ? (({ stretch: _s, ...r }) => r)(x) : { ...x, stretch: false }) : x)) }, 'Piece stretch')} hint="On: one copy of the piece per cell along the wall (a wall piece is made one cell long). Off: placed once at its own size." />}
                   <button type="button" className="tl-icon-btn" aria-label={`remove piece ${o.element}:${spot}`} title="Take the piece off (the wall is made there again)" onClick={() => b.component !== null && setComponent(withOverride(b.component, o.segment !== undefined ? { element: o.element, segment: o.segment } : { element: o.element, corner: o.corner! }, null), 'Remove piece')}>
                     ✕
                   </button>

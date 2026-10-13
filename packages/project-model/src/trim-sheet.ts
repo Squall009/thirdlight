@@ -102,6 +102,8 @@ export const TRIM_DENSITY_MIN = 1;
 export const TRIM_DENSITY_MAX = 65536;
 /** The most padding a row may declare (pixels). */
 export const TRIM_PADDING_MAX = 256;
+/** How far a kit piece's origin may sit from the bottom centre of its cells, and its size from whole cells (metres): the spec's piece placement rule, read by the piece checks and the kit preview. */
+export const TRIM_PIECE_PLACE_TOLERANCE = 0.02;
 /** A new sheet's values: 2048², 512 px/m (a 4 m wide strip), 8 px of padding — the trim sheet spec's and the Texture Designer's. */
 export const TRIM_SHEET_DEFAULTS = { size: [2048, 2048] as [number, number], texelDensity: 512, padding: 8 } as const;
 /**

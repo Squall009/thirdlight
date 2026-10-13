@@ -50,8 +50,11 @@ export interface RoomsBinding {
   setRooms(next: ArchitectureComponent, what: string): Promise<boolean>;
   /** Draw the object as `next` without storing it (null: as stored). */
   preview(entityId: string, next: ArchitectureComponent | null): void;
-  /** A project preset deriving from `base` (an engine starter), worn by every room of `base` (resolves its id; null: refused). */
-  derive(base: string): Promise<string | null>;
+  /**
+   * A project preset deriving from `base` (an engine starter), worn by every room of `base` (resolves its id; null:
+   * refused); `via`: the client of the grouped action it is part of.
+   */
+  derive(base: string, via?: ClientRef): Promise<string | null>;
 }
 
 const NO_ELEMENTS: readonly ArchitectureElement[] = Object.freeze([]);
@@ -120,7 +123,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     preview(entityId, next) {
       viewportRef.current?.previewComponent(entityId, 'architecture', next);
     },
-    derive: (base) => derivePreset(clientRef, graphs, presets, base, roomsId, reportFailure),
+    derive: (base, via) => derivePreset(via ?? clientRef, graphs, presets, base, roomsId, reportFailure),
   };
 }
 

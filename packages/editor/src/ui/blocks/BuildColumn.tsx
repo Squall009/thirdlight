@@ -24,6 +24,7 @@ import { useEditStatus } from '../editmode/edit-status';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { blockCommand, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
+import type { BlockModeHost } from './block-host';
 import { BlockPalette } from './BlockPalette';
 import { copySelection, deleteSelection } from './BlockView';
 
@@ -50,18 +51,18 @@ async function dropNewType(s: BlockSetup, ev: DragEvent): Promise<void> {
   if (file === undefined && tile === null) return;
   ev.preventDefault();
   // The model published (a file), the type and its place in the kit: one undo step.
-  await s.blocks.grouped(async () => {
-    const assetId = file !== undefined ? await s.blocks.importModel(file) : tile!.assetId;
+  await s.blocks.grouped(async (g) => {
+    const assetId = file !== undefined ? await g.importModel(file) : tile!.assetId;
     if (assetId === null) return;
     const name = (file?.name.replace(/\.[^.]+$/, '') ?? tile?.piece ?? assetId).replace(/[_-]+/g, ' ');
     const block = newBlockType(s.blocks.types, { model: { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) } }, name.charAt(0).toUpperCase() + name.slice(1));
-    if (await blockCommand(s, 'New block type', 'setBlockType', { block })) await addToPalette(s, block);
+    if (await blockCommand({ blocks: g }, 'New block type', 'setBlockType', { block })) await addToPalette(s, block, g);
   });
 }
 
-/** A new type joins the layer's kit (when it has one, so it shows in the palette), and becomes the brush. */
-async function addToPalette(s: BlockSetup, block: BlockType): Promise<void> {
-  if (s.kit !== null && s.kit.kitId !== '' && !(s.kit.blockTypes ?? []).includes(block.blockId)) await blockCommand(s, 'Add block type to kit', 'setKit', { kit: { ...s.kit, blockTypes: [...(s.kit.blockTypes ?? []), block.blockId] } });
+/** A new type joins the layer's kit (when it has one, so it shows in the palette), and becomes the brush; `blocks`: the host of the action it is part of. */
+async function addToPalette(s: BlockSetup, block: BlockType, blocks: BlockModeHost): Promise<void> {
+  if (s.kit !== null && s.kit.kitId !== '' && !(s.kit.blockTypes ?? []).includes(block.blockId)) await blockCommand({ blocks }, 'Add block type to kit', 'setKit', { kit: { ...s.kit, blockTypes: [...(s.kit.blockTypes ?? []), block.blockId] } });
   s.set((st) => ({ brush: { ...st.brush, block: block.blockId, variant: null, rot: 0 }, typeOpen: block.blockId }));
 }
 
@@ -93,8 +94,8 @@ export function PaletteSection({ s, keys }: { s: BlockSetup; keys: boolean }): J
         onNew={() => {
           const block = newBlockType(s.blocks.types);
           // The type and its place in the kit: one undo step.
-          void s.blocks.grouped(async () => {
-            if (await blockCommand(s, 'New block type', 'setBlockType', { block })) await addToPalette(s, block);
+          void s.blocks.grouped(async (g) => {
+            if (await blockCommand({ blocks: g }, 'New block type', 'setBlockType', { block })) await addToPalette(s, block, g);
           });
         }}
         onDropModel={(ev) => void dropNewType(s, ev)}

@@ -300,6 +300,8 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       }
       if (result.ok) {
         let last = result;
+        /** Why a group's undo/redo stopped part way (null: it took the whole step). */
+        let stopped: { code: string; message: string } | null = null;
         if (result.duplicated === false) {
           notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
           if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
@@ -313,14 +315,20 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
               const g = service.historyGroups(projectId);
               if ((op === 'undo' ? g.undo : g.redo) !== group) break;
               const r = service.runCommand({ op, projectId, expectedRevision: last.revision, requestId: `req-${randomBytes(16).toString('hex')}`, ...(envOrigin !== null ? { origin: envOrigin } : {}), args: {} });
-              if (!r.ok) break;
+              if (!r.ok) {
+                stopped = { code: r.error.code, message: `${op} stopped part way through the step: ${r.error.message ?? r.error.code}` };
+                recordProblem(projectId, 'command', r.error.code, stopped.message);
+                break;
+              }
               notifyMutationApplied(projectId, r.requestId, r.revision, envOrigin, r.change, (r as { sceneId?: string }).sceneId);
               if (session) sessions.record(session, 'command', r.requestId, r.revision, nowMs());
               last = r;
             }
           }
         }
-        sendJson(res, 200, last);
+        // What ran is applied (the revision moved), so the answer stays a success; `groupIncomplete` says the step
+        // was not taken whole, and the editor shows it.
+        sendJson(res, 200, stopped !== null ? { ...last, groupIncomplete: stopped } : last);
         return;
       }
       // The response is exactly the commands.md result — pass the

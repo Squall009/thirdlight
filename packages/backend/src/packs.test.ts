@@ -26,7 +26,10 @@ import { TRIM_STARTER_ROWS, type TrimSheet } from '@thirdlight/project-model/tri
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
-import { listPacks, loadPack, type Pack } from './packs';
+import { TRIM_CHECK_TOLERANCE_TRANSCODED } from './trim-check';
+import { runCommandNow } from './asset-files';
+import { createAssetInspector } from './content';
+import { createPackInstaller, listPacks, loadPack, type Pack } from './packs';
 import { api, startBackend, type TestBackend } from './test-helpers';
 import { decodeTextureRgba } from './texture-encode';
 
@@ -61,7 +64,7 @@ describe('the Basic Kit pack', () => {
     const albedo = await decodeTextureRgba(fileOf(MATERIAL.textures['map']!), 2048 * 2048);
     if (!albedo.ok) throw new Error(albedo.message);
     // The spec's checklist, as the kit editor runs it: gutters within what ETC1S moves.
-    const report = trimSpecChecks(SHEET, { rgba: albedo.data, width: albedo.width, height: albedo.height, tolerance: 24 });
+    const report = trimSpecChecks(SHEET, { rgba: albedo.data, width: albedo.width, height: albedo.height, tolerance: TRIM_CHECK_TOLERANCE_TRANSCODED });
     expect(report.checks.filter((c) => c.state !== 'ok')).toEqual([]);
     expect(report.rows.every((r) => r.state === 'ok')).toBe(true);
   });
@@ -150,33 +153,120 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(report.pieces.map((p) => p.size?.slice(0, 2))).toEqual([[1, 2], [1, 1]]);
   });
 
-  it('makes the commands of one editor action one undo step, only when nothing ran between them', async () => {
+  it("makes the commands of one editor action one undo step: only when nothing ran between them, only the caller's own, and an undo that stops part way says so", async () => {
     const graph = (graphId: string): Record<string, unknown> => ({ graph: { graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet: '' } }], edges: [] } } });
     const graphsNow = (): string[] => {
       const read = tb.backend._test.service.readCapturedV3(P);
       return read.ok ? ((read.read.content as unknown as { graphs?: { graphId: string }[] }).graphs ?? []).map((g) => g.graphId).filter((id) => id.startsWith('grp-')) : [];
     };
+    const me = { kind: 'admin', clientId: 'tab-me' };
+    const agent = { kind: 'mcp', clientId: 'agent' };
     let rev = Number((await post(`/api/v1/projects/${P}/commands`, { op: 'queryProject', projectId: P, args: {} })).json['revision']);
-    const run = async (id: string, n: string): Promise<string> => {
+    const run = async (id: string, n: string, origin: Record<string, string> = me): Promise<string> => {
       const requestId = `req-${n.repeat(32)}`;
-      const r = await post(`/api/v1/projects/${P}/commands`, { op: 'setGraph', projectId: P, expectedRevision: rev, requestId, args: graph(id) });
+      const r = await post(`/api/v1/projects/${P}/commands`, { op: 'setGraph', projectId: P, expectedRevision: rev, requestId, origin, args: graph(id) });
       expect(r.status, JSON.stringify(r.json).slice(0, 300)).toBe(200);
       rev = Number(r.json['revision']);
       return requestId;
     };
+    const group = (requestIds: unknown, origin: unknown = me) => post(`/api/v1/projects/${P}/history/group`, { requestIds, origin });
     const ids = [await run('grp-a', 'c'), await run('grp-b', 'd')];
-    // Out of order, or not the last entries: refused, nothing grouped.
-    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: [ids[1], ids[0]] })).status).toBe(409);
-    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: ['x'] })).status).toBe(400);
-    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: ids })).status).toBe(200);
+    // Out of order, or not the last entries: refused, nothing grouped; without the caller's origin, or with another's: refused.
+    expect((await group([ids[1], ids[0]])).status).toBe(409);
+    expect((await group(['x'])).status).toBe(400);
+    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: ids })).status).toBe(400);
+    const notMine = await group(ids, agent);
+    expect(notMine.status).toBe(403);
+    expect(notMine.json['error'].code).toBe('not_own_commands');
+    expect((await group(ids)).status).toBe(200);
     const undo = await post(`/api/v1/projects/${P}/commands`, { op: 'undo', projectId: P, expectedRevision: rev, requestId: `req-${'e'.repeat(32)}`, args: {} });
     expect(undo.status).toBe(200);
+    expect(undo.json['groupIncomplete']).toBeUndefined();
     expect(graphsNow()).toEqual([]);
     rev = Number(undo.json['revision']);
     // A command of someone else between two: they stay apart.
     const c = await run('grp-c', 'f');
-    await post(`/api/v1/projects/${P}/commands`, { op: 'setGraph', projectId: P, expectedRevision: rev, requestId: `req-${'1'.repeat(32)}`, args: graph('other') }).then((r) => (rev = Number(r.json['revision'])));
+    await run('other', '1', agent);
     const d = await run('grp-d', '2');
-    expect((await post(`/api/v1/projects/${P}/history/group`, { requestIds: [c, d] })).status).toBe(409);
+    expect((await group([c, d])).status).toBe(409);
+    // An agent's command right after the caller's is not the caller's to group either.
+    const e = await run('grp-e', '3');
+    const f = await run('grp-f', '4', agent);
+    expect((await group([e, f])).status).toBe(403);
+    // A grouped step whose undo is refused part way: what ran stays applied (200) and the answer says it stopped.
+    const g = await run('grp-g', '5');
+    const h = await run('grp-h', '6');
+    expect((await group([g, h])).status).toBe(200);
+    const service = tb.backend._test.service;
+    const real = service.runCommand;
+    let undos = 0;
+    service.runCommand = (request: unknown) => {
+      const r = request as { op?: string; projectId?: string };
+      if (r.op === 'undo' && ++undos === 2) return { ok: false, error: { code: 'invalid_args', cls: 'validation', message: 'refused for the test' } } as ReturnType<typeof real>;
+      return real(request);
+    };
+    try {
+      const partial = await post(`/api/v1/projects/${P}/commands`, { op: 'undo', projectId: P, expectedRevision: rev, requestId: `req-${'7'.repeat(32)}`, origin: me, args: {} });
+      expect(partial.status).toBe(200);
+      expect(partial.json['groupIncomplete']).toMatchObject({ code: 'invalid_args' });
+      expect(partial.json['groupIncomplete'].message).toMatch(/stopped part way/);
+    } finally {
+      service.runCommand = real;
+    }
+    expect(graphsNow()).toContain('grp-g');
+    expect(graphsNow()).not.toContain('grp-h');
+  });
+
+  it('adds a pack whole or not at all: a command refused partway takes back what ran, a bad ref or a taken id runs nothing', () => {
+    const service = tb.backend._test.service;
+    const applied: string[] = [];
+    const installer = createPackInstaller({ service, inspector: createAssetInspector(), engineRoot: REPO, now: () => Date.now(), onApplied: (_p, r) => applied.push(r.requestId) });
+    const origin = { kind: 'admin' as const, clientId: 'packs-test' };
+    const contentOf = (id: string): Record<string, any> => {
+      const read = service.readCapturedV3(id);
+      if (!read.ok) throw new Error('no project');
+      return read.read.content as unknown as Record<string, any>;
+    };
+    const ids = (id: string, list: string, key: string): string[] => ((contentOf(id)[list] ?? []) as Record<string, string>[]).map((r) => r[key]!);
+    const Q = 'pack-0002';
+    service.createProject(Q, 'Two');
+    const revision = (): number => {
+      const read = service.readCapturedV3(Q);
+      return read.ok ? read.read.revision : -1;
+    };
+    const before = revision();
+    // The last of its commands is refused: the files, material, presets, block types and kit that ran are taken back.
+    const broken: Pack = { ...PACK, commands: [...PACK.commands, { op: 'setGraph', args: { graph: { graphId: 'Not An Id' } } }] };
+    const r = installer.install(Q, broken, FILES, origin);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain('setGraph');
+    expect(r.message).toContain('nothing of');
+    expect(r.added).toEqual([]);
+    expect(ids(Q, 'assets', 'assetId')).toEqual([]);
+    expect(ids(Q, 'materials', 'materialId').filter((m) => m.startsWith('basic-'))).toEqual([]);
+    expect(ids(Q, 'kits', 'kitId')).toEqual([]);
+    expect(ids(Q, 'blockTypes', 'blockId')).toEqual([]);
+    // Each command and each undo went out on the change feed.
+    expect(applied.length).toBe(2 * (PACK.assets.length + PACK.commands.length));
+    expect(revision()).toBe(before + applied.length);
+    // A ref no earlier command makes: refused before anything runs.
+    const dangling: Pack = { ...PACK, commands: [...PACK.commands.slice(0, 1), { op: 'setKit', args: { kit: { kitId: 'x', name: 'x', trimMaterial: '$ref:nowhere' } } }] };
+    const d = installer.install(Q, dangling, FILES, origin);
+    expect(d.ok ? null : [d.code, d.message]).toEqual(['pack_invalid', expect.stringContaining('$ref:nowhere')]);
+    expect(revision()).toBe(before + applied.length);
+    // The same pack added again afterwards: all of it.
+    const again = installer.install(Q, PACK, FILES, origin);
+    expect(again.ok, again.ok ? '' : again.message).toBe(true);
+    expect(ids(Q, 'kits', 'kitId')).toEqual(['basic-kit']);
+    expect(kitProblems(contentOf(Q) as never)).toEqual([]);
+    // A project whose own item has one of the pack's ids: refused, naming it and what to do.
+    const R = 'pack-0003';
+    service.createProject(R, 'Three');
+    const own = runCommandNow(service, R, 'setMaterial', { material: { materialId: 'basic-trim', name: 'My trim', shader: 'standard', params: {}, textures: {} } }, origin);
+    expect(own.ok, own.ok ? '' : own.message).toBe(true);
+    const clash = installer.install(R, PACK, FILES, origin);
+    expect(clash.ok ? null : clash.code).toBe('pack_present');
+    expect(clash.ok ? '' : clash.message).toMatch(/basic-trim \(materials\).*Rename those items/);
   });
 });

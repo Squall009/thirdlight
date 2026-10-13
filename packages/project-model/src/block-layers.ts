@@ -325,6 +325,8 @@ export const CHUNK_SIZE = 16;
  */
 export const BLOCK_LIMITS = Object.freeze({
   variants: 8,
+  /** A look's relative weight at most (a kit slot's weighted pieces take the same range). */
+  variantWeight: 1000,
   footprint: 8,
   customBoxes: 8,
   cellFields: 32,
@@ -591,7 +593,7 @@ function validateVariant(v: unknown, path: string, errors: ModelErrorV2[]): void
   }
   if (v['prefab'] !== undefined && (typeof v['prefab'] !== 'string' || !ID_RE.test(v['prefab']))) err(errors, 'id_invalid', `${path}/prefab`, 'prefab is a prefabId', v['prefab']);
   if (v['color'] !== undefined && (typeof v['color'] !== 'string' || !COLOR_RE.test(v['color']))) err(errors, 'field_value', `${path}/color`, 'color is "#rrggbb" (lower case)', v['color']);
-  if (v['weight'] !== undefined && (!finite(v['weight']) || v['weight'] <= 0 || v['weight'] > 1000)) err(errors, 'field_value', `${path}/weight`, 'weight is a number in (0, 1000]', v['weight']);
+  if (v['weight'] !== undefined && (!finite(v['weight']) || v['weight'] <= 0 || v['weight'] > BLOCK_LIMITS.variantWeight)) err(errors, 'field_value', `${path}/weight`, `weight is a number in (0, ${BLOCK_LIMITS.variantWeight}]`, v['weight']);
 }
 
 function validateUvMode(v: unknown, path: string, errors: ModelErrorV2[]): void {

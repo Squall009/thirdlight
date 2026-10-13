@@ -222,10 +222,16 @@ space**, so the same model restyles when the sheet is swapped.
   `frame` row). A part taller than a field row repeats the row in separate
   UV islands (a face cannot wrap inside one row).
 - **Upright:** a row's top pixels go at the top of a vertical part.
-- **A segment override** (a model in place of one segment of a generated
-  wall) is made **1 m long along +X** and stretched to the segment's length,
-  so its texture stretches with it; set **stretch** off to keep its length,
-  and model it at the length it will be used.
+- **A wall piece** (a kit model put in place of one segment of a room's
+  wall) is an edge piece like any other: **one cell long along +X**, origin
+  at its bottom centre. It is drawn as a block layer draws a run of edge
+  pieces, one copy per cell along the segment (a 4-cell wall on 1 m cells
+  takes four copies; on 2 m cells a 6 m wall takes three). A diagonal
+  segment, no whole number of cells long, takes the nearest count, each
+  copy scaled a little to fill it. Set **stretch** off to place one copy at
+  its own size at the segment's middle, and model it at the length it will
+  be used. (A raw element's override, made outside a kit, keeps the older
+  rule: made 1 m long from its start and stretched to the segment.)
 
 ### Placing and naming kit pieces
 
@@ -241,8 +247,10 @@ space**, so the same model restyles when the sheet is swapped.
   origin with no rotation or scale: the engine keeps a node's own transform,
   so a piece modelled away from the origin draws offset.
 - **Metres, sized to the grid.** One block cell is 1 m wide by default; an
-  edge piece is one cell long (or a whole number of cells) and one storey
-  of cells tall, or a multiple.
+  edge piece is one storey of cells tall, or a multiple; a wall or railing
+  piece is one cell long (a longer wall is several copies, one per cell), a
+  door or window piece a whole number of cells wide (its hole is that many
+  cells).
 - **Names:** `<piece>_LOD0`, `<piece>_LOD1`, `<piece>_LOD2` for the render
   levels (the engine switches below 8 % and 3 % of screen height by default)
   and `<piece>_COL` for its collision mesh (never drawn; a few boxes or

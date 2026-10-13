@@ -20,9 +20,9 @@
 import { BLOCK_LAYER_DEFAULT } from './block-layers';
 import { kitSlotPlacement } from './kits';
 export { kitCheckTally } from './kits';
-import { readModelGeometry, type ModelGeometryPrimitive } from './model-collision';
+import { MODEL_COL_RE, MODEL_LOD_RE, modelNodeMatrix, modelPieceName, readModelGeometry, type ModelGeometryPrimitive } from './model-collision';
 import { glbChunks, sanitizeRigNodeName } from './model-rig';
-import { TRIM_STARTER_ROWS, trimPaddingProblems, trimRowMetres, trimRowV, trimSheetProblems, trimSheetSafeMipLevel, type TrimRow, type TrimSheet } from './trim-sheet';
+import { TRIM_PIECE_PLACE_TOLERANCE, TRIM_SHEET_DEFAULTS, TRIM_STARTER_ROWS, trimPaddingProblems, trimRowMetres, trimRowV, trimSheetProblems, trimSheetSafeMipLevel, type TrimRow, type TrimSheet } from './trim-sheet';
 
 /** ok: meets the spec; warn: draws, but not as the spec asks; err: draws wrong; info: not checked, and why. */
 export type KitCheckState = 'ok' | 'warn' | 'err' | 'info';
@@ -43,9 +43,9 @@ export interface KitCheck {
 
 /** The spec's numbers (the 2048² sheet; a 4096² one doubles every pixel number). */
 export const TRIM_SPEC = Object.freeze({
-  size: 2048,
-  texelDensity: 512,
-  gutter: 8,
+  size: TRIM_SHEET_DEFAULTS.size[0],
+  texelDensity: TRIM_SHEET_DEFAULTS.texelDensity,
+  gutter: TRIM_SHEET_DEFAULTS.padding,
   align: 16,
   safeMipLevel: 4,
   /** A seam at a wrap this many times the pattern's own steps shows on long walls. */
@@ -53,7 +53,7 @@ export const TRIM_SPEC = Object.freeze({
   /** The spread a real height in A has at least (0–255). */
   heightRange: 20,
   /** How far an origin may sit from the bottom centre, a size from whole cells (metres). */
-  placeTolerance: 0.02,
+  placeTolerance: TRIM_PIECE_PLACE_TOLERANCE,
   /** Triangles a piece check reads at most (larger files are checked by their bounds only). */
   uvTriangles: 400_000,
 });
@@ -83,16 +83,13 @@ export interface PieceFacts {
   surfaces: { material: string | null; v: number[]; uvMissing: boolean; colour: boolean }[];
   /** Why the file could not be read (null: it was). */
   unreadable: string | null;
+  /** The file has more triangles than the UV check reads (`TRIM_SPEC.uvTriangles`): its UVs were not checked. */
+  uvSkipped: boolean;
 }
-
-const pieceBase = (name: string): string => {
-  const m = /^(.*)_(LOD\d+|COL)$/i.exec(name);
-  return m !== null && m[1] !== undefined && m[1] !== '' ? m[1] : name;
-};
 
 /** Read a model file's facts for one piece (`piece` absent: the whole file). Never throws. */
 export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
-  const empty: PieceFacts = { piece: piece ?? '', pieces: [], found: false, lods: [], triangles: [], collider: false, colliderTriangles: 0, bounds: null, moved: [], surfaces: [], unreadable: null };
+  const empty: PieceFacts = { piece: piece ?? '', pieces: [], found: false, lods: [], triangles: [], collider: false, colliderTriangles: 0, bounds: null, moved: [], surfaces: [], unreadable: null, uvSkipped: false };
   const chunks = glbChunks(bytes);
   if (typeof chunks === 'string') return { ...empty, unreadable: chunks };
   const json = chunks.json;
@@ -102,26 +99,25 @@ export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
   const top = (Array.isArray(scene?.['nodes']) ? (scene['nodes'] as unknown[]) : []).flatMap((i) => (typeof i === 'number' && nodes[i] !== undefined ? [nodes[i]!] : []));
   // Node names as three.js gives them (the editor names a piece by those, as the geometry reader does).
   const nameOf = (n: Record<string, unknown>): string => (typeof n['name'] === 'string' ? sanitizeRigNodeName(n['name']) : '');
-  const pieces = [...new Set(top.map((n) => pieceBase(nameOf(n))))];
-  const renderPieces = pieces.filter((p) => top.some((n) => pieceBase(nameOf(n)) === p && !/_COL$/i.test(nameOf(n))));
+  const pieces = [...new Set(top.map((n) => modelPieceName(nameOf(n))))];
+  const renderPieces = pieces.filter((p) => top.some((n) => modelPieceName(nameOf(n)) === p && !MODEL_COL_RE.test(nameOf(n))));
   const want = piece ?? '';
-  const mine = (name: string): boolean => want === '' || pieceBase(name) === want;
+  const mine = (name: string): boolean => want === '' || modelPieceName(name) === want;
   const found = want === '' ? top.length > 0 : renderPieces.includes(want);
   const facts: PieceFacts = { ...empty, pieces: renderPieces, found };
   if (!found) return facts;
   for (const n of top) {
     const name = nameOf(n);
     if (!mine(name)) continue;
-    const t = Array.isArray(n['translation']) ? (n['translation'] as number[]) : [0, 0, 0];
-    const r = Array.isArray(n['rotation']) ? (n['rotation'] as number[]) : [0, 0, 0, 1];
-    const s = Array.isArray(n['scale']) ? (n['scale'] as number[]) : [1, 1, 1];
-    const m = Array.isArray(n['matrix']) ? (n['matrix'] as number[]) : null;
-    const offset: [number, number, number] = m !== null ? [m[12] ?? 0, m[13] ?? 0, m[14] ?? 0] : [t[0] ?? 0, t[1] ?? 0, t[2] ?? 0];
-    const turned = m !== null ? Math.abs((m[1] ?? 0)) + Math.abs(m[2] ?? 0) + Math.abs(m[4] ?? 0) + Math.abs(m[6] ?? 0) + Math.abs(m[8] ?? 0) + Math.abs(m[9] ?? 0) > 1e-6 : Math.abs(r[0] ?? 0) + Math.abs(r[1] ?? 0) + Math.abs(r[2] ?? 0) > 1e-6;
-    const scaled = m !== null ? [m[0], m[5], m[10]].some((x) => Math.abs((x ?? 1) - 1) > 1e-6) && !turned : s.some((x) => Math.abs(x - 1) > 1e-6);
+    // The node's matrix as the geometry reader applies it: its columns' lengths are the scale, what is left the turn.
+    const m = modelNodeMatrix(n);
+    const offset: [number, number, number] = [m[12]!, m[13]!, m[14]!];
+    const lengths = [0, 1, 2].map((c) => Math.hypot(m[c * 4]!, m[c * 4 + 1]!, m[c * 4 + 2]!));
+    const scaled = lengths.some((l) => Math.abs(l - 1) > 1e-6);
+    const turned = [0, 1, 2].some((c) => [0, 1, 2].some((r) => Math.abs(m[c * 4 + r]! / (lengths[c]! || 1) - (c === r ? 1 : 0)) > 1e-6));
     if (turned || scaled || offset.some((x) => Math.abs(x) > 1e-6)) facts.moved.push({ node: name, offset, turned, scaled });
-    const lod = /_LOD(\d+)$/i.exec(name);
-    if (lod !== null) facts.lods.push(Number(lod[1]));
+    const lod = MODEL_LOD_RE.exec(name);
+    if (lod !== null) facts.lods.push(Number(lod[2]));
   }
   facts.lods = [...new Set(facts.lods)].sort((a, b) => a - b);
   const read = readModelGeometry(bytes, { surface: true });
@@ -154,6 +150,7 @@ export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
     }
     if (p.colour === true) s.colour = true;
     if (triangles <= TRIM_SPEC.uvTriangles) addVRanges(s, p);
+    else facts.uvSkipped = true;
   }
   facts.triangles = [...levels.entries()].sort((a, b) => a[0] - b[0]).map(([, n]) => n);
   facts.bounds = Number.isFinite(min[0]) ? { min, max } : null;
@@ -277,7 +274,8 @@ function uvChecks(f: PieceFacts, ctx: PieceCheckContext): KitCheck[] {
       } else used.add(row.slot);
     }
   }
-  if (missing.length > 0) out.push({ id: 'uvs', state: 'err', title: 'No UVs on the trim sheet', detail: `${missing.join(', ')} wears the trim sheet without texture coordinates (UV0): it draws one pixel of it.` });
+  if (f.uvSkipped) out.push({ id: 'uvs', state: 'info', title: 'UVs not checked', detail: `It has ${plural(f.triangles.reduce((a, b) => a + b, 0), 'triangle')}, more than the ${TRIM_SPEC.uvTriangles.toLocaleString('en')} the check reads: check that its faces stay inside one row each in the modelling tool.` });
+  else if (missing.length > 0) out.push({ id: 'uvs', state: 'err', title: 'No UVs on the trim sheet', detail: `${missing.join(', ')} wears the trim sheet without texture coordinates (UV0): it draws one pixel of it.` });
   else if (outside > 0) out.push({ id: 'uvs', state: 'err', title: 'UVs outside the sheet\'s rows', detail: `${outside} of ${plural(total, 'triangle')} on the sheet span two rows or reach a gutter${worst !== null ? ` (v ${worst[0].toFixed(3)}–${worst[1].toFixed(3)})` : ''}. Keep every face's v inside one row's inset bounds (the spec's table).` });
   else out.push({ id: 'uvs', state: 'ok', title: 'UVs inside the sheet\'s rows', detail: `${onSheet.map((s) => s.material).join(', ')} on ${[...used].join(', ') || 'no row'}${f.surfaces.length > onSheet.length ? `; ${f.surfaces.filter((s) => !onSheet.includes(s)).map((s) => s.material ?? 'unnamed').join(', ')} on ${f.surfaces.length - onSheet.length === 1 ? 'its own material' : 'their own materials'}` : ''}.` });
   const coloured = onSheet.filter((s) => s.colour).map((s) => s.material!);
