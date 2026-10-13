@@ -13,7 +13,9 @@
  * - **A standard material with paint tint**: R, G, B tint the colour, A is
  *   how much.
  * - **A graph that reads the paint otherwise**: the bytes as its Vertex
- *   colour (paint) node gives them.
+ *   colour (paint) node gives them, or as an unwired Height blend takes
+ *   them (R to A: four layers' weights).
+ * - An instance means what its root does (`paletteSource` resolves it).
  * - **Anything else reads no paint**: painting would change nothing seen.
  *
  * Pure.
@@ -138,7 +140,7 @@ export function paintChannels(mapping: Readonly<Record<string, string>> | undefi
   }
   if (material !== null && reads) {
     const t = channelTiles([0, 1, 2, 3].map((c) => [c, `Paint ${'RGBA'[c]!}`, 'as the graph reads it'] as const));
-    return { meaning: 'raw', material, ...t, summary: 'Graph material · reads the paint', hint: 'The graph reads the paint through its Vertex colour (paint) node: what each channel does is the graph\'s.' };
+    return { meaning: 'raw', material, ...t, summary: 'Graph material · reads the paint', hint: 'The graph reads the paint its own way (a Vertex colour node on the paint set; a Height blend with its weights unwired takes R, G, B, A as layers 1–4): what each channel does is the graph\'s.' };
   }
   // Reads no paint: the layered surface's tiles as the editor would paint them once it is made paintable.
   const t = layerTiles(standIns());

@@ -12,8 +12,8 @@
  *   the density, spacing and seeded turns and sizes are the scatter's own
  *   (`session/decal-editor.ts`). Each place is dropped onto the surface along
  *   the dab's normal and marked; the release stores the stroke as one
- *   `createEntities` (one undo; a stroke longer than one command holds goes
- *   on as the next stroke).
+ *   `createEntities` (one undo; a stroke past what one command holds, by
+ *   count or by bytes, goes on as the next stroke).
  * - **Select:** a click picks the decal under the pointer (the front one of
  *   those whose image covers it, among those the filter lets through), Shift
  *   adds, Ctrl removes; a drag on empty ground (or any drag with the Box
@@ -34,13 +34,13 @@
  */
 import * as THREE from 'three';
 import type { DecalComponent } from '@thirdlight/project-model';
-import { CREATE_ENTITIES_MAX } from '@thirdlight/project-model/limits';
 import { isDecalMark } from '@thirdlight/three-adapter';
 
 import { brushRadius, type BrushStore, type BrushUse } from '../session/brush';
 import { decalMatches, scatterPlacement, ScatterStroke, type DecalFilter, type DecalScatterSettings } from '../session/decal-editor';
 import { decalPlaceCommand, decalPlacement, turnAboutNormal, type DecalToolSettings } from '../session/decal-place';
 import type { ProjectedEntity } from '../session/projection';
+import { createEntitiesBatcher, type RequestBatcher } from '../session/request-batches';
 import { BrushControl } from './brush-control';
 import { BrushCursor, tokenColour } from './brush-cursor';
 import { DecalMarks } from './decal-marks';
@@ -192,7 +192,7 @@ export class DecalTool {
   private press: { x: number; y: number } | null = null;
   private select: SelectPress | null = null;
   private hoverId: string | null = null;
-  private stroke: { scatter: ScatterStroke; last: THREE.Vector3; items: Record<string, unknown>[] } | null = null;
+  private stroke: { scatter: ScatterStroke; last: THREE.Vector3; batch: RequestBatcher<Record<string, unknown>> } | null = null;
   private readonly ray = new THREE.Raycaster();
   private readonly marks: DecalMarks;
   private readonly cursor: BrushCursor;
@@ -268,7 +268,7 @@ export class DecalTool {
       }
       const at = this.surfacePoint(e.clientX, e.clientY);
       if (at === null) return null;
-      this.stroke = { scatter: new ScatterStroke(a.scatter), last: at.point.clone(), items: [] };
+      this.stroke = { scatter: new ScatterStroke(a.scatter), last: at.point.clone(), batch: createEntitiesBatcher(a.sceneId) };
       this.dab(at.point, at.normal);
       return 'capture';
     }
@@ -332,7 +332,7 @@ export class DecalTool {
     const s = this.stroke;
     if (s !== null) {
       this.stroke = null;
-      this.commitStroke(s);
+      this.commitStroke(s.batch.take());
       return true;
     }
     const sel = this.select;
@@ -517,12 +517,9 @@ export class DecalTool {
       const hit = this.host.surfaceOnRay(from, [-n[0], -n[1], -n[2]], 2 * r);
       if (hit === null) continue;
       const placed = scatterPlacement(a.settings, a.scatter, a.settings.material!, hit.point, hit.normal, p.index);
-      s.items.push(decalPlaceCommand(a.sceneId, 'Decal', placed).args);
-      // Past what one command carries: what the stroke laid so far is stored, and the drag goes on as the next stroke.
-      if (s.items.length >= CREATE_ENTITIES_MAX) {
-        this.commitStroke({ ...s, items: s.items });
-        s.items = [];
-      }
+      // Past what one command carries (its count or its bytes): what the stroke laid so far is stored, and the drag goes on as the next stroke.
+      const full = s.batch.add(decalPlaceCommand(a.sceneId, 'Decal', placed).args);
+      if (full !== null) this.commitStroke(full);
       const mark = ringLine(this.strokeRing, this.strokeMat);
       mark.position.set(...placed.position);
       mark.quaternion.set(...(placed.rotation as [number, number, number, number]));
@@ -534,8 +531,7 @@ export class DecalTool {
     this.host.requestRender();
   }
 
-  private commitStroke(s: NonNullable<DecalTool['stroke']>): void {
-    const items = s.items;
+  private commitStroke(items: Record<string, unknown>[]): void {
     this.lastStroke = { places: items.length, stored: 0 };
     if (items.length === 0) {
       this.strokeMarks.clear();

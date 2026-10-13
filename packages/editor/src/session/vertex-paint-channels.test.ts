@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MaterialDef } from '@thirdlight/project-model';
 
-import { layerSheet, paintableMaterial, paletteLayers, slotTexture, withLayerName, withSlotTexture } from './layer-palette';
+import { layerSheet, paintableMaterial, paletteLayers, paletteSource, slotTexture, withLayerName, withSlotTexture } from './layer-palette';
 import { layeredMaterial } from './material-graph';
 import { paintChannels, paintMaterialSlots, tileOf } from './vertex-paint-channels';
 
@@ -63,5 +63,25 @@ describe('what vertex paint means on a material', () => {
     expect(slotTexture(s, 'albedoHeight', 0)).toBe('sheet');
     expect(slotTexture(s, 'orm', 0)).toBe('sheet-orm');
     expect(s.layerNames?.[0]).toBe('Sheet');
+  });
+  it('an instance is read and made paintable as it draws: its root\'s shader, graph and rows with its own values', () => {
+    const plainInst: MaterialDef = { materialId: 'm-plain-i', name: 'Mill walls red', shader: 'standard', params: {}, textures: { map: 'mill-red' }, instanceOf: 'm-plain' };
+    const src = paletteSource({ '*': 'm-plain-i' }, [plain, plainInst]);
+    expect(src.kind).toBe('none');
+    const m = paintableMaterial(src.material, 'm-new3', 'Red layers');
+    expect(slotTexture(m, 'albedoHeight', 0)).toBe('mill-red');
+    expect(slotTexture(m, 'normals', 0)).toBe('mill-n');
+    expect(m.layerNames?.[0]).toBe('Mill walls red');
+    // A trim instance: paint means grime and wetness (its root's), and its base follows the instance (its textures, the root's rows).
+    const trimInst: MaterialDef = { materialId: 'm-trim-i', name: 'Sheet dark', shader: 'trim', params: {}, textures: { map: 'sheet-dark' }, instanceOf: 'm-trim' };
+    expect(paintChannels({ '*': 'm-trim-i' }, [trim, trimInst]).meaning).toBe('trim');
+    const t = paintableMaterial(paletteSource({ '*': 'm-trim-i' }, [trim, trimInst]).material, 'm-new4', 'Dark layers');
+    expect(layerSheet(t, 0)).toBe('m-trim-i');
+    expect(slotTexture(t, 'albedoHeight', 0)).toBe('sheet-dark');
+    expect(slotTexture(t, 'orm', 0)).toBe('sheet-orm');
+    // An instance of a graph that reads the paint its own way: the graph's bytes, not a paint tint.
+    const graphRoot: MaterialDef = { materialId: 'm-g', name: 'Stain', shader: 'standard', params: {}, textures: {}, graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }, { id: 'vc', type: 'vertexColor', position: [0, 0], data: { set: 'paint' } }], edges: [{ id: 'e', from: { node: 'vc', port: 'rgb' }, to: { node: 'out', port: 'baseColor' } }] } };
+    const graphInst: MaterialDef = { materialId: 'm-g-i', name: 'Stain 2', shader: 'standard', params: {}, textures: {}, instanceOf: 'm-g' };
+    expect(paintChannels({ '*': 'm-g-i' }, [graphRoot, graphInst]).meaning).toBe('raw');
   });
 });

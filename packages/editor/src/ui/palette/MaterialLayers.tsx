@@ -168,6 +168,12 @@ export interface MaterialLayersProps {
   disabled?: boolean;
   /** Metres per repeat the layers of a material set up here start at (absent: the template's). */
   layerTiling?: number;
+  /**
+   * Whether a layer may read the mesh's own UVs (a trim sheet's strips). A
+   * terrain picks per pixel which layer each slot shows, which a mesh-UV
+   * layer's arrays of their own cannot follow: its editor passes false.
+   */
+  meshUvs?: boolean;
 }
 
 /** The "Layers" section of a column: the palette, its material, the picked layer's settings, or "Set up material". */
@@ -279,7 +285,7 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
       {settings !== null && source.kind === 'layered' && (
         <Popover anchor={settings} onClose={() => setSettings(null)} aria="layer settings" title={`Layer ${p.active + 1}${picked !== undefined ? ` · ${picked.name}` : ''}`} aside={m.name}>
           {slotted && <LayerTextures material={m} layer={p.active} thumbnails={p.host.thumbnails} disabled={!editable} onPick={(key, id) => put(p.active, id, key)} />}
-          <LayerFields key={p.active} material={m} layer={p.active} textureName={picked?.texture != null ? (p.palette.names.get(picked.texture) ?? null) : null} sheets={trimSheetMaterials(p.host.materials)} onSave={(x) => save(x)} />
+          <LayerFields key={p.active} material={m} layer={p.active} textureName={picked?.texture != null ? (p.palette.names.get(picked.texture) ?? null) : null} sheets={p.meshUvs === false ? [] : trimSheetMaterials(p.host.materials)} meshUvs={p.meshUvs !== false} onSave={(x) => save(x)} />
         </Popover>
       )}
     </Section>

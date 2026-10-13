@@ -68,6 +68,8 @@ padding. Use the API to import a layout you keep with the texture source.
   a trim layer (mesh UVs) on a block shows the whole sheet on every cell
   face. Trim rows dress generated architecture; give block walls tiling
   layers (world or top).
-- **Decal cells need opacity in alpha.** A sheet exported with the height in
-  its albedo's alpha (for a layered surface) draws its decal cells nearly
-  invisible.
+- **Decal cells take their opacity from the albedo's alpha.** A sheet a
+  layered surface reads as a layer has its height there instead, so its
+  cells draw opaque: each its whole rectangle on the decal pages (the Scene
+  view before **Rebuild pages** still reads the sheet's alpha). Keep shaped
+  marks on a sheet with opacity in alpha, or as loose decal textures.

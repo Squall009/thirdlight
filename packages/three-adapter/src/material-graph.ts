@@ -227,6 +227,13 @@ export interface CompiledMaterialGraph {
   readonly objectFrame: boolean;
   /** Reads mesh UVs in block cells (see {@link readsCellUv}). */
   readonly cellUv: boolean;
+  /**
+   * The row table its mesh-UV reads stay inside (a trim material's, a
+   * layered surface's trim layers'): such a material draws trim strips, so a
+   * block layer gives it strip UVs instead of its metres (`block-cell-uv.ts`).
+   * Known from the definition, before any texture arrives. Null: none.
+   */
+  readonly trimStrips: TrimSheet | null;
   /** Compiled for a surface that places its own vertices from data it reports changing ({@link GraphSurface}). */
   readonly steadyShape: boolean;
   /** Reads a Lighting input under a Custom-lit output. */
@@ -296,6 +303,8 @@ export function handDecodedNormals(graph: MaterialGraphLike): Set<MaterialGraphN
 
 /** `material.userData[CELL_UV_KEY]`: the material reads block layers' UVs in cells, not metres ({@link readsCellUv}). */
 export const CELL_UV_KEY = '__tlCellUv';
+/** `material.userData[TRIM_STRIPS_KEY]`: the row table of a material that draws trim strips (`CompiledMaterialGraph.trimStrips`). */
+export const TRIM_STRIPS_KEY = '__tlTrimStrips';
 
 /** Where objects keep their parameter overrides for the graph materials they wear. */
 export const OVERRIDES_KEY = '__tlMaterialParams';
@@ -413,7 +422,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   time: { inputs: [], outputs: [P('time', 'float')] },
   uv: { inputs: [], outputs: [P('uv', 'vec2')] },
   vertexColor: { inputs: [], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3'), P('alpha', 'float')] },
-  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float')] },
+  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float'), P('grime', 'float')] },
   position: { inputs: [], outputs: [P('position', 'vec3')] },
   normal: { inputs: [], outputs: [P('normal', 'vec3')] },
   viewDirection: { inputs: [], outputs: [P('direction', 'vec3')] },
@@ -1147,7 +1156,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           // A terrain's per-pixel weights (and its wetness where it keeps one); no vertex occlusion.
           const w = env.surface.vertexColor('color') ?? T.vec4(1, 0, 0, 0);
           const wet = env.surface.vertexColor('color_1');
-          return { weights: { t: 'vec4', n: w }, wetness: { t: 'float', n: wet !== null ? wet.x : T.float(0) }, occlusion: { t: 'float', n: T.float(0) } };
+          return { weights: { t: 'vec4', n: w }, wetness: { t: 'float', n: wet !== null ? wet.x : T.float(0) }, occlusion: { t: 'float', n: T.float(0) }, grime: { t: 'float', n: T.float(0) } };
         }
         type B = { geometry?: THREE.BufferGeometry };
         const has = (b: B, attr: string): boolean => b.geometry?.hasAttribute(attr) === true;
@@ -1162,8 +1171,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           // A mesh's own vertex colours, unpainted, are its weights.
           if (!painted && has(b, 'color')) return T.attribute('color', 'vec4');
           if (data === null && !painted) return T.vec4(1, 0, 0, 0);
-          const p = painted ? paintNode() : T.vec4(0, 0, 0, 0);
-          return paintLayers(data === null ? p : T.vec4(T.min(p.x.add(data.y), 1), p.y, p.z, p.w));
+          // The trim data's grime is not a layer: it is the grime output's (a layered surface's second layer is whatever
+          // the user put there — a second trim sheet would show the path paint as that sheet).
+          return paintLayers(painted ? paintNode() : T.vec4(0, 0, 0, 0));
         })();
         const wetness = T.Fn((b: B) => {
           if (stored(b)) return T.attribute('color_1', 'vec4').x;
@@ -1173,7 +1183,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           return data === null ? paintNode().w : T.max(paintNode().w, data.z);
         })();
         const occlusion = T.Fn((b: B) => trimData(b)?.x ?? T.float(0))();
-        return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion } };
+        const grime = T.Fn((b: B) => trimData(b)?.y ?? T.float(0))();
+        return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion }, grime: { t: 'float', n: grime } };
       }
       case 'position': {
         const space = str(field(node, 'space'), 'world');
@@ -1698,6 +1709,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     animated,
     objectFrame,
     cellUv: readsCellUv(input.graph),
+    trimStrips: input.trim ?? null,
     steadyShape: env.surface !== undefined,
     usesLight,
     textures: [...textures].sort(),

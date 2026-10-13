@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { ktx2Info } from '@thirdlight/asset-pipeline';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
-import { createWorkerTextureEncoder, encodeKtx2, KTX2_ENCODER, packKtx2 } from './texture-encode';
+import { createWorkerTextureEncoder, encodeKtx2, KTX2_ENCODER, KTX2_ENCODER_THREADS_MAX, KTX2_WORKER_MEMORY_BYTES, ktx2EncoderThreads, packKtx2 } from './texture-encode';
 import { webp } from './test-helpers';
 
 function crc32(bytes: Uint8Array): number {
@@ -229,6 +229,37 @@ describe('the encoder worker', () => {
     }
     expect(enc.workerRunning).toBe(false);
   }, 60_000);
+
+  it('runs jobs side by side on up to its thread count of workers, the rest queued in order; ending fails the waiting ones', async () => {
+    const enc = createWorkerTextureEncoder(workerUrl, { idleMs: 200, threads: 2 });
+    try {
+      expect(enc.parallelism).toBe(2);
+      const alone = await enc.encode(checker, 'data');
+      expect(alone.ok).toBe(true);
+      const answers = Promise.all([enc.encode(checker, 'data'), enc.encode(checker, 'data'), enc.encode(checker, 'color')]);
+      // Two workers for three jobs; the third waits for one of them.
+      expect(enc.workersRunning).toBe(2);
+      const [a, b, c] = await answers;
+      expect([a.ok, b.ok, c.ok]).toEqual([true, true, true]);
+      if (alone.ok && a.ok && b.ok) expect([Buffer.from(a.ktx2).equals(Buffer.from(alone.ktx2)), Buffer.from(b.ktx2).equals(Buffer.from(alone.ktx2))]).toEqual([true, true]);
+      await expect.poll(() => enc.workersRunning, { timeout: 5_000 }).toBe(0);
+      const cut = Promise.all([0, 1, 2].map(() => enc.encode(checker, 'data')));
+      enc.dispose?.();
+      expect((await cut).map((r) => r.ok)).toEqual([false, false, false]);
+    } finally {
+      enc.dispose?.();
+    }
+    expect(enc.workerRunning).toBe(false);
+  }, 60_000);
+
+  it('the pool is small: the spare cores, a quarter of memory at a worker\'s peak, at most its cap', () => {
+    const GiB = 1024 ** 3;
+    expect(ktx2EncoderThreads(10, 16 * GiB)).toBe(Math.min(KTX2_ENCODER_THREADS_MAX, Math.floor((16 * GiB) / 4 / KTX2_WORKER_MEMORY_BYTES)));
+    expect(ktx2EncoderThreads(64, 512 * GiB)).toBe(KTX2_ENCODER_THREADS_MAX);
+    expect(ktx2EncoderThreads(10, 4 * GiB)).toBe(1);
+    expect(ktx2EncoderThreads(2, 64 * GiB)).toBe(1);
+    expect(ktx2EncoderThreads(4, 64 * GiB)).toBe(2);
+  });
 
   it('a job that arrives while an idle worker is ending gets a new worker and its answer', async () => {
     const enc = createWorkerTextureEncoder(workerUrl, { idleMs: 0 });

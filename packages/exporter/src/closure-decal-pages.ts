@@ -13,7 +13,7 @@
  * dependencies name those files for it and the game never loads them.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
-import { DECAL_PAGE_SETS, decalPageRefs, decalPageReport, planDecalPages, type DecalPageReport, type DecalPageLayer, type DecalPageLayerRef, type DecalPageRef, type DecalPageSet, type DecalPageSheet, type ManifestAssetInputV2, type MaterialDef } from '@thirdlight/project-model';
+import { DECAL_PAGE_SETS, decalPageRefs, decalPageReport, heightAlphaTextures, planDecalPages, type DecalPageReport, type DecalPageLayer, type DecalPageLayerRef, type DecalPageRef, type DecalPageSet, type DecalPageSheet, type ManifestAssetInputV2, type MaterialDef } from '@thirdlight/project-model';
 
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
 import { readWhole } from './closure-texture-slots';
@@ -73,7 +73,9 @@ function currentTexture(byId: ReadonlyMap<string, AssetRecordLike>, id: string):
 export function decalPageInput(assets: readonly AssetRecordLike[], materials: readonly MaterialDef[]): { materials: readonly MaterialDef[]; sheets: ReadonlyMap<string, DecalPageSheet>; sizeOf: (textureId: string) => readonly [number, number] | null } {
   const byId = new Map(assets.map((a) => [a.assetId, a]));
   const sheets = new Map<string, DecalPageSheet>();
-  for (const m of materials) if (m.shader === 'trim' && m.trim !== undefined) sheets.set(m.materialId, { trim: m.trim, textures: m.textures });
+  // A sheet a layered surface reads as a layer carries a height in its albedo's A, which its cells must not take as opacity.
+  const heights = heightAlphaTextures(materials);
+  for (const m of materials) if (m.shader === 'trim' && m.trim !== undefined) sheets.set(m.materialId, { trim: m.trim, textures: m.textures, ...(m.textures['map'] !== undefined && heights.has(m.textures['map']) ? { alphaIsHeight: true } : {}) });
   return {
     materials,
     sheets,

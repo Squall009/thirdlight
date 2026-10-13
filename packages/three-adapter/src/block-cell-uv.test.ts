@@ -11,8 +11,9 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, meshBlockChunk, shapeSource, type BlockLookResolver, type BlockType } from '@thirdlight/runtime';
 
-import { cellUnitUvs, keepMetreUv, syncCellUv } from './block-cell-uv';
-import { CELL_UV_KEY, readsCellUv, type MaterialGraphLike } from './material-graph';
+import { cellUnitUvs, keepMetreUv, syncCellUv, trimStripUvs } from './block-cell-uv';
+import { CELL_UV_KEY, readsCellUv, TRIM_STRIPS_KEY, type MaterialGraphLike } from './material-graph';
+import type { TrimSheet } from '@thirdlight/runtime';
 
 const TYPES = new Map<string, BlockType>([['ground', { blockId: 'ground', name: 'Ground', variants: [{ color: '#808080' }], shape: 'full' }]]);
 /** Stand-ins with a mapped material: world UVs and tangents. */
@@ -114,6 +115,59 @@ describe('cell-unit UVs on block layers', () => {
     keepMetreUv(one, [1, 1, 1]);
     syncCellUv(one);
     expect(one.geometry.getAttribute('uv').array).toBe(metres);
+  });
+
+  it('a trim material\'s chunk wears strips: walls the lower wall on the first storey and the upper wall above, u along the wall at the row\'s density, v inside the row; tops the floor', () => {
+    const sheet: TrimSheet = { size: [1024, 1024], texelDensity: 256, padding: 8, rows: [
+      { slot: 'floor', top: 8, bottom: 120 },
+      { slot: 'lower_wall', top: 136, bottom: 248 },
+      { slot: 'upper_wall', top: 264, bottom: 376, texelDensity: 512 },
+    ] };
+    const cell: [number, number, number] = [1, 1, 1];
+    const g = new BlockGrid({ cellSize: cell, bounds: { min: [0, 0, 0], max: [8, 8, 8] } });
+    // A wall three cells long and two storeys high.
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 2; y++) g.set(x, y, 0, { block: 'ground' });
+    const parts = meshBlockChunk(g, 0, 0, TYPES, world, {});
+    const vOf = (slot: string): [number, number] => {
+      const r = sheet.rows.find((x) => x.slot === slot)!;
+      return [(r.top + 0.5) / 1024, (r.bottom - 0.5) / 1024];
+    };
+    const seen = new Set<string>();
+    for (const p of parts) {
+      const strips = trimStripUvs(p.uvs, p.positions, p.indices, cell, sheet);
+      for (let i = 0; i < p.indices.length; i += 3) {
+        const t = [p.indices[i]!, p.indices[i + 1]!, p.indices[i + 2]!];
+        const ny = p.normals[t[0]! * 3 + 1]!;
+        const ys = t.map((j) => p.positions[j * 3 + 1]!);
+        const slot = Math.abs(ny) > 0.9 ? 'floor' : Math.min(...ys) < 0.5 ? 'lower_wall' : 'upper_wall';
+        seen.add(slot);
+        const [v0, v1] = vOf(slot);
+        const density = slot === 'upper_wall' ? 512 : 256;
+        for (const j of t) {
+          expect(strips[j * 2 + 1]!).toBeGreaterThanOrEqual(v0 - 1e-6);
+          expect(strips[j * 2 + 1]!).toBeLessThanOrEqual(v1 + 1e-6);
+          expect(strips[j * 2]!).toBeCloseTo((p.uvs[j * 2]! * density) / 1024, 5);
+          // A wall's cell top is the row's top edge, its bottom the row's bottom edge.
+          if (slot !== 'floor') expect(strips[j * 2 + 1]!).toBeCloseTo(p.positions[j * 3 + 1]! === Math.max(...ys) ? v0 : v1, 5);
+        }
+      }
+    }
+    expect([...seen].sort()).toEqual(['floor', 'lower_wall', 'upper_wall']);
+    // On a mesh: strips under a material with a row table, metres back under a plain one.
+    const p = parts[0]!;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('uv', new THREE.BufferAttribute(p.uvs, 2));
+    geometry.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(p.indices, 1));
+    const trim = new THREE.MeshStandardMaterial();
+    trim.userData[TRIM_STRIPS_KEY] = sheet;
+    const mesh = new THREE.Mesh(geometry, trim);
+    keepMetreUv(mesh, cell);
+    syncCellUv(mesh);
+    expect([...(geometry.getAttribute('uv').array as Float32Array)]).toEqual([...trimStripUvs(p.uvs, p.positions, p.indices, cell, sheet)]);
+    mesh.material = new THREE.MeshStandardMaterial();
+    syncCellUv(mesh);
+    expect(geometry.getAttribute('uv').array).toBe(p.uvs);
   });
 
   it('only the layered template as made before per-layer tilings reads cells', () => {

@@ -33,7 +33,7 @@
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
-import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, applyBlockEdits, cellOfKey, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
+import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, UNPAINTED_WALL, applyBlockEdits, cellOfKey, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdge, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerView } from '@thirdlight/three-adapter';
 import {
@@ -775,8 +775,15 @@ export class BlockEditor {
     const ok = await this.cb.onCommit(layer.entityId, dabs);
     this.lastStroke = { tool: this.opts.tool, cells: dabs.length, previewMs: Math.round(previewMs * 100) / 100, commitMs: Math.round((performance.now() - t0) * 100) / 100 };
     this.host.canvas.setAttribute('data-block-stroke', JSON.stringify(this.lastStroke));
-    if (!ok) this.restorePreview();
-    else {
+    if (!ok) {
+      this.restorePreview();
+      // A wall point nobody painted already holds the walls' own layer in full: a stroke of that layer there changes
+      // nothing (the backend refuses an edit that changes nothing, quietly), which would look like a lost stroke.
+      const first = dabs[0];
+      if (first?.kind === 'paint' && first.target !== undefined && first.target !== 'tops' && first.erase !== true && UNPAINTED_WALL[first.channel] === 255) {
+        this.cb.onRefused(`Unpainted walls already show layer ${first.channel + 1}: painting it there changes nothing. Paint another layer, or erase to bring layer ${first.channel + 1} back.`);
+      }
+    } else {
       this.previewChunks.clear();
       this.scratch = null;
     }

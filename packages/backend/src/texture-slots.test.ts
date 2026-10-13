@@ -20,12 +20,14 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { join, resolve } from 'node:path';
 
 import { readRuntimeContentSync } from '@thirdlight/exporter';
-import { LAYERED_TEXTURES, layeredMaterial } from '@thirdlight/project-model/layered-surface';
+import { LAYERED_TEXTURES, layeredMaterial, UV_SOURCES } from '@thirdlight/project-model/layered-surface';
+import { TRIM_GROUP_KEY } from '@thirdlight/project-model/texture-slots';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { encodeRgbaPng } from './image-thumbnail';
-import { readKtx2 } from './ktx2-container';
-import { encodeKtx2, type Ktx2Mode } from './texture-encode';
+import { ktx2LevelData, readKtx2 } from './ktx2-container';
+import { createInlineTextureEncoder, encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
+import { createTextureSlotAssembler, type SlotLayer } from './texture-slots';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
@@ -75,7 +77,7 @@ describe('per-layer texture slots: Play and export arrays', () => {
     mkdirSync(game('assets', 'slots'), { recursive: true });
     // Colour layers (ETC1S, sRGB) and data layers (UASTC, linear), single images.
     const files: [string, [number, number, number, number], Ktx2Mode][] = [
-      ['c-red', [220, 40, 40, 230], 'color'],
+      ['c-red', [220, 40, 40, 255], 'color'],
       ['c-green', [40, 200, 40, 20], 'color'],
       ['c-blue', [40, 60, 220, 128], 'color'],
       ['d-one', [255, 204, 0, 255], 'data'],
@@ -177,6 +179,31 @@ describe('per-layer texture slots: Play and export arrays', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('a UASTC array made layer by layer on two encoder threads holds the texels one encode of the whole array makes', async () => {
+    const service = tb.backend._test.service;
+    const captured = service.readCapturedV3(PID);
+    if (!captured.ok) throw new Error(captured.error.code);
+    const assets = (captured.read.content as { assets: { assetId: string; currentVersion: number; versions: { version: number; sourceDigest: string }[] }[] }).assets;
+    const layer = (name: string): SlotLayer => {
+      const a = assets.find((x) => x.assetId === ids[name])!;
+      return { assetId: a.assetId, version: a.currentVersion, sourceDigest: a.versions.find((v) => v.version === a.currentVersion)!.sourceDigest };
+    };
+    // ETC1S colour textures as a data array: each layer transcoded and encoded as UASTC.
+    const inline = createInlineTextureEncoder();
+    const packs: number[] = [];
+    const twoThreads: TextureEncoder = { ...inline, parallelism: 2, pack: (sources, layers, mode, lossless, effort) => (packs.push(layers.length), inline.pack(sources, layers, mode, lossless, effort)) };
+    const made = await createTextureSlotAssembler({ service, encoder: twoThreads, now: () => performance.now() }).assemble(PID, [layer('c-red'), layer('c-green')], 'data');
+    expect(made).toMatchObject({ ok: true, cached: false, joined: false, reencoded: [true, true] });
+    // One job per layer, then the join.
+    expect(packs).toEqual([1, 1, 2]);
+    const split = readKtx2(new Uint8Array(readFileSync((made as { file: { real: string } }).file.real)))!;
+    const whole = await packKtx2(['c-red', 'c-green'].map((n) => new Uint8Array(readFileSync(game('assets', 'slots', `${n}.ktx2`)))), [0, 1].map((source) => [0, 1, 2, 3].map((channel) => ({ source, channel })) as unknown as PackLayer), 'data', [], 'assembled');
+    if (!whole.ok) throw new Error(whole.message);
+    const one = readKtx2(whole.ktx2)!;
+    expect([split.layerCount, split.levels.length]).toEqual([2, one.levels.length]);
+    for (let l = 0; l < one.levels.length; l++) expect(Buffer.from(ktx2LevelData(split, l)).equals(Buffer.from(ktx2LevelData(one, l))), `level ${l}`).toBe(true);
+  });
+
   it('a layered surface\'s albedo: the layer without height gets one from brightness, in the export and the editor\'s array alike', async () => {
     const base = layeredMaterial('mat-layered', 'Layered');
     const albedo = [ids['c-red']!, ids['c-height']!];
@@ -207,5 +234,39 @@ describe('per-layer texture slots: Play and export arrays', () => {
     // The backend's check: the problem names the texture without height, and the route says which is which.
     const heights = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/height-alpha?ids=${albedo.join(',')}`, { method: 'GET', token: tb.adminToken, origin: null });
     expect(heights.json).toMatchObject({ textures: { [albedo[0]!]: 'flat', [albedo[1]!]: 'height' } });
+  }, 180_000);
+
+  it('a layered surface with a mesh-UV layer beside a tiling one exports, its trim group under a key the runtime reads', async () => {
+    const base = layeredMaterial('mat-split', 'Split');
+    const albedo = [ids['c-red']!, ids['c-height']!];
+    const material = {
+      ...base,
+      parameters: (base.parameters ?? []).map((p) => {
+        if (p.key === LAYERED_TEXTURES.albedo) return { ...p, default: albedo };
+        if (p.key === 'layerProjection') return { ...p, default: [UV_SOURCES.world, UV_SOURCES.geometry, UV_SOURCES.world, UV_SOURCES.world] };
+        return p;
+      }),
+    };
+    await command('setMaterial', { material });
+    const made = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Box S' });
+    await command('setComponent', { entityId: made['createdId'], component: 'materials', value: { '*': 'mat-split' } });
+    const r = await exportNow();
+    expect(r.status, JSON.stringify(r.json).slice(0, 600)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const content = readRuntimeContentSync(JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')), (p) => {
+      try {
+        return new Uint8Array(readFileSync(join(out, p)));
+      } catch {
+        return null;
+      }
+    }) as unknown as { assets: { assetId: string }[]; materials: { materialId: string; parameters: { key: string; default: unknown }[]; graph?: { nodes: { type: string; data?: Record<string, unknown> }[] } }[] };
+    const m = content.materials.find((x) => x.materialId === 'mat-split')!;
+    const trimKey = TRIM_GROUP_KEY(LAYERED_TEXTURES.albedo);
+    const tiling = m.parameters.find((p) => p.key === LAYERED_TEXTURES.albedo)!.default;
+    const trim = m.parameters.find((p) => p.key === trimKey)!.default;
+    // Two arrays (the tiling layer's and the sheet's), both shipped, and the graph reads the trim one by its key.
+    expect(typeof trim === 'string' && trim !== '' && trim !== tiling).toBe(true);
+    for (const id of [tiling, trim]) expect(content.assets.some((a) => a.assetId === id)).toBe(true);
+    expect(m.graph!.nodes.some((n) => n.type === 'parameter' && n.data?.['key'] === trimKey)).toBe(true);
   }, 180_000);
 });

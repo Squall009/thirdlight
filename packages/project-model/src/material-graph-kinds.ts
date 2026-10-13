@@ -48,6 +48,8 @@ export const MATERIAL_PARAMETER_TYPES = ['float', 'vec2', 'vec3', 'vec4', 'color
  */
 export const MATERIAL_DATA_MAX = 64;
 export type MaterialParameterType = (typeof MATERIAL_PARAMETER_TYPES)[number];
+/** A parameter key — an identifier (it names the value in the graph and in overrides). */
+export const MATERIAL_PARAMETER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /**
  * The built-in sources an unconnected input may default to (a port's
@@ -153,9 +155,9 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     label: 'Layer weights',
     category: 'Inputs',
     description:
-      'What a layered surface blends by, for any mesh it is on. Weights: a terrain\'s or a painted block layer\'s stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint\'s A. Occlusion: generated architecture\'s baked corner shading (its trim data: R occlusion, G grime — added to layer 2 — B wetness); 0 elsewhere. Feed the weights to a Height blend.',
+      'What a layered surface blends by, for any mesh it is on. Weights: a terrain\'s or a painted block layer\'s stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint\'s A. Occlusion and grime: generated architecture\'s baked corner shading and path-paint grime (its trim data R and G; its B adds to the wetness); 0 elsewhere. Feed the weights to a Height blend.',
     inputs: [],
-    outputs: [port('weights', 'weights', 'vec4'), port('wetness', 'wetness', 'float'), port('occlusion', 'occlusion', 'float')],
+    outputs: [port('weights', 'weights', 'vec4'), port('wetness', 'wetness', 'float'), port('occlusion', 'occlusion', 'float'), port('grime', 'grime', 'float')],
   },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'normal', label: 'Normal', category: 'Inputs', description: 'The surface normal in object, world or view space.', inputs: [], outputs: [port('normal', 'normal', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },

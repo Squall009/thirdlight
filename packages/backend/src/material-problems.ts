@@ -16,12 +16,14 @@
  * `tl_content_query target="materials"`.
  *
  * A layered material's trim sheets (`layerSheets`) are checked beside its
- * compile: each names a trim material, and all share one row table (its trim
- * layers read one), else the rows that differ are listed.
+ * compile: each names a trim material (or an instance of one: it draws with
+ * its root's rows), and all share one row table (its trim layers read one),
+ * else the rows that differ are listed.
  */
 import { createHash } from 'node:crypto';
 
 import { layerSheetMismatches } from '@thirdlight/project-model/layered-surface';
+import { resolveMaterial } from '@thirdlight/project-model/material-reads';
 import { parseFillLayer, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { TrimSheet } from '@thirdlight/project-model/trim-sheet';
 import { materialGraphCanonical, materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
@@ -147,8 +149,10 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
 function sheetProblems(m: { readonly layerSheets?: readonly string[] }, materials: NonNullable<ContentLike['materials']>): MaterialProblem[] {
   if (m.layerSheets === undefined) return [];
   const out: MaterialProblem[] = [];
+  // An instance of a trim material is a sheet too: it draws with its root's shader and rows (as the renderer, the
+  // generator and the export resolve it).
   const sheetOf = (id: string): TrimSheet | null => {
-    const s = materials.find((x) => x.materialId === id);
+    const s = resolveMaterial(materials as unknown as Parameters<typeof resolveMaterial>[0], id);
     return s?.shader === 'trim' && s.trim !== undefined ? s.trim : null;
   };
   m.layerSheets.forEach((id, layer) => {

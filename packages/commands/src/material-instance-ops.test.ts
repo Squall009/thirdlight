@@ -146,6 +146,11 @@ describe('material instances', () => {
     expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'nope' } }).path).toBe('/args/assign/entityId');
     expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slot: 'body' } }).path).toBe('/args/assign/slot');
     expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: ['*'] } }).path).toBe('/args/assign/slots');
+    // A slot named twice is refused; an empty name too.
+    const twice = refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: ['body', 'trim', 'body'] } });
+    expect(twice).toMatchObject({ path: '/args/assign/slots', code: 'field_value' });
+    expect(twice.message).toMatch(/"body" is named twice/);
+    expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: [''] } }).path).toBe('/args/assign/slots');
     // Named slots take it too (a named slot is drawn before "*"); one undo puts the old mapping back.
     let t = ok(fresh(), 'setComponent', { entityId: 'box-0001', component: 'materials', value: { body: 'mi-red', trim: 'mi-red' } });
     t = ok(t, 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: ['body'] } });

@@ -8,7 +8,8 @@
  * project's build would make now: an edit that changes them (a decal of a new
  * material, a texture imported again) makes the backend answer without them,
  * and the view goes back to the materials' own textures until the next
- * Rebuild. "Scene view draws from the pages" off keeps the own textures.
+ * Rebuild; so does a read that fails (the pages can no longer be checked).
+ * "Scene view draws from the pages" off keeps the own textures.
  *
  * Browser-only (React).
  */
@@ -80,7 +81,11 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string }): Decal
     if (r.ok) {
       setView(r.view);
       setError(null);
-    } else setError(r.error.message);
+    } else {
+      setError(r.error.message);
+      // Unread pages may be out of date: the view goes back to the materials' own textures.
+      setView((v) => (v === null || v.composed === null ? v : { ...v, composed: null }));
+    }
   }, [clientRef]);
 
   // Read while the drawer shows, or while composed pages are drawn (they may have gone out of date).

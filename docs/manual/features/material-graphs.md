@@ -37,9 +37,9 @@ its own values and textures — *layer weights*, *vertex paint*, *trim rows*,
 alpha is (*height* for a height blend, *opacity* when cut out or
 transparent). A shader type's come from one table; a graph material's are
 worked out from its nodes: a Height blend or Weighted mix whose weights come
-from a vertex colour set or the paint (or a Height blend with its weights
-unwired) reads layer weights, a Vertex colour on the paint set reads vertex
-paint, a texture's alpha into a Height blend's heights is height, into
+from a vertex colour set or the paint reads layer weights, a Vertex colour
+on the paint set or a Height blend with its weights unwired (it takes the
+paint's R, G, B, A as four layers' weights) reads vertex paint, a texture's alpha into a Height blend's heights is height, into
 opacity or alpha clip is opacity, COLOR_0 into ambient occlusion is vertex
 occlusion, an output with **Decal** set draws as a decal (through material
 function calls too). The Inspector lists them under **reads**, and the
@@ -343,9 +343,11 @@ edit mode's **Layer settings…**):
 weights; on anything else the **vertex paint** — layer 1 is the base (what
 the others leave, 1 − (R + G + B)), **R**, **G** and **B** are layers 2–4,
 and **A** is the wetness (an unpainted model's own vertex colours are its
-weights). Generated architecture's own vertex data adds its
-grime to layer 2 and its wetness, and its baked corner shading darkens the
-indirect light (**occlusion**). Wetness — painted, the **wetness**
+weights). Generated architecture's own vertex data adds its wetness, its
+baked corner shading darkens the indirect light (**occlusion**), and its
+grime (the block layer's path paint under it) pulls the colour toward
+**grimeColor** and the surface toward matte, by **grime** — grime, never one
+of the layers. Wetness — painted, the **wetness**
 parameter or the scene's — pools in the low parts first, darkens and
 smooths the surface and flattens the normal maps.
 

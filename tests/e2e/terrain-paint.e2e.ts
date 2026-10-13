@@ -246,6 +246,13 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
   await panel(page).getByLabel('paint radius').fill('1');
   await panel(page).getByLabel('paint strength').fill('1');
   await panel(page).getByLabel('paint falloff').selectOption('constant');
+  // Layer 2 on unpainted walls (which already show it) stores nothing, and the editor says why.
+  await panel(page).getByLabel('paint channel').selectOption('1');
+  const rWall = await revision();
+  await drag(page, [wall(4.6), wall(6), wall(7.4)]);
+  await expect(page.locator('.tl-notice')).toContainText('Unpainted walls already show layer 2', { timeout: 15_000 });
+  expect(await revision()).toBe(rWall);
+  await panel(page).getByLabel('paint channel').selectOption('2');
   const r1 = await revision();
   await drag(page, [wall(4.6), wall(6), wall(7.4)]);
   await expect.poll(async () => Object.keys(await wallPaint(layer)).length, { timeout: 20_000 }).toBe(1);

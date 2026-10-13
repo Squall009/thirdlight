@@ -63,7 +63,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults](limits.md) | By package |
 | [Limits and defaults: asset-pipeline](limits-asset-pipeline.md) | `inspect-font.ts`, `inspect-image.ts`, `limits.ts`, `simplify.ts` |
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
-| [Limits and defaults: commands](limits-commands.md) | `errors.ts`, `terrain-erosion-ops.ts` |
+| [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
 | [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 34 sections |

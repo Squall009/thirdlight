@@ -933,13 +933,14 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     return ((await r.json()) as { diagnostics?: { renderer?: Record<string, unknown> } }).diagnostics?.renderer ?? {};
   };
   const renderer = await diagnostics();
-  // The decals' pages: the trim sheet copied onto an albedo page (the test sheet is a PNG), the green image on another,
-  // the normal map on the normal set's: two arrays, held and uploaded, inside the budget.
+  // The decals' pages: the trim sheet's cell copied onto the albedo page beside the green image (the layered wall reads
+  // the sheet as a layer, so its A is a height and only its cell goes, opaque), the normal map on the normal set's:
+  // two arrays, held and uploaded, inside the budget.
   const decalPages = renderer['decals'] as { decals: number; pages: number; layers: number; bytes: number; onGpu: number } | undefined;
   const budget = renderer['textures'] as { budgetBytes: number; fixedBytes: number } | undefined;
   console.log(`decal pages ${variant} Play: ${JSON.stringify(decalPages ?? null)}; textures ${budget?.fixedBytes ?? '-'} fixed of a ${budget?.budgetBytes ?? '-'} byte budget`);
   // Every decal holds its pages but the wet one (a roughness value, no image); the cell's decal one more.
-  expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 3, onGpu: 2 });
+  expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 2, onGpu: 2 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
   expectCulled(renderer['rooms'] as never);
@@ -1047,7 +1048,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
     await expect.poll(async () => (shown = readArchitecture(decodePng(await exported.screenshot()))).ok && shown.colours.every((c, i) => sameColour(c, arch.colours[i]!)), { timeout: 45_000, intervals: [500], message: 'the export picture of the architecture' }).toBe(true);
     // The decal page on the GPU: "<arrays>|<layers>|<bytes>|<uploaded>".
-    expect(String(await exported.getAttribute('data-tl-decal-pages'))).toBe(`2|3|${decalPages!.bytes}|2`);
+    expect(String(await exported.getAttribute('data-tl-decal-pages'))).toBe(`2|${decalPages!.layers}|${decalPages!.bytes}|2`);
     let styledExport = readStyled(decodePng(await exported.screenshot()));
     await expect.poll(async () => (styledExport = readStyled(decodePng(await exported.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the export picture of the styled walls' }).toBe(true).catch((e: unknown) => {
       console.log(`styled walls ${variant} export (failed): low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);

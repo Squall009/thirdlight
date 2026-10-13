@@ -37,7 +37,8 @@ import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** The import cache's marker of a checked file (found = this is its result). */
 const MARKER_IMPORTER = 'height-alpha';
-const MARKER_VERSION = '1';
+// Raised whenever the rule in `heightAlphaOf` changes, so files checked under the old one are checked again.
+const MARKER_VERSION = '2';
 const markerKey = (digest: string, result: HeightAlpha): ImportKey => ({ sourceDigest: digest, importer: MARKER_IMPORTER, importerVersion: MARKER_VERSION, settings: { result, flatSpread: FLAT_ALPHA_SPREAD } });
 /** Results kept in memory (one per file digest; the oldest go first). */
 const RESULTS_MAX = 4096;

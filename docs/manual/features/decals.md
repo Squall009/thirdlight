@@ -139,7 +139,10 @@ Its images come from one of two sources (the Inspector's **source**):
   name (`decal: {sheet, cell}`). The textures are then the sheet's, inside
   the cell, so a level restyled by swapping its trim sheet swaps its decals
   too. A material takes one source, not both. A material instance uses its
-  parent's cell.
+  parent's cell. The cell's opacity is the sheet's albedo alpha — unless a
+  layered surface reads the sheet as a layer (its alpha is then a height):
+  such a sheet's cells draw as their whole rectangle, opaque, on the decal
+  pages.
 
 A decal material that draws a sheet's cell ships with that sheet in an
 export.

@@ -14,12 +14,14 @@
  *   export composes nothing (the import cache).
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 
 import type { DecalPageRef, DecalPageReport } from '@thirdlight/project-model';
 import { DECAL_PAGE_LIMITS } from '@thirdlight/project-model/limits';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { makeDecalAtlasRoutes } from './decal-atlas';
 import { composePageRgba, type ComposeLayer } from './decal-page-compose';
 import { encodeRgbaPng } from './image-thumbnail';
 import { ktx2LevelData, readKtx2 } from './ktx2-container';
@@ -234,6 +236,39 @@ describe('decal pages in a real export', () => {
     const bytes = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages/arrays/${arrayId}`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
     expect(bytes.status).toBe(200);
     expect(Buffer.from(await bytes.arrayBuffer()).equals(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === arrayId)!.sourceDigest)))).toBe(true);
+    // Rebuild pages three times while a composition runs (the routes over the real project, the first held open):
+    // they wait for it, then share the one composition after it; none overlaps another.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    let inside = 0;
+    let most = 0;
+    const port = {
+      decalPages: async (p: string, request: Parameters<NonNullable<typeof tb.backend._test.textureSlots.decalPages>>[1]) => {
+        calls += 1;
+        inside += 1;
+        most = Math.max(most, inside);
+        if (calls === 1) await held;
+        try {
+          return await tb.backend._test.textureSlots.decalPages!(p, request);
+        } finally {
+          inside -= 1;
+        }
+      },
+    };
+    const sent: { status: number; body: unknown }[] = [];
+    const routes = makeDecalAtlasRoutes({ service: tb.backend._test.service, port, requireAuth: () => null, sendJson: (_res, status, body) => void sent.push({ status, body }), sendError: (_res, error, status) => void sent.push({ status: status ?? 400, body: error }) });
+    const post = (): Promise<void> => routes({ method: 'POST' } as IncomingMessage, {} as ServerResponse, ['api', 'v1', 'projects', PID, 'content', 'decal-pages']);
+    const first = post();
+    await expect.poll(() => calls).toBe(1);
+    const later = [post(), post(), post()];
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(1);
+    release();
+    await Promise.all([first, ...later]);
+    expect([calls, most]).toEqual([2, 1]);
+    expect(sent.map((x) => x.status)).toEqual([200, 200, 200, 200]);
+    for (const x of sent) expect((x.body as View).composed!.refs).toEqual(shipped);
     // A new decal material changes the pages: the composition is no longer current.
     await command('setMaterial', { material: { materialId: 'mat-mark-2', name: 'Mark 2', shader: 'decal', params: {}, textures: { map: ids['mark-glow'] } } });
     await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'mark 2', components: { decal: { size: [1, 1, 0.5], material: 'mat-mark-2' } } });

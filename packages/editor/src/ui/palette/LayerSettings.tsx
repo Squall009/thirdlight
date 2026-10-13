@@ -216,7 +216,7 @@ const FIELD_RANGES: Readonly<Record<(typeof LAYER_SETTINGS)[number]['key'], { mi
  * One layer's settings and palette name. Values show at once and are stored
  * as one `setMaterial` once the control rests (`useSettledEdits`).
  */
-export function LayerFields({ material, layer, textureName, sheets = [], onSave }: { material: MaterialDef; layer: number; textureName: string | null; sheets?: readonly MaterialDef[]; onSave: (m: MaterialDef) => void }): JSX.Element {
+export function LayerFields({ material, layer, textureName, sheets = [], meshUvs = true, onSave }: { material: MaterialDef; layer: number; textureName: string | null; sheets?: readonly MaterialDef[]; meshUvs?: boolean; onSave: (m: MaterialDef) => void }): JSX.Element {
   const edits = useSettledEdits(material, (m) => onSave(m));
   const shownMaterial = edits.value;
   // The name as typed, stored when the field is left.
@@ -256,7 +256,7 @@ export function LayerFields({ material, layer, textureName, sheets = [], onSave 
           return (
             <div key={s.key} className="tl-slider" title={s.title}>
               <span className="tl-slider__label">UV source</span>
-              <Segmented small aria={`layer ${layer + 1} UV source`} value={value} options={s.options.map((o) => ({ id: o.value, label: o.label }))} onChange={(v) => set(s.key, v, true)} />
+              <Segmented small aria={`layer ${layer + 1} UV source`} value={value} options={s.options.filter((o) => meshUvs || o.value !== UV_SOURCES.geometry || o.value === value).map((o) => ({ id: o.value, label: o.label }))} onChange={(v) => set(s.key, v, true)} />
             </div>
           );
         }

@@ -29,7 +29,7 @@ holds this build's value.
   `layerWidth`, `layerHeight`). A big world is several scenes loaded
   together.
 - **Per request or per step.** One command is at most 64 KiB
-  ([`MAX_REQUEST_BYTES`](../reference/limits-commands.md#limit-max-request-bytes)):
+  ([`MAX_REQUEST_BYTES`](../reference/limits-project-model-1.md#limit-max-request-bytes)):
   a larger edit is staged (an upload) or split (a long brush drag is
   several strokes). A script may spawn 64 objects a step
   ([`MAX_SPAWNS_PER_STEP`](../reference/limits-runtime.md#limit-max-spawns-per-step));

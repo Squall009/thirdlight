@@ -46,6 +46,8 @@ export interface DecalImages {
   emissive: DecalImage | null;
   /** An albedo image is on its way: until it is here the decal draws nothing (not a plain rectangle of its tint). */
   albedoComing: boolean;
+  /** The albedo's A is not an opacity (a trim sheet with a height there): the decal is opaque inside its rectangle. */
+  opaqueAlbedo?: boolean;
 }
 
 /** Where the decal is on its images. */
@@ -115,7 +117,8 @@ export function installDecalNodes(m: THREE.Material, params: Readonly<Record<str
       }
       return t.grad(gx, gy);
     };
-    const albedo = read(images.albedo, layers.albedo) ?? TSL.vec4(1, 1, 1, images.albedoComing ? 0 : 1);
+    const read0 = read(images.albedo, layers.albedo);
+    const albedo = read0 !== null && images.opaqueAlbedo === true ? TSL.vec4(read0.rgb, 1) : (read0 ?? TSL.vec4(1, 1, 1, images.albedoComing ? 0 : 1));
     const tinted = albedo.rgb.mul(TSL.materialColor.rgb);
     if (multiply) {
       const nb = m as unknown as MeshBasicNodeMaterial;

@@ -17,7 +17,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
-import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
+import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_KEY_RE, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
 import { MAX_TEXTURE_LAYERS } from './content-limits';
 import { MATERIAL_LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
@@ -26,6 +26,7 @@ import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
+import { GRIME_COLOUR } from './layered-surface';
 import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
 import { DECAL_BLENDS, DECAL_DEFAULTS, DECAL_LIMITS, validateDecalCellRef, type DecalCellRef } from './decals';
 
@@ -121,7 +122,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     aoIntensity: num(0, 2, 1),
     // How much of the vertex occlusion (R) darkens the indirect light.
     occlusion: num(0, 1, 1),
-    grimeColor: color('#3b3328'),
+    grimeColor: color(GRIME_COLOUR),
     // Scales the vertex grime (G); crevices (the ORM's occlusion) take it first.
     grime: num(0, 2, 1),
     // Rain on this material, over the vertex wetness (B); the scene's wetness adds to both.
@@ -329,8 +330,8 @@ export type MaterialValue = MaterialParameterValue | string[];
 export const MATERIAL_EXTRA_LAYERS_MAX = TERRAIN_LAYER_MAX + 1 - 4;
 /** Most exposed parameters of one material. */
 export const MAX_MATERIAL_PARAMETERS = 64;
-/** A parameter key — an identifier (it names the value in the graph and in overrides). */
-export const MATERIAL_PARAMETER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
+// The key rule sits beside the parameter types (texture-slots reads it too, without loading this module).
+export { MATERIAL_PARAMETER_KEY_RE };
 const PARAM_BOUND = 1e6;
 
 /** Most material slots one object or asset maps. */

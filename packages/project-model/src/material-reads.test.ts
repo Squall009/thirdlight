@@ -47,7 +47,7 @@ describe('fixed shaders declare what they read', () => {
     expect(materialReads(child, 'vertexPaint', { materials: [parent, child] })).toBe(true);
     const layered: MaterialDef = { ...shader('standard'), materialId: 'g', graph: graph([node('out', 'pbr'), node('hb', 'heightBlend'), node('mix', 'weightedMix')], [wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor')]) };
     const inst: MaterialDef = { materialId: 'i', name: 'I', shader: 'standard', params: {}, textures: {}, instanceOf: 'g' };
-    expect(materialReads(inst, 'layerWeights', { materials: [layered, inst] })).toBe(true);
+    expect(materialReads(inst, 'vertexPaint', { materials: [layered, inst] })).toBe(true);
     // A layered material following a trim sheet reads its rows (its instance too).
     expect(materialReads({ ...layered, layerSheets: ['', 'sheet'] }, 'trimRows')).toBe(true);
     expect(materialReads(inst, 'trimRows', { materials: [{ ...layered, layerSheets: ['sheet'] }, inst] })).toBe(true);
@@ -78,9 +78,9 @@ describe('a graph\'s declarations are inferred from its nodes', () => {
     const wetOnly = graph([node('out', 'pbr'), node('lw', 'layerWeights')], [wire('lw', 'wetness', 'out', 'roughness')]);
     expect(graphDeclaration(wetOnly)).toMatchObject({ layerWeights: false, vertexPaint: true, vertexAO: false });
   });
-  it('a Height blend with its weights unwired reads the paint itself (layer weights and vertex paint)', () => {
+  it('a Height blend with its weights unwired reads the paint itself, its bytes as they are (vertex paint, not layer weights)', () => {
     const g = graph([node('out', 'pbr'), node('hb', 'heightBlend'), node('mix', 'weightedMix')], [wire('hb', 'weights', 'mix', 'weights'), wire('mix', 'out', 'out', 'baseColor')]);
-    expect(graphDeclaration(g)).toMatchObject({ layerWeights: true, vertexPaint: true });
+    expect(graphDeclaration(g)).toMatchObject({ layerWeights: false, vertexPaint: true });
   });
   it('a vertex colour on the paint set reads vertex paint wherever it goes', () => {
     const g = graph([node('out', 'pbr'), node('vc', 'vertexColor', { set: 'paint' })], [wire('vc', 'rgb', 'out', 'baseColor')]);

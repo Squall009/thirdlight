@@ -187,6 +187,44 @@ describe('paintVertices', () => {
     }
   });
 
+  it('follows the copies of every painted set one setComponent edits (entityIds)', () => {
+    const { service, game } = setup('copies-many');
+    try {
+      publishPlate(service, game, 3, 0, 'create');
+      const floats = new Float32Array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 10, 0, 0, 0, 0, 0, 1, 1, 1, 1, 20, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+      const buffer = new Uint8Array(floats.buffer);
+      const without = new Uint8Array(floats.slice(10).buffer);
+      for (const b of [buffer, without]) expect(service.publishBlob('game', { digest: sha(b), byteLength: b.byteLength, source: { kind: 'bytes', bytes: b } }).ok).toBe(true);
+      const set = (name: string): string => {
+        const id = ok(service, 'createEntity', { sceneId: 'scene-main', kind: 'group', name }).createdId!;
+        ok(service, 'setComponent', { entityId: id, component: 'instances', value: { asset: { assetId: 'plate' }, buffer: sha(buffer), count: 3 } });
+        return id;
+      };
+      const [a, b, c] = [set('A'), set('B'), set('C')];
+      ok(service, 'paintVertices', { entityId: a, copy: 1, dabs: [[10, 0, 0]], brush: BRUSH });
+      ok(service, 'paintVertices', { entityId: b, copy: 2, dabs: [[20, 0, 0]], brush: BRUSH });
+      ok(service, 'paintVertices', { entityId: c, copy: 1, dabs: [[10, 0, 0]], brush: BRUSH });
+      const table = (id: string): number[] => [...new Uint32Array(blob(service, components(service, id)['instances'].paint.copies).slice().buffer)];
+      const before = { a: components(service, a)['instances'].paint, b: components(service, b)['instances'].paint };
+
+      // Copy 0 of A and B taken out in one command with one shared value: each set's table follows its own copies.
+      ok(service, 'setComponent', { entityId: a, component: 'instances', value: { buffer: sha(without), count: 2 }, entityIds: [b] });
+      expect(table(a)).toEqual([0, 0]);
+      expect(table(b)).toEqual([1, 0]);
+      ok(service, 'undo', {});
+      expect(components(service, a)['instances'].paint).toEqual(before.a);
+      expect(components(service, b)['instances'].paint).toEqual(before.b);
+
+      // With a value per set: the sets in entityIds follow too.
+      ok(service, 'setComponent', { entityId: a, component: 'instances', value: { count: 3 }, entityIds: [b, c], values: [{ buffer: sha(without), count: 2 }, { buffer: sha(without), count: 2 }] });
+      expect(table(a)).toEqual([...new Uint32Array(blob(service, before.a.copies).slice().buffer)]);
+      expect(table(b)).toEqual([1, 0]);
+      expect(table(c)).toEqual([0, 0]);
+    } finally {
+      service.dispose();
+    }
+  });
+
   it('keeps a generated wall\'s paint in path space', () => {
     const { service } = setup('wall');
     try {

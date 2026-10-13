@@ -24,10 +24,12 @@ const image = (px: (i: number) => [number, number, number, number]): Uint8Array 
 };
 
 describe('the check: is there a height in A?', () => {
-  it('a missing (opaque) or constant A is flat; encoder noise of a level or two too', () => {
+  it('a missing (opaque) A is flat, with encoder noise of a level or two too; a constant below opaque is a height', () => {
     expect(heightAlphaOf(image(() => [90, 80, 70, 255]))).toBe('flat');
-    expect(heightAlphaOf(image(() => [90, 80, 70, 128]))).toBe('flat');
-    expect(heightAlphaOf(image((i) => [90, 80, 70, 200 + (i % 3)]))).toBe('flat');
+    expect(heightAlphaOf(image((i) => [90, 80, 70, 252 + (i % 3)]))).toBe('flat');
+    // A layer that is uniformly high or low (the painted-terrain fixtures' 230 and 20) is a deliberate height.
+    expect(heightAlphaOf(image(() => [90, 80, 70, 128]))).toBe('height');
+    expect(heightAlphaOf(image((i) => [90, 80, 70, 20 + (i % 3)]))).toBe('height');
     expect(alphaSpread(image((i) => [0, 0, 0, 200 + (i % 3)]))).toBe(2);
   });
   it('a painted height spans far more than the flat spread; a few stray texels do not make one', () => {

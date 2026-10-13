@@ -43,9 +43,21 @@ export function alphaSpread(rgba: Uint8Array): number {
   return hi - lo;
 }
 
-/** Whether an RGBA image carries a height in A (a spread above `FLAT_ALPHA_SPREAD`). */
+/**
+ * Whether an RGBA image carries a height in A: a spread above
+ * `FLAT_ALPHA_SPREAD`, or a constant A below opaque. An opaque A is what an
+ * image without alpha decodes to; a constant at another level was put there
+ * on purpose (a layer that is uniformly high or low wins or loses every blend
+ * crisply, which is a height), so only the opaque one stands for "missing".
+ */
 export function heightAlphaOf(rgba: Uint8Array): HeightAlpha {
-  return alphaSpread(rgba) > FLAT_ALPHA_SPREAD ? 'height' : 'flat';
+  const n = rgba.length >> 2;
+  if (n === 0) return 'flat';
+  const hist = new Uint32Array(256);
+  for (let i = 3; i < rgba.length; i += 4) hist[rgba[i]!]! += 1;
+  const { lo, hi } = spreadOf(hist, n);
+  if (hi - lo > FLAT_ALPHA_SPREAD) return 'height';
+  return hi >= 255 - FLAT_ALPHA_SPREAD ? 'flat' : 'height';
 }
 
 /** Brightness of one sRGB texel, 0–255 (Rec. 709 weights in 1/256ths: 54 + 183 + 19). */

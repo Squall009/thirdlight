@@ -40,8 +40,8 @@ import { KTX2_ENCODINGS, MAX_TEXTURE_LAYERS, type Ktx2Encoding } from './content
 import type { GraphData, GraphEdge, GraphNode } from './graph';
 import { LAYER_NOT_READ, LAYERED_TEXTURES, TEMPLATE_LAYERS, UV_SOURCES } from './layered-surface';
 import { heightAlphaParams } from './material-reads';
-import { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
-import { ID_RE } from './validate';
+import { FLAT_NORMAL_TEXEL, MATERIAL_PARAMETER_KEY_RE, TEXTURE_ABSENT_VALUES } from './material-graph-kinds';
+import { ID_MAX_LENGTH, ID_RE } from './validate';
 
 export { KTX2_ENCODINGS };
 
@@ -58,6 +58,9 @@ export function textureSlotsError(v: readonly unknown[]): string | null {
   return null;
 }
 
+/** The longest stem of a drawn node's or edge's id, leaving room for a `-n` that makes it unique within `ID_RE`. */
+const DRAWN_ID_STEM = ID_MAX_LENGTH - 8;
+
 /** Marks a constant layer in a layer list (asset ids never hold it). */
 const FILL_PREFIX = '#';
 
@@ -65,6 +68,9 @@ const FILL_PREFIX = '#';
 export function fillLayerId(rgba: readonly number[]): string {
   return FILL_PREFIX + [0, 1, 2, 3].map((c) => Math.max(0, Math.min(255, Math.round((rgba[c] ?? 1) * 255))).toString(16).padStart(2, '0')).join('');
 }
+
+/** A layered surface's empty layer in a height array as drawn (`layeredForDraw`): mid grey with height 0, so it never wins a blend. */
+const NEUTRAL_HEIGHT_LAYER = fillLayerId([0.5, 0.5, 0.5, 0]);
 
 /** A constant layer's bytes (RGBA 0–255) from its layer-list entry (null: an asset id). */
 export function parseFillLayer(id: string): [number, number, number, number] | null {
@@ -81,8 +87,14 @@ export function textureSlotFill(graph: GraphData | undefined, key: string): read
   if (graph === undefined) return null;
   const params = new Set(graph.nodes.filter((n) => n.type === 'parameter' && n.data?.['key'] === key).map((n) => n.id));
   let fill: readonly number[] | null = null;
+  // A read of no layer (`LAYER_NOT_READ`: a layer a drawn layered surface leaves out) says nothing of the slots.
+  const readsNoLayer = (node: string): boolean => {
+    const e = graph.edges.find((x) => x.to.node === node && x.to.port === 'layer');
+    const from = e === undefined ? undefined : graph.nodes.find((n) => n.id === e.from.node);
+    return from?.type === 'float' && Number(from.data?.['value']) === LAYER_NOT_READ;
+  };
   for (const e of graph.edges) {
-    if (!params.has(e.from.node)) continue;
+    if (!params.has(e.from.node) || readsNoLayer(e.to.node)) continue;
     const to = graph.nodes.find((n) => n.id === e.to.node);
     if (to?.type === 'normalMap' || (to?.type === 'projectedSample' && to.data?.['decode'] === 'normal')) return FLAT_NORMAL_TEXEL;
     const absent = to?.data?.['absent'];
@@ -162,6 +174,27 @@ export function heightSlotKeys(m: { readonly graph?: GraphData }): ReadonlySet<s
   return keys;
 }
 
+/**
+ * The texture assets the materials read with their alpha as a height: the
+ * textures of their height arrays' slots (`heightSlotKeys`) and a prebuilt
+ * one in such a parameter. Resolved materials (an instance's values are its
+ * own slots). A trim sheet whose albedo is among them has a height in A, not
+ * an opacity, so its decal cells draw opaque (`planDecalPages`).
+ */
+export function heightAlphaTextures(materials: readonly SlottedMaterial[]): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const m of materials) {
+    const keys = heightSlotKeys(m);
+    if (keys.size === 0) continue;
+    for (const p of m.parameters ?? []) {
+      if (p.type !== 'texture' || !keys.has(p.key)) continue;
+      if (isTextureSlots(p.default)) for (const id of p.default) if (id !== '' && parseFillLayer(id) === null) out.add(id);
+      if (typeof p.default === 'string' && p.default !== '') out.add(p.default);
+    }
+  }
+  return out;
+}
+
 /** The slot set a drawn material's parameter assembles to (null: no slot names a texture). */
 function slotSetOf(m: SlottedMaterial, key: string, slots: readonly string[], heights: ReadonlySet<string>): TextureSlotSet | null {
   const layers = textureSlotLayers(slots, textureSlotFill(m.graph, key));
@@ -172,11 +205,22 @@ function slotSetOf(m: SlottedMaterial, key: string, slots: readonly string[], he
 interface SlottedMaterial {
   readonly materialId: string;
   readonly graph?: GraphData;
-  readonly parameters?: readonly { readonly key: string; readonly type: string; readonly default: unknown }[];
+  readonly parameters?: readonly { readonly key: string; readonly type: string; readonly default: unknown; readonly extraLayers?: readonly number[] }[];
 }
 
-/** The key a layered surface's trim group of an array is drawn under (`layeredForDraw`; never a project's key: `@` is no identifier). */
-export const TRIM_GROUP_KEY = (key: string): string => `${key}@trim`;
+/**
+ * The key a layered surface's trim group of an array is drawn under
+ * (`layeredForDraw`). It is a parameter key like any other (an identifier):
+ * the drawn material is what a build hands the runtime, whose read validates
+ * every key. `layeredForDraw` splits only where it is free.
+ */
+export const TRIM_GROUP_KEY = (key: string): string => `${key}_trim`;
+
+/** Whether a slotted parameter's trim group key is usable: an identifier no parameter of the material already has. */
+function trimGroupKeyFree(key: string, params: readonly { readonly key: string }[]): boolean {
+  const k = TRIM_GROUP_KEY(key);
+  return MATERIAL_PARAMETER_KEY_RE.test(k) && !params.some((p) => p.key === k);
+}
 
 /**
  * A layered surface as it is drawn (the project's material is never
@@ -195,8 +239,9 @@ export const TRIM_GROUP_KEY = (key: string): string => `${key}@trim`;
  *   group whose list for an array names no texture reads nothing there (its
  *   absent value: a flat normal, a plain ORM).
  *
- * Any other material comes back as it is (a terrain, block ground, a wall of
- * tiling layers only: every layer reads, as before). Only the template's
+ * Any other material comes back as it is (block ground, a wall of tiling
+ * layers only, a material with layers past the four — a terrain's: every
+ * layer reads, as before). Only the template's
  * shape is recognised: reads of a slot-list texture parameter at a constant
  * layer.
  */
@@ -207,45 +252,70 @@ export function layeredForDraw<M extends SlottedMaterial>(m: M): M {
   if (graph === undefined || drawn === null) return m;
   const { used, geometry } = drawn;
   const groups = { trim: geometry.flatMap((g, i) => (g ? [i] : [])), tiling: geometry.flatMap((g, i) => (g ? [] : [i])) };
-  const split = groups.trim.length > 0 && groups.tiling.length > 0;
   const slotted = new Map(params.filter((p) => p.type === 'texture' && isTextureSlots(p.default)).map((p) => [p.key, p.default as string[]]));
+  // A key whose trim group key is taken keeps one array for every layer (each read at its own index), as before groups.
+  const split = groups.trim.length > 0 && groups.tiling.length > 0 && [...slotted.keys()].every((k) => trimGroupKeyFree(k, params));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const into = (node: string, port: string): GraphEdge | undefined => graph.edges.find((e) => e.to.node === node && e.to.port === port);
   const nodes: GraphNode[] = [...graph.nodes];
   const edges: GraphEdge[] = [...graph.edges];
-  const taken = new Set(nodes.map((n) => n.id));
-  /** A node of the drawn graph (once per id). */
-  const node = (id: string, type: string, data: Record<string, unknown>): string => {
-    if (!taken.has(id)) {
-      taken.add(id);
+  // The drawn graph is what a build hands the runtime, whose read validates it: its own nodes and edges get ids like
+  // a project's (`ID_RE`), unused by the material's graph.
+  const taken = new Set([...nodes.map((n) => n.id), ...edges.map((e) => e.id)]);
+  const freshId = (base: string): string => {
+    const stem = base.toLowerCase().slice(0, DRAWN_ID_STEM);
+    let id = stem;
+    for (let i = 2; taken.has(id); i += 1) id = `${stem}-${i}`;
+    taken.add(id);
+    return id;
+  };
+  const ours = new Map<string, string>();
+  /** A node of the drawn graph (once per name). */
+  const node = (name: string, type: string, data: Record<string, unknown>): string => {
+    let id = ours.get(name);
+    if (id === undefined) {
+      id = freshId(`draw-${name}`);
+      ours.set(name, id);
       nodes.push({ id, type, position: [0, 0], data } as GraphNode);
     }
     return id;
   };
+  const edge = (from: string, fromPort: string, to: string, port: string): GraphEdge => ({ id: freshId('draw-edge'), from: { node: from, port: fromPort }, to: { node: to, port } });
   const rewire = (to: string, port: string, from: string, fromPort: string): void => {
     const i = edges.findIndex((e) => e.to.node === to && e.to.port === port);
-    const edge: GraphEdge = { id: `draw:${to}:${port}`, from: { node: from, port: fromPort }, to: { node: to, port } };
-    if (i >= 0) edges[i] = edge;
-    else edges.push(edge);
+    if (i >= 0) edges[i] = edge(from, fromPort, to, port);
+    else edges.push(edge(from, fromPort, to, port));
   };
-  const notRead = (): string => node('draw:notRead', 'float', { value: LAYER_NOT_READ });
-  /** A group's slots of an array: its layers' slots ("" past the list). */
-  const groupSlots = (slots: readonly string[], layers: readonly number[]): string[] => layers.map((i) => slots[i] ?? '');
+  const notRead = (): string => node('notRead', 'float', { value: LAYER_NOT_READ });
+  const heightKeys = heightSlotKeys(m);
+  /**
+   * A group's slots of an array: its layers' slots ("" past the list). In a
+   * height array an empty slot is a neutral constant layer (mid grey, height
+   * 0: it never wins a blend), not the first filled slot's texture, once the
+   * list names a texture to take its size from.
+   */
+  const groupSlots = (key: string, slots: readonly string[], layers: readonly number[]): string[] => {
+    const l = layers.map((i) => slots[i] ?? '');
+    return heightKeys.has(key) && l.some((x) => x !== '') ? l.map((x) => (x === '' ? NEUTRAL_HEIGHT_LAYER : x)) : l;
+  };
+  type Group = 'tiling' | 'trim';
+  /** Each slotted array's lists as drawn, per group (unsplit: the used layers, all under `tiling`). */
+  const lists = new Map<string, Record<Group, string[]>>();
+  for (const [key, slots] of slotted) lists.set(key, split ? { tiling: groupSlots(key, slots, groups.tiling), trim: groupSlots(key, slots, groups.trim) } : { tiling: groupSlots(key, slots, Array.from({ length: used }, (_, i) => i)), trim: [] });
   for (const n of graph.nodes) {
     if (n.type !== 'projectedSample' && n.type !== 'sampleTexture' && n.type !== 'normalMap') continue;
     const tex = into(n.id, 'tex');
     const source = tex === undefined ? undefined : byId.get(tex.from.node);
     const key = source?.type === 'parameter' ? String(source.data?.['key'] ?? '') : '';
-    const slots = slotted.get(key);
+    const drawnLists = lists.get(key);
     const layerEdge = into(n.id, 'layer');
     const layerNode = layerEdge === undefined ? undefined : byId.get(layerEdge.from.node);
     const layer = layerNode?.type === 'float' ? Number(layerNode.data?.['value'] ?? 0) : Number.NaN;
     if (!params.some((p) => p.key === key && p.type === 'texture') || !Number.isInteger(layer) || layer < 0) continue;
+    const colourRead = n.type !== 'normalMap' && n.data?.['decode'] !== 'normal' && n.data?.['absent'] !== 'orm';
     if (layer >= used) {
       // A layer the material does not use: no read; a colour read gives black (no height to win the blend with).
-      const decoded = n.data?.['decode'] === 'normal' || n.type === 'normalMap';
-      const reads = n.data?.['absent'];
-      if (!decoded && reads !== 'orm') {
+      if (colourRead) {
         const i = nodes.indexOf(n);
         nodes[i] = { ...n, data: { ...(n.data ?? {}), absent: 'black' } };
       }
@@ -253,41 +323,46 @@ export function layeredForDraw<M extends SlottedMaterial>(m: M): M {
       continue;
     }
     // A prebuilt array (or none) is read as it is: its layers are all there.
-    if (slots === undefined) continue;
-    const group = geometry[layer] === true ? 'trim' : 'tiling';
-    const list = split ? groupSlots(slots, groups[group]) : slots.slice(0, used);
-    if (list.every((s) => s === '')) {
-      rewire(n.id, 'layer', notRead(), 'value');
-      continue;
+    if (drawnLists === undefined) continue;
+    const group: Group = split && geometry[layer] === true ? 'trim' : 'tiling';
+    let target = group;
+    let local = split ? groups[group].indexOf(layer) : layer;
+    if (drawnLists[group].every((x) => x === '')) {
+      // A group whose list names no texture: a height array's colour read takes the neutral layer from the other
+      // group's array (one constant layer more there); any other read reads nothing (its absent value).
+      const other: Group = group === 'trim' ? 'tiling' : 'trim';
+      if (!(split && colourRead && heightKeys.has(key) && drawnLists[other].some((x) => x !== ''))) {
+        rewire(n.id, 'layer', notRead(), 'value');
+        continue;
+      }
+      if (!drawnLists[other].includes(NEUTRAL_HEIGHT_LAYER)) drawnLists[other].push(NEUTRAL_HEIGHT_LAYER);
+      target = other;
+      local = drawnLists[other].indexOf(NEUTRAL_HEIGHT_LAYER);
     }
     if (!split) continue;
-    const local = groups[group].indexOf(layer);
-    rewire(n.id, 'layer', node(`draw:${group}Layer${local + 1}`, 'float', { value: local }), 'value');
-    if (group === 'trim') rewire(n.id, 'tex', node(`draw:${TRIM_GROUP_KEY(key)}`, 'parameter', { key: TRIM_GROUP_KEY(key) }), 'value');
+    rewire(n.id, 'layer', node(`${target}Layer${local + 1}`, 'float', { value: local }), 'value');
+    if (target === 'trim') rewire(n.id, 'tex', node(TRIM_GROUP_KEY(key), 'parameter', { key: TRIM_GROUP_KEY(key) }), 'value');
   }
   // The unused layers' weights are 0 before the blend (whatever the paint says).
   if (used < TEMPLATE_LAYERS) {
-    const mask = node('draw:usedLayers', 'vec4', { value: Array.from({ length: TEMPLATE_LAYERS }, (_, i) => (i < used ? 1 : 0)) });
+    const mask = node('usedLayers', 'vec4', { value: Array.from({ length: TEMPLATE_LAYERS }, (_, i) => (i < used ? 1 : 0)) });
     for (const n of graph.nodes) {
       if (n.type !== 'heightBlend') continue;
       const w = into(n.id, 'weights');
       if (w === undefined) continue;
-      const masked = node(`draw:${n.id}UsedWeights`, 'multiply', {});
-      edges.push({ id: `draw:${masked}:a`, from: { ...w.from }, to: { node: masked, port: 'a' } }, { id: `draw:${masked}:b`, from: { node: mask, port: 'value' }, to: { node: masked, port: 'b' } });
+      const masked = node(`${n.id}UsedWeights`, 'multiply', {});
+      edges.push(edge(w.from.node, w.from.port, masked, 'a'), edge(mask, 'value', masked, 'b'));
       rewire(n.id, 'weights', masked, 'out');
     }
   }
   const parameters = params.flatMap((p) => {
-    const slots = slotted.get(p.key);
-    if (slots === undefined) return [p];
-    const list = (layers: readonly number[]): string[] | '' => {
-      const l = groupSlots(slots, layers);
-      return l.every((s) => s === '') ? '' : l;
-    };
-    if (!split) return [{ ...p, default: list(Array.from({ length: used }, (_, i) => i)) }];
+    const l = lists.get(p.key);
+    if (l === undefined) return [p];
+    const list = (x: readonly string[]): string[] | '' => (x.every((s) => s === '') ? '' : [...x]);
+    if (!split) return [{ ...p, default: list(l.tiling) }];
     return [
-      { ...p, default: list(groups.tiling) },
-      { ...p, key: TRIM_GROUP_KEY(p.key), default: list(groups.trim) },
+      { ...p, default: list(l.tiling) },
+      { ...p, key: TRIM_GROUP_KEY(p.key), default: list(l.trim) },
     ];
   });
   return { ...m, graph: { ...graph, nodes, edges }, parameters };
@@ -300,7 +375,13 @@ function drawnLayersOf(m: SlottedMaterial): { used: number; geometry: boolean[] 
   if (albedo === undefined || !isTextureSlots(albedo.default)) return null;
   const projection = params.find((p) => p.key === 'layerProjection' && p.type === 'vec4' && Array.isArray(p.default))?.default as readonly number[] | undefined;
   // Up to its last filled colour slot (a palette's list keeps empty slots past the layers in use).
-  const filled = albedo.default.reduce((last, id, i) => (id !== '' ? i + 1 : last), 0);
+  const lastFilled = (slots: readonly string[]): number => slots.reduce((last, id, i) => (id !== '' ? i + 1 : last), 0);
+  const filled = lastFilled(albedo.default);
+  // A material with layers past the four is a terrain's (only a terrain draws them, picking per pixel which array
+  // layer each of the four slots shows): renumbering its layers per group or masking slots by number would read the
+  // wrong layers there, so it draws as it is, every layer in one array.
+  const pastFour = params.some((p) => (p.type === 'texture' && isTextureSlots(p.default) && lastFilled(p.default) > TEMPLATE_LAYERS) || (p.extraLayers?.length ?? 0) > 0);
+  if (pastFour) return null;
   const used = Math.max(1, Math.min(TEMPLATE_LAYERS, filled));
   const geometry = Array.from({ length: used }, (_, i) => Math.round(Number(projection?.[i] ?? 0)) === UV_SOURCES.geometry);
   return geometry.some(Boolean) ? { used, geometry } : null;

@@ -217,20 +217,12 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
       paintBlobs.push(...followed.blobs);
     }
   }
-  // An edit of a painted set's buffer from elsewhere (copies deleted or moved): its paint table follows the copies.
-  const setValue = args['value'] as Record<string, unknown> | null | undefined;
-  if (op === 'setComponent' && args['component'] === 'instances' && setValue !== null && typeof setValue === 'object' && typeof setValue['buffer'] === 'string' && !('paint' in setValue)) {
-    const set = carrier.entities.find((e) => e.id === args['entityId'])?.components.instances;
-    if (set !== undefined) {
-      const count = typeof setValue['count'] === 'number' ? setValue['count'] : set.count;
-      const followed = followCopyPaint(core, s, set.paint, set, { buffer: setValue['buffer'], count });
-      if (!followed.ok) return failRequest(request, followed.error);
-      if (followed.paint !== undefined) {
-        const value: Record<string, unknown> = { ...setValue, paint: followed.paint as InstancePaint | null };
-        pureRequest = { ...(pureRequest as object), args: { ...((pureRequest as { args: Record<string, unknown> }).args), value } };
-      }
-      paintBlobs.push(...followed.blobs);
-    }
+  // An edit of painted sets' buffers from elsewhere (copies deleted or moved): each set's paint table follows its copies.
+  if (op === 'setComponent' && args['component'] === 'instances') {
+    const followed = followSetPaints(core, s, carrier, (pureRequest as { args: Record<string, unknown> }).args);
+    if (!followed.ok) return failRequest(request, followed.error);
+    if (followed.args !== undefined) pureRequest = { ...(pureRequest as object), args: followed.args };
+    paintBlobs.push(...followed.blobs);
   }
   // A vertex paint stroke: planned here from the model's file and the stored paint; its blobs are published once the command passed.
   if (op === 'paintVertices') {
@@ -397,6 +389,45 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
 }
 
 /** The id of a v4 project's first start scene. */
+/**
+ * The paint tables of the instance sets a `setComponent` gives new buffers
+ * (the one in `entityId` and each in `entityIds`): a table follows its set's
+ * copies, else a copy moved or deleted elsewhere keeps the paint of the copy
+ * that was there. A value that names its own `paint` is left as sent.
+ * `args`: the arguments with the followed tables (absent: none changed).
+ */
+function followSetPaints(core: Core, s: ProjectSession, carrier: SceneV4, a: Record<string, unknown>): { ok: true; args?: Record<string, unknown>; blobs: VertexPaintBlob[] } | { ok: false; error: CommandError } {
+  const blobs: VertexPaintBlob[] = [];
+  let changed = false;
+  const follow = (entityId: unknown, v: unknown): { ok: true; value: unknown } | { ok: false; error: CommandError } => {
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) return { ok: true, value: v };
+    const value = v as Record<string, unknown>;
+    if (typeof value['buffer'] !== 'string' || 'paint' in value) return { ok: true, value };
+    const set = carrier.entities.find((e) => e.id === entityId)?.components.instances;
+    if (set === undefined) return { ok: true, value };
+    const count = typeof value['count'] === 'number' ? value['count'] : set.count;
+    const followed = followCopyPaint(core, s, set.paint, set, { buffer: value['buffer'], count });
+    if (!followed.ok) return followed;
+    blobs.push(...followed.blobs);
+    if (followed.paint === undefined) return { ok: true, value };
+    changed = true;
+    return { ok: true, value: { ...value, paint: followed.paint as InstancePaint | null } };
+  };
+  const first = follow(a['entityId'], a['value']);
+  if (!first.ok) return first;
+  const ids: unknown[] = Array.isArray(a['entityIds']) ? a['entityIds'] : [];
+  const given: unknown[] | null = Array.isArray(a['values']) ? a['values'] : null;
+  const values: unknown[] = [];
+  for (let i = 0; i < ids.length; i++) {
+    const r = follow(ids[i], given !== null ? given[i] : a['value']);
+    if (!r.ok) return r;
+    values.push(r.value);
+  }
+  if (!changed) return { ok: true, blobs };
+  // A value shared by all becomes one per set: each set's table is its own.
+  return { ok: true, args: { ...a, value: first.value, ...(ids.length > 0 ? { values } : {}) }, blobs };
+}
+
 function primarySceneIdV4(state: V4State): string {
   return state.content.startScenes[0] ?? state.content.scenes[0]?.sceneId ?? '';
 }

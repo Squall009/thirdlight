@@ -12,7 +12,7 @@
  */
 import { ID_RE } from '@thirdlight/project-model';
 
-import { MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
+import { MAX_REQUEST_BYTES, MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
 
 import type { CommandError, ErrorClass } from './types';
 
@@ -92,8 +92,8 @@ export type CommandErrorCode = (typeof ERROR_CODES)[number];
 
 export { MAX_REVISION };
 
-/** The canonical request byte cap (65 536). */
-export const MAX_REQUEST_BYTES = 65_536;
+// The canonical request byte cap: the model's limit, so the editor's batching reads the same value.
+export { MAX_REQUEST_BYTES };
 
 /** The project-model ID syntax (reused for `projectId`). */
 

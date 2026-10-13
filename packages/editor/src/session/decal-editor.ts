@@ -21,9 +21,11 @@
  * Pure: no DOM, no three.js.
  */
 import type { DecalComponent, DecalOpacity, MaterialDef } from '@thirdlight/project-model';
+import { SET_COMPONENT_ENTITIES_MAX } from '@thirdlight/project-model/limits';
 import { DECAL_CHANNELS, DECAL_LAYERS_ALL, DECAL_LIMITS, decalEdgeFade, decalNormalFade, seededRandom } from '@thirdlight/runtime';
 
 import { decalPlacement, type DecalToolSettings } from './decal-place';
+import { jsonBytes, requestBatches } from './request-batches';
 
 type V3 = readonly [number, number, number];
 
@@ -45,7 +47,7 @@ export interface DecalPaletteEntry {
   readonly cell?: { readonly sheet: string; readonly cell: string };
 }
 
-/** The palette's filter (the mockup's All · Materials · Trim cells). */
+/** The palette's filter: everything, decal materials only, or trim sheets' cells only (a project with many sheets buries its few decal materials among their cells). */
 export type DecalPaletteFilter = 'all' | 'material' | 'cell';
 
 /** A trim sheet's cell as a fraction of the sheet's picture (null: no such cell). */
@@ -171,21 +173,33 @@ export type DecalFieldEdit =
   | { readonly field: 'normalFade' | 'fadeDistance' | 'sortOrder'; readonly value: number }
   | { readonly field: 'edgeFade'; readonly end: 0 | 1; readonly value: number };
 
+/** The `setComponent` arguments of an edit of several decals. */
+export type DecalEditArgs = { entityId: string; component: 'decal'; value: Record<string, unknown>; entityIds?: string[]; values?: Record<string, unknown>[] };
+
+/** What `setComponent` holds besides its decals' ids and values (the arguments with empty lists). */
+const EDIT_FIXED_BYTES = jsonBytes({ entityId: '', component: 'decal', value: {}, entityIds: [], values: [] });
+
 /**
- * The one `setComponent` an edit of the selection is: the first decal's new
- * value, the others in `entityIds`, each with its own value in `values`
- * when they differ (a width set on decals of different heights keeps each
- * one's height). Null: nothing selected.
+ * The `setComponent` commands an edit of the selection is: one for all of
+ * it when it fits a request (one revision, one undo), else as many as the
+ * request's count and bytes take. Each has its first decal's new value, the
+ * others in `entityIds`, each with its own value in `values` when they
+ * differ (a width set on decals of different heights keeps each one's
+ * height). None: nothing selected.
  */
-export function selectionEdit(entries: readonly { id: string; decal: DecalComponent }[], edit: DecalFieldEdit): { entityId: string; component: 'decal'; value: Record<string, unknown>; entityIds?: string[]; values?: Record<string, unknown>[] } | null {
-  const first = entries[0];
-  if (first === undefined) return null;
-  const value = fieldValue(first.decal, edit);
-  const rest = entries.slice(1);
-  if (rest.length === 0) return { entityId: first.id, component: 'decal', value };
-  const values = rest.map((e) => fieldValue(e.decal, edit));
-  const same = values.every((v) => JSON.stringify(v) === JSON.stringify(value));
-  return { entityId: first.id, component: 'decal', value, entityIds: rest.map((e) => e.id), ...(same ? {} : { values }) };
+export function selectionEdit(entries: readonly { id: string; decal: DecalComponent }[], edit: DecalFieldEdit): DecalEditArgs[] {
+  const pairs = entries.map((e) => ({ id: e.id, value: fieldValue(e.decal, edit) }));
+  // An id and its value each take a list place (and a separator) in the request.
+  const batches = requestBatches(pairs, SET_COMPONENT_ENTITIES_MAX + 1, EDIT_FIXED_BYTES, (p) => jsonBytes(p.id) + 1 + jsonBytes(p.value));
+  return batches.map(editArgs);
+}
+
+function editArgs(pairs: readonly { id: string; value: Record<string, unknown> }[]): DecalEditArgs {
+  const [first, ...rest] = pairs as [{ id: string; value: Record<string, unknown> }, ...{ id: string; value: Record<string, unknown> }[]];
+  if (rest.length === 0) return { entityId: first.id, component: 'decal', value: first.value };
+  const values = rest.map((p) => p.value);
+  const same = values.every((v) => JSON.stringify(v) === JSON.stringify(first.value));
+  return { entityId: first.id, component: 'decal', value: first.value, entityIds: rest.map((p) => p.id), ...(same ? {} : { values }) };
 }
 
 const mm = (v: number): number => Math.round(v * 1000) / 1000;

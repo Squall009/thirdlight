@@ -17,6 +17,7 @@
  */
 import type { MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_SLOT_ALL } from '@thirdlight/project-model/limits';
+import { resolveMaterial } from '@thirdlight/project-model/material-reads';
 import { isTextureSlots } from '@thirdlight/project-model/texture-slots';
 
 import { LAYER_SETTINGS, LAYERED_TEXTURES, TEMPLATE_LAYERS, templateMaterial, UV_SOURCES } from './material-graph';
@@ -50,7 +51,7 @@ export interface PaletteLayer {
 
 /** What the palette knows of an object's material. */
 export type PaletteSource =
-  /** No layered material: the stand-in colours. */
+  /** No layered material: the stand-in colours. `material`: as it draws (an instance resolved: its root's shader, graph and rows, its own values over them). */
   | { readonly kind: 'none'; readonly material: MaterialDef | null }
   /** A layered material the palette edits. */
   | { readonly kind: 'layered'; readonly material: MaterialDef; readonly slots: 'slots' | 'array' | 'unset' }
@@ -75,7 +76,9 @@ export function paletteSource(mapping: Readonly<Record<string, string>> | undefi
   if (own.instanceOf !== undefined) {
     let root: MaterialDef | undefined = own;
     for (let i = 0; i < 16 && root?.instanceOf !== undefined; i++) root = materials.find((m) => m.materialId === root!.instanceOf);
-    return root !== undefined && isLayeredMaterial(root) ? { kind: 'instance', material: root, parent: own.instanceOf } : { kind: 'none', material: own };
+    if (root !== undefined && isLayeredMaterial(root)) return { kind: 'instance', material: root, parent: own.instanceOf };
+    // What it reads and wears is its root's with its own values: the paint meaning, the card and "Make it paintable" all go by that.
+    return { kind: 'none', material: resolveMaterial(materials, own.materialId) ?? own };
   }
   if (!isLayeredMaterial(own)) return { kind: 'none', material: own };
   const v = albedoParam(own)!.default;
@@ -159,7 +162,10 @@ const BASE_LAYER_MAPS: readonly (readonly [string, LayerTextureKey])[] = [
  * leaves) wears the old material's colour, normal and ORM maps and its
  * name, so the object looks as before until it is painted (a trim sheet's
  * first layer follows the sheet, rows and all); a material with none of
- * those maps (a graph, a model's own) gives an empty first layer.
+ * those maps (a graph, a model's own) gives an empty first layer. `old` is
+ * the material as it draws (`paletteSource` resolves an instance), so an
+ * instance's base wears its own textures, and a trim instance's base follows
+ * the instance (its textures on its root's rows).
  */
 export function paintableMaterial(old: MaterialDef | null, materialId: string, name: string): MaterialDef {
   let m = templateMaterial('layers', materialId, name);

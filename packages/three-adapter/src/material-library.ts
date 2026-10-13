@@ -44,7 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { decalSheetCellSampling, layerSheetRows, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
+import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -53,6 +53,7 @@ import {
   applyGraphNodes,
   buildGraphMaterial,
   CELL_UV_KEY,
+  TRIM_STRIPS_KEY,
   compileMaterialGraph,
   digestOf,
   MATERIAL_IDS_KEY,
@@ -325,6 +326,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     eye: TSL.uniform(new THREE.Vector3()).setGroup(TSL.renderGroup),
   };
   let defs = new Map<string, MaterialDefLike>();
+  /** Textures some material reads with A as a height (a trim sheet among them draws its decal cells opaque). */
+  let heightTextures: ReadonlySet<string> = new Set();
   const reassigned = new Set<(root: THREE.Object3D) => void>();
   /** Listeners told when the definitions change (generated architecture re-reads its sheets). */
   const definitionListeners = new Set<() => void>();
@@ -587,6 +590,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       place.mip = cell.mip;
       place.size = sheet.trim!.size;
       images.albedoComing = sheet.textures['map'] !== undefined;
+      // A sheet a layered surface reads as a layer keeps its height in A, not an opacity: its cells draw opaque, as on the build's pages.
+      images.opaqueAlbedo = sheet.textures['map'] !== undefined && heightTextures.has(sheet.textures['map']);
       for (const [slot, set] of [['map', 'albedo'], ['normalMap', 'normal'], ['ormMap', 'orm']] as const) {
         const id = sheet.textures[slot];
         if (id === undefined) continue;
@@ -892,10 +897,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    * own tints by the colour of the material it is put over — a model file's,
    * or generated architecture's stand-in — as the trim shader did, which
    * started from that material: the object's own value of the graph's
-   * `color` parameter.
+   * `color` parameter. A layered surface whose base layer is a trim sheet
+   * (what "Make it paintable" makes of a trim material) tints its base the
+   * same way, so the building looks the same before and after; its other
+   * layers keep their textures' own colours.
    */
   const withSourceTint = (def: MaterialDefLike, src: THREE.Material, own: Readonly<Record<string, number | readonly number[] | string>> | undefined): Readonly<Record<string, number | readonly number[] | string>> | undefined => {
-    if (def.shader !== 'trim' || def.params['color'] !== undefined || !(src instanceof THREE.MeshStandardMaterial) || own?.['color'] !== undefined) return own;
+    const trimBase = def.shader === 'trim' ? def.params['color'] === undefined : (def.layerSheets?.[0] ?? '') !== '' && (def.parameters?.find((p) => p.key === 'color')?.default ?? '#ffffff') === '#ffffff' && def.parameters?.some((p) => p.key === 'color') === true;
+    if (!trimBase || !(src instanceof THREE.MeshStandardMaterial) || own?.['color'] !== undefined) return own;
     const tint = `#${src.color.getHexString()}`;
     return tint === '#ffffff' ? own : { ...(own ?? {}), color: tint };
   };
@@ -939,6 +948,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     else delete e.material.userData[OBJECT_FRAME_KEY];
     if (e.compiled.cellUv) e.material.userData[CELL_UV_KEY] = true;
     else delete e.material.userData[CELL_UV_KEY];
+    if (e.compiled.trimStrips !== null) e.material.userData[TRIM_STRIPS_KEY] = e.compiled.trimStrips;
+    else delete e.material.userData[TRIM_STRIPS_KEY];
     // A clock-driven graph with an alpha (opacity or clip) cuts its shadow differently every frame: never cached.
     const sl = e.compiled.slots;
     if (e.compiled.animated && (sl.opacity !== null || sl.alphaTest !== null || sl.litOpacity !== null || sl.litAlphaTest !== null)) e.material.userData[CHANGING_ALPHA_KEY] = true;
@@ -1159,7 +1170,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     setMaterials(list, fns) {
       // Instances draw as their resolved material (the editor passes the project's list as is); a trim material as the layered surface it is.
-      defs = new Map(resolveMaterialInstancesLike(list).map((d) => [d.materialId, d.shader === 'trim' && d.graph === undefined ? (trimSurfaceMaterial(d as never) as unknown as MaterialDefLike) : d]));
+      const resolved = resolveMaterialInstancesLike(list);
+      heightTextures = heightAlphaTextures(resolved as never);
+      defs = new Map(resolved.map((d) => [d.materialId, d.shader === 'trim' && d.graph === undefined ? (trimSurfaceMaterial(d as never) as unknown as MaterialDefLike) : d]));
       if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));
       // Rebuild lazily: drop materials whose definition changed or vanished.
       animatedCount = 0;

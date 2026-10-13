@@ -19,14 +19,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DecalBlend, DecalComponent, MaterialDef } from '@thirdlight/project-model';
-import { SET_COMPONENT_ENTITIES_MAX } from '@thirdlight/project-model/limits';
 import { trimCellMetres, trimCellOf } from '@thirdlight/runtime';
 
 import { brushStore, DEFAULT_BRUSH, type BrushBounds, type BrushStore } from '../../session/brush';
 import { decalPalette, NO_DECAL_FILTER, sanitizeScatter, selectionEdit, type DecalFieldEdit, type DecalFilter, type DecalPaletteEntry, type DecalPaletteFilter, type DecalScatterSettings } from '../../session/decal-editor';
 import { DECAL_TOOL_DEFAULTS, decalToolSettingsError, type DecalToolSettings } from '../../session/decal-place';
-import { deleteEntitiesArgs } from '../../session/delete-entities';
+import { deletedIds, deleteEntitiesArgs } from '../../session/delete-entities';
 import type { ProjectedEntity } from '../../session/projection';
+import { createEntitiesArgs } from '../../session/request-batches';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import type { DecalToolMode } from '../../viewport/decal-tool';
 import { bakeClippedDecal } from './decal-bake';
@@ -176,12 +176,14 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
         return r.createdId;
       },
       placeMany: async (items: Record<string, unknown>[]) => {
-        // The scene goes on the batch (it routes the command), not on each item.
-        const sceneId = items[0]?.['sceneId'];
-        const entities = items.map(({ sceneId: _scene, ...item }) => item);
-        const r = await latest.current.run('Scatter decals', 'createEntities', { ...(sceneId !== undefined ? { sceneId } : {}), entities });
-        if (r === null || !r.ok) return null;
-        return ((r.change as { entities?: { id: string }[] } | undefined)?.entities ?? []).map((e) => e.id);
+        // One command for the stroke, or as many as the request's count and bytes take; a refused one ends it with what was stored.
+        const ids: string[] = [];
+        for (const args of createEntitiesArgs(items)) {
+          const r = await latest.current.run('Scatter decals', 'createEntities', args);
+          if (r === null || !r.ok) return ids.length > 0 ? ids : null;
+          for (const e of (r.change as { entities?: { id: string }[] } | undefined)?.entities ?? []) ids.push(e.id);
+        }
+        return ids;
       },
       transform: async (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => (await latest.current.run('Move decal', 'setTransform', { entityId, transform }))?.ok === true,
       resize: async (entityId: string, decal: DecalComponent) => (await latest.current.run('Scale decal', 'setComponent', { entityId, component: 'decal', value: decal as unknown as Record<string, unknown> }))?.ok === true,
@@ -194,11 +196,14 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
 
   const remove = useCallback(
     async (ids: readonly string[]) => {
+      // A refused command leaves what it and the ones after it held selected (they are still there).
+      const gone = new Set<string>();
       for (const args of deleteEntitiesArgs(ids)) {
         const r = await run(ids.length === 1 ? 'Delete decal' : 'Delete decals', 'deleteEntity', args);
         if (r === null || !r.ok) break;
+        for (const id of deletedIds(args)) gone.add(id);
       }
-      setSelectionState((s) => ({ ids: s.ids.filter((id) => !ids.includes(id)), primary: s.primary !== null && ids.includes(s.primary) ? null : s.primary }));
+      setSelectionState((s) => ({ ids: s.ids.filter((id) => !gone.has(id)), primary: s.primary !== null && gone.has(s.primary) ? null : s.primary }));
     },
     [run],
   );
@@ -288,11 +293,9 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
 
   const edit = useCallback(
     async (entities: readonly ProjectedEntity[], e: DecalFieldEdit) => {
-      // One command for the selection (a selection larger than one command holds goes as more).
-      const all = selected(entities);
-      for (let i = 0; i < all.length; i += SET_COMPONENT_ENTITIES_MAX + 1) {
-        const args = selectionEdit(all.slice(i, i + SET_COMPONENT_ENTITIES_MAX + 1), e);
-        if (args !== null && (await run('Edit decals', 'setComponent', args))?.ok !== true) break;
+      // One command for the selection (a selection larger than one request holds goes as more).
+      for (const args of selectionEdit(selected(entities), e)) {
+        if ((await run('Edit decals', 'setComponent', args))?.ok !== true) break;
       }
     },
     [selected, run],

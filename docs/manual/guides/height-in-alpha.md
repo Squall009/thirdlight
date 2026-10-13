@@ -25,8 +25,8 @@ checked for a height.
 
 When a texture goes into a layer of a layered surface (dropped on a palette
 tile, picked for a slot, set by a command), the backend looks at its alpha.
-If it has none, or it is flat (one value everywhere, give or take a level
-or two of compression noise):
+If it has none (fully opaque everywhere, give or take a level or two of
+compression noise):
 
 - the project's problems say so: *"rock-albedo: no height in alpha — blends
   between layers will be soft"*, with the material and layer it is used in;
@@ -56,8 +56,10 @@ texture.
   engine's own channel packing (`tl_content_upload` with `pack`: albedo R,
   G, B and the height map's R as A).
 
-Keep the height linear (not gamma-encoded) and use the range: a height that
-spans only a few levels counts as flat.
+Keep the height linear (not gamma-encoded) and use the range. One value
+everywhere below opaque is taken as a height on purpose (a layer that is
+uniformly high or low wins or loses every blend crisply); an opaque A that
+spans only a few levels counts as no height.
 
 ## Through the API
 

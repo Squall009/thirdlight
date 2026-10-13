@@ -11,7 +11,7 @@ import type { ModelErrorV2 } from './errors';
 import type { GraphEdge, GraphNode } from './graph';
 import { LAYER_NOT_READ, LAYERED_TEXTURES, layeredMaterial, layerSheetMismatches, layerSheetRows, trimSurfaceMaterial, UV_SOURCES } from './layered-surface';
 import { canonicalMaterials, materialGraphContext, resolveMaterialInstances, validateMaterials, type MaterialDef } from './materials';
-import { layeredForDraw, materialTextureSlotSets, TRIM_GROUP_KEY, withAssembledSlots } from './texture-slots';
+import { heightAlphaTextures, layeredForDraw, materialTextureSlotSets, TRIM_GROUP_KEY, withAssembledSlots } from './texture-slots';
 import { defaultTrimSheet, type TrimSheet } from './trim-sheet';
 
 const errorsOf = (list: readonly MaterialDef[], build = false): ModelErrorV2[] => {
@@ -157,5 +157,43 @@ describe('a layered surface as drawn', () => {
     expect(param(assembled!, LAYERED_TEXTURES.albedo)).toBe('arr(moss+rust)');
     expect(param(assembled!, key(LAYERED_TEXTURES.albedo))).toBe('arr(trim-a+trim-b)');
     expect(param(assembled!, LAYERED_TEXTURES.normals)).toBe('');
+  });
+
+  it('as drawn it is still a valid material: the runtime\'s read takes its keys and ids (build validation)', () => {
+    const [assembled] = withAssembledSlots([walls(['trim-a', 'trim-b', 'moss'], [3, 3, 1])], (s) => `arr-${s.layers.length}`);
+    expect(errorsOf([assembled!], true)).toEqual([]);
+  });
+
+  it('empty slots of used layers are neutral: mid grey with height 0, never the black of a left-out layer nor a winning white', () => {
+    const neutral = '#80808000';
+    // An empty slot inside a group: the neutral constant layer (not the first slot's texture, nor black).
+    const inGroup = layeredForDraw(walls(['trim-a', '', 'moss'], [3, 3, 1]));
+    expect(param(inGroup, TRIM_GROUP_KEY(LAYERED_TEXTURES.albedo))).toEqual(['trim-a', neutral]);
+    expect(param(inGroup, LAYERED_TEXTURES.albedo)).toEqual(['moss']);
+    // An empty base beside a trim layer: its group names no texture, so it reads the trim array's neutral layer.
+    const emptyBase = layeredForDraw(walls(['', 'trim-b'], [1, 3]));
+    expect(param(emptyBase, TRIM_GROUP_KEY(LAYERED_TEXTURES.albedo))).toEqual(['trim-b', neutral]);
+    expect(param(emptyBase, LAYERED_TEXTURES.albedo)).toBe('');
+    expect(nodeOf(emptyBase, into(emptyBase, 'albedo1', 'tex')!.from.node)?.data?.['key']).toBe(TRIM_GROUP_KEY(LAYERED_TEXTURES.albedo));
+    expect(nodeOf(emptyBase, into(emptyBase, 'albedo1', 'layer')!.from.node)?.data?.['value']).toBe(1);
+    // The arrays: the constant layer goes in as a layer of its own; the left-out layers' black does not fill slots.
+    const sets = materialTextureSlotSets([walls(['trim-a', '', 'trim-c'], [3, 3, 3])]).map((x) => `${x.mode}:${x.layers.join(',')}`);
+    expect(sets).toContain(`color:trim-a,${neutral},trim-c`);
+  });
+
+  it('a material with layers past the four (a terrain\'s) draws as it is, mesh-UV layer or not', () => {
+    const five = walls(['rock', 'trim-b', 'moss', 'rust', 'sand'], [1, 3, 1, 1]);
+    expect(layeredForDraw(five)).toBe(five);
+    const extra = { ...walls(['rock', 'trim-b'], [1, 3]), parameters: walls(['rock', 'trim-b'], [1, 3]).parameters!.map((p) => (p.key === 'layerTiling' ? { ...p, extraLayers: [4] } : p)) };
+    expect(layeredForDraw(extra)).toBe(extra);
+  });
+});
+
+
+describe('textures read with a height in alpha', () => {
+  it('a layered surface\'s colour slots (a trim sheet among them) are; a decal material\'s and a plain sampler\'s are not', () => {
+    const m = walls(['sheet-a', 'moss'], [3, 1]);
+    const plain: MaterialDef = { materialId: 'p', name: 'P', shader: 'standard', params: {}, textures: { map: 'sheet-b' } };
+    expect([...heightAlphaTextures([m, plain])].sort()).toEqual(['moss', 'sheet-a']);
   });
 });

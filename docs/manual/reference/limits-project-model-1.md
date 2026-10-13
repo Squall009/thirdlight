@@ -193,6 +193,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-prefab-depth"></a>`MAX_PREFAB_DEPTH` | `16` |  |
 | <a id="limit-max-prefab-entities"></a>`MAX_PREFAB_ENTITIES` | `1024` | One prefab: its entities (a building or a vehicle of many parts) and its depth. A prefab is one content file, so its bytes have the content file cap. |
 | <a id="limit-max-prefab-overrides"></a>`MAX_PREFAB_OVERRIDES` | `64` | The most overrides one prefab instantiation request carries (commands and the editor's planner check it). |
+| <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The largest command request, in canonical bytes (the whole envelope). It bounds what one parse and one undo step carry; an editor that sends a batch (a scatter stroke, an edit or delete of a large selection) splits it by these bytes as well as by the per-command counts below. Defined here, not in commands, because the editor reads model limits but not commands. |
 | <a id="limit-max-source-bytes"></a>`MAX_SOURCE_BYTES` | `33554432` | The largest imported file (bytes): a model, an image, a font, an audio file of any length. It is the upload stage's bound too; the number of files is not bounded. |
 | <a id="limit-max-source-path-length"></a>`MAX_SOURCE_PATH_LENGTH` | `512` | The longest accepted `sourcePath` (UTF-16 code units). |
 | <a id="limit-max-staged-bytes-per-project"></a>`MAX_STAGED_BYTES_PER_PROJECT` | `134217728` |  |

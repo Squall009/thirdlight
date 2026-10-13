@@ -4,13 +4,6 @@ _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit
 
 The limits and defaults `@thirdlight/commands` defines, by source file. Values are the running build's.
 
-<a id="limits-commands--errors"></a>
-## `errors.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The canonical request byte cap (65 536). |
-
 <a id="limits-commands--terrain-erosion-ops"></a>
 ## `terrain-erosion-ops.ts`
 

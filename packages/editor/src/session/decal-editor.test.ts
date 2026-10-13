@@ -53,13 +53,13 @@ describe('a selection of many', () => {
 
   it('is one command: the same value in entityIds when all agree, each decal\'s own in values when its other parts differ', () => {
     const entries = [{ id: 'd1', decal: A }, { id: 'd2', decal: B }];
-    expect(selectionEdit(entries, { field: 'fadeDistance', value: 40 })).toEqual({ entityId: 'd1', component: 'decal', value: { fadeDistance: 40 }, entityIds: ['d2'] });
-    expect(selectionEdit(entries, { field: 'size', axis: 0, value: 4 })).toEqual({ entityId: 'd1', component: 'decal', value: { size: [4, 1, 0.5] }, entityIds: ['d2'], values: [{ size: [4, 3, 0.5] }] });
+    expect(selectionEdit(entries, { field: 'fadeDistance', value: 40 })).toEqual([{ entityId: 'd1', component: 'decal', value: { fadeDistance: 40 }, entityIds: ['d2'] }]);
+    expect(selectionEdit(entries, { field: 'size', axis: 0, value: 4 })).toEqual([{ entityId: 'd1', component: 'decal', value: { size: [4, 1, 0.5] }, entityIds: ['d2'], values: [{ size: [4, 3, 0.5] }] }]);
     // Full opacity is the default: the field goes rather than store 1.
-    expect(selectionEdit(entries, { field: 'opacity', channel: 'normal', value: 1 })).toEqual({ entityId: 'd1', component: 'decal', value: { opacity: null }, entityIds: ['d2'] });
-    expect(selectionEdit(entries, { field: 'opacity', channel: 'albedo', value: 0.5 })).toEqual({ entityId: 'd1', component: 'decal', value: { opacity: { albedo: 0.5 } }, entityIds: ['d2'], values: [{ opacity: { normal: 0.4, albedo: 0.5 } }] });
-    expect(selectionEdit([], { field: 'sortOrder', value: 1 })).toBeNull();
-    expect(selectionEdit(entries.slice(0, 1), { field: 'fadeDistance', value: 0 })).toEqual({ entityId: 'd1', component: 'decal', value: { fadeDistance: null } });
+    expect(selectionEdit(entries, { field: 'opacity', channel: 'normal', value: 1 })).toEqual([{ entityId: 'd1', component: 'decal', value: { opacity: null }, entityIds: ['d2'] }]);
+    expect(selectionEdit(entries, { field: 'opacity', channel: 'albedo', value: 0.5 })).toEqual([{ entityId: 'd1', component: 'decal', value: { opacity: { albedo: 0.5 } }, entityIds: ['d2'], values: [{ opacity: { normal: 0.4, albedo: 0.5 } }] }]);
+    expect(selectionEdit([], { field: 'sortOrder', value: 1 })).toEqual([]);
+    expect(selectionEdit(entries.slice(0, 1), { field: 'fadeDistance', value: 0 })).toEqual([{ entityId: 'd1', component: 'decal', value: { fadeDistance: null } }]);
   });
 });
 

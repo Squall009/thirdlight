@@ -218,17 +218,19 @@ export const NODE_SIDE_ALLOWED = {
     // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead).
     // Nothing else in the backend starts processes.
     // worker_threads (the KTX2 encoder off the event loop) and
-    // zlib (the PNG decoder's inflate).
-    node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
+    // zlib (the PNG decoder's inflate), os (the encoder pool sized by the
+    // host's cores and memory).
+    node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib', 'os'],
     typesOnly: { 'project-model': true },
     // The shared PNG decoder (pure; texture sources for KTX2 encoding and
     // packing), the model's limits and the trim-sheet rules (a sheet image's
     // padding checked against its row table) and the texture-slot rules (an
     // empty slot's constant layer read from its layer-list entry, a layered
     // material drawn with only the layers it uses) and the layered surface's
-    // row rules (its trim sheets share one table) are the project-model
-    // values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface'] },
+    // row rules (its trim sheets share one table) and the material instance
+    // resolution (an instance's trim sheet checked as its root) are the
+    // project-model values the backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.

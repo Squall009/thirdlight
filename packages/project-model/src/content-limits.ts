@@ -32,6 +32,14 @@ export const MAX_PREFAB_ENTITIES = 1024;
 export const MAX_PREFAB_DEPTH = 16;
 export const MAX_PREFAB_BYTES = MAX_CONTENT_FILE_BYTES;
 /**
+ * The largest command request, in canonical bytes (the whole envelope). It
+ * bounds what one parse and one undo step carry; an editor that sends a
+ * batch (a scatter stroke, an edit or delete of a large selection) splits it
+ * by these bytes as well as by the per-command counts below. Defined here,
+ * not in commands, because the editor reads model limits but not commands.
+ */
+export const MAX_REQUEST_BYTES = 65_536;
+/**
  * The most entities one `createEntities` creates (folders' children
  * included; the 64 KiB request bound bounds it too). A request's size, not a
  * cap on objects in a project: a larger batch (a long scatter stroke) goes as

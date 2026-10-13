@@ -18,7 +18,9 @@
  * - an image (a loose decal's textures, a trim sheet's) exactly the page
  *   size is a layer as it is: a trim sheet's decal cells are then
  *   rectangles on that layer, with the sheet's own gutter (the Texture
- *   Designer repeats each cell's edges), and nothing is copied;
+ *   Designer repeats each cell's edges), and nothing is copied — but for a
+ *   sheet whose albedo's alpha is a height (`DecalPageSheet.alphaIsHeight`):
+ *   its cells are copied with A opaque;
  * - everything else is copied into composed pages, packed on shelves, each
  *   rectangle with {@link DECAL_PAGE_LIMITS}.gutter pixels around it that
  *   repeat its edge, its padded box aligned so mip texels a few levels deep
@@ -127,6 +129,13 @@ export interface DecalPageMaterial {
 export interface DecalPageSheet {
   readonly trim?: TrimSheet;
   readonly textures: Readonly<Record<string, string>>;
+  /**
+   * Its albedo's alpha is a height (a layered surface reads the sheet as a
+   * layer: `heightAlphaTextures`), not an opacity: its cells are copied with
+   * an opaque alpha, so each draws as its whole rectangle rather than as the
+   * shape of its heights.
+   */
+  readonly alphaIsHeight?: boolean;
 }
 
 /** The place a build hands the runtime with a decal material (`decalPage`): the rectangle and each set's array and layer. */
@@ -282,12 +291,15 @@ export function planDecalPages(materials: readonly DecalPageMaterial[], sheets: 
       const t = sheet.textures;
       add(m.materialId, () => {
         const channels: Item['channels'] = {};
-        if (t['map'] !== undefined) channels.albedo = whole4(t['map']);
+        const map = t['map'];
+        // A height in A is no opacity: the cell's albedo goes onto a page with A opaque (the sheet can't be a layer as it is).
+        const opaque = map !== undefined && sheet.alphaIsHeight === true;
+        if (map !== undefined) channels.albedo = opaque ? [{ texture: map, channel: 0 }, { texture: map, channel: 1 }, { texture: map, channel: 2 }, { value: 255 }] : whole4(map);
         if (t['normalMap'] !== undefined) channels.normal = whole4(t['normalMap']);
         if (t['ormMap'] !== undefined) channels.orm = whole4(t['ormMap']);
         if (Object.keys(channels).length === 0) return null;
         const sizes = Object.values(channels).map((c) => sizeOf((c[0] as { texture: string }).texture));
-        const fits = sizes.every((s) => s !== null && s[0] === trim.size[0] && s[1] === trim.size[1]) && isSquarePow2(trim.size);
+        const fits = !opaque && sizes.every((s) => s !== null && s[0] === trim.size[0] && s[1] === trim.size[1]) && isSquarePow2(trim.size);
         const [x, y, w, h] = cell.rect;
         return {
           key: `cell:${m.decal!.sheet}:${cell.name}`,

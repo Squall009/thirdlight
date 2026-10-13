@@ -9,8 +9,10 @@
  * comes from, through material-function calls (into the function's graph and
  * back out through its inputs):
  * - `layerWeights`: a Height blend or Weighted mix whose weights come from a
- *   vertex colour set, vertex paint or the Layer weights node — or a Height
- *   blend with its weights unwired, which reads the paint;
+ *   vertex colour set, vertex paint or the Layer weights node (not a Height
+ *   blend with its weights unwired: it takes the paint's four bytes as four
+ *   layers' weights as they are, R to A, which is not the layered meaning of
+ *   base, layers 2–4 and wetness that `layerWeights` promises the editors);
  * - `vertexPaint`: a Vertex colour node on the paint set, the Layer weights
  *   node (it reads the paint where a mesh stores no weights), a Vertex colour
  *   node that is layer weights ("first") or their wetness (COLOR_1 "zero") —
@@ -32,8 +34,8 @@
 import type { GraphData, GraphDocument, GraphNode } from './graph';
 import { MATERIAL_DECLARATIONS, MATERIAL_DECLARATION_KEYS, MATERIAL_PARAMS, resolveMaterial, type MaterialDeclaration, type MaterialDeclarationKey, type MaterialDef, type MaterialParamValue } from './materials';
 
-// The table and the shader types' on-screen names, for packages that may read only this subpath (the editor).
-export { MATERIAL_DECLARATIONS, MATERIAL_DECLARATION_KEYS, MATERIAL_SHADER_LABELS, type MaterialDeclaration, type MaterialDeclarationKey, type MaterialDeclarationWhen } from './materials';
+// The table, the shader types' on-screen names and the instance resolver, for packages that may read only this subpath (the editor).
+export { MATERIAL_DECLARATIONS, MATERIAL_DECLARATION_KEYS, MATERIAL_SHADER_LABELS, resolveMaterial, type MaterialDeclaration, type MaterialDeclarationKey, type MaterialDeclarationWhen } from './materials';
 
 /** The outputs a graph draws through (a node upstream of none of them is not compiled). */
 const OUTPUT_TYPES: ReadonlySet<string> = new Set(['pbr', 'unlit', 'customLit', 'vertexOffset']);
@@ -170,10 +172,8 @@ export function graphDeclaration(graph: GraphData, functions?: readonly GraphDoc
     if (node.type === 'vertexColor' && (vertexColourSet(node) === 'paint' || readsPaintWhereUnstored(node))) d.vertexPaint = true;
     if (node.type === 'layerWeights') d.vertexPaint = true;
     if (node.type === 'heightBlend' || node.type === 'weightedMix') {
-      if (unwiredWeights(frame, node)) {
-        d.layerWeights = true;
-        d.vertexPaint = true;
-      } else if (reaches(frame, node, 'weights', isVertexData, true, functions, new Set())) d.layerWeights = true;
+      if (unwiredWeights(frame, node)) d.vertexPaint = true;
+      else if (reaches(frame, node, 'weights', isVertexData, true, functions, new Set())) d.layerWeights = true;
     }
     if (node.type === 'heightBlend' && reaches(frame, node, 'heights', isAlpha, false, functions, new Set())) d.alphaIsHeight = true;
     if (frame.depth === 0 && SURFACE_TYPES.has(node.type)) {

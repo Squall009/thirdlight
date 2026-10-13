@@ -12,6 +12,11 @@
  * HTTP), the tops show the ramp once across the four cells: red rises along
  * the row and does not jump back at any cell edge.
  *
+ * A trim sheet on the world-mapped row (rows in plain colours) shows its
+ * lower-wall row across each wall face and its floor row on the tops: the
+ * renderer turns block metres into trim strips for a material that draws
+ * them.
+ *
  * The type's material is added in the form (a "*" slot, starting at the
  * first material, then picked). Normal maps on the world-mapped kit, tops
  * and walls: the type's material is then the standard shader (picked in the
@@ -249,6 +254,40 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   await form.getByLabel('blockType uv', { exact: true }).selectOption('world');
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; uv?: string }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.uv).toBe('world');
   const world = await scenePicture(view, oneRampAcross, 'world-uv');
+
+  // ---- A trim sheet on the world-mapped blocks: its walls wear the lower-wall row (green) across each cell face and
+  // its tops the floor row (red), as a generated wall's strips do — not the whole sheet stacked once a metre.
+  const SHEET = { size: [256, 256], texelDensity: 64, padding: 8, rows: [{ slot: 'floor', top: 8, bottom: 56 }, { slot: 'lower_wall', top: 72, bottom: 120 }, { slot: 'upper_wall', top: 136, bottom: 184 }] };
+  const rowColour = (y: number): [number, number, number, number] => (y < 64 ? [230, 30, 30, 255] : y < 128 ? [30, 230, 30, 255] : y < 192 ? [30, 30, 230, 255] : [20, 20, 20, 255]);
+  await publishBytes(be, new Uint8Array(makePng(256, 256, (_x, y) => rowColour(y))), 'texture', 'sheet', 'sheet');
+  await cmd('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: { map: 'sheet' }, trim: SHEET } });
+  await form.getByRole('combobox', { name: 'blockType materials *', exact: true }).selectOption({ label: 'Sheet' });
+  await expect.poll(typeMaterials).toEqual({ '*': 'mat-sheet' });
+  const stripPlaces = [
+    ...[0.2, 0.5, 0.8].map((y) => ({ name: `wall +Z at ${y} m`, at: [0.5, y, 1] as [number, number, number], hue: 1 })),
+    ...[-1.5, -0.5, 0.5].map((x) => ({ name: `top at x ${x}`, at: [x, 1, -0.5] as [number, number, number], hue: 0 })),
+  ];
+  let stripProblem: string | null = 'no picture';
+  await expect.poll(async () => {
+    const png = await view.screenshot();
+    const img = decodePng(png);
+    const project = await sceneProjector(view);
+    const bad: string[] = [];
+    for (const p of stripPlaces) {
+      const c = project(p.at);
+      if (c === null) {
+        bad.push(`${p.name} off screen`);
+        continue;
+      }
+      const rgb = img.pixel(Math.round(c.x), Math.round(c.y));
+      const others = [0, 1, 2].filter((k) => k !== p.hue).map((k) => rgb[k]!);
+      if (!(rgb[p.hue]! > 40 && rgb[p.hue]! > 1.6 * Math.max(...others))) bad.push(`${p.name} ${rgb.slice(0, 3).join(',')}`);
+    }
+    if (bad.length === 0) keep('trim-strips', png);
+    return (stripProblem = bad.length === 0 ? null : bad.join('; '));
+  }, { timeout: 30_000, intervals: [300], message: 'trim strips on block walls and tops' }).toBeNull().catch((e: Error) => {
+    throw new Error(`${e.message}\n${stripProblem}`);
+  });
 
   // ---- Normal maps on the world-mapped kit: the standard shader with a map tilted toward the image's top right.
   await publishBytes(be, new Uint8Array(makePng(16, 16, () => [204, 204, 200, 255])), 'texture', 'tilt', 'tilt');

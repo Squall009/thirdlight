@@ -163,8 +163,11 @@ test('the bottom dock holds the project window, Console and Problems only; the W
   const menu = page.getByRole('menu', { name: 'project window menu', exact: true });
   await menu.getByRole('menuitem', { name: 'Create', exact: true }).click();
   await menu.getByRole('menu', { name: 'Create', exact: true }).getByRole('menuitem', { name: 'Material', exact: true }).click();
-  await panel.getByLabel('new item name', { exact: true }).fill('Brick');
-  await panel.getByLabel('new item name', { exact: true }).press('Enter');
+  // Material opens the New material dialog (Standard picked): its name field, Enter creates.
+  const dialog = page.getByRole('dialog', { name: 'New material' });
+  await dialog.getByLabel('new item name', { exact: true }).fill('Brick');
+  await dialog.getByLabel('new item name', { exact: true }).press('Enter');
+  await expect(dialog).toHaveCount(0);
   await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
   await expect.poll(async () => (await entry('material', 'brick-2'))?.path ?? '').toMatch(/^made\//);
   expect(errors).toEqual([]);

@@ -60,9 +60,10 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     // Every selected subtree in one deleteEntity (one undo step; a child of a
     // selected entity goes with it).
     const ids = draggedRoots(c.projection.listEntities(), selectionRef.current.length > 0 ? selectionRef.current : [selectedIdRef.current]);
+    // A refused command keeps the selection: what was deleted leaves it as the objects go, what was not stays selected.
     for (const args of deleteEntitiesArgs(ids)) {
       const res = await c.command('deleteEntity', args, c.projection.revision);
-      if (!res.ok) break;
+      if (!res.ok) return;
     }
     setSelectedId(null);
   }, [clientRef, selectedIdRef, selectionRef, setSelectedId, viewportRef]);

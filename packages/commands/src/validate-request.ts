@@ -1587,6 +1587,12 @@ export function validateOpArgs(
         if (typeof assign['entityId'] !== 'string') return { ok: false, error: fieldType('/args/assign/entityId', assign['entityId'], 'string (an object id)') };
         const slots = assign['slots'];
         if (slots !== undefined && (!Array.isArray(slots) || !slots.every((x) => typeof x === 'string' && x !== '' && x !== '*'))) return { ok: false, error: fieldType('/args/assign/slots', slots, 'array of named material slots (not "*")') };
+        // Slot names are the object's own material names (a model's source materials, a wall's profile slots): an open set, so a name the
+        // object does not draw with is stored like any mapping entry; a name given twice says the caller meant something else.
+        if (slots !== undefined) {
+          const twice = (slots as string[]).find((x, i) => (slots as string[]).indexOf(x) !== i);
+          if (twice !== undefined) return { ok: false, error: fieldValue('/args/assign/slots', twice, 'each named slot once', `slot "${twice}" is named twice`) };
+        }
       }
       if (op === 'setEnvironment' && args['sceneId'] !== undefined && typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (scene id)') };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };

@@ -1204,8 +1204,14 @@ export class BlockLayerView {
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       if (level > 0) m.userData[COARSE_LEVEL] = level;
-      if (look.assetId !== null) this.deps.applyMaterials?.(m, look.type, look.assetId);
-      else if (look.type.materials !== undefined && Object.keys(look.type.materials).length > 0) {
+      if (look.assetId !== null) {
+        this.deps.applyMaterials?.(m, look.type, look.assetId);
+        // A world-mapped model's metres become trim strips under a trim material, as a stand-in's do (never cells: those predate them).
+        if (p.key.split('#')[0]!.endsWith(':w')) {
+          keepMetreUv(m, layer.grid.cellSize, false);
+          syncCellUv(m);
+        }
+      } else if (look.type.materials !== undefined && Object.keys(look.type.materials).length > 0) {
         this.deps.applyMaterials?.(m, look.type, null);
         // A stand-in's material may read its UVs in cells (made before they were metres).
         keepMetreUv(m, layer.grid.cellSize);

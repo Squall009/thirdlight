@@ -53,7 +53,7 @@ describe('height-blended layers', () => {
     validateMaterials([m], '', errors, materialGraphContext(m.parameters, undefined));
     expect(errors).toEqual([]);
     expect(canonicalMaterials(canonicalMaterials([m]))).toEqual(canonicalMaterials([m]));
-    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerProjection:vec4', 'biplanarDistance:float', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'wetness:float', 'wetPooling:float', 'wetFlatten:float', 'occlusion:float']);
+    expect(m.parameters!.map((p) => `${p.key}:${p.type}`)).toEqual(['albedoHeight:texture', 'normals:texture', 'orm:texture', 'layerTiling:vec4', 'layerProjection:vec4', 'biplanarDistance:float', 'layerNormalStrength:vec4', 'blendDepth:float', 'layerContrast:vec4', 'layerOffset:vec4', 'color:color', 'grime:float', 'grimeColor:color', 'wetness:float', 'wetPooling:float', 'wetFlatten:float', 'occlusion:float']);
     // Per-layer settings: one vec4 each, every layer filled alike (the editor's layer table edits the components).
     for (const s of LAYER_SETTINGS) expect(m.parameters!.find((p) => p.key === s.key)!.default).toEqual([s.fill, s.fill, s.fill, s.fill]);
     const types = m.graph!.nodes.map((n) => n.type);

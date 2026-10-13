@@ -149,4 +149,17 @@ describe('decal pages', () => {
     validateMaterials([material], '/materials', build, undefined, undefined, true);
     expect(build).toEqual([]);
   });
+
+  it('a sheet whose albedo\'s alpha is a height (a layered surface\'s layer): its cells are copied with A opaque', () => {
+    const heightSheets = new Map<string, DecalPageSheet>([['trim-a', { ...sheets.get('trim-a')!, alphaIsHeight: true }]]);
+    const plan = planDecalPages([{ materialId: 'crack', shader: 'decal', textures: {}, decal: { sheet: 'trim-a', cell: 'crack' } }], heightSheets, sizes({ 'sheet-a': [2048, 2048], 'sheet-n': [2048, 2048], 'sheet-o': [2048, 2048] }));
+    const albedo = plan.sets.albedo[0]!.layer as Extract<DecalPageLayer, { place: unknown }>;
+    expect(albedo.place).toHaveLength(1);
+    expect(albedo.place[0]!.channels).toEqual([{ texture: 'sheet-a', channel: 0 }, { texture: 'sheet-a', channel: 1 }, { texture: 'sheet-a', channel: 2 }, { value: 255 }]);
+    // Its normal and ORM keep theirs (copied alongside, the cell's rectangle on the same page).
+    const normal = plan.sets.normal[0]!.layer as Extract<DecalPageLayer, { place: unknown }>;
+    expect(normal.place[0]!.channels[3]).toEqual({ texture: 'sheet-n', channel: 3 });
+    expect(plan.entries.get('crack')).toMatchObject({ rect: albedo.place[0]!.dst });
+  });
 });
+

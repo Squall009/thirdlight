@@ -515,10 +515,16 @@ export {
   MAX_POLYGON_VERTICES,
   // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
   trimMaxFootprint,
+  // A block layer's walls and tops as trim strips, for a material that draws them (trim-sheet.ts).
+  trimRowDensity,
+  trimRowOf,
+  trimRowV,
   // The layered surface the renderer draws trim materials and layered walls as (layered-surface.ts).
   LAYER_NOT_READ,
   layerSheetRows,
   trimSurfaceMaterial,
+  // Which textures hold a height in A (a trim sheet among them draws its decal cells opaque).
+  heightAlphaTextures,
   UV_SOURCES,
   type TrimSheet,
   // A decal material's sheet cell where a view draws the sheet itself, and the decals' sort-order range (decal-pages.ts, decals.ts).
@@ -572,6 +578,8 @@ export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, t
 export { type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace } from './grid-walk';
 // Edge pieces: the editor's edge brush snaps and checks edges with the backend's rules.
 export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, edgeInBounds, edgeInBox, type BlockConnect, type BlockConnectPiece, type BlockEdge } from '@thirdlight/project-model';
+// What an unpainted wall point holds (the editor says why a wall stroke of that layer stores nothing).
+export { UNPAINTED_WALL } from '@thirdlight/project-model';
 // The editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
 export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdits, effectiveCellMeta, pickCell, surfaceBelow, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 // The instance brush's places and surface drop (the editor finds the surface under the same places the backend plans).

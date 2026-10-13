@@ -28,11 +28,12 @@
  * layers (4 layers of 1024², 2 of 2048²).
  *
  * The encoder is `ktx2-encoder` (pinned; its bundled Basis Universal WASM
- * build, non-threaded), run off the backend's event loop in a worker thread
- * (`ktx2-worker.ts`) in the deployment, in-process in tests. A WebP source
+ * build, non-threaded), run off the backend's event loop on a small pool of
+ * worker threads (`ktx2-worker.ts`) in the deployment, in-process in tests. A WebP source
  * is decoded with libwebp (`image-decode.ts`), so a lossy WebP is encoded from
  * the pixels a browser would draw.
  */
+import { availableParallelism, totalmem } from 'node:os';
 import { Worker } from 'node:worker_threads';
 
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
@@ -79,16 +80,19 @@ export type Ktx2PackResult =
   | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
 
 export interface TextureEncoder {
+  /** How many jobs it runs at once (a caller with many independent jobs keeps this many in flight). */
+  readonly parallelism?: number;
   encode(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult>;
   /** A tile thumbnail (PNG) of a PNG, JPEG or WebP image; null when the image cannot be read. */
   thumbnail(bytes: Uint8Array): Promise<Uint8Array | null>;
   /**
    * Pack the layers' channels from the source images (PNG/JPEG/WebP/KTX2 bytes) into one KTX2 (an
    * array with several layers). `lossless[i]`: source i's lossless original (a PNG), read in place of
-   * a KTX2 source when the layers have to be encoded. `uastcLevel`: the UASTC effort (absent: the
-   * encoder's default, as imports and the pack route use).
+   * a KTX2 source when the layers have to be encoded. `effort`: 'assembled' for what a view waits on
+   * (`ASSEMBLED_UASTC_LEVEL`, `ASSEMBLED_ETC1S_LEVEL`); absent: the encoder's defaults, as imports and
+   * the pack route use.
    */
-  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], uastcLevel?: number): Promise<Ktx2PackResult>;
+  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort): Promise<Ktx2PackResult>;
   /** A decal page of side `size` composed of rectangles of the sources, one UASTC layer (`composeKtx2`). */
   compose(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2ComposeResult>;
   /** An image's pixels (PNG, JPEG, WebP, or a single-image KTX2 transcoded: its top level) as 8-bit RGBA, at most `maxPixels`. */
@@ -156,6 +160,8 @@ interface BasisEncoderLike {
   setNormalMapPreset?(): void;
   setNormalMap(): void;
   setQualityLevel(level: number): void;
+  setETC1SCompressionLevel?(level: number): void;
+  setCompressionLevel?(level: number): void;
   setKTX2UASTCSupercompression(v: boolean): void;
   setPackUASTCFlags?(flags: number): void;
   setDebug(v: boolean): void;
@@ -235,10 +241,10 @@ const SOURCE_RAW = 0;
  * (PNG/JPEG/WebP), all must share one size; each layer's four channels are read
  * from them (or set to a constant), and the layers are encoded together as a
  * 2D array (one image: a plain 2D texture) with the mode's settings — the
- * same as `encodeKtx2`'s for colour and normal maps; `uastcLevel` the UASTC
- * effort (absent: the encoder's default).
+ * same as `encodeKtx2`'s for colour and normal maps; `effort` 'assembled'
+ * the faster efforts of what a view waits on (absent: the encoder's defaults).
  */
-export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = [], uastcLevel?: number): Promise<Ktx2PackResult> {
+export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = [], effort?: EncodeEffort): Promise<Ktx2PackResult> {
   if (layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return { ok: false, code: 'texture_encode_unsupported', message: `a packed texture has 1-${MAX_TEXTURE_LAYERS} layers` };
   const used = new Set<number>();
   for (const l of layers) for (const c of l) if ('source' in c) used.add(c.source);
@@ -317,7 +323,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     return out;
   });
   const reencoded = layers.map((l) => l.some((c) => 'source' in c && transcoded.has(c.source)));
-  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color', uastcLevel);
+  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color', effort);
   return encoded.ok ? { ok: true, ktx2: encoded.ktx2, width, height, layers: slices.length, reencoded, joined: false } : encoded;
 }
 
@@ -325,10 +331,10 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
  * Encode RGBA slices (one: a 2D texture; more: an array) with the mode's
  * settings: colour sRGB and perceptual, a normal map with the encoder's
  * normal preset, data linear; `uastc` UASTC with Zstandard, else ETC1S (a
- * colour import's quality); `uastcLevel` the UASTC effort (absent: the
- * encoder's default, as imports use).
+ * colour import's quality); `effort` 'assembled' the faster efforts of what
+ * a view waits on (absent: the encoder's defaults, as imports use).
  */
-async function encodeSlices(slices: readonly Uint8Array[], width: number, height: number, mode: Ktx2Mode, uastc: boolean, uastcLevel?: number): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
+async function encodeSlices(slices: readonly Uint8Array[], width: number, height: number, mode: Ktx2Mode, uastc: boolean, effort?: EncodeEffort): Promise<{ ok: true; ktx2: Uint8Array } | { ok: false; code: 'texture_encode_failed'; message: string }> {
   const n = width * height;
   try {
     const mod = await basisModule();
@@ -352,7 +358,11 @@ async function encodeSlices(slices: readonly Uint8Array[], width: number, height
       // ETC1S: the same quality as a colour import; UASTC: Zstandard supercompression.
       if (!uastc) enc.setQualityLevel(128);
       else enc.setKTX2UASTCSupercompression(true);
-      if (uastc && uastcLevel !== undefined) enc.setPackUASTCFlags?.(uastcLevel);
+      if (effort === 'assembled') {
+        if (uastc) enc.setPackUASTCFlags?.(ASSEMBLED_UASTC_LEVEL);
+        else if (enc.setETC1SCompressionLevel !== undefined) enc.setETC1SCompressionLevel(ASSEMBLED_ETC1S_LEVEL);
+        else enc.setCompressionLevel?.(ASSEMBLED_ETC1S_LEVEL);
+      }
       enc.setPerceptual(colour);
       enc.setTexType(slices.length > 1 ? BASIS_TEX_2D_ARRAY : BASIS_TEX_2D);
       for (let i = 0; i < slices.length; i++) {
@@ -385,6 +395,15 @@ async function encodeSlices(slices: readonly Uint8Array[], width: number, height
  * each is made once, then cached.
  */
 export const ASSEMBLED_UASTC_LEVEL = 1;
+/**
+ * The ETC1S effort of the same (a colour slot array): Basis Universal's
+ * compression level 1 against its default 2. Measured on two of a game's
+ * 1024² albedos as an array at the colour quality: 1.7 s at 38.42 dB PSNR
+ * against 3.1 s at 38.51 dB (level 0: 1.2 s at 37.59 dB).
+ */
+export const ASSEMBLED_ETC1S_LEVEL = 1;
+/** 'assembled': the efforts above, for what the backend assembles on request. */
+export type EncodeEffort = 'assembled';
 
 /** A composed decal page: the KTX2 of one layer, and whether a source's texels were transcoded out of a lossy KTX2. */
 export type Ktx2ComposeResult = { ok: true; ktx2: Uint8Array; reencoded: boolean } | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
@@ -423,7 +442,7 @@ export async function composeKtx2(sources: readonly Uint8Array[], layer: Compose
   } catch (e) {
     return { ok: false, code: 'texture_encode_unsupported', message: e instanceof Error ? e.message : String(e) };
   }
-  const encoded = await encodeSlices([pixels], size, size, mode, true, ASSEMBLED_UASTC_LEVEL);
+  const encoded = await encodeSlices([pixels], size, size, mode, true, 'assembled');
   return encoded.ok ? { ok: true, ktx2: encoded.ktx2, reencoded } : encoded;
 }
 
@@ -432,11 +451,11 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: (sources, layers, mode, lossless, uastcLevel) => packKtx2(sources, layers, mode, lossless, uastcLevel), compose: (sources, layer, size, mode, lossless) => composeKtx2(sources, layer, size, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
+  return { parallelism: 1, encode: encodeKtx2, pack: (sources, layers, mode, lossless, effort) => packKtx2(sources, layers, mode, lossless, effort), compose: (sources, layer, size, mode, lossless) => composeKtx2(sources, layer, size, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
 }
 
 /**
- * How long the encoder worker is kept after its last job. The encoder's WASM
+ * How long an encoder worker is kept after its last job. The encoder's WASM
  * memory only grows (WebAssembly memory cannot shrink), so a worker kept for
  * the backend's life holds the peak of its largest encode; ending it once
  * idle gives that back, and the next encode starts a fresh one (a few tens of
@@ -445,117 +464,175 @@ export function createInlineTextureEncoder(): TextureEncoder {
 export const KTX2_WORKER_IDLE_MS = 10_000;
 
 /**
- * The deployment's encoder: one worker thread (the script built next to the
- * backend bundle), one encode at a time in order, started on first use and
- * ended once idle; a crashed worker fails its job and is started again for
- * the next.
+ * The encoder threads the backend runs at most at once. The encoder is
+ * single-threaded WASM, so a decal atlas's pages or an array's layers only
+ * go faster on several workers; each holds its own WASM memory, so the pool
+ * stays small whatever the core count.
  */
-export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: number } = {}): TextureEncoder & { readonly workerRunning: boolean } {
+export const KTX2_ENCODER_THREADS_MAX = 4;
+/** Cores left to the backend's event loop, the browser and the rest of the host. */
+const KTX2_ENCODER_CORES_SPARE = 2;
+/**
+ * What one worker may hold at the encoder's source limit (its WASM memory,
+ * which never shrinks while the worker runs, the decoded pixels, the job's
+ * copies). Measured: an ETC1S array of 3 × 2048² (the limit) grew the
+ * process by 1,105 MiB, 2 × 2048² by 800 MiB, a UASTC one of 12 × 1024² by
+ * 644 MiB. The pool takes at most a quarter of the host's memory at that.
+ */
+export const KTX2_WORKER_MEMORY_BYTES = 1280 * 1024 * 1024;
+
+/**
+ * The memory this process may use: the host's, or less where a control group
+ * caps it (a memory-capped service or test run: several backends under one
+ * cap must not each size their pool for the whole host).
+ */
+function memoryForPool(): number {
+  const capped = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0;
+  return capped > 0 ? Math.min(totalmem(), capped) : totalmem();
+}
+
+/** The pool size for this host: the spare cores, at most a quarter of memory at a worker's peak, 1–`KTX2_ENCODER_THREADS_MAX`. */
+export function ktx2EncoderThreads(cores = availableParallelism(), memory = memoryForPool()): number {
+  const byMemory = Math.floor(memory / 4 / KTX2_WORKER_MEMORY_BYTES);
+  return Math.max(1, Math.min(KTX2_ENCODER_THREADS_MAX, cores - KTX2_ENCODER_CORES_SPARE, byMemory));
+}
+
+type WorkerAnswer = Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null };
+interface WorkerJob {
+  readonly id: number;
+  readonly message: unknown;
+  readonly transfer: ArrayBuffer[];
+  readonly done: (r: WorkerAnswer) => void;
+}
+interface PoolWorker {
+  readonly worker: Worker;
+  job: WorkerJob | null;
+  idle: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * The deployment's encoder: a small pool of worker threads (the script built
+ * next to the backend bundle), `threads` at most (`ktx2EncoderThreads`).
+ * Jobs wait in one queue in order; each worker takes one at a time, so
+ * independent jobs (a decal atlas's pages, an array's layers, two arrays)
+ * run side by side. A worker is started when a job finds none free and
+ * ended once idle; a crashed worker fails its job, and the next job starts
+ * a fresh one.
+ */
+export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: number; threads?: number } = {}): TextureEncoder & { readonly workerRunning: boolean; readonly workersRunning: number } {
   const idleMs = options.idleMs ?? KTX2_WORKER_IDLE_MS;
-  let worker: Worker | null = null;
-  let idle: ReturnType<typeof setTimeout> | null = null;
+  const threads = Math.max(1, Math.min(KTX2_ENCODER_THREADS_MAX, Math.floor(options.threads ?? ktx2EncoderThreads())));
+  const pool: PoolWorker[] = [];
+  const queue: WorkerJob[] = [];
   let next = 1;
-  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void>();
-  const failAll = (message: string): void => {
-    for (const done of pending.values()) done({ ok: false, code: 'texture_encode_failed', message });
-    pending.clear();
+  const failed = (message: string): WorkerAnswer => ({ ok: false, code: 'texture_encode_failed', message });
+  const end = (p: PoolWorker): void => {
+    if (p.idle !== null) clearTimeout(p.idle);
+    p.idle = null;
+    const i = pool.indexOf(p);
+    if (i >= 0) pool.splice(i, 1);
+    void p.worker.terminate();
   };
-  const stop = (): void => {
-    if (idle !== null) clearTimeout(idle);
-    idle = null;
-    const w = worker;
-    worker = null;
-    void w?.terminate();
-    failAll('the KTX2 encoder stopped');
+  const pump = (): void => {
+    while (queue.length > 0) {
+      let p = pool.find((x) => x.job === null);
+      if (p === undefined) {
+        if (pool.length >= threads) return;
+        p = start();
+      }
+      const job = queue.shift()!;
+      if (p.idle !== null) clearTimeout(p.idle);
+      p.idle = null;
+      p.job = job;
+      p.worker.postMessage(job.message, job.transfer);
+    }
   };
-  const start = (): Worker => {
-    if (idle !== null) clearTimeout(idle);
-    idle = null;
-    if (worker !== null) return worker;
+  const start = (): PoolWorker => {
     // A bound on the worker's JS heap: a runaway decode or encode ends the
     // worker (its job fails, the next starts a fresh one), not the backend.
     // Pixel buffers and the encoder's WASM memory are bounded by the source
     // pixel limit, not by these.
     const w = new Worker(workerUrl, { resourceLimits: KTX2_WORKER_LIMITS });
     w.unref();
-    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null } }) => {
-      const done = pending.get(m.id);
-      pending.delete(m.id);
-      done?.(m.result);
-      if (pending.size === 0 && worker === w) {
-        idle = setTimeout(stop, idleMs);
-        idle.unref();
+    const p: PoolWorker = { worker: w, job: null, idle: null };
+    w.on('message', (m: { id: number; result: WorkerAnswer }) => {
+      const job = p.job;
+      p.job = null;
+      if (job !== null && job.id === m.id) job.done(m.result);
+      if (!pool.includes(p)) return;
+      pump();
+      if (p.job === null) {
+        p.idle = setTimeout(() => end(p), idleMs);
+        p.idle.unref();
       }
     });
-    // Only the current worker's end fails the jobs waiting: one ended for
-    // idleness may exit after its successor took new jobs.
-    w.on('error', (e) => {
-      if (worker === w) failAll(`the KTX2 encoder stopped: ${e.message}`);
+    // Only a worker still in the pool fails its job: one ended for idleness
+    // has none, and may exit after a successor took new jobs.
+    const lost = (message: string): void => {
+      if (!pool.includes(p)) return;
+      const job = p.job;
+      p.job = null;
+      end(p);
+      job?.done(failed(message));
+      pump();
+    };
+    w.on('error', (e) => lost(`the KTX2 encoder stopped: ${e.message}`));
+    w.on('exit', () => lost('the KTX2 encoder stopped'));
+    pool.push(p);
+    return p;
+  };
+  const run = (message: Record<string, unknown>, transfer: ArrayBuffer[]): Promise<WorkerAnswer> =>
+    new Promise((done) => {
+      const id = next++;
+      queue.push({ id, message: { id, ...message }, transfer, done });
+      pump();
     });
-    w.on('exit', () => {
-      if (worker !== w) return;
-      worker = null;
-      failAll('the KTX2 encoder stopped');
-    });
-    worker = w;
-    return w;
+  /** Copies of the job's bytes, moved to the worker (the caller keeps its own). */
+  const copied = (list: readonly (Uint8Array | null)[]): { copies: (Uint8Array | null)[]; moved: ArrayBuffer[] } => {
+    const copies = list.map((b) => (b === null ? null : b.slice()));
+    return { copies, moved: copies.flatMap((c) => (c === null ? [] : [c.buffer as ArrayBuffer])) };
   };
   return {
+    parallelism: threads,
     get workerRunning() {
-      return worker !== null;
+      return pool.length > 0;
     },
-    encode(bytes, mode) {
-      const w = start();
-      const id = next++;
-      return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
-        const copy = bytes.slice();
-        w.postMessage({ id, bytes: copy, mode }, [copy.buffer]);
-      });
+    get workersRunning() {
+      return pool.length;
     },
-    pack(sources, layers, mode, lossless = [], uastcLevel) {
-      const w = start();
-      const id = next++;
-      return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
-        const copies = sources.map((b) => b.slice());
-        const originals = lossless.map((b) => (b === null ? null : b.slice()));
-        const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
-        w.postMessage({ id, pack: { sources: copies, layers, lossless: originals, ...(uastcLevel !== undefined ? { uastcLevel } : {}) }, mode }, moved);
-      });
+    async encode(bytes, mode) {
+      const { copies, moved } = copied([bytes]);
+      return (await run({ bytes: copies[0], mode }, moved)) as Ktx2EncodeResult;
     },
-    compose(sources, layer, size, mode, lossless = []) {
-      const w = start();
-      const id = next++;
-      return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | Ktx2ComposeResult | TextureDecodeResult | { thumbnail: Uint8Array | null }) => void);
-        const copies = sources.map((b) => b.slice());
-        const originals = lossless.map((b) => (b === null ? null : b.slice()));
-        const moved = [...copies, ...originals.flatMap((b) => (b === null ? [] : [b]))].map((c) => c.buffer);
-        w.postMessage({ id, compose: { sources: copies, layer, size, lossless: originals }, mode }, moved);
-      });
+    async pack(sources, layers, mode, lossless = [], effort) {
+      const s = copied(sources);
+      const l = copied(lossless);
+      return (await run({ pack: { sources: s.copies, layers, lossless: l.copies, ...(effort !== undefined ? { effort } : {}) }, mode }, [...s.moved, ...l.moved])) as Ktx2PackResult;
     },
-    thumbnail(bytes) {
-      const w = start();
-      const id = next++;
-      return new Promise((resolve) => {
-        pending.set(id, (r) => resolve('thumbnail' in r ? r.thumbnail : null));
-        const copy = bytes.slice();
-        w.postMessage({ id, thumbnail: copy }, [copy.buffer]);
-      });
+    async compose(sources, layer, size, mode, lossless = []) {
+      const s = copied(sources);
+      const l = copied(lossless);
+      return (await run({ compose: { sources: s.copies, layer, size, lossless: l.copies }, mode }, [...s.moved, ...l.moved])) as Ktx2ComposeResult;
     },
-    decode(bytes, maxPixels) {
-      const w = start();
-      const id = next++;
-      return new Promise((resolve) => {
-        // A stopped worker answers the encoder's failure shape: its message is the reason.
-        pending.set(id, (r) => resolve('width' in r || ('ok' in r && r.ok === false) ? (r as TextureDecodeResult) : { ok: false, message: 'the decoder answered something else' }));
-        const copy = bytes.slice();
-        w.postMessage({ id, decode: { bytes: copy, maxPixels } }, [copy.buffer]);
-      });
+    async thumbnail(bytes) {
+      const { copies, moved } = copied([bytes]);
+      const r = await run({ thumbnail: copies[0] }, moved);
+      return 'thumbnail' in r ? r.thumbnail : null;
+    },
+    async decode(bytes, maxPixels) {
+      const { copies, moved } = copied([bytes]);
+      const r = await run({ decode: { bytes: copies[0], maxPixels } }, moved);
+      // A stopped worker answers the encoder's failure shape: its message is the reason.
+      return 'width' in r || ('ok' in r && r.ok === false) ? (r as TextureDecodeResult) : { ok: false, message: 'the decoder answered something else' };
     },
     dispose() {
-      stop();
+      const waiting = queue.splice(0);
+      const running = pool.flatMap((p) => (p.job !== null ? [p.job] : []));
+      for (const p of [...pool]) {
+        p.job = null;
+        end(p);
+      }
+      for (const job of [...running, ...waiting]) job.done(failed('the KTX2 encoder stopped'));
     },
   };
 }

@@ -5,10 +5,12 @@
  * Play, the export and the editor's views draw a slot list as one KTX2
  * array made here: UASTC layers alike are joined as stored (milliseconds),
  * the rest transcoded (or their lossless PNG read) and encoded once
- * (seconds; UASTC at the faster effort a view waiting on it wants,
- * `ASSEMBLED_UASTC_LEVEL`) — the pack route's `packKtx2`, each layer the
- * whole RGBA of its texture. The result goes to the project's import cache keyed by the
- * layers' digests, the digest of each lossless PNG read in a layer's place
+ * (seconds; at the faster efforts a view waiting on it wants,
+ * `ASSEMBLED_UASTC_LEVEL`, `ASSEMBLED_ETC1S_LEVEL`) — the pack route's
+ * `packKtx2`, each layer the whole RGBA of its texture; a UASTC array's
+ * layers are encoded side by side on the encoder's threads and joined
+ * (`packLayerByLayer`). The result goes to the project's import cache keyed
+ * by the layers' digests, the digest of each lossless PNG read in a layer's place
  * (or none) and the encoding — everything the bytes are made from, so a PNG
  * appearing beside a KTX2 later makes the array again, and two hosts with
  * the same files make the same key. It is made once: the next Play, the
@@ -31,7 +33,7 @@ import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspac
 import type { DecalPageRequest, DecalPageResult } from './decal-page-assembly';
 import type { HeightAlphaChecks } from './height-alpha';
 import { readKtx2 } from './ktx2-container';
-import { ASSEMBLED_UASTC_LEVEL, KTX2_ENCODER, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
+import { KTX2_ENCODER, type Ktx2Mode, type Ktx2PackResult, type PackLayer, type TextureEncoder } from './texture-encode';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** One layer: a texture asset's version and its file's digest; a constant layer (`fillLayerId`) is its id in all three. */
@@ -97,6 +99,35 @@ interface ResolvedLayers {
   fills: ([number, number, number, number] | null)[];
   /** Per layer: the digest of the original read in its place, null where none is. */
   originals: (string | null)[];
+}
+
+/**
+ * A UASTC array's layers encoded side by side, one job per layer on the
+ * encoder's threads, then joined without touching a texel (UASTC blocks are
+ * encoded each on its own, so the array is the one a single encode makes;
+ * the join runs on an encoder thread too, as a pack of whole KTX2 layers).
+ * A layer that is a UASTC KTX2 as stored stays as it is. Null where that
+ * does not apply — one thread or one layer, ETC1S (colour: its layers share
+ * one codebook), a constant layer (no size of its own) — or the layers do
+ * not join: the caller packs them in one job.
+ */
+async function packLayerByLayer(encoder: TextureEncoder, resolved: ResolvedLayers, layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult | null> {
+  if ((encoder.parallelism ?? 1) < 2 || layers.length < 2 || mode === 'color' || resolved.index.some((i) => i < 0)) return null;
+  const one = await Promise.all(
+    layers.map((l, at) => {
+      const source = resolved.index[at]!;
+      // The layer's own texture only, as source 0.
+      const own = l.map((c) => ('source' in c ? { ...c, source: 0 } : c)) as unknown as PackLayer;
+      return encoder.pack([resolved.sources[source]!], [own], mode, [resolved.lossless[source] ?? null], 'assembled');
+    }),
+  );
+  const failed = one.find((r) => !r.ok);
+  if (failed !== undefined) return failed;
+  const done = one as Extract<Ktx2PackResult, { ok: true }>[];
+  const whole = done.map((_, i) => [0, 1, 2, 3].map((channel) => ({ source: i, channel })) as unknown as PackLayer);
+  const joined = await encoder.pack(done.map((r) => r.ktx2), whole, mode);
+  if (!joined.ok || !joined.joined) return null;
+  return { ...joined, reencoded: done.map((r) => r.reencoded[0] === true), joined: done.every((r) => r.joined) };
 }
 
 export function createTextureSlotAssembler(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined; now: () => number; heights?: HeightAlphaChecks }): TextureSlotAssembler {
@@ -166,7 +197,7 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
       if (fill !== null && fill !== undefined) return fill.map((value) => ({ value })) as unknown as PackLayer;
       return (derived[l] === true ? [{ source, channel: 0 }, { source, channel: 1 }, { source, channel: 2 }, { source, height: true }] : [0, 1, 2, 3].map((channel) => ({ source, channel }))) as unknown as PackLayer;
     });
-    const packed = await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless, ASSEMBLED_UASTC_LEVEL);
+    const packed = (await packLayerByLayer(encoder, resolved, packLayers, mode)) ?? (await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless, 'assembled'));
     if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
     if (!stored.ok) return { ok: false, code: stored.error.code, message: stored.error.message };
