@@ -4,6 +4,8 @@
 baseboards, crowns, frames — that dresses every generated wall and room, so
 swapping the sheet restyles a whole level. The full description is in
 [Material graphs: Trim sheets](../features/material-graphs.md#trim-sheets).
+To paint a sheet that works with every kit — its size, rows, maps and how to
+UV kit pieces against it — follow the [trim sheet spec](trim-sheet-spec.md).
 
 A trim material (shader `trim`) reads three textures — albedo, normal and
 ORM (occlusion, roughness, metalness) — and a **row table**: each row is a
@@ -64,10 +66,10 @@ padding. Use the API to import a layout you keep with the texture source.
   different layouts disagree on some rows (a problem lists them): delete the
   rows the walls don't use from both tables (**delete row**) so the rest
   match.
-- **Block walls are not strips.** A block face's UVs cover the face once, so
-  a trim layer (mesh UVs) on a block shows the whole sheet on every cell
-  face. Trim rows dress generated architecture; give block walls tiling
-  layers (world or top).
+- **Block walls wear one row per cell face.** Under a trim material (or a
+  layered surface with a trim layer) a block layer's first storey of cells
+  wears `lower_wall`, the storeys above `upper_wall`, tops and undersides
+  `floor`; a row shorter than the cell is stretched up the face.
 - **Decal cells take their opacity from the albedo's alpha.** A sheet a
   layered surface reads as a layer has its height there instead, so its
   cells draw opaque: each its whole rectangle on the decal pages (the Scene
