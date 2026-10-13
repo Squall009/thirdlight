@@ -26,6 +26,7 @@ import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useTile } from '../assets/TileImage';
 import { useAssetSummaries } from '../catalog/catalog-context';
+import { Glyph } from '../editmode/glyphs';
 import { isTyping } from '../workspace/EditorWindow';
 
 export interface LayerPaletteProps {
@@ -96,8 +97,8 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
       role="radio"
       aria-checked={p.picked}
       aria-label={`layer ${l.index + 1}`}
-      className={`tl-ptile${p.picked ? ' is-active' : ''}${l.empty === true ? ' tl-ptile--empty' : ''}${over ? ' is-drop' : ''}`}
-      title={l.empty === true ? `${l.name}: no texture yet (it draws the first filled layer's). Drop a texture here, or click to pick one.` : `${l.name}${l.sub !== undefined ? ` · ${l.sub}` : ''}${l.noHeight === true ? `\n${NO_HEIGHT_HINT}` : ''}`}
+      className={`tl-ptile${p.picked ? ' is-active' : ''}${l.empty === true && l.wet !== true ? ' tl-ptile--empty' : ''}${l.wet === true ? ' tl-ptile--wet' : ''}${over ? ' is-drop' : ''}`}
+      title={l.wet === true ? `${l.name}: darkens and adds shine over any layer` : l.empty === true ? `${l.name}: no texture yet (it draws the first filled layer's). Drop a texture here, or click to pick one.` : `${l.name}${l.sub !== undefined ? ` · ${l.sub}` : ''}${l.noHeight === true ? `\n${NO_HEIGHT_HINT}` : ''}`}
       disabled={p.disabled}
       data-layer={l.index}
       onClick={(e) => {
@@ -119,9 +120,9 @@ function LayerTile(p: LayerPaletteProps & { layer: PaletteLayer; picked: boolean
       }}
     >
       <span className="tl-ptile__thumb" data-thumb={thumb.state}>
-        {thumb.url !== null ? <img src={thumb.url} alt="" draggable={false} /> : l.colour !== undefined ? <i style={{ background: l.colour }} /> : l.empty === true ? <PlusGlyph /> : null}
+        {l.wet === true ? <Glyph name="drop" size={20} /> : thumb.url !== null ? <img src={thumb.url} alt="" draggable={false} /> : l.colour !== undefined ? <i style={{ background: l.colour }} /> : l.empty === true ? <PlusGlyph /> : null}
       </span>
-      <span className="tl-ptile__idx">{l.index + 1}</span>
+      <span className="tl-ptile__idx">{l.badge ?? l.index + 1}</span>
       {l.noHeight === true && (
         <span className="tl-ptile__badge" aria-label="no height in alpha">
           no height

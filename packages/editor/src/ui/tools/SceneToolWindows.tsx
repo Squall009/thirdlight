@@ -14,7 +14,6 @@ import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { DecalToolPanel, type DecalToolState } from './DecalToolPanel';
-import { VertexPaintPanel, type VertexPaintToolState } from './VertexPaintPanel';
 import { LightingPanel } from '../LightingPanel';
 import type { SceneHeaderView } from '../Hierarchy';
 import type { ClientRef, ViewportRef } from '../shell/commands';
@@ -64,7 +63,6 @@ export interface SceneToolWindowsProps {
   docCmds: DocumentCommands;
   bake: LightingBakeState;
   decalTool: DecalToolState;
-  paintTool: VertexPaintToolState;
   entities: ProjectedEntity[];
   /** The open scenes, the active one marked. */
   sceneHeaders: readonly SceneHeaderView[] | null;
@@ -84,8 +82,6 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
   const body = (id: ToolWindowId): JSX.Element =>
     id === 'decals' ? (
       <DecalToolPanel tool={p.decalTool} />
-    ) : id === 'paint' ? (
-      <VertexPaintPanel tool={p.paintTool} />
     ) : id === 'environment' ? (
       <EnvironmentPanel
         environment={environment}

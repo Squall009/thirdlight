@@ -48,15 +48,19 @@ function commit(
 }
 
 /**
- * `setMaterial {material, assign: {entityId}}`: the material is also put on
- * that object for all of its materials (its `materials` component's "*"
- * slot, other slots kept) in the same transaction, so making a material for
+ * `setMaterial {material, assign: {entityId, slots?}}`: the material is also
+ * put on that object for all of its materials (its `materials` component's
+ * "*" slot, other slots kept; `slots`: named slots that take it too — a
+ * named slot is drawn before "*", so replacing what an object draws with
+ * through one names it) in the same transaction, so making a material for
  * an object and giving it to the object is one undo step (the terrain
- * editor's "Set up material"). The component is a follow-up of the change:
- * undo puts the object's mapping back before the material goes.
+ * editor's "Set up material", the vertex paint editor's "Make it
+ * paintable"). The component is a follow-up of the change: undo puts the
+ * object's mapping back before the material goes.
  */
 export interface SetMaterialAssign {
   entityId: string;
+  slots?: string[];
 }
 
 export function applySetMaterial(input: OpInput, args: { material: MaterialDef; assign?: SetMaterialAssign }): OpOutcome {
@@ -67,7 +71,8 @@ export function applySetMaterial(input: OpInput, args: { material: MaterialDef; 
   const entity = (out.op.scene.entities as unknown as AnyEntity[]).find((e) => e.id === entityId);
   if (entity === undefined) return { ok: false, error: fieldValue('/args/assign/entityId', entityId, 'an object of the edited scene', 'no object with this id in the edited scene') };
   const restore = entity.components['materials'] ?? null;
-  const next = { ...((restore as Record<string, string> | null) ?? {}), [MATERIAL_SLOT_ALL]: args.material.materialId };
+  const next: Record<string, string> = { ...((restore as Record<string, string> | null) ?? {}), [MATERIAL_SLOT_ALL]: args.material.materialId };
+  for (const slot of args.assign.slots ?? []) next[slot] = args.material.materialId;
   const entities = (out.op.scene.entities as unknown as AnyEntity[]).map((e) => (e.id === entityId ? { ...e, components: { ...e.components, materials: next } } : e));
   const resultScene = { ...out.op.scene, entities };
   const gate = gateResultState({ scene: input.scene, content: contentOf(input.content), manifest: input.manifest }, resultScene, out.op.content);

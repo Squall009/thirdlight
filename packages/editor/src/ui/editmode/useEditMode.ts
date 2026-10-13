@@ -57,11 +57,14 @@ export function useEditMode(deps: EditModeDeps) {
   const entitiesRef = useRef(entities);
   entitiesRef.current = entities;
 
-  /** Open the edit mode of an object (`kind`: an object just made, maybe not in the projection yet); false when it has none. */
+  /**
+   * Open the edit mode of an object (`kind`: an object just made, maybe not in the projection yet); false when it has
+   * none. `activated`: a double-click asks, which opens only the editors that open that way.
+   */
   const enter = useCallback(
-    (entityId: string, kind?: string): boolean => {
+    (entityId: string, kind?: string, activated = false): boolean => {
       const e = entitiesRef.current.find((x) => x.id === entityId);
-      const k: EditModeKind | undefined = e !== undefined ? editModeFor(e) : kind !== undefined ? editModeKind(kind) : undefined;
+      const k: EditModeKind | undefined = e !== undefined ? editModeFor(e, activated) : kind !== undefined ? editModeKind(kind) : undefined;
       if (k === undefined) return false;
       if (saved.current === null) saved.current = { ids: selectionRef.current.ids, primary: selectionRef.current.primary };
       seen.current = e !== undefined;

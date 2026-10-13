@@ -1,9 +1,11 @@
 /**
  * Driving the editor's Scene view with a tool armed: world points to canvas
  * pixels through the view-projection the armed tool publishes, selecting and
- * framing an object, zooming until points are in view, and the Vertex paint
- * window's settings, strokes and their state.
+ * framing an object, zooming until points are in view, and the vertex paint
+ * editor — entered from the Inspector, its palette, brush, tools and channel
+ * view, strokes and their state.
  */
+import { inspector } from './ui';
 import { expect, type Locator, type Page } from './pw';
 
 export const view = (page: Page): Locator => page.locator('canvas.tl-viewport');
@@ -48,19 +50,50 @@ export async function fit(page: Page, points: readonly (readonly [number, number
   expect(await inside(), 'the stroke is in view').toBe(true);
   await page.mouse.move(0, 0);
 }
-export type PaintState = { armed: boolean; stroking: boolean; strokes: number; last: { entityId: string; target: string; dabs: number; previewMs: number; latencyMs: number | null; commandMs: number | null; ok: boolean | null; code?: string } | null; watch: { id: string; frames: number; gaps: number } | null; view: number | null };
+export type PaintState = { armed: boolean; entityId: string | null; channel: number | null; cursor: 'paint' | 'erase' | 'off' | null; stroking: boolean; strokes: number; last: { entityId: string; target: string; dabs: number; previewMs: number; latencyMs: number | null; commandMs: number | null; ok: boolean | null; code?: string } | null; watch: { id: string; frames: number; gaps: number } | null; view: number | null };
 export async function paintState(page: Page): Promise<PaintState | null> {
   return JSON.parse((await view(page).getAttribute('data-vertex-paint')) ?? 'null') as PaintState | null;
 }
-export async function setPaint(page: Page, values: Record<string, string>): Promise<void> {
-  for (const [k, v] of Object.entries(values)) {
-    const field = page.getByLabel(`vertex paint ${k}`, { exact: true });
-    if ((await field.evaluate((el) => el.tagName)) === 'SELECT') await field.selectOption(v);
-    else {
-      await field.fill(v);
-      await field.blur();
-    }
+/** The vertex paint editor's frame. */
+export const paintEditor = (page: Page): Locator => page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
+/** Open the vertex paint editor on an object (selected, then the Inspector's Paint vertices); the brush armed on it. */
+export async function enterPaint(page: Page, id: string): Promise<void> {
+  await select(page, id);
+  await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
+  await expect(paintEditor(page)).toHaveAttribute('data-entity-id', id);
+  await expect.poll(async () => (await paintState(page))?.entityId ?? null).toBe(id);
+}
+/** Done: the editor closes, the brush is disarmed. */
+export async function leavePaint(page: Page): Promise<void> {
+  await paintEditor(page).getByRole('button', { name: /^done/i }).click();
+  await expect(paintEditor(page)).toHaveCount(0);
+  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(false);
+}
+/** Pick a palette tile by its place (0: the first) and wait for the brush to paint its channel. */
+export async function pickTile(page: Page, index: number, channel: number): Promise<void> {
+  await paintEditor(page).getByRole('radiogroup', { name: 'paint layers' }).locator(`[data-layer="${index}"]`).click();
+  await expect.poll(async () => (await paintState(page))?.channel ?? null).toBe(channel);
+}
+/** The shared brush's fields: size (m across), strength (%), the falloff by its name. */
+export async function setPaint(page: Page, values: { size?: string; strength?: string; falloff?: string }): Promise<void> {
+  const col = paintEditor(page);
+  for (const k of ['size', 'strength'] as const) {
+    const v = values[k];
+    if (v === undefined) continue;
+    const field = col.getByLabel(`brush ${k}`, { exact: true });
+    await field.fill(v);
+    await field.press('Enter');
   }
+  if (values.falloff !== undefined) await col.getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: values.falloff, exact: true }).click();
+}
+/** Paint or erase (the tool grid). */
+export async function paintTool(page: Page, tool: 'Paint' | 'Erase'): Promise<void> {
+  await paintEditor(page).getByRole('toolbar', { name: 'vertex paint tool' }).getByRole('button', { name: tool }).click();
+  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(true);
+}
+/** The channel view's chip by its label ("Final", a layer's name, "Wetness"). */
+export async function channelView(page: Page, label: string): Promise<void> {
+  await paintEditor(page).getByRole('radiogroup', { name: 'channel view' }).getByRole('radio', { name: label, exact: true }).click();
 }
 /**
  * A paint stroke across world points (the pointer down at `from`, moved to `to`); `during` runs with the button
@@ -71,10 +104,7 @@ export async function paintDrag(page: Page, from: readonly [number, number, numb
   const box = (await view(page).boundingBox())!;
   const a = project(from)!;
   const b = project(to)!;
-  // In the view and clear of the tool window floating over it.
-  const win = await page.getByLabel('vertex paint tool').boundingBox();
-  const covered = (p: { x: number; y: number }): boolean => win !== null && box.x + p.x >= win.x - 8 && box.y + p.y >= win.y - 40;
-  for (const p of [a, b]) expect(p.x > 4 && p.x < box.width - 4 && p.y > 4 && p.y < box.height - 4 && !covered(p), `paint point in view ${JSON.stringify(p)}`).toBe(true);
+  for (const p of [a, b]) expect(p.x > 4 && p.x < box.width - 4 && p.y > 40 && p.y < box.height - 4, `paint point in view ${JSON.stringify(p)}`).toBe(true);
   await page.mouse.move(box.x + a.x, box.y + a.y);
   await page.mouse.down();
   for (let i = 1; i <= 12; i++) await page.mouse.move(box.x + a.x + ((b.x - a.x) * i) / 12, box.y + a.y + ((b.y - a.y) * i) / 12);

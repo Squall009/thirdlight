@@ -92,7 +92,7 @@ import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
 import { useDecalTool } from './tools/DecalToolPanel';
-import { useVertexPaintTool } from './tools/VertexPaintPanel';
+import { useVertexPaintTools } from './shell/useVertexPaintTools';
 import type { ReportFailure } from './shell/commands';
 
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
@@ -226,7 +226,7 @@ function EditorApp(): JSX.Element {
   const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
   const { setBlockEditor, blockHandlersRef, receive: receiveBlocks } = blocks;
   /** Opens an object's edit mode (set once the edit mode's hook below is made; false: the object has none). */
-  const enterEditModeRef = useRef<(entityId: string, kind?: string) => boolean>(() => false);
+  const enterEditModeRef = useRef<(entityId: string, kind?: string, activated?: boolean) => boolean>(() => false);
   /** An edit mode shows (the default view's shortcuts stand aside). */
   const editModeShownRef = useRef(false);
   const terrainTools = useTerrainTools({ clientRef, viewportRef, reportFailure, setNotice, created: (id) => void (enterEditModeRef.current(id, 'terrain') || setSelectedId(id)) });
@@ -444,7 +444,7 @@ function EditorApp(): JSX.Element {
         viewFailed = failures;
         showFailures();
       },
-      onDoublePick: (entityId) => void enterEditModeRef.current(entityId),
+      onDoublePick: (entityId) => void enterEditModeRef.current(entityId, undefined, true),
     }, { assets: sceneAssets, snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
@@ -585,9 +585,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     setSelectedCopy(null);
   }, [selectedId]);
+  // Paint or erase is the store's invert, which the brush follows itself: only on and off re-arm it.
+  const instanceBrushOn = instanceBrush.mode !== 'off';
   useEffect(() => {
-    viewportRef.current?.setInstanceBrush(instanceBrush.mode !== 'off' ? selectedId : null, instanceBrush.mode === 'erase' ? 'erase' : 'paint', instanceBrush.brush);
-  }, [instanceBrush.mode, instanceBrush.brush, selectedId]);
+    viewportRef.current?.setInstanceBrush(instanceBrushOn ? selectedId : null, instanceBrush.store, instanceBrush.brush);
+  }, [instanceBrushOn, instanceBrush.store, instanceBrush.brush, selectedId]);
   // The descriptors drive the Scene-view handles.
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
@@ -739,7 +741,7 @@ function EditorApp(): JSX.Element {
   // The Decal tool is armed while its window floats over the Scene view.
   const decalTool = useDecalTool({ clientRef, viewportRef, materials, armed: toolWindows.isOpen('decals') && centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown, sceneId: activeScene?.sceneId ?? null, select: setSelectedId, setNotice, reportFailure });
   // The vertex paint mode likewise, while its window floats over the Scene view.
-  const paintTool = useVertexPaintTool({ clientRef, viewportRef, armed: toolWindows.isOpen('paint') && centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown, setNotice });
+  const vertexPaint = useVertexPaintTools({ clientRef, viewportRef, setNotice });
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
 
@@ -1021,6 +1023,7 @@ function EditorApp(): JSX.Element {
   /** What the edit modes read from the app. */
   const editModeHost: EditModeHost = {
     terrain: terrainTools,
+    paint: vertexPaint,
     flags: (id) => hierarchyFlags.get(id),
     blockLayers: blocks.blockRows,
     palette: {
@@ -1049,8 +1052,6 @@ function EditorApp(): JSX.Element {
         onToggleSnapping={() => setSnapping((v) => !v)}
         decalTool={toolWindows.isOpen('decals')}
         onToggleDecalTool={() => (toolWindows.isOpen('decals') ? toolWindows.close('decals') : showToolWindow('decals'))}
-        paintTool={toolWindows.isOpen('paint')}
-        onTogglePaintTool={() => (toolWindows.isOpen('paint') ? toolWindows.close('paint') : showToolWindow('paint'))}
         lighting={lightingMode}
         onToggleLighting={() => {
           const next = lightingMode === 'game' ? 'editor' : 'game';
@@ -1079,7 +1080,7 @@ function EditorApp(): JSX.Element {
           selectedIds={selection.ids}
           primaryId={selection.primary}
           onSelect={(ids, primary) => setSelection({ ids, primary })}
-          onActivate={(id) => editMode.enter(id)}
+          onActivate={(id) => editMode.enter(id, undefined, true)}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId, sceneId) => void move(ids, parentId, beforeId, sceneId)}
           icons={iconTable}
@@ -1249,7 +1250,6 @@ function EditorApp(): JSX.Element {
           docCmds={docCmds}
           bake={bake}
           decalTool={decalTool}
-          paintTool={paintTool}
           entities={entities}
           sceneHeaders={sceneHeaders}
           activateScene={(sceneId) => void sceneAction({ kind: 'activate', sceneId })}

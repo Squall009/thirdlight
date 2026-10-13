@@ -16,11 +16,17 @@ blocks, use [rule scatter](terrain.md#rule-scatter-and-ground-cover) (see
    and depth of the area, the scale range and the random turn. The set is
    scattered round the point the camera looks at; the same seed gives the
    same layout.
-2. With the set selected, its Inspector shows **Paint** and **Erase** and the
-   brush: **Radius**, **Density** (copies per m²), **Spacing**, **Scale
-   min/max**, **Rotation** and **Align** (0 upright, 1 along the surface).
-   Drag in the Scene view: copies land on anything that collides — block
-   layers and objects with a collider. One stroke is one undo step.
+2. With the set selected, its Inspector shows **Paint** and **Erase**, the
+   shared brush's **Size** (metres across; [Brushes](brushes.md)) and the
+   copies' own settings: **Density** (copies per m²), **Spacing**, **Scale
+   min/max**, **Rotation**, **Align** (0 upright, 100 % along the surface)
+   and **Seed**. Drag in the Scene view: copies land on anything that
+   collides — block layers and objects with a collider. One stroke is one
+   undo step. The brush keys work while it is on: `[` / `]` size, `F` then
+   drag to resize in the view, `X` paint / erase, `Ctrl` held erases one
+   stroke.
+   To paint the copies' vertices (moss on rocks), **Paint vertices** opens
+   the [vertex paint editor](vertex-paint.md) on the set.
 3. Click one copy in the Scene view to move, turn or scale just that copy
    (W/E/R), or **Del** to remove it; **Whole set** goes back to the set.
 

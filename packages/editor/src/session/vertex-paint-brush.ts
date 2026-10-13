@@ -4,10 +4,12 @@
  * side of a generated wall or spline it landed on), and the one
  * `paintVertices` a stroke is.
  *
- * - The brush is the shared one (project-model `paint-brush.ts`): radius in
- *   metres, strength, falloff, the channel (R, G, B, A: what each means is
- *   the material's), erase. The backend paints the stroke's dabs with it;
- *   the page previews them with the same functions.
+ * - The brush is the shared one (`brush.ts`: size across in metres,
+ *   strength, opacity, falloff, spacing, invert, the noise mask) with the
+ *   channel the palette's tile paints (`vertex-paint-channels.ts`: what each
+ *   means is the material's). The backend paints the stroke's dabs with
+ *   project-model's `paint-brush.ts`; the page previews them with the same
+ *   functions.
  * - Generated architecture keeps paint per path (an outline, a building,
  *   an element's sweep) and side (left or right of travel, or the faces
  *   looking up or down); a press paints the path nearest the point it landed
@@ -17,41 +19,37 @@
  */
 import type { CommandErrorCode } from '@thirdlight/commands';
 import type { ArchitectureComponent, PathPaintSide, SplineComponent } from '@thirdlight/project-model';
-import { BRUSH_FALLOFFS, VERTEX_PAINT_BRUSH_LIMITS, VERTEX_PAINT_BYTES, newPathPlace, pathPaintFrame, pathSideOf, type BrushFalloff, type PaintVec3, type VertexPaintBrush } from '@thirdlight/runtime';
+import { VERTEX_PAINT_BRUSH_LIMITS, newPathPlace, pathPaintFrame, pathSideOf, type PaintVec3, type VertexPaintBrush } from '@thirdlight/runtime';
 
-export interface VertexPaintSettings {
-  /** Metres. */
-  radius: number;
-  /** How far one dab moves a vertex at the brush's middle toward full (or, erasing, toward nothing), (0, 1]. */
-  strength: number;
-  falloff: BrushFalloff;
-  /** 0–3: R, G, B, A. */
-  channel: number;
-  erase: boolean;
-  /** The channel the view shows as grey while the tool is open (null: the materials). */
-  view: number | null;
-}
+import { DEFAULT_BRUSH, brushRadius, brushStrokeExtras, type BrushBounds, type BrushSettings, type BrushUse } from './brush';
+import type { PaintTarget as PaintChannelTarget } from './vertex-paint-channels';
 
-export const VERTEX_PAINT_DEFAULTS: VertexPaintSettings = { radius: 0.5, strength: 0.5, falloff: 'smooth', channel: 0, erase: false, view: null };
+/** The settings the vertex paint brush uses (the shared panel's rows, its keys, what a stroke sends). */
+export const VERTEX_PAINT_USES: readonly BrushUse[] = ['size', 'strength', 'opacity', 'falloff', 'spacing', 'invert', 'mask'];
 
-/** The channels' names, in byte order. */
-export const PAINT_CHANNEL_NAMES = ['R', 'G', 'B', 'A'] as const;
+/** Sizes a stroke may carry (across: twice the command's radius bounds); paint has no height step (kept at the default). */
+export const VERTEX_PAINT_BRUSH_BOUNDS: BrushBounds = Object.freeze({ size: [2 * VERTEX_PAINT_BRUSH_LIMITS.radius.min, 2 * VERTEX_PAINT_BRUSH_LIMITS.radius.max] as const, heightStep: [DEFAULT_BRUSH.heightStep, DEFAULT_BRUSH.heightStep] as const });
 
-/** Why settings cannot paint (null: they can). */
-export function vertexPaintSettingsError(s: VertexPaintSettings): string | null {
-  const L = VERTEX_PAINT_BRUSH_LIMITS;
-  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-  if (!finite(s.radius) || s.radius < L.radius.min || s.radius > L.radius.max) return `the radius is ${L.radius.min}–${L.radius.max} m`;
-  if (!finite(s.strength) || s.strength <= 0 || s.strength > L.strengthMax) return `the strength is above 0, at most ${L.strengthMax}`;
-  if (!BRUSH_FALLOFFS.includes(s.falloff)) return `the falloff is ${BRUSH_FALLOFFS.join(', ')}`;
-  if (!Number.isInteger(s.channel) || s.channel < 0 || s.channel >= VERTEX_PAINT_BYTES) return 'the channel is R, G, B or A';
-  if (s.view !== null && (!Number.isInteger(s.view) || s.view < 0 || s.view >= VERTEX_PAINT_BYTES)) return 'the channel view is off, R, G, B or A';
-  return null;
-}
+/** A prop-sized brush to start from (a metre across). */
+export const VERTEX_PAINT_DEFAULT_BRUSH: BrushSettings = Object.freeze({ ...DEFAULT_BRUSH, size: 1 }) as BrushSettings;
 
-/** The brush a stroke sends (the falloff only when not the default). */
-export function strokeBrush(s: VertexPaintSettings): VertexPaintBrush {
-  return { radius: s.radius, strength: s.strength, channel: s.channel, ...(s.falloff !== 'smooth' ? { falloff: s.falloff } : {}), ...(s.erase ? { erase: true } : {}) };
+/**
+ * The brush a stroke sends: the shared settings (size across → the
+ * command's radius), the palette tile's channels, and erase — the brush's
+ * invert (X, or Ctrl held for one stroke), or always for a tile whose
+ * strokes take paint off (a layered surface's base). Hardness, opacity and
+ * the mask only when they change something.
+ */
+export function strokeBrush(b: BrushSettings, target: PaintChannelTarget, invert: boolean): VertexPaintBrush {
+  return {
+    radius: brushRadius(b),
+    strength: b.strength,
+    channel: target.channel,
+    ...(target.channels !== undefined && target.channels.length > 0 ? { channels: [...target.channels] } : {}),
+    ...(b.falloff !== 'smooth' ? { falloff: b.falloff } : {}),
+    ...(invert || target.erases === true ? { erase: true } : {}),
+    ...brushStrokeExtras(b, VERTEX_PAINT_USES),
+  };
 }
 
 /** What a stroke paints on its object. */
@@ -70,9 +68,6 @@ export function paintVerticesArgs(entityId: string, target: PaintTarget, dabs: r
 
 /** Dabs are sent in millimetres (a stroke stays small; the brush is far coarser). */
 export const roundDab = (p: readonly number[]): PaintVec3 => [Math.round(p[0]! * 1000) / 1000, Math.round(p[1]! * 1000) / 1000, Math.round(p[2]! * 1000) / 1000];
-
-/** A new dab once the pointer moved this many radii from the last one. */
-export const DAB_STEP = 0.25;
 
 /** The paths a generated object keeps paint for: its outlines', buildings' and swept elements'; a spline's own. */
 export function pathKeysOf(c: { architecture?: Pick<ArchitectureComponent, 'outlines' | 'buildings' | 'elements'>; spline?: SplineComponent }): string[] {

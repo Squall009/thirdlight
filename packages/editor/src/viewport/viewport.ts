@@ -60,15 +60,15 @@ import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { HelperOverlay } from './helper-overlay';
 import { copyAt, type CopyTransform } from '../session/instance-copies';
-import { BrushBlockSurfaces, type InstanceBrushMode } from './instance-brush';
+import { BrushBlockSurfaces } from './instance-brush';
 import { iconTableOf } from './icons';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import type { BlockEditor, BlockEditorCallbacks } from './block-editor';
 import type { TerrainEditor, TerrainEditorCallbacks } from './terrain-editor';
 import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalToolCallbacks } from './decal-tool';
 import type { DecalToolSettings } from '../session/decal-place';
-import type { VertexPaintToolCallbacks } from './vertex-paint-tool';
-import type { VertexPaintSettings } from '../session/vertex-paint-brush';
+import type { VertexPaintArm, VertexPaintToolCallbacks } from './vertex-paint-tool';
+import type { BrushStore } from '../session/brush';
 import { CLICK_SLOP_PX, ViewportTools } from './tool-input';
 import { virtualCameraPreviews } from './camera-previews';
 import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
@@ -1697,9 +1697,9 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** The instance brush paints or erases on this set (null: off); the gizmo stands aside while it is on. */
-  setInstanceBrush(entityId: string | null, mode: InstanceBrushMode, brush: InstanceBrush): void {
-    this.tools.setInstanceBrush(entityId, mode, brush);
+  /** The instance brush paints or erases copies of this set (null: off); the gizmo stands aside while it is on. */
+  setInstanceBrush(entityId: string | null, store: BrushStore | null, brush: InstanceBrush): void {
+    this.tools.setInstanceBrush(entityId, store, brush);
   }
 
   /** The Decal tool armed with these settings in `sceneId`, its edits sent through `cb` (null: off; the gizmo stands aside while it is on). */
@@ -1707,9 +1707,9 @@ export class Viewport {
     this.tools.setDecalTool(settings, sceneId, cb);
   }
 
-  /** The vertex paint mode armed with these settings, its strokes sent through `cb` (null: off; the gizmo stands aside while it is on). */
-  setVertexPaintTool(settings: VertexPaintSettings | null, cb: VertexPaintToolCallbacks | null): void {
-    this.tools.setVertexPaintTool(settings, cb);
+  /** The vertex paint brush armed on an object, its strokes sent through `cb` (null: off; the gizmo stands aside while it is on). */
+  setVertexPaintTool(arm: VertexPaintArm | null, cb: VertexPaintToolCallbacks | null): void {
+    this.tools.setVertexPaintTool(arm, cb);
   }
 
   /** Every instance-brush stroke sent so far has been answered. */

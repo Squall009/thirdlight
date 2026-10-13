@@ -19,13 +19,17 @@ import type { EffectiveEntityFlags } from '../../session/hierarchy';
 import type { ProjectedEntity } from '../../session/projection';
 import type { PaletteHost } from '../palette/MaterialLayers';
 import type { TerrainTools } from '../shell/useTerrainTools';
+import type { VertexPaintTools } from '../shell/useVertexPaintTools';
 import { terrainMode } from './terrain-mode';
+import { vertexPaintMode } from './vertex-paint-mode';
 import type { RailItem } from './ToolRail';
 
 /** What edit modes get from the app (as document views get a `WorkspaceHost`). */
 export interface EditModeHost {
   /** The terrain tools' wiring: the Scene view's terrain editor and the terrain commands. */
   terrain: Pick<TerrainTools, 'terrainEditor' | 'terrainRun' | 'stageFile'>;
+  /** The vertex paint brush's wiring: armed on the edited object, its stale paint. */
+  paint: VertexPaintTools;
   /** An object's effective flags (locked, inactive). */
   flags: (entityId: string) => EffectiveEntityFlags | undefined;
   /** The project's block layers (a conversion's sources). */
@@ -59,6 +63,13 @@ export interface EditModeKind {
   readonly action: string;
   /** Whether it edits this object. */
   applies(e: ProjectedEntity): boolean;
+  /**
+   * Whether a double-click on the object (Hierarchy, Scene view) opens it
+   * (absent: yes). An editor every object of a common kind has (vertex paint
+   * on any model) is opened from the Inspector only, so a double-click keeps
+   * doing what it does for those objects.
+   */
+  readonly activates?: boolean;
   /** A short fact for the header ("4 tiles · 2 × 2 · 256 m each"). */
   meta?(e: ProjectedEntity): string;
   /** The rail, in order (Shift+1 is the first). */
@@ -73,14 +84,23 @@ export interface EditModeKind {
    * seen from too far to work on.
    */
   workArea?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
+  /**
+   * Frame the object on entering unless the view already shows it, even when
+   * it was not just made (absent: an existing object keeps the view, which
+   * may be aimed at it on purpose). For small objects shown alone, which the
+   * view would otherwise often miss.
+   */
+  readonly framesOnEnter?: boolean;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
+  /** What the editor lays over the Scene view in every mode (chips beside the isolation chip, a toast). */
+  viewExtra?(view: EditModeView): ReactNode;
   /** Fields the Inspector leaves to the mode, by component (what only the mode edits: a terrain's tiles and rules). */
   readonly inspectorSkips?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
-export const EDIT_MODES: readonly EditModeKind[] = [terrainMode];
+export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, vertexPaintMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 
@@ -88,7 +108,7 @@ export function editModeKind(kind: string): EditModeKind | undefined {
   return BY_KIND.get(kind);
 }
 
-/** The edit mode that edits an object (undefined: none). */
-export function editModeFor(e: ProjectedEntity | null | undefined): EditModeKind | undefined {
-  return e === null || e === undefined ? undefined : EDIT_MODES.find((k) => k.applies(e));
+/** The edit mode that edits an object (undefined: none); `activated`: the one a double-click opens. */
+export function editModeFor(e: ProjectedEntity | null | undefined, activated = false): EditModeKind | undefined {
+  return e === null || e === undefined ? undefined : EDIT_MODES.find((k) => k.applies(e) && (!activated || k.activates !== false));
 }

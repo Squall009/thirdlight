@@ -153,9 +153,9 @@ export function dragStrength(start: number, dx: number, dy: number): number {
   return clamp(Math.round((start + (dx - dy) / STRENGTH_DRAG_PX) * 100) / 100, BRUSH_BOUNDS.strength);
 }
 
-/** A size as the panel shows it: 0.1 m steps under 10 m, then whole metres. */
+/** A size as the panel shows it: centimetres under a metre (a prop's brush), 0.1 m steps under 10 m, then whole metres. */
 export function roundSize(size: number): number {
-  return size < 10 ? Math.round(size * 10) / 10 : Math.round(size);
+  return size < 1 ? Math.round(size * 100) / 100 : size < 10 ? Math.round(size * 10) / 10 : Math.round(size);
 }
 
 /** What the brush's readout says ("9 m · 35 % · opacity 80 % · noise"). */

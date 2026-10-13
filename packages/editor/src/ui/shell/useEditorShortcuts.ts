@@ -1,6 +1,6 @@
 /**
  * The editor's keyboard shortcuts (tools, frame, delete, undo/redo,
- * duplicate/copy/paste, the block tools' keys) and Shift held to turn
+ * duplicate/copy/paste, the block tools' and the instance brush's keys) and Shift held to turn
  * snapping off for one gesture. Never while typing into a field; with
  * the editor window or an edit mode showing only undo/redo stay on (an edit
  * mode has its own key map, `edit-keys.ts`).
@@ -54,6 +54,11 @@ export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
         return;
       }
       if (!typing && !sceneHidden && blockHandlersRef.current?.onKey(e) === true) {
+        e.preventDefault();
+        return;
+      }
+      // The instance brush, armed, takes the shared brush keys ([ ] size, F resize in the view, X paint/erase) before the scene's.
+      if (!typing && !sceneHidden && viewportRef.current?.toolKey(e, ['brush']) === true) {
         e.preventDefault();
         return;
       }

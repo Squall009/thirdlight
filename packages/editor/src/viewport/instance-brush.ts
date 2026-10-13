@@ -13,12 +13,22 @@
  * found, so the backend can place copies on surfaces it cannot see. A
  * stroke that would carry more places than one command holds ends there and
  * the drag goes on as the next stroke.
+ *
+ * The brush kit is the shared one: its size (metres across; the stroke's
+ * radius is half) and paint/erase (X switches, Ctrl held erases one
+ * stroke) live in the tool's settings store, the cursor is the shared one
+ * (`brush-cursor.ts`, its footprint only: a copy brush has no strength) and
+ * the keys and in-view drags are the shared ones (`brush-control.ts`).
  */
 
 import type { BlockChunk, BlockLayerComponent, BlockType, BrushBlockLayer, BrushVec3, InstanceBrush, InstanceStroke, StrokeSurfaceSample } from '@thirdlight/project-model';
 import { BlockGrid, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers } from '@thirdlight/runtime';
 import { BATCHED_LAYER } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
+import { brushRadius, type BrushStore } from '../session/brush';
+import { INSTANCE_BRUSH_USES } from '../session/instance-brush';
+import { BrushControl } from './brush-control';
+import { BrushCursor, tokenColour } from './brush-cursor';
 import { ringGeometry, ringLine } from './helper-shapes';
 
 export type InstanceBrushMode = 'paint' | 'erase';
@@ -55,13 +65,17 @@ export interface StrokeTiming {
 }
 
 export class InstanceBrushTool {
-  private target: { entityId: string; mode: InstanceBrushMode; brush: InstanceBrush } | null = null;
+  private target: { entityId: string; store: BrushStore; brush: InstanceBrush } | null = null;
   private stroke: { entityId: string; mode: InstanceBrushMode; brush: InstanceBrush; candidates: StrokeCandidates; last: THREE.Vector3 } | null = null;
   private readonly ray = new THREE.Raycaster();
-  private readonly ring: THREE.Line;
+  private readonly cursor: BrushCursor;
+  private readonly control: BrushControl;
+  private unstore: (() => void) | null = null;
+  /** The surface under the pointer when it last moved (the cursor lies there). */
+  private hover: THREE.Vector3 | null = null;
   private readonly marks = new THREE.Group();
   private readonly ringGeometry: THREE.BufferGeometry;
-  private readonly ringMaterial = new THREE.LineBasicMaterial({ color: 0x7fe0a0, depthTest: false, transparent: true, opacity: 0.9 });
+  private readonly ringMaterial = new THREE.LineBasicMaterial({ depthTest: false, transparent: true, opacity: 0.6 });
   private pending: Promise<unknown> = Promise.resolve();
   lastTiming: StrokeTiming | null = null;
 
@@ -70,25 +84,72 @@ export class InstanceBrushTool {
     private readonly send: (entityId: string, stroke: InstanceStroke) => Promise<boolean>,
   ) {
     this.ray.layers.enable(BATCHED_LAYER);
+    // The stroke's dabs stay marked until it is sent (copies appear with the stored stroke), in the brush's colour.
     this.ringGeometry = ringGeometry('xz');
-    this.ring = ringLine(this.ringGeometry, this.ringMaterial);
-    this.ring.renderOrder = 12;
-    this.ring.visible = false;
     this.marks.renderOrder = 12;
-    deps.scene.add(this.ring, this.marks);
+    deps.scene.add(this.marks);
+    this.cursor = new BrushCursor(deps.scene, 'instance-brush-cursor');
+    this.control = new BrushControl({ canvas: deps.canvas, surfaceAt: (x, y) => this.surfacePoint(x, y), distance: (a, b) => Math.hypot(a.x - b.x, a.z - b.z), ctrlChanged: () => this.refreshLook() });
   }
 
-  /** Paint or erase into this set (null: off). */
-  set(entityId: string | null, mode: InstanceBrushMode, brush: InstanceBrush): void {
-    this.target = entityId === null ? null : { entityId, mode, brush };
+  /** Paint or erase copies of this set (null: off): the shared brush's size and invert from `store`, the copies' own settings in `brush`. */
+  set(entityId: string | null, store: BrushStore | null, brush: InstanceBrush): void {
+    this.target = entityId === null || store === null ? null : { entityId, store, brush };
     if (this.target === null) {
       this.cancel();
-      this.ring.visible = false;
+      this.cursor.hide();
+      this.hover = null;
     }
-    this.ringMaterial.color.set(mode === 'erase' ? 0xff7a6a : 0x7fe0a0);
-    this.deps.canvas.setAttribute('data-brush', entityId ?? '');
-    this.deps.canvas.setAttribute('data-brush-mode', entityId === null ? '' : mode);
+    if (store !== this.storeOf()) {
+      this.unstore?.();
+      this.unstore = store?.subscribe(() => this.refreshLook()) ?? null;
+    }
+    this.control.setStore(this.target?.store ?? null, INSTANCE_BRUSH_USES);
+    this.control.arm(this.target !== null);
+    this.refreshLook();
+  }
+
+  private storeOf(): BrushStore | null {
+    return this.target?.store ?? null;
+  }
+
+  /** The mode a stroke begun now paints in (the brush's invert, flipped while Ctrl is held). */
+  private mode(): InstanceBrushMode {
+    return this.control.inverted() ? 'erase' : 'paint';
+  }
+
+  /** The cursor's colour from paint or erase, and the canvas's published state; laid again where it is. */
+  private refreshLook(): void {
+    const t = this.target;
+    const mode = this.mode();
+    this.deps.canvas.setAttribute('data-brush', t?.entityId ?? '');
+    this.deps.canvas.setAttribute('data-brush-mode', t === null ? '' : mode);
+    // A copy brush has no strength: the footprint alone (no fill, no falloff ring).
+    this.cursor.setLook({ falloff: 'constant', hardness: 0, strength: 0, mask: null, state: mode });
+    this.ringMaterial.color.copy(tokenColour(mode === 'erase' ? '--brush-erase' : '--brush'));
+    this.drawCursor();
+  }
+
+  private drawCursor(): void {
+    const t = this.target;
+    const p = this.hover;
+    if (t === null || p === null) this.cursor.hide();
+    else {
+      const r = brushRadius(t.store.get());
+      this.cursor.place({ centre: p, rx: r, rz: r });
+    }
     this.deps.requestRender();
+  }
+
+  /** A brush key while armed (the editor's shortcuts route it here); true when taken. */
+  key(e: KeyboardEvent): boolean {
+    if (this.target === null || this.stroke !== null) return false;
+    return this.control.key(e);
+  }
+
+  /** A press that ends an F drag (a click sets it). */
+  pressAdjust(): boolean {
+    return this.control.press();
   }
 
   active(selectedId: string | null): boolean {
@@ -99,36 +160,41 @@ export class InstanceBrushTool {
     return this.stroke !== null;
   }
 
-  /** Start a stroke at the pointer (false: no surface under it, nothing started). */
-  begin(clientX: number, clientY: number): boolean {
+  /** Start a stroke at the pointer (false: no surface under it, nothing started); `invert`: erase instead (Ctrl held at the press flips the brush's). */
+  begin(clientX: number, clientY: number, ctrl = false): boolean {
     const t = this.target;
     if (t === null) return false;
     const p = this.surfacePoint(clientX, clientY);
     if (p === null) return false;
-    this.stroke = { entityId: t.entityId, mode: t.mode, brush: { ...t.brush, scale: [t.brush.scale[0], t.brush.scale[1]] }, candidates: new StrokeCandidates(t.brush), last: p.clone() };
+    const b = t.store.get();
+    const brush: InstanceBrush = { ...t.brush, radius: brushRadius(b), scale: [t.brush.scale[0], t.brush.scale[1]] };
+    this.stroke = { entityId: t.entityId, mode: b.invert !== ctrl ? 'erase' : 'paint', brush, candidates: new StrokeCandidates(brush), last: p.clone() };
     this.addDab(p);
     return this.stroke !== null;
   }
 
-  /** The pointer moved: the ring follows it; a stroke gains a dab every quarter radius. */
-  move(clientX: number, clientY: number): void {
+  /** The pointer moved: the cursor follows it; a stroke gains a dab every quarter radius. True while an F drag takes it. */
+  move(e: PointerEvent): boolean {
     const t = this.target;
-    if (t === null) return;
-    const p = this.surfacePoint(clientX, clientY);
-    this.ring.visible = p !== null;
-    if (p !== null) {
-      this.ring.position.set(p.x, p.y + 0.02, p.z);
-      this.ring.scale.setScalar(t.brush.radius);
+    if (t === null) return false;
+    const p = this.surfacePoint(e.clientX, e.clientY);
+    if (this.control.move(e, p)) {
+      this.drawCursor();
+      return true;
     }
+    this.hover = p;
+    this.drawCursor();
     const s = this.stroke;
     if (s !== null && p !== null && p.distanceTo(s.last) >= s.brush.radius * DAB_STEP) this.addDab(p);
-    this.deps.requestRender();
+    return false;
   }
 
-  /** The pointer left the Scene view: the ring goes with it. */
+  /** The pointer left the Scene view: the cursor goes with it (not during an F drag). */
   leave(): void {
-    if (!this.ring.visible) return;
-    this.ring.visible = false;
+    if (!this.control.leave()) return;
+    this.hover = null;
+    if (!this.cursor.visible()) return;
+    this.cursor.hide();
     this.deps.requestRender();
   }
 
@@ -143,8 +209,9 @@ export class InstanceBrushTool {
     this.commit(s);
   }
 
-  /** Esc: the stroke is dropped (nothing is sent). */
+  /** Esc: the stroke is dropped (nothing is sent), or what F was dragging put back. */
   cancel(): boolean {
+    if (this.control.cancel()) return true;
     if (this.stroke === null) return false;
     this.stroke = null;
     this.clearMarks();
@@ -158,7 +225,9 @@ export class InstanceBrushTool {
 
   dispose(): void {
     this.cancel();
-    this.ring.removeFromParent();
+    this.unstore?.();
+    this.control.dispose();
+    this.cursor.dispose();
     this.marks.removeFromParent();
     this.ringGeometry.dispose();
     this.ringMaterial.dispose();

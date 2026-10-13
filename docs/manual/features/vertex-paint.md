@@ -39,6 +39,13 @@ result.
   brush as block layer paint.
 - **brush.channel**: 0–3 (R, G, B, A). The channels stand alone: painting
   one leaves the others.
+- **brush.channels** (optional): more channels painted alike with
+  `channel`, each moved by the same amount — a layered surface's base is
+  what R, G and B leave, so painting it is `channel` 0, `channels` [1, 2]
+  and `erase`.
+- **brush.opacity**, **brush.mask**, **brush.hardness** (optional): the
+  shared brush's ceiling a stroke reaches, its noise mask (anchored in the
+  world) and a curve falloff's hardness ([Brushes](../guides/brushes.md)).
 
 What the stroke paints depends on the object:
 
@@ -54,34 +61,39 @@ zero removes what it stored; when nothing is left the component goes too.
 
 ## Painting in the Scene view
 
-**Window → Vertex paint** (or the toolbar's **paint** button) opens the
-paint window over the Scene view; while it is open the Scene view is in
-paint mode:
+The **vertex paint editor** (an object's **Paint vertices** in the
+Inspector; [how-to](../guides/vertex-paint.md)) is an edit mode on the
+live Scene view showing only the painted object:
 
-- a left drag on a placed model, a copy of an instance set, generated
-  architecture or a spline paints that object (Alt+drag still orbits; a
-  drag that starts on anything else orbits or selects as usual);
-- the window holds the brush: **Paint** / **Erase**, **radius** in metres,
-  **strength**, **falloff**, **channel** (R, G, B, A);
-- a ring shows the brush on the surface under the pointer;
+- a left drag on the object paints it (Alt+drag still orbits; a press
+  anywhere else is the view's);
+- the palette shows what the paint means on the object's material
+  (`materialReads`): a layered surface's Base, layers 2–4 (R, G, B) and Wet
+  (A); a trim sheet's grime (G) and wetness (B); a paint tint's colour and
+  amount; a graph's raw channels. A material that reads no paint turns
+  painting off and offers **Make it paintable** (a layered surface whose
+  base keeps the old maps, one undo step);
+- the brush is the shared one ([Brushes](../guides/brushes.md)): size,
+  strength, opacity, falloff, spacing, erase and the noise mask; the shared
+  cursor lies flat on the face under the pointer;
 - the paint is drawn while the button is still down (the page paints a
-  copy of the object's paint with the backend's own brush and the GPU
-  draws it at once), and the release sends the stroke as one
-  `paintVertices` — one undo step; the object keeps that drawing until the
-  stored paint replaces it, so it never blinks or goes missing;
+  copy of the object's paint with the backend's own brush, the stroke's
+  opacity held across its dabs, and the GPU draws it at once), and the
+  release sends the stroke as one `paintVertices` — one undo step; the
+  object keeps that drawing until the stored paint replaces it, so it never
+  blinks or goes missing;
 - what a drag paints is fixed when it starts: the model's meshes; the copy
   under the pointer (only that copy); or, on generated architecture, the
   path nearest the point and the side the face looks to (left or right of
   travel, or a face looking up or down); dabs land only on that object;
-- **channel view** shows one channel as grey over the whole Scene view
-  (white: full, black: unpainted), for paint a material reads only faintly
-  (grime, wetness, blend weights);
+- the **channel view** shows one channel as grey (white: full, black:
+  unpainted), for paint a material reads only faintly;
 - Esc drops a stroke in progress (nothing is stored).
 
 A stroke over a mesh whose paint was made for its earlier vertices (a
-reimport changed them) is refused; the window shows why and offers
+reimport changed them) is refused; the editor shows why and offers
 **Remove its stale paint** (one `setComponent`), after which the mesh can
-be painted again. The settings are remembered per browser.
+be painted again. The brush settings are remembered per browser.
 
 ## Models
 

@@ -234,6 +234,11 @@ interface VertexPaintBrush {
   falloff?: BrushFalloff;
   /** 0–3: R, G, B, A. */
   channel: number;
+  /**
+   * More channels painted alike with `channel` (each moved by the same amount): a layered surface's base is what
+   * R, G and B leave, so painting it erases all three at once. Absent: `channel` alone.
+   */
+  channels?: number[];
   erase?: boolean;
   /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
   hardness?: number;

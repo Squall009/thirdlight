@@ -264,6 +264,8 @@ export {
   paintPathDabs,
   paintVertexDabs,
   pathSideOf,
+  strokeCoverage,
+  type DabStroke,
   type PaintVec3,
   type VertexPaintBrush,
   copySlot,

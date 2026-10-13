@@ -36,11 +36,11 @@
 import * as THREE from 'three';
 import type { SurfaceRule, TerrainComponent } from '@thirdlight/project-model';
 import type { TerrainPreviewDab, TerrainPreviewStats, TerrainView } from '@thirdlight/three-adapter';
-import { DEFAULT_BRUSH, brushRadius, brushSummary, dragStrength, roundSize, stepSize, stepStrength, strokeMask, type BrushSettings, type BrushStore } from '../session/brush';
-import { brushKeyAction } from '../session/edit-keys';
+import { DEFAULT_BRUSH, brushRadius, strokeMask, type BrushSettings, type BrushStore } from '../session/brush';
 import { DEFAULT_TERRAIN_BRUSH, PICKING_TERRAIN_TOOLS, PLACED_TERRAIN_TOOLS, dabsAlong, previewDab, previewedTool, strokeArgs, strokeDabLimit, strokeKind, terrainDabSpacing, terrainToolUses, type StampRef, type StrokeExtra, type TerrainBrushState, type TerrainToolId } from '../session/terrain-brush';
 import { bakeRulesPreview, type RulesPreview } from '../session/terrain-rules-preview';
-import { BrushCursor, BrushHud } from './brush-cursor';
+import { BrushControl } from './brush-control';
+import { BrushCursor } from './brush-cursor';
 import { TerrainTileGrid, type TileGridCell } from './terrain-tile-grid';
 import { STAMP_HANDLE_PX, TerrainStampHandles, draggedPose, poseOf, type StampHandle, type StampPose } from './terrain-stamp-handles';
 
@@ -90,9 +90,6 @@ export interface TerrainEditorHost {
 /** The tools whose overlays (the tile grid, the stamps' squares) lie on the decoded ground. */
 const OVERLAID_TOOLS: readonly TerrainToolId[] = ['tiles', 'stamps', 'stamp', 'erode'];
 
-/** How long the readout stays after a key changed the brush. */
-const HUD_KEY_MS = 1200;
-
 interface Stroke {
   tool: TerrainToolId;
   invert: boolean;
@@ -113,7 +110,8 @@ export class TerrainEditor {
   private readonly cb: TerrainEditorCallbacks;
   private readonly root = new THREE.Group();
   private readonly cursor: BrushCursor;
-  private readonly hud: BrushHud;
+  /** The brush keys, F / Shift+F drags and Ctrl (shared with every Scene-view brush). */
+  private readonly control: BrushControl;
   private readonly rampLine: THREE.Line;
   private readonly grid: TerrainTileGrid;
   private readonly stampHandles: TerrainStampHandles;
@@ -127,26 +125,9 @@ export class TerrainEditor {
   private target: TerrainEditTarget | null = null;
   private opts: TerrainToolOptions = { tool: 'raise', brush: DEFAULT_TERRAIN_BRUSH, store: null };
   private stroke: Stroke | null = null;
-  /** F / Shift+F: the size or strength dragged in the view (its value before, to put back on Esc; where it began). */
-  private adjust: { what: 'size' | 'strength'; before: BrushSettings; anchor: THREE.Vector3 | null; from: { x: number; y: number } } | null = null;
-  /** The last pointer position over the view (client px) and the ground under it. */
-  private pointer: { x: number; y: number } | null = null;
+  /** The ground under the pointer when it last moved. */
   private lastAt: THREE.Vector3 | null = null;
-  /** Ctrl is held (the cursor turns to inverting). */
-  private ctrl = false;
   private unstore: (() => void) | null = null;
-  private readonly onCtrl = (e: KeyboardEvent): void => {
-    if (e.key !== 'Control' && e.key !== 'Meta') return;
-    const held = e.type === 'keydown';
-    if (held === this.ctrl) return;
-    this.ctrl = held;
-    this.refreshLook();
-  };
-  private readonly onBlur = (): void => {
-    if (!this.ctrl) return;
-    this.ctrl = false;
-    this.refreshLook();
-  };
   /** Read the preview back to compare with the stored tiles (`?terrainCheck=1`: a test's measure). */
   private readonly check: boolean;
   /** The last stroke as tests read it (`serial` counts strokes). */
@@ -161,7 +142,7 @@ export class TerrainEditor {
     this.root.name = 'terrain-editor';
     this.root.visible = false;
     this.cursor = new BrushCursor(this.root, 'terrain-brush-cursor');
-    this.hud = new BrushHud(host.canvas);
+    this.control = new BrushControl({ canvas: host.canvas, surfaceAt: (x, y) => this.surfaceUnder(x, y), distance: (a, b) => Math.hypot(a.x - b.x, a.z - b.z), ctrlChanged: () => this.refreshLook() });
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
     this.rampLine = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
@@ -183,17 +164,7 @@ export class TerrainEditor {
     if (!on) this.cancel();
     this.root.visible = on;
     this.cursor.hide();
-    this.hud.hide();
-    if (on) {
-      window.addEventListener('keydown', this.onCtrl);
-      window.addEventListener('keyup', this.onCtrl);
-      window.addEventListener('blur', this.onBlur);
-    } else {
-      window.removeEventListener('keydown', this.onCtrl);
-      window.removeEventListener('keyup', this.onCtrl);
-      window.removeEventListener('blur', this.onBlur);
-      this.ctrl = false;
-    }
+    this.control.arm(on);
     this.host.canvas.setAttribute('data-terrain-tool', on ? this.opts.tool : '');
     this.host.armed?.(on);
     this.warm();
@@ -235,6 +206,7 @@ export class TerrainEditor {
       this.unstore = o.store?.subscribe(() => this.refreshLook()) ?? null;
     }
     this.opts = o;
+    this.control.setStore(o.store, terrainToolUses(o.tool));
     if (this.active) this.host.canvas.setAttribute('data-terrain-tool', o.tool);
     if (toolChanged) this.warm();
     this.refreshOverlays();
@@ -301,7 +273,7 @@ export class TerrainEditor {
     const tool = this.opts.tool;
     const uses = terrainToolUses(tool);
     if ((strokeMask(b, uses) !== null) !== this.warmedMasked) this.warm();
-    const invert = uses.includes('invert') && b.invert !== this.ctrl;
+    const invert = this.control.inverted();
     // A tool without a strength (holes, scatter, stamp, erode) shows its footprint only: no fill.
     const blend = uses.includes('strength') ? b.strength : 0;
     this.cursor.setLook({ falloff: uses.includes('falloff') ? b.falloff : 'constant', hardness: b.hardness, strength: blend, mask: strokeMask(b, uses), state: invert ? 'erase' : 'paint' });
@@ -318,11 +290,7 @@ export class TerrainEditor {
   pointerDown(e: PointerEvent): boolean {
     if (!this.active || e.button !== 0 || e.altKey) return false;
     // F / Shift+F: a click sets what was dragged.
-    if (this.adjust !== null) {
-      this.adjust = null;
-      this.hud.hide();
-      return true;
-    }
+    if (this.control.press()) return true;
     const t = this.target;
     const view = this.host.terrains();
     if (t === null || view === null) return true;
@@ -371,15 +339,7 @@ export class TerrainEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
-    this.pointer = { x: e.clientX, y: e.clientY };
-    if (this.adjust !== null) {
-      this.dragAdjust(e.clientX, e.clientY);
-      return true;
-    }
-    if (this.ctrl !== (e.ctrlKey || e.metaKey)) {
-      this.ctrl = e.ctrlKey || e.metaKey;
-      this.refreshLook();
-    }
+    if (this.control.move(e, this.lastAt)) return true;
     if (this.opts.tool === 'tiles') {
       const cell = this.cellUnder(e.clientX, e.clientY);
       this.grid.setHover(cell);
@@ -440,13 +400,7 @@ export class TerrainEditor {
       this.host.requestRender();
       return true;
     }
-    if (this.adjust !== null) {
-      const a = this.adjust;
-      this.adjust = null;
-      this.hud.hide();
-      this.opts.store?.set({ size: a.before.size, strength: a.before.strength });
-      return true;
-    }
+    if (this.control.cancel()) return true;
     const k = this.stroke;
     if (k === null) return false;
     this.stroke = null;
@@ -459,11 +413,9 @@ export class TerrainEditor {
 
   /** The pointer left the view: the cursor and its readout go (a stroke in flight keeps going). */
   leave(): void {
-    if (this.stroke !== null || this.adjust !== null) return;
-    this.pointer = null;
+    if (this.stroke !== null || !this.control.leave()) return;
     this.lastAt = null;
     this.cursor.hide();
-    this.hud.hide();
     this.grid.setHover(null);
     this.host.canvas.setAttribute('data-terrain-brush', '');
     this.host.requestRender();
@@ -692,46 +644,7 @@ export class TerrainEditor {
   /** A brush key while the tools are armed (the edit mode's key map routes it here); true when taken. */
   key(e: KeyboardEvent): boolean {
     if (!this.active || this.stroke !== null) return false;
-    const store = this.opts.store;
-    if (store === null) return false;
-    const uses = terrainToolUses(this.opts.tool);
-    const a = brushKeyAction(e, uses);
-    if (a === null) return false;
-    const b = store.get();
-    if (a.kind === 'size') store.set({ size: stepSize(b.size, a.dir, store.bounds) });
-    else if (a.kind === 'strength') store.set({ strength: stepStrength(b.strength, a.dir) });
-    else if (a.kind === 'invert') store.set({ invert: !b.invert });
-    else {
-      if (this.pointer === null) return true;
-      this.adjust = { what: a.kind === 'resize' ? 'size' : 'strength', before: b, anchor: this.lastAt?.clone() ?? null, from: { ...this.pointer } };
-      this.showAdjust();
-      return true;
-    }
-    if (this.pointer !== null) this.hud.show(this.pointer, this.hudValue(a.kind === 'strength' ? 'strength' : 'size'), a.kind === 'invert' ? (store.get().invert ? 'inverted (X)' : 'not inverted (X)') : brushSummary(store.get(), uses), HUD_KEY_MS);
-    return true;
-  }
-
-  /** F / Shift+F while dragging: the size follows the ground distance from where it began; the strength, the pointer's travel. */
-  private dragAdjust(x: number, y: number): void {
-    const a = this.adjust!;
-    const store = this.opts.store;
-    if (store === null) return;
-    if (a.what === 'size') {
-      const at = a.anchor === null ? null : this.surfaceUnder(x, y);
-      if (at !== null && a.anchor !== null) store.set({ size: Math.max(store.bounds.size[0], Math.min(store.bounds.size[1], roundSize(2 * Math.hypot(at.x - a.anchor.x, at.z - a.anchor.z)))) });
-    } else store.set({ strength: dragStrength(a.before.strength, x - a.from.x, y - a.from.y) });
-    this.showAdjust();
-  }
-
-  private hudValue(what: 'size' | 'strength'): string {
-    const b = this.settings();
-    return what === 'size' ? `Size ${roundSize(b.size).toFixed(b.size < 10 ? 1 : 0)} m` : `Strength ${Math.round(b.strength * 100)} %`;
-  }
-
-  private showAdjust(): void {
-    const a = this.adjust;
-    if (a === null || this.pointer === null) return;
-    this.hud.show(this.pointer, this.hudValue(a.what), a.what === 'size' ? 'F · drag to resize · click to set · Esc puts it back' : 'Shift+F · drag to set the strength · click to set · Esc puts it back');
+    return this.control.key(e);
   }
 
   dispose(): void {
@@ -739,7 +652,7 @@ export class TerrainEditor {
     this.unstore?.();
     this.root.removeFromParent();
     this.cursor.dispose();
-    this.hud.dispose();
+    this.control.dispose();
     this.grid.dispose();
     this.stampHandles.dispose();
     this.rampLine.geometry.dispose();

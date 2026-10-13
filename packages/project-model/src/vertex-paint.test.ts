@@ -166,6 +166,16 @@ describe('dabs to bytes', () => {
     expect(vertexPaintStrokeError({ dabs: [[0, 0, 0]], brush, path: 'spline' })?.path).toBe('/side');
     expect(vertexPaintStrokeError({ dabs: [[0, 0, 0]], brush, copy: 1, path: 'spline', side: 'top' })?.path).toBe('/path');
     expect(vertexPaintStrokeError({ dabs: [[0, 0, 0]], brush, copy: 1, mesh: 'A#0' })).toBeNull();
+    expect(vertexPaintStrokeError({ dabs: [[0, 0, 0]], brush: { ...brush, channels: [0, 2] } })).toBeNull();
+    for (const channels of [[], [1], [0, 0], [4], [0, 2, 3, 3], 'R']) expect(vertexPaintStrokeError({ dabs: [[0, 0, 0]], brush: { ...brush, channels } })?.path).toBe('/brush/channels');
+  });
+  it('paints more channels alike (a layered surface\'s base erases R, G and B at once), A untouched', () => {
+    const v = new Uint8Array(5 * VERTEX_PAINT_BYTES);
+    paintVertexDabs(line, v, [[0, 0, 0]], { radius: 2, strength: 1, channel: 0, channels: [1, 2, 3], falloff: 'constant' });
+    expect([...v.subarray(0, 8)]).toEqual([255, 255, 255, 255, 255, 255, 255, 255]);
+    const n = paintVertexDabs(line, v, [[0, 0, 0]], { radius: 2, strength: 0.5, channel: 0, channels: [1, 2], erase: true, falloff: 'constant' });
+    expect(n).toBe(9);
+    expect([...v.subarray(0, 4)]).toEqual([128, 128, 128, 255]);
   });
 });
 

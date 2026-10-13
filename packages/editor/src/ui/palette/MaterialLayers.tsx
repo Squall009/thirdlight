@@ -142,6 +142,21 @@ export function usePalette(mapping: Readonly<Record<string, string>> | undefined
   return { source, layers, names };
 }
 
+/**
+ * "Set up material" / "Make it paintable": a layered material made from the
+ * object's old one (`paintableMaterial`: its maps on the base layer) and given
+ * to the object in the same command, so one undo takes both back. `tiling`:
+ * metres per repeat its layers start at (absent: the template's); `slots`:
+ * named material slots of the object that take it too (they draw before "*").
+ */
+export async function setUpLayered(host: Pick<PaletteHost, 'newMaterialId' | 'run'>, entityId: string, entityName: string, old: MaterialDef | null, tiling?: number, slots: readonly string[] = []): Promise<boolean> {
+  const name = `${entityName} layers`;
+  const id = await host.newMaterialId(name);
+  let material = paintableMaterial(old, id, name);
+  if (tiling !== undefined) for (let l = 0; l < TEMPLATE_LAYERS; l++) material = withLayerSetting(material, 'layerTiling', l, tiling);
+  return host.run(old === null ? 'Set up material' : 'Make it paintable', 'setMaterial', { material, assign: { entityId, ...(slots.length > 0 ? { slots: [...slots] } : {}) } });
+}
+
 export interface MaterialLayersProps {
   entityId: string;
   entityName: string;
@@ -166,12 +181,7 @@ export function MaterialLayers(p: MaterialLayersProps): JSX.Element {
   const setUp = async (): Promise<void> => {
     setBusy(true);
     try {
-      const name = `${p.entityName} layers`;
-      const id = await p.host.newMaterialId(name);
-      let material = paintableMaterial(source.kind === 'none' ? source.material : null, id, name);
-      const tiling = p.layerTiling;
-      if (tiling !== undefined) for (let l = 0; l < TEMPLATE_LAYERS; l++) material = withLayerSetting(material, 'layerTiling', l, tiling);
-      await p.host.run('Set up material', 'setMaterial', { material, assign: { entityId: p.entityId } });
+      await setUpLayered(p.host, p.entityId, p.entityName, source.kind === 'none' ? source.material : null, p.layerTiling);
     } finally {
       setBusy(false);
     }

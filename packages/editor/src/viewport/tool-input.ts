@@ -18,13 +18,13 @@ import type { InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { commitValue, type HandleShape } from '../session/handles';
 import type { DecalToolSettings } from '../session/decal-place';
-import type { VertexPaintSettings } from '../session/vertex-paint-brush';
+import type { BrushStore } from '../session/brush';
 import type { HelperOverlay } from './helper-overlay';
-import { InstanceBrushTool, type InstanceBrushDeps, type InstanceBrushMode } from './instance-brush';
+import { InstanceBrushTool, type InstanceBrushDeps } from './instance-brush';
 import { BlockEditor, type BlockEditorCallbacks, type BlockEditorHost } from './block-editor';
 import { TerrainEditor, type TerrainEditorCallbacks, type TerrainEditorHost } from './terrain-editor';
 import { DecalTool, type DecalToolCallbacks, type DecalToolHost } from './decal-tool';
-import { VertexPaintTool, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
+import { VertexPaintTool, type VertexPaintArm, type VertexPaintToolCallbacks, type VertexPaintToolHost } from './vertex-paint-tool';
 
 /** A pointer that moved less than this (px) between down and up is a click. */
 export const CLICK_SLOP_PX = 4;
@@ -248,9 +248,9 @@ export class ViewportTools {
     }
   }
 
-  /** The instance brush paints or erases on this set (null: off). */
-  setInstanceBrush(entityId: string | null, mode: InstanceBrushMode, brush: InstanceBrush): void {
-    this.brush.set(entityId, mode, brush);
+  /** The instance brush paints or erases copies of this set (null: off): the shared settings in `store`, the copies' own in `brush`. */
+  setInstanceBrush(entityId: string | null, store: BrushStore | null, brush: InstanceBrush): void {
+    this.brush.set(entityId, store, brush);
     this.host.orbit.enabled = true;
     this.host.reselect();
   }
@@ -263,10 +263,10 @@ export class ViewportTools {
     this.host.requestRender();
   }
 
-  /** The vertex paint mode armed with these settings, its strokes sent through `cb` (null: off). */
-  setVertexPaintTool(settings: VertexPaintSettings | null, cb: VertexPaintToolCallbacks | null): void {
+  /** The vertex paint brush armed on an object, its strokes sent through `cb` (null: off). */
+  setVertexPaintTool(arm: VertexPaintArm | null, cb: VertexPaintToolCallbacks | null): void {
     this.paintCb = cb;
-    this.paint.arm(settings);
+    this.paint.arm(arm);
     this.host.reselect();
   }
 
@@ -298,12 +298,13 @@ export class ViewportTools {
     return {
       name: 'paint',
       armed: () => p.armed(),
-      // Only a press on something it paints is the tool's: a press elsewhere still orbits, picks or edits.
-      pointerDown: (e) => (p.pointerDown(e) ? 'capture' : null),
+      // Only a press on the object it paints is the tool's: a press elsewhere still orbits.
+      pointerDown: (e) => p.pointerDown(e),
       pointerMove: (e) => p.pointerMove(e),
       pointerUp: (e) => (p.pointerUp(e) ? 'stop' : null),
       leave: () => p.leave(),
       cancel: () => p.cancel(),
+      key: (e) => p.key(e),
     };
   }
 
@@ -426,14 +427,16 @@ export class ViewportTools {
       name: 'brush',
       armed: (sel) => b.active(sel),
       pointerDown: (e) => {
-        if (!b.active(h.selectedId()) || e.altKey || h.gizmoAxis() !== null || !b.begin(e.clientX, e.clientY)) return null;
+        if (!b.active(h.selectedId()) || e.altKey) return null;
+        // F / Shift+F: a click sets what was dragged.
+        if (b.pressAdjust()) return 'consume';
+        if (h.gizmoAxis() !== null || !b.begin(e.clientX, e.clientY, e.ctrlKey || e.metaKey)) return null;
         this.brushPressed = true;
         return 'capture';
       },
       pointerMove: (e) => {
         if (!b.active(h.selectedId())) return false;
-        b.move(e.clientX, e.clientY);
-        return b.stroking();
+        return b.move(e) || b.stroking();
       },
       pointerUp: (e) => {
         if (!this.brushPressed) return null;
@@ -443,6 +446,7 @@ export class ViewportTools {
       },
       leave: () => b.leave(),
       cancel: () => b.cancel(),
+      key: (e) => b.key(e),
     };
   }
 }

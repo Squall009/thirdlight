@@ -36,6 +36,10 @@ export interface PaletteLayer {
   readonly sub?: string;
   /** Its albedo has no height in A (the backend's check): its blends are soft, a height from brightness stands in. */
   readonly noHeight?: boolean;
+  /** The badge in its corner instead of its number ("B" for a base, "W" for wetness). */
+  readonly badge?: string;
+  /** It stands for wetness, not a texture (drawn as water). */
+  readonly wet?: boolean;
 }
 
 /** What the palette knows of an object's material. */
@@ -147,12 +151,15 @@ const BASE_LAYER_MAPS: readonly (readonly [string, LayerTextureKey])[] = [
  * "Make it paintable": a layered material for an object whose material
  * reads no paint or layer weights. Its first layer (the base, what paint
  * leaves) wears the old material's colour, normal and ORM maps and its
- * name, so the object looks as before until it is painted; a material with
- * none of those maps (a graph, a model's own) gives an empty first layer.
+ * name, so the object looks as before until it is painted (a trim sheet's
+ * first layer follows the sheet, rows and all); a material with none of
+ * those maps (a graph, a model's own) gives an empty first layer.
  */
 export function paintableMaterial(old: MaterialDef | null, materialId: string, name: string): MaterialDef {
   let m = templateMaterial('layers', materialId, name);
   if (old === null || old.graph !== undefined) return m;
+  // A trim sheet's base follows the sheet: its strips on the mesh's UVs and its rows for generated walls.
+  if (old.shader === 'trim' && old.instanceOf === undefined && old.trim !== undefined) return withLayerName(withLayerSheet(m, 0, old), 0, old.name);
   for (const [slot, key] of BASE_LAYER_MAPS) {
     const id = old.textures[slot];
     if (id !== undefined && id !== '') m = withSlotTexture(m, 0, id, key);

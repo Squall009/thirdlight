@@ -1,51 +1,103 @@
 # Vertex paint
 
-**Goal:** grime at a wall's foot, a wet patch, a tinted prop, moss weights
-on a rock, painted straight onto the meshes in the Scene view. The full
-description is in [Vertex paint](../features/vertex-paint.md).
+**Goal:** moss creeping up a wall's foot, a second trim sheet blended into
+a façade, a wet patch, a tinted prop — painted straight onto the meshes in
+the vertex paint editor. The full description is in
+[Vertex paint](../features/vertex-paint.md).
 
-## Give the object a material that reads paint
+## Open the editor
 
-Paint changes nothing until a material reads it:
+Select a placed model, an instance set, generated architecture or a spline,
+then **Paint vertices** in the Inspector. The vertex paint editor takes the
+work area over, as the [terrain editor](terrain.md) does:
 
-- a **standard** material: tick **Paint tint**. Paint channel A says how
-  much the albedo is tinted toward the paint's RGB (A alone, RGB 0: the
-  surface darkens);
-- a **trim** material (generated walls): channel G is grime, B wetness;
-- a **material graph**: a **Vertex colour** node set to **paint** gives the
-  paint as RGBA; a **Height blend** with its weights unwired takes the paint
-  as its layers' weights (see [Material graphs](material-graphs.md)).
+- the header names the object (**Done** or Esc goes back, the selection
+  as before); undo and redo are the project's one history;
+- the Scene view shows **only that object** (**Context**, `C`, shows the
+  rest of the scene too, not paintable);
+- the rail on the left has three modes: **Paint**, **Channels** and
+  **Material** (`Shift+1…3`);
+- the status line at the bottom says what to do and lists the keys.
 
-Put it on the object: its **Materials** component (a model, an instance set,
-generated architecture, a spline).
+A double-click on a model does not open it (every model can be painted, so
+a double-click keeps renaming in the Hierarchy and picking in the Scene
+view).
+
+## What the paint means: the palette
+
+The **Layers** palette in Paint shows what the paint does on the object's
+material, read from the material itself:
+
+| The material | The tiles | The channels |
+|---|---|---|
+| a **Layered surface** | **Base**, layers 2–4 (named and pictured as in the material), **Wet** | R, G, B = layers 2–4, A = wetness; the base is what R, G and B leave |
+| a **Trim sheet** material | **Grime**, **Wetness** | G = grime, B = wetness (as before) |
+| a **Standard** material with *Paint tint* | **Tint red / green / blue**, **Tint amount** | RGB = the tint, A = how much (A alone darkens) |
+| a graph that reads the paint otherwise | **Paint R / G / B / A** | as its Vertex colour (paint) node reads them |
+
+Pick a tile with a click or its number key (`1…5`). Painting a layer
+raises it; **Erase** (`X`) takes it off. Painting the **Base** takes layers
+2–4 off at once (one stroke, one undo step).
+
+### When the material doesn't read paint
+
+A material that reads no paint (a plain Standard material, a model's own
+materials) would show nothing you paint. The editor says so — a banner in
+the column, a note over the view, a grey cursor — and painting is off.
+**Make it paintable** swaps in a Layered surface whose **base keeps the old
+material's textures** (its colour, normal and ORM maps; a trim sheet's base
+follows the sheet, strips and rows), assigned in the same command: one undo
+step puts the old material back. Then give layers 2–4 their textures in
+**Material**.
+
+A trim sheet or tint material reads paint its own way; **Material → Make it
+a layered surface** does the same swap when you want layers of other
+materials on it.
 
 ## Paint
 
-1. **Window → Vertex paint** (or **paint** on the toolbar). The window
-   floats over the Scene view; while it is open, a left drag paints.
-2. Set the brush: **radius** (metres in the world), **strength** (how far
-   one dab moves a vertex toward full), **falloff**, and the **channel**.
-3. Drag on the object. The paint shows as you drag; the release stores
-   the stroke — one undo step (Ctrl+Z).
+1. In **Paint**, pick the tool (**Paint** `B` or **Erase** `X`) and a tile.
+2. Set the brush — the same panel as every brush
+   ([Brushes](brushes.md)): **Size** (metres across), **Strength** (one
+   dab), **Opacity** (the most one stroke reaches), **Falloff**,
+   **Spacing**, and **Paint through noise** for broken edges (moss, rust).
+3. Drag on the object. The cursor lies flat on the face under the pointer;
+   the paint shows as you drag; the release stores the stroke — one undo
+   step.
    - On an instance set, the drag paints the copy it starts on, and only
-     that copy (one draw still draws all of them).
+     that copy.
    - On generated architecture, it paints the path nearest where it starts
      (an outline, a building, a swept element) on the side the face looks
-     to; the paint stays where it is when the wall is made again (a new
-     door, another storey, another preset).
-4. **Erase** takes paint off the channel the same way.
-5. **channel view** shows one channel as grey over the view to see faint
-   paint; set it back to **off** to see the materials.
+     to; the paint stays put when the wall is made again (a new door,
+     another storey, another preset).
 
-Alt+drag orbits while painting; a drag that starts on something that holds
-no paint (a box, a block layer, terrain) orbits or selects as usual. Esc
-drops a stroke in progress.
+Keys: `[` / `]` size, `Shift+[` / `Shift+]` strength, `F` then drag to
+resize in the view (`Shift+F`: strength), `Ctrl` held erases one stroke,
+Alt+drag orbits, `Home` frames the object, Esc drops a stroke in progress.
+
+## Channels
+
+**Channels** shows one channel of the paint as grey over the view (white:
+full, black: none) — for paint a material shows only faintly (wetness,
+grime, a soft blend). The same choice sits over the view in every mode;
+`V` cycles it. The mode also lists what each of R, G, B and A means on the
+material and what the object keeps painted.
+
+## Material
+
+**Material** shows the material card and, on a layered surface, its layers:
+drop or pick a texture into each layer (its normal and ORM maps come along
+when named alike), and **Layer settings…** for a layer's name, tiling, UV
+source and trim sheet (see [Material graphs](material-graphs.md) and
+[Height in alpha](height-in-alpha.md) for the textures a layer wants).
 
 ## Over MCP
 
 The same stroke is one `paintVertices` command (`tl_command`): the object,
-the dabs (world points) and the brush; `copy` for a copy, `path` and `side`
-for generated objects. See the feature page for the arguments.
+the dabs (world points) and the brush — `channel`, plus `channels` for more
+painted alike (the base: `channel` 0 with `channels` [1, 2] and `erase`);
+`copy` for a copy, `path` and `side` for generated objects. See the feature
+page for the arguments.
 
 ## Good to know
 
@@ -54,6 +106,9 @@ for generated objects. See the feature page for the arguments.
   sharp mark.
 - A reimport that changes a painted mesh leaves its paint undrawn and
   reported (`paint_mismatch` in Problems). A stroke over it is refused; the
-  paint window offers **Remove its stale paint**, then paint again.
+  editor offers **Remove its stale paint** (Paint and Channels), then paint
+  again.
 - Painted copies stay in their instanced draw, and painted static objects
   stay merged: painting adds no draws.
+- The brush settings are remembered per browser, the picked tile per object
+  while the page is open.

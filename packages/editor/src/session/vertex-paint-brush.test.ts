@@ -1,22 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
-import { paintVerticesArgs, pathTargetAt, stalePaintOf, strokeBrush, VERTEX_PAINT_DEFAULTS, vertexPaintSettingsError, withoutMeshPaint } from './vertex-paint-brush';
+import { DEFAULT_BRUSH_MASK } from './brush';
+import { paintVerticesArgs, pathTargetAt, stalePaintOf, strokeBrush, VERTEX_PAINT_DEFAULT_BRUSH, withoutMeshPaint } from './vertex-paint-brush';
 
 describe('vertex paint brush settings', () => {
-  it('takes the shared brush bounds and names what is wrong', () => {
-    expect(vertexPaintSettingsError(VERTEX_PAINT_DEFAULTS)).toBeNull();
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, radius: 0 })).toMatch(/radius/);
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, radius: 65 })).toMatch(/radius/);
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, strength: 0 })).toMatch(/strength/);
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, channel: 4 })).toMatch(/channel/);
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, view: 5 })).toMatch(/view/);
-    expect(vertexPaintSettingsError({ ...VERTEX_PAINT_DEFAULTS, falloff: 'square' as never })).toMatch(/falloff/);
-  });
-
-  it('sends the brush with its defaults left out, and one stroke per target kind', () => {
-    expect(strokeBrush(VERTEX_PAINT_DEFAULTS)).toEqual({ radius: 0.5, strength: 0.5, channel: 0 });
-    expect(strokeBrush({ ...VERTEX_PAINT_DEFAULTS, falloff: 'constant', erase: true, channel: 2 })).toEqual({ radius: 0.5, strength: 0.5, channel: 2, falloff: 'constant', erase: true });
-    const brush = strokeBrush(VERTEX_PAINT_DEFAULTS);
+  const b = VERTEX_PAINT_DEFAULT_BRUSH;
+  it('sends the shared brush (size across as the radius) with the tile\'s channels; defaults left out; erase by invert or a tile that erases', () => {
+    expect(strokeBrush(b, { channel: 0 }, false)).toEqual({ radius: 0.5, strength: 0.5, channel: 0 });
+    expect(strokeBrush({ ...b, falloff: 'constant' }, { channel: 2 }, true)).toEqual({ radius: 0.5, strength: 0.5, channel: 2, falloff: 'constant', erase: true });
+    expect(strokeBrush(b, { channel: 0, channels: [1, 2], erases: true }, false)).toEqual({ radius: 0.5, strength: 0.5, channel: 0, channels: [1, 2], erase: true });
+    expect(strokeBrush({ ...b, opacity: 0.6, falloff: 'curve', hardness: 0.3, mask: { ...DEFAULT_BRUSH_MASK, on: true } }, { channel: 3 }, false)).toEqual({ radius: 0.5, strength: 0.5, channel: 3, falloff: 'curve', hardness: 0.3, opacity: 0.6, mask: { scale: 4, contrast: 1.6, threshold: 0.45, octaves: 4, seed: 1207 } });
+    const brush = strokeBrush(b, { channel: 0 }, false);
     expect(paintVerticesArgs('m', { kind: 'model' }, [[1, 2, 3]], brush)).toEqual({ entityId: 'm', dabs: [[1, 2, 3]], brush });
     expect(paintVerticesArgs('s', { kind: 'copy', copy: 4 }, [[1, 2, 3]], brush)).toMatchObject({ copy: 4 });
     expect(paintVerticesArgs('a', { kind: 'path', path: 'outline:o1', side: 'left' }, [[1, 2, 3]], brush)).toMatchObject({ path: 'outline:o1', side: 'left' });

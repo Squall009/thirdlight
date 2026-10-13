@@ -15,17 +15,27 @@
  * show in the Scene view's and in Play's pixels and keep the set's chunks. A
  * stroke on the model's cap puts copies on the cap.
  *
- * Vertex paint in the same project (the Vertex paint window): the platform,
- * the set's copies and a generated room's walls wear a white material that
- * paint darkens (`paintTint`, channel A: no tint colour, so painted is dark).
- * A drag across the platform's cap is drawn while the button is still down
- * (the page's preview) and stored as ONE `paintVertices`; the stored paint
- * replaces the preview with no frame in which the platform is missing (the
- * same for an API stroke, undo and redo); a click on one copy paints that
- * copy alone; a drag along the room's south wall paints that wall's path
- * side; Erase takes the cap's paint off and one undo brings it back; the
- * channel view shows channel A as white; Play draws the paint; WebGL 2
- * draws the stored paint and a stroke's preview too.
+ * Vertex paint in the same project (the vertex paint editor, opened from
+ * the Inspector's Paint vertices): the platform, the set's copies and a
+ * generated room's walls wear a white material that paint darkens
+ * (`paintTint`, its "Tint amount" tile = channel A: no tint colour, so
+ * painted is dark). The editor shows only the painted object, the material
+ * card says it reads paint, the palette names the tint's channels, and the
+ * shared cursor lies on the cap. A drag across the platform's cap is drawn
+ * while the button is still down (the page's preview) and stored as ONE
+ * `paintVertices` carrying the shared brush (size, strength, a constant
+ * falloff, opacity); the stored paint replaces the preview with no frame in
+ * which the platform is missing (the same for an API stroke, undo and redo);
+ * a click on one copy paints that copy alone; a drag along the room's south
+ * wall paints that wall's path side; the channel view shows channel A as
+ * white; Erase takes the cap's paint off and one undo brings it back; Play
+ * draws the paint. A box wearing a plain material: the editor says it reads
+ * no paint (banner, toast, grey cursor, a press paints nothing); Make it
+ * paintable gives it a layered surface whose base keeps its colour map (one
+ * command, one undo), and the palette then shows Base, layers 2–4 and Wet;
+ * with a red texture in layer 2 its tile paints R and the box draws red there.
+ * WebGL 2 draws the stored paint (the cap, the box's red layer) and a stroke's
+ * preview too.
  *
  * Over MCP without a surface the backend drops the stroke onto the block
  * layer itself; erase and undo work the same; a stroke past what one
@@ -41,10 +51,12 @@ import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { count, isRed, materials, publishTexture } from './painted-layers';
+import { makePng } from './png-make';
 import { consoleErrors, refusedObjects } from './console-errors';
 import { changedPixels, decodePng, type Image } from './png';
 import { inspector } from './ui';
-import { fit, frame, paintDrag, paintState, select, sceneProjector, setPaint, strokeDone, view, type PaintState, type Projector } from './vertex-paint-drive';
+import { channelView, enterPaint, fit, frame, leavePaint, paintDrag, paintEditor, paintState, paintTool, pickTile, select, sceneProjector, setPaint, strokeDone, view, type Projector } from './vertex-paint-drive';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -82,7 +94,8 @@ const LAYER_AT = [-24, 0, -20] as const;
 /** The model platform (a pillar scaled 6 × 1.5 × 6, its cap's top at y = 3) stands at x = −4, z = −16. */
 const CAP_Y = 3;
 const PLATFORM_AT = [-4, 0, -16] as const;
-const BRUSH = { radius: '1.5', density: '2', spacing: '0.3', 'scale min': '0.3', 'scale max': '0.4', rotation: '360', align: '0', seed: '7' };
+/** The instance brush's fields (size: metres across, the stroke's radius 1.5 m). */
+const BRUSH = { size: '3', density: '2', spacing: '0.3', 'scale min': '0.3', 'scale max': '0.4', rotation: '360', align: '0', seed: '7' };
 /** A generated room (one outline, the starter preset) west of the platform: its south wall's outer face at z = ROOM.z[1]. */
 const ROOM = { x: [-11, -7.5], z: [-12, -9] } as const;
 /** White, darkened by paint channel A (`paintTint` mixes toward the paint's RGB, 0 here, by A). */
@@ -135,7 +148,8 @@ const keep = (name: string, png: Buffer): void => {
 };
 async function setBrush(page: Page, values: Record<string, string>): Promise<void> {
   for (const [k, v] of Object.entries(values)) {
-    const field = inspector(page).getByLabel(`instance brush ${k}`, { exact: true });
+    // The size is the shared brush panel's; the rest are the copies' own.
+    const field = inspector(page).getByLabel(k === 'size' ? 'brush size' : `instance brush ${k}`, { exact: true });
     await field.fill(v);
     await field.blur();
   }
@@ -164,6 +178,9 @@ async function undo(page: Page, redo = false): Promise<void> {
   await page.keyboard.press(redo ? 'Control+y' : 'Control+z');
   await page.mouse.move(0, 0);
 }
+
+/** The brush cursor's amber (`--brush`) against the scene (white, green turf, grey). */
+const isBrushAmber = (r: number, g: number, b: number): boolean => r > 150 && r > b + 70 && g > b + 30 && r >= g;
 
 /** How many of the copies changed the picture where they stand (a 5 × 5 patch over their middle). */
 function copiesSeen(before: Image, after: Image, project: Projector, copies: Copy[]): number {
@@ -216,28 +233,36 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
     const body = JSON.parse(r.postData() ?? '{}') as { op?: string; args?: Record<string, unknown> };
     if (body.op === 'paintVertices') sent.push(body.args ?? {});
   });
-  // The window arms the mode; channel A, full strength, a hard edge.
-  await page.getByRole('button', { name: 'paint', exact: true }).click();
-  await expect(page.getByLabel('vertex paint tool')).toBeVisible();
-  await setPaint(page, { radius: '3.5', strength: '1', falloff: 'constant', channel: '3', 'channel view': '' });
-  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(true);
+  // The platform's editor: only it is drawn; its material reads paint as a tint; "Tint amount" (A), full strength, a hard edge.
+  await frame(page, ids.platform);
+  await enterPaint(page, ids.platform);
+  await expect(view(page)).toHaveAttribute('data-isolation', new RegExp(`"ids":\\["${ids.platform}"\\]`));
+  const col = paintEditor(page);
+  await expect(col.getByLabel('material card')).toContainText('Paint tint');
+  await expect(col.getByLabel('material card')).toContainText('reads paint');
+  await expect(col.getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Tint red/, /Tint green/, /Tint blue/, /Tint amount/]);
+  await pickTile(page, 3, 3);
+  await setPaint(page, { size: '7', strength: '100', falloff: 'Constant' });
+  await expect(paintEditor(page).getByLabel('edit mode hints')).toContainText('Drag on Platform to paint Tint amount.');
 
   // The platform's cap: drawn dark while the button is down, one paintVertices on release. (Read off its middle: the
   // collider's grip sits there.)
   const cap = [PLATFORM_AT[0] + 1.2, CAP_Y, PLATFORM_AT[2] - 1.2] as const;
-  await frame(page, ids.platform);
   await fit(page, [[PLATFORM_AT[0] - 3, CAP_Y, PLATFORM_AT[2] - 3], [PLATFORM_AT[0] + 3, CAP_Y, PLATFORM_AT[2] + 3]]);
   const project = await sceneProjector(page);
   const beforeShot = await sceneShot(page, 'paint-before');
   const before = patch(beforeShot, project, cap)!;
   expect(before, 'the white cap').toBeGreaterThan(110);
-  // The brush's ring follows the pointer over the cap.
+  // The shared cursor lies on the cap under the pointer, in the brush colour.
   {
     const box = (await view(page).boundingBox())!;
     const at = project(cap)!;
     await page.mouse.move(box.x + at.x, box.y + at.y);
     await page.waitForTimeout(250);
-    expect(changedPixels(beforeShot, decodePng(await view(page).screenshot()), (r, _g, b) => b > r + 40), 'the vertex paint ring drawn').toBeGreaterThan(60);
+    const png = await view(page).screenshot();
+    keep('paint-cursor', png);
+    expect(changedPixels(beforeShot, decodePng(png), isBrushAmber), 'the vertex paint cursor drawn').toBeGreaterThan(60);
+    expect((await paintState(page))?.cursor).toBe('paint');
     await page.mouse.move(0, 0);
   }
   let mid: number | null = null;
@@ -252,10 +277,12 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   const t1 = await strokeDone(page, 1);
   expect(sent).toHaveLength(1);
   expect(sent[0]!['entityId']).toBe(ids.platform);
+  expect(sent[0]!['brush']).toEqual({ radius: 3.5, strength: 1, channel: 3, falloff: 'constant' });
   expect((sent[0]!['dabs'] as unknown[]).length).toBe(t1.dabs);
   const paint1 = (await component(ids.platform, 'vertexPaint')) as { meshes: { mesh: string; paint: string }[] };
   expect(paint1.meshes.length).toBeGreaterThan(0);
   expect(patch(await sceneShot(page, 'paint-after'), project, cap)!).toBeLessThan(before * 0.45);
+  keep('paint-editor', await page.screenshot());
   // From the release on, every frame drew the platform (the stored paint replaced the preview in place).
   expect((await paintState(page))!.watch).toMatchObject({ id: ids.platform, gaps: 0 });
 
@@ -273,12 +300,15 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   const watched = (await paintState(page))!.watch!;
   expect(watched.frames, 'frames drawn while the paint changed').toBeGreaterThan(3);
   expect(watched.gaps, 'frames without the platform').toBe(0);
+  await leavePaint(page);
 
   // One copy of the set (the one nearest the layer's middle, where the view dollies to): a click paints it alone.
   const one = copies.reduce((a, c) => (Math.hypot(c.x + 18, c.z + 16) < Math.hypot(a.x + 18, a.z + 16) ? c : a));
   const capOf = (c: Copy): [number, number, number] => [c.x, TOP_Y + 2 * c.s, c.z];
-  await setPaint(page, { radius: '0.5' });
   await frame(page, ids.layer);
+  await enterPaint(page, ids.set);
+  await pickTile(page, 3, 3);
+  await setPaint(page, { size: '1' });
   const vb = (await view(page).boundingBox())!;
   for (let i = 0; i < 30; i++) {
     const s0 = (await sceneProjector(page))(capOf(one));
@@ -290,7 +320,7 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   }
   await page.mouse.move(0, 0);
   // Another copy on screen, a metre or more from it, keeps its look.
-  const inView = (q: { x: number; y: number } | null): boolean => q !== null && q.x > 20 && q.y > 20 && q.x < vb.width * 0.6 && q.y < vb.height - 20;
+  const inView = (q: { x: number; y: number } | null): boolean => q !== null && q.x > 20 && q.y > 50 && q.x < vb.width - 20 && q.y < vb.height - 20;
   const proj0 = await sceneProjector(page);
   const other = copies.find((c) => c !== one && Math.hypot(c.x - one.x, c.z - one.z) > 1 && inView(proj0(capOf(c))));
   const pc = await sceneProjector(page);
@@ -309,13 +339,16 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   const xb = other === undefined ? null : patch(copyBefore, pc, capOf(other));
   const xa = other === undefined ? null : patch(copyAfter, pc, capOf(other));
   if (xb !== null && xa !== null) expect(Math.abs(xa - xb), 'another copy keeps its look').toBeLessThan(25);
+  await leavePaint(page);
 
   // The room's south wall: a drag along its outer face paints its path side.
   const wallY = 1.5;
   const wallZ = ROOM.z[1] + 0.12;
-  await setPaint(page, { radius: '2' });
   // (F frames an object by what hangs on its node: the room's walls are drawn apart, so the view starts at the platform beside it.)
   await frame(page, ids.platform);
+  await enterPaint(page, ids.room);
+  await pickTile(page, 3, 3);
+  await setPaint(page, { size: '4' });
   await fit(page, [[ROOM.x[0], 0, ROOM.z[1]], [ROOM.x[1], 3, ROOM.z[1]]]);
   const pw = await sceneProjector(page);
   const mid3 = [(ROOM.x[0] + ROOM.x[1]) / 2, wallY, wallZ] as const;
@@ -333,30 +366,36 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   expect(wallMid!, `the wall's preview darkens it (${wallBefore} -> ${wallMid})`).toBeLessThan(wallBefore * 0.6);
   expect(wallAfter, `the stored wall paint (${wallBefore} -> ${wallAfter})`).toBeLessThan(wallBefore * 0.6);
 
-  // The channel view: channel A as grey (the painted wall white, the ground black).
-  await setPaint(page, { 'channel view': '3' });
+  // The channel view: channel A as grey (the painted wall white; the editor draws the room alone, so the ground beside it is the empty view).
+  await channelView(page, 'Tint amount');
   await expect.poll(async () => (await paintState(page))?.view).toBe(3);
   const channel = await sceneShot(page, 'wall-channel-a');
   expect(patch(channel, pw, mid3)!, 'painted A shows white').toBeGreaterThan(200);
-  expect(patch(channel, pw, [ROOM.x[1] + 1.5, 0, ROOM.z[1] + 1.5]) ?? 0, 'unpainted shows black').toBeLessThan(40);
-  await setPaint(page, { 'channel view': '' });
+  expect(patch(channel, pw, [ROOM.x[1] + 1.5, 0, ROOM.z[1] + 1.5]) ?? 0, 'nothing else drawn: the empty view').toBeLessThan(40);
+  await channelView(page, 'Final');
+  await expect.poll(async () => (await paintState(page))?.view).toBe(null);
+  await leavePaint(page);
 
   // Erase on the cap: its paint goes; one undo brings it back.
-  await page.getByRole('button', { name: 'Erase', exact: true }).click();
-  await setPaint(page, { radius: '3.5' });
   await frame(page, ids.platform);
+  await enterPaint(page, ids.platform);
+  await paintTool(page, 'Erase');
+  // The editor kept the platform's tile; the brush is shared, so its size is set again (the cap's vertices are its corners).
+  await expect.poll(async () => (await paintState(page))?.channel).toBe(3);
+  await setPaint(page, { size: '7' });
   await fit(page, [[PLATFORM_AT[0] - 3, CAP_Y, PLATFORM_AT[2] - 3], [PLATFORM_AT[0] + 3, CAP_Y, PLATFORM_AT[2] + 3]]);
   const pe = await sceneProjector(page);
   await paintDrag(page, [PLATFORM_AT[0] - 1, CAP_Y, PLATFORM_AT[2]], [PLATFORM_AT[0] + 1, CAP_Y, PLATFORM_AT[2]]);
   await strokeDone(page, 4);
+  expect(sent.at(-1)!['brush']).toMatchObject({ channel: 3, erase: true });
   await expect.poll(async () => (await component(ids.platform, 'vertexPaint')) ?? null).toBeNull();
   expect(patch(await sceneShot(page, 'erase-after'), pe, cap)!).toBeGreaterThan(before * 0.8);
   await undo(page);
   await expect.poll(async () => JSON.stringify(await component(ids.platform, 'vertexPaint'))).toBe(JSON.stringify(paint1));
   await expect.poll(async () => patch(await sceneShot(page, 'erase-undone'), pe, cap)!, { timeout: 10_000 }).toBeLessThan(before * 0.45);
   expect((await paintState(page))!.watch).toMatchObject({ id: ids.platform, gaps: 0 });
-  await page.getByRole('button', { name: 'paint', exact: true }).click();
-  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(false);
+  await paintTool(page, 'Paint');
+  await leavePaint(page);
 
   // Play draws the paint (the cap and the wall, where the game camera sees them).
   const play = await playPicture(page);
@@ -374,23 +413,104 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   console.log(`vertex paint: model stroke ${JSON.stringify(t1)}; copy ${JSON.stringify(t2)}; wall ${JSON.stringify(t3)}; Play saw ${seen.join(', ')}`);
 }
 
-/** WebGL 2: the stored paint drawn in the Scene view, and a stroke's preview while the button is down (Esc: nothing sent). */
-async function vertexPaintWebgl2(page: Page, ids: { platform: string }): Promise<void> {
+/**
+ * A box wearing a material that reads no paint: the editor says so (banner, toast, the "no paint" tag, a grey
+ * cursor; a press paints nothing); Make it paintable is one command giving it a layered surface whose base keeps the
+ * colour map, one undo puts the old material back and redo the new one; a red texture in layer 2, its tile picked, a
+ * stroke draws red on the box (R = layer 2). Returns the box.
+ */
+async function makePaintable(page: Page, ids: { platform: string }): Promise<string> {
+  await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [200, 190, 170, 255])), 'vp-plain-map', 'Mill map');
+  await cmd('setMaterial', { material: { materialId: 'vp-plain', name: 'Mill walls', shader: 'standard', params: { color: '#ffffff' }, textures: { map: 'vp-plain-map' } } });
+  const box = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'Mill', transform: { position: [PLATFORM_AT[0], CAP_Y + 1, PLATFORM_AT[2]] }, model: { asset: { assetId: 'pillar' } }, components: { materials: { '*': 'vp-plain' } } }))['createdId']);
+  const sent: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'POST' || !r.url().includes('/commands')) return;
+    const body = JSON.parse(r.postData() ?? '{}') as { op?: string };
+    if (body.op === 'paintVertices' || body.op === 'setMaterial') sent.push(body.op);
+  });
+  await frame(page, ids.platform);
+  await enterPaint(page, box);
+  const col = paintEditor(page);
+  await expect(col.getByRole('alert', { name: 'material does not read paint' })).toContainText('Mill walls is a Standard material');
+  await expect(page.getByRole('status', { name: 'painting is off' })).toContainText('Mill walls');
+  await expect(col.getByLabel('material card')).toContainText('no paint');
+  await expect(paintEditor(page).getByLabel('edit mode hints')).toContainText("This material doesn't read paint");
+  await fit(page, [[PLATFORM_AT[0] - 0.5, CAP_Y + 1, PLATFORM_AT[2] - 0.5], [PLATFORM_AT[0] + 0.5, CAP_Y + 3, PLATFORM_AT[2] + 0.5]]);
+  const top = (await sceneProjector(page))([PLATFORM_AT[0], CAP_Y + 3, PLATFORM_AT[2]])!;
+  const vb = (await view(page).boundingBox())!;
+  await page.mouse.move(vb.x + top.x, vb.y + top.y + 4);
+  await expect.poll(async () => (await paintState(page))?.cursor).toBe('off');
+  await page.mouse.down();
+  await page.mouse.move(vb.x + top.x + 10, vb.y + top.y + 4, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect(sent.filter((o) => o === 'paintVertices'), 'nothing painted on a material without paint').toHaveLength(0);
+  keep('make-paintable-before', await page.screenshot());
+
+  // Make it paintable: one setMaterial; the palette then shows the layered surface's tiles, the base named after the old material.
+  await col.getByRole('alert', { name: 'material does not read paint' }).getByRole('button', { name: 'make it paintable' }).click();
+  await expect(col.getByLabel('material card')).toContainText('reads paint');
+  expect(sent).toEqual(['setMaterial']);
+  const mapping = (await component(box, 'materials')) as Record<string, string>;
+  expect(mapping['*']).not.toBe('vp-plain');
+  const made = (await materials(be!)).find((m) => m.materialId === mapping['*']) as { materialId: string; layerNames?: string[]; parameters?: { key: string; default: unknown }[] };
+  expect(made.layerNames?.[0]).toBe('Mill walls');
+  expect(made.parameters?.find((p) => p.key === 'albedoHeight')?.default).toEqual(['vp-plain-map', '', '', '']);
+  await expect(col.getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Mill walls/, /Layer 2/, /Layer 3/, /Layer 4/, /Wet/]);
+  await expect(page.getByRole('status', { name: 'painting is off' })).toHaveCount(0);
+  // One undo: the old material is back, and the editor says so again; one redo makes it paintable again.
+  await undo(page);
+  await expect.poll(async () => ((await component(box, 'materials')) as Record<string, string>)['*']).toBe('vp-plain');
+  await expect(col.getByRole('alert', { name: 'material does not read paint' })).toBeVisible();
+  await undo(page, true);
+  await expect.poll(async () => ((await component(box, 'materials')) as Record<string, string>)['*']).toBe(mapping['*']);
+  await expect(col.getByLabel('material card')).toContainText('reads paint');
+
+  // Layer 2 takes a red texture (as the Material mode's palette would put it); its tile paints R: the stroke's paint draws it.
+  await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [210, 30, 25, 255])), 'vp-red', 'Red brick');
+  await cmd('setMaterial', { material: { ...made, parameters: made.parameters!.map((p) => (p.key === 'albedoHeight' ? { ...p, default: ['vp-plain-map', 'vp-red', '', ''] } : p)) } });
+  await expect(col.getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Mill walls/, /Red brick/, /Layer 3/, /Layer 4/, /Wet/]);
+  await pickTile(page, 1, 0);
+  await expect(paintEditor(page).getByLabel('edit mode hints')).toContainText('Drag on Mill to paint Red brick.');
+  const redBefore = count(decodePng(await view(page).screenshot()), isRed);
+  const strokes = (await paintState(page))?.strokes ?? 0;
+  // Across its cap's top (a 7 m brush reaches every vertex of the box).
+  await paintDrag(page, [PLATFORM_AT[0] - 0.2, CAP_Y + 3, PLATFORM_AT[2]], [PLATFORM_AT[0] + 0.2, CAP_Y + 3, PLATFORM_AT[2]]);
+  const t = await strokeDone(page, strokes + 1);
+  expect(t.entityId).toBe(box);
+  expect(sent.at(-1)).toBe('paintVertices');
+  await expect.poll(async () => count(decodePng(await view(page).screenshot()), isRed), { timeout: 20_000, message: 'layer 2 drawn where it was painted' }).toBeGreaterThan(redBefore + 300);
+  await page.mouse.move(vb.x + top.x, vb.y + top.y + 4);
+  await page.waitForTimeout(200);
+  keep('make-paintable-after', await page.screenshot());
+  await leavePaint(page);
+  return box;
+}
+
+async function vertexPaintWebgl2(page: Page, ids: { platform: string; mill: string }): Promise<void> {
   await page.goto(be!.editorUrl.replace('#', '&renderer=webgl2#'));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(() => view(page).evaluate((c) => `${c.getAttribute('data-tl-renderer')}/${c.getAttribute('data-tl-renderer-state')}`), { timeout: 30_000 }).toBe('webgl2/ready');
-  await page.getByRole('button', { name: 'paint', exact: true }).click();
-  await setPaint(page, { radius: '3.5', strength: '1', falloff: 'constant', channel: '3', 'channel view': '' });
-  await page.getByRole('button', { name: 'Paint', exact: true }).click();
+  // The box's layer 2 (red, painted on a layered surface) draws in WebGL 2 too.
+  await frame(page, ids.mill);
+  await enterPaint(page, ids.mill);
+  await expect.poll(async () => count(decodePng(await view(page).screenshot()), isRed), { timeout: 20_000, message: 'WebGL 2: the painted layer 2' }).toBeGreaterThan(300);
+  keep('webgl2-layers', await page.screenshot());
+  await leavePaint(page);
   await frame(page, ids.platform);
+  await enterPaint(page, ids.platform);
+  await pickTile(page, 3, 3);
+  await setPaint(page, { size: '7', strength: '100', falloff: 'Constant' });
   await fit(page, [[PLATFORM_AT[0] - 3, CAP_Y, PLATFORM_AT[2] - 3], [PLATFORM_AT[0] + 3, CAP_Y, PLATFORM_AT[2] + 3]]);
   const project = await sceneProjector(page);
   const cap = [PLATFORM_AT[0] + 1.2, CAP_Y, PLATFORM_AT[2] - 1.2] as const;
   // The stored paint (dark), its edge white: the shaft's side below the cap is not painted.
   await expect.poll(async () => patch(await sceneShot(page, 'webgl2-stored'), project, cap)!, { timeout: 20_000 }).toBeLessThan(60);
-  // Erasing previews white while the button is down; Esc drops it (nothing stored) and the stored paint is drawn again.
-  await page.getByRole('button', { name: 'Erase', exact: true }).click();
-  await setPaint(page, { radius: '4' });
+  keep('webgl2-editor', await page.screenshot());
+  // Erasing previews white while the button is down; Esc drops it (nothing stored, the editor stays) and the stored paint is drawn again.
+  await paintTool(page, 'Erase');
+  await setPaint(page, { size: '8' });
   const stored = JSON.stringify(await component(ids.platform, 'vertexPaint'));
   let mid: number | null = null;
   const box = (await view(page).boundingBox())!;
@@ -407,6 +527,9 @@ async function vertexPaintWebgl2(page: Page, ids: { platform: string }): Promise
   expect(mid!, 'WebGL 2: the erase preview whitens the cap').toBeGreaterThan(110);
   await expect.poll(async () => patch(await sceneShot(page, 'webgl2-cancelled'), project, cap)!).toBeLessThan(60);
   expect(JSON.stringify(await component(ids.platform, 'vertexPaint'))).toBe(stored);
+  await expect(paintEditor(page)).toBeVisible();
+  await paintTool(page, 'Paint');
+  await leavePaint(page);
 }
 
 async function playPicture(page: Page): Promise<{ img: Image; png: Buffer }> {
@@ -471,14 +594,14 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   const sceneBeforePng = await view(page).screenshot();
   keep('scene-before', sceneBeforePng);
   const sceneBefore = decodePng(sceneBeforePng);
-  // The brush's ring is drawn under the pointer (a closed line: three draws no LineLoop and logs an error for one).
+  // The shared brush cursor is drawn under the pointer in the brush colour (closed lines: three draws no LineLoop and logs an error for one).
   {
     const box = (await view(page).boundingBox())!;
     const at = (await sceneProjector(page))([-18, TOP_Y, -16])!;
     await page.mouse.move(box.x + at.x, box.y + at.y);
     await page.waitForTimeout(300);
-    const ring = changedPixels(sceneBefore, decodePng(await view(page).screenshot()), (r, g, b) => g > r + 30 && g > b);
-    expect(ring, 'the instance brush ring drawn').toBeGreaterThan(60);
+    const ring = changedPixels(sceneBefore, decodePng(await view(page).screenshot()), isBrushAmber);
+    expect(ring, 'the instance brush cursor drawn').toBeGreaterThan(60);
     await page.mouse.move(box.x + box.width + 40, box.y + box.height / 2);
   }
 
@@ -576,7 +699,7 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   await frame(page, platform);
   await select(page, set);
   await inspector(page).getByRole('button', { name: 'Paint', exact: true }).click();
-  await setBrush(page, { radius: '0.6', density: '3', spacing: '0.2' });
+  await setBrush(page, { size: '1.2', density: '3', spacing: '0.2' });
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   await fit(page, [[PLATFORM_AT[0] - 3, CAP_Y, PLATFORM_AT[2] - 3], [PLATFORM_AT[0] + 3, CAP_Y, PLATFORM_AT[2] + 3]]);
   const capTop = await (async () => {
@@ -594,7 +717,8 @@ test('the instance brush paints and erases on a block-layer top and a model: one
   console.log(`instance brush: stroke ${JSON.stringify(t1)}, ${fresh.length} copies; cap at y ${ys[0]}`);
 
   await vertexPaint(page, { set, layer, platform, room }, playBefore.img, fresh);
-  await vertexPaintWebgl2(page, { platform });
+  const mill = await makePaintable(page, { platform });
+  await vertexPaintWebgl2(page, { platform, mill });
   expect(errors).toEqual([]);
   expect(refusedObjects(logged), 'no object three refuses to draw').toEqual([]);
 });

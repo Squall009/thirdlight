@@ -164,7 +164,7 @@ export const TOOL_DETAILS = {
     `surface (the editor sends it: per candidate in that order [y, nx, nz] or null, up to ${INSTANCE_BRUSH_LIMITS.samples}) names the surface itself. ` +
     `erase removes the copies within the radius across and ${INSTANCE_BRUSH_REACH} radii up and down of any dab (a set keeps one copy). ` +
     'The copies stay in the set\'s chunks. ' +
-    'paintVertices {entityId, dabs: [[x, y, z] world points, ' + `1-${VERTEX_PAINT_BRUSH_LIMITS.dabs}], brush: {radius (${VERTEX_PAINT_BRUSH_LIMITS.radius.min}-${VERTEX_PAINT_BRUSH_LIMITS.radius.max} m in the world), strength (0-1], channel (0-3: R, G, B, A), falloff?: smooth|linear|constant, erase?}, ` +
+    'paintVertices {entityId, dabs: [[x, y, z] world points, ' + `1-${VERTEX_PAINT_BRUSH_LIMITS.dabs}], brush: {radius (${VERTEX_PAINT_BRUSH_LIMITS.radius.min}-${VERTEX_PAINT_BRUSH_LIMITS.radius.max} m in the world), strength (0-1], channel (0-3: R, G, B, A), channels? (more channels painted alike: a layered surface's base erases R, G and B), falloff?: smooth|linear|constant, erase?, opacity?, mask?, hardness?}, ` +
     'mesh? ("Node/Path#primitive": one mesh of the model), copy? (an instance set: the copy\'s place in its buffer), path? + side? (generated architecture "outline:<id>", "building:<id>", "element:<id>", or "spline"; side left|right|top)} ' +
     'paints 4 bytes a vertex beside the mesh, never the model\'s COLOR_0 (what a channel means is the material\'s): one stroke, one command, one undo. Each dab moves the vertices within the radius toward 255 (erase: toward 0) by strength × falloff. ' +
     'A model stores per mesh a blob tied to its vertex count and position hash (component vertexPaint.meshes); a reimport that changes a mesh keeps the paint but does not draw it (Problems: paint_mismatch) and refuses strokes over it until that paint is removed (setComponent vertexPaint). ' +
@@ -245,7 +245,7 @@ export const TOOL_DETAILS = {
     'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
     'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
     'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water|trim|decal, params: {...overrides}, textures: {slot: ' +
-    'textureAssetId}}, assign?: {entityId}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); with assign the object also takes it for all of its materials (its materials "*" slot) in the same undo step; ' +
+    'textureAssetId}}, assign?: {entityId, slots?}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); with assign the object also takes it for all of its materials (its materials "*" slot, and the named slots listed in slots, which draw before "*") in the same undo step; ' +
     'a layered material may name its texture-array layers for the layer palette with layerNames: [name or "" (its texture\'s name), …] (index i = layer i); ' +
     'a trim material carries trim {size, texelDensity, padding, rows, cells? [{name, rect: [x, y, w, h] px}] (decal cells)}; a decal material (params blend: blend|multiply|add, sortOrder -1000..1000, ' +
     'opacity, color, roughness, metalness, normalScale, aoIntensity, emissive, emissiveIntensity) draws its own map/normalMap/ormMap/emissiveMap or decal {sheet: trim materialId, cell: name} (not both). ' +

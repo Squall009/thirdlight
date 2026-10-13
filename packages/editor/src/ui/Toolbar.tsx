@@ -22,8 +22,6 @@ interface Props {
   decalTool?: boolean;
   onToggleDecalTool?: () => void;
   /** The Vertex paint window is open (the paint mode armed over the Scene view). */
-  paintTool?: boolean;
-  onTogglePaintTool?: () => void;
   /** The Scene view's lighting — the fixed editor rig or the scene's own lights. */
   lighting?: 'editor' | 'game';
   onToggleLighting?: () => void;
@@ -65,11 +63,6 @@ export function Toolbar(p: Props): JSX.Element {
         {p.onToggleDecalTool !== undefined && (
           <button className={p.decalTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.decalTool === true} disabled={p.editing === true} onClick={p.onToggleDecalTool} title="Decal tool: click a surface in the Scene view to place a decal, Shift+click to stamp more">
             decal
-          </button>
-        )}
-        {p.onTogglePaintTool !== undefined && (
-          <button className={p.paintTool === true ? 'tl-btn is-active' : 'tl-btn'} aria-pressed={p.paintTool === true} disabled={p.editing === true} onClick={p.onTogglePaintTool} title="Vertex paint: drag on a model, an instance copy, a generated wall or a spline in the Scene view to paint its vertices">
-            paint
           </button>
         )}
         {p.lighting !== undefined && (

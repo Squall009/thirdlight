@@ -44,8 +44,8 @@ texture.
 
 ## How to make one
 
-- **art-factory Texture Designer**: render the material with the albedo +
-  height packing — the `skyforge` packing preset writes
+- **art-factory Texture Designer**: render the material with an albedo +
+  height packing — a packing preset that puts the height in A writes
   `<name>_albedo_height` (PNG and KTX2: albedo in RGB, the graph's height in
   A, kept above 1/255 so encoders keep the colour) beside the normal and ORM
   maps. Import those three into the layer (dropping the colour texture

@@ -200,6 +200,27 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
       <circle cx="12" cy="12" r="3" />
     </>
   ),
+  channels: (
+    <>
+      <circle cx="9" cy="9" r="5" />
+      <circle cx="15" cy="9" r="5" />
+      <circle cx="12" cy="15" r="5" />
+    </>
+  ),
+  material: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M4.5 10c3 2 12 2 15 0" />
+      <path d="M9 6.5a4 4 0 0 1 3.5-1.5" />
+    </>
+  ),
+  warn: (
+    <>
+      <path d="M12 3l10 18H2z" />
+      <path d="M12 10v5M12 18v.5" />
+    </>
+  ),
+  drop: <path d="M12 3c3 4.5 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-6.5 6-11z" />,
 };
 
 /** A glyph by name (an unknown name draws an empty box of the same size). */

@@ -10,6 +10,9 @@
  *   where the mask lets paint through;
  * - a dot at the centre.
  *
+ * It lies on the ground (following the height under each point) or, given
+ * a normal, flat on the plane of a wall or a prop's face.
+ *
  * While a stroke is in flight only the rings show, so the fill never hides
  * the stroke's own preview under it.
  *
@@ -50,6 +53,12 @@ export interface BrushCursorPlace {
   maskOrigin?: readonly [number, number];
   /** Draw the fill (absent: yes). A stroke in flight leaves it out: the rings frame the paint being laid, the fill would hide it. */
   fill?: boolean;
+  /**
+   * Lay it flat on a plane facing this way (a wall, a prop's face) instead of
+   * on the ground: `rx` is its radius, `heightAt` is not read, and the mask is
+   * read in the world at each point (x, z and the height), as vertex paint's.
+   */
+  normal?: THREE.Vector3;
 }
 
 const RING_SEGMENTS = 96;
@@ -144,60 +153,82 @@ export class BrushCursor {
 
   /** Lay the cursor on the surface at `p`. */
   place(p: BrushCursorPlace): void {
-    const { centre: c, rx, rz } = p;
-    const yAt = (x: number, z: number): number => (p.heightAt?.(x, z) ?? c.y) + LIFT;
+    const at = this.placer(p);
     const ring = (attr: THREE.BufferAttribute, k: number, n: number, closed: boolean): void => {
       for (let i = 0; i < n; i++) {
         const a = ((closed ? i % (n - 1) : i) / (closed ? n - 1 : n)) * Math.PI * 2;
-        const x = c.x + Math.cos(a) * rx * k;
-        const z = c.z + Math.sin(a) * rz * k;
-        attr.setXYZ(i, x, yAt(x, z), z);
+        at(Math.cos(a) * k, Math.sin(a) * k, this.tmp);
+        attr.setXYZ(i, this.tmp.x, this.tmp.y, this.tmp.z);
       }
       attr.needsUpdate = true;
     };
     ring(this.outer.geometry.getAttribute('position') as THREE.BufferAttribute, 1, RING_SEGMENTS + 1, true);
     // The halo just outside the ring (a pixel or so at working distances).
     ring(this.halo.geometry.getAttribute('position') as THREE.BufferAttribute, 1.015, RING_SEGMENTS + 1, true);
-    ring(this.dot.geometry.getAttribute('position') as THREE.BufferAttribute, Math.min(0.035, 0.25 / Math.max(rx, 1e-3)), 13, true);
+    ring(this.dot.geometry.getAttribute('position') as THREE.BufferAttribute, Math.min(0.035, 0.25 / Math.max(p.rx, 1e-3)), 13, true);
     // The inner ring, dashed: every other segment of a circle at the half-strength radius.
     const half = brushHalfRadius(this.look.falloff, this.look.hardness);
     const inner = this.inner.geometry.getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < DASHES; i++) {
       for (let e = 0; e < 2; e++) {
         const a = ((i + e * 0.5) / DASHES) * Math.PI * 2;
-        const x = c.x + Math.cos(a) * rx * half;
-        const z = c.z + Math.sin(a) * rz * half;
-        inner.setXYZ(i * 2 + e, x, yAt(x, z), z);
+        at(Math.cos(a) * half, Math.sin(a) * half, this.tmp);
+        inner.setXYZ(i * 2 + e, this.tmp.x, this.tmp.y, this.tmp.z);
       }
     }
     inner.needsUpdate = true;
     this.inner.visible = half < 0.999;
     this.fill.visible = p.fill !== false && this.look.strength > 0;
-    if (this.fill.visible) this.drawFill(p, yAt);
+    if (this.fill.visible) this.drawFill(p, at);
     for (const o of [this.outer, this.halo, this.inner, this.dot, this.fill]) o.geometry.computeBoundingSphere();
     this.root.visible = true;
   }
 
-  /** The fill: each vertex's opacity is the dab's weight there (falloff × strength × mask). */
-  private drawFill(p: BrushCursorPlace, yAt: (x: number, z: number) => number): void {
+  private readonly tmp = new THREE.Vector3();
+  private readonly u = new THREE.Vector3();
+  private readonly v = new THREE.Vector3();
+
+  /** Where a point (dx, dz) of the unit disc lies in the world (written into `out`): on the ground under it, or on the plane. */
+  private placer(p: BrushCursorPlace): (dx: number, dz: number, out: THREE.Vector3) => void {
     const { centre: c, rx, rz } = p;
+    const n = p.normal;
+    if (n === undefined) {
+      return (dx, dz, out) => {
+        const x = c.x + dx * rx;
+        const z = c.z + dz * rz;
+        out.set(x, (p.heightAt?.(x, z) ?? c.y) + LIFT, z);
+      };
+    }
+    // Two directions across the plane (any pair at right angles to the normal).
+    this.u.set(Math.abs(n.y) < 0.9 ? 0 : 1, Math.abs(n.y) < 0.9 ? 1 : 0, 0).cross(n).normalize();
+    this.v.copy(n).cross(this.u).normalize();
+    const u = this.u;
+    const v = this.v;
+    return (dx, dz, out) => out.copy(c).addScaledVector(u, dx * rx).addScaledVector(v, dz * rx).addScaledVector(n, LIFT);
+  }
+
+  /** The fill: each vertex's opacity is the dab's weight there (falloff × strength × mask). */
+  private drawFill(p: BrushCursorPlace, at: (dx: number, dz: number, out: THREE.Vector3) => void): void {
     const pos = this.fill.geometry.getAttribute('position') as THREE.BufferAttribute;
     const col = this.fill.geometry.getAttribute('color') as THREE.BufferAttribute;
     const { r, g, b } = this.colours[this.look.state];
     const look = this.look;
     const [mx, mz] = p.maskOrigin ?? [0, 0];
-    const put = (i: number, x: number, z: number, d: number): void => {
-      pos.setXYZ(i, x, yAt(x, z), z);
+    const onPlane = p.normal !== undefined;
+    const q = this.tmp;
+    const put = (i: number, dx: number, dz: number, d: number): void => {
+      at(dx, dz, q);
+      pos.setXYZ(i, q.x, q.y, q.z);
       let w = brushFalloff(d * d, 1, look.falloff, look.hardness) * look.strength;
-      if (look.mask !== null && w > 0) w *= brushMask(look.mask, x - mx, z - mz);
+      if (look.mask !== null && w > 0) w *= onPlane ? brushMask(look.mask, q.x - mx, q.z - mz, q.y) : brushMask(look.mask, q.x - mx, q.z - mz);
       col.setXYZW(i, r, g, b, w * FILL_ALPHA);
     };
-    put(0, c.x, c.z, 0);
+    put(0, 0, 0, 0);
     for (let ring = 1; ring <= FILL_RINGS; ring++) {
       const d = ring / FILL_RINGS;
       for (let s = 0; s < FILL_SEGMENTS; s++) {
         const a = (s / FILL_SEGMENTS) * Math.PI * 2;
-        put(1 + (ring - 1) * FILL_SEGMENTS + s, c.x + Math.cos(a) * rx * d, c.z + Math.sin(a) * rz * d, d);
+        put(1 + (ring - 1) * FILL_SEGMENTS + s, Math.cos(a) * d, Math.sin(a) * d, d);
       }
     }
     pos.needsUpdate = true;

@@ -37,6 +37,11 @@ export interface VertexPaintBrush {
   falloff?: BrushFalloff;
   /** 0–3: R, G, B, A. */
   channel: number;
+  /**
+   * More channels painted alike with `channel` (each moved by the same amount): a layered surface's base is what
+   * R, G and B leave, so painting it erases all three at once. Absent: `channel` alone.
+   */
+  channels?: number[];
   erase?: boolean;
   /** A curve falloff's share of the radius at full strength (0–0.95; absent: 0.5). */
   hardness?: number;
@@ -60,7 +65,7 @@ export interface VertexPaintStroke {
 }
 
 const STROKE_KEYS = ['dabs', 'brush', 'mesh', 'copy', 'path', 'side'];
-const BRUSH_KEYS = ['radius', 'strength', 'falloff', 'channel', 'erase', ...BRUSH_STROKE_KEYS];
+const BRUSH_KEYS = ['radius', 'strength', 'falloff', 'channel', 'channels', 'erase', ...BRUSH_STROKE_KEYS];
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** What is wrong with a stroke (a JSON pointer below the stroke and why), or null. `extra`: keys the caller adds. */
@@ -81,6 +86,8 @@ export function vertexPaintStrokeError(s: Record<string, unknown>, extra: readon
   if (!finite(brush['strength']) || brush['strength'] <= 0 || brush['strength'] > L.strengthMax) return { path: '/brush/strength', message: 'strength is in (0, 1] (how far one dab moves a vertex at its centre)' };
   if (brush['falloff'] !== undefined && !BRUSH_FALLOFFS.includes(brush['falloff'] as BrushFalloff)) return { path: '/brush/falloff', message: `falloff is ${BRUSH_FALLOFFS.join(', ')}` };
   if (typeof brush['channel'] !== 'number' || !Number.isInteger(brush['channel']) || brush['channel'] < 0 || brush['channel'] >= VERTEX_PAINT_BYTES) return { path: '/brush/channel', message: `channel is 0-${VERTEX_PAINT_BYTES - 1} (R, G, B, A)` };
+  const more = brush['channels'];
+  if (more !== undefined && (!Array.isArray(more) || more.length < 1 || more.length >= VERTEX_PAINT_BYTES || new Set(more).size !== more.length || !more.every((c) => typeof c === 'number' && Number.isInteger(c) && c >= 0 && c < VERTEX_PAINT_BYTES && c !== brush['channel']))) return { path: '/brush/channels', message: `channels is 1-${VERTEX_PAINT_BYTES - 1} more channels (0-${VERTEX_PAINT_BYTES - 1}), each once and not channel itself` };
   if (brush['erase'] !== undefined && typeof brush['erase'] !== 'boolean') return { path: '/brush/erase', message: 'erase is true or false' };
   const se = brushStrokeError(brush);
   if (se !== null) return { path: `/brush/${se.field}`, message: se.message };
@@ -124,9 +131,19 @@ export function paintVertexDabs(points: Float32Array, values: Uint8Array, dabs: 
       const d2 = dx * dx + dy * dy + dz * dz;
       if (d2 > r2) continue;
       const a = strokeAmount(brush.strength * brushFalloff(d2, r, falloff, brush.hardness), st.mask, st.coverage, i, points[i * 3]!, points[i * 3 + 2]!, points[i * 3 + 1]!);
-      if (paintPoint(values, i * VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, brush, a)) changed++;
+      changed += paintChannels(values, i * VERTEX_PAINT_BYTES, brush, a);
     }
   }
+  return changed;
+}
+
+/**
+ * Paint one point's bytes at `offset` by `amount`: the brush's channel and its
+ * `channels`, each alike. Returns how many bytes changed.
+ */
+export function paintChannels(values: Uint8Array, offset: number, brush: Pick<VertexPaintBrush, 'channel' | 'channels' | 'erase'>, amount: number): number {
+  let changed = paintPoint(values, offset, VERTEX_PAINT_LAYOUT, brush, amount) ? 1 : 0;
+  if (brush.channels !== undefined) for (const channel of brush.channels) if (paintPoint(values, offset, VERTEX_PAINT_LAYOUT, { channel, ...(brush.erase === true ? { erase: true } : {}) }, amount)) changed++;
   return changed;
 }
 

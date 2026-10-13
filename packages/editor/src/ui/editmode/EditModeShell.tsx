@@ -47,6 +47,9 @@ export interface EditModeShellProps {
   onDismissNotice: () => void;
 }
 
+/** Points a side the view is sampled at to tell whether an object is on screen (a mode that frames on entering keeps a view that shows it). */
+const ON_SCREEN_GRID = 5;
+
 /** The shell while a mode shows (rendered only then). */
 export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const { state, entity, kind } = p.mode;
@@ -77,6 +80,15 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     return () => p.viewportRef.current?.setIsolation(null);
   }, [entityId, context, p.viewportRef]);
 
+  /** Whether the object shows in the view now (a few points over its middle find it). */
+  const onScreen = (id: string): boolean => {
+    const r = viewHost.current?.getBoundingClientRect();
+    const v = latest.current.viewportRef.current;
+    if (r === undefined || v === null || r.width === 0) return false;
+    for (let i = 1; i <= ON_SCREEN_GRID; i++) for (let j = 1; j <= ON_SCREEN_GRID; j++) if (v.pickAt(r.left + (r.width * i) / (ON_SCREEN_GRID + 1), r.top + (r.height * j) / (ON_SCREEN_GRID + 1)) === id) return true;
+    return false;
+  };
+
   // On entering, the view looks at a working part of the object (Home frames all of it), once the object is drawn —
   // unless the user's view is already aimed at it, which is kept.
   useEffect(() => {
@@ -89,7 +101,8 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
       if (mode.entity === undefined || mode.kind === undefined || owed === null) return;
       const area = mode.kind.workArea?.(mode.entity) ?? null;
       const keepIf = owed === 'away' ? (mode.kind.bounds?.(mode.entity) ?? null) : null;
-      const settled = area !== null ? viewportRef.current?.frameWorkArea(mode.entity.id, area, keepIf) : owed === 'away' || viewportRef.current?.frameEntity(mode.entity.id, mode.kind.bounds?.(mode.entity) ?? undefined);
+      const keep = owed === 'away' && (mode.kind.framesOnEnter !== true || onScreen(mode.entity.id));
+      const settled = area !== null ? viewportRef.current?.frameWorkArea(mode.entity.id, area, keepIf) : keep || viewportRef.current?.frameEntity(mode.entity.id, mode.kind.bounds?.(mode.entity) ?? undefined);
       // A new object is drawn a few frames after it is made: try again until it is (two seconds at most).
       if (settled === true || ++tries > 120) mode.frameDone();
       else raf = requestAnimationFrame(attempt);
@@ -144,7 +157,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         <div className="tl-editmode__view">
           {/* Empty for React: the Scene view's canvas is put here (and taken back) by the editor. */}
           <div className="tl-editmode__canvas" ref={viewHost} />
-          <ViewportChrome objectName={entity.name} context={state.context} />
+          <ViewportChrome objectName={entity.name} context={state.context} extra={kind.viewExtra?.({ entity, mode: rail.id, host: p.host })} />
           {p.notice !== null && (
             <div className="tl-notice" role="alert">
               <span>{p.notice}</span>

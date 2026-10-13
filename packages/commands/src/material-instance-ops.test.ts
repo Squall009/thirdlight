@@ -145,5 +145,12 @@ describe('material instances', () => {
     // An object that is not in the scene, or a stray field, is refused and changes nothing.
     expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'nope' } }).path).toBe('/args/assign/entityId');
     expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slot: 'body' } }).path).toBe('/args/assign/slot');
+    expect(refused(fresh(), 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: ['*'] } }).path).toBe('/args/assign/slots');
+    // Named slots take it too (a named slot is drawn before "*"); one undo puts the old mapping back.
+    let t = ok(fresh(), 'setComponent', { entityId: 'box-0001', component: 'materials', value: { body: 'mi-red', trim: 'mi-red' } });
+    t = ok(t, 'setMaterial', { material: GRAPH, assign: { entityId: 'box-0001', slots: ['body'] } });
+    expect(comp(t)).toEqual({ '*': 'mat-g', body: 'mat-g', trim: 'mi-red' });
+    t = ok(t, 'undo', {});
+    expect(comp(t)).toEqual({ body: 'mi-red', trim: 'mi-red' });
   });
 });

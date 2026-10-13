@@ -49,6 +49,9 @@ describe('brush settings', () => {
     expect(stepSize(10, -1, BOUNDS)).toBe(8.7);
     expect(stepSize(0.5, -1, BOUNDS)).toBe(0.5);
     expect(stepSize(4000, 1, BOUNDS)).toBe(4096);
+    // A prop's brush steps by centimetres (0.1 m steps would stall it under a metre).
+    expect(stepSize(0.3, 1, { ...BOUNDS, size: [0.02, 128] })).toBe(0.35);
+    expect(stepSize(0.3, -1, { ...BOUNDS, size: [0.02, 128] })).toBe(0.26);
     expect(stepStrength(0.5, 1)).toBe(0.55);
     expect(stepStrength(0.03, -1)).toBe(0.01);
     expect(stepStrength(1, 1)).toBe(1);

@@ -26,6 +26,8 @@ export interface BrushPanelProps {
 
 /** The size track's ends (metres): typed sizes may go to the editor's bounds. */
 const SIZE_TRACK: readonly [number, number] = [0.5, 256];
+/** The smallest a size track starts at (typed sizes may go smaller, to the editor's bounds). */
+const SIZE_TRACK_SMALLEST = 0.05;
 const HEIGHT_TRACK: readonly [number, number] = [0.01, 10];
 
 const FALLOFF_PATHS: Readonly<Record<BrushFalloff, string>> = {
@@ -102,6 +104,8 @@ export function BrushPanel({ settings: b, store, uses, preview, invert }: BrushP
   const has = (u: BrushUse): boolean => uses.includes(u);
   const B = BRUSH_BOUNDS;
   const erase = invert === 'Erase';
+  // A brush made for small things (a prop's paint) gets a track that reaches its own smallest size.
+  const sizeTrack: readonly [number, number] = [Math.min(SIZE_TRACK[0], Math.max(store.bounds.size[0], SIZE_TRACK_SMALLEST)), Math.min(SIZE_TRACK[1], store.bounds.size[1])];
   return (
     <div className="tl-brush" aria-label="brush">
       {preview === true && <BrushPreview settings={b} />}
@@ -109,7 +113,7 @@ export function BrushPanel({ settings: b, store, uses, preview, invert }: BrushP
         <SliderField label="Height step" value={b.heightStep} min={HEIGHT_TRACK[0]} max={HEIGHT_TRACK[1]} log limit={store.bounds.heightStep} step={0.01} unit="m" hint="How far one dab at full strength raises or lowers the ground." onChange={(v) => store.set({ heightStep: v })} />
       )}
       {has('size') && (
-        <SliderField label="Size" aria="brush size" value={b.size} min={SIZE_TRACK[0]} max={SIZE_TRACK[1]} log limit={store.bounds.size} step={0.1} decimals={b.size < 10 ? 1 : 0} unit="m" accent hint="The brush's width. [ and ] change it; F then drag in the view." onChange={(v) => store.set({ size: v })} />
+        <SliderField label="Size" aria="brush size" value={b.size} min={sizeTrack[0]} max={sizeTrack[1]} log limit={store.bounds.size} step={b.size < 1 ? 0.01 : 0.1} decimals={b.size < 1 ? 2 : b.size < 10 ? 1 : 0} unit="m" accent hint="The brush's width. [ and ] change it; F then drag in the view." onChange={(v) => store.set({ size: v })} />
       )}
       {has('strength') && (
         <SliderField label="Strength" aria="brush strength" value={b.strength} min={B.strength[0]} max={B.strength[1]} step={1} scale={100} unit="%" accent hint="How much one dab does. Shift+[ and Shift+] change it; Shift+F then drag in the view." onChange={(v) => store.set({ strength: v })} />

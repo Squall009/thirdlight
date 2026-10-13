@@ -23,11 +23,11 @@
  */
 import { pathDistanceNear, pathPointAt, samplePath } from './arch-path';
 import type { ArchitectureComponent, ArchitecturePath } from './architecture';
-import { brushFalloff, latticeKey, paintPoint, strokeAmount, strokeCoverage, type DabStroke } from './paint-brush';
+import { brushFalloff, latticeKey, strokeAmount, strokeCoverage, type DabStroke } from './paint-brush';
 import { SplineCurve, newSplineFrame } from './spline-curve';
 import type { SplineComponent } from './spline';
-import { PATH_PAINT_CELL, VERTEX_PAINT_BYTES, VERTEX_PAINT_LAYOUT, VERTEX_PAINT_LIMITS, type PathPaintSide } from './vertex-paint';
-import type { PaintVec3, VertexPaintBrush } from './vertex-paint-stroke';
+import { PATH_PAINT_CELL, VERTEX_PAINT_BYTES, VERTEX_PAINT_LIMITS, type PathPaintSide } from './vertex-paint';
+import { paintChannels, type PaintVec3, type VertexPaintBrush } from './vertex-paint-stroke';
 
 /** Metres to the side of a path (across a wall face's left or right) its paint reaches. */
 export const PATH_PAINT_REACH = 2;
@@ -208,7 +208,7 @@ export function paintPathDabs(grid: PathGrid | null, frame: PathFrame, side: Pat
           if (d2 > r * r) continue;
           const at = ((j - g.origin[1]) * cols + (i - g.origin[0])) * VERTEX_PAINT_BYTES;
           const a = strokeAmount(brush.strength * brushFalloff(d2, r, falloff, brush.hardness), st.mask, st.coverage, latticeKey(i, j), i * cell, j * cell);
-          if (paintPoint(g.values, at, VERTEX_PAINT_LAYOUT, brush, a)) changed++;
+          changed += paintChannels(g.values, at, brush, a);
         }
       }
     }

@@ -61,7 +61,7 @@
  * wearing the decal material) lies on the paving. The clipped corner mark
  * is drawn before the first frame (the start's first present waits for it),
  * in Play and the export.
- * Strokes from the editor's Vertex paint window too: the merged pair's
+ * Strokes from the editor's vertex paint editor too: the merged pair's
  * second block and the kerb's west half painted blue with the brush (a
  * merged static object and a spline, each picked under the pointer).
  *
@@ -87,7 +87,7 @@ import { makePng } from './png-make';
 import { expectRendererBackend } from './renderer-variants';
 import { frameShareNear, projectWith, serveDir, type CameraView, type V3 } from './frame-reading';
 import { BACKENDS, cmd, query, relay, useBackend } from './terrain-cdlod-steps';
-import { fit, frame as frameEntity, paintDrag, paintState, setPaint, strokeDone } from './vertex-paint-drive';
+import { enterPaint, fit, frame as frameEntity, leavePaint, paintDrag, pickTile, setPaint, strokeDone } from './vertex-paint-drive';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -630,28 +630,28 @@ async function archTimes(target: Page | ReturnType<ReturnType<Page['frameLocator
   });
 }
 
-/** The editor's Vertex paint window: blue (channels B, then A) brushed across the merged pair's block and along the kerb's west half. */
+/** The editor's vertex paint editor: blue (the tint's blue, then its amount) brushed across the merged pair's block and along the kerb's west half. */
 async function editorStrokes(page: Page, b: Built): Promise<void> {
   await page.goto(be!.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('button', { name: 'paint', exact: true }).click();
-  await expect(page.getByLabel('vertex paint tool')).toBeVisible();
-  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(true);
   let strokes = 0;
-  const brush = async (entityId: string, [from, to]: [V3, V3], radius: string, what: string): Promise<void> => {
-    await setPaint(page, { radius, strength: '1', falloff: 'constant' });
+  const brush = async (entityId: string, [from, to]: [V3, V3], size: string, what: string): Promise<void> => {
     await frameEntity(page, entityId);
+    await enterPaint(page, entityId);
+    await setPaint(page, { size, strength: '100', falloff: 'Constant' });
     await fit(page, [from, to]);
-    for (const channel of ['2', '3']) {
-      await setPaint(page, { channel });
+    // The paint tint's tiles: Tint blue (B), then Tint amount (A).
+    for (const [tile, channel] of [[2, 2], [3, 3]] as const) {
+      await pickTile(page, tile, channel);
       await paintDrag(page, from, to);
       const t = await strokeDone(page, (strokes += 1));
       expect(t.entityId, `${what}: the stroke's object`).toBe(entityId);
       console.log(`editor stroke on ${what} (channel ${channel}): ${JSON.stringify(t)}`);
     }
+    await leavePaint(page);
   };
-  await brush(b.pair, EDITOR_PAIR_STROKE, '0.6', 'the merged pair');
-  await brush(b.kerb, EDITOR_KERB_STROKE, '1.2', 'the kerb');
+  await brush(b.pair, EDITOR_PAIR_STROKE, '1.2', 'the merged pair');
+  await brush(b.kerb, EDITOR_KERB_STROKE, '2.4', 'the kerb');
   const paintOf = async (id: string): Promise<unknown> => ((await query('queryEntity', { entityId: id }))['entity'] as { components: Record<string, unknown> }).components['vertexPaint'];
   expect(await paintOf(b.pair), 'the merged block painted').toBeDefined();
   expect(JSON.stringify(await paintOf(b.kerb)), 'the kerb painted on its path').toContain('spline');
