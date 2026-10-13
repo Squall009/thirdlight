@@ -97,6 +97,10 @@ export interface DecalPageEntry {
   readonly mip: number;
   /** The sets it has an image in (absent sets: the material's factors alone). */
   readonly sets: readonly DecalPageSet[];
+  /** Its image's size in source pixels (a sheet cell's: the cell's). */
+  readonly source: readonly [number, number];
+  /** The page side it asks for: its image's (or its whole sheet's) side, rounded up to a power of two. */
+  readonly side: number;
 }
 
 export interface DecalPagePlan {
@@ -326,7 +330,8 @@ export function planDecalPages(materials: readonly DecalPageMaterial[], sheets: 
   // The page size: the largest image; smaller ones are copied. Copying needs an encodable page.
   const list = [...items.values()];
   const wholeSide = (it: Item): number => (it.sheet !== undefined ? it.sheet.trim.size[0] : it.whole !== null ? it.size[0] : 0);
-  let size = Math.max(DECAL_PAGE_LIMITS.sizeMin, ...list.map((it) => pow2Ceil(Math.max(wholeSide(it), it.size[0], it.size[1]))));
+  const sideOf = (it: Item): number => pow2Ceil(Math.max(wholeSide(it), it.size[0], it.size[1]));
+  let size = Math.max(DECAL_PAGE_LIMITS.sizeMin, ...list.map(sideOf));
   const isWhole = (it: Item, side: number): boolean => it.whole !== null && wholeSide(it) === side;
   if (size > DECAL_PAGE_LIMITS.composeSizeMax && list.some((it) => !isWhole(it, size))) size = DECAL_PAGE_LIMITS.composeSizeMax;
 
@@ -336,7 +341,7 @@ export function planDecalPages(materials: readonly DecalPageMaterial[], sheets: 
   const entries = new Map<string, DecalPageEntry>();
   const setsOf = (it: Item): DecalPageSet[] => DECAL_PAGE_SETS.filter((s) => it.channels[s] !== undefined);
   const enter = (it: Item, page: number, rect: readonly [number, number, number, number], pad: readonly [number, number, number, number]): void => {
-    const entry: DecalPageEntry = { page, rect, mip: decalRectSafeMipLevel(size, rect, pad), sets: setsOf(it) };
+    const entry: DecalPageEntry = { page, rect, mip: decalRectSafeMipLevel(size, rect, pad), sets: setsOf(it), source: [it.size[0], it.size[1]], side: sideOf(it) };
     for (const id of it.materials) entries.set(id, entry);
   };
   const sheetPages = new Map<string, number>();

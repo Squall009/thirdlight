@@ -169,6 +169,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-create-entities-max"></a>`CREATE_ENTITIES_MAX` | `1024` | The most entities one `createEntities` creates (folders' children included; the 64 KiB request bound bounds it too). A request's size, not a cap on objects in a project: a larger batch (a long scatter stroke) goes as more requests. |
 | <a id="limit-declaration-string-length-default"></a>`DECLARATION_STRING_LENGTH_DEFAULT` | `256` | A declared `string` property's length (code points) when it sets no `maxLength`, and the largest `maxLength` it may set. |
 | <a id="limit-default-asset-folder"></a>`DEFAULT_ASSET_FOLDER` | `"assets"` | The folder of the game folder uploads land in when the user names none. |
+| <a id="limit-delete-entities-max"></a>`DELETE_ENTITIES_MAX` | `1024` | The most further objects one `deleteEntity` removes (`entityIds`): a request's size, not a cap on objects in a project — a larger selection is deleted in more requests. |
 | <a id="limit-index-page-default"></a>`INDEX_PAGE_DEFAULT` | `256` |  |
 | <a id="limit-index-page-max"></a>`INDEX_PAGE_MAX` | `1024` | A page of the project index (`queryIndex`): its largest (also the most ids one page asks for) and its default size. |
 | <a id="limit-max-asset-versions"></a>`MAX_ASSET_VERSIONS` | `32` | The content catalog's limits: the sizes of one file, one record and one model. A leaf module (no imports), so every model module can use them without an import cycle; `content.ts` re-exports them. Nothing here bounds how many assets or resources a project holds: a game has as many as it needs, each stored as its own file, so only a file's size and the runtime's memory are bounded (a guard test fails if a count of assets or resources comes back as a `MAX_*` here). |
@@ -353,19 +354,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
-
-<a id="limits-project-model--materials"></a>
-## `materials.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |
-| <a id="limit-height-fog-defaults"></a>`HEIGHT_FOG_DEFAULTS` | `{"density":0.02,"color":"#c8d2dc","height":0,"falloff":0.05,"start":0,"inscatterExponent":8}` | What an absent height fog field means (the renderer and the preset blend read these); a new height fog starts at `density` and `color`. |
-| <a id="limit-height-fog-limits"></a>`HEIGHT_FOG_LIMITS` | `{"density":1,"height":10000,"falloff":10,"start":10000,"inscatterExponentMin":1,"inscatterExponentMax":64}` | The height fog's ranges (the validator and the descriptor share them). |
-| <a id="limit-material-extra-layers-max"></a>`MATERIAL_EXTRA_LAYERS_MAX` | `252` | Layers past a vec4's four a per-layer setting holds values for: every layer a terrain sample can name. |
-| <a id="limit-material-layer-name-max"></a>`MATERIAL_LAYER_NAME_MAX` | `64` | Longest layer name (`MaterialDef.layerNames`). |
-| <a id="limit-max-fog-volumes"></a>`MAX_FOG_VOLUMES` | `16` | Fog volumes per scene: the fog shader reads them from a fixed-size uniform array. |
-| <a id="limit-max-material-instance-depth"></a>`MAX_MATERIAL_INSTANCE_DEPTH` | `8` | The longest chain of instances (an instance of an instance of … a material), resolved at build and in the renderer per material. |
-| <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |
-| <a id="limit-max-material-slots"></a>`MAX_MATERIAL_SLOTS` | `32` | Most material slots one object or asset maps. |
-| <a id="limit-sky-rotation-max"></a>`SKY_ROTATION_MAX` | `360` | The largest turn a sky's `rotation` takes either way (degrees; one full turn). |

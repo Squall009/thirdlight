@@ -847,6 +847,7 @@ export * from './vertex-paint-paths';
 export { seededRandom } from './arch-math';
 // Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
 export * from './decal-pages';
+export * from './decal-page-report';
 // The decal clipper: a clipped decal's mesh cut from its receivers' triangles inside its box.
 export * from './decal-clip';
 // What a clipped decal's mesh is kept by: the key of its inputs and the mesh as bytes.

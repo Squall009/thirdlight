@@ -13,7 +13,7 @@
  * dependencies name those files for it and the game never loads them.
  */
 import type { WorkspaceService, BlobFile } from '@thirdlight/workspace';
-import { DECAL_PAGE_SETS, decalPageRefs, planDecalPages, type DecalPageLayer, type DecalPageLayerRef, type DecalPageRef, type DecalPageSet, type DecalPageSheet, type ManifestAssetInputV2, type MaterialDef } from '@thirdlight/project-model';
+import { DECAL_PAGE_SETS, decalPageRefs, decalPageReport, planDecalPages, type DecalPageReport, type DecalPageLayer, type DecalPageLayerRef, type DecalPageRef, type DecalPageSet, type DecalPageSheet, type ManifestAssetInputV2, type MaterialDef } from '@thirdlight/project-model';
 
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
 import { readWhole } from './closure-texture-slots';
@@ -45,7 +45,7 @@ export interface ClosureDecalPageArrays {
   readonly notes: readonly string[];
 }
 
-interface AssetRecordLike {
+export interface AssetRecordLike {
   readonly assetId: string;
   readonly kind?: string;
   readonly currentVersion?: number;
@@ -59,6 +59,37 @@ export function hasDecalMaterials(materials: readonly MaterialDef[]): boolean {
   return materials.some((m) => m.shader === 'decal');
 }
 
+/** A texture asset's current version (undefined: not a texture of the project). */
+function currentTexture(byId: ReadonlyMap<string, AssetRecordLike>, id: string): { version: number; sourceDigest: string; metrics?: unknown } | undefined {
+  const a = byId.get(id);
+  return a?.kind === 'texture' ? a.versions?.find((v) => v.version === a.currentVersion) : undefined;
+}
+
+/**
+ * What the build plans the decal pages from (project-model `planDecalPages`): the shipped materials,
+ * their trim sheets by id and each texture's size from its current version's metrics. The editor's
+ * decal atlas reads the same, so its pages are the build's.
+ */
+export function decalPageInput(assets: readonly AssetRecordLike[], materials: readonly MaterialDef[]): { materials: readonly MaterialDef[]; sheets: ReadonlyMap<string, DecalPageSheet>; sizeOf: (textureId: string) => readonly [number, number] | null } {
+  const byId = new Map(assets.map((a) => [a.assetId, a]));
+  const sheets = new Map<string, DecalPageSheet>();
+  for (const m of materials) if (m.shader === 'trim' && m.trim !== undefined) sheets.set(m.materialId, { trim: m.trim, textures: m.textures });
+  return {
+    materials,
+    sheets,
+    sizeOf: (id) => {
+      const m = currentTexture(byId, id)?.metrics as { width?: unknown; height?: unknown } | undefined;
+      return typeof m?.width === 'number' && typeof m.height === 'number' ? [m.width, m.height] : null;
+    },
+  };
+}
+
+/** The report of the decal pages a build of these shipped materials plans (project-model `decalPageReport`). */
+export function decalPageReportOf(assets: readonly AssetRecordLike[], materials: readonly MaterialDef[]): DecalPageReport {
+  const input = decalPageInput(assets, materials);
+  return decalPageReport(input.materials, input.sheets, input.sizeOf);
+}
+
 /** Plan the used decal materials' pages and have the backend make (or find cached) their arrays. */
 export async function closureDecalPages(o: {
   readonly port: ClosureDecalPages | undefined;
@@ -70,16 +101,9 @@ export async function closureDecalPages(o: {
   readonly hash: (bytes: Uint8Array) => string;
 }): Promise<{ ok: true; pages: ClosureDecalPageArrays } | { ok: false; error: ContentClosureError }> {
   const byId = new Map(o.assets.map((a) => [a.assetId, a]));
-  const current = (id: string): { version: number; sourceDigest: string; metrics?: unknown } | undefined => {
-    const a = byId.get(id);
-    return a?.kind === 'texture' ? a.versions?.find((v) => v.version === a.currentVersion) : undefined;
-  };
-  const sheets = new Map<string, DecalPageSheet>();
-  for (const m of o.materials) if (m.shader === 'trim' && m.trim !== undefined) sheets.set(m.materialId, { trim: m.trim, textures: m.textures });
-  const plan = planDecalPages(o.materials, sheets, (id) => {
-    const m = current(id)?.metrics as { width?: unknown; height?: unknown } | undefined;
-    return typeof m?.width === 'number' && typeof m.height === 'number' ? [m.width, m.height] : null;
-  });
+  const current = (id: string): { version: number; sourceDigest: string; metrics?: unknown } | undefined => currentTexture(byId, id);
+  const input = decalPageInput(o.assets, o.materials);
+  const plan = planDecalPages(input.materials, input.sheets, input.sizeOf);
   const empty = { refs: new Map<string, DecalPageRef>(), rows: [], files: [], artifacts: [], size: plan.size, pages: 0, notes: plan.notes };
   if (plan.pages === 0) return { ok: true, pages: empty };
   if (o.port?.decalPages === undefined) return refused('a used decal material has images to place on decal pages, and this build has no texture assembly');

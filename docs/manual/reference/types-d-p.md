@@ -1,4 +1,4 @@
-# Types (DeclaredProperty to PointerButtonName)
+# Types (DeclaredProperty to PointerAxisName)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -45,6 +45,12 @@ Declared in `packages/commands/src/types.ts`.
 ```ts
 interface DeleteEntityArgs {
   entityId: string;
+  /**
+   * More objects deleted with `entityId` (each with its subtree), in the same
+   * transaction: one revision, one undo — a delete of a multi-selection.
+   * Distinct, without `entityId`; a child named with its parent goes with it.
+   */
+  entityIds?: string[];
 }
 ```
 
@@ -1634,14 +1640,4 @@ Declared in `packages/project-model/src/input.ts`.
 ```ts
 /** One axis of the pointer's movement (x, y) or the wheel. */
 type PointerAxisName = 'x' | 'y' | 'wheel';
-```
-
-<a id="type-pointer-button-name"></a>
-### PointerButtonName
-
-Declared in `packages/project-model/src/input.ts`.
-
-```ts
-/** The pointer buttons an action binds. */
-type PointerButtonName = 'left' | 'right' | 'middle';
 ```

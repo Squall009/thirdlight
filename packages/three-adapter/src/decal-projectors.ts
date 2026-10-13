@@ -640,6 +640,10 @@ export function createDecalProjectors(o: {
         pending = false;
         updates += 1;
         updateMs = performance.now() - t0;
+        // On WebGL 2 the frame that writes rows in place draws without them (three r186: a decal placed or previewed
+        // in the Scene view showed only once something else drew a frame), and a view drawn on demand may draw no
+        // other: one more frame is asked for.
+        o.onChange?.();
       } else {
         dirty = false;
         rebuild(renderer);

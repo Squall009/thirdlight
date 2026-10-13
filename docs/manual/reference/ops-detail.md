@@ -242,6 +242,12 @@ Arguments (`args`):
 ```ts
 interface DeleteEntityArgs {
   entityId: string;
+  /**
+   * More objects deleted with `entityId` (each with its subtree), in the same
+   * transaction: one revision, one undo — a delete of a multi-selection.
+   * Distinct, without `entityId`; a child named with its parent goes with it.
+   */
+  entityIds?: string[];
 }
 ```
 

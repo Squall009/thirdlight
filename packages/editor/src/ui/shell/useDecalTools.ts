@@ -12,8 +12,8 @@
  * - a trim sheet's cell picked gets its decal material (one `setMaterial`),
  *   a texture or a dropped image becomes a decal material (an import, then
  *   one `setMaterial`);
- * - Delete removes each selected decal (one `deleteEntity` each, as the
- *   editor's delete does), Bake to model bakes each clipped one.
+ * - Delete removes the selected decals in one `deleteEntity` (`entityIds`),
+ *   as the editor's delete does; Bake to model bakes each clipped one.
  *
  * Browser-only (React).
  */
@@ -25,6 +25,7 @@ import { trimCellMetres, trimCellOf } from '@thirdlight/runtime';
 import { brushStore, DEFAULT_BRUSH, type BrushBounds, type BrushStore } from '../../session/brush';
 import { decalPalette, NO_DECAL_FILTER, sanitizeScatter, selectionEdit, type DecalFieldEdit, type DecalFilter, type DecalPaletteEntry, type DecalPaletteFilter, type DecalScatterSettings } from '../../session/decal-editor';
 import { DECAL_TOOL_DEFAULTS, decalToolSettingsError, type DecalToolSettings } from '../../session/decal-place';
+import { deleteEntitiesArgs } from '../../session/delete-entities';
 import type { ProjectedEntity } from '../../session/projection';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import type { DecalToolMode } from '../../viewport/decal-tool';
@@ -193,8 +194,8 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
 
   const remove = useCallback(
     async (ids: readonly string[]) => {
-      for (const entityId of ids) {
-        const r = await run('Delete decal', 'deleteEntity', { entityId });
+      for (const args of deleteEntitiesArgs(ids)) {
+        const r = await run(ids.length === 1 ? 'Delete decal' : 'Delete decals', 'deleteEntity', args);
         if (r === null || !r.ok) break;
       }
       setSelectionState((s) => ({ ids: s.ids.filter((id) => !ids.includes(id)), primary: s.primary !== null && ids.includes(s.primary) ? null : s.primary }));

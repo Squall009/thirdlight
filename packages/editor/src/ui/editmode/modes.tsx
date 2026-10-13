@@ -20,6 +20,7 @@ import type { KeyHint } from '../../session/edit-keys';
 import type { EffectiveEntityFlags } from '../../session/hierarchy';
 import type { ProjectedEntity } from '../../session/projection';
 import type { PaletteHost } from '../palette/MaterialLayers';
+import type { DecalAtlas } from '../shell/useDecalAtlas';
 import type { DecalTools } from '../shell/useDecalTools';
 import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
@@ -36,6 +37,8 @@ export interface EditModeHost {
   paint: VertexPaintTools;
   /** The decal editor's wiring: its tool, selection, settings and commands. */
   decals: DecalTools;
+  /** The decal atlas: the pages Play and the export will use, Rebuild pages, what the Scene view draws from. */
+  decalAtlas: DecalAtlas;
   /** The scene's objects (a scene's mode reads the ones it edits). */
   entities: readonly ProjectedEntity[];
   /** The scene new objects go into (the active one; null: none). */
@@ -113,8 +116,10 @@ export interface SceneEditModeKind extends EditModeBase {
   readonly chip: ReactNode;
   /** The settings column of the mode shown. */
   column(view: SceneModeView): ReactNode;
-  /** What the editor lays over the Scene view in every mode (its tool armed, drawers). */
+  /** What the editor lays over the Scene view in every mode (its tool armed, chips beside the isolation chip). */
   viewExtra?(view: SceneModeView): ReactNode;
+  /** A drawer along the Scene view's bottom edge, in every mode (the decal atlas). */
+  drawer?(view: SceneModeView): ReactNode;
 }
 
 /** An object's edit mode (a terrain, a model's vertex paint): it alone is drawn (Context: the rest too, not pickable). */

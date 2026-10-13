@@ -16,7 +16,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import type { DecalPageRef } from '@thirdlight/project-model';
+import type { DecalPageRef, DecalPageReport } from '@thirdlight/project-model';
 import { DECAL_PAGE_LIMITS } from '@thirdlight/project-model/limits';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -186,5 +186,60 @@ describe('decal pages in a real export', () => {
     expect(stats.composed).toBe(composed);
     expect(stats.cached).toBeGreaterThanOrEqual(2);
     console.log(`decal pages export: cold ${coldMs.toFixed(0)} ms, warm ${warmMs.toFixed(0)} ms`);
+  }, 180_000);
+
+  it("the editor's decal atlas reads the build's pages, and Rebuild pages makes the export's arrays (from the cache)", async () => {
+    const r = await exportNow();
+    expect(r.status).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const content = exportContentOf(out) as unknown as { assets: { assetId: string; sourceDigest: string }[]; materials: { materialId: string; decalPage?: DecalPageRef }[] };
+    const shipped = Object.fromEntries(content.materials.filter((m) => m.decalPage !== undefined).map((m) => [m.materialId, m.decalPage!]));
+    type View = { ok: true; report: DecalPageReport; signature: string; composed: { signature: string; refs: Record<string, DecalPageRef>; ms: number } | null };
+    const read = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages`, { method: 'GET', token: tb.adminToken, origin: null });
+    expect(read.status, JSON.stringify(read.json).slice(0, 400)).toBe(200);
+    const view = read.json as View;
+    const report = view.report;
+    // The build's numbers: the page side, its pages (the albedo array's layers), each material's rectangle.
+    const albedo = readKtx2(new Uint8Array(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === shipped['mat-crack']!.albedo!.texture)!.sourceDigest))))!;
+    expect([report.size, report.pages.length]).toEqual([albedo.width, albedo.layerCount]);
+    expect(report.materials).toBe(Object.keys(shipped).length);
+    for (const p of report.pages) {
+      for (const rect of p.rects) {
+        for (const id of rect.materials) {
+          const [x, y, w, h] = rect.rect;
+          const n = report.size;
+          expect(shipped[id]!.rect, id).toEqual([(x + 0.5) / n, (y + 0.5) / n, (x + w - 0.5) / n, (y + h - 0.5) / n]);
+          expect(shipped[id]!.albedo!.layer, id).toBe(p.page);
+        }
+      }
+    }
+    // The sheet page uses only its one cell; the GPU memory is the pages' block-compressed bytes.
+    expect(report.pages[0]!.unused).toBeCloseTo(1 - (64 * 64) / (256 * 256), 6);
+    // 16 bytes a 4 × 4 block, every level of 256² down to 1², for 2 albedo + 1 normal + 2 ORM pages.
+    const chain = [256, 128, 64, 32, 16, 8, 4, 2, 1].reduce((n, side) => n + Math.ceil(side / 4) ** 2 * 16, 0);
+    expect(report.gpuBytes).toBe(chain * 5);
+    expect(report.offender).toBeNull();
+    expect(view.composed).toBeNull();
+    // Rebuild pages: the export's arrays (the same files, found in the cache), each material placed as the export placed it.
+    const before = tb.backend._test.decalPages.stats.composed;
+    const made = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages`, { method: 'POST', token: tb.adminToken, origin: null });
+    expect(made.status, JSON.stringify(made.json).slice(0, 400)).toBe(200);
+    const composed = (made.json as View).composed!;
+    expect(composed.signature).toBe(view.signature);
+    expect(composed.refs).toEqual(shipped);
+    expect(tb.backend._test.decalPages.stats.composed).toBe(before);
+    // Read again: still current; an array's bytes are the export's file.
+    expect(((await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages`, { method: 'GET', token: tb.adminToken, origin: null })).json as View).composed?.signature).toBe(view.signature);
+    const arrayId = composed.refs['mat-crack']!.albedo!.texture;
+    const bytes = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages/arrays/${arrayId}`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
+    expect(bytes.status).toBe(200);
+    expect(Buffer.from(await bytes.arrayBuffer()).equals(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === arrayId)!.sourceDigest)))).toBe(true);
+    // A new decal material changes the pages: the composition is no longer current.
+    await command('setMaterial', { material: { materialId: 'mat-mark-2', name: 'Mark 2', shader: 'decal', params: {}, textures: { map: ids['mark-glow'] } } });
+    await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'mark 2', components: { decal: { size: [1, 1, 0.5], material: 'mat-mark-2' } } });
+    const after = (await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages`, { method: 'GET', token: tb.adminToken, origin: null })).json as View;
+    expect(after.signature).not.toBe(view.signature);
+    expect(after.composed).toBeNull();
+    expect(after.report.materials).toBe(3);
   }, 180_000);
 });

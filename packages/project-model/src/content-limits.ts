@@ -44,6 +44,12 @@ export const CREATE_ENTITIES_MAX = 1024;
  * edited in more requests (the 64 KiB request bound holds about this many ids).
  */
 export const SET_COMPONENT_ENTITIES_MAX = 1024;
+/**
+ * The most further objects one `deleteEntity` removes (`entityIds`): a
+ * request's size, not a cap on objects in a project — a larger selection is
+ * deleted in more requests.
+ */
+export const DELETE_ENTITIES_MAX = 1024;
 /** The most overrides one prefab instantiation request carries (commands and the editor's planner check it). */
 export const MAX_PREFAB_OVERRIDES = 64;
 export const MAX_ENUM_VALUES = 32;

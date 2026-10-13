@@ -10,6 +10,7 @@
 import type { FolderImportView } from './folder-upload';
 import { makeRequestId, type MutationResponse } from './envelope';
 import { type AssetView } from './content-projection';
+import type { DecalAtlasView } from './decal-atlas';
 import {
   beginImport,
   beginProjectFileImport,
@@ -851,6 +852,29 @@ export class SessionClient extends SessionClientCore {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The decal pages Play and the export will use (`compose`: made now, the Scene view then draws from them), or why
+   * not. One composition runs at a time per project; the encoding runs on the backend's encoder thread.
+   */
+  async decalAtlas(compose = false): Promise<{ ok: true; view: DecalAtlasView } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const view = await this.request<DecalAtlasView>(`/projects/${this.cfg.projectId}/content/decal-pages`, { method: compose ? 'POST' : 'GET' });
+      return { ok: true, view };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** A composed decal page array's KTX2 bytes (the last composition's). */
+  async decalPageArrayBytes(arrayId: string): Promise<Uint8Array> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/decal-pages/arrays/${encodeURIComponent(arrayId)}`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+    });
+    if (!res.ok) throw { status: res.status, body: null };
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   /** A trim sheet's image checked against its row table on the backend (its padding, its size). */

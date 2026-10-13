@@ -1,8 +1,18 @@
-# Types (PostConfig to UiTweenKind)
+# Types (PointerButtonName to UiTweenKind)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-pointer-button-name"></a>
+### PointerButtonName
+
+Declared in `packages/project-model/src/input.ts`.
+
+```ts
+/** The pointer buttons an action binds. */
+type PointerButtonName = 'left' | 'right' | 'middle';
+```
 
 <a id="type-post-config"></a>
 ### PostConfig

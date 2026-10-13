@@ -35,6 +35,9 @@ export {
   type ContentClosureM3Input,
 } from './content-closure';
 export { SLOT_ARRAY_ID_PREFIX, type ClosureSlotLayer, type ClosureTextureSlots } from './closure-texture-slots';
+// What a build ships and how it plans its decal pages, without making the build (the editor's decal atlas).
+export { shippedMaterialsOfCapture } from './closure-materials';
+export { closureDecalPages, decalPageInput, decalPageReportOf, DECAL_PAGE_ID_PREFIX, type AssetRecordLike, type ClosureDecalPageArrays, type ClosureDecalPages } from './closure-decal-pages';
 export { type GzipPort } from './block-chunk-data';
 // A build read whole from its catalog (a tool or a test reads what the closure wrote; a game page reads it lazily, game-host).
 export { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';

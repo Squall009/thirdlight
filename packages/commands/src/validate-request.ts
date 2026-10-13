@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { AUDIO_LOAD_TYPES, isValidSourcePath, modelLodProblems, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { AUDIO_LOAD_TYPES, isValidSourcePath, modelLodProblems, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, DELETE_ENTITIES_MAX, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type SceneEnvironment, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -1057,8 +1057,8 @@ function validateDeleteArgs(args: Record<string, unknown>):
   | { ok: true; args: DeleteEntityArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'entityId') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId') };
+    if (key !== 'entityId' && key !== 'entityIds') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'entityId, entityIds (optional)') };
     }
   }
   if (args['entityId'] === undefined) {
@@ -1067,7 +1067,19 @@ function validateDeleteArgs(args: Record<string, unknown>):
   if (typeof args['entityId'] !== 'string') {
     return { ok: false, error: fieldType('/args/entityId', args['entityId'], 'string (entity ID)') };
   }
-  return { ok: true, args: { entityId: args['entityId'] } };
+  const more = args['entityIds'];
+  if (more === undefined) return { ok: true, args: { entityId: args['entityId'] } };
+  if (!Array.isArray(more)) return { ok: false, error: fieldType('/args/entityIds', more, `array of 1-${DELETE_ENTITIES_MAX} entity IDs`) };
+  if (more.length < 1 || more.length > DELETE_ENTITIES_MAX) {
+    return { ok: false, error: fieldValue('/args/entityIds', more.length, `1-${DELETE_ENTITIES_MAX} entity IDs`, `deleteEntity removes 1 to ${DELETE_ENTITIES_MAX} further entities`) };
+  }
+  for (let i = 0; i < more.length; i++) {
+    if (typeof more[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, more[i], 'string (entity ID)') };
+  }
+  if (new Set(more).size !== more.length || more.includes(args['entityId'])) {
+    return { ok: false, error: fieldValue('/args/entityIds', more, 'distinct entity IDs other than entityId', 'an entity is named twice') };
+  }
+  return { ok: true, args: { entityId: args['entityId'], entityIds: more as string[] } };
 }
 
 function validateUpdateEntityArgs(args: Record<string, unknown>):

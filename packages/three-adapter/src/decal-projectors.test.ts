@@ -18,7 +18,7 @@ import { settle, testTexture } from './test-wgsl';
 /** A renderer that draws nothing (the view's pages need a GPU: the table and index are what these read). */
 const renderer = { getRenderTarget: () => null, getActiveCubeFace: () => 0, getActiveMipmapLevel: () => 0, setRenderTarget: () => undefined, render: () => undefined } as unknown as Parameters<ReturnType<typeof createDecalProjectors>['beforeFrame']>[0];
 
-async function host(extra: { onProblem?: (code: string, message: string) => void } = {}) {
+async function host(extra: { onProblem?: (code: string, message: string) => void; onChange?: () => void } = {}) {
   const tex = testTexture();
   const library = createMaterialLibrary({ loadTexture: async () => tex });
   library.setMaterials([{ materialId: 'stain', name: 'stain', shader: 'decal', params: { color: '#804020' }, textures: { map: 'tex' } }]);
@@ -50,6 +50,26 @@ function listedAt(scene: THREE.Scene, x: number): number {
 }
 
 describe('the decal host changing in place', () => {
+  it('a decal written in place asks for one more frame (WebGL 2 draws the frame of the write without it); a still frame asks for none', async () => {
+    let asked = 0;
+    const { h, scene } = await host({ onChange: () => void (asked += 1) });
+    const a = new THREE.Object3D();
+    scene.add(a);
+    h.set('d1', a, { size: [1, 1, 1], material: 'stain' });
+    h.beforeFrame(renderer);
+    const b = new THREE.Object3D();
+    b.position.set(2, 0, 0);
+    scene.add(b);
+    h.set('d2', b, { size: [1, 1, 1], material: 'stain' });
+    asked = 0;
+    h.beforeFrame(renderer);
+    expect(h.observe()).toMatchObject({ drawn: 2, builds: 1, updates: 1 });
+    expect(asked).toBe(1);
+    h.beforeFrame(renderer);
+    expect(asked).toBe(1);
+    h.dispose();
+  });
+
   it('a moved decal is written again where it is, without a whole build', async () => {
     const { h, scene } = await host();
     const node = new THREE.Object3D();

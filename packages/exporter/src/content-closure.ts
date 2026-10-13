@@ -33,6 +33,7 @@ import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureDecalPages, hasDecalMaterials, withDecalPages, type ClosureDecalPageArrays } from './closure-decal-pages';
+import { shippedMaterials } from './closure-materials';
 import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
@@ -925,30 +926,10 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
   let usedMemo: MaterialDef[] | undefined | null = null;
   const usedMaterialsOf = (): MaterialDef[] | undefined => {
     if (usedMemo !== null) return usedMemo;
-    usedMemo = allMaterials === undefined
-      ? undefined
-      : (() => {
-          const entities = input.scenes !== undefined
-            ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
-            : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
-          const used = materialsInUse({
-            entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
-            assets: view.assets,
-            blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
-            effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
-            timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
-          });
-          // A loadable material ships too (a script may load it by name).
-          for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
-          // The trim sheets architecture presets name (any preset may be swapped in at run time).
-          for (const p of archStyles().presets.values()) if (p.sheet !== '') used.add(p.sheet);
-          // A decal material drawing a trim sheet's cell ships with its sheet.
-          const resolved = resolveMaterialInstances(allMaterials);
-          for (const id of decalSheetsOf(resolved, used)) used.add(id);
-          // A named instance ships resolved (its chain's graph, parameters and values folded
-          // in), so the runtime never sees an instance; its parents ship only when something names them.
-          return resolved.filter((m) => used.has(m.materialId));
-        })();
+    const entities = input.scenes !== undefined
+      ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
+      : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
+    usedMemo = allMaterials === undefined ? undefined : shippedMaterials({ content: input.content, entities, assets: view.assets, styles: archStyles });
     return usedMemo;
   };
   // 5a. Per-layer texture slots: each distinct list a used material draws with ships as one

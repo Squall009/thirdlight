@@ -6,6 +6,7 @@
  */
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import { draggedRoots, subtreeOrder } from '../../session/hierarchy';
+import { deleteEntitiesArgs } from '../../session/delete-entities';
 import { presetValue } from '../../session/descriptor-fields';
 import { withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
 import type { DescriptorRegistry, InstanceStroke } from '@thirdlight/project-model';
@@ -56,11 +57,11 @@ export function useSceneEditing(deps: SceneEditingDeps) {
       await editCopiesRef.current.remove(copy.entityId, copy.index);
       return;
     }
-    // Every selected subtree (one deleteEntity each; a child of a
+    // Every selected subtree in one deleteEntity (one undo step; a child of a
     // selected entity goes with it).
     const ids = draggedRoots(c.projection.listEntities(), selectionRef.current.length > 0 ? selectionRef.current : [selectedIdRef.current]);
-    for (const entityId of ids) {
-      const res = await c.command('deleteEntity', { entityId }, c.projection.revision);
+    for (const args of deleteEntitiesArgs(ids)) {
+      const res = await c.command('deleteEntity', args, c.projection.revision);
       if (!res.ok) break;
     }
     setSelectedId(null);

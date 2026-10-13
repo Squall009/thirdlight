@@ -39,8 +39,9 @@ import { createSceneViewAssets } from '../viewport/scene-assets';
 import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
-import type { EffectComponent, MaterialDef } from '@thirdlight/project-model';
+import type { DecalPageRef, EffectComponent, MaterialDef } from '@thirdlight/project-model';
 import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
+import { withDecalPageRefs } from '../session/decal-atlas';
 import { withSlotTextureKeys } from '../session/texture-slots';
 import { architectureGraphsOf, architectureStylesOf, viewLensOf, type ArchitectureStyles } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -91,6 +92,7 @@ import { useInstanceBrush } from './instances/InstanceBrush';
 import type { BottomTab } from './shell/dock-tabs';
 import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
 import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
+import { useDecalAtlas } from './shell/useDecalAtlas';
 import { useDecalTools } from './shell/useDecalTools';
 import { useVertexPaintTools } from './shell/useVertexPaintTools';
 import type { ReportFailure } from './shell/commands';
@@ -203,6 +205,23 @@ function EditorApp(): JSX.Element {
   const assetSummary = useCallback((assetId: string) => clientRef.current?.content.getAsset(assetId), []);
   const materialLibraryRef = useRef<MaterialLibrary | null>(null);
   const materialsKeyRef = useRef('');
+  /** The materials last received, and the composed decal pages the Scene view draws them with (null: their own textures). */
+  const lastMaterialsRef = useRef<{ mats: MaterialDef[]; libFunctions: unknown[] } | null>(null);
+  const decalPagesRef = useRef<{ signature: string; refs: Readonly<Record<string, DecalPageRef>> } | null>(null);
+  /** The Scene view's materials, handed over again only when they or the decal pages drawn changed. */
+  const sendMaterials = useCallback(() => {
+    const last = lastMaterialsRef.current;
+    if (last === null) return;
+    const pages = decalPagesRef.current;
+    const matsKey = JSON.stringify([last.mats, last.libFunctions, pages?.signature ?? null]);
+    if (matsKey === materialsKeyRef.current) return;
+    materialsKeyRef.current = matsKey;
+    // A material's per-layer texture slots draw as the array the backend assembles from them; a decal material
+    // draws from the composed decal pages (as in Play) while the decal atlas has current ones.
+    materialLibraryRef.current?.setMaterials(withDecalPageRefs(withSlotTextureKeys(last.mats), pages?.refs ?? null) as unknown as MaterialDefLike[], last.libFunctions as unknown as MaterialFunctionLike[]);
+    // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
+    viewportRef.current?.requestRender();
+  }, []);
   const environmentKeyRef = useRef('');
   const lightingKeyRef = useRef('');
   const architectureKeyRef = useRef('');
@@ -286,14 +305,8 @@ function EditorApp(): JSX.Element {
     // Graph materials compile to TSL in the Scene view too (the library recompiles only when a
     // graph's compile input changes — moving a node does not), with the material functions they call.
     const libFunctions = c.getGraphs().filter((g) => g.kind === 'material-function');
-    const matsKey = JSON.stringify([mats, libFunctions]);
-    if (matsKey !== materialsKeyRef.current) {
-      materialsKeyRef.current = matsKey;
-      // A material's per-layer texture slots draw as the array the backend assembles from them.
-      materialLibraryRef.current?.setMaterials(withSlotTextureKeys(mats as unknown as MaterialDef[]) as unknown as MaterialDefLike[], libFunctions as unknown as MaterialFunctionLike[]);
-      // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
-      viewportRef.current?.requestRender();
-    }
+    lastMaterialsRef.current = { mats: mats as unknown as MaterialDef[], libFunctions };
+    sendMaterials();
     // Generated architecture's styles, presets, room programs and furnishing sets: outlines are made again where their elements changed.
     const archGraphs = architectureGraphsOf(c.getGraphs());
     const archKey = JSON.stringify(archGraphs);
@@ -310,7 +323,7 @@ function EditorApp(): JSX.Element {
     }
     receiveBlocks(c, stable);
     setUi((s) => (s.revision === c.projection.revision ? s : { ...s, revision: c.projection.revision }));
-  }, [applyEnvironmentView, stable, receiveContent, receiveSettings, receiveBlocks]);
+  }, [applyEnvironmentView, stable, receiveContent, receiveSettings, receiveBlocks, sendMaterials]);
   refreshRef.current = refreshEntities;
 
   // ---- mount: create the client + viewport, connect -----------------------
@@ -741,6 +754,13 @@ function EditorApp(): JSX.Element {
   const newMaterialId = useCallback((name: string) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())), []);
   // The decal editor's selection, settings and commands (its tool is armed while the mode shows).
   const decalTools = useDecalTools({ clientRef, viewportRef, materials, sceneId: activeScene?.sceneId ?? null, newMaterialId, setNotice, reportFailure });
+  // The decal atlas: the pages the build will make (the decal editor's drawer) and the composed ones the Scene view draws from.
+  const decalWatch = useMemo(() => JSON.stringify([materials, entities.flatMap((e) => ((e.components['decal'] as { material?: string } | undefined)?.material ?? [])).sort(), catalogTick]), [materials, entities, catalogTick]);
+  const decalAtlas = useDecalAtlas({ clientRef, watch: decalWatch });
+  useEffect(() => {
+    decalPagesRef.current = decalAtlas.drawn;
+    sendMaterials();
+  }, [decalAtlas.drawn, sendMaterials]);
   // The vertex paint editor's brush wiring.
   const vertexPaint = useVertexPaintTools({ clientRef, viewportRef, setNotice });
 
@@ -1027,6 +1047,7 @@ function EditorApp(): JSX.Element {
     terrain: terrainTools,
     paint: vertexPaint,
     decals: decalTools,
+    decalAtlas,
     entities,
     scene: activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name },
     flags: (id) => hierarchyFlags.get(id),

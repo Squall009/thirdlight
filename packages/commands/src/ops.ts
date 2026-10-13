@@ -861,29 +861,34 @@ export function referencingEntitiesInUse(
 
 // ---- deleteEntity -------------------------------------------------------------
 
+/**
+ * `deleteEntity`: an object and its subtree — with `entityIds`, more objects
+ * and theirs — in one transaction: one revision, one undo (the inverse puts
+ * every deleted object back at its index).
+ */
 export function applyDeleteEntity(
   scene: SceneDocument,
   args: DeleteEntityArgs,
   content?: ContentDocument,
 ): OpOutcome {
   const byId = entitiesById(scene);
-  const root = byId.get(args.entityId);
-  if (root === undefined) return { ok: false, error: entityNotFound(args.entityId) };
-
-  const closure = subtreeClosure(scene, args.entityId);
-  if (closure === null) {
-    return { ok: false, error: entityNotFound(args.entityId) };
+  // Each named object's subtree; a child named with its parent goes with it.
+  const closureSet = new Set<string>();
+  for (const id of [args.entityId, ...(args.entityIds ?? [])]) {
+    const closure = byId.has(id) ? subtreeClosure(scene, id) : null;
+    if (closure === null) return { ok: false, error: entityNotFound(id) };
+    for (const c of closure) closureSet.add(c);
   }
+  const closure = [...closureSet];
   // The closure may not contain the scene's only camera.
   const camId = cameraIdOf(scene);
-  if (camId !== null && closure.includes(camId)) {
+  if (camId !== null && closureSet.has(camId)) {
     return { ok: false, error: cameraCountInvalid(camId) };
   }
 
   // An `entityRef` property value owned
   // by an entity OUTSIDE the closure may not name an entity inside it.
-  const closureSet0 = new Set(closure);
-  const referencing = referencingEntitiesInUse(scene, content, closureSet0);
+  const referencing = referencingEntitiesInUse(scene, content, closureSet);
   if (referencing.length > 0) {
     return {
       ok: false,
@@ -899,7 +904,6 @@ export function applyDeleteEntity(
     entity: deepClone(byId.get(id) as EntityV3),
   }));
 
-  const closureSet = new Set(closure);
   const nextEntities = scene.entities.filter((e) => !closureSet.has(e.id));
   // A deleted block layer takes its cells along (and its undo brings them back).
   const layers = withoutLayersOf(scene, closureSet);
@@ -922,7 +926,8 @@ export function applyDeleteEntity(
       inverse: {
         kind: 'restoreSubtree',
         entries: entries.map((e) => ({ index: e.index, entity: deepClone(e.entity) })),
-        restoredParentId: root.parentId ?? null,
+        // The first restored object's parent (the undo checks it): a root's, it survives the delete.
+        restoredParentId: entries[0]!.entity.parentId ?? null,
         ...(layers.removed.length > 0 ? { blocks: layers.removed } : {}),
       },
     },

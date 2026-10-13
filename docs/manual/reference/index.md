@@ -28,8 +28,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 79 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DecalPageRef)](types-a-d.md) | 76 sections |
-| [Types (DeclaredProperty to PointerButtonName)](types-d-p.md) | 97 sections |
-| [Types (PostConfig to UiTweenKind)](types-p-u.md) | 95 sections |
+| [Types (DeclaredProperty to PointerAxisName)](types-d-p.md) | 96 sections |
+| [Types (PointerButtonName to UiTweenKind)](types-p-u.md) | 96 sections |
 | [Types (UiWidget to WindConfig)](types-u-w.md) | 10 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
@@ -65,8 +65,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: behavior-build](limits-behavior-build.md) | `limits.ts` |
 | [Limits and defaults: commands](limits-commands.md) | `errors.ts`, `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
-| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
-| [Limits and defaults: project-model (part 2, from `model-collision.ts`)](limits-project-model-2.md) | 33 sections |
+| [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 35 sections |
+| [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 34 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |

@@ -19,6 +19,7 @@ import { createResourceManager, type ResourceManager, type ResourceObservation }
 import { createMaterialLibrary, decodeTexture, isKtx2, type MaterialLibrary, type SceneAdapterModelAsset, type SceneAdapterModels } from '@thirdlight/three-adapter';
 
 import type { SessionClient } from '../session/client';
+import { parseDecalPageTextureKey } from '../session/decal-atlas';
 import { parseSlotTextureKey } from '../session/texture-slots';
 import { ModelFiles } from './model-files';
 
@@ -64,6 +65,9 @@ export function createSceneViewAssets(o: {
     // A material's per-layer slots: the array the backend assembles from them.
     const slots = parseSlotTextureKey(assetId);
     if (slots !== null) return decodeTexture(await client.textureSlotBytes(slots.layers, slots.mode, slots.height === true));
+    // A composed decal page array (the decal atlas's pages, as Play draws them).
+    const page = parseDecalPageTextureKey(assetId);
+    if (page !== null) return decodeTexture(await client.decalPageArrayBytes(page));
     // A texture the editor has not read the facts of yet is read by id first (the editor holds no whole catalog).
     await client.catalog.ensureAssets([assetId]);
     const v = client.content.resolveVersion(assetId);

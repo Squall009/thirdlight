@@ -103,7 +103,7 @@ export const TOOL_DETAILS = {
     '(expectedRevision). Scene ops: createEntity (kind group|box|model|folder), setTransform, ' +
     'updateEntity (rename/reparent/flags/tags: {entityId, name?, parentId?, active?, visible?, locked?, static?, tags?: [tag names]}; visible false: the game starts the object hidden (drawn once a script\'s setVisible / entity().set or a timeline activation key shows it; it still simulates, unlike active false; not on folders); a reparent keeps ' +
     'the world position), moveEntities (file entities with their subtrees, keeping world positions: ' +
-    '{entityIds, parentId|null, beforeId?, sceneId? (into another scene: ids and references kept, one undo)}), deleteEntity, undo, redo. A folder has no transform and sits at the ' +
+    '{entityIds, parentId|null, beforeId?, sceneId? (into another scene: ids and references kept, one undo)}), deleteEntity ({entityId, entityIds?: more objects, one undo}), undo, redo. A folder has no transform and sits at the ' +
     'root or in another folder; folders pass active/locked/static and their tags down to their subtree. ' +
     `Tags: setTags {tags: [{bit?, name}]} replaces the project tag registry (up to ${MAX_TAGS}; a rename keeps the bit, a new ` +
     'name gets the lowest free bit, a tag still carried by an entity cannot be removed); the registry is in ' +

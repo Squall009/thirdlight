@@ -37,6 +37,7 @@ import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
+import { makeDecalAtlasRoutes } from './decal-atlas';
 import { createDecalPageAssembler } from './decal-page-assembly';
 import { createTextureSlotAssembler, type TextureSlotAssembler } from './texture-slots';
 import { createTextureExtraction } from './model-textures';
@@ -596,6 +597,8 @@ export function createBackend(
   // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
   const heightProblems = createHeightAlphaProblems({ service, checks: heightChecks, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
   const heightAlphaRoute = makeHeightAlphaRoute({ problems: heightProblems, requireAuth, sendJson, sendError });
+  // The editor's decal atlas: the pages the build plans, composed on request (decal-atlas.ts).
+  const decalAtlasRoute = makeDecalAtlasRoutes({ service, port: textureSlots, requireAuth, sendJson, sendError });
   // Models still holding images when the project extracts every model's: extracted where their files are, the rest listed.
   const heldImages = createHeldImagesChecker({ service, extract: assetFiles.extractModels, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
 
@@ -1150,6 +1153,11 @@ export function createBackend(
         // GET /api/v1/projects/:projectId/content/textures/height-alpha?ids= — which textures carry a height in A (the layer palette's badge)
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'textures' && parts[6] === 'height-alpha') {
           await heightAlphaRoute(req, res, parts[3]!, query);
+          return;
+        }
+        // /api/v1/projects/:projectId/content/decal-pages[/arrays/:id] — the decal atlas's pages, composed on request
+        if (parts.length >= 6 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'decal-pages') {
+          await decalAtlasRoute(req, res, parts);
           return;
         }
         // The additive behavior-source preparation route (before the

@@ -4,7 +4,7 @@
  * with).
  *
  * Behind the main camera (it never sees them), on one flat terrain tile:
- * a block layer's tops, a prop (a grey model), a second prop in decal layer
+ * a block layer's tops, a box floor, a prop (a grey model), a second prop in decal layer
  * 2 only, and a generated wall facing the decal camera (one swept face on
  * the trim sheet's magenta row). Green decals (an albedo image) project
  * down onto the terrain, the block tops and both props, and along −Z onto
@@ -58,6 +58,8 @@ const BLOCKS_AT: V3 = [248, 0, 25];
 const PROP_AT: V3 = [256, 0, 27];
 const MASKED_AT: V3 = [259, 0, 27];
 const WALL_Z = 22;
+/** A box floor on the terrain (its top at y 0.1), clear of the other receivers' decals and reads. */
+const BOX_FLOOR = { at: [242, 0.05, 25] as V3, size: [3, 0.1, 2] as V3 } as const;
 /** The moving decal's start and end, the spawned decal's place: a row on the terrain before the normal-only decal. */
 const MOVE_FROM: V3 = [246.8, 0, 34.9];
 const MOVE_TO: V3 = [249.2, 0, 34.9];
@@ -164,6 +166,8 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
   const prop = await create('Decal prop', PROP_AT, { model: { asset: { assetId: 'e2e-decal-crate' } } }, 'model');
   const masked = await create('Decal prop, layer 2', MASKED_AT, { model: { asset: { assetId: 'e2e-decal-crate' } } }, 'model');
   await cmd('setComponent', { entityId: masked, component: 'model', value: { asset: { assetId: 'e2e-decal-crate' }, decalLayers: 2 } });
+  // A box floor with no decal on it at load: the decal editor previews and places one there.
+  await create('Decal box floor', BOX_FLOOR.at, { box: { size: [...BOX_FLOOR.size], material: { color: '#909090' } } }, 'box');
   const wall = await create('Decal wall', [0, 0, 0]);
   // Swept along +X, a profile drawn up faces right of travel: +Z, toward the decal camera.
   await cmd('setComponent', { entityId: wall, component: 'architecture', value: { profiles: { face: { points: [[0, 0], [0, 2]], slots: ['lower_wall'] } }, elements: [{ id: 'wall', kind: 'sweep', path: { points: [[238, 0, WALL_Z], [262, 0, WALL_Z]] }, profile: 'face' }] } });
@@ -354,6 +358,9 @@ export function expectSameGreen(scene: DecalJudgement, play: DecalJudgement, wha
 /** Where the Decal tool places: a projected mark on the bare terrain, a clipped one on a clean corner of the block tops (clipped decals skip terrain). */
 export const TOOL_AT: V3 = [254, 0, 32];
 export const TOOL_CLIPPED_AT: V3 = [248.45, 1, 25.55];
+/** Where the editor first previews and places a decal: the box floor's top; its mark is read in the middle (the selected decal's grips stand round it). */
+const TOOL_BOX_AT: V3 = [242, 0.1, 25];
+const TOOL_BOX_READ: V3 = TOOL_BOX_AT;
 /** Where their marks are read: inside each, off its middle (the selected decal's grips stand there in the Scene view). */
 export const TOOL_READS: readonly V3[] = [[254.25, 0, 32.25], [248.7, 1, 25.8]];
 /** Its stamps (Shift+click), on the bare terrain beside the first. */
@@ -390,12 +397,19 @@ const near = (a: readonly number[], b: readonly number[], tol: number): boolean 
 
 /**
  * Drive the decal editor over the decal scene: open it from the toolbar's
- * decal button (the whole scene drawn, only decals pickable), pick the green
- * mark in the palette (it also shows the trim sheet's decal cell's material), see
- * the projected preview under the pointer, click to place (one createEntity),
+ * decal button (the whole scene drawn, only decals pickable); its decal atlas
+ * lists the decal images on the pages Play will use (hover names one, a click
+ * selects its decals) and Rebuild pages composes them, the Scene view then
+ * drawing the decals from them; pick the green
+ * mark in the palette (it also shows the trim sheet's decal cell's material),
+ * preview and place one on a box floor that had none at load (both drawn with
+ * the pointer kept still; undone), see the projected preview under the
+ * pointer on the terrain, click to place (one createEntity),
  * turn it with the knob and scale it with the corner (each one command, each
  * undone), Shift+click two stamps (seeded turns and sizes; undone one step
- * each), scatter a stroke with the brush (one createEntities, one undo), then
+ * each), scatter a stroke with the brush (one createEntities), box-select and
+ * Delete it (one deleteEntity: one undo brings it back, one more takes the
+ * stroke), then
  * select: a box round the placed decal, Shift+box to add the terrain's decal,
  * Ctrl+click to take it off and Shift+click to add it again, one opacity
  * edited on both (one setComponent, one undo), then a clipped placement on
@@ -429,6 +443,29 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { component?: string; context?: boolean }).toMatchObject({ component: 'decal', context: true });
   await expect(mode.getByLabel('isolation')).toContainText('decals pickable');
   const column = mode.getByLabel('edit mode settings');
+
+  // The decal atlas along the view: the decal pages Play will use, every decal image on them (the green mark, the
+  // normal-only mark, the trim sheet's cell); hovering one names it, a click selects its decals.
+  const drawer = mode.getByLabel('decal atlas', { exact: true });
+  type AtlasMark = { size: number; pages: number; images: number; materials: number; gpuBytes: number; composed: boolean; drawn: boolean };
+  const atlasMark = async (): Promise<AtlasMark | null> => {
+    const a = await drawer.getAttribute('data-atlas');
+    return a === null ? null : (JSON.parse(a) as AtlasMark);
+  };
+  await expect.poll(async () => (await atlasMark())?.images ?? 0, { message: 'the decal atlas lists the decal images' }).toBe(3);
+  const pages = drawer.getByRole('list', { name: 'decal pages' });
+  for (const name of ['Green mark', 'Bump mark', 'Stain']) await expect(pages.getByRole('button', { name: `decal image ${name}` })).toBeVisible();
+  await expect(drawer.getByLabel('atlas pages')).toContainText(String((await atlasMark())!.pages));
+  const greenRect = pages.getByRole('button', { name: 'decal image Green mark' });
+  await greenRect.hover();
+  await expect(pages.locator('.tl-atlas__caption').filter({ hasText: 'Green mark' })).toHaveCount(1);
+  await greenRect.click();
+  await expect.poll(async () => (await state())?.selection.length ?? 0, { message: "a click on the green mark's image selects its decals" }).toBeGreaterThanOrEqual(5);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state())?.selection).toEqual([]);
+  // Folded away (its head stays) while the editor places on the box floor below.
+  await drawer.getByRole('button', { name: 'close the decal atlas' }).click();
+  await expect(pages).toBeHidden();
   const palette = column.getByRole('radiogroup', { name: 'decal palette', exact: true });
   await expect(palette.getByRole('radio', { name: 'decal Green mark' })).toBeVisible();
   // The trim sheet's cell, drawn by its decal material (Stain), as its part of the sheet's picture.
@@ -444,6 +481,31 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     return { x: box.x + s!.x, y: box.y + s!.y };
   };
 
+  // On a box floor that had no decal at load: the preview and then the placed decal drawn with the pointer kept still
+  // (the view draws on demand: nothing else asks for a frame); the placement undone.
+  const b = await at(TOOL_BOX_AT);
+  await page.mouse.move(b.x, b.y);
+  await greenAt(TOOL_BOX_READ, 'the preview on the box floor drawn');
+  await page.mouse.click(b.x, b.y);
+  await expect.poll(async () => (await state())?.target ?? null, { message: 'the decal placed on the box floor' }).not.toBeNull();
+  const onBox = (await state())!.target!;
+  await greenAt(TOOL_BOX_READ, 'the decal placed on the box floor drawn');
+  await undo();
+  await expect.poll(async () => (await entity(onBox)) === null, { message: 'the box floor placement undone' }).toBe(true);
+
+  // Rebuild pages: composed on the backend; the Scene view then draws the decals from them, as Play does.
+  await drawer.getByRole('button', { name: 'open the decal atlas' }).click();
+  await expect(pages).toBeVisible();
+  await drawer.getByRole('button', { name: 'Rebuild pages' }).click();
+  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true true');
+  await expect.poll(async () => Number((await view.getAttribute('data-tl-decal-pages'))?.split('|')[3] ?? 0), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBeGreaterThan(0);
+  console.log(`decal atlas ${what}: ${JSON.stringify(await atlasMark())}; ${await drawer.getByRole('status').textContent()}; page arrays ${await view.getAttribute('data-tl-decal-pages')}`);
+  if (process.env['TL_ATLAS_SHOT'] !== undefined) await page.screenshot({ path: `${process.env['TL_ATLAS_SHOT']}-${what}.png` });
+  // The drawer folded away (its head stays) for the steps below; the marks drawn from the pages.
+  await drawer.getByRole('button', { name: 'close the decal atlas' }).click();
+  await expect(pages).toBeHidden();
+  await greenAt(DECAL_READS.terrain, 'the terrain decal drawn from the composed pages');
+
   // The projected preview under the pointer: facing up out of the terrain, drawn green before anything is stored.
   const p = await at(TOOL_AT);
   await page.mouse.move(p.x, p.y);
@@ -452,11 +514,12 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     return s?.preview !== null && s?.preview !== undefined && near(s.preview.position, TOOL_AT, 0.05) && near(turned(s.preview.rotation, [0, 0, 1]), [0, 1, 0], 1e-3) && s.preview.decal.size[0] === 1.2;
   }, { message: 'the preview under the pointer' }).toBe(true);
   const previewMs = await greenAt(TOOL_AT, 'the projected preview drawn');
-  expect((await state())!.placed).toBe(0);
+  expect((await state())!.placed).toBe(1);
 
   // A click places it: one createEntity, the new decal selected (its outline and grips shown).
   await page.mouse.click(p.x, p.y);
-  await expect.poll(async () => (await state())?.target ?? null, { message: 'the placed decal selected' }).not.toBeNull();
+  // (The undone placement's id may come back: the new decal is known by where it is.)
+  await expect.poll(async () => { const t = (await state())?.target ?? null; const e = t === null ? null : await entity(t); return e !== null && near(e.components.transform.position, TOOL_AT, 0.05); }, { message: 'the placed decal selected' }).toBe(true);
   const projected = (await state())!.target!;
   await expect.poll(async () => (await entity(projected))?.components.decal).toEqual({ size: [1.2, 1, 0.5], material: 'mat-pd-green' });
   const placedAt = (await entity(projected))!.components.transform;
@@ -551,6 +614,18 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   expect(first.decal!.material).toBe('mat-pd-green');
   expect(first.transform.position[0]!).toBeGreaterThan(SCATTER_FROM[0] - 1.5);
   expect(first.transform.position[0]!).toBeLessThan(SCATTER_TO[0] + 1.5);
+  // Delete: the stroke's decals box-selected and deleted in one command (one undo brings them all back).
+  // The box may take a decal beside the stroke too: it comes back with the undo.
+  await mode.getByRole('tab', { name: 'Select' }).click();
+  await column.getByRole('button', { name: /^Box/ }).click();
+  // The box round the stroke's ground on the picture (the four corners' extent: the view looks at it slanted).
+  const corners = await Promise.all([[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]].map(([dx, dz]) => at([(dx! < 0 ? SCATTER_FROM[0] : SCATTER_TO[0]) + dx!, 0, SCATTER_FROM[2] + dz!])));
+  await drag({ x: Math.min(...corners.map((c) => c.x)), y: Math.min(...corners.map((c) => c.y)) }, { x: Math.max(...corners.map((c) => c.x)), y: Math.max(...corners.map((c) => c.y)) });
+  await expect.poll(async () => { const sel = (await state())?.selection ?? []; return sel.includes(scattered.first!) && sel.includes(scattered.last!) && sel.length >= scattered.places; }, { message: 'the box selects the stroke' }).toBe(true);
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => `${(await entity(scattered.first!)) === null} ${(await entity(scattered.last!)) === null}`, { message: 'Delete takes the selection' }).toBe('true true');
+  await undo();
+  await expect.poll(async () => `${(await entity(scattered.first!)) === null} ${(await entity(scattered.last!)) === null}`, { message: 'one undo brings the deleted decals back' }).toBe('false false');
   await undo();
   await expect.poll(async () => `${(await entity(scattered.first!)) === null} ${(await entity(scattered.last!)) === null}`, { message: 'one undo takes the stroke' }).toBe('true true');
 

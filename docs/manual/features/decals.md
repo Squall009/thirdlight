@@ -273,7 +273,9 @@ written again in place each frame it moves.
 
 **Images.** Play and the export read the decal pages; the Scene view draws
 each decal material's own textures (or its sheet's cell) into a small page
-array of its own (512² a layer), so it shows what Play shows.
+array of its own (512² a layer), so it shows what Play shows — or, once the
+decal atlas has composed the build's pages (**Rebuild pages**), the pages
+themselves, as Play does.
 
 **Diagnostics.** Play's `renderer.projectedDecals`: `decals` (loaded,
 spawned ones included), `drawn`, `unplaced` (an image on a page array other
@@ -417,7 +419,8 @@ or the Scene view (it opens in Select with that decal selected) or a decal's
   the decals whose middle is in the box. **Filter** limits picking to one
   material or one decal layer. A drag on a selected decal moves it over the
   surfaces (its turn about the normal kept; one `setTransform`). Del
-  deletes the selection, Esc clears it (a second Esc leaves).
+  deletes the selection in one `deleteEntity` (the others in `entityIds`:
+  one undo), Esc clears it (a second Esc leaves).
 - **The selection's fields** — width, height, depth, projection, opacity
   per channel, angle and far fades, edge fades and order — edit every
   selected decal at once: one `setComponent` with the others in
@@ -555,6 +558,18 @@ takes. Play diagnostics show them as `renderer.decals` — `decals` (loaded
 decals with a page), `pages` (arrays), `layers`, `bytes`, `onGpu` and
 `missing` — next to `renderer.textures` (the budget); an exported game's
 canvas carries `data-tl-decal-pages` (`arrays|layers|bytes|uploaded`).
+
+**The decal atlas.** The decal editor's drawer shows the pages a build will
+make, planned from the materials the build ships with the same planner
+(`GET …/content/decal-pages`): the page count and size, each image's
+rectangle (the materials drawing it), the share of page area no rectangle
+covers, the GPU memory (1 byte a texel with every mip level, per set with
+pages) and the images that set the page size, with the pages and memory if
+they were half as large. **Rebuild pages** (`POST …/content/decal-pages`)
+makes them as Play does (each page encoded on the backend's encoder thread,
+cached in the import cache) and answers each decal material's place; the
+Scene view then draws from those arrays until an edit changes what the
+pages hold.
 
 Related: [trim sheets](material-graphs.md#trim-sheets),
 [light layers](lighting.md#light-layers), the reference for the

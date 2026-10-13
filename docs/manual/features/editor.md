@@ -242,7 +242,7 @@ button (after "enable preview sound").
   empty list area to move it to the end of its scene's root. Every drop is one
   `moveEntities` command, so it is one undo step. Moves keep world
   positions; moving out of a rotated or scaled parent re-expresses the local
-  transform. Delete removes every selected subtree, one undo step each.
+  transform. Delete removes every selected subtree in one undo step.
 - **Long lists.** Above 400 rows the list is windowed: only the rows in view
   (and a margin) are in the page, with a fixed row height, so thousands of
   objects scroll, select and rename as fast as a few. Selecting an object in

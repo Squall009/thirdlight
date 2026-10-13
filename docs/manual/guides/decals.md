@@ -68,13 +68,29 @@ three modes (Shift+1–3):
    **Selection** fields change all of them at once (one undo step): size,
    projection, opacity per channel, fades and order; a field they disagree
    on says "mixed". Drag a selected decal to move it over the surfaces;
-   **Del** deletes the selection; **Esc** clears it.
+   **Del** deletes the selection (one undo step brings it all back);
+   **Esc** clears it.
+
+Along the bottom of the view, the **Decal atlas** shows the decal pages Play
+and the export will put the images on (see
+[decal pages](../features/decals.md#decal-pages)): how many pages and how
+large, how much of them no image uses, their GPU memory, and each page with
+every decal image's rectangle. Hover a rectangle to see its name; click it to
+select the decals that use it. When one image makes every page larger (all
+pages share one size), a warning names it and says what shrinking it gives,
+for example "Poster (1024 × 512) sets every page to 1024². Shrink to 512 ×
+256: …". **Rebuild pages** makes the pages now (the next Play finds them
+made); with **Scene view draws from the pages** on, the Scene view then draws
+the decals from them, as Play does. An edit that changes what the pages hold
+(a decal of a new material, a texture imported again) puts the Scene view
+back on each decal material's own textures until you rebuild. The arrow at
+the right folds the atlas away (its head stays).
 
 **Done** (or Esc with nothing selected) leaves the editor. A double-click
 on a decal in the Hierarchy or the Scene view opens it in Select with that
 decal selected. The editor sends the same commands as MCP
 (`createEntity`, `createEntities`, `setTransform`, `setComponent` with
-`entityIds`), below.
+`entityIds`, `deleteEntity` with `entityIds`), below.
 
 ## Project it onto a surface
 
