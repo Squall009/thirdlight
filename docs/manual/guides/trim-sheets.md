@@ -16,7 +16,9 @@ of a wall as a strip of its slot's row.
 
 ## In the editor
 
-1. In the project window, **create → Trim sheet material**. It starts in the
+1. Import the sheet's three images with the project window's **import…**
+   (one at a time: the colour with height in A, the normal map, the ORM).
+   In the project window, **create → Trim sheet material**. It starts in the
    [spec](trim-sheet-spec.md)'s layout: 2048², 512 px/m, the standard rows
    at their real heights, **rows at their real height** on.
 2. Its Inspector has the usual values and textures and the **Trim sheet**
@@ -24,7 +26,9 @@ of a wall as a strip of its slot's row.
    along a strip) and **padding** (pixels above and below each row that
    repeat its edge; 8 by default), **rows at their real height** (below),
    then one line per row.
-3. **Equal rows** splits the sheet again; **Import layout.json** reads a
+3. In the Inspector's textures, set **map** to the colour image,
+   **normalMap** to the normal map and **ormMap** to the ORM.
+   **Equal rows** splits the sheet again; **Import layout.json** reads a
    Texture Designer trim export's table (rows at their real height on);
    **Check padding** compares the
    albedo's padding with each row's edge and names the row that differs.
@@ -32,8 +36,8 @@ of a wall as a strip of its slot's row.
    the architecture object's **Materials** slot `architecture`. On block
    faces: a block type's **Material** in the block editor's block type
    editor. For a whole kit at once, pick it as the kit's **Trim sheet** in
-   the [kit editor](kit-editor.md#swap-the-trim-sheet): its presets and
-   block types that wore the old sheet take the new one (one undo).
+   the [kit editor](kit-editor.md#swap-the-trim-sheet): its presets, block
+   types and pieces that wore the old sheet take the new one (one undo).
 
 ## Through the API
 

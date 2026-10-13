@@ -65,12 +65,15 @@ describe('kit edits', () => {
     const preset = (graphId: string, sheet: string): GraphDocument => ({ graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet } }], edges: [] } }) as GraphDocument;
     const graphs = [preset('room', 'old'), preset('hall', ''), preset('other', 'old')];
     const types = [{ blockId: 'wall', name: 'Wall', materials: { '*': 'old', top: 'grass' } }, { blockId: 'slab', name: 'Slab', materials: { '*': 'stone' } }, { blockId: 'loose', name: 'Loose', materials: { '*': 'old' } }] as unknown as BlockType[];
-    const kit: KitDef = { kitId: 'k', name: 'K', trimMaterial: 'old', presets: ['room', 'hall'], blockTypes: ['wall', 'slab'] };
-    const swap = kitSheetSwap(kit, 'old', 'new', graphs, types);
+    const kit: KitDef = { kitId: 'k', name: 'K', trimMaterial: 'old', presets: ['room', 'hall'], blockTypes: ['wall', 'slab'], pieces: { door: [{ assetId: 'door', piece: 'door' }], window: [{ assetId: 'window' }, { assetId: 'door', piece: 'leaf' }] } };
+    const mappings: Record<string, Record<string, string>> = { door: { trim: 'old', glass: 'glass' }, window: { trim: 'mine' }, crate: { trim: 'old' } };
+    const swap = kitSheetSwap(kit, 'old', 'new', graphs, types, (id) => mappings[id]);
     // The room names the old sheet: re-pointed; the hall follows its base; "other" is not the kit's.
     expect(swap.presets).toEqual([{ graphId: 'room', ops: [{ op: 'setNodeData', id: 'preset', data: { style: '', base: 'starter-room', sheet: 'new' } }] }]);
     // The wall's "*" slot wore it (its top keeps grass); the slab wears stone; "loose" is not the kit's.
     expect(swap.blockTypes).toEqual([{ blockId: 'wall', name: 'Wall', materials: { '*': 'new', top: 'grass' } }]);
-    expect(kitSheetSwap(kit, 'old', 'old', graphs, types)).toEqual({ presets: [], blockTypes: [] });
+    // The door's trim material was mapped to the old sheet (once, though two slots name the file); the window's to another; the crate is not the kit's.
+    expect(swap.assets).toEqual([{ assetId: 'door', materials: { trim: 'new', glass: 'glass' } }]);
+    expect(kitSheetSwap(kit, 'old', 'old', graphs, types)).toEqual({ presets: [], blockTypes: [], assets: [] });
   });
 });

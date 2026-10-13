@@ -40,7 +40,7 @@ export interface KitEditor {
   /** Store the kit as `next` (one `setKit`); resolves with a refusal or null. */
   save: (next: KitDef) => Promise<string | null>;
   /**
-   * The kit's trim sheet swapped for `to`: the kit, and its presets and block types that wore the old sheet
+   * The kit's trim sheet swapped for `to`: the kit, and its presets, block types and piece models that wore the old sheet
    * (`kitSheetSwap`), in one undo step.
    */
   swapSheet: (kit: KitDef, to: string) => Promise<void>;
@@ -150,7 +150,7 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
       const c = clientRef.current;
       if (c === null) return;
       const from = target.trimMaterial;
-      const parts = from === undefined ? { presets: [], blockTypes: [] } : kitSheetSwap(target, from, to, c.getGraphs(), c.getBlockTypes());
+      const parts = from === undefined ? { presets: [], blockTypes: [], assets: [] } : kitSheetSwap(target, from, to, c.getGraphs(), c.getBlockTypes(), (id) => (c.content.getAsset(id) as { materials?: Record<string, string> } | undefined)?.materials);
       await c.grouped(async () => {
         if ((await save({ ...target, trimMaterial: to })) !== null) return;
         for (const g of parts.presets) {
@@ -159,6 +159,10 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
         }
         for (const block of parts.blockTypes) {
           const err = refusal(await c.command('setBlockType', { block }, c.projection.revision));
+          if (err !== null) return setError(err);
+        }
+        for (const a of parts.assets) {
+          const err = refusal(await c.command('setAssetOptions', { assetId: a.assetId, materials: a.materials }, c.projection.revision));
           if (err !== null) return setError(err);
         }
       });

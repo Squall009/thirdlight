@@ -124,23 +124,28 @@ export function kitPieceChoices(kit: KitDef | null, slots: readonly string[]): K
   return out;
 }
 
-/** What swapping a kit's trim sheet changes besides the kit: its presets' sheet and its block types' materials. */
+/** What swapping a kit's trim sheet changes besides the kit: its presets' sheet, its block types' and its pieces' materials. */
 export interface KitSheetSwap {
   /** Each preset of the kit that names the old sheet: the graph edit naming the new one. */
   presets: { graphId: string; ops: GraphOp[] }[];
   /** Each block type of the kit wearing the old sheet: the type wearing the new one in its place. */
   blockTypes: BlockType[];
+  /** Each piece model of the kit with a material mapped to the old sheet: its whole mapping with the new one in its place. */
+  assets: { assetId: string; materials: Record<string, string> }[];
 }
 
 /**
  * The kit's parts re-pointed from trim material `from` to `to`: a preset
  * whose own head names `from` names `to` (a preset naming no sheet, or
  * another, is left: it follows its base or the object), a block type's
- * material slots holding `from` hold `to`. Only the kit's own presets and
- * block types: parts it does not list keep their sheet.
+ * material slots holding `from` hold `to`, and so does a piece model's
+ * material mapping (`assetMaterials`: the model's current mapping), since the
+ * pieces are UV'd against the sheet's rows and must keep wearing the kit's
+ * sheet. Only the kit's own presets, block types and pieces: parts it does
+ * not list keep their sheet.
  */
-export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: readonly GraphDocument[], blockTypes: readonly BlockType[]): KitSheetSwap {
-  if (from === to) return { presets: [], blockTypes: [] };
+export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: readonly GraphDocument[], blockTypes: readonly BlockType[], assetMaterials: (assetId: string) => Readonly<Record<string, string>> | undefined = () => undefined): KitSheetSwap {
+  if (from === to) return { presets: [], blockTypes: [], assets: [] };
   const presets: KitSheetSwap['presets'] = [];
   for (const id of kit.presets ?? []) {
     const head = graphs.find((g) => g.graphId === id)?.graph.nodes.find((n) => n.type === 'preset');
@@ -153,5 +158,14 @@ export function kitSheetSwap(kit: KitDef, from: string, to: string, graphs: read
     if (t?.materials === undefined || !Object.values(t.materials).includes(from)) continue;
     types.push({ ...t, materials: Object.fromEntries(Object.entries(t.materials).map(([slot, m]) => [slot, m === from ? to : m])) });
   }
-  return { presets, blockTypes: types };
+  const assets: KitSheetSwap['assets'] = [];
+  const seen = new Set<string>();
+  for (const piece of Object.values(kit.pieces ?? {}).flat()) {
+    if (seen.has(piece.assetId)) continue;
+    seen.add(piece.assetId);
+    const mapping = assetMaterials(piece.assetId);
+    if (mapping === undefined || !Object.values(mapping).includes(from)) continue;
+    assets.push({ assetId: piece.assetId, materials: Object.fromEntries(Object.entries(mapping).map(([source, m]) => [source, m === from ? to : m])) });
+  }
+  return { presets, blockTypes: types, assets };
 }

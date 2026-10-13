@@ -83,7 +83,7 @@ A kit is one item in the project window holding:
 A kit references its parts; it does not copy them. The presets, block
 types and materials stay ordinary items, and one may be in several kits.
 Swapping the kit's trim sheet in the [kit editor](../guides/kit-editor.md)
-re-points its presets and block types to the new sheet in one undo step.
+re-points its presets, block types and pieces to the new sheet in one undo step.
 
 ## The workflow
 

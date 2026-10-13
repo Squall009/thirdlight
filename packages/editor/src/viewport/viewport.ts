@@ -115,6 +115,8 @@ export const WORK_VIEW_SKY = 0.12;
 export type { ViewIsolation } from './view-isolation';
 
 const GROUND_SIZE = 20;
+/** How far (m) the grid and its ground square sit under y = 0: clear of a floor there, too little to read as a gap. */
+const GROUND_DROP = 0.01;
 /** The Scene view's background where the project draws no sky. */
 const SCENE_BACKGROUND = 0x14161c;
 /** The selection outline's colour. */
@@ -241,10 +243,14 @@ export class Viewport {
     this.adapter = this.makeAdapter(canvas);
     this.raycaster.layers.enable(BATCHED_LAYER);
 
-    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE), new THREE.MeshLambertMaterial({ color: 0x1c1f27, side: THREE.DoubleSide }));
+    // A level's floor most often lies at y = 0: the dark ground square and the grid sit just under it (and the square is
+    // pushed back in depth) so they never z-fight a floor there in dark streaks; where nothing is built they show as before.
+    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE), new THREE.MeshLambertMaterial({ color: 0x1c1f27, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 4 }));
     this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = -GROUND_DROP;
     this.overlay.add(this.ground);
     this.grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0x333844, 0x23262f);
+    this.grid.position.y = -GROUND_DROP;
     this.overlay.add(this.grid);
     this.helpers = new HelperOverlay(this.overlay, this.camera, canvas);
     // A `{type: 'model'}` collider is outlined as its model's `_COL` parts once they are read.

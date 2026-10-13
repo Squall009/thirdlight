@@ -44,7 +44,7 @@ const SET_CANDIDATES = 50;
  * filled from textures named alike when the project has them (left as they
  * are when it has none).
  */
-async function withTextureSet(m: MaterialDef, layer: number, albedoId: string, catalog: Catalog | null): Promise<MaterialDef> {
+export async function withTextureSet(m: MaterialDef, layer: number, albedoId: string, catalog: Catalog | null): Promise<MaterialDef> {
   if (catalog === null) return m;
   const [albedo] = await catalog.entries([albedoId], TEXTURE_KINDS);
   const stem = albedo === undefined ? null : textureSetQuery(albedo.name);

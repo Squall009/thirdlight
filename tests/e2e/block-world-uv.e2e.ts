@@ -37,6 +37,12 @@
  * and a wall of its Wall block type wears its trim sheet: the first storey
  * the lower wall's concrete, the second the lighter plaster of the upper wall.
  *
+ * On a GPU host the forced WebGL 2 pass repeats only what the renderer
+ * draws: it sets the type's material and mapping by command, adds the Basic
+ * Kit over HTTP and leaves the band out (the editor steps are the same on
+ * either renderer; the band's scale is the sweep's UVs, in vitest
+ * `trim-sheet.test.ts`, and its trim shader is the one the block rows read).
+ *
  * TL_WORLD_UV_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -46,6 +52,7 @@ import { join } from 'node:path';
 import { expect, test, type Locator, type Page } from './pw';
 
 import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { gpuAvailable } from './browser-env.mjs';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -182,7 +189,7 @@ async function scenePicture(view: Locator, check: (red: number[]) => string | nu
       png = await view.screenshot();
       red = redAlongRow(decodePng(png), project);
       return (problem = check(red));
-    }, { timeout: 30_000, intervals: [300], message: `Scene view picture (${name})` })
+    }, { timeout: 30_000, intervals: [100], message: `Scene view picture (${name})` })
     .toBeNull()
     .catch((e: Error) => {
       throw new Error(`${e.message}\n${problem}`);
@@ -206,7 +213,7 @@ async function expectColours(view: Locator, places: readonly { name: string; at:
     }
     if (bad.length === 0) keep(name, png);
     return (problem = bad.length === 0 ? null : bad.join('; '));
-  }, { timeout: 30_000, intervals: [300], message: `Scene view picture (${name})` }).toBeNull().catch((e: Error) => {
+  }, { timeout: 30_000, intervals: [100], message: `Scene view picture (${name})` }).toBeNull().catch((e: Error) => {
     throw new Error(`${e.message}\n${problem}`);
   });
 }
@@ -265,8 +272,10 @@ async function frameRow(page: Page, view: Locator, points?: readonly (readonly [
   };
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   for (let i = 0; i < 40 && !(await inView()); i++) {
+    const before = await view.getAttribute('data-view-proj');
     await page.mouse.wheel(0, 300);
-    await page.waitForTimeout(80);
+    // The zoom is applied at once (no damping); the next drawn frame publishes the new matrix.
+    await expect.poll(() => view.getAttribute('data-view-proj'), { timeout: 5_000, intervals: [16] }).not.toBe(before);
   }
   expect(await inView()).toBe(true);
 }
@@ -274,6 +283,9 @@ async function frameRow(page: Page, view: Locator, points?: readonly (readonly [
 for (const variant of RENDERER_VARIANTS) test(`block looks with world texture coordinates: a 4 m texture runs across four cells without a seam, set in the block type editor (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, RENDERER_VARIANTS);
   test.setTimeout(300_000);
+  // The editor's own steps run on the product's renderer; the forced WebGL 2 pass sends their commands instead (on a
+  // host without a GPU it is the default project's only pass, so it drives them).
+  const driveEditor = variant !== 'webgl2' || !gpuAvailable();
   be = await startBackend(`world-uv-${randomUUID().slice(0, 8)}`);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -304,9 +316,16 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
     await change(editMode(page).getByLabel('block type editor', { exact: true }));
     await leaveBlockEditor(page);
   };
+  /** Change the tile block type as MCP sends it. */
+  const setTile = async (change: Record<string, unknown>): Promise<void> => {
+    const tile = ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes!.find((t) => t.blockId === 'tile')!;
+    await cmd('setBlockType', { block: { ...tile, ...change } });
+  };
+  const tileMaterial = (materialId: string): Promise<void> => setTile({ materials: { '*': materialId } });
   // The material for every slot ("*"), picked in the block type editor's Material section.
   const typeMaterials = async (): Promise<unknown> => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; materials?: unknown }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.materials;
-  await editTile((ed) => ed.getByLabel('material for all', { exact: true }).selectOption({ label: 'Ramp' }));
+  if (driveEditor) await editTile((ed) => ed.getByLabel('material for all', { exact: true }).selectOption({ label: 'Ramp' }));
+  else await tileMaterial('mat-ramp');
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-ramp' });
   await frameRow(page, view);
   // The objects' icons (the layer's, the lights') would cover the tops.
@@ -316,7 +335,8 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   const own = await scenePicture(view, samePatchPerCell, 'model-uv');
 
   // World coordinates, chosen in the block type editor; read back over HTTP.
-  await editTile((ed) => ed.getByRole('radiogroup', { name: 'block texture coordinates' }).getByRole('radio', { name: 'World metres' }).click());
+  if (driveEditor) await editTile((ed) => ed.getByRole('radiogroup', { name: 'block texture coordinates' }).getByRole('radio', { name: 'World metres' }).click());
+  else await setTile({ uv: 'world' });
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; uv?: string }[] }).blockTypes?.find((t) => t.blockId === 'tile')?.uv).toBe('world');
   const world = await scenePicture(view, oneRampAcross, 'world-uv');
 
@@ -326,10 +346,6 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   await publishBytes(be, new Uint8Array(makePng(256, 256, (_x, y) => SHEET_COLOURS(y))), 'texture', 'sheet', 'sheet');
   await cmd('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: { map: 'sheet' }, trim: SHEET } });
   // Later material swaps as MCP sends them (the editor's picker was driven above).
-  const tileMaterial = async (materialId: string): Promise<void> => {
-    const tile = ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes!.find((t) => t.blockId === 'tile')!;
-    await cmd('setBlockType', { block: { ...tile, materials: { '*': materialId } } });
-  };
   await tileMaterial('mat-sheet');
   await expect.poll(typeMaterials).toEqual({ '*': 'mat-sheet' });
   await expectColours(view, [
@@ -338,35 +354,37 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
     ...[-1.5, -0.5, 0.5].map((x) => ({ name: `top at x ${x}`, at: [x, 1, -0.5] as const, colour: 'red' })),
   ] as const, 'trim-strips');
 
-  // ---- A baseboard keeps its pattern scale: a band swept along the +Z wall wears the 0.25 m baseboard row (yellow
-  // over magenta). 0.4 m tall, the row shows once at its own height from the band's top and its bottom edge carries
-  // on below (fitted to whole rows it would repeat twice: yellow again at 0.12 m). Its preset's slider is tied to the
-  // row: the preset's Inspector shows the row's height, and Snap to row sets the band to it — the wall shows above it again.
-  await cmd('setGraph', { graph: { graphId: 'e2e-band-style', kind: 'architecture-style', name: 'Band', graph: BAND_STYLE } });
-  await cmd('setGraph', { graph: { graphId: 'e2e-band', kind: 'architecture-preset', name: 'Band', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: 'e2e-band-style', base: '', sheet: 'mat-sheet' } }], edges: [] } } });
-  const band = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Band', transform: { position: [...ORIGIN] } }))['createdId']);
-  // No corner shading: the reads near the band's foot see the row's colours as they are.
-  await cmd('setComponent', { entityId: band, component: 'architecture', value: { elements: [], outlines: [{ id: 'b', preset: 'e2e-band', path: { points: [[0, 0, 2], [4, 0, 2]] } }], ao: { strength: 0 } } });
-  const onBand = (y: number): readonly [number, number, number] => [-0.5, y, 1.031];
-  await expectColours(view, [
-    { name: 'band at 0.37 m', at: onBand(0.37), colour: 'yellow' },
-    { name: 'band at 0.3 m', at: onBand(0.3), colour: 'yellow' },
-    { name: 'band at 0.2 m', at: onBand(0.2), colour: 'magenta' },
-    { name: 'band at 0.12 m', at: onBand(0.12), colour: 'magenta' },
-  ], 'baseboard-real-height');
-  // The preset open in the editor window: its Inspector shows the sliders.
-  await openEditor(page, 'Graph', 'Band');
-  await expect(inspector(page).getByLabel('band_height row')).toContainText('Row “baseboard”: 0.25 m — the part is 0.4 m');
-  await inspector(page).getByRole('button', { name: 'snap band_height to row' }).click();
-  const bandValue = async (): Promise<unknown> => (((await query('queryGameConfig'))['graphs'] ?? []) as { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[]).find((g) => g.graphId === 'e2e-band')?.graph.nodes.find((n) => n.type === 'value')?.data?.['value'];
-  await expect.poll(bandValue).toBe(0.25);
-  await expect(inspector(page).getByRole('button', { name: 'snap band_height to row' })).toHaveCount(0);
-  await closeEditor(page);
-  await expectColours(view, [
-    { name: 'wall above the band at 0.3 m', at: [-0.5, 0.3, 1.001], colour: 'green' },
-    { name: 'band at 0.2 m', at: onBand(0.2), colour: 'yellow' },
-    { name: 'band at 0.06 m', at: onBand(0.06), colour: 'magenta' },
-  ], 'baseboard-snapped');
+  if (driveEditor) {
+    // ---- A baseboard keeps its pattern scale: a band swept along the +Z wall wears the 0.25 m baseboard row (yellow
+    // over magenta). 0.4 m tall, the row shows once at its own height from the band's top and its bottom edge carries
+    // on below (fitted to whole rows it would repeat twice: yellow again at 0.12 m). Its preset's slider is tied to the
+    // row: the preset's Inspector shows the row's height, and Snap to row sets the band to it — the wall shows above it again.
+    await cmd('setGraph', { graph: { graphId: 'e2e-band-style', kind: 'architecture-style', name: 'Band', graph: BAND_STYLE } });
+    await cmd('setGraph', { graph: { graphId: 'e2e-band', kind: 'architecture-preset', name: 'Band', graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: 'e2e-band-style', base: '', sheet: 'mat-sheet' } }], edges: [] } } });
+    const band = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Band', transform: { position: [...ORIGIN] } }))['createdId']);
+    // No corner shading: the reads near the band's foot see the row's colours as they are.
+    await cmd('setComponent', { entityId: band, component: 'architecture', value: { elements: [], outlines: [{ id: 'b', preset: 'e2e-band', path: { points: [[0, 0, 2], [4, 0, 2]] } }], ao: { strength: 0 } } });
+    const onBand = (y: number): readonly [number, number, number] => [-0.5, y, 1.031];
+    await expectColours(view, [
+      { name: 'band at 0.37 m', at: onBand(0.37), colour: 'yellow' },
+      { name: 'band at 0.3 m', at: onBand(0.3), colour: 'yellow' },
+      { name: 'band at 0.2 m', at: onBand(0.2), colour: 'magenta' },
+      { name: 'band at 0.12 m', at: onBand(0.12), colour: 'magenta' },
+    ], 'baseboard-real-height');
+    // The preset open in the editor window: its Inspector shows the sliders.
+    await openEditor(page, 'Graph', 'Band');
+    await expect(inspector(page).getByLabel('band_height row')).toContainText('Row “baseboard”: 0.25 m — the part is 0.4 m');
+    await inspector(page).getByRole('button', { name: 'snap band_height to row' }).click();
+    const bandValue = async (): Promise<unknown> => (((await query('queryGameConfig'))['graphs'] ?? []) as { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[]).find((g) => g.graphId === 'e2e-band')?.graph.nodes.find((n) => n.type === 'value')?.data?.['value'];
+    await expect.poll(bandValue).toBe(0.25);
+    await expect(inspector(page).getByRole('button', { name: 'snap band_height to row' })).toHaveCount(0);
+    await closeEditor(page);
+    await expectColours(view, [
+      { name: 'wall above the band at 0.3 m', at: [-0.5, 0.3, 1.001], colour: 'green' },
+      { name: 'band at 0.2 m', at: onBand(0.2), colour: 'yellow' },
+      { name: 'band at 0.06 m', at: onBand(0.06), colour: 'magenta' },
+    ], 'baseboard-snapped');
+  }
 
   // ---- Normal maps on the world-mapped kit: the standard shader with a map tilted toward the image's top right.
   await publishBytes(be, new Uint8Array(makePng(16, 16, () => [204, 204, 200, 255])), 'texture', 'tilt', 'tilt');
@@ -395,11 +413,17 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   // ---- The engine's Basic Kit, added from the project window's Create menu: a wall of its Wall block type, two
   // cells high, wears its trim sheet — the first storey the lower wall's mid-grey concrete, the storey above the
   // upper wall's light plaster (as white stand-ins both faces would be the same).
-  await (await projectWindow(page)).getByRole('button', { name: /^create/ }).click();
-  await page.getByRole('menu', { name: 'create menu', exact: true }).getByRole('menuitem', { name: 'Basic Kit (ready-made)', exact: true }).click();
-  // The kit opens in the kit editor (its Inspector beside it); back to the Scene view to look at a wall of it.
-  await expect(inspector(page).getByLabel('kit inspector')).toBeVisible({ timeout: 60_000 });
-  await page.getByRole('button', { name: 'Close the editor window', exact: true }).click();
+  if (driveEditor) {
+    await (await projectWindow(page)).getByRole('button', { name: /^create/ }).click();
+    await page.getByRole('menu', { name: 'create menu', exact: true }).getByRole('menuitem', { name: 'Basic Kit (ready-made)', exact: true }).click();
+    // The kit opens in the kit editor (its Inspector beside it); back to the Scene view to look at a wall of it.
+    await expect(inspector(page).getByLabel('kit inspector')).toBeVisible({ timeout: 60_000 });
+    await page.getByRole('button', { name: 'Close the editor window', exact: true }).click();
+  } else {
+    // The route the Create menu calls.
+    const added = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/packs/basic-kit`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/json' }, body: '{}' });
+    expect(added.status, await added.text()).toBe(200);
+  }
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes?.some((t) => t.blockId === 'basic-wall'), { timeout: 30_000 }).toBe(true);
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -0.5, -1], castShadow: false } });
   await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.6 } });

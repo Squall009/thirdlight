@@ -2,13 +2,17 @@
  * Gameplay blocks built in the editor and played. On the
  * starter template's ground the GameObject → Gameplay menu places a
  * collectible, a pressure plate and a door, a one-way shelf, a lift and a
- * trigger; the Inspector sets them up (positions, the lift's path and
- * signal). In Play (the game plays as a scene: no game session), driven by
- * exclusive test input, the character collects the collectible (its named
- * counter), opens the door by stepping on the plate, jumps up through the
- * shelf, walks onto the lift and rides it up. The 2D-plane switches work
+ * trigger; the Inspector sets them up (the plate's mode, the lift's path and
+ * signal, the trigger's size and signals; their positions, plain transform
+ * fields covered elsewhere, are sent as commands). In Play (the game plays
+ * as a scene: no game session), driven by exclusive test input, the
+ * character collects the collectible (its named counter), opens the door by
+ * stepping on the plate, jumps up through the shelf, walks onto the lift and
+ * rides it up. The 2D-plane switches work
  * without a game session.
  */
+import { randomBytes } from 'node:crypto';
+
 import { INPUT_RELAY_MAX_FRAMES } from '@thirdlight/protocol';
 
 import { expect, test, type Page } from './pw';
@@ -43,55 +47,49 @@ async function field(page: Page, label: string, value: string): Promise<void> {
   await expect(f).toHaveValue(value);
 }
 
-async function place(page: Page, x: number, y: number): Promise<void> {
-  await field(page, 'position x', String(x));
-  await field(page, 'position y', String(y));
-  await field(page, 'position z', '0');
+async function cmd(op: string, args: Record<string, unknown>): Promise<void> {
+  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  const res = await be.command({ op, projectId: be.projectId, expectedRevision: revision, requestId: `req-${randomBytes(16).toString('hex')}`, origin: { kind: 'mcp', clientId: 'e2e-gameplay-blocks' }, args });
+  expect(res['ok'], JSON.stringify(res).slice(0, 600)).toBe(true);
 }
 
-async function create(page: Page, item: string, x: number, y: number): Promise<void> {
+async function create(page: Page, item: string): Promise<void> {
   await menu(page, 'GameObject', 'Gameplay', item);
   await expect(page.locator('.tl-inspector__name')).toHaveValue(item.startsWith('Door') ? 'Door' : item);
-  await place(page, x, y);
-}
-
-async function removeEntity(page: Page, id: string): Promise<void> {
-  await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
-  await menu(page, 'Edit', 'Delete');
-  await expect(page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`)).toHaveCount(0);
 }
 
 test('a level built from gameplay blocks plays: a collectible, plate and door, one-way shelf, lift', async ({ page }) => {
   test.setTimeout(240_000);
+  // Clear the starter's step and platform (the character starts at x 3 on a ground from x −4 to 20).
+  await cmd('deleteEntity', { entityId: 'box-0002', entityIds: ['box-0003'] });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  // Clear the starter's step and platform (the character starts at x 3 on a ground from x −4 to 20).
-  await removeEntity(page, 'box-0002');
-  await removeEntity(page, 'box-0003');
-
-  await create(page, 'Collectible', 4.5, 0.5);
-  await create(page, 'Switch', 7, 0.1);
+  await create(page, 'Collectible');
+  await create(page, 'Switch');
   await page.getByLabel('switch mode').selectOption('stand');
   await expect(page.getByLabel('switch mode')).toHaveValue('stand');
-  await create(page, 'Door (opens on "open")', 9, 1.5);
-  await create(page, 'One-way platform', 12, 0.8);
+  await create(page, 'Door (opens on "open")');
+  await create(page, 'One-way platform');
   await expect(page.getByLabel('collider oneWay', { exact: true })).toBeChecked();
-  await create(page, 'Moving platform', 14.5, 0.7);
+  await create(page, 'Moving platform');
   await field(page, 'mover waypoints 1 x', '0');
   await field(page, 'mover waypoints 1 y', '2');
   await page.getByLabel('mover mode').selectOption('once');
   await expect(page.getByLabel('mover mode')).toHaveValue('once');
   await field(page, 'mover startOn', 'ride');
-  await create(page, 'Trigger', 14.5, 1.9);
+  await create(page, 'Trigger');
   await field(page, 'trigger signal', 'ride');
   await field(page, 'trigger size w', '1.6');
   await field(page, 'trigger size h', '1.6');
   await field(page, 'trigger exitSignal', 'left');
 
   // The stored components (what Play and the export read).
-  const stored = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } })) as { entities?: { name?: string; components: Record<string, unknown> }[] };
+  const stored = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } })) as { entities?: { id: string; name?: string; components: Record<string, unknown> }[] };
   const byName = (n: string) => stored.entities?.find((e) => e.name === n)?.components;
+  // The level's layout along the walk.
+  const layout: [string, number, number][] = [['Collectible', 4.5, 0.5], ['Switch', 7, 0.1], ['Door', 9, 1.5], ['One-way platform', 12, 0.8], ['Moving platform', 14.5, 0.7], ['Trigger', 14.5, 1.9]];
+  for (const [name, x, y] of layout) await cmd('setTransform', { entityId: stored.entities!.find((e) => e.name === name)!.id, transform: { position: [x, y, 0] } });
   expect(byName('Moving platform')?.['mover']).toEqual({ waypoints: [[0, 2, 0]], speed: 2, mode: 'once', wait: 0.5, startOn: 'ride' });
   expect(byName('Trigger')?.['trigger']).toEqual({ size: [1.6, 1.6], signal: 'ride', exitSignal: 'left' });
   const counter = String((byName('Collectible')?.['collectible'] as { counter?: string } | undefined)?.counter);
@@ -104,7 +102,16 @@ test('a level built from gameplay blocks plays: a collectible, plate and door, o
   const observe = async (): Promise<Observation> => (await relay(`${psid}/observe`, {})).json as unknown as Observation;
   await expect.poll(async () => (await relay(`${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(200);
   await expect.poll(async () => (await observe()).state).toBe('running');
-  await page.waitForTimeout(400);
+  // The character settles on the ground (two reads in a row at the same height) before it is driven.
+  let lastY = NaN;
+  await expect
+    .poll(async () => {
+      const y = (await observe()).player?.y ?? NaN;
+      const settled = Math.abs(y - lastY) < 1e-3;
+      lastY = y;
+      return settled;
+    }, { timeout: 10_000, intervals: [100] })
+    .toBe(true);
 
   const drive = async (frames: { moveX: number; jump: 'none' | 'pressed' | 'held' }[]): Promise<void> => {
     const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: frames.map((f, i) => ({ stepOffset: i, ...controls(f.moveX, f.jump) })) });

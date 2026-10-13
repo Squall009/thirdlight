@@ -272,7 +272,10 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   await cmd('setBlockType', { block: { blockId: 'town-wall', name: 'Town wall', variants: [{ color: '#ffffff' }], shape: 'full', materials: { '*': 'trim-a' } } });
   await cmd('setKit', { kit: { ...(await town())!, trimMaterial: 'trim-a', blockTypes: ['town-wall'] } });
   const wallMaterial = async (): Promise<string | undefined> => ((await query('queryGameConfig'))['blockTypes'] as { blockId: string; materials?: Record<string, string> }[]).find((t) => t.blockId === 'town-wall')?.materials?.['*'];
+  // The swap's commands are grouped once they are all stored: the undo goes after that request, not just after the last change.
+  const grouped = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/history/group'));
   await kitView.getByLabel('kit trim sheet').selectOption('trim-b');
+  expect((await grouped).status()).toBe(200);
   await expect.poll(wallMaterial).toBe('trim-b');
   expect((await town())?.trimMaterial).toBe('trim-b');
   await cmd('undo', {});

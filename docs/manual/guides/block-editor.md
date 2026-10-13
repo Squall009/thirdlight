@@ -94,6 +94,18 @@ layered material whose first layer is the old look and puts it on the
 types that wore it. Painted wear is stored on the layer either way, and
 rooms drawn on the layer show it on their walls.
 
+- **A layer's texture:** click an empty layer (2, 3, 4) to choose its colour
+  texture; a normal map and an ORM named alike (`moss_albedo`,
+  `moss_normal`, `moss_orm`) come with it. The textures load in the
+  background: until they arrive the painted cells draw plain.
+- **Paint on:** Tops, Walls or Both. **Walls have their own paint** paints
+  wall faces apart from the top above them. With it on, a wall nobody
+  painted shows **layer 2**, not Base: to keep a wall's base look and add
+  moss only at its foot, paint **Base** over the wall first, then layer 2
+  low down (the **Noise mask** breaks its edge up).
+- **Wet** darkens and adds shine over whatever layer is there; paint it
+  where water runs or pools.
+
 ## Through the API
 
 Every tool sends the same command the editor does:

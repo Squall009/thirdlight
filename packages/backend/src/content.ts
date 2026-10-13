@@ -899,6 +899,10 @@ export class ContentRoutes {
         }),
       );
     }
+    // The bytes are held in the project's blobs now, which is what the publishAsset reads: the stage stays only for
+    // a repeated inspect, so it gives way to the next upload instead of holding one of the project's few open-stage
+    // slots for its hour (a ninth import within the hour was refused).
+    this.deps.service.markStagePublished(projectId, sid.stageId, result.proposal.sourceDigest);
     this.jobs.finish(pubJob.jobId, {
       stageId: sid.stageId,
       digest: result.proposal.sourceDigest,

@@ -17,18 +17,19 @@
  * A beacon block type shows a prefab: its root's base model is drawn in the
  * chunk; the block editor's block type editor turns it live, so in Play and
  * the export each beacon cell also spawns the prefab's magenta post as an
- * object of the game (counted in Play's diagnostics, seen in the pictures
- * on both renderers), and the dug column's beacon goes with its cell.
+ * object of the game (counted in Play's diagnostics, seen in the export's
+ * pictures on both renderers), and the dug column's beacon goes with its cell.
  *
  * Edge pieces stand on cell edges: a cyan wall two rows high along a grid
  * line, and a live gate whose prefab's orange leaf is an object of the
- * game; both are seen in Play and the export on both renderers.
+ * game; both are seen in the export on both renderers (Play draws through
+ * the same runtime: its picture checks the blocks once).
  *
  * A connected wall resolves its pieces from its neighbours: its straight
  * runs, its corner and its T-join each show their own look (yellow, red,
- * blue) in Play and the export on both renderers.
+ * blue) in the export on both renderers.
  *
- * Two roofs are cut-aways: a lavender one over the spawn hidden (with a fade)
+ * Two roofs are cut-aways: a lavender one over the spawn hidden (with a 1 s fade)
  * while the camera's target, the player, is inside the pit region below the
  * floor, and a pink one elsewhere, cut only while the target stands under
  * it (never here). Before the dig both are drawn; once the player has fallen
@@ -109,10 +110,11 @@ async function script(behaviorId: string, source: string, entityId: string): Pro
 }
 
 /**
- * 3 s into the run: the player lands within its first second, which leaves two to see it resting on the blocks
+ * 2.5 s into the run: the player lands within its first second, which leaves 1.5 to see it resting on the blocks
  * first (the observation polls the simulation, not the drawn frames, so a slowly rendering Play does not eat it).
+ * Play and each export wait for the dig, so a later one costs the file that much three times over.
  */
-const DIG_STEP = 360;
+const DIG_STEP = 300;
 
 /** Clears the cells of the column under the player (every layer) at one step. */
 const DIGGER = [
@@ -324,7 +326,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; name?: string }[] }).entities;
   const id = (name: string): string => ents.find((e) => e.name === name)!.id;
   await cmd('setComponent', { entityId: id('Player'), component: 'controller', value: {} });
-  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 3 } } });
+  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 1 } } });
   // The player is the camera's target (what the cut-aways test): a track rig whose framed point is held at the spawn,
   // so the view stays where it was.
   await cmd('setComponent', { entityId: cam, component: 'virtualCamera', value: { ...(camEntity.components['virtualCamera'] as object), rig: 'track', target: id('Player'), boundsMin: [8.5, 6, 8.5], boundsMax: [8.5, 6, 8.5] } });
@@ -552,29 +554,9 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
     const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
     return shot.status === 200 ? count(decodePng(Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64'))) : 0;
   };
-  await expect.poll(() => inPlay(cyanPixels), { timeout: 60_000, message: 'the edge wall in the Play screenshot' }).toBeGreaterThan(40);
-  await expect.poll(() => inPlay(orangePixels), { timeout: 60_000, message: "the live gate's leaf in the Play screenshot" }).toBeGreaterThan(15);
-  // The connected wall: straight runs, the corner and the T-join each show their own piece.
-  await expect.poll(() => inPlay(yellowPixels), { timeout: 60_000, message: "the connected wall's straight pieces in the Play screenshot" }).toBeGreaterThan(20);
-  await expect.poll(() => inPlay(redPixels), { timeout: 60_000, message: "the connected wall's corner in the Play screenshot" }).toBeGreaterThan(3);
-  await expect.poll(() => inPlay(bluePixels), { timeout: 60_000, message: "the connected wall's T-join in the Play screenshot" }).toBeGreaterThan(3);
-  console.log(`connected wall in Play: yellow ${await inPlay(yellowPixels)}, red ${await inPlay(redPixels)}, blue ${await inPlay(bluePixels)}`);
-  await expect
-    .poll(async () => {
-      const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
-      if (shot.status !== 200) return 0;
-      return magentaPixels(decodePng(Buffer.from(String(shot.json.dataUrl ?? '').split(',')[1] ?? '', 'base64')));
-    }, { timeout: 60_000, message: 'the beacons\' magenta posts in the Play screenshot' })
-    .toBeGreaterThan(15);
-  // The blocks are in the Play screenshot.
-  await expect
-    .poll(async () => {
-      const shot = await relay(`${psid}/screenshot`, { maxWidth: 480 });
-      if (shot.status !== 200) return 0;
-      const b64 = String(shot.json.dataUrl ?? '').split(',')[1] ?? '';
-      return greenPixels(decodePng(Buffer.from(b64, 'base64')));
-    }, { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' })
-    .toBeGreaterThan(500);
+  // Play draws through the same runtime as the export, whose pictures below check every piece (the posts, the edge
+  // wall, the live gate, the connected wall) on both renderers; here the blocks are seen once.
+  await expect.poll(() => inPlay(greenPixels), { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' }).toBeGreaterThan(500);
   await expectFallsThrough(read, 'Play');
   await expectRoofsCut(playShot, 'Play', roofInPlay);
   await expectBurntBanner(playShot, 'Play');

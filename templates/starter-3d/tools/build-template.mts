@@ -162,8 +162,8 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
       args: {
         sceneId: 'scene-main',
         environment: {
-          sky: { mode: 'gradient', topColor: '#2f63b0', horizonColor: '#bfd3e8', bottomColor: '#6d7563', environmentIntensity: 0.6 },
-          fog: { mode: 'exp2', color: '#bfd3e8', density: 0.0015 },
+          sky: { mode: 'gradient', topColor: '#2f63b0', horizonColor: '#9fbfe3', bottomColor: '#6d7563', environmentIntensity: 0.6 },
+          fog: { mode: 'exp2', color: '#9fbfe3', density: 0.0015 },
         },
       },
     },

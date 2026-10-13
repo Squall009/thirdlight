@@ -31,7 +31,8 @@ import { useEditStatus } from '../editmode/edit-status';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { LayerPalette, Popover } from '../palette/LayerPalette';
-import { usePalette } from '../palette/MaterialLayers';
+import { usePalette, withTextureSet } from '../palette/MaterialLayers';
+import { useCatalog } from '../catalog/catalog-context';
 import { TextureBrowser } from '../palette/TextureBrowser';
 import { blockBrushStore, blockCommand, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
 import { LayerSection, PaletteSection, SliceField, toolKeysHint } from './BuildColumn';
@@ -137,6 +138,7 @@ export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
   const erase = tile.invert === true;
   const [busy, setBusy] = useState(false);
   const [chooser, setChooser] = useState<{ index: number; anchor: HTMLElement } | null>(null);
+  const { catalog } = useCatalog();
   const picked = ch.tiles.find((t) => t.index === brush.paintChannel) ?? ch.tiles[1];
   // Paint is stored whatever the block types wear (rules read it, and the walls of rooms drawn on the layer wear their own
   // material): a material that reads none only means the blocks won't show it, as the banner says.
@@ -147,9 +149,10 @@ export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
     keys: paintable ? [...paletteKeyHint(ch.tiles.length, 'Layer'), ...brushKeyHints(uses, 'Erase')] : [],
     right: s.state.hover,
   });
+  // A colour texture brings its normal map and ORM named alike, as the terrain's and the vertex paint's palettes do.
   const setTexture = (index: number, textureId: string): void => {
     if (palette.source.kind !== 'layered' || index >= 4) return;
-    void host.palette.run('Layer texture', 'setMaterial', { material: withSlotTexture(palette.source.material, index, textureId) });
+    void withTextureSet(withSlotTexture(palette.source.material, index, textureId), index, textureId, catalog).then((material) => host.palette.run('Layer texture', 'setMaterial', { material }));
   };
   const setBrush = (patch: Partial<typeof brush>): void => s.set((st) => ({ brush: { ...st.brush, ...patch } }));
   return (
