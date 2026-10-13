@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
+import { createPackInstaller, listPacks } from './packs';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
 import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, PLAY_PROBLEM_KINDS_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
@@ -344,6 +345,8 @@ export function createBackend(
     },
   });
   let warmPlay: ((projectId: string) => void) | undefined;
+  // Engine content packs (the Basic Kit) added to a project as ordinary items, one command at a time.
+  const packs = createPackInstaller({ service, inspector: assetInspector, engineRoot: config.engineRoot, now: nowMs, onApplied: (projectId, r, origin) => notifyMutationApplied(projectId, r.requestId, r.revision, origin, r.change, (r as { sceneId?: string }).sceneId) });
   // A folder's files are inspected before its importAssets command.
   const folderImport = createFolderImport({ service, assetFiles, textures, now: nowMs });
   const contentRoutes = new ContentRoutes({
@@ -1359,6 +1362,44 @@ export function createBackend(
             return;
           }
           sendJson(res, 200, { ok: true, templates: config.engineRoot === undefined ? [] : listTemplates(config.engineRoot) });
+          return;
+        }
+        // GET /api/v1/packs — the content packs this engine ships
+        if (parts.length === 3 && parts[2] === 'packs') {
+          if (method !== 'GET') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
+            return;
+          }
+          if (tokenScope(bearerToken(req), req) === null) {
+            sendError(res, sessionError('unauthorized', 'validation', 'a valid bearer token is required'));
+            return;
+          }
+          sendJson(res, 200, { ok: true, packs: config.engineRoot === undefined ? [] : listPacks(config.engineRoot) });
+          return;
+        }
+        // POST /api/v1/projects/:projectId/packs/:packId {origin?} — add an engine pack's items to the project
+        if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'packs') {
+          if (method !== 'POST') {
+            sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
+            return;
+          }
+          const projectId = parts[3]!;
+          const authError = requireAuth(req, projectId, false);
+          if (authError !== null) {
+            sendError(res, authError);
+            return;
+          }
+          const body = await readBody(req);
+          if (!body.ok) {
+            sendError(res, body.error);
+            return;
+          }
+          const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
+          const o = strict.ok ? (strict.value as { origin?: { kind?: unknown; clientId?: unknown } } | null)?.origin : undefined;
+          const origin = o !== undefined && (o.kind === 'browser' || o.kind === 'mcp') && typeof o.clientId === 'string' ? { kind: o.kind as 'browser' | 'mcp', clientId: o.clientId } : { kind: 'admin' as const, clientId: 'pack' };
+          const r = packs.add(projectId, parts[5]!, origin);
+          if (r.ok) sendJson(res, 200, r);
+          else sendJson(res, r.status, { ok: false, error: { code: r.code, cls: r.status === 409 ? 'conflict' : 'validation', message: r.message }, ...(r.added !== undefined ? { added: r.added } : {}) });
           return;
         }
         // GET /api/v1/projects/:projectId/exports — this project's export directories

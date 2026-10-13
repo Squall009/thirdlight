@@ -261,7 +261,7 @@ export class SessionClientCore {
   });
   protected readonly cfg: ClientConfig;
   private readonly cb: ClientCallbacks;
-  private readonly sessionId: string;
+  protected readonly sessionId: string;
   private ws: WebSocket | null = null;
   private connId: string | null = null;
   private connection: ConnectionStatus = 'idle';

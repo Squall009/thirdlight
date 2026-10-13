@@ -1,0 +1,534 @@
+{
+  "format": 1,
+  "packId": "basic-kit",
+  "name": "Basic Kit",
+  "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window. Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
+  "source": {
+    "designer": "art-factory Texture Designer",
+    "sheet": "thirdlight/basic_kit_trim@4",
+    "packing": "shared/skyforge (albedo + height in A, normal, ORM)",
+    "note": "Original content rendered from the shared library graphs (no downloaded or third-party textures)."
+  },
+  "folder": "assets/basic-kit",
+  "assets": [
+    {
+      "assetId": "basic-trim-albedo",
+      "kind": "texture",
+      "displayName": "Basic trim: albedo + height",
+      "file": "textures/basic-trim-albedo.ktx2",
+      "sha256": "a23a45ad81fcab2db71a904bb164de14ae3469913a2a8bd9dabd0168c29b5c97",
+      "bytes": 764401
+    },
+    {
+      "assetId": "basic-trim-normal",
+      "kind": "texture",
+      "displayName": "Basic trim: normal",
+      "file": "textures/basic-trim-normal.ktx2",
+      "sha256": "b1a5044b18fbeb4c0c46c8698549e24fd858f9a441cd3d05aa79b3c8ce84db37",
+      "bytes": 1626338
+    },
+    {
+      "assetId": "basic-trim-orm",
+      "kind": "texture",
+      "displayName": "Basic trim: occlusion, roughness, metalness",
+      "file": "textures/basic-trim-orm.ktx2",
+      "sha256": "a26d512e3db34df25f9bfa9ac5ff1a1e44b865657f18685bd464565d3e579689",
+      "bytes": 326281
+    },
+    {
+      "assetId": "basic-door",
+      "kind": "model",
+      "displayName": "Door (Basic Kit)",
+      "file": "models/basic-door.glb",
+      "sha256": "e8d42e1d6dc49d019520b04dbafdbf7677a6304b66ea4cfac06547c218dca3a4",
+      "bytes": 17468,
+      "materials": {
+        "trim": "basic-trim"
+      }
+    },
+    {
+      "assetId": "basic-window",
+      "kind": "model",
+      "displayName": "Window (Basic Kit)",
+      "file": "models/basic-window.glb",
+      "sha256": "2e2eddda8010cf247a1e5e6edaab965c5e7b02d8490fd2dee6b10c4cfb87abeb",
+      "bytes": 12968,
+      "materials": {
+        "trim": "basic-trim"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "op": "setMaterial",
+      "args": {
+        "material": {
+          "materialId": "basic-trim",
+          "name": "Basic trim sheet",
+          "shader": "trim",
+          "params": {},
+          "textures": {
+            "map": "basic-trim-albedo",
+            "normalMap": "basic-trim-normal",
+            "ormMap": "basic-trim-orm"
+          },
+          "trim": {
+            "size": [
+              2048,
+              2048
+            ],
+            "texelDensity": 512,
+            "padding": 8,
+            "rows": [
+              {
+                "slot": "floor",
+                "top": 8,
+                "bottom": 520,
+                "tileV": true
+              },
+              {
+                "slot": "upper_wall",
+                "top": 536,
+                "bottom": 1048,
+                "tileV": true
+              },
+              {
+                "slot": "lower_wall",
+                "top": 1064,
+                "bottom": 1320,
+                "tileV": true
+              },
+              {
+                "slot": "baseboard",
+                "top": 1336,
+                "bottom": 1416
+              },
+              {
+                "slot": "crown",
+                "top": 1432,
+                "bottom": 1496
+              },
+              {
+                "slot": "frame",
+                "top": 1512,
+                "bottom": 1576
+              },
+              {
+                "slot": "column",
+                "top": 1592,
+                "bottom": 1720,
+                "tileV": true
+              },
+              {
+                "slot": "bevel",
+                "top": 1736,
+                "bottom": 1768,
+                "tileV": true
+              },
+              {
+                "slot": "emissive",
+                "top": 1784,
+                "bottom": 1848
+              }
+            ],
+            "cells": [
+              {
+                "name": "panel",
+                "rect": [
+                  8,
+                  1864,
+                  128,
+                  128
+                ]
+              }
+            ],
+            "realHeight": true
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-room",
+          "kind": "architecture-preset",
+          "name": "Room (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-room",
+                  "sheet": "basic-trim"
+                }
+              },
+              {
+                "id": "v-baseboard_height",
+                "type": "value",
+                "position": [
+                  0,
+                  150
+                ],
+                "data": {
+                  "parameter": "baseboard_height",
+                  "value": 0.15625
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-room-tall",
+          "kind": "architecture-preset",
+          "name": "Tall room (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-room-tall",
+                  "sheet": "basic-trim"
+                }
+              },
+              {
+                "id": "v-baseboard_height",
+                "type": "value",
+                "position": [
+                  0,
+                  150
+                ],
+                "data": {
+                  "parameter": "baseboard_height",
+                  "value": 0.15625
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-hall",
+          "kind": "architecture-preset",
+          "name": "Vaulted hall (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-hall",
+                  "sheet": "basic-trim"
+                }
+              },
+              {
+                "id": "v-baseboard_height",
+                "type": "value",
+                "position": [
+                  0,
+                  150
+                ],
+                "data": {
+                  "parameter": "baseboard_height",
+                  "value": 0.15625
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-rail",
+          "kind": "architecture-preset",
+          "name": "Rail (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-rail",
+                  "sheet": "basic-trim"
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-fence",
+          "kind": "architecture-preset",
+          "name": "Fence (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-fence",
+                  "sheet": "basic-trim"
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setGraph",
+      "args": {
+        "graph": {
+          "graphId": "basic-pipe",
+          "kind": "architecture-preset",
+          "name": "Pipe (Basic Kit)",
+          "graph": {
+            "nodes": [
+              {
+                "id": "preset",
+                "type": "preset",
+                "position": [
+                  0,
+                  0
+                ],
+                "data": {
+                  "style": "",
+                  "base": "starter-pipe",
+                  "sheet": "basic-trim"
+                }
+              }
+            ],
+            "edges": []
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-ground",
+          "name": "Ground",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "full",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-wall",
+          "name": "Wall",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "full",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-half",
+          "name": "Half block",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "half",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-ramp",
+          "name": "Ramp",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "ramp",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-stairs",
+          "name": "Stairs",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "stairs",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-slab",
+          "name": "Floor slab",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "custom",
+          "boxes": [
+            [
+              0,
+              0,
+              0,
+              1,
+              0.25,
+              1
+            ]
+          ],
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setBlockType",
+      "args": {
+        "block": {
+          "blockId": "basic-edge-wall",
+          "name": "Edge wall",
+          "variants": [
+            {
+              "color": "#ffffff"
+            }
+          ],
+          "shape": "full",
+          "placement": "edge",
+          "materials": {
+            "*": "basic-trim"
+          }
+        }
+      }
+    },
+    {
+      "op": "setKit",
+      "args": {
+        "kit": {
+          "kitId": "basic-kit",
+          "name": "Basic Kit",
+          "description": "The engine’s neutral prototype kit: a trim sheet made to the trim sheet spec, room and rail presets on it, block types wearing it, a placeholder door and window. Change the copies freely; swap the trim material for a sheet of your own made to the same spec.",
+          "trimMaterial": "basic-trim",
+          "presets": [
+            "basic-room",
+            "basic-room-tall",
+            "basic-hall",
+            "basic-rail",
+            "basic-fence",
+            "basic-pipe"
+          ],
+          "blockTypes": [
+            "basic-ground",
+            "basic-wall",
+            "basic-half",
+            "basic-ramp",
+            "basic-stairs",
+            "basic-slab",
+            "basic-edge-wall"
+          ],
+          "pieces": {
+            "door": [
+              {
+                "assetId": "basic-door",
+                "piece": "door"
+              }
+            ],
+            "window": [
+              {
+                "assetId": "basic-window",
+                "piece": "window"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

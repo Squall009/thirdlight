@@ -78,6 +78,20 @@ export class SessionClient extends SessionClientCore {
     }
   }
 
+  /**
+   * Add an engine content pack (the Basic Kit) to the project: the backend publishes its files and runs its
+   * commands, each an ordinary command on the change feed (undone one by one). Refused when the project has
+   * any of its items already.
+   */
+  async addPack(packId: string): Promise<{ ok: true; added: number } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.api<{ ok: true; added: unknown[] }>(`/projects/${this.cfg.projectId}/packs/${encodeURIComponent(packId)}`, { origin: { kind: 'browser', clientId: this.sessionId } });
+      return { ok: true, added: r.added.length };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
   /** Export the current revision as a standalone web game (the admin export route). */
   async exportProject(): Promise<{ ok: true; outputDir: string; revision: number; files: number } | { ok: false; error: { code: string; message: string } }> {
     try {

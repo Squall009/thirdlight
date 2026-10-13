@@ -126,31 +126,42 @@ function utcSecond(ms: number): string {
 
 type Facts = { sourceDigest: string; sourceByteLength: number; importRecipe: unknown; metrics: unknown };
 
+/** A host-side import's job port (no stage, no cancel): what the importer needs to inspect bytes the backend holds. */
+export function importJobPort(now: () => number, stageId: string, displayName?: string): ImportJobPort {
+  const expires = utcSecond(now() + 3_600_000);
+  return {
+    now,
+    isCancelled: () => false,
+    proposalId: () => `p-${hex(16)}`,
+    stageId: () => stageId,
+    expiresAt: () => expires,
+    ...(displayName !== undefined ? { suggestedDisplayName: displayName } : {}),
+  };
+}
+
+export type CommandRun = { ok: true; result: MutationSuccess } | { ok: false; code: string; message: string };
+
+/** One command the backend runs itself, at the project's current revision. */
+export function runCommandNow(service: WorkspaceService, projectId: string, op: string, args: Record<string, unknown>, origin: { kind: 'admin' | 'browser' | 'mcp'; clientId: string }): CommandRun {
+  const captured = service.readCapturedV3(projectId);
+  if (!captured.ok) return { ok: false, code: captured.error.code, message: captured.error.message ?? captured.error.code };
+  const r = service.runCommand({ op, projectId, expectedRevision: captured.read.revision, requestId: `req-${hex(16)}`, origin, args });
+  if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message ?? r.error.code };
+  return { ok: true, result: r };
+}
+
 export function createAssetFileCheck(deps: AssetFileCheckDeps) {
   const { service } = deps;
   /** One check at a time per project (a focus during a long conversion waits for it). */
   const running = new Map<string, Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }>>();
 
-  const job = (displayName?: string): ImportJobPort => {
-    const expires = utcSecond(deps.now() + 3_600_000);
-    return {
-      now: () => deps.now(),
-      isCancelled: () => false,
-      proposalId: () => `p-${hex(16)}`,
-      stageId: () => 'file-check',
-      expiresAt: () => expires,
-      ...(displayName !== undefined ? { suggestedDisplayName: displayName } : {}),
-    };
-  };
+  const job = (displayName?: string): ImportJobPort => importJobPort(deps.now, 'file-check', displayName);
 
   /** Run one command at the current revision; the result goes out on the change feed. */
-  const command = (projectId: string, op: string, args: Record<string, unknown>): { ok: true; result: MutationSuccess } | { ok: false; code: string; message: string } => {
-    const captured = service.readCapturedV3(projectId);
-    if (!captured.ok) return { ok: false, code: captured.error.code, message: captured.error.message ?? captured.error.code };
-    const r = service.runCommand({ op, projectId, expectedRevision: captured.read.revision, requestId: `req-${hex(16)}`, origin: { kind: 'admin', clientId: 'file-check' }, args });
-    if (!r.ok) return { ok: false, code: r.error.code, message: r.error.message ?? r.error.code };
-    deps.onApplied(projectId, r);
-    return { ok: true, result: r };
+  const command = (projectId: string, op: string, args: Record<string, unknown>): CommandRun => {
+    const r = runCommandNow(service, projectId, op, args, { kind: 'admin', clientId: 'file-check' });
+    if (r.ok) deps.onApplied(projectId, r.result);
+    return r;
   };
 
   /** Inspect bytes an importer made (a GLB, a KTX2): the facts a publish records. */

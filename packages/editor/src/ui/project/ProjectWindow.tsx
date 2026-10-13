@@ -312,7 +312,7 @@ export function ProjectWindow(p: Props): JSX.Element {
     const out: MenuEntry[] = [{ label: 'Folder', disabled: folder === null, reason: 'Choose a folder of the game folder first', onSelect: startNew }];
     const groups = new Map<string, MenuEntry[]>();
     for (const k of p.actions?.createKinds ?? []) {
-      const entry = { label: k.label, onSelect: () => startCreate(k.key, k.group !== undefined ? `${k.group}: ${k.label}` : k.label, k.defaultName) };
+      const entry = { label: k.label, onSelect: () => (k.immediate === true ? void run(p.actions!.create(k.key, k.defaultName)) : startCreate(k.key, k.group !== undefined ? `${k.group}: ${k.label}` : k.label, k.defaultName)) };
       if (k.group === undefined) {
         out.push(entry);
         continue;

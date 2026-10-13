@@ -33,6 +33,10 @@
  * mapping's signs): a top's image right is +X and its top −Z; a +Z wall's
  * right is +X, a +X wall's right −Z, and every wall's top is up.
  *
+ * Last, the engine's Basic Kit comes in from the project window's Create menu,
+ * and a wall of its Wall block type wears its trim sheet: the first storey
+ * the lower wall's concrete, the second the lighter plaster of the upper wall.
+ *
  * TL_WORLD_UV_DIR=<dir> keeps the pictures.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -46,7 +50,7 @@ import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { inspector, menu, openWindow } from './ui';
+import { inspector, menu, openWindow, projectWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -247,12 +251,14 @@ async function settledBrightness(view: Locator, at: readonly number[], name: str
   return last;
 }
 
-async function frameRow(page: Page, view: Locator): Promise<void> {
+/** Zoom the Scene view out until `points` (world; absent: the row's top corners) are in view. */
+async function frameRow(page: Page, view: Locator, points?: readonly (readonly [number, number, number])[]): Promise<void> {
   const box = (await view.boundingBox())!;
+  const corners = points ?? [0, 4].flatMap((x) => [0, 2].map((z) => [ORIGIN[0] + x, ORIGIN[1] + 1, ORIGIN[2] + z] as const));
   const inView = async (): Promise<boolean> => {
     const project = await sceneProjector(view);
-    for (const x of [0, 4]) for (const z of [0, 2]) {
-      const s = project([ORIGIN[0] + x, ORIGIN[1] + 1, ORIGIN[2] + z]);
+    for (const p of corners) {
+      const s = project([p[0], p[1], p[2]]);
       if (s === null || s.x < 4 || s.x > box.width - 4 || s.y < 4 || s.y > box.height - 4) return false;
     }
     return true;
@@ -381,6 +387,24 @@ for (const variant of RENDERER_VARIANTS) test(`block looks with world texture co
   }
   console.log(`world-mapped kit bump ${variant}: ${lean.join('; ')}`);
   expect(wrong, 'faces whose normal map does not lean toward its top-right sun').toEqual([]);
+
+  // ---- The engine's Basic Kit, added from the project window's Create menu: a wall of its Wall block type, two
+  // cells high, wears its trim sheet — the first storey the lower wall's mid-grey concrete, the storey above the
+  // upper wall's light plaster (as white stand-ins both faces would be the same).
+  await (await projectWindow(page)).getByRole('button', { name: /^create/ }).click();
+  await page.getByRole('menu', { name: 'create menu', exact: true }).getByRole('menuitem', { name: 'Basic Kit (ready-made)', exact: true }).click();
+  await expect(inspector(page).getByLabel('kit inspector')).toBeVisible({ timeout: 60_000 });
+  await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string }[] }).blockTypes?.some((t) => t.blockId === 'basic-wall'), { timeout: 30_000 }).toBe(true);
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -0.5, -1], castShadow: false } });
+  await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#ffffff', intensity: 0.6 } });
+  const kitWall = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Kit wall', transform: { position: [-2, 0, 1.5] } }))['createdId']);
+  await cmd('setComponent', { entityId: kitWall, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 2, 1] }, castShadow: false, receiveShadow: false } });
+  await cmd('editBlocks', { entityId: kitWall, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 2, 1], cell: { block: 'basic-wall' } }] });
+  await frameRow(page, view, [[-1.5, 0.2, 2.5], [1.5, 1.8, 2.5]]);
+  const lower = await settledBrightness(view, [0.5, 0.5, 2.501], 'basic-kit-lower-wall');
+  const upper = await settledBrightness(view, [0.5, 1.5, 2.501], 'basic-kit-upper-wall');
+  console.log(`basic kit wall ${variant}: lower ${lower.toFixed(1)}, upper ${upper.toFixed(1)}`);
+  expect(upper - lower, `the upper storey's plaster (${upper.toFixed(1)}) is lighter than the lower storey's concrete (${lower.toFixed(1)})`).toBeGreaterThan(12);
 
   expect(errors).toEqual([]);
   console.log(`world uv ${variant}: model ${own.join(',')}; world ${world.join(',')}`);

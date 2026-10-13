@@ -407,6 +407,23 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     names that the project lacks (or a trim material that is not a trim
     sheet, a preset that is not an architecture preset, a piece that is not
     a model) is a line in Problems (`tl_diagnostics`).
+  - <a id="basic-kit"></a>**The Basic Kit** is the engine's ready-made
+    prototype kit: project window **Create → Basic Kit (ready-made)** adds
+    it. It brings a neutral trim sheet made to the
+    [trim sheet spec](../guides/trim-sheet-spec.md) (light plaster and
+    concrete walls, a 0.5 m tiled floor, darker trims; 2048² KTX2 maps), the
+    material `basic-trim` wearing it, presets of the starter room, tall room,
+    hall, rail, fence and pipe on it (`basic-room`, …), block types Ground,
+    Wall, Half block, Ramp, Stairs, Floor slab and Edge wall (`basic-…`,
+    stand-ins wearing the sheet), and a placeholder door and window
+    (`basic-door`, `basic-window`: three render levels and a collision mesh
+    each) in its door and window slots. Its files go into
+    `assets/basic-kit/`. The items are the project's own copies — change
+    them freely, or point the kit at a sheet of your own made to the same
+    spec. It is added once: a project that already has one of its items is
+    told which. Over HTTP: `POST /api/v1/projects/<id>/packs/basic-kit`
+    (each step an ordinary command, undone one at a time); `GET
+    /api/v1/packs` lists the packs this engine ships.
   - A block layer and an architecture object may name their kit (`kitId`,
     Inspector **Kit**); absent: none, as before.
   - Kits are editor-side: a kit has no address or labels and a build does

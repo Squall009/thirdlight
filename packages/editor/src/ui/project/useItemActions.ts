@@ -37,6 +37,8 @@ export interface CreateKind {
   readonly defaultName: string;
   /** The submenu (Graph material, Graph), or none. */
   readonly group?: string;
+  /** Made at once, with no name to give (engine content added as it ships). */
+  readonly immediate?: boolean;
 }
 
 /** What a new graph material starts from: an empty PBR output or a shader type's built-in template (the same look). */
@@ -135,6 +137,8 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       { key: 'ui', label: 'UI document', defaultName: 'New UI document' },
       { key: 'uitheme', label: 'UI theme', defaultName: 'New UI theme' },
       { key: 'kit', label: 'Kit', defaultName: 'New kit' },
+      // The engine's ready-made kit: its sheet, presets, block types and pieces become the project's own items.
+      { key: 'pack:basic-kit', label: 'Basic Kit (ready-made)', defaultName: 'Basic Kit', immediate: true },
     ];
   }, [graphKinds]);
 
@@ -143,6 +147,13 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
       const c = clientRef.current;
       if (c === null) return 'not connected';
       const [head, arg = ''] = key.includes(':') ? [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)] : [key, ''];
+      if (head === 'pack') {
+        const added = await c.addPack(arg);
+        if (!added.ok) return added.error.message;
+        // A pack's kit has the pack's id: shown in the Inspector.
+        inspect({ kind: 'kit', id: arg });
+        return null;
+      }
       const kind = head === 'graph-material' || head === 'trim-material' ? 'material' : head === 'animator-locomotion' ? 'animator' : head;
       const name = rawName.trim().slice(0, nameMaxOf(kind));
       if (name === '') return 'give it a name';

@@ -157,6 +157,18 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 | 36.1 | Done 2026-10-13: `docs/manual/guides/trim-sheet-spec.md` (sheet, row table with pixel bounds and inset v in glTF and Blender terms, ASCII layout, slot readers, maps, tiling, UVs for pieces and overrides, piece placement and names, reserved vertex colours, checklist), linked from `trim-sheets.md` (its stale "block walls are not strips" pitfall corrected) and the index. Numbers from the Texture Designer's `solve()` (2048², 512 px/m, gutter 8, align 16: rows_used 2000, fits, no warnings) and the engine's `trimSheetFromLayout` (no errors, no problems, safe mip level 4 on every row). Art-factory proposal for the owner: `~/.cache/thirdlight-phase36/art-factory-proposal.md`. Fast gate green (vitest 703, e2e 30, perf in limits). |
 | 36.2 | Done 2026-10-13: a sheet-level `realHeight` (new sheets, layout imports; a checkbox for stored ones) draws fields at their own height (last repeat cut) and trims once (fitted within 5 %, else at their own height); block walls cut where the field row repeats; Snap to row on tied sliders, mismatches in the sheet's backend problems; `TRIM_SHEET_DEFAULTS` 2048²/512, spec rows. Meshing: 16² wall chunk 2.4–2.8 → 2.6–3.0 ms, worst case (every first-storey face cut) 0.75 → 1.93 ms; `block-world-uv` 6.7 + 6.7 → 6.4 + 6.3 s. |
 | 36.3 | Done 2026-10-13: `content.kits` (a resource kind, `<name>.kit.json`; editor-only: never loadable, not shipped), `setKit`/`deleteKit` (MCP, docs, reference), references as backend Problems (`kitProblems`), `kitId` on block layers and architecture (Inspector **Kit** picker), Create → Kit + kind icon (`kinds/kit.webp` 96², 3.1 KiB) + read-only kit summary in the Inspector; block-type/layer `kits` shown as **Themes** in UI and manual. vitest +8 (kits, commands, undo/redo); e2e: one Create row in `project-items` (no new file). |
+| 36.4 | Done 2026-10-13: `packs/basic-kit/` (engine content pack, built by `tools/build-basic-kit.mts`): sheet from the Texture Designer (`thirdlight/basic_kit_trim@4`, spec rows), material `basic-trim`, 6 presets (`basic-room`… baseboard 0.15625 m), 7 block types, door + window pieces, kit `basic-kit`; added by project window **Create → Basic Kit (ready-made)** / `POST …/packs/basic-kit` (ordinary commands). Download 2.62 MiB (target ≤ 4 MB). vitest +5 (`packs.test.ts`); e2e: a Basic Kit step in `block-world-uv` (auto variant 8.9 s in the fast gate, was 6.4 s; the per-renderer variants run in the full gate). Fast gate green (vitest 706 files, e2e 31, perf in limits). Asset numbers below. Owner look pending (screenshots `~/.cache/thirdlight-phase36/basic-kit/`). |
+
+**Basic Kit asset numbers** (36.4):
+
+| Asset | Format | Size | File |
+|---|---|---|---|
+| Trim sheet albedo + height (A) | KTX2 ETC1S, sRGB, 12 mips | 2048² | 764,401 B |
+| Trim sheet normal (OpenGL) | KTX2 UASTC + Zstandard (RDO 4), 12 mips | 2048² | 1,626,338 B |
+| Trim sheet ORM | KTX2 ETC1S, linear, 12 mips | 2048² | 326,281 B |
+| Door (`basic-door`, piece `door`, 1 × 2 m) | GLB: LOD0 112 / LOD1 32 / LOD2 16 tris; `door_COL` 3 boxes (frame only, 36 tris) | — | 17,468 B |
+| Window (`basic-window`, piece `window`, 1 × 1 m) | GLB: LOD0 52 / LOD1 28 / LOD2 20 tris; `window_COL` 1 box (12 tris) | — | 12,968 B |
+| **Total** | | | **2,747,456 B (2.62 MiB)** |
 
 ## 6. Decision log
 
@@ -304,3 +316,72 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     boundary check lists it with the other allowed subpaths). The regenerated
     reference split the content pages differently (assets and prefabs now on
     `content-blocks-scenes.md`); four manual links were moved with it.
+
+- 2026-10-13 (36.4) — The Basic Kit. Defaults chosen, owner to confirm:
+  - **Added as copies, not read-only engine items (changed from §1).** The
+    Basic Kit is engine content in `packs/basic-kit/` (read-only there: the
+    engine's files never change); adding it to a project makes its items the
+    project's own through ordinary commands (`publishAsset` for its five
+    files, then `setMaterial`, 6 `setGraph`, 7 `setBlockType`, `setKit`, and
+    the pieces' `setAssetOptions` material mapping). Starter presets can be
+    virtual because they are pure data the runtime resolves; the kit's KTX2
+    maps and GLBs are binary assets that Play, the export, the runtime, the
+    asset store and the file check all read from the project — a virtual
+    asset layer would touch every one of them. So **Derive is not needed**:
+    the copies are edited directly (or, like any item, duplicated). A pack is
+    added once (a project with any of its ids is refused, naming them), so a
+    second add never overwrites changed copies. Each command is its own undo
+    step (16 commands); one-undo pack adds would need a multi-op transaction
+    the command layer does not have.
+  - **Where:** project window **Create → Basic Kit (ready-made)** (no name
+    to give; the kit opens in the Inspector), `POST
+    /api/v1/projects/<id>/packs/basic-kit`, `GET /api/v1/packs`. The MCP has
+    no tool for it yet (an agent posts to the route; 36.7's 3D template ships
+    the kit in its captured project, so new 3D projects need no call). Files
+    go to `assets/basic-kit/`.
+  - **The sheet** (art-factory Texture Designer, `thirdlight/basic_kit_trim@4`,
+    packing `shared/skyforge`, rendered at 2048², 512 px/m, gutter 8, align
+    16; the spec's rows exactly, `layout.json` imported by the engine's own
+    `trimSheetFromLayout`): floor 0.5 m light grey tiles with a visible grout
+    (the grid reads scale), upper wall light plaster, lower wall mid concrete
+    panels (1 × 0.5 m, tie holes), baseboard / crown / frame dark matte
+    stippled trims with chamfered edges, column plain concrete, bevel
+    plaster, emissive warm white, a decal cell `panel`. Checked with
+    `texture_review` (upper wall's plaster) and `view_texture_3d` (wall,
+    floor at the tactics camera). Short field rows use a non-square tile
+    (`graph.tile_m [1, h]`) so their material isn't squashed in v. The
+    designer reports u seam ratios of ~19 on the concrete rows: those are the
+    formwork panel seams falling on the tile edge (u_p95 1.3), not a wrap
+    break.
+  - **Compression for the ≤ 4 MB target:** albedo ETC1S (sRGB, height in A),
+    normal UASTC + Zstandard with RDO (UASTC needed for normals; RDO 1–10
+    saved only 0.2 MiB on this noisy source), **ORM ETC1S** (UASTC was
+    1.44 MiB; occlusion and roughness are smooth and metalness is 0, so
+    channel crosstalk is invisible) — 2.62 MiB in all. The engine's import
+    encodings stay as they are; these files are encoded by the pack's build
+    script with the pinned `ktx2-encoder`.
+  - **Pieces** are made by the deterministic build script (like the starter
+    template's models), not Blender: boxes and quads UV'd in strip space
+    against the spec's rows (frame members 0.125 m on the `frame` row,
+    reveals on `column`, the door leaf fifteen 0.125 m slats of `crown`, the
+    window pane its own `glass` material). Origin bottom centre, +X along,
+    +Z out, top-level nodes untransformed, `<piece>_LOD0..2` + `_COL`, no
+    `COLOR_0`. LOD1/LOD2 keep one stretched strip per face (still inside one
+    row). Far below the spec's 500–2,000 guide (door 112, window 52 at
+    LOD0): a prototype placeholder has no detail to spend them on. The
+    door's collision is its frame only: a placeholder door does not block
+    the way (a game opens and closes its own doors).
+  - **Block types** are white stand-ins with `materials {"*": "basic-trim"}`:
+    since 35.9/36.2 stand-in faces wear the sheet's strips (tops the floor
+    row, the layer's first storey of cells the lower wall, higher storeys
+    the upper wall, walls cut where a row repeats). The edge wall is a
+    `placement: "edge"` full block.
+  - **Presets:** room, tall room, hall, rail, fence, pipe, each deriving its
+    starter with `sheet: basic-trim`; the room, tall room and hall set
+    `baseboard_height` 0.15625 m (the baseboard row). The starter frame's
+    0.12 m is within 5 % of the 0.125 m frame row (no exposed slider).
+  - **Looked at** (Iris Xe, WebGPU, editor Scene view): a 16 × 16 m ground of
+    Ground blocks with walls, half blocks, stairs, a ramp and a slab, and a
+    room from `basic-room` with the Basic door and two windows — the grid
+    reads, walls show plaster over concrete, frames dark, glazing bars and
+    pane visible. WebGL 2 only through the e2e's reads (SwiftShader).

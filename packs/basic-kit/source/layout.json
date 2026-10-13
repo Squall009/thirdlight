@@ -1,0 +1,1189 @@
+{
+ "engine": "9.9",
+ "files": [
+  {
+   "bytes": 5028585,
+   "channels": {
+    "a": {
+     "clamp": [
+      0.0039,
+      1.0
+     ],
+     "default": [
+      0.5
+     ],
+     "map": "height",
+     "space": "linear"
+    },
+    "rgb": {
+     "default": [
+      0.5
+     ],
+     "map": "albedo",
+     "space": "srgb"
+    }
+   },
+   "codec": null,
+   "container": "png",
+   "file": "basic_kit_trim_albedo_height.png",
+   "format": "rgba8",
+   "mip_levels": null,
+   "size": [
+    2048,
+    2048
+   ],
+   "srgb": true
+  },
+  {
+   "bytes": 3335187,
+   "channels": {
+    "rgb": {
+     "default": [
+      0.5,
+      0.5,
+      1.0
+     ],
+     "map": "normal",
+     "normal": true,
+     "space": "linear"
+    }
+   },
+   "codec": null,
+   "container": "png",
+   "file": "basic_kit_trim_normal.png",
+   "format": "rgb8",
+   "mip_levels": null,
+   "size": [
+    2048,
+    2048
+   ],
+   "srgb": false
+  },
+  {
+   "bytes": 2641856,
+   "channels": {
+    "b": {
+     "default": [
+      0.0
+     ],
+     "map": "metallic",
+     "space": "linear"
+    },
+    "g": {
+     "default": [
+      0.8
+     ],
+     "map": "roughness",
+     "space": "linear"
+    },
+    "r": {
+     "default": [
+      1.0
+     ],
+     "map": "ao",
+     "space": "linear"
+    }
+   },
+   "codec": null,
+   "container": "png",
+   "file": "basic_kit_trim_orm.png",
+   "format": "rgb8",
+   "mip_levels": null,
+   "size": [
+    2048,
+    2048
+   ],
+   "srgb": false
+  },
+  {
+   "bytes": 6582168,
+   "channels": {
+    "r": {
+     "map": "height",
+     "space": "linear"
+    }
+   },
+   "codec": null,
+   "container": "png",
+   "file": "basic_kit_trim_height.png",
+   "format": "r16",
+   "mip_levels": null,
+   "size": [
+    2048,
+    2048
+   ],
+   "srgb": false
+  }
+ ],
+ "format": "trim/1",
+ "gutter_px": 8,
+ "height_scale": "per_layer",
+ "layers": [
+  {
+   "edges": null,
+   "gutter_px": 8,
+   "height_m": 1.0,
+   "height_px": 512,
+   "height_range_m": [
+    0.000881,
+    0.003797
+   ],
+   "kind": "tile_uv",
+   "material": "shared/mat_ceramic_tiles@1",
+   "name": "floor",
+   "note": "0.5 m light grey tiles with a visible grout: the grid reads scale",
+   "overrides": {
+    "clouds": 0.15,
+    "el_count": 2,
+    "grain": 0.35,
+    "graph.tile_m": 1,
+    "grout_value": 0.55,
+    "irregular": 0.08,
+    "joint_width": 0.012,
+    "sat": 0.15,
+    "tile_color_var": 0.2,
+    "value": 1.3,
+    "wear": 0.03
+   },
+   "period_u_m": 1.0,
+   "period_v_m": 1.0,
+   "px": [
+    8,
+    520
+   ],
+   "repeats_u": 4,
+   "repeats_v": 1,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.14,
+    "u_p95": 1.176,
+    "u_phase": 1.146,
+    "v": 1.409,
+    "v_p95": 1.46
+   },
+   "seed": 251,
+   "size_m": [
+    4.0,
+    1.0
+   ],
+   "tile_m": [
+    1.0,
+    1.0
+   ],
+   "tile_u": true,
+   "tile_v": true,
+   "v0": 0.003906,
+   "v0_gl": 0.746094,
+   "v1": 0.253906,
+   "v1_gl": 0.996094,
+   "wrap_u_m": 4.0,
+   "wrap_v": true
+  },
+  {
+   "edges": null,
+   "gutter_px": 8,
+   "height_m": 1.0,
+   "height_px": 512,
+   "height_range_m": [
+    0.001777,
+    0.005354
+   ],
+   "kind": "tile_uv",
+   "material": "shared/mat_plaster_smooth@1",
+   "name": "upper_wall",
+   "note": "light plaster",
+   "overrides": {
+    "cracks": 0,
+    "grain": 0.2,
+    "graph.tile_m": 1,
+    "mottling": 0.35,
+    "sat": 0.3,
+    "value": 1.1
+   },
+   "period_u_m": 1.0,
+   "period_v_m": 1.0,
+   "px": [
+    536,
+    1048
+   ],
+   "repeats_u": 4,
+   "repeats_v": 1,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.057,
+    "u_p95": 1.122,
+    "u_phase": 1.099,
+    "v": 1.081,
+    "v_p95": 1.057
+   },
+   "seed": 281,
+   "size_m": [
+    4.0,
+    1.0
+   ],
+   "tile_m": [
+    1.0,
+    1.0
+   ],
+   "tile_u": true,
+   "tile_v": true,
+   "v0": 0.261719,
+   "v0_gl": 0.488281,
+   "v1": 0.511719,
+   "v1_gl": 0.738281,
+   "wrap_u_m": 4.0,
+   "wrap_v": true
+  },
+  {
+   "edges": null,
+   "gutter_px": 8,
+   "height_m": 0.5,
+   "height_px": 256,
+   "height_range_m": [
+    -5.5e-05,
+    0.007818
+   ],
+   "kind": "tile_uv",
+   "material": "shared/mat_concrete_cast@1",
+   "name": "lower_wall",
+   "note": "mid concrete panels, 1 m by 0.5 m",
+   "overrides": {
+    "cracks": 0,
+    "el_count": 1,
+    "grain": 0.4,
+    "graph.tile_m": [
+     1,
+     0.5
+    ],
+    "leaks": 0,
+    "mottling": 0.3,
+    "sat": 0.3,
+    "ties_across": 2,
+    "ties_down": 1,
+    "value": 0.9
+   },
+   "period_u_m": 1.0,
+   "period_v_m": 0.5,
+   "px": [
+    1064,
+    1320
+   ],
+   "repeats_u": 4,
+   "repeats_v": 1,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 19.344,
+    "u_p95": 1.265,
+    "u_phase": 20.133,
+    "v": 1.129,
+    "v_p95": 1.154
+   },
+   "seed": 271,
+   "size_m": [
+    4.0,
+    0.5
+   ],
+   "tile_m": [
+    1.0,
+    0.5
+   ],
+   "tile_u": true,
+   "tile_v": true,
+   "v0": 0.519531,
+   "v0_gl": 0.355469,
+   "v1": 0.644531,
+   "v1_gl": 0.480469,
+   "wrap_u_m": 4.0,
+   "wrap_v": true
+  },
+  {
+   "edges": {
+    "bottom": null,
+    "top": "chamfer",
+    "width_m": 0.02
+   },
+   "gutter_px": 8,
+   "height_m": 0.15625,
+   "height_px": 80,
+   "height_range_m": [
+    3e-06,
+    0.000298
+   ],
+   "kind": "tile_u",
+   "material": "shared/mat_plastic_textured@1",
+   "name": "baseboard",
+   "note": "dark matte baseboard, chamfered top",
+   "overrides": {
+    "base_color": [
+     0.2,
+     0.2,
+     0.2,
+     1
+    ],
+    "creases": 0,
+    "dirt": 0,
+    "graph.tile_m": 0.5,
+    "pattern": 2,
+    "roughness": 0.6,
+    "wear": 0.05
+   },
+   "period_u_m": 0.5,
+   "period_v_m": null,
+   "px": [
+    1336,
+    1416
+   ],
+   "repeats_u": 8,
+   "repeats_v": null,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.138,
+    "u_p95": 1.163,
+    "u_phase": 1.142
+   },
+   "seed": 41,
+   "size_m": [
+    4.0,
+    0.15625
+   ],
+   "tile_m": [
+    0.5,
+    0.5
+   ],
+   "tile_u": true,
+   "tile_v": false,
+   "v0": 0.652344,
+   "v0_gl": 0.308594,
+   "v1": 0.691406,
+   "v1_gl": 0.347656,
+   "wrap_u_m": 4.0,
+   "wrap_v": false
+  },
+  {
+   "edges": {
+    "bottom": "chamfer",
+    "top": "chamfer",
+    "width_m": 0.02
+   },
+   "gutter_px": 8,
+   "height_m": 0.125,
+   "height_px": 64,
+   "height_range_m": [
+    2e-06,
+    0.000298
+   ],
+   "kind": "tile_u",
+   "material": "shared/mat_plastic_textured@1",
+   "name": "crown",
+   "note": "crown, chamfered edges",
+   "overrides": {
+    "base_color": [
+     0.32,
+     0.32,
+     0.31,
+     1
+    ],
+    "creases": 0,
+    "dirt": 0,
+    "graph.tile_m": 0.5,
+    "pattern": 2,
+    "roughness": 0.6,
+    "wear": 0.05
+   },
+   "period_u_m": 0.5,
+   "period_v_m": null,
+   "px": [
+    1432,
+    1496
+   ],
+   "repeats_u": 8,
+   "repeats_v": null,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.078,
+    "u_p95": 1.219,
+    "u_phase": 1.079
+   },
+   "seed": 41,
+   "size_m": [
+    4.0,
+    0.125
+   ],
+   "tile_m": [
+    0.5,
+    0.5
+   ],
+   "tile_u": true,
+   "tile_v": false,
+   "v0": 0.699219,
+   "v0_gl": 0.269531,
+   "v1": 0.730469,
+   "v1_gl": 0.300781,
+   "wrap_u_m": 4.0,
+   "wrap_v": false
+  },
+  {
+   "edges": {
+    "bottom": "chamfer",
+    "top": "chamfer",
+    "width_m": 0.015
+   },
+   "gutter_px": 8,
+   "height_m": 0.125,
+   "height_px": 64,
+   "height_range_m": [
+    2e-06,
+    0.000298
+   ],
+   "kind": "tile_u",
+   "material": "shared/mat_plastic_textured@1",
+   "name": "frame",
+   "note": "dark frame round openings",
+   "overrides": {
+    "base_color": [
+     0.16,
+     0.16,
+     0.16,
+     1
+    ],
+    "creases": 0,
+    "dirt": 0,
+    "graph.tile_m": 0.5,
+    "pattern": 2,
+    "roughness": 0.55,
+    "wear": 0.05
+   },
+   "period_u_m": 0.5,
+   "period_v_m": null,
+   "px": [
+    1512,
+    1576
+   ],
+   "repeats_u": 8,
+   "repeats_v": null,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.103,
+    "u_p95": 1.248,
+    "u_phase": 1.291
+   },
+   "seed": 41,
+   "size_m": [
+    4.0,
+    0.125
+   ],
+   "tile_m": [
+    0.5,
+    0.5
+   ],
+   "tile_u": true,
+   "tile_v": false,
+   "v0": 0.738281,
+   "v0_gl": 0.230469,
+   "v1": 0.769531,
+   "v1_gl": 0.261719,
+   "wrap_u_m": 4.0,
+   "wrap_v": false
+  },
+  {
+   "edges": null,
+   "gutter_px": 8,
+   "height_m": 0.25,
+   "height_px": 128,
+   "height_range_m": [
+    0.004525,
+    0.007708
+   ],
+   "kind": "tile_uv",
+   "material": "shared/mat_concrete_cast@1",
+   "name": "column",
+   "note": "plain concrete shafts and pipes",
+   "overrides": {
+    "cracks": 0,
+    "el_count": 1,
+    "grain": 0.4,
+    "graph.tile_m": [
+     1,
+     0.25
+    ],
+    "leaks": 0,
+    "mottling": 0.05,
+    "sat": 0.3,
+    "tie_radius": 0,
+    "value": 0.85
+   },
+   "period_u_m": 1.0,
+   "period_v_m": 0.25,
+   "px": [
+    1592,
+    1720
+   ],
+   "repeats_u": 4,
+   "repeats_v": 1,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 19.581,
+    "u_p95": 1.297,
+    "u_phase": 19.78,
+    "v": 1.09,
+    "v_p95": 1.146
+   },
+   "seed": 271,
+   "size_m": [
+    4.0,
+    0.25
+   ],
+   "tile_m": [
+    1.0,
+    0.25
+   ],
+   "tile_u": true,
+   "tile_v": true,
+   "v0": 0.777344,
+   "v0_gl": 0.160156,
+   "v1": 0.839844,
+   "v1_gl": 0.222656,
+   "wrap_u_m": 4.0,
+   "wrap_v": true
+  },
+  {
+   "edges": null,
+   "gutter_px": 8,
+   "height_m": 0.0625,
+   "height_px": 32,
+   "height_range_m": [
+    0.002108,
+    0.005197
+   ],
+   "kind": "tile_uv",
+   "material": "shared/mat_plaster_smooth@1",
+   "name": "bevel",
+   "note": "wall tops",
+   "overrides": {
+    "cracks": 0,
+    "grain": 0.2,
+    "graph.tile_m": [
+     1,
+     0.0625
+    ],
+    "mottling": 0.3,
+    "sat": 0.25,
+    "value": 0.7
+   },
+   "period_u_m": 1.0,
+   "period_v_m": 0.0625,
+   "px": [
+    1736,
+    1768
+   ],
+   "repeats_u": 4,
+   "repeats_v": 1,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.273,
+    "u_p95": 1.466,
+    "u_phase": 1.18,
+    "v": 1.293,
+    "v_p95": 1.108
+   },
+   "seed": 281,
+   "size_m": [
+    4.0,
+    0.0625
+   ],
+   "tile_m": [
+    1.0,
+    0.0625
+   ],
+   "tile_u": true,
+   "tile_v": true,
+   "v0": 0.847656,
+   "v0_gl": 0.136719,
+   "v1": 0.863281,
+   "v1_gl": 0.152344,
+   "wrap_u_m": 4.0,
+   "wrap_v": true
+  },
+  {
+   "edges": {
+    "bottom": "chamfer",
+    "top": "chamfer",
+    "width_m": 0.01
+   },
+   "gutter_px": 8,
+   "height_m": 0.125,
+   "height_px": 64,
+   "height_range_m": [
+    1.8e-05,
+    0.000395
+   ],
+   "kind": "tile_u",
+   "material": "shared/mat_plastic_glossy@1",
+   "name": "emissive",
+   "note": "warm white light strip",
+   "overrides": {
+    "graph.tile_m": 1,
+    "sat": 0.25,
+    "value": 1.7
+   },
+   "period_u_m": 1.0,
+   "period_v_m": null,
+   "px": [
+    1784,
+    1848
+   ],
+   "repeats_u": 4,
+   "repeats_v": null,
+   "scale_u": 1.0,
+   "scale_v": 1.0,
+   "seam": {
+    "u": 1.571,
+    "u_p95": 1.575,
+    "u_phase": 1.513
+   },
+   "seed": 31,
+   "size_m": [
+    4.0,
+    0.125
+   ],
+   "tile_m": [
+    1.0,
+    1.0
+   ],
+   "tile_u": true,
+   "tile_v": false,
+   "v0": 0.871094,
+   "v0_gl": 0.097656,
+   "v1": 0.902344,
+   "v1_gl": 0.128906,
+   "wrap_u_m": 4.0,
+   "wrap_v": false
+  },
+  {
+   "cells": [
+    {
+     "height_range_m": [
+      5.5e-05,
+      0.007711
+     ],
+     "material": "shared/mat_concrete_cast@1",
+     "name": "panel",
+     "note": "a small square panel",
+     "px_rect": [
+      8,
+      1864,
+      128,
+      128
+     ],
+     "seed": 271,
+     "size_m": [
+      0.25,
+      0.25
+     ],
+     "uv_rect": [
+      0.003906,
+      0.910156,
+      0.066406,
+      0.972656
+     ],
+     "uv_rect_gl": [
+      0.003906,
+      0.027344,
+      0.066406,
+      0.089844
+     ],
+     "wrap_v": false
+    }
+   ],
+   "free": {
+    "material": "shared/mat_plaster_smooth@1",
+    "note": "free for later cells, down to the end of the row's reserved rows (shows the fill graph)",
+    "px_rect": [
+     152,
+     1864,
+     1896,
+     176
+    ],
+    "uv_rect": [
+     0.074219,
+     0.910156,
+     1.0,
+     0.996094
+    ]
+   },
+   "height_px": 128,
+   "kind": "decals",
+   "name": "decals",
+   "note": "",
+   "px": [
+    1864,
+    1992
+   ],
+   "reserved_px": [
+    1864,
+    2040
+   ],
+   "tile_u": false,
+   "tile_v": false
+  }
+ ],
+ "mip_levels_safe": 3,
+ "name": "basic_kit_trim",
+ "normal_convention": "OpenGL +Y",
+ "rows_used": 2000,
+ "size": [
+  2048,
+  2048
+ ],
+ "source": {
+  "graphs": [
+   "shared/mat_ceramic_tiles@1",
+   "shared/mat_concrete_cast@1",
+   "shared/mat_plaster_smooth@1",
+   "shared/mat_plastic_glossy@1",
+   "shared/mat_plastic_textured@1"
+  ],
+  "packing": {
+   "files": [
+    {
+     "channels": {
+      "a": {
+       "clamp": [
+        0.0039,
+        1.0
+       ],
+       "default": [
+        0.5
+       ],
+       "map": "height",
+       "space": "linear"
+      },
+      "rgb": {
+       "default": [
+        0.5
+       ],
+       "map": "albedo",
+       "space": "srgb"
+      }
+     },
+     "format": "rgba8",
+     "ktx2": "etc1s",
+     "name": "{name}_albedo_height",
+     "optional": false,
+     "png": true
+    },
+    {
+     "channels": {
+      "rgb": {
+       "default": [
+        0.5,
+        0.5,
+        1.0
+       ],
+       "map": "normal",
+       "normal": true,
+       "space": "linear"
+      }
+     },
+     "format": "rgb8",
+     "ktx2": "uastc",
+     "name": "{name}_normal",
+     "optional": false,
+     "png": true
+    },
+    {
+     "channels": {
+      "b": {
+       "default": [
+        0.0
+       ],
+       "map": "metallic",
+       "space": "linear"
+      },
+      "g": {
+       "default": [
+        0.8
+       ],
+       "map": "roughness",
+       "space": "linear"
+      },
+      "r": {
+       "default": [
+        1.0
+       ],
+       "map": "ao",
+       "space": "linear"
+      }
+     },
+     "format": "rgb8",
+     "ktx2": "uastc",
+     "name": "{name}_orm",
+     "optional": false,
+     "png": true
+    },
+    {
+     "channels": {
+      "r": {
+       "map": "height",
+       "space": "linear"
+      }
+     },
+     "format": "r16",
+     "ktx2": null,
+     "name": "{name}_height",
+     "optional": true,
+     "png": true
+    }
+   ],
+   "format": "packing/1",
+   "name": "skyforge"
+  },
+  "sheet": "thirdlight/basic_kit_trim@4",
+  "sheet_doc": {
+   "align_px": 16,
+   "format": "trim/1",
+   "gutter_px": 8,
+   "height_scale": "per_layer",
+   "layers": [
+    {
+     "edges": null,
+     "graph": "shared/mat_ceramic_tiles@1",
+     "height_m": 1.0,
+     "kind": "tile_uv",
+     "name": "floor",
+     "note": "0.5 m light grey tiles with a visible grout: the grid reads scale",
+     "overrides": {
+      "clouds": 0.15,
+      "el_count": 2,
+      "grain": 0.35,
+      "graph.tile_m": 1,
+      "grout_value": 0.55,
+      "irregular": 0.08,
+      "joint_width": 0.012,
+      "sat": 0.15,
+      "tile_color_var": 0.2,
+      "value": 1.3,
+      "wear": 0.03
+     },
+     "seed": null
+    },
+    {
+     "edges": null,
+     "graph": "shared/mat_plaster_smooth@1",
+     "height_m": 1.0,
+     "kind": "tile_uv",
+     "name": "upper_wall",
+     "note": "light plaster",
+     "overrides": {
+      "cracks": 0,
+      "grain": 0.2,
+      "graph.tile_m": 1,
+      "mottling": 0.35,
+      "sat": 0.3,
+      "value": 1.1
+     },
+     "seed": null
+    },
+    {
+     "edges": null,
+     "graph": "shared/mat_concrete_cast@1",
+     "height_m": 0.5,
+     "kind": "tile_uv",
+     "name": "lower_wall",
+     "note": "mid concrete panels, 1 m by 0.5 m",
+     "overrides": {
+      "cracks": 0,
+      "el_count": 1,
+      "grain": 0.4,
+      "graph.tile_m": [
+       1,
+       0.5
+      ],
+      "leaks": 0,
+      "mottling": 0.3,
+      "sat": 0.3,
+      "ties_across": 2,
+      "ties_down": 1,
+      "value": 0.9
+     },
+     "seed": null
+    },
+    {
+     "edges": {
+      "bottom": null,
+      "top": "chamfer",
+      "width_m": 0.02
+     },
+     "graph": "shared/mat_plastic_textured@1",
+     "height_m": 0.15625,
+     "kind": "tile_u",
+     "name": "baseboard",
+     "note": "dark matte baseboard, chamfered top",
+     "overrides": {
+      "base_color": [
+       0.2,
+       0.2,
+       0.2,
+       1
+      ],
+      "creases": 0,
+      "dirt": 0,
+      "graph.tile_m": 0.5,
+      "pattern": 2,
+      "roughness": 0.6,
+      "wear": 0.05
+     },
+     "seed": null
+    },
+    {
+     "edges": {
+      "bottom": "chamfer",
+      "top": "chamfer",
+      "width_m": 0.02
+     },
+     "graph": "shared/mat_plastic_textured@1",
+     "height_m": 0.125,
+     "kind": "tile_u",
+     "name": "crown",
+     "note": "crown, chamfered edges",
+     "overrides": {
+      "base_color": [
+       0.32,
+       0.32,
+       0.31,
+       1
+      ],
+      "creases": 0,
+      "dirt": 0,
+      "graph.tile_m": 0.5,
+      "pattern": 2,
+      "roughness": 0.6,
+      "wear": 0.05
+     },
+     "seed": null
+    },
+    {
+     "edges": {
+      "bottom": "chamfer",
+      "top": "chamfer",
+      "width_m": 0.015
+     },
+     "graph": "shared/mat_plastic_textured@1",
+     "height_m": 0.125,
+     "kind": "tile_u",
+     "name": "frame",
+     "note": "dark frame round openings",
+     "overrides": {
+      "base_color": [
+       0.16,
+       0.16,
+       0.16,
+       1
+      ],
+      "creases": 0,
+      "dirt": 0,
+      "graph.tile_m": 0.5,
+      "pattern": 2,
+      "roughness": 0.55,
+      "wear": 0.05
+     },
+     "seed": null
+    },
+    {
+     "edges": null,
+     "graph": "shared/mat_concrete_cast@1",
+     "height_m": 0.25,
+     "kind": "tile_uv",
+     "name": "column",
+     "note": "plain concrete shafts and pipes",
+     "overrides": {
+      "cracks": 0,
+      "el_count": 1,
+      "grain": 0.4,
+      "graph.tile_m": [
+       1,
+       0.25
+      ],
+      "leaks": 0,
+      "mottling": 0.05,
+      "sat": 0.3,
+      "tie_radius": 0,
+      "value": 0.85
+     },
+     "seed": null
+    },
+    {
+     "edges": null,
+     "graph": "shared/mat_plaster_smooth@1",
+     "height_m": 0.0625,
+     "kind": "tile_uv",
+     "name": "bevel",
+     "note": "wall tops",
+     "overrides": {
+      "cracks": 0,
+      "grain": 0.2,
+      "graph.tile_m": [
+       1,
+       0.0625
+      ],
+      "mottling": 0.3,
+      "sat": 0.25,
+      "value": 0.7
+     },
+     "seed": null
+    },
+    {
+     "edges": {
+      "bottom": "chamfer",
+      "top": "chamfer",
+      "width_m": 0.01
+     },
+     "graph": "shared/mat_plastic_glossy@1",
+     "height_m": 0.125,
+     "kind": "tile_u",
+     "name": "emissive",
+     "note": "warm white light strip",
+     "overrides": {
+      "graph.tile_m": 1,
+      "sat": 0.25,
+      "value": 1.7
+     },
+     "seed": null
+    },
+    {
+     "cells": [
+      {
+       "graph": "shared/mat_concrete_cast@1",
+       "name": "panel",
+       "note": "a small square panel",
+       "overrides": {
+        "el_count": 1,
+        "grain": 0.4,
+        "graph.tile_m": 0.25,
+        "leaks": 0,
+        "value": 0.8
+       },
+       "seed": null,
+       "size_m": 0.25
+      }
+     ],
+     "fill": {
+      "graph": "shared/mat_plaster_smooth@1",
+      "note": "plain plaster",
+      "overrides": {
+       "cracks": 0,
+       "grain": 0.2,
+       "graph.tile_m": 1,
+       "mottling": 0.35,
+       "sat": 0.3,
+       "value": 1.1
+      },
+      "seed": null
+     },
+     "height_m": null,
+     "kind": "decals",
+     "name": "decals",
+     "note": ""
+    }
+   ],
+   "name": "basic_kit_trim",
+   "size": [
+    2048,
+    2048
+   ],
+   "texel_density": 512.0,
+   "title": "Thirdlight Basic Kit: neutral prototype (light concrete and plaster fields, darker trims)"
+  },
+  "subgraphs": {
+   "baseboard": {
+    "gr": "shared/lib_grain_texture@1",
+    "scr": "shared/lib_scratches@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "bevel": {
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "column": {
+    "bd": "shared/lib_bond@1",
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxe": "shared/wx_edge_damage@1",
+    "wxl": "shared/wx_leaks@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "crown": {
+    "gr": "shared/lib_grain_texture@1",
+    "scr": "shared/lib_scratches@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "decals.fill": {
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "emissive": {
+    "scr": "shared/lib_scratches@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "floor": {
+    "bd": "shared/lib_bond@1",
+    "scr": "shared/lib_scratches@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxe": "shared/wx_edge_damage@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "frame": {
+    "gr": "shared/lib_grain_texture@1",
+    "scr": "shared/lib_scratches@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "lower_wall": {
+    "bd": "shared/lib_bond@1",
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxe": "shared/wx_edge_damage@1",
+    "wxl": "shared/wx_leaks@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "panel": {
+    "bd": "shared/lib_bond@1",
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxe": "shared/wx_edge_damage@1",
+    "wxl": "shared/wx_leaks@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   },
+   "upper_wall": {
+    "ck": "shared/lib_cracks@1",
+    "wxd": "shared/wx_dirt@1",
+    "wxm": "shared/wx_moss@1",
+    "wxw": "shared/wx_wet@1"
+   }
+  }
+ },
+ "texel_density_px_per_m": 512.0,
+ "title": "Thirdlight Basic Kit: neutral prototype (light concrete and plaster fields, darker trims)",
+ "uv_origin": "top-left",
+ "warnings": [],
+ "width_m": 4.0
+}
