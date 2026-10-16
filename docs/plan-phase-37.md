@@ -140,7 +140,7 @@ manual → acceptance.
 | Item | Status |
 |---|---|
 | 37.0 | Done 2026-10-16: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 is out, the pinned 0.20.0 stays (nothing here needs it). §2 recon is at `8cde51d2`, current. |
-| 37.1 | In progress: mockup in `~/.cache/thirdlight-phase37/mockup`, on the review page. |
+| 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); owner look pending before 37.3. |
 
 ## 6. Decision log
 
