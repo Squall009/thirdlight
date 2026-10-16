@@ -12,6 +12,11 @@
  *   assembly (each page drawn and encoded on the KTX2 worker thread, cached
  *   in the import cache: the next Play finds them made) — and answer each
  *   decal material's place on the arrays;
+ * - `POST …/content/decal-pages?preview=1`: the same, but while some page is
+ *   still to be composed, the pages at a preview size (seconds sooner for a
+ *   cold atlas; held in memory, never stored), with the composition of the
+ *   pages themselves started behind it — the editor then asks for those
+ *   (`POST` again) and swaps them in. A build never takes a preview;
  * - `GET …/content/decal-pages/arrays/:id`: an array's bytes (the ones the
  *   last composition made).
  *
@@ -45,6 +50,13 @@ export interface DecalAtlasComposed {
   readonly refs: Readonly<Record<string, DecalPageRef>>;
   readonly ms: number;
   readonly stats: { readonly asStored: number; readonly composed: number; readonly cached: number } | null;
+  /** The pages at a preview size (the pages themselves are being composed). */
+  readonly preview?: true;
+}
+
+/** The decal page assembly the atlas asks (the build's; `preview`: pages at a preview size while some are not made). */
+export interface DecalAtlasPort {
+  decalPages?(projectId: string, request: Parameters<NonNullable<ClosureDecalPages['decalPages']>>[1], options?: { readonly preview?: boolean }): ReturnType<NonNullable<ClosureDecalPages['decalPages']>>;
 }
 
 interface Read {
@@ -67,14 +79,14 @@ type Outcome = { readonly ok: true; readonly view: DecalAtlasView } | { readonly
 
 export function makeDecalAtlasRoutes(o: {
   readonly service: WorkspaceService;
-  readonly port: ClosureDecalPages | undefined;
+  readonly port: DecalAtlasPort | undefined;
   readonly requireAuth: (req: IncomingMessage, projectId: string, adminOnly: boolean) => SessionError | null;
   readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
   readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
 }) {
-  /** The last composition per project, least recently composed or read first. */
-  const last = new Map<string, { composed: DecalAtlasComposed; files: Map<string, BlobFile> }>();
-  const lastOf = (projectId: string): { composed: DecalAtlasComposed; files: Map<string, BlobFile> } | undefined => {
+  /** The last composition per project, least recently composed or read first (a preview's arrays are bytes). */
+  const last = new Map<string, { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> }>();
+  const lastOf = (projectId: string): { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> } | undefined => {
     const known = last.get(projectId);
     if (known !== undefined) {
       last.delete(projectId);
@@ -82,7 +94,9 @@ export function makeDecalAtlasRoutes(o: {
     }
     return known;
   };
-  const remember = (projectId: string, entry: { composed: DecalAtlasComposed; files: Map<string, BlobFile> }): void => {
+  /** Each project's last preview's arrays (by id). */
+  const lastPreview = new Map<string, Map<string, BlobFile | Uint8Array>>();
+  const remember = (projectId: string, entry: { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> }): void => {
     last.delete(projectId);
     last.set(projectId, entry);
     while (last.size > DECAL_ATLAS_PROJECTS_KEPT) last.delete(last.keys().next().value!);
@@ -125,31 +139,49 @@ export function makeDecalAtlasRoutes(o: {
     o.sendJson(res, 200, { ok: true, report: r.report, signature: r.signature, composed: known !== null && known.signature === r.signature ? known : null } satisfies DecalAtlasView);
   };
 
-  const composeNow = async (projectId: string): Promise<Outcome> => {
+  /** Compose the pages (`preview`: at a preview size while some page is not made yet) and remember them. */
+  const composeNow = async (projectId: string, preview = false): Promise<Outcome> => {
     const r = read(projectId);
     if (r === null) return { ok: false, error: sessionError('project_not_found', 'not_found', 'the project cannot be read', { projectId }), status: 404 };
     if (typeof r === 'string') return { ok: false, error: sessionError('invalid_request', 'validation', r) };
     if (o.port?.decalPages === undefined) return { ok: false, error: sessionError('converter_unavailable', 'unavailable', 'decal page assembly is not available on this server') };
     const t0 = performance.now();
-    // The assembly's own counts (pages taken as stored, composed now, found composed).
+    // The assembly's own counts (pages taken as stored, composed now, found composed), and whether it answered a preview.
     let stats: DecalAtlasComposed['stats'] = null;
+    let previewed = false;
     const port: ClosureDecalPages = {
       decalPages: async (p, request) => {
-        const made = await o.port!.decalPages!(p, request);
-        if (made.ok) stats = (made as { stats?: DecalAtlasComposed['stats'] }).stats ?? null;
+        const made = await o.port!.decalPages!(p, request, preview ? { preview: true } : undefined);
+        if (made.ok) {
+          stats = (made as { stats?: DecalAtlasComposed['stats'] }).stats ?? null;
+          previewed = made.preview === true;
+        }
         return made;
       },
     };
-    const made = await closureDecalPages({ port, service: o.service, projectId, assets: r.assets, materials: r.materials, locate: true, hash: sha256 });
+    const made = await closureDecalPages({ port, service: o.service, projectId, assets: r.assets, materials: r.materials, locate: true, hash: sha256, previews: preview });
     if (!made.ok) return { ok: false, error: sessionError('conversion_failed', 'validation', made.error.message.slice(0, 256)) };
-    const files = new Map<string, BlobFile>();
+    const files = new Map<string, BlobFile | Uint8Array>();
+    // An array's id is its file digest's start (the build's naming).
     for (const f of made.pages.files) {
-      // An array's id is its file digest's start (the build's naming).
       const row = made.pages.rows.find((x) => x.sourceDigest === f.digest);
       if (row !== undefined) files.set(row.assetId, f.file);
     }
-    const composed: DecalAtlasComposed = { signature: r.signature, refs: Object.fromEntries(made.pages.refs), ms: Math.round(performance.now() - t0), stats };
-    remember(projectId, { composed, files });
+    for (const a of made.pages.artifacts) {
+      const row = made.pages.rows.find((x) => x.sourceDigest === a.digest);
+      if (row !== undefined) files.set(row.assetId, a.bytes);
+    }
+    const composed: DecalAtlasComposed = { signature: r.signature, refs: Object.fromEntries(made.pages.refs), ms: Math.round(performance.now() - t0), stats: previewed ? null : stats, ...(previewed ? { preview: true as const } : {}) };
+    // A preview's arrays stay readable after the pages themselves replace it (a view may still be fetching them).
+    if (previewed) {
+      lastPreview.delete(projectId);
+      lastPreview.set(projectId, files);
+      while (lastPreview.size > DECAL_ATLAS_PROJECTS_KEPT) lastPreview.delete(lastPreview.keys().next().value!);
+    }
+    // A preview never replaces the pages themselves (a composition that finished first).
+    const known = lastOf(projectId)?.composed;
+    if (!(previewed && known !== undefined && known.signature === r.signature && known.preview !== true)) remember(projectId, { composed, files });
+    else return { ok: true, view: { ok: true, report: r.report, signature: r.signature, composed: known } };
     return { ok: true, view: { ok: true, report: r.report, signature: r.signature, composed } };
   };
 
@@ -176,15 +208,37 @@ export function makeDecalAtlasRoutes(o: {
     return next;
   };
 
-  const compose = async (res: ServerResponse, projectId: string): Promise<void> => {
-    const out = await enqueue(projectId);
+  /**
+   * A preview, unless the pages of these very contents are composed already;
+   * the composition of the pages themselves starts behind it (the editor asks
+   * for it next and shares it).
+   */
+  const previewNow = async (projectId: string): Promise<Outcome> => {
+    const r = read(projectId);
+    const known = lastOf(projectId)?.composed;
+    if (r !== null && typeof r !== 'string' && known !== undefined && known.signature === r.signature && known.preview !== true) return { ok: true, view: { ok: true, report: r.report, signature: r.signature, composed: known } };
+    const out = await composeNow(projectId, true).catch((e: unknown): Outcome => ({ ok: false, error: sessionError('conversion_failed', 'internal', `decal pages: ${e instanceof Error ? e.message : String(e)}`.slice(0, 256)) }));
+    if (out.ok && out.view.composed?.preview === true) void enqueue(projectId);
+    return out;
+  };
+
+  const compose = async (res: ServerResponse, projectId: string, preview: boolean): Promise<void> => {
+    const out = await (preview ? previewNow(projectId) : enqueue(projectId));
     if (out.ok) o.sendJson(res, 200, out.view satisfies DecalAtlasView);
     else o.sendError(res, out.error, out.status);
   };
 
   const array = async (res: ServerResponse, projectId: string, arrayId: string): Promise<void> => {
-    const file = ID_RE.test(arrayId) ? lastOf(projectId)?.files.get(arrayId) : undefined;
+    const file = ID_RE.test(arrayId) ? (lastOf(projectId)?.files.get(arrayId) ?? lastPreview.get(projectId)?.get(arrayId)) : undefined;
     if (file === undefined) return o.sendError(res, sessionError('asset_not_found', 'not_found', `no composed decal page array "${arrayId}" (rebuild the pages)`, { path: '/arrayId' }), 404);
+    if (file instanceof Uint8Array) {
+      res.setHeader('content-type', 'application/octet-stream');
+      res.setHeader('content-length', String(file.byteLength));
+      res.setHeader('x-thirdlight-digest', sha256(file));
+      res.statusCode = 200;
+      res.end(Buffer.from(file.buffer, file.byteOffset, file.byteLength));
+      return;
+    }
     const opened = o.service.openBlobFile(projectId, file);
     if (!opened.ok) return o.sendError(res, sessionError('asset_source_changed', 'conflict', 'the decal pages changed; rebuild them'));
     const parts: Uint8Array[] = [];
@@ -201,14 +255,14 @@ export function makeDecalAtlasRoutes(o: {
   };
 
   /** `parts`: the URL path's segments (api, v1, projects, :id, content, decal-pages, …). */
-  return async (req: IncomingMessage, res: ServerResponse, parts: readonly string[]): Promise<void> => {
+  return async (req: IncomingMessage, res: ServerResponse, parts: readonly string[], query?: ReadonlyMap<string, string>): Promise<void> => {
     const projectId = parts[3]!;
     const method = req.method ?? 'GET';
     const auth = o.requireAuth(req, projectId, false);
     if (auth !== null) return o.sendError(res, auth);
     if (parts.length === 6) {
       if (method === 'GET') return view(res, projectId);
-      if (method === 'POST') return compose(res, projectId);
+      if (method === 'POST') return compose(res, projectId, query?.get('preview') === '1');
       return o.sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET, POST' }), 405);
     }
     if (parts.length === 8 && parts[6] === 'arrays') {

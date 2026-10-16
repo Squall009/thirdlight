@@ -1167,7 +1167,7 @@ export function createBackend(
         }
         // /api/v1/projects/:projectId/content/decal-pages[/arrays/:id] — the decal atlas's pages, composed on request
         if (parts.length >= 6 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'decal-pages') {
-          await decalAtlasRoute(req, res, parts);
+          await decalAtlasRoute(req, res, parts, query);
           return;
         }
         // The additive behavior-source preparation route (before the

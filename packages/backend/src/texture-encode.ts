@@ -289,7 +289,9 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     if (images.size === 0) {
       width = img.width;
       height = img.height;
-      if (width * height * layers.length > KTX2_SOURCE_PIXELS_MAX) {
+      // A preview's layers are encoded at the preview size: only that counts against the encoder's limit.
+      const [ew, eh] = effort === 'preview' ? shrunkSize(width, height, SLOT_PREVIEW_SIDE) : [width, height];
+      if (ew * eh * layers.length > KTX2_SOURCE_PIXELS_MAX) {
         return { ok: false, code: 'texture_encode_unsupported', message: `KTX2 encoding takes at most ${KTX2_SOURCE_PIXELS_MAX} pixels across the layers (${layers.length} × ${width}×${height} is more; e.g. 4 layers of 1024×1024 fit)` };
       }
     } else if (img.width !== width || img.height !== height) {
@@ -438,15 +440,22 @@ export type EncodeEffort = 'assembled' | 'preview';
 /** A decal page's preview side (`DECAL_PREVIEW_DIVISOR`; at least 4, a compressed block). */
 export const decalPreviewSide = (size: number): number => Math.max(4, Math.floor(size / DECAL_PREVIEW_DIVISOR));
 
+/** The whole factor `shrinkRgba` divides an image's sides by (1: it fits). */
+const shrinkFactor = (width: number, height: number, maxSide: number): number => Math.max(1, Math.ceil(Math.max(width, height) / Math.max(1, maxSide)));
+/** An image's size once shrunk to fit `maxSide`. */
+export function shrunkSize(width: number, height: number, maxSide: number): [number, number] {
+  const f = shrinkFactor(width, height, maxSide);
+  return [Math.max(1, Math.floor(width / f)), Math.max(1, Math.floor(height / f))];
+}
+
 /**
  * An image shrunk by a whole factor (a box filter) so its longest side is at
  * most `maxSide`; as it is when it already fits.
  */
 export function shrinkRgba(img: DecodedImage, maxSide: number): DecodedImage {
-  const f = Math.ceil(Math.max(img.width, img.height) / Math.max(1, maxSide));
+  const f = shrinkFactor(img.width, img.height, maxSide);
   if (f <= 1) return img;
-  const w = Math.max(1, Math.floor(img.width / f));
-  const h = Math.max(1, Math.floor(img.height / f));
+  const [w, h] = shrunkSize(img.width, img.height, maxSide);
   const out = new Uint8Array(w * h * 4);
   const src = img.data;
   const sw = img.width;

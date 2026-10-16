@@ -848,6 +848,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Stand-ins of textures still loading (`previewTexture`), and the textures one was asked for. */
   const previews = new Map<string, THREE.Texture>();
   const previewAsked = new Set<string>();
+  /** Textures drawn as their last stand-in because they could not be made (the library's own, freed with them). */
+  const keptStandIns = new Set<string>();
   /** The sampler key prefix of a stand-in's copies (apart from the texture's own: ids hold no '|'). */
   const PREVIEW_KEY = 'preview|';
   const fnOf = (id: string): MaterialFunctionLike | null => functions.get(id) ?? null;
@@ -926,7 +928,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         // The graphs that sample it hold it now (none left: it is let go and not kept).
         holds.release(assetId, GRAPH_LOAD_HOLDER);
         if (disposed || loadedTextures.has(assetId) || !sampled(assetId)) return;
-        loadedTextures.set(assetId, t);
+        // One that could not be made is drawn as its last stand-in (better than the absent value's white).
+        const kept = t === null ? (previews.get(assetId) ?? null) : null;
+        if (kept !== null) {
+          previews.delete(assetId);
+          keptStandIns.add(assetId);
+        }
+        loadedTextures.set(assetId, t ?? kept);
         previewAsked.delete(assetId);
         // Recompile the graphs that drew a fallback or a stand-in while it was on its way; the stand-in goes after.
         const old = takePreview(assetId);
@@ -1045,6 +1053,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   }
   /** A texture no compiled graph samples any more: its sampler copies go, and a later compile loads it again. */
   function forgetTexture(id: string): void {
+    if (keptStandIns.delete(id)) loadedTextures.get(id)?.dispose();
     loadedTextures.delete(id);
     previewAsked.delete(id);
     for (const t of takePreview(id)) t.dispose();
@@ -1390,6 +1399,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       // The sampler copies are the library's; the decoded textures are the resource manager's.
       for (const t of samplerTextures.values()) t.dispose();
       samplerTextures.clear();
+      for (const id of keptStandIns) loadedTextures.get(id)?.dispose();
+      keptStandIns.clear();
       loadedTextures.clear();
       // So are the stand-ins of textures still loading.
       for (const t of previews.values()) t.dispose();

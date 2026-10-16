@@ -300,5 +300,16 @@ describe('per-layer texture slots: Play and export arrays', () => {
     expect(cachedArrays()).toHaveLength(before + 1);
     expect((await post('slots', { layers, mode: 'color', height: true, preview: true })).status).toBe(204);
     expect(((await (await post('slot-base', { layers, mode: 'color', height: true })).json()) as { final: boolean }).final).toBe(true);
+
+    // Four layers of 2048² are more than the encoder takes at once: the array is refused, its preview is still made.
+    const huge = 2048;
+    writeFileSync(game('assets', 'big', 'huge.png'), encodeRgbaPng(new Uint8Array(huge * huge * 4).fill(200), huge, huge));
+    await command('importAssets', { folder: 'assets/big' });
+    const hugeId = ((tb.backend._test.service.query({ op: 'queryAssets', projectId: PID, args: { limit: 50, offset: 0 } }) as unknown as { assets: { assetId: string; displayName: string }[] }).assets).find((a) => a.displayName === 'huge')!.assetId;
+    const four = [hugeId, hugeId, hugeId, '#3366ccff'];
+    expect((await post('slots', { layers: four, mode: 'color' })).status).toBe(400);
+    const over = await post('slots', { layers: four, mode: 'color', preview: true });
+    expect(over.status).toBe(200);
+    expect(readKtx2(new Uint8Array(await over.arrayBuffer()))!.layerCount).toBe(4);
   }, 120_000);
 });

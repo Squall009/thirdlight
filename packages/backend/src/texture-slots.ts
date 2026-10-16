@@ -90,7 +90,7 @@ export interface TextureSlotAssembler {
   /** Arrays assembled and found cached since start (the diagnostics and tests read them). */
   readonly stats: { assembled: number; cached: number };
   /** A build's decal pages as texture arrays (`decal-page-assembly.ts`). */
-  readonly decalPages?: (projectId: string, request: DecalPageRequest) => Promise<DecalPageResult>;
+  readonly decalPages?: (projectId: string, request: DecalPageRequest, options?: { readonly preview?: boolean }) => Promise<DecalPageResult>;
 }
 
 /** The import cache's importer name and version for an assembled array (a change to the assembly changes the version). */

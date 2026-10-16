@@ -41,7 +41,7 @@ import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type Environ
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { DecalPageRef, EffectComponent, MaterialDef } from '@thirdlight/project-model';
 import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
-import { withDecalPageRefs } from '../session/decal-atlas';
+import { decalPageTextureKey, withDecalPageRefs } from '../session/decal-atlas';
 import { withSlotTextureKeys } from '../session/texture-slots';
 import { architectureGraphsOf, architectureStylesOf, viewLensOf, type ArchitectureStyles } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -212,13 +212,14 @@ function EditorApp(): JSX.Element {
   const materialsKeyRef = useRef('');
   /** The materials last received, and the composed decal pages the Scene view draws them with (null: their own textures). */
   const lastMaterialsRef = useRef<{ mats: MaterialDef[]; libFunctions: unknown[] } | null>(null);
-  const decalPagesRef = useRef<{ signature: string; refs: Readonly<Record<string, DecalPageRef>> } | null>(null);
+  const decalPagesRef = useRef<{ signature: string; refs: Readonly<Record<string, DecalPageRef>>; preview?: true } | null>(null);
   /** The Scene view's materials, handed over again only when they or the decal pages drawn changed. */
   const sendMaterials = useCallback(() => {
     const last = lastMaterialsRef.current;
     if (last === null) return;
     const pages = decalPagesRef.current;
-    const matsKey = JSON.stringify([last.mats, last.libFunctions, pages?.signature ?? null]);
+    // A preview and the pages that replace it share their signature, not their arrays.
+    const matsKey = JSON.stringify([last.mats, last.libFunctions, pages?.signature ?? null, pages?.preview === true]);
     if (matsKey === materialsKeyRef.current) return;
     materialsKeyRef.current = matsKey;
     // A material's per-layer texture slots draw as the array the backend assembles from them; a decal material
@@ -765,7 +766,8 @@ function EditorApp(): JSX.Element {
   const decalTools = useDecalTools({ clientRef, viewportRef, materials, sceneId: activeScene?.sceneId ?? null, newMaterialId, setNotice, reportFailure });
   // The decal atlas: the pages the build will make (the decal editor's drawer) and the composed ones the Scene view draws from.
   const decalWatch = useMemo(() => JSON.stringify([materials, entities.flatMap((e) => ((e.components['decal'] as { material?: string } | undefined)?.material ?? [])).sort(), catalogTick]), [materials, entities, catalogTick]);
-  const decalAtlas = useDecalAtlas({ clientRef, watch: decalWatch });
+  const preloadDecalPages = useCallback((ids: readonly string[]) => viewportRef.current?.preloadTextures(ids.map(decalPageTextureKey)) ?? null, []);
+  const decalAtlas = useDecalAtlas({ clientRef, watch: decalWatch, preload: preloadDecalPages });
   useEffect(() => {
     decalPagesRef.current = decalAtlas.drawn;
     sendMaterials();

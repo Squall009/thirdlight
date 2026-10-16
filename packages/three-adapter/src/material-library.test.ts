@@ -216,4 +216,32 @@ describe('material library', () => {
     expect(sampled()).toEqual([final.source]);
     expect(asked).toEqual(['tex-slow']);
   });
+
+  it('a texture that cannot be made is drawn as its last stand-in, freed with it', async () => {
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const stand = new THREE.Texture();
+    let fail: (t: THREE.Texture | null) => void = () => undefined;
+    const lib = createMaterialLibrary({ loadTexture: () => new Promise((r) => (fail = r)), previewTexture: () => stand });
+    const graph = {
+      nodes: [
+        { id: 'out', type: 'unlit', position: [400, 0] as [number, number] },
+        { id: 'read', type: 'sampleTexture', position: [200, 0] as [number, number], data: { texture: 'tex-over' } },
+      ],
+      edges: [{ id: 'e', from: { node: 'read', port: 'rgb' }, to: { node: 'out', port: 'color' } }],
+    };
+    lib.setMaterials([{ materialId: 'mat-over', name: 'Over', shader: 'standard', params: {}, textures: {}, graph }]);
+    const o = model();
+    const undo = lib.apply(o, { '*': 'mat-over' });
+    const sampled = (): unknown[] => (((mats(o)[0]!.userData[SAMPLED_TEXTURES_KEY] as THREE.Texture[] | undefined) ?? []).map((t) => t.source));
+    let disposed = 0;
+    stand.addEventListener('dispose', () => void (disposed += 1));
+    fail(null);
+    await tick();
+    await tick();
+    expect(sampled()).toEqual([stand.source]);
+    expect(disposed).toBe(0);
+    undo();
+    lib.dispose();
+    expect(disposed).toBe(1);
+  });
 });

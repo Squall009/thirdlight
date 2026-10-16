@@ -33,7 +33,7 @@ import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspac
 
 import type { ComposeChannel, ComposeLayer } from './decal-page-compose';
 import { joinUastcLayers, KTX2_JOIN_LEVEL_BYTES_MAX, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, readKtx2 } from './ktx2-container';
-import { KTX2_ENCODER, type TextureEncoder } from './texture-encode';
+import { decalPreviewSide, KTX2_ENCODER, type TextureEncoder } from './texture-encode';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** A texture a page reads: its version and file digest (the build's captured content). */
@@ -52,11 +52,11 @@ export interface DecalPageRequest {
   readonly sources: ReadonlyMap<string, DecalPageSource>;
 }
 
-/** One array of a set: its file and how many pages it holds (the set's pages in order, array after array). */
-export interface DecalPageArray {
-  readonly file: BlobFile;
-  readonly layers: number;
-}
+/**
+ * One array of a set: its file and how many pages it holds (the set's pages
+ * in order, array after array); a preview's array is its bytes, never stored.
+ */
+export type DecalPageArray = { readonly file: BlobFile; readonly layers: number } | { readonly preview: Uint8Array; readonly digest: string; readonly layers: number };
 
 export type DecalPageResult =
   | {
@@ -67,6 +67,8 @@ export type DecalPageResult =
       /** The textures read from transcoded texels (a second lossy generation). */
       reencoded: string[];
       ms: number;
+      /** The pages at a preview size (`preview` asked and some page not made yet): the arrays are bytes, never stored. */
+      preview?: true;
     }
   | { ok: false; code: string; message: string };
 
@@ -114,8 +116,17 @@ function joinsAsStored(bytes: Uint8Array, size: number, transfer: number): boole
   return joinUastcLayers([bytes], transfer).ok;
 }
 
-export function createDecalPageAssembler(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined; now: () => number }): { assemble(projectId: string, request: DecalPageRequest): Promise<DecalPageResult>; readonly stats: { composed: number; cached: number; arrays: number } } {
-  const stats = { composed: 0, cached: 0, arrays: 0 };
+/**
+ * `options.preview`: when any page is still to be composed, every page is
+ * composed at a preview size instead (`decalPreviewSide`, the fastest
+ * effort, ahead of the other encodes) and the arrays are answered as bytes:
+ * nothing of a preview is stored, so the cache only ever holds the pages
+ * themselves. With every page made already the answer is the pages.
+ */
+export function createDecalPageAssembler(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined; now: () => number }): { assemble(projectId: string, request: DecalPageRequest, options?: { readonly preview?: boolean }): Promise<DecalPageResult>; readonly stats: { composed: number; cached: number; arrays: number; previews: number } } {
+  const stats = { composed: 0, cached: 0, arrays: 0, previews: 0 };
+  /** The pages being composed, by project and cache key: a second assembly needing one (the export beside the atlas) waits for it. */
+  const composing = new Map<string, Promise<Uint8Array | DecalPageFailure>>();
   const store = (projectId: string, key: ImportKey, bytes: Uint8Array): BlobFile | string => {
     const w = deps.service.writeImportedArtifact(projectId, key, bytes);
     if (!w.ok) return w.error.message;
@@ -133,8 +144,9 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
 
   return {
     stats,
-    async assemble(projectId, request) {
+    async assemble(projectId, request, options) {
       const t0 = deps.now();
+      const preview = options?.preview === true;
       const encoder = deps.encoder;
       const size = request.size;
       // Each source read once, with its lossless original (read in its place when it has to be encoded).
@@ -167,22 +179,15 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
       // on the encoder's threads (pages are independent), in page order.
       const pagesOf = new Map<DecalPageSet, (Uint8Array | null)[]>();
       const composes: { set: DecalPageSet; at: number; run: () => Promise<Uint8Array | DecalPageFailure> }[] = [];
+      /** Every page as a compose (a preview composes them all small, as stored or cached ones too). */
+      const all: { set: DecalPageSet; at: number; preview: () => Promise<Uint8Array | DecalPageFailure> }[] = [];
       for (const set of DECAL_PAGE_SETS) {
         const mode = DECAL_PAGE_ENCODINGS[set];
         const transfer = mode === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR;
         const pages: (Uint8Array | null)[] = [];
         pagesOf.set(set, pages);
         for (const { layer } of request.sets[set]) {
-          if ('whole' in layer) {
-            const s = source(layer.whole);
-            if (typeof s === 'string') return { ok: false, code: 'asset_missing', message: s };
-            if (joinsAsStored(s.bytes, size, transfer)) {
-              pages.push(s.bytes);
-              made.asStored += 1;
-              continue;
-            }
-          }
-          // A composed page (a texture that cannot join as stored is copied whole onto one).
+          // The page as composed (a texture that cannot join as stored is copied whole onto one; a preview composes every page).
           const composed: DecalPageLayer = 'whole' in layer ? { fill: [0, 0, 0, 0], place: [{ channels: [0, 1, 2, 3].map((channel) => ({ texture: layer.whole, channel })) as unknown as [DecalPageChannel, DecalPageChannel, DecalPageChannel, DecalPageChannel], src: [0, 0, 1, 1], dst: [0, 0, size, size], pad: [0, 0, size, size] }] } : layer;
           const ids: string[] = [];
           const indexOf = (id: string): number => {
@@ -202,6 +207,21 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
             resolved.push(s);
           }
           const spec: ComposeLayer = { fill: (composed as Extract<DecalPageLayer, { fill: unknown }>).fill, place };
+          const at = pages.length;
+          all.push({
+            set,
+            at,
+            preview: async () => {
+              if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server (decal pages)' };
+              const r = await encoder.compose(resolved.map((s) => s.bytes), spec, size, mode, resolved.map((s) => s.lossless), 'preview');
+              return r.ok ? r.ktx2 : { ok: false, code: 'conversion_failed', message: `a ${set} decal page's preview: ${r.message}` };
+            },
+          });
+          if ('whole' in layer && joinsAsStored(resolved[0]!.bytes, size, transfer)) {
+            pages.push(resolved[0]!.bytes);
+            made.asStored += 1;
+            continue;
+          }
           const key = keyOf({ page: spec, size, mode, sources: ids.map((id) => request.sources.get(id)!.sourceDigest), originals: resolved.map((s) => s.original ?? 'none'), encoder: `${KTX2_ENCODER.name}@${KTX2_ENCODER.version}` });
           const found = deps.service.locateImportedArtifact(projectId, key);
           const bytes = found !== null ? readFile(found) : null;
@@ -212,22 +232,54 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
             continue;
           }
           if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server (decal pages)' };
+          const id = `${projectId}\u0000${key.sourceDigest}`;
           composes.push({
             set,
-            at: pages.length,
+            at,
             run: async () => {
-              const r = await encoder.compose(resolved.map((s) => s.bytes), spec, size, mode, resolved.map((s) => s.lossless));
-              if (!r.ok) return { ok: false, code: 'conversion_failed', message: `a ${set} decal page: ${r.message}` };
-              if (r.reencoded) for (let i = 0; i < ids.length; i++) if (resolved[i]!.lossless === null && readKtx2(resolved[i]!.bytes) !== null) reencoded.add(ids[i]!);
-              const f = store(projectId, key, r.ktx2);
-              if (typeof f === 'string') return { ok: false, code: 'internal', message: f };
-              made.composed += 1;
-              stats.composed += 1;
-              return r.ktx2;
+              const busy = composing.get(id);
+              if (busy !== undefined) return busy;
+              const run = (async (): Promise<Uint8Array | DecalPageFailure> => {
+                const r = await encoder.compose(resolved.map((s) => s.bytes), spec, size, mode, resolved.map((s) => s.lossless));
+                if (!r.ok) return { ok: false, code: 'conversion_failed', message: `a ${set} decal page: ${r.message}` };
+                if (r.reencoded) for (let i = 0; i < ids.length; i++) if (resolved[i]!.lossless === null && readKtx2(resolved[i]!.bytes) !== null) reencoded.add(ids[i]!);
+                const f = store(projectId, key, r.ktx2);
+                if (typeof f === 'string') return { ok: false, code: 'internal', message: f };
+                made.composed += 1;
+                stats.composed += 1;
+                return r.ktx2;
+              })().finally(() => composing.delete(id));
+              composing.set(id, run);
+              return run;
             },
           });
           pages.push(null);
         }
+      }
+      // A preview while some page is still to be made: every page small, the arrays joined in memory.
+      if (preview && composes.length > 0) {
+        const small = new Map<DecalPageSet, Uint8Array[]>(DECAL_PAGE_SETS.map((x) => [x, []]));
+        const failed = await inFlight(all, DECAL_COMPOSES_PER_THREAD * Math.max(1, encoder?.parallelism ?? 1), async (c) => {
+          const r = await c.preview();
+          if (!(r instanceof Uint8Array)) return r;
+          small.get(c.set)![c.at] = r;
+          return null;
+        });
+        if (failed !== null) return failed;
+        const per = decalPagesPerArray(decalPreviewSide(size));
+        for (const set of DECAL_PAGE_SETS) {
+          const transfer = DECAL_PAGE_ENCODINGS[set] === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR;
+          const list = small.get(set)!;
+          const arrays: DecalPageArray[] = [];
+          for (let at = 0; at < list.length; at += per) {
+            const joined = joinUastcLayers(list.slice(at, at + per), transfer);
+            if (!joined.ok) return { ok: false, code: 'conversion_failed', message: `the ${set} decal page previews ${at + 1}-${Math.min(list.length, at + per)} do not join: ${joined.reason}` };
+            arrays.push({ preview: joined.ktx2, digest: sha256(joined.ktx2), layers: Math.min(per, list.length - at) });
+          }
+          sets[set] = arrays;
+        }
+        stats.previews += 1;
+        return { ok: true, sets, stats: { asStored: 0, composed: 0, cached: 0 }, reencoded: [], ms: Math.round(deps.now() - t0), preview: true };
       }
       const failure = await inFlight(composes, DECAL_COMPOSES_PER_THREAD * Math.max(1, encoder?.parallelism ?? 1), async (c) => {
         const r = await c.run();

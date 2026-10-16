@@ -654,6 +654,11 @@ export class Viewport {
     return this.assets.loadTexture(assetId);
   }
 
+  /** Decode textures ahead of the materials that will draw them, held until `release` (null: the library cannot). */
+  preloadTextures(keys: readonly string[]): { readonly ready: Promise<void>; release(): void } | null {
+    return this.assets.materialLibrary.preloadTextures?.(keys) ?? null;
+  }
+
   /**
    * What the probe bake draws with: this view's renderer and its scene (the
    * sky), the baked lights, and the hooks that gather the static objects and

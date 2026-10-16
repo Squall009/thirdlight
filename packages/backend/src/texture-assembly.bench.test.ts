@@ -14,7 +14,7 @@
  * Not a pass/fail test: it prints the numbers (the plan records them).
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { closureDecalPages, shippedMaterialsOfCapture, type AssetRecordLike } from '@thirdlight/exporter';
@@ -80,7 +80,12 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
     mkdirSync(game('assets', 'layers'), { recursive: true });
     const sides = [...Array<number>(100).fill(128), ...Array<number>(70).fill(256), ...Array<number>(30).fill(512)];
     sides.forEach((side, i) => writeFileSync(game('assets', 'decals', `d${String(i).padStart(3, '0')}.png`), encodeRgbaPng(noisy(side, side, i + 1), side, side)));
-    for (const [name, side] of [['big-a', 2048], ['big-b', 2048], ['small-a', 512], ['small-b', 512]] as const) writeFileSync(game('assets', 'layers', `${name}.png`), encodeRgbaPng(noisy(side, side, name.length * 31 + side), side, side));
+    // TL_BENCH_SHEETS=<a.png>,<b.png>: two real images of one size (2048² albedos) as the big pair instead of noise.
+    const sheets = (process.env.TL_BENCH_SHEETS ?? '').split(',').filter((x) => x !== '');
+    for (const [name, side] of [['big-a', 2048], ['big-b', 2048], ['small-a', 512], ['small-b', 512]] as const) {
+      const real = sheets.length === 2 && name.startsWith('big') ? sheets[name === 'big-a' ? 0 : 1]! : null;
+      writeFileSync(game('assets', 'layers', `${name}.png`), real !== null ? readFileSync(real) : encodeRgbaPng(noisy(side, side, name.length * 31 + side), side, side));
+    }
     await command('importAssets', { folder: 'assets/decals' });
     await command('importAssets', { folder: 'assets/layers' });
     const assets: { assetId: string; displayName: string }[] = [];
@@ -107,13 +112,13 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
     if (!captured.ok) throw new Error(captured.error.code);
     const materials = shippedMaterialsOfCapture(captured.read, sha256) ?? [];
     const assets = ((captured.read.content as { assets?: AssetRecordLike[] } | null)?.assets ?? []) as readonly AssetRecordLike[];
-    const run = async (): Promise<{ ms: number; pages: number; composed: number }> => {
+    const run = async (preview = false): Promise<{ ms: number; pages: number; composed: number }> => {
       const t0 = performance.now();
       let composed = 0;
       const made = await closureDecalPages({
         port: {
           decalPages: async (p, request) => {
-            const r = await assembler.assemble(p, request);
+            const r = await assembler.assemble(p, request, preview ? { preview: true } : undefined);
             if (r.ok) composed = r.stats.composed;
             return r;
           },
@@ -124,14 +129,17 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
         materials,
         locate: true,
         hash: sha256,
+        previews: preview,
       });
       if (!made.ok) throw new Error(made.error.message);
       return { ms: Math.round(performance.now() - t0), pages: made.pages.pages, composed };
     };
     dropCache('decal-pages');
+    // What Rebuild pages shows first on a cold atlas: every page at the preview size (nothing stored).
+    const preview = await run(true);
     const cold = await run();
     const warm = await run();
-    console.log(`decal atlas bench: ${cold.pages} pages ${512}², composed ${cold.composed}: cold ${cold.ms} ms, warm ${warm.ms} ms (threads ${threads ?? 'default'})`);
+    console.log(`decal atlas bench: ${cold.pages} pages ${512}², composed ${cold.composed}: preview ${preview.ms} ms, cold ${cold.ms} ms, warm ${warm.ms} ms (threads ${threads ?? 'default'})`);
     expect(cold.composed).toBeGreaterThan(0);
   }, 600_000);
 
@@ -163,5 +171,32 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
     };
     await Promise.all([lane(), lane()]);
     console.log(`slot arrays bench: 6 arrays cold in ${Math.round(performance.now() - t0)} ms (threads ${threads ?? 'default'}): ${each.join(', ')}`);
+
+    // As the editor asks now: every array's preview first (all at once), each array once its preview is in (two at a time).
+    dropCache('texture-slots');
+    const t1 = performance.now();
+    const previews: string[] = [];
+    let previewsMs = 0;
+    const previewed = jobs.map(async (j) => {
+      const r = await assembler.preview!(PID, j.layers, j.mode);
+      if (!r.ok) throw new Error(r.message);
+      const ms = Math.round(performance.now() - t1);
+      previewsMs = Math.max(previewsMs, ms);
+      previews.push(`${j.layers[0]!.assetId.slice(0, 6)}/${j.mode} ${ms} ms`);
+    });
+    const finals: string[] = [];
+    let at = 0;
+    const finalLane = async (): Promise<void> => {
+      while (at < jobs.length) {
+        const k = at++;
+        await previewed[k];
+        const j = jobs[k]!;
+        const r = await assembler.assemble(PID, j.layers, j.mode);
+        if (!r.ok) throw new Error(r.message);
+        finals.push(`${j.layers[0]!.assetId.slice(0, 6)}/${j.mode} ${Math.round(performance.now() - t1)} ms`);
+      }
+    };
+    await Promise.all([finalLane(), finalLane()]);
+    console.log(`slot arrays bench (previews first): every preview in ${previewsMs} ms (${previews.join(', ')}); every array in ${Math.round(performance.now() - t1)} ms (${finals.join(', ')})`);
   }, 900_000);
 });

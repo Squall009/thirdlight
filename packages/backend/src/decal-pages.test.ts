@@ -13,7 +13,7 @@
  *   decal material names its rectangle, mip cap, arrays and layers; a second
  *   export composes nothing (the import cache).
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 
@@ -276,5 +276,54 @@ describe('decal pages in a real export', () => {
     expect(after.signature).not.toBe(view.signature);
     expect(after.composed).toBeNull();
     expect(after.report.materials).toBe(3);
+  }, 180_000);
+
+  it('a cold atlas: Rebuild answers preview pages first, never stored, and composes the pages behind them; an export meanwhile ships the pages themselves', async () => {
+    // The last test added a decal material: its page is not composed yet.
+    type View = { ok: true; signature: string; composed: { refs: Record<string, DecalPageRef>; preview?: true } | null };
+    const cachedSides = (): number[] => {
+      const root = game('cache', 'imported');
+      const out: number[] = [];
+      for (const d of readdirSync(root, { withFileTypes: true })) {
+        if (!d.isDirectory()) continue;
+        for (const e of readdirSync(join(root, d.name))) {
+          if (!e.startsWith('decal-pages-')) continue;
+          for (const f of readdirSync(join(root, d.name, e))) {
+            const k = readKtx2(new Uint8Array(readFileSync(join(root, d.name, e, f))));
+            if (k !== null) out.push(k.width);
+          }
+        }
+      }
+      return out;
+    };
+    const before = tb.backend._test.decalPages.stats.composed;
+    const previewed = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages?preview=1`, { method: 'POST', token: tb.adminToken, origin: null });
+    expect(previewed.status, JSON.stringify(previewed.json).slice(0, 400)).toBe(200);
+    const preview = (previewed.json as View).composed!;
+    expect(preview.preview).toBe(true);
+    const previewArray = preview.refs['mat-mark-2']!.albedo!.texture;
+    const small = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages/arrays/${previewArray}`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
+    expect(small.status).toBe(200);
+    expect(readKtx2(new Uint8Array(await small.arrayBuffer()))!.width).toBe(sheetSide / 4);
+    // An export taken while the preview shows (the pages being composed behind it): it ships the pages themselves.
+    const r = await exportNow();
+    expect(r.status, JSON.stringify(r.json).slice(0, 600)).toBe(200);
+    const out = join(exportRoot, String((r.json as { outputDir: string }).outputDir));
+    const content = exportContentOf(out) as unknown as { assets: { assetId: string; sourceDigest: string }[]; materials: { materialId: string; decalPage?: DecalPageRef }[] };
+    const shipped = Object.fromEntries(content.materials.filter((m) => m.decalPage !== undefined).map((m) => [m.materialId, m.decalPage!]));
+    expect(shipped['mat-mark-2']!.albedo!.texture).not.toBe(previewArray);
+    for (const a of content.assets.filter((x) => x.assetId.startsWith('decals-'))) expect(readKtx2(new Uint8Array(readFileSync(join(out, 'content', 'sha256', a.sourceDigest))))!.width).toBe(sheetSide);
+    // The pages themselves (the composition behind the preview): the export's places; the two pages the new decal changed
+    // (the albedo page it joins and the mask page laid out with it) composed once each, the export and the atlas sharing them.
+    const made = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages`, { method: 'POST', token: tb.adminToken, origin: null });
+    expect(made.status).toBe(200);
+    const final = (made.json as View).composed!;
+    expect(final.preview).toBeUndefined();
+    expect(final.refs).toEqual(shipped);
+    expect(tb.backend._test.decalPages.stats.composed - before).toBe(2);
+    // Nothing of the preview was stored: every page and array in the cache is at the page size.
+    expect(cachedSides().every((side) => side === sheetSide)).toBe(true);
+    // Made already: a preview asked now answers the pages themselves.
+    expect(((await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages?preview=1`, { method: 'POST', token: tb.adminToken, origin: null })).json as View).composed!.refs).toEqual(shipped);
   }, 180_000);
 });

@@ -1014,12 +1014,12 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * The decal pages Play and the export will use (`compose`: made now, the Scene view then draws from them), or why
-   * not. One composition runs at a time per project; the encoding runs on the backend's encoder thread.
+   * The decal pages Play and the export will use (`compose`: made now, the Scene view then draws from them; `preview`:
+   * at a preview size while some page is still to be made, the pages themselves composed behind it), or why not. One composition runs at a time per project; the encoding runs on the backend's encoder thread.
    */
-  async decalAtlas(compose = false): Promise<{ ok: true; view: DecalAtlasView } | { ok: false; error: { code: string; message: string } }> {
+  async decalAtlas(compose = false, preview = false): Promise<{ ok: true; view: DecalAtlasView } | { ok: false; error: { code: string; message: string } }> {
     try {
-      const view = await this.request<DecalAtlasView>(`/projects/${this.cfg.projectId}/content/decal-pages`, { method: compose ? 'POST' : 'GET' });
+      const view = await this.request<DecalAtlasView>(`/projects/${this.cfg.projectId}/content/decal-pages${compose && preview ? '?preview=1' : ''}`, { method: compose ? 'POST' : 'GET' });
       return { ok: true, view };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };

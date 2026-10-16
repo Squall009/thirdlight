@@ -27,9 +27,18 @@ export interface DecalAtlasComposed {
   readonly refs: Readonly<Record<string, DecalPageRef>>;
   readonly ms: number;
   readonly stats: { readonly asStored: number; readonly composed: number; readonly cached: number } | null;
+  /** The pages at a preview size, while the pages themselves are composed. */
+  readonly preview?: true;
 }
 
 const PREFIX = 'decalpages:';
+
+/** The page arrays a composition's places name (each once). */
+export function decalPageArrayIds(refs: Readonly<Record<string, DecalPageRef>>): string[] {
+  const ids = new Set<string>();
+  for (const r of Object.values(refs)) for (const set of ['albedo', 'normal', 'orm'] as const) if (r[set] !== undefined) ids.add(r[set].texture);
+  return [...ids];
+}
 
 /** The view's texture key of a composed page array. */
 export function decalPageTextureKey(arrayId: string): string {

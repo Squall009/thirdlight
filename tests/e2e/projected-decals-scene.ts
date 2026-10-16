@@ -466,7 +466,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   };
   await toggleAtlas(true);
   const drawer = mode.getByLabel('decal atlas', { exact: true });
-  type AtlasMark = { size: number; pages: number; images: number; materials: number; gpuBytes: number; composed: boolean; drawn: boolean };
+  type AtlasMark = { size: number; pages: number; images: number; materials: number; gpuBytes: number; composed: boolean; preview: boolean; drawn: boolean };
   const atlasMark = async (): Promise<AtlasMark | null> => {
     const a = await drawer.getAttribute('data-atlas');
     return a === null ? null : (JSON.parse(a) as AtlasMark);
@@ -526,9 +526,28 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   // Rebuild pages: composed on the backend; the Scene view then draws the decals from them, as Play does.
   await toggleAtlas(true);
   await expect(pages).toBeVisible();
+  // A cold atlas: preview pages first (drawn from at once), the pages themselves swapped in once composed.
+  // The editor's request for the pages themselves is held until the preview shows (these few small pages compose in
+  // well under a frame's worth of polling otherwise).
+  let finalAsked: (() => Promise<void>) | null = null;
+  const finalRoute = /\/content\/decal-pages$/;
+  await page.route(finalRoute, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    finalAsked = () => route.continue();
+  });
+  const rebuilt = Date.now();
   await drawer.getByRole('button', { name: 'Rebuild pages' }).click();
-  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true true');
-  await expect.poll(async () => Number((await view.getAttribute('data-tl-decal-pages'))?.split('|')[3] ?? 0), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBeGreaterThan(0);
+  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the preview pages drawn from' }).toBe('true true true');
+  const atlasPreviewMs = Date.now() - rebuilt;
+  await expect(drawer.getByRole('status')).toContainText('Preview in');
+  await expect.poll(() => finalAsked !== null, { message: 'the pages themselves asked for behind the preview' }).toBe(true);
+  await finalAsked!();
+  await page.unroute(finalRoute);
+  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true false true');
+  console.log(`decal atlas ${what}: preview pages drawn from ${atlasPreviewMs} ms after Rebuild, the pages ${Date.now() - rebuilt} ms (their request held until the preview showed)`);
+  // The pages themselves on the GPU (their bytes the report's: the preview's smaller arrays let go).
+  const gpuBytes = (await atlasMark())!.gpuBytes;
+  await expect.poll(async () => (await view.getAttribute('data-tl-decal-pages'))?.split('|').slice(2).join('|'), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBe(`${gpuBytes}|2`);
   console.log(`decal atlas ${what}: ${JSON.stringify(await atlasMark())}; ${await drawer.getByRole('status').textContent()}; page arrays ${await view.getAttribute('data-tl-decal-pages')}`);
   if (process.env['TL_ATLAS_SHOT'] !== undefined) await page.screenshot({ path: `${process.env['TL_ATLAS_SHOT']}-${what}.png` });
   // The atlas collapsed (its title bar stays) for the steps below; the marks drawn from the pages.
