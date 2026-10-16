@@ -575,11 +575,6 @@ export class Viewport {
     return this.tools.terrainEditor(cb);
   }
 
-  /** Arm the block tools: a left drag paints (Alt+drag or the right button orbits), clicks pick no objects. */
-  setBlockToolsActive(on: boolean): void {
-    this.tools.setBlockToolsActive(on);
-  }
-
   /**
    * Snap moved and dropped objects to block-layer cell tops (null:
    * off). The function maps an object's world position to the snapped one

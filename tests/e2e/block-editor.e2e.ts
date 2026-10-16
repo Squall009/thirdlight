@@ -9,12 +9,15 @@
  * one undo step, its latency measured), a rectangle with its readout, a
  * flood fill, the eyedropper (I) and replace, a selection saved as a stamp
  * and placed, an edge piece's rectangle (a room's outline on the cell
- * edges), the slice (PageUp). The block type editor edits a type in plain
+ * edges), the slice (PageUp). It opens in Navigate: a click selects a block
+ * (its cell, its type in the block type editor) and Esc lets it go; a tool
+ * is armed by its letter, dropped by a click on its tile or Esc, and Space
+ * arms it again; with no tool a drag orbits. The block type editor edits a type in plain
  * controls: custom collision boxes, a model look from the model browser and
  * its weight, a connection piece, a theme. Regions: a rectangle of metadata
  * and its overlay, a region cut away and themed that follows its rename and
  * goes with its deletion. Paint: Make it paintable gives the stand-ins a
- * Layered surface. Lock: the tools refuse. Esc leaves; the Inspector's Edit
+ * Layered surface. Lock: the tools refuse. Esc drops the tool, then leaves; the Inspector's Edit
  * blocks opens it again; GameObject → Block layer opens a new layer's editor,
  * and one undo takes the layer away and closes it.
  *
@@ -36,6 +39,9 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng } from './png';
 import { editMode, editModeTab, inspector, leaveEditMode, menu, menuItem } from './ui';
+
+/** Done's Esc badge (it says whether Esc would leave now). */
+const escBadge = (page: Page) => editMode(page).locator('.tl-done kbd');
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -142,12 +148,33 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"chunks":0}').chunks as number, { timeout: 30_000 }).toBe(16);
 
-  await test.step('a Hierarchy double-click opens the block editor; the palette is the kit\'s types, then the layer\'s others', async () => {
+  await test.step('a Hierarchy double-click opens the block editor in Navigate; the palette is the kit\'s types, then the layer\'s others', async () => {
     await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).dblclick();
     await expect(editMode(page)).toHaveAttribute('data-edit-mode', 'blocks');
     await expect(editMode(page).getByRole('radiogroup', { name: 'block palette' }).getByRole('radio')).toHaveText([/Stone/, /Grass/, /Wall/, /Sand.*not in the kit/]);
-    await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+    await expect(tool(page, 'Navigate')).toHaveAttribute('aria-pressed', 'true');
+    await expect(tool(page, 'Single')).toHaveClass(/is-last/);
+    await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Last tool: Single');
+    await expect(escBadge(page)).toHaveAttribute('data-esc-leaves', 'true');
     await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
+  });
+
+  await test.step('Navigate: a click selects a block (its cell; its type in the block type editor); Esc lets it go and stays', async () => {
+    const at = await aim(page, top(6, 7, 9), [6, 7, 9]);
+    await page.mouse.click(at.x, at.y);
+    await expect(view(page)).toHaveAttribute('data-block-selection', '6,7,9,7,8,10');
+    await expect(typeEditor(page)).toHaveAttribute('data-block-type', 'stone');
+    await expect(escBadge(page), 'Esc deselects first').toHaveAttribute('data-esc-leaves', 'false');
+    await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Deselect');
+    expect(await cellCount(layer), 'a click with no tool builds nothing').toBe(32_768);
+    await page.keyboard.press('Escape');
+    await expect(view(page)).toHaveAttribute('data-block-selection', '');
+    await expect(editMode(page)).toBeVisible();
+    // A letter arms its tool.
+    await page.keyboard.press('q');
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'single');
+    await expect(tool(page, 'Single')).toHaveAttribute('aria-pressed', 'true');
   });
 
   await test.step('single: a drag over three tops is one command and one undo step', async () => {
@@ -348,20 +375,40 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect(editMode(page).getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Base/, /Layer 2/, /Layer 3/, /Layer 4/, /Wet/]);
   });
 
-  await test.step('locked, the tools refuse and nothing changes', async () => {
+  await test.step('locked, no tool can be armed (Navigate) and nothing changes; unlocked, the tool is back', async () => {
     await page.keyboard.press('Shift+1');
     const before = await cellCount(layer);
     const lock = editMode(page).getByRole('switch', { name: 'lock layer' });
     await editMode(page).getByRole('button', { name: 'Layer', exact: true }).click();
     await lock.click();
     await expect.poll(async () => (await entity(layer)).locked).toBe(true);
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+    await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Ground is locked');
     await page.keyboard.press('q');
-    const at = await aim(page, top(3, 7, 9), [3, 8, 9]);
-    await page.mouse.click(at.x, at.y);
-    await expect(editMode(page).getByRole('alert').filter({ hasText: /layer is locked/ })).toBeVisible();
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
     expect(await cellCount(layer)).toBe(before);
     await lock.click();
     await expect.poll(async () => (await entity(layer)).locked ?? false).toBe(false);
+    // The tool armed before (Rect, from the edge piece step) is back.
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'rect');
+  });
+
+  await test.step('a click on the armed tile drops it, Space arms it again; Esc drops it, a drag then orbits and builds nothing, a second Esc leaves', async () => {
+    await tool(page, 'Rect').click();
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+    await page.keyboard.press('Space');
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'rect');
+    await expect(escBadge(page), 'Esc drops the tool first').toHaveAttribute('data-esc-leaves', 'false');
+    await page.keyboard.press('Escape');
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+    await expect(escBadge(page)).toHaveAttribute('data-esc-leaves', 'true');
+    const before = await cellCount(layer);
+    const pose = await view(page).getAttribute('data-view-camera');
+    const vb = (await view(page).boundingBox())!;
+    const a = { x: vb.x + vb.width / 2, y: vb.y + vb.height / 2 };
+    await stroke(page, [a, { x: a.x + 160, y: a.y + 20 }]);
+    await expect.poll(() => view(page).getAttribute('data-view-camera'), { message: 'a drag with no tool orbits' }).not.toBe(pose);
+    expect(await cellCount(layer)).toBe(before);
   });
 
   await test.step('Esc leaves; Edit blocks opens it again; GameObject → Block layer opens a new layer, one undo takes it away', async () => {

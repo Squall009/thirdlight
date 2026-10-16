@@ -46,7 +46,7 @@ export const blockMode: ObjectEditModeKind = {
     const b = c.bounds;
     return `Block layer · ${b.max[0] - b.min[0]} × ${b.max[1] - b.min[1]} × ${b.max[2] - b.min[2]} cells`;
   },
-  rail: BLOCK_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint })),
+  rail: BLOCK_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, navigate: m.id === 'rooms' ? 'A drag orbits; a click selects a building, room or path.' : 'A drag orbits; a click selects a block: its cell and its block type.' })),
   tools: ['block'],
   // Themes, rules and scatter are edited in the editor; the Inspector keeps the plain fields.
   inspectorSkips: { blockLayer: ['kits', 'rules', 'scatter'] },

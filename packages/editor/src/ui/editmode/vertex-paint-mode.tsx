@@ -50,7 +50,7 @@ export const vertexPaintMode: ObjectEditModeKind = {
   framesOnEnter: true,
   meta: (e) => `${kindOf(e)} · ${has(e, 'vertexPaint') || (e.components['instances'] as { paint?: unknown } | undefined)?.paint !== undefined ? 'painted' : 'not painted yet'}`,
   rail: [
-    { id: 'paint', label: 'Paint', glyph: 'paint', hint: 'Drag on the object to paint the picked layer.' },
+    { id: 'paint', label: 'Paint', glyph: 'paint', hint: 'Drag on the object to paint the picked layer.', navigate: 'A drag orbits round the object; pick Paint or press B to paint it.' },
     { id: 'channels', label: 'Channels', glyph: 'channels', hint: 'Show one channel of the paint, and what each means.' },
     { id: 'material', label: 'Material', glyph: 'material', hint: 'The material the paint is read by, and its layers.', sep: true },
   ],

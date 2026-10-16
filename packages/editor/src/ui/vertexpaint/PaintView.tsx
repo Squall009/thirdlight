@@ -1,7 +1,8 @@
 /**
  * What the vertex paint editor lays over the Scene view while it shows, in
  * every rail mode: the brush armed on the object (Paint and Channels; the
- * Material mode only looks), the channel view's chips (Final, then what each
+ * Material mode only looks; with no tool, Navigate, it shows the channel
+ * view but paints nothing and a drag orbits), the channel view's chips (Final, then what each
  * channel means; V cycles them) and, when the material reads no paint, a
  * toast saying so with Make it paintable.
  *
@@ -11,6 +12,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 
 import { isTyping } from '../workspace/EditorWindow';
 import { Segmented } from '../editmode/controls';
+import { useToolArmed } from '../editmode/edit-tool';
 import { Toast } from '../editmode/Banner';
 import type { EditModeView } from '../editmode/modes';
 import { setUpLayered } from '../palette/MaterialLayers';
@@ -25,12 +27,13 @@ export function VertexPaintView({ entity, mode, host }: EditModeView): JSX.Eleme
   const views = channels.views;
   const view = views.some((v) => v.channel === state.view) ? state.view : null;
   const armed = PAINTING_MODES.includes(mode);
+  const navigate = !useToolArmed();
   // A locked object says why on a press; a material without paint says so in the toast already.
   const offReason = vp.locked ? `${entity.name} is locked (unlock it in the Hierarchy).` : undefined;
   const arm = host.paint.arm;
-  const key = `${entity.id}|${armed}|${target.channel}|${(target.channels ?? []).join()}|${target.erases === true}|${paintable}|${view}|${offReason}`;
+  const key = `${entity.id}|${armed}|${navigate}|${target.channel}|${(target.channels ?? []).join()}|${target.erases === true}|${paintable}|${view}|${offReason}`;
   useEffect(() => {
-    arm(armed ? { entityId: entity.id, store, target, paintable, ...(offReason !== undefined ? { offReason } : {}), view } : null);
+    arm(armed ? { entityId: entity.id, store, target, paintable, ...(offReason !== undefined ? { offReason } : {}), view, navigate } : null);
     // `key` names everything the brush is armed with.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the target object is rebuilt each draw; `key` names its content
   }, [key, arm, store]);

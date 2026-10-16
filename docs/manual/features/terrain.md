@@ -346,7 +346,7 @@ Noise and Ramp edit) at the bottom.
   **Stamp** tool: choose the heightmap (by its picture), its height, turn,
   mode, edge fade and layer, then click the terrain — a stamp as wide as the
   brush, one command (into the chosen stamps layer, the first, or a new
-  one). The **Select** tool draws every stamp's square on the ground; click
+  one). With no tool (**Navigate**) every stamp's square shows on the ground; click
   one (or pick it in the list) and drag its body to move it, a corner to
   resize it (it stays square) or the knob beyond its edge to turn it — each
   drag one command on release; its height, side, turn, edge fade, mode and

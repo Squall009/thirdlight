@@ -558,8 +558,9 @@ stroke or button is one undo step, and MCP can do the same.
   (the Hierarchy shows the same). **Slice**: the row the tools use where no
   block is under the pointer — PageUp / PageDown or ] / [, or the − / + and
   number box. The grid of that row and the layer's bounds are drawn.
-- **Tools** (the left button; Alt+drag or the right button orbits while
-  "Edit cells" is on): Paint and Erase (drag, cell by cell), Line,
+- **Tools** (the left button once a tool is armed — the editor opens with
+  none, Navigate, where a drag orbits and a click selects a block; Alt+drag
+  or the right button orbits while a tool is armed): Paint and Erase (drag, cell by cell), Line,
   Rectangle, Box (the rectangle raised to the box height), Flood, Raise /
   lower (Ctrl held or "Lower / remove" lowers), Height, Smooth and Flatten
   (terrain, 25.20: a round brush over the ground with Radius and Strength —

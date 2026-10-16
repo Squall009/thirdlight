@@ -15,7 +15,7 @@ import { expect, test, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors, refusedObjects } from './console-errors';
-import { editMode, editModeTab, enterBlockEditor } from './ui';
+import { armTile, editMode, editModeTab, enterBlockEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -42,7 +42,7 @@ const view = (page: Page) => page.locator('canvas.tl-viewport');
 /** Pick a Shape tool and set its brush (each tool keeps its own): size across in metres, strength in percent, the height step in metres. */
 async function shapeTool(page: Page, name: string, size: number, strength: number, heightStep?: number): Promise<void> {
   const mode = editMode(page);
-  await mode.getByRole('toolbar', { name: 'shape tool' }).getByRole('button', { name, exact: true }).click();
+  await armTile(mode.getByRole('toolbar', { name: 'shape tool' }).getByRole('button', { name, exact: true }));
   const fields: [string, number][] = [['brush size', size], ['brush strength', strength], ...(heightStep !== undefined ? [['height step', heightStep] as [string, number]] : [])];
   for (const [field, value] of fields) {
     await mode.getByLabel(field, { exact: true }).fill(String(value));

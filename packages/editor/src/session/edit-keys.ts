@@ -3,8 +3,12 @@
  * decals, blocks) reads its keys here, and the status line and tooltips list
  * them from here, so a key means the same in each.
  *
- * Esc cancels in order: a stroke or drag in flight (the Scene view's tools,
- * before this map sees the key), then leaves the mode. Modes switch with
+ * Esc does the first that applies (`escapeStep`): a field being typed in is
+ * left (the editor never sees the key), a stroke or drawing in flight is
+ * dropped (the Scene view's tools, before this map sees the key), the mode's
+ * selection is cleared, the armed tool is dropped (Navigate: no tool, a drag
+ * orbits and a click selects), and only then is the editor left. Space arms
+ * the last tool again. Modes switch with
  * Shift+number, leaving plain numbers to palettes (they are used far more
  * while painting); Home frames the edited object because F belongs to the
  * brush's resize-in-view.
@@ -19,7 +23,7 @@
 import type { BrushUse } from './brush';
 
 /** What a key does in an edit mode (null: not the map's; the mode's tools may take it). */
-export type EditKeyAction = { kind: 'done' } | { kind: 'context' } | { kind: 'frame' } | { kind: 'mode'; index: number };
+export type EditKeyAction = { kind: 'escape' } | { kind: 'last-tool' } | { kind: 'context' } | { kind: 'frame' } | { kind: 'mode'; index: number };
 
 /** The parts of a key event this map reads. */
 export interface EditKeyEvent {
@@ -37,8 +41,9 @@ export const EDIT_MODE_KEYS = 9;
 /** What a key does in an edit mode whose rail has `modes` modes. */
 export function editKeyAction(e: EditKeyEvent, modes: number): EditKeyAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
-  if (e.key === 'Escape') return { kind: 'done' };
+  if (e.key === 'Escape') return { kind: 'escape' };
   if (e.key === 'Home') return { kind: 'frame' };
+  if (e.code === 'Space' && !e.shiftKey) return { kind: 'last-tool' };
   // Shift changes the key's character ("!" for 1): the physical digit is read.
   const digit = /^Digit([1-9])$/.exec(e.code);
   if (digit !== null && e.shiftKey) {
@@ -55,11 +60,49 @@ export interface KeyHint {
   readonly label: string;
 }
 
-/** The keys every edit mode has, as the status line lists them (`modes`: the rail's length). */
-export function sharedKeyHints(modes: number): KeyHint[] {
+/** What an editor holds that Esc reads: something selected in the mode, a tool armed (else Navigate). */
+export interface EscapeState {
+  readonly selection: boolean;
+  readonly armed: boolean;
+}
+
+/**
+ * What Esc does once no field is typed in and no stroke or drawing is in
+ * flight (those come first, before the editor's key map sees the key).
+ */
+export type EscapeStep = 'deselect' | 'drop' | 'leave';
+
+export function escapeStep(s: EscapeState): EscapeStep {
+  return s.selection ? 'deselect' : s.armed ? 'drop' : 'leave';
+}
+
+/** What the status line calls each Esc step. */
+const ESCAPE_LABELS: Readonly<Record<EscapeStep, string>> = { deselect: 'Deselect', drop: 'Drop the tool', leave: 'Leave' };
+
+/** How the editor stands for the status line's shared keys. */
+export interface SharedKeyState extends EscapeState {
+  /** The rail's length. */
+  readonly modes: number;
+  /** The mode has a tool grid (else Navigate is all it has: no tool to drop or bring back). */
+  readonly tools: boolean;
+  /** The tool Space arms again (its label; null: none). */
+  readonly lastTool: string | null;
+}
+
+/**
+ * The keys every edit mode has, as the status line lists them: in Navigate a
+ * plain drag orbits and a click selects (Space brings the last tool back);
+ * with a tool armed the left button is the tool's, and Alt+drag orbits. Esc
+ * says what it does next.
+ */
+export function sharedKeyHints(s: SharedKeyState): KeyHint[] {
   const out: KeyHint[] = [];
-  if (modes > 1) out.push({ keys: ['Shift', `1–${Math.min(modes, EDIT_MODE_KEYS)}`], label: 'Mode' });
-  out.push({ keys: ['Alt', 'Drag'], label: 'Orbit' }, { keys: ['Home'], label: 'Frame' }, { keys: ['C'], label: 'Context' }, { keys: ['Ctrl', 'Z'], label: 'Undo' }, { keys: ['Esc'], label: 'Done' });
+  const navigate = !s.armed || !s.tools;
+  if (navigate) out.push({ keys: ['Drag'], label: 'Orbit' }, { keys: ['Click'], label: 'Select' }, { keys: ['Shift', 'Drag'], label: 'Pan' });
+  else out.push({ keys: ['Alt', 'Drag'], label: 'Orbit' });
+  if (navigate && s.tools && s.lastTool !== null) out.push({ keys: ['Space'], label: `Last tool: ${s.lastTool}` });
+  if (s.modes > 1) out.push({ keys: ['Shift', `1–${Math.min(s.modes, EDIT_MODE_KEYS)}`], label: 'Mode' });
+  out.push({ keys: ['Home'], label: 'Frame' }, { keys: ['C'], label: 'Context' }, { keys: ['Ctrl', 'Z'], label: 'Undo' }, { keys: ['Esc'], label: ESCAPE_LABELS[escapeStep({ selection: s.selection, armed: s.armed && s.tools })] });
   return out;
 }
 
@@ -100,7 +143,8 @@ export function brushKeyHints(uses: readonly BrushUse[], invert = 'Invert'): Key
 /**
  * The letters a tool grid never binds: C (Context), F (resize in the view)
  * and X (paint / erase: a tile that erases shows X, the brush's key flips to
- * it). Physical keys, as the rest of the map reads them.
+ * it). Physical keys, as the rest of the map reads them. (Space, which
+ * brings the last tool back, is no letter.)
  */
 export const RESERVED_TOOL_KEYS: ReadonlySet<string> = new Set(['KeyC', 'KeyF', 'KeyX']);
 

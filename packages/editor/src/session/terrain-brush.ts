@@ -115,10 +115,10 @@ export const TERRAIN_MODES: readonly TerrainMode[] = Object.freeze([
     label: 'Stack',
     glyph: 'stack',
     tiles: [
-      tile('stamps', 'stamps', 'Select', 'select', 'Q', 'Click a stamp to pick it; drag it, its corner or its turn knob.'),
       tile('stamp', 'stamp', 'Stamp', 'stamp', 'W', 'Click the ground to place the heightmap as a stamp (its side is the brush size).'),
       tile('erode', 'erode', 'Erode', 'erode', 'E', 'Click the ground to erode the square under the brush.'),
     ],
+    // With no tool (Navigate) a click picks a stamp and the picked one's handles drag it: the `stamps` tool.
     tools: ['stamps', 'stamp', 'erode'],
     hint: 'Click the ground to place a stamp or erode; drag a stamp to move it.',
   },

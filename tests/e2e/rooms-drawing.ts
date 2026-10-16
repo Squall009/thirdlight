@@ -9,7 +9,10 @@
  * magenta (lower_wall); an arch in the front room's front wall and a door
  * in the wall the rooms share, lined up so the camera looks through both
  * into the back room; a fence path (posts and a rail, blue) drawn with the
- * Path mode in front of them, below the sight lines. The picked room's column edits the door; Move
+ * Path mode in front of them, below the sight lines. Selecting: with Rect armed a click (no drag) on a room
+ * selects it and draws nothing, Esc lets it go, a second Esc drops the tool; with no tool (Navigate) the room
+ * under the pointer is outlined and named, a click selects it, and Space arms Rect again. The picked room's
+ * column edits the door; Move
  * walls drags the back room's back wall three cells in and back two (the Scene view
  * regenerates only that room's chunks while dragging), then the front room's east wall a cell in and the
  * wall the rooms share (now only partly) a cell back and both back again: the openings on the other
@@ -26,7 +29,7 @@ import { join } from 'node:path';
 
 import { expect, type Locator, type Page } from './pw';
 
-import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
+import { armTile, editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -181,7 +184,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   const rooms = blocks.getByLabel('block rooms');
   await expect(rooms).toBeVisible();
   await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
-  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }).click();
+  const tool = (name: string): Promise<void> => armTile(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }));
   type Opening = { id: string; at: number; top: number; bottom: number; width: number; model?: { assetId: string } };
   const roomsObject = async (): Promise<{ id: string; architecture: { kitId?: string; overrides?: { element: string; segment?: number; model: { assetId: string } }[]; outlines?: { id: string; preset: string; path: { points: number[][] }; openings?: Opening[] }[] } } | null> => {
     const ents = ((await query('queryEntities', { limit: 500, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
@@ -198,6 +201,9 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
     );
 
   // Room A (front): Rectangle from corner to corner; the release stores one command that makes the rooms object.
+  // (The editor opens with no tool: Rect is armed first.)
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+  await tool('Rect');
   await rooms.getByLabel('new room preset').selectOption('e2e-room-a');
   const a0 = await aimCorner(page, [182, 0, -38], corner(182, -38));
   await page.mouse.down();
@@ -222,6 +228,35 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect(view(page)).toHaveAttribute('data-room-hover', corner(192, -38).join(','));
   await page.mouse.up();
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-a', 'room-2:e2e-room-b']);
+  // Selecting rooms in the view. With Rect armed, a click (no drag) on room A (its top, nearest the camera) selects it
+  // and draws nothing; Esc lets it go, a second Esc drops the tool.
+  const roomTop = async (z: number): Promise<{ x: number; y: number }> => (await screen(page, [187, 3, z]))!;
+  const onA = await roomTop(-36);
+  await page.mouse.move(onA.x, onA.y);
+  await expect(view(page)).toHaveAttribute('data-room-hover-outline', 'room-1');
+  await page.mouse.click(onA.x, onA.y);
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-1');
+  await expect(rooms.getByLabel('room room-1 inspector')).toBeVisible();
+  expect((await roomsObject())?.architecture.outlines?.length, 'a click on a room draws nothing').toBe(2);
+  await page.keyboard.press('Escape');
+  await expect(view(page)).toHaveAttribute('data-room-selected', '');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'room');
+  await page.keyboard.press('Escape');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+  await expect(blocks).toBeVisible();
+  // No tool: the room under the pointer is outlined and named; a click selects it; Space arms Rect again.
+  const onB = await roomTop(-40);
+  await page.mouse.move(onB.x - 3, onB.y);
+  await page.mouse.move(onB.x, onB.y);
+  await expect(view(page)).toHaveAttribute('data-room-hover-outline', 'room-2');
+  await expect(page.getByRole('status', { name: 'pick readout' })).toContainText('Room room-2');
+  await page.mouse.click(onB.x, onB.y);
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-2');
+  await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Room “room-2” selected');
+  await page.keyboard.press('Space');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'room');
+  await expect(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name: 'Rect', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
   // Presets in use: Room A swapped for Room B on every room (the outlines kept), one undo takes it back.
   const swap = rooms.getByLabel('swap presets');
   await swap.getByLabel('rooms wearing').selectOption('e2e-room-a');

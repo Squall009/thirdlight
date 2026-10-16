@@ -440,7 +440,9 @@ async function makePaintable(page: Page, ids: { platform: string }): Promise<str
   const top = (await sceneProjector(page))([PLATFORM_AT[0], CAP_Y + 3, PLATFORM_AT[2]])!;
   const vb = (await view(page).boundingBox())!;
   await page.mouse.move(vb.x + top.x, vb.y + top.y + 4);
-  await expect.poll(async () => (await paintState(page))?.cursor).toBe('off');
+  // No tool can be armed on a material that reads no paint (Navigate): no brush cursor, and a drag orbits.
+  await expect.poll(async () => (await paintState(page))?.navigate).toBe(true);
+  expect((await paintState(page))?.cursor ?? null).toBeNull();
   await page.mouse.down();
   await page.mouse.move(vb.x + top.x + 10, vb.y + top.y + 4, { steps: 4 });
   await page.mouse.up();
@@ -471,6 +473,7 @@ async function makePaintable(page: Page, ids: { platform: string }): Promise<str
   await publishTexture(be!, new Uint8Array(makePng(16, 16, () => [210, 30, 25, 255])), 'vp-red', 'Red brick');
   await cmd('setMaterial', { material: { ...made, parameters: made.parameters!.map((p) => (p.key === 'albedoHeight' ? { ...p, default: ['vp-plain-map', 'vp-red', '', ''] } : p)) } });
   await expect(col.getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Mill walls/, /Red brick/, /Layer 3/, /Layer 4/, /Wet/]);
+  await paintTool(page, 'Paint');
   await pickTile(page, 1, 0);
   await expect(paintEditor(page).getByLabel('edit mode hints')).toContainText('Drag on Mill to paint Red brick.');
   const redBefore = count(decodePng(await view(page).screenshot()), isRed);

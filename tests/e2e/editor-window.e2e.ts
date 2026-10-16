@@ -493,9 +493,16 @@ async function editModeChecks(page: Page): Promise<void> {
     const pitch = Math.asin(-c.forward[1]!);
     return [Math.abs(Math.round((pitch - Math.atan(0.76 * half)) * 1000)), Math.round(Math.hypot(hit[0]!, hit[1]!)), Math.abs(Math.round(Math.hypot(c.position[0]! - hit[0]!, c.position[1]!, c.position[2]! - hit[1]!) - 16 / half))];
   }, { timeout: 15_000, message: 'the working view: its pitch off the expected (mrad), its aim off the middle (m), its distance off (m)' }).toEqual([0, 0, 0]);
-  // Its settings column holds the terrain's tools (Sculpt first), armed in the lent view; the status line says what to do.
+  // Its settings column holds the terrain's tools (Sculpt first). It opens with none armed (Navigate: the tile lit,
+  // Done's Esc badge bright: Esc would leave); Q arms Raise in the lent view and the status line says what to do.
   await expect(mode.getByLabel('terrain tools')).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'navigate');
+  await expect(mode.getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name: 'Navigate', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(mode.locator('.tl-done kbd')).toHaveAttribute('data-esc-leaves', 'true');
+  await expect(mode.getByLabel('edit mode hints')).toContainText('Navigate');
+  await page.keyboard.press('q');
   await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
+  await expect(mode.locator('.tl-done kbd')).toHaveAttribute('data-esc-leaves', 'false');
   await expect(mode.getByLabel('edit mode hints')).toContainText('Drag on the ground to raise it.');
 
   // ---- Isolation: only the terrain is drawn (the marker leaves the picture, its shadow stays); Context shows it again.
@@ -730,7 +737,21 @@ async function editModeChecks(page: Page): Promise<void> {
   await expect(canvas).toHaveAttribute('data-isolation', new RegExp(hill));
   await expect(mode.getByRole('tab', { name: 'Sculpt', exact: true })).toHaveAttribute('aria-selected', 'true');
 
-  // ---- Esc leaves: the canvas home again, the selection from before (the terrain, clicked by the double-click).
+  // ---- Esc in order: in a field it only leaves the field; then it drops the tool (Space arms it again); with no
+  // tool it leaves: the canvas home again, the selection from before (the terrain, clicked by the double-click).
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
+  const sizeBox = mode.getByLabel('brush size', { exact: true });
+  await sizeBox.focus();
+  await page.keyboard.press('Escape');
+  await expect(sizeBox).not.toBeFocused();
+  await expect(canvas, 'Esc in a field keeps the tool').toHaveAttribute('data-terrain-tool', 'raise');
+  await page.keyboard.press('Escape');
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'navigate');
+  await expect(mode).toBeVisible();
+  await expect(mode.locator('.tl-done kbd')).toHaveAttribute('data-esc-leaves', 'true');
+  await page.keyboard.press('Space');
+  await expect(canvas).toHaveAttribute('data-terrain-tool', 'raise');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(mode).toHaveCount(0);
   await expect(page.locator('.tl-viewport-host canvas.tl-viewport')).toHaveCount(1);

@@ -480,6 +480,7 @@ function EditorApp(): JSX.Element {
       onPick: (cell) => blockHandlersRef.current?.onPick(cell),
       onSelect: (box) => blockHandlersRef.current?.onSelect(box),
       onHover: (at, cell) => blockHandlersRef.current?.onHover(at, cell),
+      onPickCell: (at, cell) => blockHandlersRef.current?.onPickCell(at, cell),
       onRefused: (message) => setNotice(message),
     });
     setBlockEditor(blockEd);

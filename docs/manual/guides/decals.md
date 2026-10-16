@@ -65,8 +65,9 @@ three modes (Shift+1–3):
    picked decal: **density** decals per square metre, each turned and sized
    at random from the seed. The brush is the shared one (`[` `]` size, F
    then drag to resize in the view). Each stroke is one undo step.
-5. **Select.** Click a decal; Shift+click adds, Ctrl+click removes; drag on
-   empty ground (or with the **Box** tool) for a box. **Filter** picks only
+5. **Select.** With no tool (**Navigate**, how the editor opens; Esc drops
+   Place, Scatter or Box) click a decal in any mode; Shift+click adds,
+   Ctrl+click removes; a drag orbits. The **Box** tool (B) drags a box. **Filter** picks only
    one material's decals, or one decal layer's. With several selected, the
    **Selection** fields change all of them at once (one undo step): size,
    projection, opacity per channel, fades and order; a field they disagree
@@ -89,7 +90,7 @@ the decals from them, as Play does. An edit that changes what the pages hold
 back on each decal material's own textures until you rebuild. The arrow at
 the right folds the atlas away (its head stays).
 
-**Done** (or Esc with nothing selected) leaves the editor. A double-click
+**Done** (or Esc with nothing selected and no tool armed) leaves the editor. A double-click
 on a decal in the Hierarchy or the Scene view opens it in Select with that
 decal selected. The editor sends the same commands as MCP
 (`createEntity`, `createEntities`, `setTransform`, `setComponent` with

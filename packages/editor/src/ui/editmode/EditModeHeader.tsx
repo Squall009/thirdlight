@@ -5,8 +5,9 @@
  * a small fact about it (a terrain's tiles). Right, the mode's own extras,
  * a note (a scene's mode: what can be picked), the Context toggle (an
  * object's mode: the rest of the scene shown, not pickable), undo and
- * redo of the one history, and Done (Esc). The brand-coloured stripe on top
- * says a mode is open.
+ * redo of the one history, and Done (Esc; its badge dims while Esc would
+ * first deselect or drop the tool). The brand-coloured stripe on top says a
+ * mode is open.
  *
  * Browser-only (React).
  */
@@ -35,6 +36,8 @@ export interface EditModeHeaderProps {
   onUndo: () => void;
   onRedo: () => void;
   onDone: () => void;
+  /** Esc would leave now (else it deselects or drops the tool first). */
+  escLeaves: boolean;
 }
 
 export function EditModeHeader(p: EditModeHeaderProps): JSX.Element {
@@ -78,10 +81,12 @@ export function EditModeHeader(p: EditModeHeaderProps): JSX.Element {
         <Glyph name="redo" size={18} />
       </button>
       <span className="tl-emh__sep" />
-      <button type="button" className="tl-done" title="Back to the Scene (Esc)" onClick={p.onDone}>
+      <button type="button" className="tl-done" title={p.escLeaves ? 'Back to the Scene (Esc)' : 'Back to the Scene (Esc leaves once nothing is selected and no tool is armed)'} onClick={p.onDone}>
         <Glyph name="check" size={16} />
         Done
-        <Kbd k="Esc" />
+        <kbd className={`tl-kbd${p.escLeaves ? '' : ' is-dim'}`} data-esc-leaves={String(p.escLeaves)}>
+          Esc
+        </kbd>
       </button>
     </header>
   );

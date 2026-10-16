@@ -82,6 +82,8 @@ export interface VertexPaintArm {
   readonly offReason?: string;
   /** The channel the view shows as grey (null: the materials). */
   readonly view: number | null;
+  /** No tool in hand (Navigate): the channel view shows, but no cursor and no stroke (a drag orbits). */
+  readonly navigate?: boolean;
 }
 
 interface Stroke {
@@ -152,8 +154,8 @@ export class VertexPaintTool {
     }
     this.arming = a;
     this.control.setStore(a?.store ?? null, VERTEX_PAINT_USES);
-    this.control.arm(a !== null);
-    if (a === null) {
+    this.control.arm(a !== null && a.navigate !== true);
+    if (a === null || a.navigate === true) {
       this.cursor.hide();
       this.hover = null;
     }
@@ -167,14 +169,14 @@ export class VertexPaintTool {
 
   /** A brush key while armed (the edit mode's key map routes it here); true when taken. */
   key(e: KeyboardEvent): boolean {
-    if (this.arming === null || this.stroke !== null) return false;
+    if (this.arming === null || this.arming.navigate === true || this.stroke !== null) return false;
     return this.control.key(e);
   }
 
   /** A press: a stroke starts on the armed object under the pointer ('capture'); null: not the tool's (orbit, pick). */
   pointerDown(e: PointerEvent): ToolPress {
     const a = this.arming;
-    if (a === null || e.button !== 0 || e.altKey) return null;
+    if (a === null || a.navigate === true || e.button !== 0 || e.altKey) return null;
     if (this.control.press()) return 'consume';
     const at = this.targetAt(e.clientX, e.clientY);
     if (at === null) return null;
@@ -189,7 +191,7 @@ export class VertexPaintTool {
 
   /** A move: the cursor follows the pointer; a stroke gains a dab every spacing on its object. */
   pointerMove(e: PointerEvent): boolean {
-    if (this.arming === null) return false;
+    if (this.arming === null || this.arming.navigate === true) return false;
     const st = this.stroke;
     const hit = st !== null ? this.onTarget(st, e.clientX, e.clientY) : this.surfaceAt(e.clientX, e.clientY);
     if (this.control.move(e, hit?.point ?? null)) {
@@ -252,7 +254,7 @@ export class VertexPaintTool {
       if (canvas.hasAttribute('data-vertex-paint')) canvas.removeAttribute('data-vertex-paint');
       return;
     }
-    const out = { armed: a !== null, entityId: a?.entityId ?? null, channel: a?.target.channel ?? null, cursor: this.cursor.visible() ? this.cursor.state() : null, stroking: this.stroke !== null, strokes: this.strokes, last: this.last, watch: w, view: this.view };
+    const out = { armed: a !== null, navigate: a?.navigate === true, entityId: a?.entityId ?? null, channel: a?.target.channel ?? null, cursor: this.cursor.visible() ? this.cursor.state() : null, stroking: this.stroke !== null, strokes: this.strokes, last: this.last, watch: w, view: this.view };
     canvas.setAttribute('data-vertex-paint', JSON.stringify(out));
   }
 

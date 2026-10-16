@@ -1,5 +1,6 @@
 /**
- * The decal editor's Select column: the tools (Click, Box), the filters
+ * The decal editor's Select column: the tools (Navigate, whose click picks
+ * a decal as it does in every mode, and Box), the filters
  * (which decals the pointer can pick: by material, by decal layer), the
  * palette (with decals selected, a pick gives them that material) and the
  * selection — how many, what they are, Select same, and the fields of all of
@@ -28,10 +29,8 @@ import type { DecalTools } from '../shell/useDecalTools';
 import { PROJECTIONS } from './DecalColumns';
 import { DecalPalette } from './DecalPalette';
 
-const TOOLS = [
-  { id: 'click', label: 'Click', glyph: 'select', key: 'Q', hint: 'Click a decal to select it; Shift adds, Ctrl removes; drag on empty ground for a box; drag a selected decal to move it.' },
-  { id: 'box', label: 'Box', glyph: 'box', key: 'B', hint: 'Drag a box: the decals whose middle is in it are selected (Shift adds, Ctrl removes).' },
-] as const;
+/** Select's one tool: no tool (Navigate) already picks decals by click. */
+const TOOLS = [{ id: 'box', label: 'Box', glyph: 'box', key: 'B', hint: 'Drag a box: the decals whose middle is in it are selected (Shift adds, Ctrl removes).' }] as const;
 
 /** The channels' names on screen. */
 const CHANNEL_LABELS: Readonly<Record<(typeof DECAL_CHANNELS)[number], string>> = { albedo: 'Colour', normal: 'Normal', roughness: 'Roughness', metalness: 'Metalness', occlusion: 'Occlusion', emission: 'Emission' };
@@ -63,16 +62,16 @@ export function SelectColumn({ host }: SceneModeView): JSX.Element {
   const n = sel.length;
   const decalCount = useMemo(() => host.entities.filter((e) => e.components['decal'] !== undefined).length, [host.entities]);
   useEditStatus({
-    tool: 'Select',
-    text: tools.selectTool === 'box' ? 'Drag a box round decals; Shift adds, Ctrl removes.' : 'Click a decal; Shift adds, Ctrl removes; drag on empty ground for a box.',
-    keys: [{ keys: ['Shift'], label: 'Add' }, { keys: ['Ctrl'], label: 'Remove' }, { keys: ['Del'], label: 'Delete' }, { keys: ['Esc'], label: 'Clear selection' }, ...paletteKeyHint(tools.palette.length, 'Material')],
+    tool: 'Box',
+    text: 'Drag a box round decals; Shift adds, Ctrl removes.',
+    keys: [{ keys: ['Shift'], label: 'Add' }, { keys: ['Ctrl'], label: 'Remove' }, { keys: ['Del'], label: 'Delete' }, ...paletteKeyHint(tools.palette.length, 'Material')],
     right: `${decalCount} decal${decalCount === 1 ? '' : 's'} · ${n} selected`,
   });
   const materials = tools.materials;
   return (
     <div className="tl-decals" aria-label="decal select tools">
       <Section title="Tool">
-        <ToolGrid tools={TOOLS} active={tools.selectTool} onPick={(id) => tools.setSelectTool(id as 'click' | 'box')} aria="decal select tool" cols={2} />
+        <ToolGrid tools={TOOLS} active="box" onPick={() => undefined} aria="decal select tool" cols={4} />
         <div className="tl-frow">
           <span className="tl-frow__label">Filter</span>
           <span className="tl-decals__filters">

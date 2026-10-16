@@ -11,6 +11,11 @@
  * shows again when the Scene view is back. It closes by itself when its
  * object is gone or no longer has what it edits (deleted, undone).
  *
+ * Every editor opens in Navigate (no tool armed: a drag orbits, a click
+ * selects); picking a tool arms it, Esc or a click on its tile drops it, and
+ * Space arms the last one again. Whether a tool is armed is the shell's, the
+ * same in every editor; which tool is the column's own remembered state.
+ *
  * A scene's mode (decals) opens on no object: from its menu entry or button,
  * or from a double-click on one of the objects it edits, which it then has
  * selected (`focus`). It closes only with Done.
@@ -33,6 +38,8 @@ export interface EditModeState {
   readonly mode: string;
   /** The rest of the scene shown around the object (not pickable). */
   readonly context: boolean;
+  /** A tool is armed (false: Navigate). Kept across the rail's modes; a mode without a tool grid is in Navigate anyway. */
+  readonly armed: boolean;
 }
 
 export interface EditModeDeps {
@@ -92,7 +99,7 @@ export function useEditMode(deps: EditModeDeps) {
       const focus = scene && entityId !== '' ? entityId : null;
       const mode = viaMode ?? (focus !== null && isSceneMode(k) ? k.focusMode : undefined) ?? lastMode.current.get(k.kind) ?? k.rail[0]?.id ?? '';
       if (viaMode !== undefined) lastMode.current.set(k.kind, viaMode);
-      setState({ kind: k.kind, entityId: scene ? '' : entityId, focus, mode, context: false });
+      setState({ kind: k.kind, entityId: scene ? '' : entityId, focus, mode, context: false, armed: false });
       workspaceDispatch({ type: 'view', view: 'scene' });
       workspaceDispatch({ type: 'show', on: false });
       closeSettings();
@@ -131,6 +138,9 @@ export function useEditMode(deps: EditModeDeps) {
 
   const toggleContext = useCallback(() => setState((s) => (s === null ? s : { ...s, context: !s.context })), []);
 
+  /** Arm the mode's tool (its remembered tile), or drop it (Navigate). */
+  const setArmed = useCallback((armed: boolean) => setState((s) => (s === null || s.armed === armed ? s : { ...s, armed })), []);
+
   const kind = state === null ? undefined : editModeKind(state.kind);
   const scene = kind !== undefined && isSceneMode(kind);
   const entity = state === null || scene ? undefined : entities.find((e) => e.id === state.entityId);
@@ -142,7 +152,7 @@ export function useEditMode(deps: EditModeDeps) {
   }, [state, entity, kind, scene, leave]);
 
   const shown = state !== null && kind !== undefined && (scene || entity !== undefined) && sceneInFront;
-  return { state, entity, kind, shown, enter, open, leave, setMode, toggleContext, frameOwed, frameDone };
+  return { state, entity, kind, shown, enter, open, leave, setMode, toggleContext, setArmed, frameOwed, frameDone };
 }
 
 export type EditMode = ReturnType<typeof useEditMode>;

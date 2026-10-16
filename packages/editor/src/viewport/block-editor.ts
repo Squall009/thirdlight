@@ -38,6 +38,12 @@
  * corners, box repeats the rectangle's outline up to the box height; each
  * stroke is one `edges` edit, previewed the same way.
  *
+ * With no tool armed (Navigate) the tools take no press: a left drag orbits,
+ * and a click selects — in Rooms & buildings the room, building or path
+ * under the pointer (the Rooms tool's outline pick), elsewhere the block
+ * under the pointer (its cell and its block type). What a click would select
+ * is outlined under the pointer.
+ *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
 import * as THREE from 'three';
@@ -124,6 +130,8 @@ export interface BlockEditorCallbacks {
   onSelect(box: CellBox | null): void;
   /** The cell under the pointer (null: none), for the panel's readout. */
   onHover(at: Cell3 | null, cell: BlockCell | null): void;
+  /** Navigate: a click on a block (its cell and what it holds; null: on no block). */
+  onPickCell(at: Cell3 | null, cell: BlockCell | null): void;
   /** Something cannot be done (a locked or hidden layer, no block chosen). */
   onRefused(message: string): void;
 }
@@ -133,6 +141,8 @@ export interface BlockEditorHost {
   readonly scene: THREE.Object3D;
   readonly camera: THREE.Camera;
   readonly canvas: HTMLCanvasElement;
+  /** A pointer that moved less than this (px) between press and release is a click (the view's). */
+  readonly slopPx: number;
   requestRender(): void;
   /** The chunk renderer (the preview writes into it). */
   view(): BlockLayerView;
@@ -155,6 +165,8 @@ interface SurfacePoint {
 const HOVER_ADD = 0x6ee7a0;
 const HOVER_HIT = 0xffc857;
 const HOVER_ERASE = 0xff6b6b;
+/** Navigate's hover: white, as what a click would select (no tool's colour). */
+const HOVER_NAVIGATE = 0xffffff;
 const SELECTION = 0xffe066;
 const REGION = 0x4cc9f0;
 const GHOST = 0x9ad7ff;
@@ -187,6 +199,10 @@ export class BlockEditor {
   private readonly root = new THREE.Group();
   private readonly raycaster = new THREE.Raycaster();
   private active = false;
+  /** No tool armed: a drag orbits, a click selects. */
+  private navigate = false;
+  /** Navigate's press (a release near it is a click). */
+  private navPress: { x: number; y: number } | null = null;
   private layer: BlockEditLayer | null = null;
   private layerKey = '';
   /** The layer's stored cells (picking, targets, the overlay). */
@@ -274,6 +290,7 @@ export class BlockEditor {
         layer: () => this.layer,
         slice: () => this.slice,
         ray: (x, y) => this.ray(x, y),
+        slopPx: host.slopPx,
         requestRender: () => host.requestRender(),
       },
       {
@@ -292,18 +309,39 @@ export class BlockEditor {
     if (this.active === on) return;
     this.active = on;
     if (!on) this.cancel();
-    this.control.arm(on);
+    this.control.arm(on && !this.navigate);
     if (!on) {
       this.cursor.hide();
       this.readout.hide();
+      this.rooms.hoverAt(null);
     }
     this.syncVisibility();
-    this.host.canvas.setAttribute('data-block-tool', on ? this.opts.tool : '');
+    this.publishTool();
     this.host.armed?.(on);
   }
 
   isActive(): boolean {
     return this.active;
+  }
+
+  /** Navigate (no tool armed: a drag orbits, a click selects) or the tool in hand. */
+  setNavigate(on: boolean): void {
+    if (this.navigate === on) return;
+    if (on) this.cancel();
+    this.navigate = on;
+    this.navPress = null;
+    this.control.arm(this.active && !on);
+    this.cursor.hide();
+    this.readout.hide();
+    this.placeBox(this.hover, null);
+    this.rooms.hoverAt(null);
+    this.publishTool();
+    this.host.requestRender();
+  }
+
+  /** The tool in hand as tests read it ('navigate' with none; '' when the tools are off). */
+  private publishTool(): void {
+    this.host.canvas.setAttribute('data-block-tool', !this.active ? '' : this.navigate ? 'navigate' : this.opts.tool);
   }
 
   /** The block types, cell fields and stamps (the overlay and brushes read them). */
@@ -360,7 +398,7 @@ export class BlockEditor {
     // The terrain brushes show their round footprint instead of a cell.
     if (toolDabs(o.tool)) this.placeBox(this.hover, null);
     else this.cursor.hide();
-    if (this.active) this.host.canvas.setAttribute('data-block-tool', o.tool);
+    this.publishTool();
     this.rebuildRegions();
     this.host.requestRender();
   }
@@ -456,6 +494,11 @@ export class BlockEditor {
   /** A press in the Scene view: begins a stroke when the tools are armed (true: consumed). */
   pointerDown(e: PointerEvent): boolean {
     if (!this.active || e.button !== 0 || e.altKey) return false;
+    // Navigate: the press is the orbit's; its release may be a click that selects.
+    if (this.navigate) {
+      this.navPress = { x: e.clientX, y: e.clientY };
+      return false;
+    }
     // F / Shift+F: a click sets what was dragged.
     if (this.control.press()) return true;
     const layer = this.layer;
@@ -521,6 +564,11 @@ export class BlockEditor {
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
     this.pointer = { x: e.clientX, y: e.clientY };
+    if (this.navigate) {
+      // Nothing is outlined while a drag orbits.
+      if (e.buttons === 0) this.navigateHover(e.clientX, e.clientY);
+      return false;
+    }
     if (this.opts.tool === 'room') return this.rooms.pointerMove(e);
     if (toolDabs(this.opts.tool) || this.sculpt !== null) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
@@ -609,9 +657,45 @@ export class BlockEditor {
     return true;
   }
 
-  /** A brush key (`[` / `]`, F, X, …) the edit mode routed here; true when taken. */
+  /** Navigate: a release near its press selects what is under the pointer (true: it was such a click). */
+  click(e: PointerEvent): boolean {
+    const press = this.navPress;
+    this.navPress = null;
+    if (!this.active || !this.navigate || e.button !== 0 || press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.host.slopPx) return false;
+    if (this.opts.tool === 'room') {
+      this.rooms.pickAt(e.clientX, e.clientY);
+      return true;
+    }
+    const t = this.blockUnder(e.clientX, e.clientY);
+    this.cb.onPickCell(t?.cell ?? null, t?.value ?? null);
+    return true;
+  }
+
+  /** The block under the pointer (null: none; the empty slice is no block). */
+  private blockUnder(clientX: number, clientY: number): { cell: Cell3; value: BlockCell } | null {
+    const t = this.resolveTarget(clientX, clientY, null, false);
+    return t === null || t.value === null || t.value.block === undefined ? null : { cell: t.cell, value: t.value };
+  }
+
+  /** Navigate: outline what a click would select (a room, building or path in Rooms & buildings; else the block). */
+  private navigateHover(clientX: number, clientY: number): void {
+    if (this.opts.tool === 'room') {
+      this.rooms.hoverAt({ x: clientX, y: clientY });
+      return;
+    }
+    const t = this.blockUnder(clientX, clientY);
+    this.host.canvas.setAttribute('data-block-hover', t === null ? '' : t.cell.join(','));
+    (this.hover.material as THREE.LineBasicMaterial).color.setHex(HOVER_NAVIGATE);
+    this.placeBox(this.hover, t === null ? null : [t.cell[0], t.cell[1], t.cell[2], t.cell[0] + 1, t.cell[1] + 1, t.cell[2] + 1]);
+    this.cb.onHover(t?.cell ?? null, t?.value ?? null);
+    this.host.requestRender();
+  }
+
+  /** A brush key (`[` / `]`, F, X, …) or the Rooms tool's (Enter finishes, Backspace takes a corner back) the edit mode routed here; true when taken. */
   key(e: KeyboardEvent): boolean {
-    if (!this.active || !isBlockBrushTool(this.opts.tool)) return false;
+    if (!this.active || this.navigate) return false;
+    if (this.opts.tool === 'room') return this.rooms.key(e);
+    if (!isBlockBrushTool(this.opts.tool)) return false;
     return this.control.key(e);
   }
 
@@ -619,6 +703,8 @@ export class BlockEditor {
   leave(): void {
     this.pointer = null;
     this.readout.hide();
+    this.rooms.hoverAt(null);
+    if (this.navigate) this.placeBox(this.hover, null);
     if (this.sculpt !== null || !this.control.leave()) return;
     this.lastAt = null;
     this.cursor.hide();

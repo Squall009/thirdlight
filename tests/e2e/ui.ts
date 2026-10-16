@@ -425,6 +425,15 @@ export async function leaveEditMode(page: Page): Promise<void> {
   await expect(editMode(page)).toHaveCount(0);
 }
 
+/**
+ * Arm a tool of the open editor's tool grid (editors open with none: Navigate). A click on the armed tile would drop
+ * it, so an armed one is left as it is.
+ */
+export async function armTile(tile: Locator): Promise<void> {
+  if ((await tile.getAttribute('aria-pressed')) !== 'true') await tile.click();
+  await expect(tile).toHaveAttribute('aria-pressed', 'true');
+}
+
 /** Show a mode of the open edit mode's rail ("Sculpt", "Material rules"). */
 export async function editModeTab(page: Page, name: string): Promise<void> {
   const tab = editMode(page).getByRole('tablist', { name: 'editor modes' }).getByRole('tab', { name, exact: true });

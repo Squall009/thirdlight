@@ -62,6 +62,8 @@ export interface EditRailMode extends RailItem {
   readonly hint: string;
   /** Its own keys, listed before the shared ones. */
   readonly keys?: readonly KeyHint[];
+  /** What a drag and a click do with no tool armed, in one sentence (absent: orbit, and select what the editor edits). */
+  readonly navigate?: string;
 }
 
 /** What an editor's settings column is drawn from. */

@@ -6,7 +6,9 @@
  * instance brush) is a `SceneTool`. The viewport hands each pointer event to
  * the `ToolRouter` first; only what no tool takes reaches the viewport's own
  * behaviour (the gizmo, orbiting, click-to-pick). An armed tool owns the
- * left button, so the gizmo stands aside while any tool is armed.
+ * left button, so the gizmo stands aside while any tool is armed. An
+ * editor's tools in Navigate (no tool in hand) are armed but take no press:
+ * a left drag orbits, and the release, when it was a click, selects.
  *
  * The router's order is the tools' priority: a vertex paint press on
  * something paintable wins over block and terrain tools, those over the
@@ -194,8 +196,6 @@ export class ViewportTools {
   /** Where the Decal tool's placements and grip edits go (set with the tool's settings). */
   private decalCb: DecalToolCallbacks | null = null;
   private paintCb: VertexPaintToolCallbacks | null = null;
-  /** The orbit buttons before the block tools took the left button. */
-  private orbitButtons: OrbitControls['mouseButtons'] | null = null;
   /** A handle drag is in flight (the overlay holds the previewed shape). */
   private handleDragging = false;
   /** The left button went down on a brush stroke (its release ends it, even one the brush gave up). */
@@ -221,7 +221,7 @@ export class ViewportTools {
   blockEditor(cb?: BlockEditorCallbacks): BlockEditor | null {
     if (this.blockEd === null && cb !== undefined) {
       const h = this.host;
-      this.blockEd = new BlockEditor({ scene: h.overlay, camera: h.camera, canvas: h.canvas(), requestRender: () => h.requestRender(), view: () => h.blockView(), armed: () => h.reselect() }, cb);
+      this.blockEd = new BlockEditor({ scene: h.overlay, camera: h.camera, canvas: h.canvas(), slopPx: CLICK_SLOP_PX, requestRender: () => h.requestRender(), view: () => h.blockView(), armed: () => h.reselect() }, cb);
     }
     return this.blockEd;
   }
@@ -230,24 +230,9 @@ export class ViewportTools {
   terrainEditor(cb?: TerrainEditorCallbacks): TerrainEditor | null {
     if (this.terrainEd === null && cb !== undefined) {
       const h = this.host;
-      this.terrainEd = new TerrainEditor({ scene: h.overlay, camera: h.camera, canvas: h.canvas(), requestRender: () => h.requestRender(), terrains: () => h.terrains(), armed: () => h.reselect() }, cb);
+      this.terrainEd = new TerrainEditor({ scene: h.overlay, camera: h.camera, canvas: h.canvas(), slopPx: CLICK_SLOP_PX, requestRender: () => h.requestRender(), terrains: () => h.terrains(), armed: () => h.reselect() }, cb);
     }
     return this.terrainEd;
-  }
-
-  /** Arm the block tools: a left drag paints (Alt+drag or the right button orbits), clicks pick no objects. */
-  setBlockToolsActive(on: boolean): void {
-    const ed = this.blockEd;
-    if (ed === null) return;
-    ed.setActive(on);
-    const orbit = this.host.orbit;
-    if (on && this.orbitButtons === null) {
-      this.orbitButtons = { ...orbit.mouseButtons };
-      orbit.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
-    } else if (!on && this.orbitButtons !== null) {
-      orbit.mouseButtons = this.orbitButtons;
-      this.orbitButtons = null;
-    }
   }
 
   /** The instance brush paints or erases copies of this set (null: off): the shared settings in `store`, the copies' own in `brush`. */
@@ -310,7 +295,7 @@ export class ViewportTools {
     };
   }
 
-  /** The block or terrain tools: armed, they take the left button; the Decal tool, opened over them, wins. */
+  /** The block or terrain tools: armed, they take the left button (in Navigate, only a click); the Decal tool, opened over them, wins. */
   private editorTool(name: string, ed: () => BlockEditor | TerrainEditor | null): SceneTool {
     const live = (): BlockEditor | TerrainEditor | null => (this.decal.armed() ? null : ed());
     return {
@@ -326,6 +311,8 @@ export class ViewportTools {
       },
       // A stroke ends on release even when the tools were disarmed meanwhile.
       pointerUp: (e) => (live()?.pointerUp(e) === true ? 'stop' : null),
+      // Navigate: a click selects; its press also went to the orbit controls.
+      click: (e) => (live()?.click(e) === true ? 'pass' : null),
       cancel: () => ed()?.cancel() === true,
       leave: () => {
         const x = ed();

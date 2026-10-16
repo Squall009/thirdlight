@@ -39,6 +39,7 @@ import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { expect, type Locator, type Page } from './pw';
 import { frameOn } from './rooms-drawing';
+import { armTile } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type V3 = readonly [number, number, number];
@@ -372,6 +373,8 @@ const SCATTER_TO: V3 = [239.5, 0, 31];
 type Query = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Shot = () => Promise<{ png: Buffer; read: (p: V3) => Rgb }>;
 interface ToolState {
+  mode: string;
+  selectTool: string;
   preview: { position: number[]; rotation: number[]; decal: { size: number[]; material: string; mode?: string } } | null;
   target: string | null;
   grips: { turn: { x: number; y: number } | null; size: { x: number; y: number } | null } | null;
@@ -480,6 +483,17 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     expect(s, `${p.join(',')} on the Scene view`).not.toBeNull();
     return { x: box.x + s!.x, y: box.y + s!.y };
   };
+
+  // The editor opens with no tool (Navigate): a click on a decal selects it, Esc lets it go; B arms Place.
+  await expect.poll(async () => `${(await state())?.mode} ${(await state())?.selectTool}`).toBe('select navigate');
+  const onTerrainDecal = await at([243, 0, 29]);
+  await page.mouse.click(onTerrainDecal.x, onTerrainDecal.y);
+  await expect.poll(async () => (await state())?.selection.length ?? 0, { message: 'Navigate: a click selects the decal under it' }).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await state())?.selection).toEqual([]);
+  await expect(mode).toBeVisible();
+  await page.keyboard.press('b');
+  await expect.poll(async () => (await state())?.mode).toBe('place');
 
   // On a box floor that had no decal at load: the preview and then the placed decal drawn with the pointer kept still
   // (the view draws on demand: nothing else asks for a frame); the placement undone.
@@ -617,7 +631,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   // Delete: the stroke's decals box-selected and deleted in one command (one undo brings them all back).
   // The box may take a decal beside the stroke too: it comes back with the undo.
   await mode.getByRole('tab', { name: 'Select' }).click();
-  await column.getByRole('button', { name: /^Box/ }).click();
+  await armTile(column.getByRole('toolbar', { name: 'decal select tool' }).getByRole('button', { name: 'Box', exact: true }));
   // The box round the stroke's ground on the picture (the four corners' extent: the view looks at it slanted).
   const corners = await Promise.all([[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]].map(([dx, dz]) => at([(dx! < 0 ? SCATTER_FROM[0] : SCATTER_TO[0]) + dx!, 0, SCATTER_FROM[2] + dz!])));
   await drag({ x: Math.min(...corners.map((c) => c.x)), y: Math.min(...corners.map((c) => c.y)) }, { x: Math.max(...corners.map((c) => c.x)), y: Math.max(...corners.map((c) => c.y)) });
@@ -631,7 +645,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
 
   // Select: the Box tool picks the decals whose middle is in the box (Shift adds); Ctrl+click takes one off, Shift+click adds it.
   await mode.getByRole('tab', { name: 'Select' }).click();
-  await column.getByRole('button', { name: /^Box/ }).click();
+  await armTile(column.getByRole('toolbar', { name: 'decal select tool' }).getByRole('button', { name: 'Box', exact: true }));
   const around = async (c: V3, k = 0.4): Promise<[{ x: number; y: number }, { x: number; y: number }]> => [await at([c[0] - k, c[1], c[2] - k]), await at([c[0] + k, c[1], c[2] + k])];
   await drag(...(await around(TOOL_AT)));
   await expect.poll(async () => (await state())?.selection, { message: 'the box selects the placed decal' }).toEqual([projected]);
@@ -639,7 +653,8 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await drag(...(await around(terrainAt)), ['Shift']);
   await expect.poll(async () => (await state())?.selection.length, { message: 'Shift+box adds the terrain decal' }).toBe(2);
   const other = (await state())!.selection.find((id) => id !== projected)!;
-  await column.getByRole('button', { name: /^Click/ }).click();
+  // No tool (Navigate): a click picks.
+  await armTile(column.getByRole('toolbar', { name: 'decal select tool' }).getByRole('button', { name: 'Navigate', exact: true }));
   const t = await at(terrainAt);
   await page.keyboard.down('Control');
   await page.mouse.click(t.x, t.y);
@@ -657,7 +672,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity?.albedo, (await entity(other))!.components.decal!.opacity?.albedo], { message: 'the opacity set on both' }).toEqual([0.4, 0.4]);
   await undo();
   await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity, (await entity(other))!.components.decal!.opacity], { message: 'one undo puts both back' }).toEqual([undefined, undefined]);
-  // Esc clears the selection before it leaves the editor: the ring goes (read against the picture with it, the view unmoved).
+  // Esc clears the selection before it drops a tool or leaves the editor: the ring goes (read against the picture with it, the view unmoved).
   await page.keyboard.press('Escape');
   await expect.poll(async () => (await state())?.selection).toEqual([]);
   await expect(mode).toBeVisible();
@@ -668,6 +683,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
 
   // Clipped: the preview is a mesh cut from the block tops under the pointer, drawn at once; a click places it.
   await mode.getByRole('tab', { name: 'Place' }).click();
+  await armTile(column.getByRole('toolbar', { name: 'decal place tool' }).getByRole('button', { name: 'Place', exact: true }));
   await column.getByRole('radio', { name: 'Clipped' }).click();
   const c = await at(TOOL_CLIPPED_AT);
   const hovered = Date.now();

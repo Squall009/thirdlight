@@ -1295,6 +1295,8 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
   color: #1a1407; background: var(--brand); border: 1px solid var(--brand); border-radius: var(--radius-md); }
 .tl-done:hover { filter: brightness(1.06); }
 .tl-done .tl-kbd { background: rgba(0,0,0,.14); border-color: rgba(0,0,0,.22); color: #1a1407; }
+/* Esc would not leave yet (it deselects or drops the tool first): Done's badge says so by dimming. */
+.tl-done .tl-kbd.is-dim { opacity: .35; }
 /* The rail: the editor's modes. */
 .tl-rail { flex: none; width: var(--editmode-rail); display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 6px; overflow-y: auto;
   background: var(--surface-0); border-right: 1px solid var(--line); }
@@ -1458,7 +1460,8 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-slider--text .tl-input { grid-column: 2 / span 2; height: 24px; }
 /* The terrain editor's columns (one per rail mode) and the edit modes' shared pieces they introduced. */
 .tl-terrain { display: flex; flex-direction: column; flex: none; padding-bottom: 12px; }
-.tl-editmode__tool { color: var(--text-dim); font-size: var(--text-sm); }
+.tl-editmode__column-head > b { flex: none; }
+.tl-editmode__tool { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-size: var(--text-sm); }
 .tl-rail__sep { height: 1px; margin: 6px 6px; background: var(--line); flex: none; }
 .tl-sec__stack { display: flex; flex-direction: column; gap: 7px; }
 .tl-frow > .tl-input { flex: 1; min-width: 0; height: 24px; }
@@ -1474,6 +1477,15 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-tool .tl-kbd { position: absolute; top: 3px; right: 3px; font-size: 9px; padding: 1px 3px; border-bottom-width: 1px; opacity: .7; }
 .tl-tool.is-active { color: #fff; background: var(--select-bg); border-color: var(--select); box-shadow: 0 0 0 1px var(--select) inset; }
 .tl-tool:disabled { opacity: .45; cursor: default; }
+/* Navigate (no tool): lit white, not the state colour, as it is no tool; the remembered tile says Space brings it back. */
+.tl-tool--nav { color: var(--text); }
+.tl-tool--nav.is-active { color: #fff; background: rgba(255,255,255,.07); border-color: var(--line-strong); box-shadow: 0 0 0 1px rgba(255,255,255,.35) inset; }
+.tl-tool--nav .tl-kbd { opacity: .9; }
+.tl-tool__last { position: absolute; left: 4px; top: 3px; font-size: 8.5px; font-style: normal; color: var(--brand); letter-spacing: .02em; }
+.tl-navnote { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 0; padding: 7px 9px; border-radius: var(--radius-md); background: var(--surface-0); border: 1px solid var(--line);
+  font-size: var(--text-xs); color: var(--text-dim); line-height: 1.4; }
+.tl-navnote > svg { flex: none; margin-top: 1px; }
+.tl-navnote b { color: var(--text); }
 /* RangeField: two thumbs, the state colour between them; an open end's thumb is hollow. */
 .tl-range .tl-slider__fill { background: var(--select); }
 .tl-range.is-any .tl-slider__fill { background: var(--text-faint); opacity: .35; }

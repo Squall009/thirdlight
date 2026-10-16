@@ -25,7 +25,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { ALBEDO_HEIGHT_LAYERS, count, isBlue, isGreenish, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, reds, useArrays, type Pred } from './painted-layers';
 import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { closeEditor, createItem, editMode, editModeTab, enterBlockEditor, leaveEditMode, openWindow } from './ui';
+import { armTile, closeEditor, createItem, editMode, editModeTab, enterBlockEditor, leaveEditMode, openWindow } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -50,6 +50,7 @@ const view = (page: Page) => page.locator('canvas.tl-viewport');
 async function paintBrush(page: Page, layer: number, target: 'Tops' | 'Walls', size: number): Promise<void> {
   const mode = editMode(page);
   await editModeTab(page, 'Paint');
+  await armTile(mode.getByRole('toolbar', { name: 'paint tool' }).getByRole('button', { name: 'Paint', exact: true }));
   await expect(view(page)).toHaveAttribute('data-block-tool', 'paint');
   await mode.getByRole('radio', { name: `paint layer ${layer}`, exact: true }).click();
   await mode.getByRole('radiogroup', { name: 'paint target' }).getByRole('radio', { name: target, exact: true }).click();
@@ -177,6 +178,16 @@ for (const variant of RENDERER_VARIANTS) test(`Paint mode: a drag paints a layer
   await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
   // Nothing blue before painting (the layer is all layer 1: red).
   await expect.poll(() => blueNear(page, ground(16, 16)), { timeout: 30_000 }).toBe(0);
+
+  // ---- The editor opens with no tool: Paint shows no brush over the ground until its tool is armed (B).
+  await editModeTab(page, 'Paint');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+  const over = await screen(page, ground(16, 16));
+  await page.mouse.move(over.x - 4, over.y - 3);
+  await page.mouse.move(over.x, over.y);
+  await expect(view(page)).not.toHaveAttribute('data-block-brush', /\d/);
+  await page.keyboard.press('b');
+  await expect(view(page)).toHaveAttribute('data-block-tool', 'paint');
 
   // ---- Paint layer 3 across the middle (a 3-cell radius): one command of paint dabs.
   await paintBrush(page, 3, 'Tops', 6);

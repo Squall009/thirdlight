@@ -141,6 +141,7 @@ manual → acceptance.
 |---|---|
 | 37.0 | Done 2026-10-16: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 is out, the pinned 0.20.0 stays (nothing here needs it). §2 recon is at `8cde51d2`, current. |
 | 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); the owner approved it 2026-10-16. |
+| 37.2 | Done 2026-10-16: one Navigate state in the shell (`editmode/edit-tool.tsx`) for all four editors — Navigate tile, click-select with hover (rooms/buildings/paths outlined, blocks, decals, stamps, tiles), Space, the SPEC's Esc order with Done's badge dimming, a click on a room with a drawing tool selects it; vitest for the keys, Esc order and the room pick. E2E (2 workers, last full gate → this fast gate): block-editor 7.4 → 8.4 s, editor-window 11.3 → 10.8, terrain-paint 11.0 → 10.9, terrain-brushes 5.3 → 4.7, layered-material 52.1 → 50.2, instance-brush 31.7 → 31.2, level-acceptance 28.2 → 25.5, terrain-cdlod 3.4 → 3.2 min (net −17 s); village perf in its limits. |
 
 ## 6. Decision log
 
@@ -164,3 +165,31 @@ manual → acceptance.
   - the kit editor has a picked-slot panel and a preview panel, and the
     global Inspector keeps only a link;
   - Done's Esc badge dims while Esc would not leave.
+
+- 2026-10-16 (37.2): Navigate is one state in the edit-mode shell
+  (`ui/editmode/edit-tool.tsx`, the edit mode's `armed` flag): every editor
+  opens with none, the tool grid's first tile is Navigate, and a column
+  arms its Scene-view tool in Navigate or with its tile. Defaults chosen,
+  owner to confirm:
+  - whether a tool is armed is kept across the rail's modes (switching
+    mode keeps Navigate, or arms that mode's remembered tile); a mode with
+    no tool grid, or a disabled one (a locked layer, a material that reads
+    no paint), is in Navigate and its column keeps the status line;
+  - decal Place and Scatter get a one-tile tool grid (Navigate + Place /
+    Scatter, key B; Box is B too) so Esc can drop them and Navigate selects
+    decals in every decal mode — the SPEC's table showed no grid there;
+  - terrain Stack's Select tile goes like decal Select's Click tile: in
+    Navigate a click picks a stamp and the picked one's square, corner and
+    knob drag it (as grips do);
+  - a block click in Navigate selects the block's cell (the box) and opens
+    its type in the block type editor, in every block mode but Rooms &
+    buildings, where it selects the room, building or path;
+  - vertex paint: the painted object is the edited one, so Navigate only
+    orbits; Channels (no tool grid) no longer paints;
+  - with a drawing tool, a press on an outline that becomes a drag draws
+    from the press point (a polygon's first corner too);
+  - a mouse click on a tile, rail mode, button or switch leaves no keyboard
+    focus on it, so Space and the letters reach the editor next; a control
+    reached by Tab keeps its Space;
+  - Enter and Backspace now reach the Rooms tool (they were never routed);
+    `setBlockToolsActive` (no callers) is removed.

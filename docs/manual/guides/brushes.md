@@ -53,19 +53,20 @@ do and lists the keys it takes.
 | `X` | Switch the tool and its opposite (paint / erase, raise / lower, cut / fill) |
 | `Ctrl` held | The opposite for one stroke |
 | `1` … `9` | Pick a palette entry (a paint layer) by its number |
-| a letter on a tool tile | Pick that tool (`Q`, `W`, `E`, … in the order of the grid) |
-| `Esc` | Cancel the stroke or drag in progress; with none, close a popover; then leave the editor |
+| a letter on a tool tile | Arm that tool (`Q`, `W`, `E`, … in the order of the grid) |
+| `Esc` | Cancel the stroke or drag in progress; with none, close a popover; then clear the selection, drop the tool, and leave the editor |
 
 The keys of every edit mode:
 
 | Key | Does |
 |---|---|
 | `Shift` + `1` … `9` | Switch the rail's mode |
-| `Alt` + drag | Orbit the view (a plain drag paints) |
+| `Alt` + drag | Orbit the view while a tool is armed (with none, Navigate, a plain drag orbits) |
+| `Space` | Arm the last tool again |
 | `Home` | Frame the edited object |
 | `C` | **Context**: show the rest of the scene around it (it cannot be picked) |
 | `Ctrl` + `Z` | Undo (one stroke is one step) |
-| `Esc` | **Done** |
+| `Esc` | Clear the selection, then drop the tool, then **Done** |
 
 `[`, `]`, `F` and `X` are read by their place on the keyboard, so they
 work on any layout. `C`, `F` and `X` are never a tool's letter.

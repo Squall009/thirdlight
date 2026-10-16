@@ -1,13 +1,15 @@
-/** The edit modes' key map: Esc, Home, C, Shift+number within the rail, nothing with Ctrl/Alt/Meta. */
+/** The edit modes' key map: Esc and its order, Space, Home, C, Shift+number within the rail, nothing with Ctrl/Alt/Meta. */
 import { describe, expect, it } from 'vitest';
 
-import { editKeyAction, paletteKeyHint, paletteKeyIndex, sharedKeyHints, type EditKeyEvent } from './edit-keys';
+import { editKeyAction, escapeStep, paletteKeyHint, paletteKeyIndex, sharedKeyHints, type EditKeyEvent, type SharedKeyState } from './edit-keys';
 
 const key = (k: string, more: Partial<EditKeyEvent> = {}): EditKeyEvent => ({ key: k, code: '', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...more });
 
 describe('editKeyAction', () => {
   it('maps the shared keys', () => {
-    expect(editKeyAction(key('Escape'), 3)).toEqual({ kind: 'done' });
+    expect(editKeyAction(key('Escape'), 3)).toEqual({ kind: 'escape' });
+    expect(editKeyAction(key(' ', { code: 'Space' }), 3)).toEqual({ kind: 'last-tool' });
+    expect(editKeyAction(key(' ', { code: 'Space', shiftKey: true }), 3)).toBeNull();
     expect(editKeyAction(key('Home'), 3)).toEqual({ kind: 'frame' });
     expect(editKeyAction(key('c'), 3)).toEqual({ kind: 'context' });
     expect(editKeyAction(key('C', { shiftKey: true }), 3)).toBeNull();
@@ -27,10 +29,49 @@ describe('editKeyAction', () => {
     expect(editKeyAction(key('Escape', { altKey: true }), 3)).toBeNull();
   });
 
-  it('lists the shared keys, the mode range only with several modes', () => {
-    expect(sharedKeyHints(7)[0]).toEqual({ keys: ['Shift', '1–7'], label: 'Mode' });
-    expect(sharedKeyHints(1).some((h) => h.label === 'Mode')).toBe(false);
-    expect(sharedKeyHints(1).at(-1)).toEqual({ keys: ['Esc'], label: 'Done' });
+  it('leaves Space with Ctrl to others', () => {
+    expect(editKeyAction(key(' ', { code: 'Space', ctrlKey: true }), 3)).toBeNull();
+  });
+});
+
+describe('escapeStep', () => {
+  it('clears the selection first, then drops the tool, then leaves', () => {
+    expect(escapeStep({ selection: true, armed: true })).toBe('deselect');
+    expect(escapeStep({ selection: true, armed: false })).toBe('deselect');
+    expect(escapeStep({ selection: false, armed: true })).toBe('drop');
+    expect(escapeStep({ selection: false, armed: false })).toBe('leave');
+  });
+});
+
+describe('sharedKeyHints', () => {
+  const st = (more: Partial<SharedKeyState> = {}): SharedKeyState => ({ modes: 7, tools: true, armed: false, selection: false, lastTool: 'Rect', ...more });
+  const esc = (h: ReturnType<typeof sharedKeyHints>): string | undefined => h.find((x) => x.keys[0] === 'Esc')?.label;
+
+  it('in Navigate: a drag orbits, a click selects, Space brings the last tool back, Esc leaves', () => {
+    const h = sharedKeyHints(st());
+    expect(h.slice(0, 2)).toEqual([{ keys: ['Drag'], label: 'Orbit' }, { keys: ['Click'], label: 'Select' }]);
+    expect(h).toContainEqual({ keys: ['Space'], label: 'Last tool: Rect' });
+    expect(esc(h)).toBe('Leave');
+  });
+
+  it('with a tool armed: Alt+drag orbits, Esc drops the tool; with a selection Esc deselects', () => {
+    const h = sharedKeyHints(st({ armed: true }));
+    expect(h[0]).toEqual({ keys: ['Alt', 'Drag'], label: 'Orbit' });
+    expect(h.some((x) => x.keys[0] === 'Space')).toBe(false);
+    expect(esc(h)).toBe('Drop the tool');
+    expect(esc(sharedKeyHints(st({ armed: true, selection: true })))).toBe('Deselect');
+  });
+
+  it('a mode without tools has no tool to drop or bring back', () => {
+    const h = sharedKeyHints(st({ tools: false, armed: true }));
+    expect(h[0]).toEqual({ keys: ['Drag'], label: 'Orbit' });
+    expect(h.some((x) => x.keys[0] === 'Space')).toBe(false);
+    expect(esc(h)).toBe('Leave');
+  });
+
+  it('lists the mode range only with several modes', () => {
+    expect(sharedKeyHints(st())).toContainEqual({ keys: ['Shift', '1–7'], label: 'Mode' });
+    expect(sharedKeyHints(st({ modes: 1 })).some((h) => h.label === 'Mode')).toBe(false);
   });
 });
 

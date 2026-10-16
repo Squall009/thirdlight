@@ -5,7 +5,7 @@
  * editor — entered from the Inspector, its palette, brush, tools and channel
  * view, strokes and their state.
  */
-import { inspector } from './ui';
+import { armTile, inspector } from './ui';
 import { expect, type Locator, type Page } from './pw';
 
 export const view = (page: Page): Locator => page.locator('canvas.tl-viewport');
@@ -50,18 +50,28 @@ export async function fit(page: Page, points: readonly (readonly [number, number
   expect(await inside(), 'the stroke is in view').toBe(true);
   await page.mouse.move(0, 0);
 }
-export type PaintState = { armed: boolean; entityId: string | null; channel: number | null; cursor: 'paint' | 'erase' | 'off' | null; stroking: boolean; strokes: number; last: { entityId: string; target: string; dabs: number; previewMs: number; latencyMs: number | null; commandMs: number | null; ok: boolean | null; code?: string } | null; watch: { id: string; frames: number; gaps: number } | null; view: number | null };
+export type PaintState = { armed: boolean; navigate: boolean; entityId: string | null; channel: number | null; cursor: 'paint' | 'erase' | 'off' | null; stroking: boolean; strokes: number; last: { entityId: string; target: string; dabs: number; previewMs: number; latencyMs: number | null; commandMs: number | null; ok: boolean | null; code?: string } | null; watch: { id: string; frames: number; gaps: number } | null; view: number | null };
 export async function paintState(page: Page): Promise<PaintState | null> {
   return JSON.parse((await view(page).getAttribute('data-vertex-paint')) ?? 'null') as PaintState | null;
 }
 /** The vertex paint editor's frame. */
 export const paintEditor = (page: Page): Locator => page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
-/** Open the vertex paint editor on an object (selected, then the Inspector's Paint vertices); the brush armed on it. */
+/**
+ * Open the vertex paint editor on an object (selected, then the Inspector's Paint vertices). It opens with no tool
+ * (Navigate: the brush paints nothing, a drag orbits); the last tool is armed then, when the material reads paint.
+ */
 export async function enterPaint(page: Page, id: string): Promise<void> {
   await select(page, id);
   await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
   await expect(paintEditor(page)).toHaveAttribute('data-entity-id', id);
   await expect.poll(async () => (await paintState(page))?.entityId ?? null).toBe(id);
+  expect((await paintState(page))?.navigate, 'it opens with no tool').toBe(true);
+  const grid = paintEditor(page).getByRole('toolbar', { name: 'vertex paint tool' });
+  const last = grid.locator('.tl-tool.is-last');
+  if (!(await last.isEnabled())) return;
+  // The last tile by its name (once armed it is no longer marked last).
+  await armTile(grid.getByRole('button', { name: (await last.locator('span').textContent())!, exact: true }));
+  await expect.poll(async () => (await paintState(page))?.navigate).toBe(false);
 }
 /** Done: the editor closes, the brush is disarmed. */
 export async function leavePaint(page: Page): Promise<void> {
@@ -88,8 +98,8 @@ export async function setPaint(page: Page, values: { size?: string; strength?: s
 }
 /** Paint or erase (the tool grid). */
 export async function paintTool(page: Page, tool: 'Paint' | 'Erase'): Promise<void> {
-  await paintEditor(page).getByRole('toolbar', { name: 'vertex paint tool' }).getByRole('button', { name: tool }).click();
-  await expect.poll(async () => (await paintState(page))?.armed ?? false).toBe(true);
+  await armTile(paintEditor(page).getByRole('toolbar', { name: 'vertex paint tool' }).getByRole('button', { name: tool, exact: true }));
+  await expect.poll(async () => (await paintState(page))?.navigate ?? true).toBe(false);
 }
 /** The channel view's chip by its label ("Final", a layer's name, "Wetness"). */
 export async function channelView(page: Page, label: string): Promise<void> {

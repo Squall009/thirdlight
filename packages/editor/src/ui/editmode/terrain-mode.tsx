@@ -28,6 +28,10 @@ import type { ObjectEditModeKind } from './modes';
  */
 export const TERRAIN_WORK_SPAN_M = 64;
 
+/** What a drag and a click do with no tool armed. */
+const TOOL_NAVIGATE = 'A drag orbits the view; the ground is changed only with a tool.';
+const STACK_NAVIGATE = "A drag orbits; a click picks a stamp, and the picked one's square, corner and knob drag it.";
+
 const terrainOf = (e: ProjectedEntity): TerrainComponent | undefined => e.components['terrain'] as TerrainComponent | undefined;
 
 /** The tiles' extent in tile coordinates. */
@@ -70,7 +74,7 @@ export const terrainMode: ObjectEditModeKind = {
     return ext === null ? 'no tiles' : `${n} tile${n === 1 ? '' : 's'} · ${ext.x1 - ext.x0 + 1} × ${ext.z1 - ext.z0 + 1} · ${size} m each`;
   },
   // The keys of each mode come from its column (the tool picked): the status line lists them.
-  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, ...(m.id === 'settings' ? { sep: true } : {}) })),
+  rail: TERRAIN_MODES.map((m) => ({ id: m.id, label: m.label, glyph: m.glyph, hint: m.hint, navigate: m.id === 'stack' ? STACK_NAVIGATE : TOOL_NAVIGATE, ...(m.id === 'settings' ? { sep: true } : {}) })),
   tools: ['terrain'],
   // Tiles, rules, scatter and the edit layers are edited in the editor; the Inspector keeps the plain fields.
   inspectorSkips: { terrain: ['tiles', 'rules', 'scatter', 'layers', 'overview'] },

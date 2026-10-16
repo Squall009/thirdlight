@@ -1,7 +1,9 @@
 /**
  * The edit mode's left rail: the editor's modes, one glyph and a plain label
  * each, with the key that picks it (Shift+number). The active mode is the
- * state colour with a bar on the rail's edge.
+ * state colour with a bar on the rail's edge. A press on a mode never takes
+ * the keyboard focus, so the editor's keys (Space: the last tool) keep
+ * working right after it.
  *
  * Browser-only (React).
  */
@@ -30,6 +32,7 @@ export function ToolRail({ items, active, onPick }: { items: readonly RailItem[]
           aria-selected={it.id === active}
           className={`tl-rail__item${it.id === active ? ' is-active' : ''}`}
           title={i < EDIT_MODE_KEYS ? `${it.label} (Shift+${i + 1})` : it.label}
+          onPointerDown={(e) => e.preventDefault()}
           onClick={() => onPick(it.id)}
         >
           <Glyph name={it.glyph} size={22} />

@@ -7,7 +7,13 @@ Each is a full-screen **edit mode** on the live Scene view (no second
 view): a header naming what you edit with **Done** (Esc), a **rail** of
 modes on the left (Shift+1 … Shift+9), the mode's **column** of tools and
 settings on the right, and a **status line** at the bottom with the tool,
-what to do and its keys. An object editor shows only that object;
+what to do and its keys. Every editor opens with no tool armed
+(**Navigate**, the first tile of each tool grid): a drag orbits the view
+and a click selects what the editor edits (a room or building, a block, a
+decal, a stamp). Pick a tool by its tile or letter; a click on the armed
+tile drops it, and **Space** arms the last tool again. With a drawing tool
+armed, a click without a drag on a room or building selects it; a drag
+still draws. An object editor shows only that object;
 **Context** (C) shows the rest of the scene, not pickable. Every stroke or
 click is one command and one undo step (Ctrl+Z), the same command MCP
 sends.
@@ -28,18 +34,19 @@ the scene.
 | Key | Does |
 |---|---|
 | Shift + `1` … `9` | Switch the rail's mode |
-| a letter on a tool tile | Pick that tool (`C`, `F` and `X` are never a tool's letter) |
+| a letter on a tool tile | Arm that tool (`C`, `F` and `X` are never a tool's letter) |
+| `Space` | Arm the last tool again (from Navigate) |
 | `1` … `9` | Pick a palette entry (a layer, a block type) by its number |
 | `[` / `]` | Smaller / larger brush |
 | Shift + `[` / `]` | Less / more strength |
 | `F` (Shift + `F`), then move | Resize the brush (its strength) on the surface; a click keeps it, Esc puts it back |
 | `X` | Switch the tool and its opposite (paint / erase, raise / lower, cut / fill) |
 | `Ctrl` held | The opposite for one stroke |
-| Alt + drag | Orbit the view (a plain drag paints) |
+| drag (Navigate) / Alt + drag (a tool armed) | Orbit the view |
 | `Home` | Frame the edited object |
 | `C` | Context |
 | Ctrl + `Z` | Undo |
-| `Esc` | Cancel the stroke or drag; with none, close a popover; then **Done** |
+| `Esc` | In order: leave a field you type in; cancel the stroke or drawing; clear the selection; drop the tool; then **Done** (its Esc badge dims until Esc would leave) |
 
 The brushes share their settings (size, strength, opacity, falloff,
 spacing, the noise mask), their cursor and their sliders: see

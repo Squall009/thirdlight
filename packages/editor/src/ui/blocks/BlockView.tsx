@@ -7,11 +7,14 @@
  *   overlays, the region outlines, the selection and the walls of the rooms
  *   drawn on it (wall paint reaches their faces);
  * - what the tools report back: a picked cell becomes the brush, a dragged
- *   box the selection, the cell under the pointer the status line's readout;
+ *   box the selection, a block clicked with no tool its cell the selection
+ *   and its block type the one the block type editor shows, the cell under
+ *   the pointer the status line's readout;
+ * - the selection, which the editor's Esc clears before it drops the tool;
  * - the editor's own keys: PageUp / PageDown move the slice, T turns the
  *   brush, Ctrl+C / Ctrl+X copy or move the selection (Paste picks itself),
- *   Ctrl+V picks Paste, Delete empties the selection, Esc drops it, and in
- *   Build X switches to Erase and back;
+ *   Ctrl+V picks Paste, Delete empties the selection, and in Build X
+ *   switches to Erase and back;
  * - the slice chip over the view (the row the tools work on, its keys).
  *
  * Browser-only (React).
@@ -22,6 +25,7 @@ import { arrayFromCells, movedBox, nextRotation, pickBrush, sliceKey, type Cell3
 import { blockModeOf } from '../../session/block-mode';
 import { isTyping } from '../workspace/EditorWindow';
 import { useRoomsBinding } from '../architecture/useRoomsBinding';
+import { useEditSelection } from '../editmode/edit-tool';
 import { Glyph } from '../editmode/glyphs';
 import { Kbd } from '../editmode/Kbd';
 import type { EditModeView } from '../editmode/modes';
@@ -100,6 +104,11 @@ export function BlockView({ entity, mode, host }: EditModeView): JSX.Element {
         q.set((st) => ({ brush: pickBrush(st.brush, cell), typeOpen: null }));
       },
       onSelect: (box) => latest.current.s.set({ selection: box }),
+      onPickCell: (at, cell) => {
+        const q = latest.current.s;
+        // The block's cell becomes the selection and its type the one the block type editor shows (nothing: both go).
+        q.set(at === null ? { selection: null } : { selection: [at[0], at[1], at[2], at[0] + 1, at[1] + 1, at[2] + 1], typeOpen: cell?.block ?? null });
+      },
       onHover: (at: Cell3 | null, cell) => {
         const q = latest.current.s;
         const t = cell?.block !== undefined ? q.typeOf.get(cell.block) : undefined;
@@ -162,15 +171,13 @@ export function BlockView({ entity, mode, host }: EditModeView): JSX.Element {
         void deleteSelection(q);
         return;
       }
-      if (e.key === 'Escape' && st.selection !== null && q.blocks.editor?.strokeInFlight() !== true) {
-        take();
-        q.set({ selection: null });
-      }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, []);
 
+  const sel = state.selection;
+  useEditSelection(sel === null ? null : sel[3] - sel[0] === 1 && sel[4] - sel[1] === 1 && sel[5] - sel[2] === 1 ? `Cell ${sel[0]}, ${sel[1]}, ${sel[2]}` : `${(sel[3] - sel[0]) * (sel[4] - sel[1]) * (sel[5] - sel[2])} cells`, () => s.set({ selection: null }));
   return (
     <>
       {blockModeOf(mode).id !== 'rules' && <SliceChip s={s} />}

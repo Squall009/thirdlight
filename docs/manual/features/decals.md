@@ -417,13 +417,13 @@ or the Scene view (it opens in Select with that decal selected) or a decal's
   longer than a command holds
   ([`CREATE_ENTITIES_MAX`](../reference/limits-project-model-1.md#limit-create-entities-max))
   goes on as the next stroke.
-- **Select:** a click picks the decal under the pointer, Shift adds, Ctrl
-  removes; a drag on empty ground (or any drag with the **Box** tool) picks
-  the decals whose middle is in the box. **Filter** limits picking to one
+- **Select:** with no tool armed (Navigate, in every mode) a click picks
+  the decal under the pointer, Shift adds, Ctrl removes, and a drag orbits;
+  any drag with the **Box** tool picks the decals whose middle is in the box. **Filter** limits picking to one
   material or one decal layer. A drag on a selected decal moves it over the
   surfaces (its turn about the normal kept; one `setTransform`). Del
   deletes the selection in one `deleteEntity` (the others in `entityIds`:
-  one undo), Esc clears it (a second Esc leaves).
+  one undo), Esc clears it (then a second drops the tool, and the next leaves).
 - **The selection's fields** — width, height, depth, projection, opacity
   per channel, angle and far fades, edge fades and order — edit every
   selected decal at once: one `setComponent` with the others in

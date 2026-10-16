@@ -253,10 +253,10 @@ export class BrushHud {
   private el: HTMLDivElement | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  /** `ghost`: the readout of a shape being drawn (the block editor's), in the state colour rather than the brush's. */
+  /** `ghost`: the readout of a shape being drawn (the block editor's), in the state colour rather than the brush's; `pick`: what a click would select, the same look. */
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly kind: 'brush' | 'ghost' = 'brush',
+    private readonly kind: 'brush' | 'ghost' | 'pick' = 'brush',
   ) {}
 
   /** Show `value` and `detail` by the screen point (client px); `ms`: hide after that long (absent: until hidden). */
@@ -266,9 +266,9 @@ export class BrushHud {
     if (this.el === null || this.el.parentElement !== host) {
       this.el?.remove();
       this.el = document.createElement('div');
-      this.el.className = this.kind === 'ghost' ? 'tl-brush-hud tl-brush-hud--ghost' : 'tl-brush-hud';
+      this.el.className = this.kind === 'brush' ? 'tl-brush-hud' : 'tl-brush-hud tl-brush-hud--ghost';
       this.el.setAttribute('role', 'status');
-      this.el.setAttribute('aria-label', this.kind === 'ghost' ? 'shape readout' : 'brush readout');
+      this.el.setAttribute('aria-label', this.kind === 'ghost' ? 'shape readout' : this.kind === 'pick' ? 'pick readout' : 'brush readout');
       host.appendChild(this.el);
     }
     const el = this.el;

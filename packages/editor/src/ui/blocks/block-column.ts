@@ -16,6 +16,7 @@ import { BLOCK_BRUSH_BOUNDS, BLOCK_DEFAULT_BRUSH, isBlockBrushTool, type BlockBr
 import { blockToolStore, type BlockToolState, type BlockToolStore } from '../../session/block-tool-state';
 import { parseMetaValue } from '../../session/block-overlay';
 import type { ProjectedEntity } from '../../session/projection';
+import { useToolArmed } from '../editmode/edit-tool';
 import type { EditModeHost } from '../editmode/modes';
 import type { BlockLayerRow, BlockModeHost } from './block-host';
 
@@ -87,6 +88,8 @@ export function metaValueOf(s: BlockSetup): { ok: true; field: string; value: im
  * Arm `tool` in the Scene view on the layer (null: nothing armed — a mode
  * edited through its column only), with the column's options. The options
  * are handed over at every draw; the tool is armed while the column shows.
+ * With no tool armed in the editor (Navigate) the tools take only clicks,
+ * which select (a Rooms tool: the room, building or path; else the block).
  */
 export function useBlockTool(s: BlockSetup, tool: BlockToolId | null): BrushStore | null {
   const editor = s.blocks.editor;
@@ -111,10 +114,12 @@ export function useBlockTool(s: BlockSetup, tool: BlockToolId | null): BrushStor
     });
   });
   const armed = tool !== null && s.row !== null;
+  const navigate = !useToolArmed();
   useEffect(() => {
     editor?.setActive(armed);
     return () => editor?.setActive(false);
   }, [editor, armed]);
+  useEffect(() => editor?.setNavigate(navigate), [editor, navigate]);
   return store;
 }
 

@@ -71,6 +71,14 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
       <path d="M20 15s2 2.5 2 4a2 2 0 0 1-4 0c0-1.5 2-4 2-4z" />
     </>
   ),
+  // No tool: the pointer, with the orbit's arc under it.
+  navigate: (
+    <>
+      <path d="M6 3l12 7.5-5.2 1.3L10 17z" />
+      <path d="M4 19.5 c2.5 1.6 5 1.9 8 1.4 M19.5 15.5 c.9 1.8.7 3.3-.4 4.6" opacity=".7" />
+      <path d="M17.6 18.6l1.5 1.5 1.5-1.8" opacity=".7" />
+    </>
+  ),
   select: (
     <>
       <path d="M5 3l14 7-6 2-2 6z" />

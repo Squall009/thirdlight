@@ -13,6 +13,7 @@ import { DEFAULT_BRUSH, brushStore, type BrushStore } from '../../session/brush'
 import { TERRAIN_BRUSH_BOUNDS, type TerrainToolId } from '../../session/terrain-brush';
 import { terrainToolStore, type TerrainToolState } from '../../session/terrain-tool-state';
 import type { TerrainEditor, TerrainToolOptions } from '../../viewport/terrain-editor';
+import { useToolArmed } from '../editmode/edit-tool';
 import type { PaletteHost } from '../palette/MaterialLayers';
 
 /**
@@ -58,7 +59,8 @@ export const terrainBrushStore = (tool: TerrainToolId): BrushStore => brushStore
  * Arm `tool` in the Scene view on this terrain (null: nothing armed — a mode
  * edited through its column only), with the options the column gives it.
  * The options are handed over at every draw (they hold the column's
- * callbacks); the target when the terrain changes.
+ * callbacks); the target when the terrain changes. With no tool armed in
+ * the editor (Navigate) the tools take only clicks, which select.
  */
 export function useTerrainTool(p: TerrainColumnProps, tool: TerrainToolId | null, options: Omit<TerrainToolOptions, 'tool' | 'brush' | 'store'> = {}): BrushStore | null {
   const editor = p.editor;
@@ -72,9 +74,11 @@ export function useTerrainTool(p: TerrainColumnProps, tool: TerrainToolId | null
     if (tool !== null) editor?.setOptions({ tool, brush: state.brush, store, ...options });
   });
   const armed = tool !== null;
+  const navigate = !useToolArmed();
   useEffect(() => {
     editor?.setActive(armed);
     return () => editor?.setActive(false);
   }, [editor, armed]);
+  useEffect(() => editor?.setNavigate(navigate), [editor, navigate]);
   return store;
 }

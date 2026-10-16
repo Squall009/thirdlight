@@ -24,6 +24,11 @@
  * erase, Ctrl held inverts one stroke and turns the cursor red. The cursor
  * is the shared one (`brush-cursor.ts`).
  *
+ * With no tool armed (Navigate) a left drag orbits and a click selects: in
+ * Stack the stamp whose square is under it (the picked one's handles still
+ * drag it, as grips do), in Tiles the tile (a click on an empty square
+ * beside the terrain still adds one there). The brush draws no cursor.
+ *
  * Measures for tests on the canvas: `data-terrain-brush` (the cursor's
  * world point), `data-terrain-cursor` (its radius, colour and whether it
  * shows a mask), `data-terrain-stroke` (the last stroke: dabs, the preview's
@@ -80,6 +85,8 @@ export interface TerrainEditorHost {
   readonly scene: THREE.Object3D;
   readonly camera: THREE.PerspectiveCamera;
   readonly canvas: HTMLCanvasElement;
+  /** A pointer that moved less than this (px) between press and release is a click (the view's). */
+  readonly slopPx: number;
   requestRender(): void;
   /** The terrains drawn (null before the renderer is up). */
   terrains(): TerrainView | null;
@@ -122,6 +129,10 @@ export class TerrainEditor {
   private stampDrag: { handle: StampHandle; ref: StampRef; start: StampPose; from: [number, number]; pose: StampPose } | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private active = false;
+  /** No tool armed: a drag orbits, a click selects (Stack: a stamp; Tiles: a tile). */
+  private navigate = false;
+  /** Navigate's press (a release near it is a click). */
+  private navPress: { x: number; y: number } | null = null;
   private target: TerrainEditTarget | null = null;
   private opts: TerrainToolOptions = { tool: 'raise', brush: DEFAULT_TERRAIN_BRUSH, store: null };
   private stroke: Stroke | null = null;
@@ -164,12 +175,29 @@ export class TerrainEditor {
     if (!on) this.cancel();
     this.root.visible = on;
     this.cursor.hide();
-    this.control.arm(on);
-    this.host.canvas.setAttribute('data-terrain-tool', on ? this.opts.tool : '');
+    this.control.arm(on && !this.navigate);
+    this.publishTool();
     this.host.armed?.(on);
     this.warm();
     this.refreshOverlays();
     this.host.requestRender();
+  }
+
+  /** Navigate (no tool armed: a drag orbits, a click selects) or the tool in hand. */
+  setNavigate(on: boolean): void {
+    if (this.navigate === on) return;
+    if (on) this.cancel();
+    this.navigate = on;
+    this.navPress = null;
+    this.control.arm(this.active && !on);
+    this.cursor.hide();
+    this.publishTool();
+    this.host.requestRender();
+  }
+
+  /** The tool in hand as tests read it ('navigate' with none; '' when the tools are off). */
+  private publishTool(): void {
+    this.host.canvas.setAttribute('data-terrain-tool', !this.active ? '' : this.navigate ? 'navigate' : this.opts.tool);
   }
 
   /** Have the tool's passes built ahead for the terrain (its first dab then builds none on its frame). */
@@ -207,7 +235,7 @@ export class TerrainEditor {
     }
     this.opts = o;
     this.control.setStore(o.store, terrainToolUses(o.tool));
-    if (this.active) this.host.canvas.setAttribute('data-terrain-tool', o.tool);
+    this.publishTool();
     if (toolChanged) this.warm();
     this.refreshOverlays();
     this.refreshLook();
@@ -277,7 +305,7 @@ export class TerrainEditor {
     // A tool without a strength (holes, scatter, stamp, erode) shows its footprint only: no fill.
     const blend = uses.includes('strength') ? b.strength : 0;
     this.cursor.setLook({ falloff: uses.includes('falloff') ? b.falloff : 'constant', hardness: b.hardness, strength: blend, mask: strokeMask(b, uses), state: invert ? 'erase' : 'paint' });
-    if (this.lastAt !== null && this.active) this.drawCursor(this.lastAt);
+    if (this.lastAt !== null && this.active && !this.navigate) this.drawCursor(this.lastAt);
     else this.host.requestRender();
   }
 
@@ -289,6 +317,12 @@ export class TerrainEditor {
 
   pointerDown(e: PointerEvent): boolean {
     if (!this.active || e.button !== 0 || e.altKey) return false;
+    if (this.navigate) {
+      // The picked stamp's handles drag it, as grips do; any other press is the orbit's, and its release may be a click that selects.
+      if (this.opts.tool === 'stamps' && this.target !== null && !this.target.locked && !this.target.hidden && this.grabStamp(e.clientX, e.clientY)) return true;
+      this.navPress = { x: e.clientX, y: e.clientY };
+      return false;
+    }
     // F / Shift+F: a click sets what was dragged.
     if (this.control.press()) return true;
     const t = this.target;
@@ -339,6 +373,7 @@ export class TerrainEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
+    if (this.navigate && this.opts.tool !== 'tiles' && this.opts.tool !== 'stamps') return false;
     if (this.control.move(e, this.lastAt)) return true;
     if (this.opts.tool === 'tiles') {
       const cell = this.cellUnder(e.clientX, e.clientY);
@@ -389,6 +424,23 @@ export class TerrainEditor {
     if (this.lastAt !== null) this.drawCursor(this.lastAt);
     void this.finish(k);
     return true;
+  }
+
+  /** Navigate: a release near its press selects (Stack: the stamp under it; Tiles: the tile, or adds one on an empty square). */
+  click(e: PointerEvent): boolean {
+    const press = this.navPress;
+    this.navPress = null;
+    if (!this.active || !this.navigate || e.button !== 0 || press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.host.slopPx) return false;
+    if (this.opts.tool === 'tiles') {
+      const cell = this.cellUnder(e.clientX, e.clientY);
+      if (cell !== null) this.opts.onTile?.(cell);
+      return true;
+    }
+    if (this.opts.tool === 'stamps') {
+      this.pickStamp(e.clientX, e.clientY);
+      return true;
+    }
+    return false;
   }
 
   /** Esc: drop the stroke in flight (nothing is stored; the preview is undone), or put back what F was dragging. */
@@ -539,8 +591,13 @@ export class TerrainEditor {
    * the stamp's centre, so the mountain it raises does not pull it about.
    */
   private pressStamps(clientX: number, clientY: number): void {
+    if (!this.grabStamp(clientX, clientY)) this.pickStamp(clientX, clientY);
+  }
+
+  /** Begin a drag of the picked stamp when the press is on one of its handles or its square (true: it is). */
+  private grabStamp(clientX: number, clientY: number): boolean {
     const st = this.opts.stamps;
-    if (st === undefined) return;
+    if (st === undefined) return false;
     const picked = this.stampHandles.pickedRef();
     const near = (v: THREE.Vector3): boolean => {
       const q = this.screen(v);
@@ -555,12 +612,16 @@ export class TerrainEditor {
     }
     const from = picked === null ? null : this.levelUnder(clientX, clientY, poseOf(picked));
     this.host.canvas.setAttribute('data-terrain-stamp-press', JSON.stringify({ handle, picked: picked === null ? null : `${picked.layer}:${picked.index}` }));
-    if (handle !== null && picked !== null && from !== null) {
-      const start = poseOf(picked);
-      this.stampDrag = { handle, ref: picked, start, from, pose: start };
-      return;
-    }
-    // A pick: the stamp whose square the press is on (the last drawn first), or none.
+    if (handle === null || picked === null || from === null) return false;
+    const start = poseOf(picked);
+    this.stampDrag = { handle, ref: picked, start, from, pose: start };
+    return true;
+  }
+
+  /** Pick the stamp whose square is under the point (the last drawn first), or none. */
+  private pickStamp(clientX: number, clientY: number): void {
+    const st = this.opts.stamps;
+    if (st === undefined) return;
     const list = st.list;
     let hit: StampRef | null = null;
     for (let i = list.length - 1; i >= 0 && hit === null; i--) if (this.onStampScreen(list[i]!, clientX, clientY)) hit = list[i]!;
@@ -643,7 +704,7 @@ export class TerrainEditor {
 
   /** A brush key while the tools are armed (the edit mode's key map routes it here); true when taken. */
   key(e: KeyboardEvent): boolean {
-    if (!this.active || this.stroke !== null) return false;
+    if (!this.active || this.navigate || this.stroke !== null) return false;
     return this.control.key(e);
   }
 

@@ -552,3 +552,94 @@ export function outlineOfElement(c: ArchitectureComponent | null, element: strin
 export function overridesOf(c: ArchitectureComponent | null, outlineId: string): { index: number; override: ArchitectureOverride }[] {
   return (c?.overrides ?? []).flatMap((o, index) => (outlineOfElement(c, o.element)?.id === outlineId ? [{ index, override: o }] : []));
 }
+
+/** Whether a ground point (x, z) is inside a closed outline's corners (even-odd). */
+function insideCorners(pts: readonly (readonly number[])[], x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i]!;
+    const b = pts[j]!;
+    if (a[2]! > z !== b[2]! > z && x < ((b[0]! - a[0]!) * (z - a[2]!)) / (b[2]! - a[2]!) + a[0]!) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * The room, building or path a ray meets first (the rooms object's frame;
+ * `dir` need not be unit length), and the ray's parameter there. A room or
+ * building is its footprint stood up to its storeys (`height`: one storey's
+ * metres when it names none); a path, its line stood up `runHeight` metres
+ * and, seen from above, a ribbon `reach` metres either side of it.
+ */
+export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonly number[], dir: readonly number[], height: number, runHeight: number, reach: number): { id: string; t: number } | null {
+  const [ox, oy, oz] = [origin[0]!, origin[1]!, origin[2]!];
+  const [dx, dy, dz] = [dir[0]!, dir[1]!, dir[2]!];
+  let best: { id: string; t: number } | null = null;
+  const take = (id: string, t: number): void => {
+    if (t > 0 && (best === null || t < best.t)) best = { id, t };
+  };
+  /** Where the ray crosses the level y (null: never, or behind). */
+  const atLevel = (y: number): number | null => (Math.abs(dy) < 1e-12 ? null : (y - oy) / dy);
+  for (const o of allOutlines(c)) {
+    // An arc or curve is taken by its chords: near enough to pick by.
+    const pts = o.path.points;
+    if (pts.length < 2) continue;
+    const y0 = pts[0]![1]!;
+    const closed = o.path.closed === true && pts.length >= 3;
+    const y1 = y0 + (closed ? (o.storeys ?? 1) * (o.storeyHeight ?? height) : runHeight);
+    // The sides stood up: where the ray crosses each between the floor and the top.
+    const segs = closed ? pts.length : pts.length - 1;
+    for (let i = 0; i < segs; i++) {
+      const a = pts[i]!;
+      const b = pts[(i + 1) % pts.length]!;
+      const ex = b[0]! - a[0]!;
+      const ez = b[2]! - a[2]!;
+      const den = dx * ez - dz * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      const t = ((a[0]! - ox) * ez - (a[2]! - oz) * ex) / den;
+      const u = ((a[0]! - ox) * dz - (a[2]! - oz) * dx) / den;
+      const y = oy + t * dy;
+      if (u >= 0 && u <= 1 && y >= y0 && y <= y1) take(o.id, t);
+    }
+    if (closed) {
+      // The floor and the top: a ray from above or below meets them inside the footprint.
+      for (const y of [y0, y1]) {
+        const t = atLevel(y);
+        if (t !== null && insideCorners(pts, ox + t * dx, oz + t * dz)) take(o.id, t);
+      }
+    } else {
+      // A path from above: the ground within reach of its line.
+      const t = atLevel(y0);
+      if (t === null) continue;
+      const x = ox + t * dx;
+      const z = oz + t * dz;
+      for (let i = 0; i < segs; i++) {
+        const a = pts[i]!;
+        const b = pts[i + 1]!;
+        const ex = b[0]! - a[0]!;
+        const ez = b[2]! - a[2]!;
+        const l2 = ex * ex + ez * ez;
+        const k = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]!) * ex + (z - a[2]!) * ez) / l2));
+        if (Math.hypot(a[0]! + ex * k - x, a[2]! + ez * k - z) <= reach) take(o.id, t);
+      }
+    }
+  }
+  return best;
+}
+
+/** The lines that outline a room, building or path stood up to its height: its floor and top rings and its corners' verticals (pairs of points, the rooms object's frame). */
+export function outlineFrame(o: ArchitectureOutline, height: number, runHeight: number): Point3[] {
+  const pts = o.path.points;
+  const closed = o.path.closed === true && pts.length >= 3;
+  const y0 = pts[0]?.[1] ?? 0;
+  const y1 = y0 + (closed ? (o.storeys ?? 1) * (o.storeyHeight ?? height) : runHeight);
+  const out: Point3[] = [];
+  const segs = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < segs; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % pts.length]!;
+    out.push([a[0]!, y0, a[2]!], [b[0]!, y0, b[2]!], [a[0]!, y1, a[2]!], [b[0]!, y1, b[2]!]);
+  }
+  for (const p of pts) out.push([p[0]!, y0, p[2]!], [p[0]!, y1, p[2]!]);
+  return out;
+}

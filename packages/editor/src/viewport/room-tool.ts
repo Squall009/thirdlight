@@ -5,6 +5,12 @@
  * first room), snapped to cell corners on the slice's floor.
  *
  * - Rectangle: press a corner, drag to the other, release.
+ * - With a drawing tool (rectangle, polygon, path, building) and nothing
+ *   drawn yet, a click without a drag on a room, building or path selects
+ *   it (it is outlined under the pointer first); a drag from there still
+ *   draws, so a room inside a building is drawn by dragging.
+ * - Navigate (no tool): the outline under the pointer is lit and a click
+ *   selects it. The selected one is outlined in the selection colour.
  * - Polygon / path / building: click corners (each click a corner; the Arc
  *   bulge makes the next segment an arc); click the first corner,
  *   double-click or press Enter to finish (a polygon or a building's
@@ -27,7 +33,10 @@
 import * as THREE from 'three';
 import type { ArchitectureComponent, ArchitectureElement, BlockLayerComponent } from '@thirdlight/project-model';
 
-import { allOutlines, DEFAULT_ROOM_OPTIONS, moveWall, nearestCorner, nearestSegment, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, outlineOfElement, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, withOverride, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
+import { ARCHITECTURE_STOREY_HEIGHT_FALLBACK } from '@thirdlight/runtime';
+
+import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, moveWall, nearestCorner, nearestSegment, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, outlineFrame, outlineOfElement, outlineUnderRay, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, withOverride, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
+import { BrushHud, tokenColour } from './brush-cursor';
 
 /** The rooms object of the edited layer (null id and component: none yet). */
 export interface RoomsTarget {
@@ -45,6 +54,8 @@ export interface RoomToolHost {
   layer(): { entityId: string; component: BlockLayerComponent; origin: readonly number[] } | null;
   slice(): number;
   ray(clientX: number, clientY: number): THREE.Ray;
+  /** A pointer that moved less than this (px) between press and release is a click (the view's). */
+  readonly slopPx: number;
   requestRender(): void;
 }
 
@@ -60,10 +71,19 @@ export interface RoomToolCallbacks {
 
 const GHOST = 0x9ad7ff;
 const PICK = 0xffc857;
-/** How near (cells) the pointer must be to a wall to put an opening on it or drag it. */
+/** How near (cells) the pointer must be to a wall to put an opening on it or drag it, or to a path to pick it. */
 const WALL_REACH_CELLS = 0.6;
-/** Screen pixels a press may move and still be a click. */
-const CLICK_PX = 4;
+/** The drawing tools: a click on an existing outline selects it rather than starting a new one. */
+const DRAWING_MODES: readonly string[] = ['rect', 'polygon', 'path', 'building'];
+
+/** Outline lines drawn over everything (an outline picked or under the pointer shows through the walls). */
+function frameLines(material: THREE.LineBasicMaterial): THREE.LineSegments {
+  const l = new THREE.LineSegments(new THREE.BufferGeometry(), material);
+  l.renderOrder = 22;
+  l.frustumCulled = false;
+  l.visible = false;
+  return l;
+}
 
 export class RoomTool {
   private opts: RoomToolOptions = DEFAULT_ROOM_OPTIONS;
@@ -76,8 +96,17 @@ export class RoomTool {
   private hover: Point3 | null = null;
   /** A press the tool took and whose release has not come yet. */
   private pressed = false;
+  /** A drawing tool's press on an existing outline: a release here selects it, a drag draws from its corner. */
+  private pending: { x: number; y: number; corner: Point3; id: string } | null = null;
+  /** The outline picked (the column's) and the one under the pointer (null: none). */
+  private selectedId: string | null = null;
+  private hoverId: string | null = null;
   private readonly line: THREE.Line;
   private readonly marker: THREE.Mesh;
+  private readonly hoverFrame = frameLines(new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.3, gapSize: 0.2, depthTest: false, transparent: true, opacity: 0.9 }));
+  private readonly selectFrame = frameLines(new THREE.LineBasicMaterial({ depthTest: false, transparent: true }));
+  /** What a click would select, by the pointer. */
+  private readonly tip: BrushHud;
 
   constructor(private readonly host: RoomToolHost, private readonly cb: RoomToolCallbacks) {
     const geo = new THREE.BufferGeometry();
@@ -89,7 +118,9 @@ export class RoomTool {
     this.marker = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: PICK, depthTest: false, transparent: true }));
     this.marker.renderOrder = 21;
     this.marker.visible = false;
-    host.root.add(this.line, this.marker);
+    (this.selectFrame.material as THREE.LineBasicMaterial).color.copy(tokenColour('--select'));
+    this.tip = new BrushHud(host.canvas, 'pick');
+    host.root.add(this.line, this.marker, this.hoverFrame, this.selectFrame);
   }
 
   setOptions(o: RoomToolOptions): void {
@@ -100,6 +131,70 @@ export class RoomTool {
 
   setTarget(t: RoomsTarget): void {
     this.target = t;
+    this.drawFrame(this.selectFrame, this.selectedId);
+    this.drawFrame(this.hoverFrame, this.hoverId);
+  }
+
+  /** The outline picked in the column (null: none): outlined in the selection colour. */
+  setSelected(id: string | null): void {
+    if (id === this.selectedId) return;
+    this.selectedId = id;
+    this.drawFrame(this.selectFrame, id);
+    this.host.canvas.setAttribute('data-room-selected', id ?? '');
+  }
+
+  /** The outline under a client point (null: none). */
+  outlineAt(clientX: number, clientY: number): string | null {
+    const l = this.host.layer();
+    if (l === null || this.target.component === null) return null;
+    const r = this.host.ray(clientX, clientY);
+    const o = this.target.origin;
+    const cs = l.component.cellSize;
+    const hit = outlineUnderRay(this.target.component, [r.origin.x - (o[0] ?? 0), r.origin.y - (o[1] ?? 0), r.origin.z - (o[2] ?? 0)], [r.direction.x, r.direction.y, r.direction.z], ARCHITECTURE_STOREY_HEIGHT_FALLBACK, cs[1]!, WALL_REACH_CELLS * cs[0]!);
+    return hit?.id ?? null;
+  }
+
+  /** Outline what is under the pointer as what a click would select, with its name by the pointer (null: the pointer left). */
+  hoverAt(at: { x: number; y: number } | null): void {
+    const id = at === null ? null : this.outlineAt(at.x, at.y);
+    if (at !== null && id !== null) this.tip.show(at, `${this.kindOf(id)} ${id}`, id === this.selectedId ? 'selected · Esc deselects' : 'click to select');
+    else this.tip.hide();
+    if (id === this.hoverId) return;
+    this.hoverId = id;
+    this.drawFrame(this.hoverFrame, id);
+    this.host.canvas.setAttribute('data-room-hover-outline', id ?? '');
+    this.host.requestRender();
+  }
+
+  /** A click that selects: the outline under the pointer, or none. */
+  pickAt(clientX: number, clientY: number): void {
+    this.cb.onPickRoom(this.outlineAt(clientX, clientY));
+  }
+
+  /** "Building", "Room" or "Path" for an outline id. */
+  private kindOf(id: string): string {
+    const o = allOutlines(this.target.component).find((x) => x.id === id);
+    return isBuilding(this.target.component, id) ? 'Building' : o?.path.closed === true ? 'Room' : 'Path';
+  }
+
+  /** Lay an outline's frame lines (null or gone: hidden). */
+  private drawFrame(lines: THREE.LineSegments, id: string | null): void {
+    const o = id === null ? undefined : allOutlines(this.target.component).find((x) => x.id === id);
+    const l = this.host.layer();
+    lines.visible = o !== undefined && l !== null;
+    if (o === undefined || l === null) {
+      this.host.requestRender();
+      return;
+    }
+    const off = this.offset();
+    const pts = outlineFrame(o, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, l.component.cellSize[1]!);
+    const arr = new Float32Array(pts.length * 3);
+    pts.forEach((p, i) => arr.set([p[0] + off[0], p[1] + off[1] + 0.03, p[2] + off[2]], i * 3));
+    lines.geometry.dispose();
+    lines.geometry = new THREE.BufferGeometry();
+    lines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    if (lines.material instanceof THREE.LineDashedMaterial) lines.computeLineDistances();
+    this.host.requestRender();
   }
 
   /** The layer's offset of the rooms object (object-local = layer-local − offset). */
@@ -132,6 +227,19 @@ export class RoomTool {
     if (l === null || at === null) return true;
     const cs = l.component.cellSize;
     const m = this.opts.mode;
+    // Nothing drawn yet and the press is on an existing outline: a click selects it, a drag draws.
+    if (DRAWING_MODES.includes(m) && !this.inFlight()) {
+      const id = this.outlineAt(e.clientX, e.clientY);
+      if (id !== null) {
+        this.pending = { x: e.clientX, y: e.clientY, corner: at.corner, id };
+        return true;
+      }
+    }
+    return this.press(m, at, e, l.entityId, cs);
+  }
+
+  /** A press that draws, opens, drags a wall or puts a piece. */
+  private press(m: RoomToolOptions['mode'], at: { x: number; z: number; corner: Point3 }, e: { clientX: number; clientY: number; ctrlKey: boolean; metaKey: boolean }, layerId: string, cs: readonly number[]): boolean {
     if (m === 'rect') {
       this.rectStart = at.corner;
       this.drawGhost(at.corner);
@@ -156,10 +264,10 @@ export class RoomTool {
       return true;
     }
     if (m === 'piece' || m === 'corner') {
-      this.putPiece(l.entityId, at.x, at.z, at.corner[1], cs, e.ctrlKey || e.metaKey);
+      this.putPiece(layerId, at.x, at.z, at.corner[1], cs, e.ctrlKey || e.metaKey);
       return true;
     }
-    const near = nearestSide(this.target.component, at.x, at.z, WALL_REACH_CELLS * cs[0], m !== 'walls');
+    const near = nearestSide(this.target.component, at.x, at.z, WALL_REACH_CELLS * cs[0]!, m !== 'walls');
     if (m === 'walls') {
       if (near === null) {
         this.cb.onPickRoom(null);
@@ -174,14 +282,14 @@ export class RoomTool {
     }
     const c = this.target.component!;
     const o = near.side.outline;
-    const storeyHeight = o.storeyHeight ?? 3;
+    const storeyHeight = o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK;
     const storey = Math.max(0, Math.min((o.storeys ?? 1) - 1, Math.round((at.corner[1] - (o.path.points[0]?.[1] ?? 0)) / storeyHeight)));
     const opening = openingOn(near.side, near.along, m, cs, storey, m === 'door' ? this.opts.doorPiece : m === 'window' ? this.opts.windowPiece : null);
     if (opening === null) {
       this.cb.onRefused(`The wall is too short for a${m === 'arch' ? 'n' : ''} ${m}.`);
       return true;
     }
-    void this.cb.onRooms(l.entityId, withOutlineSet(c, o.id, { ...o, openings: [...(o.openings ?? []), opening] }), `Add ${m}`);
+    void this.cb.onRooms(layerId, withOutlineSet(c, o.id, { ...o, openings: [...(o.openings ?? []), opening] }), `Add ${m}`);
     this.cb.onPickRoom(o.id);
     return true;
   }
@@ -189,6 +297,17 @@ export class RoomTool {
   pointerMove(e: PointerEvent): boolean {
     const at = this.under(e.clientX, e.clientY);
     this.hover = at?.corner ?? null;
+    const p = this.pending;
+    if (p !== null) {
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) <= this.host.slopPx) return true;
+      // A drag from an existing outline draws after all, from the corner it was pressed at.
+      this.pending = null;
+      const l = this.host.layer();
+      if (l !== null) this.press(this.opts.mode, { x: 0, z: 0, corner: p.corner }, { clientX: p.x, clientY: p.y, ctrlKey: false, metaKey: false }, l.entityId, l.component.cellSize);
+    }
+    // Before anything is drawn, a drawing tool outlines what a click would select.
+    if (DRAWING_MODES.includes(this.opts.mode) && !this.inFlight() && e.buttons === 0) this.hoverAt({ x: e.clientX, y: e.clientY });
+    else this.hoverAt(null);
     const d = this.drag;
     if (d !== null && at !== null) {
       const l = this.host.layer()!;
@@ -211,6 +330,12 @@ export class RoomTool {
     // Every press the tool took ends here, a click as much as a drag: the view's orbit comes back on its release.
     const pressed = this.pressed;
     this.pressed = false;
+    const p = this.pending;
+    if (p !== null) {
+      this.pending = null;
+      this.cb.onPickRoom(p.id);
+      return true;
+    }
     const l = this.host.layer();
     if (this.rectStart !== null) {
       const a = this.rectStart;
@@ -227,7 +352,7 @@ export class RoomTool {
     const d = this.drag;
     if (d !== null) {
       this.drag = null;
-      const moved = Math.hypot(e.clientX - d.press[0], e.clientY - d.press[1]) > CLICK_PX;
+      const moved = Math.hypot(e.clientX - d.press[0], e.clientY - d.press[1]) > this.host.slopPx;
       if (!moved || d.offset === 0 || l === null || this.target.component === null) {
         if (this.target.entityId !== null && d.steps > 0) this.cb.onPreview(this.target.entityId, null);
         this.cb.onPickRoom(d.side.outline.id);
@@ -263,7 +388,8 @@ export class RoomTool {
 
   /** Drop the drawing or drag in flight (true: there was one). */
   cancel(): boolean {
-    const had = this.corners.length > 0 || this.rectStart !== null || this.drag !== null;
+    const had = this.corners.length > 0 || this.rectStart !== null || this.drag !== null || this.pending !== null;
+    this.pending = null;
     if (this.drag !== null && this.drag.steps > 0 && this.target.entityId !== null) this.cb.onPreview(this.target.entityId, null);
     this.corners = [];
     this.bulges = [];
@@ -274,7 +400,7 @@ export class RoomTool {
   }
 
   inFlight(): boolean {
-    return this.corners.length > 0 || this.rectStart !== null || this.drag !== null;
+    return this.corners.length > 0 || this.rectStart !== null || this.drag !== null || this.pending !== null;
   }
 
   private async finishOutline(): Promise<void> {
@@ -389,6 +515,11 @@ export class RoomTool {
   }
 
   dispose(): void {
+    this.tip.hide();
+    for (const f of [this.hoverFrame, this.selectFrame]) {
+      f.geometry.dispose();
+      (f.material as THREE.Material).dispose();
+    }
     this.line.geometry.dispose();
     (this.line.material as THREE.Material).dispose();
     this.marker.geometry.dispose();

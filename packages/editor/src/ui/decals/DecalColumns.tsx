@@ -1,6 +1,6 @@
 /**
- * The decal editor's Place and Scatter columns: the palette (what is
- * placed), how a placed decal is made (projected or clipped, its size and
+ * The decal editor's Place and Scatter columns: the tool (Navigate, or
+ * the mode's own: Place, Scatter), the palette (what is placed), how a placed decal is made (projected or clipped, its size and
  * turn) and, in Place, the random turn and size of Shift+click stamps; in
  * Scatter, the shared brush's footprint and the scatter's density, jitter and
  * seed. The settings are the editor's (remembered per browser); only the
@@ -21,6 +21,7 @@ import { useBrush } from '../brush/useBrush';
 import { Section, Segmented } from '../editmode/controls';
 import { useEditStatus } from '../editmode/edit-status';
 import type { SceneModeView } from '../editmode/modes';
+import { ToolGrid } from '../editmode/ToolGrid';
 import { SeedField } from '../rules/RuleConditions';
 import type { DecalTools } from '../shell/useDecalTools';
 import { DecalPalette } from './DecalPalette';
@@ -54,6 +55,10 @@ function PlacementFields({ tools }: { tools: DecalTools }): JSX.Element {
   );
 }
 
+/** Place's and Scatter's one tool each (no tool, Navigate, selects decals as in Select). */
+const PLACE_TOOL = [{ id: 'place', label: 'Place', glyph: 'place', key: 'B', hint: 'Click a surface to place the picked decal; Shift+click stamps more.' }] as const;
+const SCATTER_TOOL = [{ id: 'scatter', label: 'Scatter', glyph: 'scatter', key: 'B', hint: 'Drag over the surfaces to scatter the picked decal.' }] as const;
+
 /** The status line's words when nothing is picked to place. */
 const NOTHING_PICKED = 'Pick a decal in the palette (or drop an image on it) first.';
 
@@ -68,6 +73,9 @@ export function PlaceColumn({ host }: SceneModeView): JSX.Element {
   });
   return (
     <div className="tl-decals" aria-label="decal place tools">
+      <Section title="Tool">
+        <ToolGrid tools={PLACE_TOOL} active="place" onPick={() => undefined} aria="decal place tool" cols={4} />
+      </Section>
       <DecalPalette tools={tools} thumbnails={host.palette.thumbnails} active={s.material} onPick={(e) => void tools.pick(e)} />
       <PlacementFields tools={tools} />
       <Section title="Stamps" aside={<span className="tl-sec__note">Shift+click</span>} open={false}>
@@ -95,6 +103,9 @@ export function ScatterColumn({ host }: SceneModeView): JSX.Element {
   const L = DECAL_SCATTER_LIMITS;
   return (
     <div className="tl-decals" aria-label="decal scatter tools">
+      <Section title="Tool">
+        <ToolGrid tools={SCATTER_TOOL} active="scatter" onPick={() => undefined} aria="decal scatter tool" cols={4} />
+      </Section>
       <DecalPalette tools={tools} thumbnails={host.palette.thumbnails} active={s.material} onPick={(e) => void tools.pick(e)} />
       <Section title="Brush" aside="Shared by every brush">
         <BrushPanel settings={brush} store={tools.brush} uses={DECAL_SCATTER_USES} />

@@ -24,7 +24,7 @@
 import { expect, type Page } from './pw';
 
 import { aimCorner, frameOn, screen } from './rooms-drawing';
-import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
+import { armTile, editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -152,7 +152,7 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   const rooms = blocks.getByLabel('block rooms');
   await expect(rooms).toBeVisible();
   await frameOn(page, [[218, 0, -45], [230, 0, -45], [218, 0, -33], [230, 0, -33], [219, 3, -34]]);
-  const tool = (name: string): Promise<void> => rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }).click();
+  const tool = (name: string): Promise<void> => armTile(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }));
   const roomsObject = async (): Promise<{ id: string; buildings: Building[] } | null> => {
     const ents = ((await query('queryEntities', { limit: 500, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
     const e = ents.find((x) => (x.components['architecture'] as { layer?: string } | undefined)?.layer === layer);

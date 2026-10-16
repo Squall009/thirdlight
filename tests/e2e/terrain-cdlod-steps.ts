@@ -16,7 +16,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isMagenta, isRed, materials, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { makePng } from './png-make';
 import { decodePng, type Image } from './png';
-import { closeEditor, editMode, editModeTab, editorPane, enterBlockEditor, enterEditMode, leaveEditMode, menu, openEditor } from './ui';
+import { armTile, closeEditor, editMode, editModeTab, editorPane, enterBlockEditor, enterEditMode, leaveEditMode, menu, openEditor } from './ui';
 import { expectRendererBackend } from './renderer-variants';
 import { count, frameShareNear, meanDiff, projectWith, share, type CameraView, type V3 } from './frame-reading';
 
@@ -780,14 +780,12 @@ export type StrokeInfo = { serial: number; tool: string; dabs: number; commitMs:
 export const strokeInfo = async (page: Page): Promise<StrokeInfo | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stroke')) ?? 'null') as StrokeInfo | null;
 export const terrainPanel = (page: Page) => page.getByLabel('terrain tools');
 /** The terrain editor's rail mode and tool tile of each tool. */
-const TOOL_MODES: Readonly<Record<string, [string, string]>> = { Raise: ['Sculpt', 'Raise'], Lower: ['Sculpt', 'Lower'], Smooth: ['Sculpt', 'Smooth'], Flatten: ['Sculpt', 'Flatten'], Noise: ['Sculpt', 'Noise'], Ramp: ['Sculpt', 'Ramp'], Paint: ['Paint', 'Paint'], Erase: ['Paint', 'Erase'], Holes: ['Holes', 'Cut'], Scatter: ['Scatter', 'Place'], Select: ['Stack', 'Select'], Stamp: ['Stack', 'Stamp'], Erode: ['Stack', 'Erode'] };
-/** Pick a terrain tool: its mode on the terrain editor's rail, then its tile in the mode's tool grid. */
+const TOOL_MODES: Readonly<Record<string, [string, string]>> = { Raise: ['Sculpt', 'Raise'], Lower: ['Sculpt', 'Lower'], Smooth: ['Sculpt', 'Smooth'], Flatten: ['Sculpt', 'Flatten'], Noise: ['Sculpt', 'Noise'], Ramp: ['Sculpt', 'Ramp'], Paint: ['Paint', 'Paint'], Erase: ['Paint', 'Erase'], Holes: ['Holes', 'Cut'], Scatter: ['Scatter', 'Place'], Select: ['Stack', 'Navigate'], Stamp: ['Stack', 'Stamp'], Erode: ['Stack', 'Erode'] };
+/** Pick a terrain tool: its mode on the terrain editor's rail, then its tile in the mode's tool grid (Select: no tool, Navigate, picks stamps). */
 export async function pickTool(page: Page, name: string): Promise<void> {
   const [mode, tile] = TOOL_MODES[name]!;
   await editModeTab(page, mode);
-  const button = terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name: tile, exact: true });
-  await button.click();
-  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await armTile(terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).getByRole('button', { name: tile, exact: true }));
 }
 /** The terrain editor's header fact ("64 tiles · 8 × 8 · 32 m each"). */
 export const editorMeta = (page: Page) => editMode(page).locator('.tl-emh__meta');
@@ -801,7 +799,11 @@ export async function openTerrainEditor(page: Page): Promise<void> {
   await enterEditMode(page, 'Edit terrain');
   await editModeTab(page, 'Sculpt');
   await expect(terrainPanel(page)).toBeVisible();
-  await expect(viewport(page)).toHaveAttribute('data-terrain-tool', /\w/);
+  // It opens with no tool (Navigate): Space arms the last one.
+  await expect(viewport(page)).toHaveAttribute('data-terrain-tool', 'navigate');
+  await expect(terrainPanel(page).getByRole('toolbar', { name: 'terrain tool' }).locator('.tl-tool.is-last')).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(viewport(page)).not.toHaveAttribute('data-terrain-tool', /^(navigate)?$/);
 }
 /** Select a terrain and open its editor. */
 export async function selectEntity(page: Page, id: string): Promise<void> {

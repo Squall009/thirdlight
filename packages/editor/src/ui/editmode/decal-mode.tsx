@@ -21,6 +21,9 @@ import { DecalView } from '../decals/DecalView';
 import { SelectColumn } from '../decals/SelectColumn';
 import type { SceneEditModeKind, SceneModeView } from './modes';
 
+/** What a drag and a click do with no tool armed (in every mode: Navigate selects decals). */
+const DECAL_NAVIGATE = 'A click selects a decal (Shift adds, Ctrl removes); a drag orbits, or moves a selected decal.';
+
 const COLUMNS: Readonly<Record<string, (v: SceneModeView) => JSX.Element>> = { place: PlaceColumn, scatter: ScatterColumn, select: SelectColumn };
 
 export const decalMode: SceneEditModeKind = {
@@ -44,9 +47,9 @@ export const decalMode: SceneEditModeKind = {
     </>
   ),
   rail: [
-    { id: 'place', label: 'Place', glyph: 'place', hint: 'Click a surface to place the picked decal.' },
-    { id: 'scatter', label: 'Scatter', glyph: 'scatter', hint: 'Drag over the surfaces to scatter the picked decal.' },
-    { id: 'select', label: 'Select', glyph: 'select', hint: 'Click a decal; Shift adds, Ctrl removes; drag on empty ground for a box.' },
+    { id: 'place', label: 'Place', glyph: 'place', hint: 'Click a surface to place the picked decal.', navigate: DECAL_NAVIGATE },
+    { id: 'scatter', label: 'Scatter', glyph: 'scatter', hint: 'Drag over the surfaces to scatter the picked decal.', navigate: DECAL_NAVIGATE },
+    { id: 'select', label: 'Select', glyph: 'select', hint: 'Drag a box round decals; Shift adds, Ctrl removes.', navigate: DECAL_NAVIGATE },
   ],
   tools: ['decal'],
   column: (view) => {

@@ -160,9 +160,10 @@ each rule's copies. Scripts find, hide and remove copies with
 **Editor:** the **Stack** mode lists the edit layers the heights are made
 of, over the ground as sculpted by hand: switch a layer off, weigh it, move
 it, delete it. **Stamp** (W) places a heightmap (picked by its picture) as
-wide as the brush with a click; **Select** (Q) draws the stamps' squares on
-the ground — drag one's body to move it, a corner to resize it, the knob to
-turn it, or set its numbers in the column. **Erode** (E) erodes the square
+wide as the brush with a click; with no tool (**Navigate**) the stamps'
+squares show on the ground — click one to pick it, drag its body to move
+it, a corner to resize it, the knob to turn it, or set its numbers in the
+column. **Erode** (E) erodes the square
 under the brush with a click (hydraulic and thermal, every setting of each).
 
 **API:** `setComponent` of the terrain's `layers`

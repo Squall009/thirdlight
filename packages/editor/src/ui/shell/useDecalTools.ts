@@ -84,8 +84,6 @@ export interface DecalTools {
   readonly brush: BrushStore;
   readonly filter: DecalFilter;
   setFilter(f: DecalFilter): void;
-  readonly selectTool: 'click' | 'box';
-  setSelectTool(t: 'click' | 'box'): void;
   readonly paletteFilter: DecalPaletteFilter;
   setPaletteFilter(f: DecalPaletteFilter): void;
   /** The palette's entries. */
@@ -98,8 +96,8 @@ export interface DecalTools {
   fromTexture(textureId: string, name?: string): Promise<void>;
   /** An image file is imported and becomes a decal material (picked now). */
   fromFile(file: File): Promise<void>;
-  /** Arm the Scene view's tool for a rail mode (null: off). */
-  arm(mode: DecalToolMode | null, entities: readonly ProjectedEntity[]): void;
+  /** Arm the Scene view's tool for a rail mode (null: off); `navigate`: no tool in hand (a click selects, a drag orbits) whatever the mode. */
+  arm(mode: DecalToolMode | null, entities: readonly ProjectedEntity[], navigate: boolean): void;
   /** The selected decals now. */
   selected(entities: readonly ProjectedEntity[]): SelectedDecal[];
   /** One field of every selected decal (one command). */
@@ -131,7 +129,6 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
   const [settings, setSettingsState] = useState<DecalToolSettings>(() => read(SETTINGS_KEY, storedSettings, { ...DECAL_TOOL_DEFAULTS }));
   const [scatter, setScatterState] = useState<DecalScatterSettings>(() => read(SCATTER_KEY, sanitizeScatter, sanitizeScatter(null)));
   const [filter, setFilter] = useState<DecalFilter>(NO_DECAL_FILTER);
-  const [selectTool, setSelectTool] = useState<'click' | 'box'>('click');
   const [paletteFilter, setPaletteFilter] = useState<DecalPaletteFilter>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const brush = brushStore('decals', 'scatter', SCATTER_BRUSH, SCATTER_BOUNDS);
@@ -210,19 +207,20 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
   const removeRef = useRef(remove);
   removeRef.current = remove;
 
-  const armed = useRef<{ mode: DecalToolMode | null; entities: readonly ProjectedEntity[] }>({ mode: null, entities: [] });
+  const armed = useRef<{ mode: DecalToolMode | null; entities: readonly ProjectedEntity[]; navigate: boolean }>({ mode: null, entities: [], navigate: true });
   const arm = useCallback(
-    (mode: DecalToolMode | null, entities: readonly ProjectedEntity[]) => {
-      armed.current = { mode, entities };
+    (mode: DecalToolMode | null, entities: readonly ProjectedEntity[], navigate: boolean) => {
+      armed.current = { mode, entities, navigate };
       const v = viewportRef.current;
       if (v === null) return;
       if (mode === null) return v.setDecalTool(null, null);
       // A selected decal that is gone (deleted, undone) leaves the selection.
       const live = new Set(entities.filter((e) => e.components['decal'] !== undefined).map((e) => e.id));
       const ids = selection.ids.filter((id) => live.has(id));
-      v.setDecalTool({ mode, selectTool, settings: effective, scatter, brush, selection: ids, primary: selection.primary !== null && live.has(selection.primary) ? selection.primary : (ids.at(-1) ?? null), filter, sceneId }, callbacks);
+      // With no tool, every mode selects (the Select mode's Navigate); Select's one tool is the Box.
+      v.setDecalTool({ mode: navigate ? 'select' : mode, selectTool: navigate ? 'navigate' : 'box', settings: effective, scatter, brush, selection: ids, primary: selection.primary !== null && live.has(selection.primary) ? selection.primary : (ids.at(-1) ?? null), filter, sceneId }, callbacks);
     },
-    [viewportRef, selectTool, effective, scatter, brush, selection, filter, sceneId, callbacks],
+    [viewportRef, effective, scatter, brush, selection, filter, sceneId, callbacks],
   );
   // The tool goes off with the page.
   useEffect(() => () => viewportRef.current?.setDecalTool(null, null), [viewportRef]);
@@ -342,8 +340,8 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
 
   // A change of the settings or the selection re-arms the tool in the mode it is in.
   useEffect(() => {
-    if (armed.current.mode !== null) arm(armed.current.mode, armed.current.entities);
+    if (armed.current.mode !== null) arm(armed.current.mode, armed.current.entities, armed.current.navigate);
   }, [arm]);
 
-  return { selection, select, settings: effective, setSettings, scatter, setScatter, brush, filter, setFilter, selectTool, setSelectTool, paletteFilter, setPaletteFilter, palette, materials: decalMaterials, pick, fromTexture, fromFile, arm, selected, edit, setBlend, selectSame, remove, bake, busy };
+  return { selection, select, settings: effective, setSettings, scatter, setScatter, brush, filter, setFilter, paletteFilter, setPaletteFilter, palette, materials: decalMaterials, pick, fromTexture, fromFile, arm, selected, edit, setBlend, selectSame, remove, bake, busy };
 }

@@ -14,12 +14,13 @@
  *   the dab's normal and marked; the release stores the stroke as one
  *   `createEntities` (one undo; a stroke past what one command holds, by
  *   count or by bytes, goes on as the next stroke).
- * - **Select:** a click picks the decal under the pointer (the front one of
- *   those whose image covers it, among those the filter lets through), Shift
- *   adds, Ctrl removes; a drag on empty ground (or any drag with the Box
- *   tool) draws a box that picks the decals whose middle is in it; a drag on
- *   a selected decal moves it over the surfaces (one `setTransform`). Del
- *   deletes the selection; Esc clears it.
+ * - **Select:** with no tool (Navigate, in every rail mode) a click picks the
+ *   decal under the pointer (the front one of those whose image covers it,
+ *   among those the filter lets through), Shift adds, Ctrl removes, a click
+ *   on no decal clears; a drag orbits, but a drag on a selected decal moves
+ *   it over the surfaces (one `setTransform`). With the Box tool every drag
+ *   draws a box that picks the decals whose middle is in it. Del deletes the
+ *   selection; Esc clears it.
  *
  * In every mode the primary selected decal shows its turn ring and size
  * corner: dragging the knob turns it about its normal (one `setTransform`),
@@ -113,8 +114,8 @@ export type DecalToolMode = 'place' | 'scatter' | 'select';
 /** What the tool is armed with: the editor's mode and the settings and selection it works with. */
 export interface DecalArm {
   readonly mode: DecalToolMode;
-  /** Select: Click (a press on a decal picks it, on ground boxes) or Box (every drag boxes). */
-  readonly selectTool: 'click' | 'box';
+  /** Select: Navigate (a click picks, a drag orbits or moves a selected decal) or Box (every drag boxes). */
+  readonly selectTool: 'navigate' | 'box';
   readonly settings: DecalToolSettings;
   readonly scatter: DecalScatterSettings;
   /** The shared brush's footprint (scatter). */
@@ -273,8 +274,10 @@ export class DecalTool {
       return 'capture';
     }
     if (a.mode === 'select') {
-      this.press = null;
       const hit = a.selectTool === 'box' ? null : this.decalAt(e.clientX, e.clientY);
+      // Navigate: a press on a selected decal may move it; any other is the orbit's, and its release, a click, selects.
+      if (a.selectTool === 'navigate' && (hit === null || !a.selection.includes(hit.id))) return null;
+      this.press = null;
       this.select = { x: e.clientX, y: e.clientY, hit, box: hit === null, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, dragging: false, moved: null };
       return 'capture';
     }
@@ -344,12 +347,18 @@ export class DecalTool {
     return false;
   }
 
-  /** A release no gesture claimed: in Place a click places (Shift: a stamp). True when it did. */
+  /** A release no gesture claimed: in Place a click places (Shift: a stamp); in Navigate it selects. True when it did. */
   click(e: PointerEvent): boolean {
     const a = this.arm_;
     const press = this.press;
     this.press = null;
-    if (a === null || a.mode !== 'place' || e.button !== 0 || press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.slopPx) return false;
+    if (a === null || e.button !== 0 || press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.slopPx) return false;
+    if (a.mode === 'select') {
+      if (a.selectTool !== 'navigate') return false;
+      this.endSelect({ x: press.x, y: press.y, hit: this.decalAt(e.clientX, e.clientY), box: false, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, dragging: false, moved: null }, e.clientX, e.clientY);
+      return true;
+    }
+    if (a.mode !== 'place') return false;
     this.place(e.clientX, e.clientY, e.shiftKey);
     return true;
   }
@@ -436,7 +445,7 @@ export class DecalTool {
     const grips = this.marks.gripsShown() ? { turn: this.clientAt(this.marks.gripWorld.turn), size: this.clientAt(this.marks.gripWorld.size) } : null;
     canvas.setAttribute(
       'data-decal-tool',
-      JSON.stringify({ mode: a.mode, preview: this.preview, target: a.primary, selection: a.selection, hover: this.hoverId, grips, stamps: this.stamps, placed: this.placed, stroke: this.lastStroke, clippedPreview: this.preview !== null && this.host.clippedMesh(DECAL_PREVIEW_ID) !== null }),
+      JSON.stringify({ mode: a.mode, selectTool: a.selectTool, preview: this.preview, target: a.primary, selection: a.selection, hover: this.hoverId, grips, stamps: this.stamps, placed: this.placed, stroke: this.lastStroke, clippedPreview: this.preview !== null && this.host.clippedMesh(DECAL_PREVIEW_ID) !== null }),
     );
   }
 

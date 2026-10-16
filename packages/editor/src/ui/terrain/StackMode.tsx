@@ -4,9 +4,10 @@
  * splines, the ground meeting block layers — each switched on or off,
  * weighed, moved up or down and deleted; and the tools:
  *
- * - Select: a stamp's square in the view is picked with a click; its body
- *   drags it, a corner resizes it, the knob turns it (one command on
- *   release); its height, side, turn, edge fade and mode in the column.
+ * - No tool (Navigate): a stamp's square in the view is picked with a
+ *   click; its body drags it, a corner resizes it, the knob turns it (one
+ *   command on release); its height, side, turn, edge fade and mode in the
+ *   column. Esc lets it go.
  * - Stamp: a click places the chosen heightmap as a stamp, its side the
  *   brush size, into a stamps layer.
  * - Erode: a click erodes the square under the brush (hydraulic, thermal,
@@ -33,6 +34,7 @@ import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
 import { EntryName, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { useEditSelection, useEditTool, useToolArmed } from '../editmode/edit-tool';
 import { useEditStatus } from '../editmode/edit-status';
 import { Glyph } from '../editmode/glyphs';
 import { ToolGrid } from '../editmode/ToolGrid';
@@ -62,7 +64,9 @@ type LayerEdits = SettledEdits<TerrainLayer[]>;
 export function StackColumn(p: TerrainColumnProps): JSX.Element {
   const [state, setState] = useTerrainToolState(p.entityId);
   const tile = MODE.tiles.find((t) => t.id === state.tiles.stack) ?? MODE.tiles[0]!;
-  const tool = tile.tool;
+  // With no tool, a click picks a stamp and the picked one's handles drag it.
+  const tool = useToolArmed() ? tile.tool : 'stamps';
+  const edit = useEditTool();
   const { run, entityId } = p;
   const saveLayers = useCallback(
     (next: TerrainLayer[], what: string): Promise<boolean> => {
@@ -75,6 +79,7 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
   const layers = edits.value;
   const stamps = terrainStamps(layers);
   const picked = state.pickedStamp === null ? null : (stamps.find((s) => s.layer === state.pickedStamp!.layer && s.index === state.pickedStamp!.index) ?? null);
+  useEditSelection(picked === null ? null : `Stamp ${picked.index + 1} of ${picked.layer}`, () => setState({ pickedStamp: null }));
   const store = useTerrainTool(p, tool, {
     place: (at) => {
       if (p.locked) return;
@@ -95,7 +100,7 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
   const settings = useBrush(store ?? terrainBrushStore('stamp'));
   const uses = terrainToolUses(tool);
   const text = tool === 'stamp' && state.stamp.asset === '' ? 'Choose a heightmap below, then click the ground.' : tile.hint;
-  useEditStatus({ tool: tile.label, text, keys: [...toolKeysHint(MODE.tiles), ...brushKeyHints(uses)] });
+  useEditStatus({ tool: tool === 'stamps' ? 'Navigate' : tile.label, text, keys: [...toolKeysHint(MODE.tiles), ...brushKeyHints(uses)] });
   return (
     <div className="tl-terrain" aria-label="terrain tools">
       <Section title="Tool">
@@ -115,7 +120,17 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
           <BrushPanel settings={settings} store={store} uses={uses} />
         </Section>
       )}
-      <LayerList p={p} picked={picked} onPick={(ref) => setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index }, tiles: { ...state.tiles, stack: 'stamps' } })} layers={layers} edits={edits} />
+      <LayerList
+        p={p}
+        picked={picked}
+        onPick={(ref) => {
+          setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index } });
+          // A stamp picked in the list is edited with no tool in hand (its handles in the view, its settings above).
+          edit?.drop();
+        }}
+        layers={layers}
+        edits={edits}
+      />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { architectureOpeningEdges, architectureWallEdges, cellKeyOf } from '@thi
 
 import { architectureStylesOf, ARCHITECTURE_STARTER_GRAPHS, expandArchitecture } from '@thirdlight/runtime';
 
-import { groundArea2, moveWall, nearestCorner, nearestSegment, nearestSide, nextOutlineId, openingOn, openingPiece, openingResized, outlineOfElement, overridesOf, presetUses, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOutlineSet, withOverride, withPresetSwapped } from './room-draw';
+import { groundArea2, moveWall, outlineFrame, outlineUnderRay, nearestCorner, nearestSegment, nearestSide, nextOutlineId, openingOn, openingPiece, openingResized, outlineOfElement, overridesOf, presetUses, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withOutline, withOutlineSet, withOverride, withPresetSwapped } from './room-draw';
 import { kitPieceChoices, modelKey } from './kit-edits';
 
 const CELL = [1, 1, 1];
@@ -234,5 +234,38 @@ describe('kit pieces in rooms', () => {
     expect(next.outlines![0]!.path).toBe(path);
     expect(next.outlines![0]!.openings).toEqual(c.outlines![0]!.openings);
     expect(presetUses(next).map((u) => u.preset)).toEqual(['brick', 'wood', 'rail']);
+  });
+});
+
+describe('picking a room, building or path in the view', () => {
+  // A room 4 × 4 m at the origin and a building 4 × 4 m beside it, two storeys of 3 m; a fence path along z = 10.
+  const room = withOutline(null, 'floor', { id: 'room-1', preset: 'starter-room', path: rectPath([0, 0, 0], [4, 0, 4])! });
+  const c: ArchitectureComponent = { ...room, buildings: [{ id: 'building-1', preset: 'starter-room', storeys: 2, storeyHeight: 3, path: rectPath([8, 0, 0], [12, 0, 4])! }], outlines: [...(room.outlines ?? []), { id: 'run-1', preset: 'starter-fence', path: { points: [[0, 0, 10], [12, 0, 10]] } }] };
+
+  it('finds a footprint from above and a wall from the side, the nearest first', () => {
+    expect(outlineUnderRay(c, [2, 20, 2], [0, -1, 0], 3, 1, 0.6)?.id).toBe('room-1');
+    expect(outlineUnderRay(c, [10, 20, 2], [0, -1, 0], 3, 1, 0.6)?.id).toBe('building-1');
+    // From the side at 5 m up: the room (3 m) is passed over, the two-storey building is met.
+    expect(outlineUnderRay(c, [-10, 5, 2], [1, 0, 0], 3, 1, 0.6)?.id).toBe('building-1');
+    // At 1 m up the room's wall is nearer.
+    const hit = outlineUnderRay(c, [-10, 1, 2], [1, 0, 0], 3, 1, 0.6)!;
+    expect(hit.id).toBe('room-1');
+    expect(hit.t).toBeCloseTo(10);
+    // Between them, nothing.
+    expect(outlineUnderRay(c, [6, 20, 2], [0, -1, 0], 3, 1, 0.6)).toBeNull();
+  });
+
+  it('finds a path from above within reach of its line, and nothing behind the ray', () => {
+    expect(outlineUnderRay(c, [5, 20, 10.4], [0, -1, 0], 3, 1, 0.6)?.id).toBe('run-1');
+    expect(outlineUnderRay(c, [5, 20, 11], [0, -1, 0], 3, 1, 0.6)).toBeNull();
+    expect(outlineUnderRay(c, [2, 20, 2], [0, 1, 0], 3, 1, 0.6)).toBeNull();
+  });
+
+  it('outlines an outline as its floor and top rings and its corners stood up', () => {
+    const b = c.buildings![0]!;
+    const lines = outlineFrame(b, 3, 1);
+    // Four sides twice (floor, top) and four verticals: 12 lines, 24 points; the top at two storeys.
+    expect(lines).toHaveLength(24);
+    expect(Math.max(...lines.map((p) => p[1]))).toBe(6);
   });
 });

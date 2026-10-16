@@ -12,7 +12,9 @@
  *   piece put: a door or window piece takes the hole its size needs, from
  *   its slot's sill (`KIT_STANDARD_SLOTS`).
  * - **Rooms**: the list; the picked one is edited below it
- *   (`RoomInspector`).
+ *   (`RoomInspector`). A room, building or path is also picked in the view:
+ *   with no tool a click selects it, and with a drawing tool a click on it
+ *   (no drag) does; it is outlined there, and Esc lets it go.
  * - **Presets in use**: every room wearing one preset swapped to another,
  *   the outlines kept (`PresetSwap`).
  *
@@ -31,6 +33,7 @@ import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { SliderField } from '../brush/SliderField';
 import { Section } from '../editmode/controls';
 import { useEditStatus } from '../editmode/edit-status';
+import { useEditSelection } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
@@ -108,6 +111,9 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   const corners = kitPieceChoices(kit, ['corner']);
   const outlines = allOutlines(b?.component ?? null);
   const room = outlines.find((o) => o.id === s.state.room) ?? null;
+  useEffect(() => editor?.rooms.setSelected(room?.id ?? null), [editor, room?.id]);
+  useEffect(() => () => editor?.rooms.setSelected(null), [editor]);
+  useEditSelection(room === null ? null : `${isBuilding(b?.component ?? null, room.id) ? 'Building' : room.path.closed === true ? 'Room' : 'Path'} “${room.id}”`, () => s.set({ room: null }), room?.id);
   const drawing = tile.id === 'polygon' || tile.id === 'path' || tile.id === 'building';
   const needsPiece = (tile.id === 'piece' && opts.wallModel === null) || (tile.id === 'corner' && opts.cornerModel === null);
   useEditStatus({

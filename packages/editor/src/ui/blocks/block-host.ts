@@ -28,6 +28,8 @@ export interface BlockModeHandlers {
   onPick(cell: BlockCell | null): void;
   onSelect(box: CellBox | null): void;
   onHover(at: Cell3 | null, cell: BlockCell | null): void;
+  /** Navigate: a click on a block (its cell and what it holds; null: on no block). */
+  onPickCell(at: Cell3 | null, cell: BlockCell | null): void;
   /** A stroke was stored. */
   onCommitted(entityId: string, edits: readonly BlockEdit[]): void;
 }
