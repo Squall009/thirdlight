@@ -113,7 +113,7 @@ import { makePng } from './png-make';
 import { stripPatchCentre, TEST_TRIM_CELL, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
-import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openWindow } from './ui';
+import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openPanel, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
@@ -541,9 +541,11 @@ async function styledArchitecture(page: Page, trimId: string): Promise<void> {
   await expect.poll(async () => new Set((await architectureMarks(page)).ready.map((r) => (r as { object?: string }).object)).size, { timeout: 30_000 }).toBeGreaterThanOrEqual(2);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${room}"]`).click();
   await enterEditMode(page, 'Edit in block editor');
-  const column = editMode(page).getByLabel('block rooms');
-  await column.getByLabel('room room', { exact: true }).click();
-  const picked = column.getByLabel('room room inspector');
+  // Picked from the Rooms panel's list (collapsed again after: it sits over the view), edited in the room's panel.
+  const list = await openPanel(page, 'rooms');
+  await list.getByLabel('room room', { exact: true }).click();
+  await list.locator('.tl-dpanel__head').click();
+  const picked = editMode(page).getByLabel('room room inspector');
   await picked.getByRole('button', { name: 'Preset sliders', exact: true }).click();
   const slider = picked.getByLabel('ceiling_height slider');
   await expect(slider).toBeVisible();

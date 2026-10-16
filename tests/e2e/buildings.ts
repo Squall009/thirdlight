@@ -10,7 +10,8 @@
  * red row. Drawn by clicking the footprint's six corners; a door and a
  * window on the ground storey and a window above it put on the front wall
  * with the Door and Window modes (the upper one from the slice a storey
- * up); the picked building's column sets two 3 m storeys, the roof's rise and
+ * up); on entering, the editor's panel layout is the one the rooms' drawing left (the Rooms list top left)
+ * and Reset layout puts it back; the picked building's panel sets two 3 m storeys, the roof's rise and
  * slot, takes the panes out of the windows, makes a new interior scene and
  * moves the interior 100 m along x. A fixed camera in the interior scene
  * looks at the front wall from inside. A script loads the interior scene
@@ -24,7 +25,7 @@
 import { expect, type Page } from './pw';
 
 import { aimCorner, frameOn, screen } from './rooms-drawing';
-import { armTile, editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
+import { armTile, editMode, editModeTab, editPanel, enterBlockEditor, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -149,8 +150,15 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
     await blocks.getByLabel('slice level', { exact: true }).press('Enter');
   };
   await slice(1);
-  const rooms = blocks.getByLabel('block rooms');
-  await expect(rooms).toBeVisible();
+  await expect(blocks.getByLabel('block rooms')).toBeVisible();
+  // The column and the panels over the view.
+  const rooms = blocks;
+  // The panel layout is the editor's, kept after leaving it: the Rooms list where the rooms' drawing dragged it (on
+  // another layer); Reset layout puts it back top right, collapsed.
+  await expect(editPanel(page, 'rooms')).toHaveAttribute('data-dock', 'tl');
+  await blocks.getByRole('group', { name: 'panels layout' }).getByRole('button', { name: 'Reset layout' }).click();
+  await expect(editPanel(page, 'rooms')).toHaveAttribute('data-dock', 'tr');
+  await expect(editPanel(page, 'rooms')).toHaveAttribute('data-open', 'false');
   await frameOn(page, [[218, 0, -45], [230, 0, -45], [218, 0, -33], [230, 0, -33], [219, 3, -34]]);
   const tool = (name: string): Promise<void> => armTile(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }));
   const roomsObject = async (): Promise<{ id: string; buildings: Building[] } | null> => {
@@ -186,6 +194,8 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   await expect.poll(async () => (await house())?.storeys, { timeout: 15_000 }).toBe(2);
   await setNum('storey height', '3');
   await expect.poll(async () => (await house())?.storeyHeight, { timeout: 15_000 }).toBe(3);
+  const shots = process.env['TL_SHOTS'];
+  if (shots !== undefined) await page.screenshot({ path: `${shots}/building-panel.png` });
 
   // A door and a window on the front wall's ground storey, a window a storey up (from the slice there).
   await tool('Door');

@@ -409,6 +409,29 @@ const PATHS: Readonly<Record<string, JSX.Element>> = {
       <path d="M4 15v4h16v-4" />
     </>
   ),
+  chevron: <path d="M7 9l5 5 5-5" />,
+  grip: (
+    <g fill="currentColor" stroke="none">
+      <circle cx="9" cy="6" r="1.2" />
+      <circle cx="15" cy="6" r="1.2" />
+      <circle cx="9" cy="12" r="1.2" />
+      <circle cx="15" cy="12" r="1.2" />
+      <circle cx="9" cy="18" r="1.2" />
+      <circle cx="15" cy="18" r="1.2" />
+    </g>
+  ),
+  reset: (
+    <>
+      <path d="M4 12a8 8 0 1 0 2.4-5.7" />
+      <path d="M4 4v4h4" />
+    </>
+  ),
+  panels: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M14 4v16M14 10h7" />
+    </>
+  ),
 };
 
 /** A glyph by name (an unknown name draws an empty box of the same size). */

@@ -27,8 +27,11 @@ const root = process.cwd();
 
 /** Emit dist/editor/index.html (static authoring page; loads ./main.js). */
 function emitEditorPage() {
+  // The base stylesheet, then each area's own (packages/editor/src/styles/*.css, by name), so no one file grows past reading.
   const cssPath = join(root, 'packages/editor/src/editor.css');
-  const css = existsSync(cssPath) ? readFileSync(cssPath, 'utf8') : '';
+  const stylesDir = join(root, 'packages/editor/src/styles');
+  const areaSheets = existsSync(stylesDir) ? readdirSync(stylesDir).filter((n) => n.endsWith('.css')).sort().map((n) => join(stylesDir, n)) : [];
+  const css = [cssPath, ...areaSheets].filter((p) => existsSync(p)).map((p) => readFileSync(p, 'utf8')).join('\n');
   const html =
     '<!doctype html>\n<html>\n  <head>\n' +
     '    <meta charset="utf-8" />\n' +

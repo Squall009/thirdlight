@@ -24,7 +24,7 @@ import { architectureStylesOf, expandArchitecture, facingDir, type ArchitectureC
 
 import { expect, type Page } from './pw';
 import { multiPieceGlb } from './multi-piece-glb';
-import { editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
+import { editMode, editModeTab, enterBlockEditor, leaveEditMode, openPanel } from './ui';
 import { ENTER_KEY } from './buildings';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -105,13 +105,12 @@ export async function makeFloorPlans(page: Page, cmd: Cmd, query: Query, publish
     return e.components.architecture.buildings[0];
   };
 
-  // ---- The block editor's Rooms & buildings, the building picked in its list.
+  // ---- The block editor's Rooms & buildings, the building picked in the Rooms panel's list.
   await enterBlockEditor(page, layer);
   const blocks = editMode(page);
   await editModeTab(page, 'Rooms & buildings');
-  const rooms = blocks.getByLabel('block rooms');
-  await rooms.getByLabel('building plan-house', { exact: true }).click();
-  const panel = rooms.getByLabel('building plan-house floor plan');
+  await (await openPanel(page, 'rooms')).getByLabel('building plan-house', { exact: true }).click();
+  const panel = blocks.getByLabel('building plan-house floor plan');
   await expect(panel).toBeVisible();
   await panel.getByLabel('room program', { exact: true }).selectOption('e2e-program');
   await expect.poll(async () => (await house())?.program, { timeout: 15_000 }).toBe('e2e-program');

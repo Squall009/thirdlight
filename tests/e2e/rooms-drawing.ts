@@ -11,8 +11,10 @@
  * into the back room; a fence path (posts and a rail, blue) drawn with the
  * Path mode in front of them, below the sight lines. Selecting: with Rect armed a click (no drag) on a room
  * selects it and draws nothing, Esc lets it go, a second Esc drops the tool; with no tool (Navigate) the room
- * under the pointer is outlined and named, a click selects it, and Space arms Rect again. The picked room's
- * column edits the door; Move
+ * under the pointer is outlined and named, a click selects it, and Space arms Rect again. Panels: the
+ * Rooms list collapses and opens by its title bar (a click, Enter) and is dragged to the top left (kept there
+ * for the building's editor, which resets the layout); a press, drag or wheel on a panel never reaches the tool
+ * or the view. The picked room's panel edits the door; Move
  * walls drags the back room's back wall three cells in and back two (the Scene view
  * regenerates only that room's chunks while dragging), then the front room's east wall a cell in and the
  * wall the rooms share (now only partly) a cell back and both back again: the openings on the other
@@ -29,7 +31,7 @@ import { join } from 'node:path';
 
 import { expect, type Locator, type Page } from './pw';
 
-import { armTile, editMode, editModeTab, enterBlockEditor, leaveEditMode } from './ui';
+import { armTile, editMode, editModeTab, editPanel, enterBlockEditor, leaveEditMode, openPanel } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -181,8 +183,9 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await editModeTab(page, 'Rooms & buildings');
   await blocks.getByLabel('slice level', { exact: true }).fill('1');
   await blocks.getByLabel('slice level', { exact: true }).press('Enter');
-  const rooms = blocks.getByLabel('block rooms');
-  await expect(rooms).toBeVisible();
+  await expect(blocks.getByLabel('block rooms')).toBeVisible();
+  // The column and the panels over the view (the Rooms list, the picked room's properties).
+  const rooms = blocks;
   await frameOn(page, [[182, 0, -42], [193, 0, -42], [182, 0, -30], [193, 0, -30], [192, 3, -34]]);
   const tool = (name: string): Promise<void> => armTile(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name, exact: true }));
   type Opening = { id: string; at: number; top: number; bottom: number; width: number; model?: { assetId: string } };
@@ -257,6 +260,50 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect(view(page)).toHaveAttribute('data-block-tool', 'room');
   await expect(rooms.getByRole('toolbar', { name: 'room tool' }).getByRole('button', { name: 'Rect', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
+  // Docked panels: the picked room's on the right edge, the Rooms list (its count on the title bar) top right. A click
+  // on a title bar collapses or opens the panel, so does Enter on a focused one; a drag of it moves the panel to the
+  // dock under the pointer, the drop targets showing.
+  const listPanel = editPanel(page, 'rooms');
+  const listHead = listPanel.locator('.tl-dpanel__head');
+  await expect(editPanel(page, 'selection')).toHaveAttribute('data-dock', 'r');
+  await expect(editPanel(page, 'selection')).toHaveAttribute('aria-label', 'Room “room-2” panel');
+  await expect(listPanel).toHaveAttribute('data-dock', 'tr');
+  await expect(listPanel.locator('.tl-dpanel__badge')).toHaveText('2');
+  const wasOpen = (await listPanel.getAttribute('data-open')) === 'true';
+  await listHead.click();
+  await expect(listPanel).toHaveAttribute('data-open', String(!wasOpen));
+  await listHead.focus();
+  await page.keyboard.press('Enter');
+  await expect(listPanel).toHaveAttribute('data-open', String(wasOpen));
+  await openPanel(page, 'rooms');
+  await expect(rooms.getByLabel('room room-1', { exact: true })).toBeVisible();
+  const vb = (await view(page).boundingBox())!;
+  const hb = (await listHead.boundingBox())!;
+  await page.mouse.move(hb.x + 80, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(vb.x + 140, vb.y + 150, { steps: 6 });
+  await expect(blocks.locator('[data-drop="tl"]')).toHaveClass(/is-hot/);
+  if (process.env['TL_SHOTS'] !== undefined) await page.screenshot({ path: `${process.env['TL_SHOTS']}/panel-drag.png` });
+  await page.mouse.up();
+  await expect(listPanel).toHaveAttribute('data-dock', 'tl');
+  await expect(blocks.getByLabel('drop targets')).toHaveCount(0);
+  // The panels take the pointer and the wheel: a press, drag and wheel on one never reach the armed Rect or the view.
+  await page.evaluate(() => {
+    const w = window as unknown as { __tlViewInput: number };
+    w.__tlViewInput = 0;
+    for (const t of ['pointerdown', 'wheel']) document.querySelector('canvas.tl-viewport')!.addEventListener(t, () => (w.__tlViewInput += 1), true);
+  });
+  const sb = (await editPanel(page, 'selection').boundingBox())!;
+  await page.mouse.move(sb.x + 4, sb.y + 60);
+  await page.mouse.down();
+  await page.mouse.move(sb.x - 60, sb.y + 120, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move(sb.x + 4, sb.y + 60);
+  await page.mouse.wheel(0, 200);
+  expect(await page.evaluate(() => (window as unknown as { __tlViewInput: number }).__tlViewInput), 'a press or wheel on a panel reaches the view').toBe(0);
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-2');
+  expect((await roomsObject())?.architecture.outlines?.length, 'a drag on a panel draws nothing').toBe(2);
+
   // Presets in use: Room A swapped for Room B on every room (the outlines kept), one undo takes it back.
   const swap = rooms.getByLabel('swap presets');
   await swap.getByLabel('rooms wearing').selectOption('e2e-room-a');
@@ -267,6 +314,9 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   expect(JSON.stringify((await roomsObject())?.architecture.outlines?.map((o) => o.path.points))).toBe(pointsBefore);
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-a', 'room-2:e2e-room-b']);
+  // Collapsed to its title bar, the list leaves the view to the tools (buildings.ts finds it still top left).
+  await listHead.click();
+  await expect(listPanel).toHaveAttribute('data-open', 'false');
   await tool('Arch');
   const arch = (await screen(page, [190, 0, -34]))!;
   await page.mouse.click(arch.x, arch.y);
@@ -291,7 +341,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   const f1 = await aimCorner(page, [193, 0, -30], corner(193, -30));
   await page.mouse.dblclick(f1.x, f1.y);
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => o.id), { timeout: 15_000 }).toEqual(['room-1', 'room-2', 'run-1']);
-  await expect(rooms.getByLabel('room run-1', { exact: true })).toBeVisible();
+  await expect(listPanel.locator('.tl-dpanel__badge')).toHaveText('3');
 
   // Move walls: drag the back room's back wall a cell in; the Scene view makes only that object again while dragging.
   await tool('Move walls');
@@ -428,9 +478,10 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
     // Closer, for a picture: the west walls filling the view.
     await frameOn(page, [[182, 0, -42], [182, 3.2, -42], [182, 0, -34], [182, 3.2, -34]]);
     await page.screenshot({ path: `${shots}/rooms-kit-pieces.png` });
-    await rooms.getByLabel('room room-2', { exact: true }).click();
+    await (await openPanel(page, 'rooms')).getByLabel('room room-2', { exact: true }).click();
     await rooms.getByLabel('room room-2 inspector').getByLabel('openings').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${shots}/rooms-kit-column.png` });
+    await listHead.click();
   }
   await orbit(230, 40);
   if (shots === undefined) await expect.poll(viewProj).toBe(viewBefore);
@@ -449,7 +500,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect(view(page)).toHaveAttribute('data-room-spot', /^room-3-.*:seg\d$/);
   await page.mouse.click(w3.x, w3.y);
   await expect.poll(async () => (await roomsObject())?.architecture.overrides?.filter((o) => o.element.startsWith('room-3-')).length, { timeout: 15_000 }).toBe(1);
-  await rooms.getByLabel('room room-3', { exact: true }).click();
+  await (await openPanel(page, 'rooms')).getByLabel('room room-3', { exact: true }).click();
   await rooms.getByLabel('delete room-3', { exact: true }).click();
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => o.id), { timeout: 15_000 }).toEqual(['room-1', 'room-2', 'run-1']);
   expect((await roomsObject())?.architecture.overrides?.map((o) => o.element.startsWith('room-1-'))).toEqual([true]);

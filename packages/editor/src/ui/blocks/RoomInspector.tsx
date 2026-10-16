@@ -1,6 +1,6 @@
 /**
- * The room, run or building picked in Rooms & buildings, edited in the
- * column: its presets (inside, outside or facade) with their sliders and
+ * The room, run or building picked in Rooms & buildings, edited in its
+ * panel over the view (titled `roomTitle`): its presets (inside, outside or facade) with their sliders and
  * Derive, its storeys, its openings (where each stands and how big, a pane,
  * the kit piece that stands in it, a live door block of the layer), the
  * kit pieces on its walls' segments and corners, a run's repeated piece
@@ -51,6 +51,11 @@ export interface RoomInspectorProps {
 
 const NO_PIECE = '';
 
+/** The picked outline's kind and name ("Building “b1”"), the title of the panel that edits it. */
+export function roomTitle(component: ArchitectureComponent | null, room: ArchitectureOutline): string {
+  return `${isBuilding(component, room.id) ? 'Building' : room.path.closed === true ? 'Room' : 'Path'} “${room.id}”`;
+}
+
 export function RoomInspector(p: RoomInspectorProps): JSX.Element {
   const { s, b, room } = p;
   const building = isBuilding(b.component, room.id) ? (room as ArchitectureBuilding) : null;
@@ -97,7 +102,7 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
   const presetIds = [...new Set([room.preset, ...(room.outside !== undefined ? [room.outside] : [])])];
   return (
     <div className="tl-rooms__inspector" aria-label={`${kind} ${room.id} inspector`}>
-      <Section title={`${kind === 'building' ? 'Building' : kind === 'room' ? 'Room' : 'Path'} “${room.id}”`} aside={<span className="tl-sec__note">{room.path.points.length} corners</span>}>
+      <div className="tl-dpanel__pad" role="group" aria-label={`${kind} ${room.id} properties`}>
         <Pick label={closed ? 'inside preset' : 'preset'} value={room.preset} options={b.presets} onCommit={(v) => set({ ...room, preset: v }, 'Room preset')} />
         {closed && (
           <Pick
@@ -150,7 +155,7 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
         <button type="button" className="tl-btn tl-btn--small tl-btn--danger" aria-label={`delete ${room.id}`} onClick={() => set(null, kind === 'building' ? 'Delete building' : kind === 'room' ? 'Delete room' : 'Delete path')}>
           Delete {kind}
         </button>
-      </Section>
+      </div>
       <Section title="Preset sliders" open={false} aside={<span className="tl-sec__note">{presetIds.length}</span>}>
         {presetIds.map((id) => (
           <PresetSliders key={id} presetId={id} {...p.presets} objectSheet={p.objectSheet} onDerive={p.onDerive} />

@@ -11,12 +11,15 @@
  *   and the pieces of its slots that Door, Window, Wall piece and Corner
  *   piece put: a door or window piece takes the hole its size needs, from
  *   its slot's sill (`KIT_STANDARD_SLOTS`).
- * - **Rooms**: the list; the picked one is edited below it
- *   (`RoomInspector`). A room, building or path is also picked in the view:
- *   with no tool a click selects it, and with a drawing tool a click on it
- *   (no drag) does; it is outlined there, and Esc lets it go.
- * - **Presets in use**: every room wearing one preset swapped to another,
- *   the outlines kept (`PresetSwap`).
+ *
+ * Two docked panels over the view (`EditPanels`):
+ * - **Rooms** (top right, collapsed): the list, and Presets in use — every
+ *   room wearing one preset swapped to another, the outlines kept
+ *   (`PresetSwap`). The view is where rooms are mostly picked: with no tool
+ *   a click selects one, and with a drawing tool a click on it (no drag)
+ *   does; it is outlined there, and Esc lets it go.
+ * - **The picked room, building or path** (right edge, while one is picked):
+ *   its properties (`RoomInspector`).
  *
  * Browser-only (React).
  */
@@ -32,13 +35,14 @@ import { PresetSwap } from '../architecture/PresetSwap';
 import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { SliderField } from '../brush/SliderField';
 import { Section } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import { useEditSelection } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
 import { LayerSection, SliceField, toolKeysHint } from './BuildColumn';
-import { RoomInspector, type RoomPieces } from './RoomInspector';
+import { RoomInspector, roomTitle, type RoomPieces } from './RoomInspector';
 import { Pick } from './RoomFields';
 
 /** The pieces' sizes (metres across, up, deep) the kit's check read from their files, by model key. */
@@ -113,7 +117,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   const room = outlines.find((o) => o.id === s.state.room) ?? null;
   useEffect(() => editor?.rooms.setSelected(room?.id ?? null), [editor, room?.id]);
   useEffect(() => () => editor?.rooms.setSelected(null), [editor]);
-  useEditSelection(room === null ? null : `${isBuilding(b?.component ?? null, room.id) ? 'Building' : room.path.closed === true ? 'Room' : 'Path'} “${room.id}”`, () => s.set({ room: null }), room?.id);
+  useEditSelection(room === null ? null : roomTitle(b?.component ?? null, room), () => s.set({ room: null }), room?.id);
   const drawing = tile.id === 'polygon' || tile.id === 'path' || tile.id === 'building';
   const needsPiece = (tile.id === 'piece' && opts.wallModel === null) || (tile.id === 'corner' && opts.cornerModel === null);
   useEditStatus({
@@ -185,38 +189,62 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
           </>
         )}
       </Section>
+      <LayerSection s={s} />
       {b !== undefined && (
-        <Section title="Rooms" aside={<span className="tl-sec__note">{outlines.length}</span>}>
-          <div className="tl-rooms__list" aria-label="rooms">
-            {outlines.length === 0 && <p className="tl-note">No rooms yet: draw one on the slice's floor.</p>}
-            {outlines.map((o) => (
-              <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === room?.id ? ' is-active' : ''}`} aria-label={`${isBuilding(b.component, o.id) ? 'building' : 'room'} ${o.id}`} aria-pressed={o.id === room?.id} onClick={() => s.set({ room: o.id })}>
-                {o.id}
-                {o.path.closed === true ? '' : ' (path)'}
-              </button>
-            ))}
-          </div>
-        </Section>
-      )}
-      {b !== undefined && outlines.length > 0 && (
-        <Section title="Presets in use">
-          <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
-        </Section>
-      )}
-      {b !== undefined && room !== null && (
-        <RoomInspector
-          s={s}
-          b={b}
-          room={room}
-          pieces={pieces}
-          presets={s.blocks.presets}
-          objectSheet={objectSheet}
-          edgeTypes={s.blocks.types.filter((t) => t.placement === 'edge')}
-          onDerive={(base) => void s.blocks.grouped((g) => b.derive(base, g.clientRef))}
-          onPick={(id) => s.set({ room: id })}
+        <EditPanels
+          panels={[
+            {
+              id: 'rooms',
+              title: 'Rooms',
+              dock: 'tr',
+              collapsed: true,
+              badge: outlines.length,
+              render: () => (
+                <>
+                  <Section title="List">
+                    <div className="tl-rooms__list" aria-label="rooms">
+                      {outlines.length === 0 && <p className="tl-note">No rooms yet: draw one on the slice's floor.</p>}
+                      {outlines.map((o) => (
+                        <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === room?.id ? ' is-active' : ''}`} aria-label={`${isBuilding(b.component, o.id) ? 'building' : 'room'} ${o.id}`} aria-pressed={o.id === room?.id} onClick={() => s.set({ room: o.id })}>
+                          {o.id}
+                          {o.path.closed === true ? '' : ' (path)'}
+                        </button>
+                      ))}
+                    </div>
+                  </Section>
+                  {outlines.length > 0 && (
+                    <Section title="Presets in use">
+                      <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
+                    </Section>
+                  )}
+                </>
+              ),
+            },
+            {
+              id: 'selection',
+              title: room === null ? '' : roomTitle(b.component, room),
+              dock: 'r',
+              shown: room !== null,
+              selection: true,
+              ...(room !== null ? { badge: `${room.path.points.length} corners` } : {}),
+              render: () =>
+                room !== null && (
+                  <RoomInspector
+                    s={s}
+                    b={b}
+                    room={room}
+                    pieces={pieces}
+                    presets={s.blocks.presets}
+                    objectSheet={objectSheet}
+                    edgeTypes={s.blocks.types.filter((t) => t.placement === 'edge')}
+                    onDerive={(base) => void s.blocks.grouped((g) => b.derive(base, g.clientRef))}
+                    onPick={(id) => s.set({ room: id })}
+                  />
+                ),
+            },
+          ]}
         />
       )}
-      <LayerSection s={s} />
     </div>
   );
 }

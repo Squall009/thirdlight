@@ -434,6 +434,19 @@ export async function armTile(tile: Locator): Promise<void> {
   await expect(tile).toHaveAttribute('aria-pressed', 'true');
 }
 
+/** A docked panel of the open edit mode, by its id ("rooms", "selection"). */
+export function editPanel(page: Page, id: string): Locator {
+  return editMode(page).locator(`[data-panel="${id}"]`);
+}
+
+/** Open a docked panel (a click on its title bar) unless it is open; panels remember their state, so it may be. */
+export async function openPanel(page: Page, id: string): Promise<Locator> {
+  const panel = editPanel(page, id);
+  if ((await panel.getAttribute('data-open')) !== 'true') await panel.locator('.tl-dpanel__head').click();
+  await expect(panel).toHaveAttribute('data-open', 'true');
+  return panel;
+}
+
 /** Show a mode of the open edit mode's rail ("Sculpt", "Material rules"). */
 export async function editModeTab(page: Page, name: string): Promise<void> {
   const tab = editMode(page).getByRole('tablist', { name: 'editor modes' }).getByRole('tab', { name, exact: true });

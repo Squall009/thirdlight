@@ -18,6 +18,10 @@
  * arms the last tool, C toggles Context, Home frames the object,
  * Shift+number picks a mode; other keys go to the mode's Scene-view tools.
  *
+ * A mode's column may declare docked panels over the view (`docks.tsx`):
+ * the settings of what is picked, collapsible and movable between the
+ * view's edges and corners, their layout remembered per editor.
+ *
  * Every editor opens in Navigate: no tool armed, a drag orbits and a click
  * selects (`edit-tool.tsx` holds that state for every editor alike). The
  * status line starts with the tool, or "Navigate", and says what Esc does
@@ -33,6 +37,7 @@ import type { Viewport } from '../../viewport/viewport';
 import { iconSrc, iconTitle, objectIconFor, type IconKind, type IconTable } from '../../viewport/icons';
 import type { SceneViewLending } from '../shell/useSceneViewLending';
 import { isTyping } from '../workspace/EditorWindow';
+import { DockLayer, DockProvider, PanelsChip, useDockHost } from './docks';
 import { EditModeHeader } from './EditModeHeader';
 import { EditStatusContext, type EditStatus } from './edit-status';
 import { EditToolContext, useEditToolHost } from './edit-tool';
@@ -92,6 +97,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const wide = useWideWindow();
   const railNow = state === null || kind === undefined ? undefined : (kind.rail.find((r) => r.id === state.mode) ?? kind.rail[0]);
   const tool = useEditToolHost(state?.armed ?? false, p.mode.setArmed, railNow?.navigate ?? NAVIGATE_HINT);
+  const docks = useDockHost(kind?.kind ?? '');
   /** A mode shows (its section is there). */
   const open = state !== null;
   const latest = useRef({ p, tool });
@@ -248,13 +254,15 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         escLeaves={escLeaves}
       />
       <EditToolContext.Provider value={tool.api}>
+      <DockProvider host={docks}>
       <div className="tl-editmode__body">
         <ToolRail items={kind.rail} active={rail.id} onPick={p.mode.setMode} />
         <div className="tl-editmode__view">
           {/* Empty for React: the Scene view's canvas is put here (and taken back) by the editor. */}
           <div className="tl-editmode__canvas" ref={viewHost} />
-          {scene ? <ViewportChrome objectName={name} context chip={kind.chip} extra={kind.viewExtra?.(sceneView)} /> : <ViewportChrome objectName={name} context={state.context} extra={kind.viewExtra?.({ entity: entity!, mode: rail.id, host: p.host })} />}
+          {scene ? <ViewportChrome objectName={name} context chip={kind.chip} extra={kind.viewExtra?.(sceneView)} panels={<PanelsChip host={docks} />} /> : <ViewportChrome objectName={name} context={state.context} extra={kind.viewExtra?.({ entity: entity!, mode: rail.id, host: p.host })} panels={<PanelsChip host={docks} />} />}
           {scene && kind.drawer?.(sceneView)}
+          <DockLayer host={docks} />
           {p.notice !== null && (
             <div className="tl-notice" role="alert">
               <span>{p.notice}</span>
@@ -282,6 +290,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
           </aside>
         )}
       </div>
+      </DockProvider>
       </EditToolContext.Provider>
       <StatusHints tool={navigate ? 'Navigate' : (status?.tool ?? rail.label)} text={hintText} keys={navigate ? [...shared, ...ownKeys] : [...ownKeys, ...shared]} {...(status?.right !== undefined ? { right: status.right } : {})} />
     </section>

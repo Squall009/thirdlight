@@ -23,7 +23,11 @@ selection as before. The Scene view shows only the layer and the rooms
 drawn on it; **Context** (C) shows the rest of the scene, not pickable.
 The rail on the left holds the modes (Shift+1 … Shift+6), the column on the
 right the mode's tools and settings, the line at the bottom the tool, what
-to do and its keys.
+to do and its keys. Some settings are panels over the view (Rooms &
+buildings: the Rooms list and the picked room's properties): a click on a
+panel's title bar collapses or opens it, dragging the title bar moves it
+to another edge or corner of the view, and the view's **Panels** chip hides
+them all or resets their layout (kept per editor, in this browser).
 
 ## The modes
 

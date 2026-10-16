@@ -222,7 +222,8 @@ its regions, its wall paint shows on their faces.
   bottom centre; `stretch` off keeps its own length). A path's **repeated
   piece** (the *railing* slot) is `outline.repeatModel`: the style's
   repeats place it instead of their own piece.
-- **The picked room** (in the list, or with Move walls): its inside
+- **The picked room** (a click on it in the view, the Rooms panel's list,
+  or Move walls), edited in its panel over the view: its inside
   **preset**, an **outside preset** (dresses the walls' outer faces in its
   wall's inside rows and runs its trims — not its walls or fills — along
   the stretches no other room shares), **storeys** and **storey height**

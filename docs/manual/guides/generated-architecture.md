@@ -52,8 +52,11 @@ object itself shows **Edit in block editor**, which opens the same place.
    generated wall. Ctrl+click takes it off.
 5. **Move walls** (M) drags a straight wall by whole cells (a wall two rooms
    share moves with both); a click picks the room.
-6. **Rooms** lists every room, path and building; the picked one is edited
-   below it: its inside and outside (or facade) presets, **Preset sliders**
+6. A click on a room, path or building picks it (with no tool, or a click
+   without a drag with a drawing tool); the **Rooms** panel over the view
+   (top right, collapsed to its title bar until you click it) lists them all
+   too. The picked one is edited in its own panel on the view's right edge:
+   its inside and outside (or facade) presets, **Preset sliders**
    (a starter's are read-only: **Derive a preset** makes a project preset
    from it and moves the rooms onto it; a slider tied to a trim row offers
    **Snap to row**), storeys, its openings (where each stands, its size, a
@@ -65,7 +68,7 @@ object itself shows **Edit in block editor**, which opens the same place.
    window's **create** menu → **Graph**. A preset opened there shows its
    sliders in the Inspector.
 
-8. **Presets in use** swaps one preset for another on every room, path and
+8. **Presets in use** (in the Rooms panel) swaps one preset for another on every room, path and
    building at once (**rooms wearing** → **wear instead** → **Swap**): the
    outlines, openings and pieces stay, the look changes — the trim sheet a
    preset names comes with it. To swap the sheet under a whole kit instead,

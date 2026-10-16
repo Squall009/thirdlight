@@ -142,6 +142,7 @@ manual → acceptance.
 | 37.0 | Done 2026-10-16: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 is out, the pinned 0.20.0 stays (nothing here needs it). §2 recon is at `8cde51d2`, current. |
 | 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); the owner approved it 2026-10-16. |
 | 37.2 | Done 2026-10-16: one Navigate state in the shell (`editmode/edit-tool.tsx`) for all four editors — Navigate tile, click-select with hover (rooms/buildings/paths outlined, blocks, decals, stamps, tiles), Space, the SPEC's Esc order with Done's badge dimming, a click on a room with a drawing tool selects it; vitest for the keys, Esc order and the room pick. E2E (2 workers, last full gate → this fast gate): block-editor 7.4 → 8.4 s, editor-window 11.3 → 10.8, terrain-paint 11.0 → 10.9, terrain-brushes 5.3 → 4.7, layered-material 52.1 → 50.2, instance-brush 31.7 → 31.2, level-acceptance 28.2 → 25.5, terrain-cdlod 3.4 → 3.2 min (net −17 s); village perf in its limits. |
+| 37.3 | Done 2026-10-16: one docked-panel component in the shell (`editmode/docks.tsx`, maths and memory in `session/dock-layout.ts`, CSS in `styles/docks.css`): 8 docks, stacking, title click / Enter collapse, title drag with drop targets (Esc cancels), Panels switch + Reset layout chip, layout per editor in browser storage; Rooms & buildings moved onto it (Rooms list top right collapsed, the picked room's properties right edge). Vitest 7 checks; e2e steps in the rooms helpers: layered-material 50.2 → 49.7 s (block-editor untouched; one Make-it-paintable undo poll failed once and passed on rerun); village perf in its limits. |
 
 ## 6. Decision log
 
@@ -193,3 +194,22 @@ manual → acceptance.
     reached by Tab keeps its Space;
   - Enter and Backspace now reach the Rooms tool (they were never routed);
     `setBlockToolsActive` (no callers) is removed.
+
+- 2026-10-16 (37.3): Docked panels. Defaults chosen, owner to confirm:
+  - a mode's column declares its panels (`EditPanels`: id, title, default
+    dock, collapsed, badge, shown-when, render), not the mode registry: the
+    content needs the column's state, so it renders in the column and is
+    put into the panel's body (it keeps its state when the panel moves);
+    a collapsed panel keeps its content mounted;
+  - the layout stores only what the user changed (dock, open, order per
+    panel id) under `thirdlight.docks.<editor>` in the browser; an unknown
+    or stale entry falls back to the mode's default; the picked room's
+    panel has the id `selection`, so the block editor's other selection
+    panels (37.4) share its place;
+  - the view's chip has a **Panels** switch (hides every panel, remembered)
+    and **Reset layout** (disabled while nothing differs from the
+    defaults); the drag ghost shows the title bar, not a copy of the
+    content;
+  - panel stylesheets go in `packages/editor/src/styles/*.css`, inlined
+    after `editor.css` by the build;
+  - Rooms & buildings' Layer section stays in the column until 37.4.
