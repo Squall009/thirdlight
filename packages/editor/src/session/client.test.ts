@@ -12,12 +12,17 @@ function fakeBackend(refuse: ReadonlySet<string> = new Set()) {
   let revision = 1;
   const stored: string[] = [];
   const groups: { requestIds: string[]; origin: unknown }[] = [];
+  /** Every request in the order the backend took it (a command's tag or op, `group`). */
+  const log: string[] = [];
   const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetchStub = vi.fn(async (url: string, init: { body?: string }) => {
     await new Promise((r) => setTimeout(r, 1));
     const body = JSON.parse(init.body ?? '{}') as Record<string, unknown>;
     if (url.endsWith('/history/group')) {
+      // The join is slower than a command here, as when the backend is busy: an undo sent meanwhile would overtake it.
+      await new Promise((r) => setTimeout(r, 20));
       groups.push(body as { requestIds: string[]; origin: unknown });
+      log.push('group');
       return reply(200, { ok: true, grouped: (body['requestIds'] as unknown[]).length });
     }
     const env = body as { op: string; requestId: string; args: { value?: { tag?: string } } };
@@ -25,9 +30,10 @@ function fakeBackend(refuse: ReadonlySet<string> = new Set()) {
     if (refuse.has(tag)) return reply(400, { ok: false, error: { code: 'invalid_args', cls: 'validation', message: 'no' } });
     revision += 1;
     stored.push(tag);
+    log.push(tag);
     return reply(200, { ok: true, op: env.op, requestId: env.requestId, revision, duplicated: false, change: null });
   });
-  return { fetchStub, groups, stored };
+  return { fetchStub, groups, stored, log };
 }
 
 function makeClient(): SessionClient {
@@ -98,5 +104,23 @@ describe('SessionClient.grouped', () => {
     expect(be.groups).toHaveLength(2);
     const all = be.groups.flatMap((x) => x.requestIds);
     expect(new Set(all).size).toBe(4);
+  });
+
+  it('an undo asked while an action is still being made one step waits for it, so it takes back the whole action', async () => {
+    const be = fakeBackend();
+    vi.stubGlobal('fetch', be.fetchStub);
+    const c = makeClient();
+    let lastStored: () => void = () => undefined;
+    const stored = new Promise<void>((r) => (lastStored = r));
+    const action = c.grouped(async (g) => {
+      await edit(g, 'a');
+      await edit(g, 'b');
+      lastStored();
+    });
+    // The action's last command is stored; the request joining its commands is not sent yet.
+    await stored;
+    const undo = c.command('undo', {}, c.projection.revision);
+    await Promise.all([action, undo]);
+    expect(be.log).toEqual(['a', 'b', 'group', 'undo']);
   });
 });

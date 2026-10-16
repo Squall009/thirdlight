@@ -166,4 +166,54 @@ describe('material library', () => {
     expect(sampled(a)).toEqual([texB.source]);
     expect(copyADisposed).toBe(1);
   });
+
+  it("a texture still loading is drawn as the host's stand-ins, each better one in turn, then as itself; each stand-in is let go", async () => {
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const final = new THREE.Texture();
+    const first = new THREE.Texture();
+    const better = new THREE.Texture();
+    const late = new THREE.Texture();
+    let arrive: (t: THREE.Texture) => void = () => undefined;
+    let show: (t: THREE.Texture) => void = () => undefined;
+    const asked: string[] = [];
+    const lib = createMaterialLibrary({
+      loadTexture: () => new Promise((r) => (arrive = r)),
+      // The stand-in is asked for before the texture itself, once.
+      previewTexture: (id, s) => {
+        asked.push(id);
+        show = s;
+        return first;
+      },
+    });
+    const graph = {
+      nodes: [
+        { id: 'out', type: 'unlit', position: [400, 0] as [number, number] },
+        { id: 'read', type: 'sampleTexture', position: [200, 0] as [number, number], data: { texture: 'tex-slow' } },
+      ],
+      edges: [{ id: 'e', from: { node: 'read', port: 'rgb' }, to: { node: 'out', port: 'color' } }],
+    };
+    lib.setMaterials([{ materialId: 'mat-slow', name: 'Slow', shader: 'standard', params: {}, textures: {}, graph }]);
+    const o = model();
+    lib.apply(o, { '*': 'mat-slow' });
+    const sampled = (): unknown[] => (((mats(o)[0]!.userData[SAMPLED_TEXTURES_KEY] as THREE.Texture[] | undefined) ?? []).map((t) => t.source));
+    const disposed = new Set<THREE.Texture>();
+    for (const t of [first, better, late]) t.addEventListener('dispose', () => void disposed.add(t));
+    // Drawn as the first stand-in at once (not the absent value's white).
+    expect(sampled()).toEqual([first.source]);
+    expect(asked).toEqual(['tex-slow']);
+    show(better);
+    await tick();
+    expect(sampled()).toEqual([better.source]);
+    expect(disposed.has(first)).toBe(true);
+    arrive(final);
+    await tick();
+    await tick();
+    expect(sampled()).toEqual([final.source]);
+    expect(disposed.has(better)).toBe(true);
+    // A stand-in shown after the texture arrived is let go at once.
+    show(late);
+    expect(disposed.has(late)).toBe(true);
+    expect(sampled()).toEqual([final.source]);
+    expect(asked).toEqual(['tex-slow']);
+  });
 });

@@ -115,3 +115,22 @@ export function composePageRgba(size: number, layer: ComposeLayer, images: reado
   }
   return out;
 }
+
+/**
+ * A page's layout on a page `k` times its side (k < 1: a preview): each
+ * rectangle and its padded box scaled, the destination kept at least a
+ * pixel, so every decal still shows; the sources' regions are unchanged.
+ */
+export function scaleComposeLayer(layer: ComposeLayer, k: number): ComposeLayer {
+  const at = (v: number): number => Math.floor(v * k);
+  return {
+    fill: layer.fill,
+    place: layer.place.map((p) => {
+      const x = at(p.dst[0]);
+      const y = at(p.dst[1]);
+      const w = Math.max(1, at(p.dst[0] + p.dst[2]) - x);
+      const h = Math.max(1, at(p.dst[1] + p.dst[3]) - y);
+      return { ...p, dst: [x, y, w, h] as const, pad: [Math.min(x, at(p.pad[0])), Math.min(y, at(p.pad[1])), Math.max(x + w, Math.ceil(p.pad[2] * k)), Math.max(y + h, Math.ceil(p.pad[3] * k))] as const };
+    }),
+  };
+}

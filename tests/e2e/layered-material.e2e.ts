@@ -119,7 +119,7 @@ import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
 import { consoleErrors, refusedObjects } from './console-errors';
-import { expectLayeredWall, fmtLayeredWall, makeLayeredWall } from './layered-walls-scene';
+import { expectLayeredWall, fmtLayeredWall, holdSlotArrays, makeLayeredWall } from './layered-walls-scene';
 import { gpuAvailable } from './browser-env.mjs';
 import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
 
@@ -858,8 +858,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const decalCount = decalSetup.decals - 1 + 2;
   const clippedCount = decalSetup.clipped - 1 + 1;
   // A generated wall wearing the layered surface: two trim sheets, moss and rust, painted, and wetness (layered-walls-scene.ts).
+  // Its slot arrays held back from the start, as a large sheet's encode would: the wall shows their stand-ins, never white.
+  const heldArrays = await holdSlotArrays(page);
   const layeredWall = await makeLayeredWall(page, be!, cmd, trimId);
-  const wallReading = await expectLayeredWall(page, sceneView, layeredWall.wallId, keep, `${variant} Scene view`);
+  const wallReading = await expectLayeredWall(page, sceneView, layeredWall.wallId, keep, `${variant} Scene view`, heldArrays);
   console.log(`layered wall ${variant} Scene view: ${fmtLayeredWall(wallReading)}`);
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));

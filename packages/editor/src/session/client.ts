@@ -79,6 +79,9 @@ export class SessionClient extends SessionClientCore {
   async grouped<T>(action: (scope: SessionClient) => Promise<T>): Promise<T> {
     const ids: string[] = [];
     const scope = this.commandScope(ids);
+    let done: () => void = () => undefined;
+    const step = new Promise<void>((r) => (done = r));
+    this.groupsUnderWay.add(step);
     try {
       return await action(scope);
     } finally {
@@ -89,7 +92,24 @@ export class SessionClient extends SessionClientCore {
           // Not grouped (someone else's command ran between them): each stays its own undo step.
         }
       }
+      this.groupsUnderWay.delete(step);
+      done();
     }
+  }
+
+  /**
+   * The grouped actions not finished yet, the request that makes their
+   * commands one step included. An undo or redo waits for them: sent in
+   * between, it would take back only the action's last command (its step
+   * not joined yet), leaving the rest.
+   */
+  private readonly groupsUnderWay = new Set<Promise<void>>();
+
+  override command(op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> {
+    if ((op !== 'undo' && op !== 'redo') || this.groupsUnderWay.size === 0) return super.command(op, args, expectedRevision, requestId, origin);
+    const waiting = [...this.groupsUnderWay];
+    // The view it was asked on is behind by the action's own commands only: sent against the revision after them.
+    return Promise.allSettled(waiting).then(() => super.command(op, args, this.projection.revision, requestId, origin));
   }
 
   /** The client as one `grouped` action sees it: its stored commands' request ids go to `ids`, in the order they were stored. */
@@ -943,6 +963,41 @@ export class SessionClient extends SessionClientCore {
       if (!res.ok) throw { status: res.status, body: null };
       return new Uint8Array(await res.arrayBuffer());
     });
+  }
+
+  /**
+   * The slot array at a preview size, made on the backend ahead of the other encodes (never stored), for a view to
+   * draw while the array itself is made. Null: the array is made already (ask for it), or no preview could be made.
+   */
+  async textureSlotPreviewBytes(layers: readonly string[], mode: string, height = false): Promise<Uint8Array | null> {
+    try {
+      const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/textures/slots`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'application/json' },
+        body: JSON.stringify({ layers, mode, ...(height ? { height: true } : {}), preview: true }),
+      });
+      if (res.status !== 200) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Each slot layer's mean colour (RGBA 0–255) the backend reads ahead of the array's encode, and whether the array
+   * itself is made already. Null on a failure.
+   */
+  async textureSlotBase(layers: readonly string[], mode: string, height = false): Promise<{ base: readonly (readonly number[])[]; final: boolean } | null> {
+    try {
+      const r = await this.request<{ ok: true; base: number[][]; final: boolean }>(`/projects/${this.cfg.projectId}/content/textures/slot-base`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ layers, mode, ...(height ? { height: true } : {}) }),
+      });
+      return { base: r.base, final: r.final };
+    } catch {
+      return null;
+    }
   }
 
   /**

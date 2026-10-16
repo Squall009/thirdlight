@@ -15,7 +15,7 @@
  * the trim sheet test's sun and ambient, shows each place in its layer's
  * colour and the wet place as the clean one, darker.
  */
-import { expect, type Locator, type Page } from './pw';
+import { expect, type Locator, type Page, type Route } from './pw';
 
 import type { E2EBackend } from './backend';
 import { materials, publishTexture } from './painted-layers';
@@ -132,8 +132,59 @@ export async function makeLayeredWall(page: Page, be: E2EBackend, cmd: Cmd, trim
   return { wallId, materialId };
 }
 
-/** The Scene view on the wall (focused, then framed), until its picture shows every layer. */
-export async function expectLayeredWall(page: Page, view: Locator, wallId: string, keep: (name: string, png: Buffer) => void, label: string): Promise<LayeredWallReading> {
+/** The slot arrays the editor asks the backend for and their stand-ins, held back until let go. */
+export interface SlotArrayHold {
+  /** Let the layers' mean colours through (`…/textures/slot-base`). */
+  releaseBase(): Promise<void>;
+  /** Let everything through: the previews and the arrays. */
+  release(): Promise<void>;
+}
+
+/**
+ * Hold every slot array request the page makes (`…/content/textures/slots`,
+ * its previews too, and `…/slot-base`), as when the backend is busy with a
+ * large sheet's encode: what the view draws meanwhile is the stand-in it has
+ * without asking.
+ */
+export async function holdSlotArrays(page: Page): Promise<SlotArrayHold> {
+  const held: { route: Route; base: boolean }[] = [];
+  let passBase = false;
+  let passAll = false;
+  const matcher = /\/content\/textures\/(slots|slot-base)$/;
+  await page.route(matcher, async (route) => {
+    const base = route.request().url().endsWith('/slot-base');
+    if (passAll || (base && passBase)) return route.continue();
+    held.push({ route, base });
+  });
+  const pass = async (which: (h: { base: boolean }) => boolean): Promise<void> => {
+    for (const h of held.filter(which)) {
+      held.splice(held.indexOf(h), 1);
+      await h.route.continue();
+    }
+  };
+  return {
+    async releaseBase() {
+      passBase = true;
+      await pass((h) => h.base);
+    },
+    async release() {
+      passAll = true;
+      await pass(() => true);
+      await page.unroute(matcher);
+    },
+  };
+}
+
+/** White as a read sees it (an untextured colour read): every channel near full. */
+const isWhite = (c: Rgb): boolean => c.every((v) => v > 235);
+
+/**
+ * The Scene view on the wall (focused, then framed), until its picture shows every layer.
+ * `held`: the slot arrays are held back (`holdSlotArrays`): first, while they are, the wall
+ * shows its layers' stand-ins — never white, the solid layers (trim B, moss, rust) already
+ * in their colours — then they are let go.
+ */
+export async function expectLayeredWall(page: Page, view: Locator, wallId: string, keep: (name: string, png: Buffer) => void, label: string, held?: SlotArrayHold): Promise<LayeredWallReading> {
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${wallId}"]`).click();
   const box = (await view.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -152,23 +203,56 @@ export async function expectLayeredWall(page: Page, view: Locator, wallId: strin
   await frameOn(page, [placeAt(0), placeAt(WALL_LENGTH), [WALL_AT[0], WALL_HEIGHT, WALL_AT[2]], [WALL_AT[0] + WALL_LENGTH, WALL_HEIGHT, WALL_AT[2]]]);
   let reading: LayeredWallReading | null = null;
   let png: Buffer | null = null;
+  const read = async (): Promise<LayeredWallReading> => {
+    const project = await sceneViewProjector(view);
+    png = await view.screenshot();
+    const img: Image = decodePng(png);
+    return judgeLayeredWall((p) => {
+      const s = project(p);
+      if (s === null) return [0, 0, 0];
+      const sum = [0, 0, 0];
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const [r, g, b] = img.pixel(Math.round(s.x) + dx, Math.round(s.y) + dy);
+        sum[0] += r;
+        sum[1] += g;
+        sum[2] += b;
+      }
+      return sum.map((v) => v / 25) as [number, number, number];
+    });
+  };
+  if (held !== undefined) {
+    // Every picture while the arrays are held is judged: no place of the wall is white.
+    const seen: LayeredWallReading[] = [];
+    const stage = async (what: string, until: (r: LayeredWallReading) => boolean): Promise<void> => {
+      await expect
+        .poll(async () => {
+          const r = await read();
+          seen.push(r);
+          return until(r);
+        }, { timeout: 15_000, intervals: [200], message: `the layered wall's stand-ins: ${what} (${label})` })
+        .toBe(true)
+        .catch((e: unknown) => {
+          if (png !== null) keep('layered-wall-stand-ins-failed', png);
+          if (seen.length > 0) console.log(`layered wall ${label} ${what} (failed): ${fmtLayeredWall(seen[seen.length - 1]!)}`);
+          throw e;
+        });
+      console.log(`layered wall ${label} stand-ins, ${what} (${seen.length} pictures so far): ${fmtLayeredWall(seen[seen.length - 1]!)}`);
+    };
+    // Nothing answered yet: the view's own stand-in, a grey (no mean known) on every place, lit.
+    const grey = (c: Rgb): boolean => lum(c) > 60 && Math.max(...c) - Math.min(...c) < 25;
+    await stage('nothing answered (grey)', (r) => Object.values(r.colours).every(grey));
+    if (png !== null) keep('layered-wall-stand-ins-grey', png);
+    // The layers' means answered: the solid layers (trim B, moss, rust) in their colours, the arrays still held.
+    await held.releaseBase();
+    await stage('the layers\' mean colours', (r) => !r.bad.includes('trimB') && !r.bad.includes('moss') && !r.bad.includes('rust'));
+    if (png !== null) keep('layered-wall-stand-ins-means', png);
+    const white = seen.flatMap((r, i) => Object.entries(r.colours).filter(([, c]) => isWhite(c)).map(([k]) => `${k} in picture ${i + 1}`));
+    expect(white, 'no place of the layered wall is white while its arrays are made').toEqual([]);
+    await held.release();
+  }
   await expect
     .poll(async () => {
-      const project = await sceneViewProjector(view);
-      png = await view.screenshot();
-      const img: Image = decodePng(png);
-      reading = judgeLayeredWall((p) => {
-        const s = project(p);
-        if (s === null) return [0, 0, 0];
-        const sum = [0, 0, 0];
-        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-          const [r, g, b] = img.pixel(Math.round(s.x) + dx, Math.round(s.y) + dy);
-          sum[0] += r;
-          sum[1] += g;
-          sum[2] += b;
-        }
-        return sum.map((v) => v / 25) as [number, number, number];
-      });
+      reading = await read();
       return reading.ok;
     }, { timeout: 45_000, intervals: [500], message: `the layered wall (${label})` })
     .toBe(true)

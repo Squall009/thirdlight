@@ -39,7 +39,7 @@ import { Worker } from 'node:worker_threads';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import * as ktx2Encoder from 'ktx2-encoder';
 
-import { composePageRgba, type ComposeLayer } from './decal-page-compose';
+import { composePageRgba, scaleComposeLayer, type ComposeLayer } from './decal-page-compose';
 import { brightnessHeight } from './height-pixels';
 import { decodeImage, sourceFormat, type DecodedImage } from './image-decode';
 import { makeImageThumbnail } from './image-thumbnail';
@@ -93,8 +93,8 @@ export interface TextureEncoder {
    * the pack route use.
    */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort): Promise<Ktx2PackResult>;
-  /** A decal page of side `size` composed of rectangles of the sources, one UASTC layer (`composeKtx2`). */
-  compose(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[]): Promise<Ktx2ComposeResult>;
+  /** A decal page of side `size` composed of rectangles of the sources, one UASTC layer (`composeKtx2`; 'preview': smaller, sooner). */
+  compose(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort): Promise<Ktx2ComposeResult>;
   /** An image's pixels (PNG, JPEG, WebP, or a single-image KTX2 transcoded: its top level) as 8-bit RGBA, at most `maxPixels`. */
   decode(bytes: Uint8Array, maxPixels: number): Promise<TextureDecodeResult>;
   dispose?(): void;
@@ -295,7 +295,12 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     } else if (img.width !== width || img.height !== height) {
       return { ok: false, code: 'texture_encode_unsupported', message: `every source of a packed texture has one size: source ${i + 1} is ${img.width}×${img.height}, another ${width}×${height}` };
     }
-    images.set(i, img);
+    images.set(i, effort === 'preview' ? shrinkRgba(img, SLOT_PREVIEW_SIDE) : img);
+  }
+  if (effort === 'preview') {
+    const first = images.values().next().value!;
+    width = first.width;
+    height = first.height;
   }
   const n = width * height;
   // A source's brightness height, made once however many layers read it.
@@ -358,10 +363,11 @@ async function encodeSlices(slices: readonly Uint8Array[], width: number, height
       // ETC1S: the same quality as a colour import; UASTC: Zstandard supercompression.
       if (!uastc) enc.setQualityLevel(128);
       else enc.setKTX2UASTCSupercompression(true);
-      if (effort === 'assembled') {
-        if (uastc) enc.setPackUASTCFlags?.(ASSEMBLED_UASTC_LEVEL);
-        else if (enc.setETC1SCompressionLevel !== undefined) enc.setETC1SCompressionLevel(ASSEMBLED_ETC1S_LEVEL);
-        else enc.setCompressionLevel?.(ASSEMBLED_ETC1S_LEVEL);
+      if (effort !== undefined) {
+        const level = uastc ? (effort === 'preview' ? PREVIEW_UASTC_LEVEL : ASSEMBLED_UASTC_LEVEL) : effort === 'preview' ? PREVIEW_ETC1S_LEVEL : ASSEMBLED_ETC1S_LEVEL;
+        if (uastc) enc.setPackUASTCFlags?.(level);
+        else if (enc.setETC1SCompressionLevel !== undefined) enc.setETC1SCompressionLevel(level);
+        else enc.setCompressionLevel?.(level);
       }
       enc.setPerceptual(colour);
       enc.setTexType(slices.length > 1 ? BASIS_TEX_2D_ARRAY : BASIS_TEX_2D);
@@ -402,8 +408,75 @@ export const ASSEMBLED_UASTC_LEVEL = 1;
  * against 3.1 s at 38.51 dB (level 0: 1.2 s at 37.59 dB).
  */
 export const ASSEMBLED_ETC1S_LEVEL = 1;
-/** 'assembled': the efforts above, for what the backend assembles on request. */
-export type EncodeEffort = 'assembled';
+/**
+ * A preview's efforts: Basis Universal's fastest levels. A preview is drawn
+ * for the seconds its final encode takes and never stored, so its quality
+ * matters less than its time.
+ */
+export const PREVIEW_UASTC_LEVEL = 0;
+export const PREVIEW_ETC1S_LEVEL = 0;
+/**
+ * The longest side of a slot array's preview (`effort` 'preview'). Its encode
+ * costs about (side / source side)² of the final's: 2 × 2048² ETC1S takes
+ * ~27 s, 2 × 256² well under a second, which is how soon a layer's texture
+ * shows after it is picked.
+ */
+export const SLOT_PREVIEW_SIDE = 256;
+/**
+ * How much smaller a decal page's preview is than the page (a side divided
+ * by this). A cold atlas of a hundred 512² pages composes in seconds at this
+ * size; the final pages follow in the background.
+ */
+export const DECAL_PREVIEW_DIVISOR = 4;
+/**
+ * 'assembled': the efforts above, for what the backend assembles on request;
+ * 'preview': the fastest efforts at a reduced size (`SLOT_PREVIEW_SIDE`,
+ * `DECAL_PREVIEW_DIVISOR`), shown until the assembled one arrives.
+ */
+export type EncodeEffort = 'assembled' | 'preview';
+
+/** A decal page's preview side (`DECAL_PREVIEW_DIVISOR`; at least 4, a compressed block). */
+export const decalPreviewSide = (size: number): number => Math.max(4, Math.floor(size / DECAL_PREVIEW_DIVISOR));
+
+/**
+ * An image shrunk by a whole factor (a box filter) so its longest side is at
+ * most `maxSide`; as it is when it already fits.
+ */
+export function shrinkRgba(img: DecodedImage, maxSide: number): DecodedImage {
+  const f = Math.ceil(Math.max(img.width, img.height) / Math.max(1, maxSide));
+  if (f <= 1) return img;
+  const w = Math.max(1, Math.floor(img.width / f));
+  const h = Math.max(1, Math.floor(img.height / f));
+  const out = new Uint8Array(w * h * 4);
+  const src = img.data;
+  const sw = img.width;
+  const fx = Math.min(f, img.width);
+  const fy = Math.min(f, img.height);
+  const area = fx * fy;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      for (let dy = 0; dy < fy; dy++) {
+        let o = ((y * fy + dy) * sw + x * fx) * 4;
+        for (let dx = 0; dx < fx; dx++, o += 4) {
+          r += src[o]!;
+          g += src[o + 1]!;
+          b += src[o + 2]!;
+          a += src[o + 3]!;
+        }
+      }
+      const t = (y * w + x) * 4;
+      out[t] = Math.round(r / area);
+      out[t + 1] = Math.round(g / area);
+      out[t + 2] = Math.round(b / area);
+      out[t + 3] = Math.round(a / area);
+    }
+  }
+  return { width: w, height: h, data: out };
+}
 
 /** A composed decal page: the KTX2 of one layer, and whether a source's texels were transcoded out of a lossy KTX2. */
 export type Ktx2ComposeResult = { ok: true; ktx2: Uint8Array; reencoded: boolean } | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
@@ -414,7 +487,7 @@ export type Ktx2ComposeResult = { ok: true; ktx2: Uint8Array; reencoded: boolean
  * one array without re-encoding) of side `size`. A KTX2 source is
  * transcoded, or its lossless original (`lossless[i]`) read instead.
  */
-export async function composeKtx2(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = []): Promise<Ktx2ComposeResult> {
+export async function composeKtx2(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = [], effort: EncodeEffort = 'assembled'): Promise<Ktx2ComposeResult> {
   if (!Number.isInteger(size) || size < 1 || size * size > KTX2_SOURCE_PIXELS_MAX) return { ok: false, code: 'texture_encode_unsupported', message: `a composed decal page is at most ${KTX2_SOURCE_PIXELS_MAX} pixels (${size}² asked)` };
   const used = new Set<number>();
   for (const p of layer.place) for (const c of p.channels) if ('source' in c) used.add(c.source);
@@ -436,13 +509,15 @@ export async function composeKtx2(sources: readonly Uint8Array[], layer: Compose
       return { ok: false, code: 'texture_encode_failed', message: `source ${i + 1} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
+  // A preview page is composed at its own smaller size (its rectangles scaled), not shrunk from a full one.
+  const side = effort === 'preview' ? decalPreviewSide(size) : size;
   let pixels: Uint8Array;
   try {
-    pixels = composePageRgba(size, layer, images);
+    pixels = composePageRgba(side, side === size ? layer : scaleComposeLayer(layer, side / size), images);
   } catch (e) {
     return { ok: false, code: 'texture_encode_unsupported', message: e instanceof Error ? e.message : String(e) };
   }
-  const encoded = await encodeSlices([pixels], size, size, mode, true, 'assembled');
+  const encoded = await encodeSlices([pixels], side, side, mode, true, effort);
   return encoded.ok ? { ok: true, ktx2: encoded.ktx2, reencoded } : encoded;
 }
 
@@ -451,7 +526,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { parallelism: 1, encode: encodeKtx2, pack: (sources, layers, mode, lossless, effort) => packKtx2(sources, layers, mode, lossless, effort), compose: (sources, layer, size, mode, lossless) => composeKtx2(sources, layer, size, mode, lossless), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
+  return { parallelism: 1, encode: encodeKtx2, pack: (sources, layers, mode, lossless, effort) => packKtx2(sources, layers, mode, lossless, effort), compose: (sources, layer, size, mode, lossless, effort) => composeKtx2(sources, layer, size, mode, lossless, effort), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
 }
 
 /**
@@ -503,6 +578,7 @@ interface WorkerJob {
   readonly message: unknown;
   readonly transfer: ArrayBuffer[];
   readonly done: (r: WorkerAnswer) => void;
+  readonly urgent: boolean;
 }
 interface PoolWorker {
   readonly worker: Worker;
@@ -581,10 +657,16 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     pool.push(p);
     return p;
   };
-  const run = (message: Record<string, unknown>, transfer: ArrayBuffer[]): Promise<WorkerAnswer> =>
+  /** `urgent`: ahead of every job not urgent (a preview or a decode a view waits on), behind the urgent ones already waiting. */
+  const run = (message: Record<string, unknown>, transfer: ArrayBuffer[], urgent = false): Promise<WorkerAnswer> =>
     new Promise((done) => {
       const id = next++;
-      queue.push({ id, message: { id, ...message }, transfer, done });
+      const job: WorkerJob = { id, message: { id, ...message }, transfer, done, urgent };
+      if (!urgent) queue.push(job);
+      else {
+        const at = queue.findIndex((j) => !j.urgent);
+        queue.splice(at < 0 ? queue.length : at, 0, job);
+      }
       pump();
     });
   /** Copies of the job's bytes, moved to the worker (the caller keeps its own). */
@@ -607,12 +689,12 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     async pack(sources, layers, mode, lossless = [], effort) {
       const s = copied(sources);
       const l = copied(lossless);
-      return (await run({ pack: { sources: s.copies, layers, lossless: l.copies, ...(effort !== undefined ? { effort } : {}) }, mode }, [...s.moved, ...l.moved])) as Ktx2PackResult;
+      return (await run({ pack: { sources: s.copies, layers, lossless: l.copies, ...(effort !== undefined ? { effort } : {}) }, mode }, [...s.moved, ...l.moved], effort === 'preview')) as Ktx2PackResult;
     },
-    async compose(sources, layer, size, mode, lossless = []) {
+    async compose(sources, layer, size, mode, lossless = [], effort) {
       const s = copied(sources);
       const l = copied(lossless);
-      return (await run({ compose: { sources: s.copies, layer, size, lossless: l.copies }, mode }, [...s.moved, ...l.moved])) as Ktx2ComposeResult;
+      return (await run({ compose: { sources: s.copies, layer, size, lossless: l.copies, ...(effort !== undefined ? { effort } : {}) }, mode }, [...s.moved, ...l.moved], effort === 'preview')) as Ktx2ComposeResult;
     },
     async thumbnail(bytes) {
       const { copies, moved } = copied([bytes]);
@@ -621,7 +703,8 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     },
     async decode(bytes, maxPixels) {
       const { copies, moved } = copied([bytes]);
-      const r = await run({ decode: { bytes: copies[0], maxPixels } }, moved);
+      // A decode is what a view's stand-in (a texture's mean colour) and every slot array's height check wait on.
+      const r = await run({ decode: { bytes: copies[0], maxPixels } }, moved, true);
       // A stopped worker answers the encoder's failure shape: its message is the reason.
       return 'width' in r || ('ok' in r && r.ok === false) ? (r as TextureDecodeResult) : { ok: false, message: 'the decoder answered something else' };
     },

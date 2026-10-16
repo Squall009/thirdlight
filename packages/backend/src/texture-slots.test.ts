@@ -26,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { encodeRgbaPng } from './image-thumbnail';
 import { ktx2LevelData, readKtx2 } from './ktx2-container';
-import { createInlineTextureEncoder, encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
+import { createInlineTextureEncoder, encodeKtx2, packKtx2, SLOT_PREVIEW_SIDE, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
 import { createTextureSlotAssembler, type SlotLayer } from './texture-slots';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
@@ -269,4 +269,36 @@ describe('per-layer texture slots: Play and export arrays', () => {
     for (const id of [tiling, trim]) expect(content.assets.some((a) => a.assetId === id)).toBe(true);
     expect(m.graph!.nodes.some((n) => n.type === 'parameter' && n.data?.['key'] === trimKey)).toBe(true);
   }, 180_000);
+
+  it("a view's stand-ins while an array is made: each layer's mean colour, then the array at a preview size; neither is stored as the array", async () => {
+    // Half white, half black: its colour mean is half the light (188 in sRGB), its plain mean half the values (128).
+    const side = 512;
+    const halves = new Uint8Array(side * side * 4).map((_, i) => (i % 4 === 3 ? 255 : (i >> 2) % side < side / 2 ? 255 : 0));
+    mkdirSync(game('assets', 'big'), { recursive: true });
+    writeFileSync(game('assets', 'big', 'halves.png'), encodeRgbaPng(halves, side, side));
+    await command('importAssets', { folder: 'assets/big' });
+    const assets = (tb.backend._test.service.query({ op: 'queryAssets', projectId: PID, args: { limit: 50, offset: 0 } }) as unknown as { assets: { assetId: string; displayName: string }[] }).assets;
+    const big = assets.find((a) => a.displayName === 'halves')!.assetId;
+    const post = (route: string, body: Record<string, unknown>) => fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/textures/${route}`, { method: 'POST', headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const layers = [big, '#3366ccff'];
+    // Base colours: the texture's mean (its opaque A is no height, so a brightness height's middle) and the constant layer's own.
+    const base = await post('slot-base', { layers, mode: 'color', height: true });
+    expect(base.status).toBe(200);
+    expect(await base.json()).toEqual({ ok: true, base: [[188, 188, 188, 128], [0x33, 0x66, 0xcc, 0xff]], final: false });
+    expect(((await (await post('slot-base', { layers, mode: 'data' })).json()) as { base: unknown[] }).base[0]).toEqual([128, 128, 128, 255]);
+    // The preview: the layers at the preview side, nothing stored.
+    const before = cachedArrays().length;
+    const preview = await post('slots', { layers, mode: 'color', height: true, preview: true });
+    expect([preview.status, preview.headers.get('x-thirdlight-preview')]).toEqual([200, '1']);
+    const small = readKtx2(new Uint8Array(await preview.arrayBuffer()))!;
+    expect([small.width, small.height, small.layerCount]).toEqual([SLOT_PREVIEW_SIDE, SLOT_PREVIEW_SIDE, 2]);
+    expect(cachedArrays()).toHaveLength(before);
+    // The array itself, stored; then a preview is not made (204) and the base says the array is there.
+    const final = await post('slots', { layers, mode: 'color', height: true });
+    expect(final.status).toBe(200);
+    expect(readKtx2(new Uint8Array(await final.arrayBuffer()))!.width).toBe(side);
+    expect(cachedArrays()).toHaveLength(before + 1);
+    expect((await post('slots', { layers, mode: 'color', height: true, preview: true })).status).toBe(204);
+    expect(((await (await post('slot-base', { layers, mode: 'color', height: true })).json()) as { final: boolean }).final).toBe(true);
+  }, 120_000);
 });

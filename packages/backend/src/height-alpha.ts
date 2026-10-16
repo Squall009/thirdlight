@@ -21,7 +21,11 @@
  * one is proven (`losslessOriginal`), else the KTX2's top level transcoded.
  * Results are kept per file digest in memory and as a marker in the
  * project's import cache, so a restart does not decode them again.
+ *
+ * The same decode gives the texture's mean colour (`texture-mean.ts`), kept
+ * the same way: a view draws a layer in it while the layer's array encodes.
  */
+import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { MaterialDef } from '@thirdlight/project-model';
@@ -33,6 +37,7 @@ import type { ImportKey, WorkspaceService } from '@thirdlight/workspace';
 import { FLAT_ALPHA_SPREAD, heightAlphaOf, type HeightAlpha } from './height-pixels';
 import { readKtx2 } from './ktx2-container';
 import { KTX2_SOURCE_PIXELS_MAX, type TextureEncoder } from './texture-encode';
+import { meanOfRgba, type TextureMean } from './texture-mean';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** The import cache's marker of a checked file (found = this is its result). */
@@ -40,6 +45,10 @@ const MARKER_IMPORTER = 'height-alpha';
 // Raised whenever the rule in `heightAlphaOf` changes, so files checked under the old one are checked again.
 const MARKER_VERSION = '2';
 const markerKey = (digest: string, result: HeightAlpha): ImportKey => ({ sourceDigest: digest, importer: MARKER_IMPORTER, importerVersion: MARKER_VERSION, settings: { result, flatSpread: FLAT_ALPHA_SPREAD } });
+/** The import cache's record of a file's mean colour (its 8 bytes: `srgb` then `plain`). */
+const MEAN_IMPORTER = 'texture-mean';
+const MEAN_VERSION = '1';
+const meanKey = (digest: string): ImportKey => ({ sourceDigest: digest, importer: MEAN_IMPORTER, importerVersion: MEAN_VERSION, settings: {} });
 /** Results kept in memory (one per file digest; the oldest go first). */
 const RESULTS_MAX = 4096;
 
@@ -52,42 +61,71 @@ export interface HeightAlphaChecks {
   ofFile(projectId: string, digest: string, bytes: Uint8Array, lossless: Uint8Array | null): Promise<HeightAlpha | null>;
   /** A texture asset's current version's alpha (null: no such texture, an array, or unreadable). */
   ofTexture(projectId: string, assetId: string): Promise<HeightAlpha | null>;
+  /** A texture file's mean colour, as `ofFile` finds its alpha (null: it cannot be decoded). */
+  meanOfFile(projectId: string, digest: string, bytes: Uint8Array, lossless: Uint8Array | null): Promise<TextureMean | null>;
 }
 
 export function createHeightAlphaChecks(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined }): HeightAlphaChecks {
   const results = new Map<string, HeightAlpha>();
-  const running = new Map<string, Promise<HeightAlpha | null>>();
-  const remember = (digest: string, r: HeightAlpha): void => {
-    if (results.size >= RESULTS_MAX) results.delete(results.keys().next().value as string);
-    results.set(digest, r);
+  const means = new Map<string, TextureMean>();
+  const running = new Map<string, Promise<{ alpha: HeightAlpha; mean: TextureMean } | null>>();
+  const remember = <T>(map: Map<string, T>, digest: string, r: T): void => {
+    if (map.size >= RESULTS_MAX) map.delete(map.keys().next().value as string);
+    map.set(digest, r);
   };
-  const ofFile: HeightAlphaChecks['ofFile'] = (projectId, digest, bytes, lossless) => {
-    const known = results.get(digest);
-    if (known !== undefined) return Promise.resolve(known);
-    for (const r of ['height', 'flat'] as const) {
-      if (deps.service.locateImportedArtifact(projectId, markerKey(digest, r)) !== null) {
-        remember(digest, r);
-        return Promise.resolve(r);
-      }
-    }
+  /** One decode for both facts (a second asker while it runs shares it). */
+  const decodeFacts = (projectId: string, digest: string, bytes: Uint8Array, lossless: Uint8Array | null): Promise<{ alpha: HeightAlpha; mean: TextureMean } | null> => {
     const busy = running.get(digest);
     if (busy !== undefined) return busy;
     const encoder = deps.encoder;
     if (encoder === undefined) return Promise.resolve(null);
-    const run = (async (): Promise<HeightAlpha | null> => {
+    const run = (async (): Promise<{ alpha: HeightAlpha; mean: TextureMean } | null> => {
       const decoded = await encoder.decode(lossless ?? bytes, KTX2_SOURCE_PIXELS_MAX);
       if (!decoded.ok) return null;
-      const r = heightAlphaOf(decoded.data);
-      remember(digest, r);
-      // A marker only: its presence is the result (a failed write just means a decode after a restart).
-      deps.service.writeImportedArtifact(projectId, markerKey(digest, r), new Uint8Array([r === 'height' ? 1 : 0]));
-      return r;
+      const alpha = heightAlphaOf(decoded.data);
+      const mean = meanOfRgba(decoded.data);
+      remember(results, digest, alpha);
+      remember(means, digest, mean);
+      // Markers: a failed write just means a decode after a restart.
+      deps.service.writeImportedArtifact(projectId, markerKey(digest, alpha), new Uint8Array([alpha === 'height' ? 1 : 0]));
+      deps.service.writeImportedArtifact(projectId, meanKey(digest), new Uint8Array([...mean.srgb, ...mean.plain]));
+      return { alpha, mean };
     })().finally(() => running.delete(digest));
     running.set(digest, run);
     return run;
   };
+  const ofFile: HeightAlphaChecks['ofFile'] = async (projectId, digest, bytes, lossless) => {
+    const known = results.get(digest);
+    if (known !== undefined) return known;
+    for (const r of ['height', 'flat'] as const) {
+      if (deps.service.locateImportedArtifact(projectId, markerKey(digest, r)) !== null) {
+        remember(results, digest, r);
+        return r;
+      }
+    }
+    return (await decodeFacts(projectId, digest, bytes, lossless))?.alpha ?? null;
+  };
+  const meanOfFile: HeightAlphaChecks['meanOfFile'] = async (projectId, digest, bytes, lossless) => {
+    const known = means.get(digest);
+    if (known !== undefined) return known;
+    const file = deps.service.locateImportedArtifact(projectId, meanKey(digest));
+    if (file !== null) {
+      try {
+        const b = readFileSync(file.real);
+        if (b.length === 8) {
+          const mean: TextureMean = { srgb: [b[0]!, b[1]!, b[2]!, b[3]!], plain: [b[4]!, b[5]!, b[6]!, b[7]!] };
+          remember(means, digest, mean);
+          return mean;
+        }
+      } catch {
+        // Unreadable: decoded again below.
+      }
+    }
+    return (await decodeFacts(projectId, digest, bytes, lossless))?.mean ?? null;
+  };
   return {
     ofFile,
+    meanOfFile,
     async ofTexture(projectId, assetId) {
       const v = textureVersionsOf(deps.service, projectId).get(assetId);
       if (v === undefined) return null;

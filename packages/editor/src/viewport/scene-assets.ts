@@ -15,6 +15,7 @@
  * session client's authenticated reads.
  */
 import * as THREE from 'three';
+import { parseFillLayer } from '@thirdlight/project-model/texture-slots';
 import { createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { createMaterialLibrary, decodeTexture, isKtx2, type MaterialLibrary, type SceneAdapterModelAsset, type SceneAdapterModels } from '@thirdlight/three-adapter';
 
@@ -40,6 +41,23 @@ export interface SceneViewAssets {
   dispose(): void;
 }
 
+/** A layer whose mean colour is not known yet: mid grey, its height in the middle. */
+const MEAN_UNKNOWN = [128, 128, 128, 128] as const;
+
+/** One texel per layer (RGBA 0–255): a slot array as its layers' mean colours. */
+function meanColourArray(colours: readonly (readonly number[])[]): THREE.DataArrayTexture {
+  const data = new Uint8Array(colours.length * 4);
+  colours.forEach((c, i) => data.set([c[0] ?? 0, c[1] ?? 0, c[2] ?? 0, c[3] ?? 255], i * 4));
+  const t = new THREE.DataArrayTexture(data, 1, 1, colours.length);
+  t.format = THREE.RGBAFormat;
+  t.type = THREE.UnsignedByteType;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+
 /** A copy of exactly these bytes (the adapter keeps what it is handed). */
 const ownBuffer = (b: ArrayBufferView): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
@@ -61,10 +79,56 @@ export function createSceneViewAssets(o: {
         report();
       }, 0),
   });
+  /** Slot arrays whose stand-ins are being asked for: the array itself is asked for once they are (their encodes queue first). */
+  const slotStandIns = new Map<string, Promise<void>>();
+  /** Each slot texture's mean colour as the backend answered it (by texture, version and how the array reads it). */
+  const means = new Map<string, readonly number[]>();
+  const meanKey = (id: string, mode: string, height: boolean): string => `${id}@${client.content.resolveVersion(id)?.version ?? 0}|${mode}|${height ? 'h' : ''}`;
+  /**
+   * A slot array's stand-ins while the backend makes it: for a colour array
+   * at once each layer's mean colour (a constant layer's own; one not known
+   * yet mid grey), then the means the backend reads, then the array at a
+   * preview size. Normal and data arrays only get the preview: what a graph
+   * reads without them (a flat normal, an unoccluded rough surface) is
+   * neutral already, where a colour's is plain white.
+   */
+  const previewTexture = (key: string, show: (t: THREE.Texture) => void): THREE.Texture | null => {
+    const slots = parseSlotTextureKey(key);
+    if (slots === null) return null;
+    const height = slots.height === true;
+    const colour = slots.mode === 'color';
+    const known = slots.layers.map((id) => parseFillLayer(id) ?? means.get(meanKey(id, slots.mode, height)) ?? null);
+    let previewShown = false;
+    const base = colour && known.some((c) => c === null)
+      ? client.textureSlotBase(slots.layers, slots.mode, height).then((b) => {
+          if (b === null) return;
+          b.base.forEach((c, i) => {
+            const id = slots.layers[i]!;
+            if (parseFillLayer(id) === null) means.set(meanKey(id, slots.mode, height), c);
+          });
+          if (!b.final && !previewShown) show(meanColourArray(b.base));
+        })
+      : Promise.resolve();
+    const preview = client.textureSlotPreviewBytes(slots.layers, slots.mode, height).then(async (bytes) => {
+      if (bytes === null) return;
+      const t = await decodeTexture(bytes);
+      previewShown = true;
+      show(t);
+    });
+    const settled = Promise.allSettled([base, preview]).then(() => undefined);
+    slotStandIns.set(key, settled);
+    void settled.then(() => {
+      if (slotStandIns.get(key) === settled) slotStandIns.delete(key);
+    });
+    return colour ? meanColourArray(known.map((c) => c ?? MEAN_UNKNOWN)) : null;
+  };
   const loadTexture = async (assetId: string): Promise<THREE.Texture | null> => {
-    // A material's per-layer slots: the array the backend assembles from them.
+    // A material's per-layer slots: the array the backend assembles from them (after its stand-ins were asked for).
     const slots = parseSlotTextureKey(assetId);
-    if (slots !== null) return decodeTexture(await client.textureSlotBytes(slots.layers, slots.mode, slots.height === true));
+    if (slots !== null) {
+      await slotStandIns.get(assetId);
+      return decodeTexture(await client.textureSlotBytes(slots.layers, slots.mode, slots.height === true));
+    }
     // A composed decal page array (the decal atlas's pages, as Play draws them).
     const page = parseDecalPageTextureKey(assetId);
     if (page !== null) return decodeTexture(await client.decalPageArrayBytes(page));
@@ -83,6 +147,7 @@ export function createSceneViewAssets(o: {
   // Project materials (shared by boxes, models and instance sets).
   const materialLibrary = createMaterialLibrary({
     loadTexture,
+    previewTexture,
     resources,
     onChange: () => {
       o.changed();

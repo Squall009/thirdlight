@@ -23,6 +23,11 @@
  * from its brightness in A; which layers did is part of the key, so the
  * array is made again once a texture with a real height takes the slot, and
  * an array whose layers all carry height is the plain array, joined as stored.
+ *
+ * While an array is made (seconds for large textures), a view draws a
+ * stand-in: first each layer's mean colour (`base`), then a small encode of
+ * the array (`preview`, ahead of the other encodes); neither is ever stored
+ * as the array.
  */
 import { createHash } from 'node:crypto';
 
@@ -60,9 +65,28 @@ export type SlotArrayResult =
     }
   | { ok: false; code: string; message: string };
 
+/** A preview of an array (`TextureSlotAssembler.preview`): its bytes, or that the array itself is made already. */
+export type SlotPreviewResult = { ok: true; final: true } | { ok: true; final: false; ktx2: Uint8Array; ms: number } | { ok: false; code: string; message: string };
+
+/** Each layer's mean colour (RGBA 0–255; `TextureSlotAssembler.base`), and whether the array itself is made already. */
+export type SlotBaseResult = { ok: true; base: [number, number, number, number][]; final: boolean } | { ok: false; code: string; message: string };
+
 export interface TextureSlotAssembler {
   /** `options.height`: a height array (a layer without a height in A gets one from its brightness). */
   assemble(projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode, options?: { readonly height?: boolean }): Promise<SlotArrayResult>;
+  /**
+   * The array at a preview size (`SLOT_PREVIEW_SIDE`, the fastest efforts),
+   * ahead of every encode not urgent: what a view draws for the seconds the
+   * array takes. Never stored: the cache only ever holds the array itself.
+   */
+  preview?(projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode, options?: { readonly height?: boolean }): Promise<SlotPreviewResult>;
+  /**
+   * Each layer's mean colour (a constant layer's own; a colour array's sRGB
+   * mean, another's plain one; a layer given a brightness height has A 128,
+   * that height's middle): what a view draws before even a preview arrives.
+   * One decode a texture, shared with the height check and kept.
+   */
+  base?(projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode, options?: { readonly height?: boolean }): Promise<SlotBaseResult>;
   /** Arrays assembled and found cached since start (the diagnostics and tests read them). */
   readonly stats: { assembled: number; cached: number };
   /** A build's decal pages as texture arrays (`decal-page-assembly.ts`). */
@@ -130,6 +154,20 @@ async function packLayerByLayer(encoder: TextureEncoder, resolved: ResolvedLayer
   return { ...joined, reencoded: done.map((r) => r.reencoded[0] === true), joined: done.every((r) => r.joined) };
 }
 
+/** Each layer as packed: the whole RGBA of its texture (A a brightness height where `derived`), or its constant (the size is the textures'). */
+function packLayersOf(resolved: ResolvedLayers, derived: readonly boolean[]): PackLayer[] {
+  return resolved.index.map((source, l) => {
+    const fill = resolved.fills[l];
+    if (fill !== null && fill !== undefined) return fill.map((value) => ({ value })) as unknown as PackLayer;
+    return (derived[l] === true ? [{ source, channel: 0 }, { source, channel: 1 }, { source, channel: 2 }, { source, height: true }] : [0, 1, 2, 3].map((channel) => ({ source, channel }))) as unknown as PackLayer;
+  });
+}
+
+/** A layer's mean when its texture cannot be decoded: mid grey, opaque. */
+const MEAN_UNKNOWN = [128, 128, 128, 255] as const;
+/** A brightness height's middle (`brightnessHeight` stretches every texture over 0–255). */
+const DERIVED_HEIGHT_MIDDLE = 128;
+
 export function createTextureSlotAssembler(deps: { service: WorkspaceService; encoder: TextureEncoder | undefined; now: () => number; heights?: HeightAlphaChecks }): TextureSlotAssembler {
   const stats = { assembled: 0, cached: 0 };
   /** The assemblies running now, by project and key: a second request waits for the first. */
@@ -191,12 +229,7 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
   const make = async (projectId: string, resolved: ResolvedLayers, mode: Ktx2Mode, key: ImportKey, t0: number, derived: readonly boolean[]): Promise<SlotArrayResult> => {
     const encoder = deps.encoder;
     if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
-    // Each layer is the whole RGBA of its texture, or its constant (the size is the textures').
-    const packLayers: PackLayer[] = resolved.index.map((source, l) => {
-      const fill = resolved.fills[l];
-      if (fill !== null && fill !== undefined) return fill.map((value) => ({ value })) as unknown as PackLayer;
-      return (derived[l] === true ? [{ source, channel: 0 }, { source, channel: 1 }, { source, channel: 2 }, { source, height: true }] : [0, 1, 2, 3].map((channel) => ({ source, channel }))) as unknown as PackLayer;
-    });
+    const packLayers = packLayersOf(resolved, derived);
     const packed = (await packLayerByLayer(encoder, resolved, packLayers, mode)) ?? (await encoder.pack(resolved.sources, packLayers, mode, resolved.lossless, 'assembled'));
     if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
@@ -207,19 +240,28 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
     return { ok: true, file, cached: false, joined: packed.joined, reencoded: packed.reencoded, ms: Math.round(deps.now() - t0), ...(derived.some(Boolean) ? { derivedHeight: [...derived] } : {}) };
   };
 
+  /** What every request reads first: the layers' files, which have no height, and the array's cache key. */
+  const prepare = async (projectId: string, layers: readonly SlotLayer[], mode: Ktx2Mode, options: { readonly height?: boolean } | undefined): Promise<{ resolved: ResolvedLayers; derived: boolean[]; key: ImportKey; found: BlobFile | null } | { ok: false; code: string; message: string }> => {
+    if (layers.length < 1) return { ok: false, code: 'field_value', message: 'an array needs at least one layer' };
+    if (layers.every((l) => parseFillLayer(l.assetId) !== null)) return { ok: false, code: 'field_value', message: 'an array needs at least one texture layer (its size)' };
+    // The originals and the layers without height are part of the key, so they are looked for before the cache.
+    const resolved = resolve(projectId, layers);
+    if ('ok' in resolved) return resolved;
+    const derived = options?.height === true ? await flatLayers(projectId, layers, resolved) : layers.map(() => false);
+    const key = slotArrayKey(layers, mode, resolved.originals, derived);
+    return { resolved, derived, key, found: deps.service.locateImportedArtifact(projectId, key) };
+  };
+  /** The previews being made, by project and array key (two views asking share one). */
+  const previews = new Map<string, Promise<SlotPreviewResult>>();
+
   return {
     stats,
     async assemble(projectId, layers, mode, options) {
-      if (layers.length < 1) return { ok: false, code: 'field_value', message: 'an array needs at least one layer' };
-      if (layers.every((l) => parseFillLayer(l.assetId) !== null)) return { ok: false, code: 'field_value', message: 'an array needs at least one texture layer (its size)' };
       const t0 = deps.now();
-      // The originals and the layers without height are part of the key, so they are looked for before the cache.
-      const resolved = resolve(projectId, layers);
-      if ('ok' in resolved) return resolved;
-      const derived = options?.height === true ? await flatLayers(projectId, layers, resolved) : layers.map(() => false);
+      const p = await prepare(projectId, layers, mode, options);
+      if ('ok' in p) return p;
+      const { resolved, derived, key, found } = p;
       const heights = derived.some(Boolean) ? { derivedHeight: derived } : {};
-      const key = slotArrayKey(layers, mode, resolved.originals, derived);
-      const found = deps.service.locateImportedArtifact(projectId, key);
       if (found !== null) {
         stats.cached += 1;
         return { ok: true, file: found, cached: true, ms: 0, ...heights };
@@ -230,6 +272,39 @@ export function createTextureSlotAssembler(deps: { service: WorkspaceService; en
       const run = make(projectId, resolved, mode, key, t0, derived).finally(() => running.delete(id));
       running.set(id, run);
       return run;
+    },
+    async preview(projectId, layers, mode, options) {
+      const t0 = deps.now();
+      const p = await prepare(projectId, layers, mode, options);
+      if ('ok' in p) return p;
+      if (p.found !== null) return { ok: true, final: true };
+      const encoder = deps.encoder;
+      if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
+      const id = `${projectId}\u0000${p.key.sourceDigest}`;
+      const busy = previews.get(id);
+      if (busy !== undefined) return busy;
+      const run = (async (): Promise<SlotPreviewResult> => {
+        const packed = await encoder.pack(p.resolved.sources, packLayersOf(p.resolved, p.derived), mode, p.resolved.lossless, 'preview');
+        if (!packed.ok) return { ok: false, code: 'conversion_failed', message: packed.message };
+        return { ok: true, final: false, ktx2: packed.ktx2, ms: Math.round(deps.now() - t0) };
+      })().finally(() => previews.delete(id));
+      previews.set(id, run);
+      return run;
+    },
+    async base(projectId, layers, mode, options) {
+      const p = await prepare(projectId, layers, mode, options);
+      if ('ok' in p) return p;
+      const checks = deps.heights;
+      const { resolved, derived } = p;
+      const means = await Promise.all(resolved.sources.map((bytes, i) => (checks === undefined ? Promise.resolve(null) : checks.meanOfFile(projectId, layers[resolved.index.indexOf(i)]!.sourceDigest, bytes, resolved.lossless[i] ?? null))));
+      const base = resolved.index.map((i, l): [number, number, number, number] => {
+        const fill = resolved.fills[l];
+        if (fill !== null && fill !== undefined) return [...fill];
+        const m = means[i];
+        const rgba = m === null || m === undefined ? MEAN_UNKNOWN : mode === 'color' ? m.srgb : m.plain;
+        return [rgba[0], rgba[1], rgba[2], derived[l] === true ? DERIVED_HEIGHT_MIDDLE : rgba[3]];
+      });
+      return { ok: true, base, final: p.found !== null };
     },
   };
 }

@@ -211,6 +211,16 @@ export interface MaterialLibraryOptions {
   resources?: ResourceManager;
   /** Something changed that needs a new frame (a texture arrived, a material was rebuilt). */
   onChange?: () => void;
+  /**
+   * What a graph draws a texture as while it loads, for a host whose
+   * textures can take seconds to make (an array its backend assembles on
+   * request): the first stand-in now (or null), better ones later through
+   * `show` (never called before this returns). The library owns each
+   * stand-in it is given and lets it go once the texture itself arrives;
+   * one shown after that is let go at once. Absent: a loading texture
+   * reads as its node's absent value (white for a colour) until it arrives.
+   */
+  previewTexture?: (assetId: string, show: (texture: THREE.Texture) => void) => THREE.Texture | null;
 }
 
 export interface MaterialLibrary {
@@ -835,34 +845,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const loadedTextures = new Map<string, THREE.Texture | null>();
   /** Textures prepared for a sampler (colour space, wrapping, filter). */
   const samplerTextures = new Map<string, THREE.Texture>();
+  /** Stand-ins of textures still loading (`previewTexture`), and the textures one was asked for. */
+  const previews = new Map<string, THREE.Texture>();
+  const previewAsked = new Set<string>();
+  /** The sampler key prefix of a stand-in's copies (apart from the texture's own: ids hold no '|'). */
+  const PREVIEW_KEY = 'preview|';
   const fnOf = (id: string): MaterialFunctionLike | null => functions.get(id) ?? null;
-
-  /** Whether a live compiled graph samples this texture. */
-  const sampled = (assetId: string): boolean => {
-    for (const e of graphEntries.values()) if (e.compiled.textures.includes(assetId)) return true;
-    return false;
-  };
-  const samplerTexture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
-    if (!loadedTextures.has(assetId)) {
-      void texture(assetId, GRAPH_LOAD_HOLDER).then((t) => {
-        // The graphs that sample it hold it now (none left: it is let go and not kept).
-        holds.release(assetId, GRAPH_LOAD_HOLDER);
-        if (disposed || loadedTextures.has(assetId) || !sampled(assetId)) return;
-        loadedTextures.set(assetId, t);
-        // Recompile the graphs that drew a fallback while it was on its way.
-        let changed = false;
-        for (const e of graphEntries.values()) {
-          if (!e.compiled.pending.includes(assetId)) continue;
-          recompile(e);
-          changed = true;
-        }
-        if (changed) options.onChange?.();
-      });
-      return 'loading';
-    }
-    const base = loadedTextures.get(assetId) ?? null;
-    if (base === null) return null;
-    const key = `${assetId}|${sampler.colorSpace}|${sampler.wrap}|${sampler.filter}`;
+  /** A texture as a sampler reads it: a copy per colour space, wrapping and filter, made once per `key`. */
+  const forSampler = (base: THREE.Texture, key: string, sampler: SamplerLike): THREE.Texture => {
     let t = samplerTextures.get(key);
     if (t === undefined) {
       t = base.clone();
@@ -881,6 +871,79 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       samplerTextures.set(key, t);
     }
     return t;
+  };
+  /** A texture's stand-in and its sampler copies taken out of use (the caller disposes them once nothing draws them). */
+  const takePreview = (assetId: string): THREE.Texture[] => {
+    const out: THREE.Texture[] = [];
+    const p = previews.get(assetId);
+    if (p !== undefined) out.push(p);
+    previews.delete(assetId);
+    const prefix = `${PREVIEW_KEY}${assetId}|`;
+    for (const [k, t] of [...samplerTextures]) {
+      if (!k.startsWith(prefix)) continue;
+      out.push(t);
+      samplerTextures.delete(k);
+    }
+    return out;
+  };
+  /** Recompile the graphs that drew a fallback or a stand-in while `assetId` was on its way; true when any did. */
+  const recompilePending = (assetId: string): boolean => {
+    let changed = false;
+    for (const e of graphEntries.values()) {
+      if (!e.compiled.pending.includes(assetId)) continue;
+      recompile(e);
+      changed = true;
+    }
+    return changed;
+  };
+  /** A better stand-in for a texture still loading: the graphs drawing the old one are compiled with it. */
+  const showPreview = (assetId: string, t: THREE.Texture): void => {
+    if (disposed || loadedTextures.has(assetId) || !sampled(assetId)) {
+      t.dispose();
+      return;
+    }
+    const old = takePreview(assetId);
+    previews.set(assetId, t);
+    const changed = recompilePending(assetId);
+    for (const x of old) x.dispose();
+    if (changed) options.onChange?.();
+  };
+
+  /** Whether a live compiled graph samples this texture. */
+  const sampled = (assetId: string): boolean => {
+    for (const e of graphEntries.values()) if (e.compiled.textures.includes(assetId)) return true;
+    return false;
+  };
+  const samplerTexture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
+    if (!loadedTextures.has(assetId)) {
+      // The stand-in is asked for first, so a host that makes both can start its work first.
+      if (options.previewTexture !== undefined && !previewAsked.has(assetId)) {
+        previewAsked.add(assetId);
+        const first = options.previewTexture(assetId, (t) => showPreview(assetId, t));
+        if (first !== null) previews.set(assetId, first);
+      }
+      void texture(assetId, GRAPH_LOAD_HOLDER).then((t) => {
+        // The graphs that sample it hold it now (none left: it is let go and not kept).
+        holds.release(assetId, GRAPH_LOAD_HOLDER);
+        if (disposed || loadedTextures.has(assetId) || !sampled(assetId)) return;
+        loadedTextures.set(assetId, t);
+        previewAsked.delete(assetId);
+        // Recompile the graphs that drew a fallback or a stand-in while it was on its way; the stand-in goes after.
+        const old = takePreview(assetId);
+        const changed = recompilePending(assetId);
+        for (const x of old) x.dispose();
+        if (changed) options.onChange?.();
+      });
+      return 'loading';
+    }
+    const base = loadedTextures.get(assetId) ?? null;
+    if (base === null) return null;
+    return forSampler(base, `${assetId}|${sampler.colorSpace}|${sampler.wrap}|${sampler.filter}`, sampler);
+  };
+  /** The stand-in of a texture still loading, as `sampler` reads it (null: none yet). */
+  const previewFor = (assetId: string, sampler: SamplerLike): THREE.Texture | null => {
+    const p = previews.get(assetId);
+    return p === undefined ? null : forSampler(p, `${PREVIEW_KEY}${assetId}|${sampler.colorSpace}|${sampler.wrap}|${sampler.filter}`, sampler);
   };
 
   /** The textures each compile samples (a node graph's textures are not material properties; the texture streamer reads them). */
@@ -928,6 +991,12 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       return t;
     };
     const standIn = (assetId: string, sampler: SamplerLike): { assetId: string; texture: THREE.Texture } | null => {
+      // The host's stand-in for this very texture first (its layers' colours, a small encode), then the one it replaces.
+      const own = previewFor(assetId, sampler);
+      if (own !== null) {
+        sampledNow.push(own);
+        return { assetId, texture: own };
+      }
       const slot = paramOf.get(assetId);
       const prev = slot === undefined ? undefined : drawnFor.get(slot);
       if (prev === undefined || prev === assetId || !(loadedTextures.get(prev) instanceof THREE.Texture)) return null;
@@ -977,6 +1046,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** A texture no compiled graph samples any more: its sampler copies go, and a later compile loads it again. */
   function forgetTexture(id: string): void {
     loadedTextures.delete(id);
+    previewAsked.delete(id);
+    for (const t of takePreview(id)) t.dispose();
     for (const [k, t] of [...samplerTextures]) {
       if (!k.startsWith(`${id}|`)) continue;
       t.dispose();
@@ -1320,6 +1391,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const t of samplerTextures.values()) t.dispose();
       samplerTextures.clear();
       loadedTextures.clear();
+      // So are the stand-ins of textures still loading.
+      for (const t of previews.values()) t.dispose();
+      previews.clear();
       holds.releaseHolder(GRAPH_LOAD_HOLDER);
       if (options.resources === undefined) holds.resources.dispose();
       applied.clear();
