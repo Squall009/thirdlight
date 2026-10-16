@@ -28,6 +28,8 @@ export interface SceneViewAssets {
   readonly resources: ResourceManager;
   /** A texture asset's current version, decoded (lights' cookies, the environment, lightmaps). */
   readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  /** A slot array's stand-ins while the backend makes it (a material library's `previewTexture`). */
+  readonly previewTexture: (key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null;
   readonly loadBytes: (assetId: string) => Promise<Uint8Array>;
   readonly materialLibrary: MaterialLibrary;
   /** The model rows and bytes the scene adapter realizes placements from (rows follow reimports). */
@@ -218,6 +220,7 @@ export function createSceneViewAssets(o: {
   return {
     resources,
     loadTexture,
+    previewTexture,
     loadBytes,
     materialLibrary,
     models,

@@ -12,6 +12,15 @@
  * event (a double-click on the terrain's Hierarchy row, Esc) to the Scene
  * view's next drawn frame (its `data-frames` count changing with the canvas
  * lent to the mode, or home again).
+ *
+ * The orbit frames are timed uncapped (vsync off), the enter and leave times
+ * in a second browser with vsync on, as a user's browser draws. The
+ * landscape's view animates (its ground cover sways), so it draws every
+ * frame; uncapped, its WebGL frames queue up in the GPU process ahead of the
+ * GPU (about 0.8 s of them on this host), and moving the canvas resizes its
+ * drawing buffer, which waits for that whole queue (a GPU trace showed it:
+ * `setSize` → `GetGLError` → `Finish`). That queue never builds with vsync,
+ * so an uncapped leave measured the harness, not the editor.
  */
 import type { Browser, Page } from '@playwright/test';
 
@@ -154,25 +163,50 @@ async function timeToFrame(page: Page, trigger: 'dblclick' | 'keydown', lent: bo
   return Math.round((await page.evaluate(() => (window as unknown as { __tlEnter: Promise<number> }).__tlEnter)) * 10) / 10;
 }
 
-async function measure(browser: Browser, be: PerfBackend, projectId: string, terrainName: string, renderer: FrameRenderer): Promise<EditModeRun> {
+/** The editor on the landscape in a new page of `browser`, its terrain's Hierarchy row filtered in. */
+async function openLandscape(browser: Browser, be: PerfBackend, projectId: string, terrainName: string, renderer: FrameRenderer): Promise<{ page: Page; close: () => Promise<void>; newCdp: () => Promise<import('@playwright/test').CDPSession> }> {
   const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
   await context.addInitScript(installPerfInstrumentation);
   const page = await context.newPage();
+  await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}#token=${be.token}`);
+  await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
+  await settle(page);
+  await page.getByPlaceholder('filter…').fill(terrainName);
+  return { page, close: () => context.close(), newCdp: () => context.newCDPSession(page) };
+}
+
+/** `framesBrowser`: uncapped (the orbit frames); `timesBrowser`: vsync on (the enter and leave times). */
+async function measure(framesBrowser: Browser, timesBrowser: Browser, be: PerfBackend, projectId: string, terrainName: string, renderer: FrameRenderer): Promise<EditModeRun> {
+  const rowOf = (page: Page) => page.locator('.tl-hierarchy__list li[data-entity-id]').filter({ hasText: terrainName }).first();
+  // The orbit frames: the default view, the isolated terrain (Material rules: no brush armed, so a plain drag orbits
+  // the lent view) and Context.
+  const a = await openLandscape(framesBrowser, be, projectId, terrainName, renderer);
+  let frames: EditModeRun['frames'];
   try {
-    await page.goto(`${be.origin}/?project=${projectId}&renderer=${renderer}#token=${be.token}`);
-    await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 180_000 });
-    await settle(page);
-    const row = page.locator('.tl-hierarchy__list li[data-entity-id]').filter({ hasText: terrainName }).first();
-    await page.getByPlaceholder('filter…').fill(terrainName);
+    const full = await orbitFrames(a.page);
+    await rowOf(a.page).dblclick();
+    await a.page.locator('.tl-editmode').waitFor();
+    await settle(a.page);
+    await a.page.keyboard.press('Shift+Digit4');
+    await a.page.mouse.move(5, 500);
+    const isolated = await orbitFrames(a.page);
+    await a.page.keyboard.press('c');
+    const context = await orbitFrames(a.page);
+    frames = { full, isolated, context };
+  } finally {
+    await a.close();
+  }
+  // The enter and leave rounds (the mode opens in Material rules, the last one shown, after the first round).
+  const b = await openLandscape(timesBrowser, be, projectId, terrainName, renderer);
+  try {
+    const page = b.page;
+    const row = rowOf(page);
     await row.waitFor();
     const mode = page.locator('.tl-editmode');
-    const full = await orbitFrames(page);
     const enterMs: number[] = [];
     const leaveMs: number[] = [];
     let progs: [number, number, number] = [0, 0, 0];
     let leaveTop: string[] = [];
-    let isolated = full;
-    let ctx = full;
     for (let k = 0; k < ROUNDS; k++) {
       const before = await programs(page);
       enterMs.push(await timeToFrame(page, 'dblclick', true, () => row.dblclick()));
@@ -180,17 +214,12 @@ async function measure(browser: Browser, be: PerfBackend, projectId: string, ter
       await settle(page);
       const inMode = await programs(page);
       if (k === 0) {
-        // Material rules: no brush armed, so a plain drag orbits the lent view.
         await page.keyboard.press('Shift+Digit4');
         await page.mouse.move(5, 500);
-        isolated = await orbitFrames(page);
-        await page.keyboard.press('c');
-        ctx = await orbitFrames(page);
-        await page.keyboard.press('c');
         await settle(page);
       }
       // The first leave's main thread by function (self time), to say where the time goes.
-      const cdp = k === 0 ? await context.newCDPSession(page) : null;
+      const cdp = k === 0 ? await b.newCdp() : null;
       if (cdp !== null) {
         await cdp.send('Profiler.enable');
         await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
@@ -206,13 +235,13 @@ async function measure(browser: Browser, be: PerfBackend, projectId: string, ter
       await settle(page);
       if (k === 0) progs = [before, inMode, await programs(page)];
     }
-    return { enterMs, leaveMs, leaveTop, programs: progs, frames: { full, isolated, context: ctx } };
+    return { enterMs, leaveMs, leaveTop, programs: progs, frames };
   } finally {
-    await context.close();
+    await b.close();
   }
 }
 
-/** The landscape's edit mode measured on each renderer (one browser; the backend stays up for the page). */
+/** The landscape's edit mode measured on each renderer (an uncapped browser and a vsync one; the backend stays up for the pages). */
 export async function editModeRuns(be: PerfBackend, projectId: string, renderers: readonly FrameRenderer[], log: (s: string) => void): Promise<Partial<Record<FrameRenderer, EditModeRun>>> {
   const p = be.project(projectId);
   const listed = ((await p.query('queryEntities', { limit: 4000, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[]) ?? [];
@@ -220,16 +249,18 @@ export async function editModeRuns(be: PerfBackend, projectId: string, renderers
   if (terrain === undefined || terrain.name === undefined) throw new Error('edit mode: no terrain');
   const out: Partial<Record<FrameRenderer, EditModeRun>> = {};
   const browser = await launchGpuBrowser({ vsync: false });
+  const vsynced = await launchGpuBrowser({ vsync: true });
   try {
     for (const r of renderers) {
-      const run = await measure(browser, be, projectId, terrain.name, r);
+      const run = await measure(browser, vsynced, be, projectId, terrain.name, r);
       out[r] = run;
       const f = (x: EditModeRun['frames']['full']): string => `p50/p95 ${x.p50}/${x.p95} ms, ${x.draws} draws (${x.n} frames)`;
       log(`level landscape ${r} edit mode: first leave's main thread by function (self ms): ${run.leaveTop.join('; ')}`);
-      log(`level landscape ${r} edit mode: enter ${run.enterMs.join(', ')} ms, leave ${run.leaveMs.join(', ')} ms to the first frame; programs ${run.programs.join(' → ')}; orbit frames full view ${f(run.frames.full)}, isolated ${f(run.frames.isolated)}, Context ${f(run.frames.context)}`);
+      log(`level landscape ${r} edit mode: enter ${run.enterMs.join(', ')} ms, leave ${run.leaveMs.join(', ')} ms to the first frame (vsync); programs ${run.programs.join(' → ')}; orbit frames full view ${f(run.frames.full)}, isolated ${f(run.frames.isolated)}, Context ${f(run.frames.context)}`);
     }
   } finally {
     await browser.close();
+    await vsynced.close();
   }
   return out;
 }

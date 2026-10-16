@@ -145,6 +145,7 @@ manual → acceptance.
 | 37.3 | Done 2026-10-16: one docked-panel component in the shell (`editmode/docks.tsx`, maths and memory in `session/dock-layout.ts`, CSS in `styles/docks.css`): 8 docks, stacking, title click / Enter collapse, title drag with drop targets (Esc cancels), Panels switch + Reset layout chip, layout per editor in browser storage; Rooms & buildings moved onto it (Rooms list top right collapsed, the picked room's properties right edge). Vitest 7 checks; e2e steps in the rooms helpers: layered-material 50.2 → 49.7 s (block-editor untouched; one Make-it-paintable undo poll failed once and passed on rerun); village perf in its limits. |
 | 37.4 | Done 2026-10-16: the block editor on panels per the SPEC (Build: Selection, Block type, Stamps, Layer; Shape/Paint: Brush, Noise mask, Layer; Regions: Theme, Metadata, Layer size; Rules: Scatter brush, Layer; Rooms: Layer); the detail column removed from the shell; every block mode's column fits at 1920×1080 (an e2e step measures all six). E2E (2 workers, previous → this fast gate): block-editor 8.4 → 8.4 s, block-world-uv 8.7 → 9.5, layered-material 49.7 → 50.2, terrain-brushes 4.7 → 4.5, terrain-paint 10.9 → 10.2, block-layers → 15.6 (net +0.4 s, host noise); the Make-it-paintable undo passed in all 3 runs; village perf in its limits. Screens on WebGPU and WebGL 2 looked at against mockup 02/04/04b.
 | 37.5 | Done 2026-10-16: terrain (every mode), vertex paint, decals (the atlas a collapsed bottom-edge panel; the shell's drawer slot removed) and the kit editor (its own docks: the slot's panel and Preview, which holds the window's one preview pane; the Inspector keeps a link) on panels; one shared `brushPanels` in `editmode/`; every column fits at 1920×1080 (e2e steps in terrain-cdlod, instance-brush, the decal drive). 37.4's Rooms sighting is no regression (the building draws, selected or not, both renderers; F had framed the view inside its walls). E2E (2 workers, previous → this fast gate): terrain-cdlod 3.2 → 3.2 min, editor-window 10.8 → 10.7 s, layered-material 50.2 → 50.7, instance-brush 31.2 → 31.8, level-acceptance 25.5 → 27.1 (unchanged file), block-editor 8.4 → 8.2, block-world-uv 9.5 → 8.7, terrain-paint 10.2 → 10.4, terrain-brushes 4.5 → 4.9, project-items 9.0 → 9.0 (net +2.2 s, host noise); village perf in its limits. Screens of all four editors on WebGPU and WebGL 2 looked at against mockups 05a–d and 06. |
+| 37.6 | Done 2026-10-16: **no white layers** — a slot array being made draws its layers' known mean colours at once (mid grey unknown), then the means the backend reads in the height check's decode, then a 256 px preview encoded ahead of the rest, then the array (layered wall, arrays held: grey → means, never white, both renderers); **D264** bench (3 threads) first textured view 27.2 s → every preview 1.4 s (real 2048² albedos 8.1 → 0.38 s), all arrays 30.6 → 32.2 s; in the editor a real 2048² trim sheet: means 0.55 s, preview 1.06 s, array 6.9 s (white until then before); **D263** cold 200-image atlas: preview pages 1.36 s (3 threads; 2.7 s on one), the pages 18.9 s, never stored, an export meanwhile ships the pages; **D251** leave 827/469/1,035 ms (uncapped: a GPU queue the resize waited on) → 48/34/29 ms timed with vsync, setSize 786 → 8 ms; **Make-it-paintable undo** was a real race (an undo overtook the request joining the step), fixed. D274 new. E2E (2 workers, previous → this fast gate): layered-material 50.7 → 51.2 s, block-editor 8.2 → 8.4 s, terrain-cdlod 3.2 → 3.1 min, material-graph 9.7 s (unchanged file); net about +0.4 s; village perf in its limits. |
 
 ## 6. Decision log
 
@@ -290,3 +291,29 @@ manual → acceptance.
     layer). The view framed with F on the rooms object lands inside the
     building's walls, where the floor and the selection outline are what
     shows — which matches what 37.4 saw.
+
+- 2026-10-16 (37.6): Load times. Defaults chosen, owner to confirm:
+  - a layer's stand-ins come in this order — its mean colour (mid grey while
+    not known), the means the backend reads, a 256 px preview of the array
+    (`SLOT_PREVIEW_SIDE`), the array — and replace the array a changed slot
+    list replaces (drawing the old array meanwhile now comes second);
+    only colour arrays get mean colours (a normal or data array's absent
+    value is neutral already); a stand-in is never stored, and a texture that
+    cannot be made keeps its last stand-in (D274);
+  - the means come from the height check's decode (one decode a texture,
+    kept in the import cache as an 8-byte marker); decodes and previews go
+    ahead of the encodes queued on the encoder pool;
+  - a decal atlas preview is every page at a quarter of its side
+    (`DECAL_PREVIEW_DIVISOR`), composed small from the sources (as-stored and
+    cached pages too), fastest UASTC, held in memory (the last per project,
+    readable after the pages replace it); the Rebuild button stays disabled
+    until the pages themselves are in, the status says "Preview in … ms ·
+    composing the pages…"; the pages' arrays are decoded before the view
+    swaps to them;
+  - D251 was the uncapped harness, not the editor: the perf tool times enter
+    and leave with vsync (orbit frames stay uncapped); no engine change.
+    Bounding the GPU queue of uncapped rendering (frame pacing) is left;
+  - an undo or redo waits for grouped actions still being joined into one
+    step (`SessionClient.grouped`);
+  - the Material editor's preview pane takes the same stand-ins.
+

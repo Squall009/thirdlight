@@ -818,6 +818,31 @@ export async function openTerrainEditor(page: Page): Promise<void> {
   await page.keyboard.press('Space');
   await expect(viewport(page)).not.toHaveAttribute('data-terrain-tool', /^(navigate)?$/);
 }
+/**
+ * A soft bound on the first frame home after leaving an editor here (the perf tool's landscape class is the
+ * measure: ≤ 150 ms with vsync); this catches a leave that waits on the GPU again (it took 0.5–1.2 s uncapped).
+ */
+const LEAVE_FRAME_MS_MAX = 400;
+/** Leave the open editor with Done; the milliseconds from the click to the Scene view's next frame drawn at home. */
+export async function timedLeave(page: Page): Promise<number> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __tlLeave?: Promise<number> };
+    w.__tlLeave = new Promise<number>((resolve) => {
+      let t0 = -1;
+      document.addEventListener('click', () => (t0 = performance.now()), { capture: true, once: true });
+      const canvas = document.querySelector('canvas.tl-viewport')!;
+      const obs = new MutationObserver(() => {
+        if (t0 < 0 || canvas.getAttribute('data-lent') === 'edit') return;
+        obs.disconnect();
+        resolve(performance.now() - t0);
+      });
+      obs.observe(canvas, { attributes: true, attributeFilter: ['data-frames'] });
+    });
+  });
+  await editMode(page).getByRole('button', { name: /^Done/ }).click();
+  await expect(editMode(page)).toHaveCount(0);
+  return Math.round(await page.evaluate(() => (window as unknown as { __tlLeave: Promise<number> }).__tlLeave));
+}
 /** Select a terrain and open its editor. */
 export async function selectEntity(page: Page, id: string): Promise<void> {
   await clickRow(page, id);
@@ -1380,6 +1405,11 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
     await expect.poll(bigHeight, { timeout: 30_000 }).toBe(bigWas);
     await cmd('deleteEntity', { entityId: layer });
   }
+
+  // ---- leaving the editor: the Scene view's first frame home (the canvas moved back and its drawing buffer resized).
+  const leaveMs = await timedLeave(page);
+  console.log(`terrain editor leave: the first frame home ${leaveMs} ms after Done`);
+  expect(leaveMs, 'the first frame home after leaving the terrain editor').toBeLessThan(LEAVE_FRAME_MS_MAX);
 
   // ---- a 64 m raise on the 1,025² tile: the preview's cost per frame and the page's frames while dragging, the commit.
   // Framed on the tile's corner from the default view (F focuses there), then its editor.

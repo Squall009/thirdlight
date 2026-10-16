@@ -45,7 +45,7 @@ export function PreviewPane({ request, deps }: { request: PreviewRequest | null;
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return undefined;
-    const r = new PreviewRenderer(canvas, { loadTexture: (id) => latest.current.loadTexture(id) });
+    const r = new PreviewRenderer(canvas, { loadTexture: (id) => latest.current.loadTexture(id), previewTexture: (key, show) => latest.current.previewTexture?.(key, show) ?? null });
     r.setEnvironment(latest.current.environment);
     setRenderer(r);
     return () => {

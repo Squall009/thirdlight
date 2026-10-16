@@ -78,6 +78,8 @@ export interface PreviewSubject {
 export interface PreviewRendererOptions {
   /** A texture asset's texture (the editor's decoded bytes, shared with the Scene view). */
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  /** A slot array's stand-ins while it is made (the material library's `previewTexture`). */
+  previewTexture?: (key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null;
 }
 
 interface Ledger {
@@ -135,7 +137,7 @@ export class PreviewRenderer implements PreviewStage {
     // The canvas is never drawn to again after dispose (the pane mounts a new one): its WebGL context goes then.
     // Timestamp queries where the device has them: the effect subject reports its GPU cost with them.
     this.handle = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: true, clearColor: 0x000000, clearAlpha: 1, loseContextOnDispose: true, trackTimestamp: true });
-    this.library = createMaterialLibrary({ loadTexture: options.loadTexture });
+    this.library = createMaterialLibrary({ loadTexture: options.loadTexture, ...(options.previewTexture !== undefined ? { previewTexture: options.previewTexture } : {}) });
     this.scene.background = new THREE.Color(0x1b1e26);
     this.key.position.set(3, 5, 4);
     this.scene.add(this.key, this.fill, this.grid);

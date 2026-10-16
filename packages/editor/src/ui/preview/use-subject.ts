@@ -18,6 +18,8 @@ export interface PreviewDeps {
   environment: PreviewEnvironment;
   /** A texture asset's texture (the editor's decoded bytes, shared with the Scene view). */
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  /** A slot array's stand-ins while the backend makes it (the Scene view's). */
+  previewTexture?: (key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null;
   /** A model asset (one piece of it when named) as a new object (a material's preview shape, a kit piece); `dispose` releases it. */
   loadModel: (assetId: string, piece?: string) => Promise<{ root: THREE.Object3D; dispose: () => void } | null>;
   /** A model asset's scene (an effect's mesh particles and mesh-surface shapes). */

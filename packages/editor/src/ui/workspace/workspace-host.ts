@@ -25,6 +25,7 @@ export interface WorkspaceHostInput {
   clientRef: ClientRef;
   modelFilesRef: ModelsRef;
   loadTextureRef: MutableRefObject<((assetId: string) => Promise<THREE.Texture | null>) | null>;
+  previewTextureRef: MutableRefObject<((key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null) | null>;
   /** The project (it keys the UI previewer's mock values in this browser). */
   projectId: string;
   content: ProjectContent;
@@ -49,7 +50,7 @@ export interface WorkspaceHostInput {
 }
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
-  const { clientRef, modelFilesRef, loadTextureRef, entities, selectedId, gameFieldContext, uiPreviewAssets, openDocument, workspaceDispatch, debugPlay } = input;
+  const { clientRef, modelFilesRef, loadTextureRef, previewTextureRef, entities, selectedId, gameFieldContext, uiPreviewAssets, openDocument, workspaceDispatch, debugPlay } = input;
   const { animators, dialogueSettings, dialogues, effects, shownEnvironment, graphKinds, graphs, materials, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = input.content;
   const { inputConfig, inputDefaults, modes } = input.settings;
   const { activeVisualId, animatorFocus, animatorTargets, dialogueFocus, dialogueSelection, effectFocus, effectSystems, graphFocus, graphsContext, materialFocus, onVisualProblems, onVisualTarget } = input.docState;
@@ -138,6 +139,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
     preview: {
       environment: shownEnvironment as unknown as PreviewDeps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
+      previewTexture: (key, show) => previewTextureRef.current?.(key, show) ?? null,
       loadModel: async (assetId, piece) => {
         const r = await modelFilesRef.current?.prepared(assetId);
         const made = r?.createInstance(piece !== undefined ? { piece } : {});

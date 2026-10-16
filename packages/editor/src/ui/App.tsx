@@ -232,6 +232,7 @@ function EditorApp(): JSX.Element {
   const lightingKeyRef = useRef('');
   const architectureKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
+  const previewTextureRef = useRef<((key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null) | null>(null);
   /** The selected copy of the selected instance set, and the instance brush. */
   const [selectedCopy, setSelectedCopy] = useState<number | null>(null);
   const instanceBrush = useInstanceBrush(selectedId);
@@ -490,6 +491,7 @@ function EditorApp(): JSX.Element {
     setSnapSettingsState(loadSnapSettings(typeof window !== 'undefined' ? window.localStorage : null, config.projectId));
     const { loadTexture: loadTextureAsset, materialLibrary, files } = sceneAssets;
     loadTextureRef.current = loadTextureAsset;
+    previewTextureRef.current = sceneAssets.previewTexture;
     materialLibraryRef.current = materialLibrary;
     modelFilesRef.current = files;
     const thumbnails = new TileThumbnails({
@@ -960,6 +962,7 @@ function EditorApp(): JSX.Element {
     clientRef,
     modelFilesRef,
     loadTextureRef,
+    previewTextureRef,
     projectId: cfg.current.config.projectId,
     content,
     settings: projectSettings,
