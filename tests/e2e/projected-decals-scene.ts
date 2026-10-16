@@ -446,9 +446,25 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { component?: string; context?: boolean }).toMatchObject({ component: 'decal', context: true });
   await expect(mode.getByLabel('isolation')).toContainText('decals pickable');
   const column = mode.getByLabel('edit mode settings');
+  // At 1920 × 1080 no mode's settings column needs a scroll in its default state: the settings are docked panels.
+  for (const tab of ['Scatter', 'Select', 'Place']) {
+    await mode.getByRole('tab', { name: tab, exact: true }).click();
+    const fill = await column.locator('.tl-editmode__column-body').evaluate((el) => ({ content: el.scrollHeight, shown: el.clientHeight }));
+    expect(fill.content, `decal ${tab}: the column fits`).toBeLessThanOrEqual(fill.shown);
+  }
+  const panel = (id: string): Locator => mode.locator(`[data-panel="${id}"]`);
 
-  // The decal atlas along the view: the decal pages Play will use, every decal image on them (the green mark, the
-  // normal-only mark, the trim sheet's cell); hovering one names it, a click selects its decals.
+  // The decal atlas, a panel on the view's bottom edge (collapsed: its title bar says the pages): the decal pages Play
+  // will use, every decal image on them (the green mark, the normal-only mark, the trim sheet's cell); hovering one
+  // names it, a click selects its decals.
+  const atlasPanel = panel('atlas');
+  await expect(atlasPanel).toHaveAttribute('data-open', 'false');
+  await expect(atlasPanel.locator('.tl-dpanel__badge')).toContainText(/page/);
+  const toggleAtlas = async (open: boolean): Promise<void> => {
+    if ((await atlasPanel.getAttribute('data-open')) !== String(open)) await atlasPanel.locator('.tl-dpanel__head').click();
+    await expect(atlasPanel).toHaveAttribute('data-open', String(open));
+  };
+  await toggleAtlas(true);
   const drawer = mode.getByLabel('decal atlas', { exact: true });
   type AtlasMark = { size: number; pages: number; images: number; materials: number; gpuBytes: number; composed: boolean; drawn: boolean };
   const atlasMark = async (): Promise<AtlasMark | null> => {
@@ -466,16 +482,16 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => (await state())?.selection.length ?? 0, { message: "a click on the green mark's image selects its decals" }).toBeGreaterThanOrEqual(5);
   await page.keyboard.press('Escape');
   await expect.poll(async () => (await state())?.selection).toEqual([]);
-  // Folded away (its head stays) while the editor places on the box floor below.
-  await drawer.getByRole('button', { name: 'close the decal atlas' }).click();
+  // Collapsed (its title bar stays) while the editor places on the box floor below.
+  await toggleAtlas(false);
   await expect(pages).toBeHidden();
   const palette = column.getByRole('radiogroup', { name: 'decal palette', exact: true });
   await expect(palette.getByRole('radio', { name: 'decal Green mark' })).toBeVisible();
   // The trim sheet's cell, drawn by its decal material (Stain), as its part of the sheet's picture.
   await expect(palette.getByRole('radio', { name: 'decal Stain' })).toBeVisible();
   await palette.getByRole('radio', { name: 'decal Green mark' }).click();
-  await column.getByLabel('decal width', { exact: true }).fill('1.2');
-  await column.getByLabel('decal width', { exact: true }).press('Enter');
+  await panel('placement').getByLabel('decal width', { exact: true }).fill('1.2');
+  await panel('placement').getByLabel('decal width', { exact: true }).press('Enter');
   // The view moved into the editor: positions are read off it from here on.
   const box = (await view.boundingBox())!;
   const at = async (p: V3): Promise<{ x: number; y: number }> => {
@@ -508,15 +524,15 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect.poll(async () => (await entity(onBox)) === null, { message: 'the box floor placement undone' }).toBe(true);
 
   // Rebuild pages: composed on the backend; the Scene view then draws the decals from them, as Play does.
-  await drawer.getByRole('button', { name: 'open the decal atlas' }).click();
+  await toggleAtlas(true);
   await expect(pages).toBeVisible();
   await drawer.getByRole('button', { name: 'Rebuild pages' }).click();
   await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true true');
   await expect.poll(async () => Number((await view.getAttribute('data-tl-decal-pages'))?.split('|')[3] ?? 0), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBeGreaterThan(0);
   console.log(`decal atlas ${what}: ${JSON.stringify(await atlasMark())}; ${await drawer.getByRole('status').textContent()}; page arrays ${await view.getAttribute('data-tl-decal-pages')}`);
   if (process.env['TL_ATLAS_SHOT'] !== undefined) await page.screenshot({ path: `${process.env['TL_ATLAS_SHOT']}-${what}.png` });
-  // The drawer folded away (its head stays) for the steps below; the marks drawn from the pages.
-  await drawer.getByRole('button', { name: 'close the decal atlas' }).click();
+  // The atlas collapsed (its title bar stays) for the steps below; the marks drawn from the pages.
+  await toggleAtlas(false);
   await expect(pages).toBeHidden();
   await greenAt(DECAL_READS.terrain, 'the terrain decal drawn from the composed pages');
 
@@ -615,10 +631,10 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
 
   // Scatter: a stroke of the shared brush over bare terrain lays decals at the density, stored as one createEntities; one undo takes them all.
   await mode.getByRole('tab', { name: 'Scatter' }).click();
-  await column.getByLabel('brush size', { exact: true }).fill('2');
-  await column.getByLabel('brush size', { exact: true }).press('Enter');
-  await column.getByLabel('decal scatter density', { exact: true }).fill('2');
-  await column.getByLabel('decal scatter density', { exact: true }).press('Enter');
+  await panel('brush').getByLabel('brush size', { exact: true }).fill('2');
+  await panel('brush').getByLabel('brush size', { exact: true }).press('Enter');
+  await panel('scatter').getByLabel('decal scatter density', { exact: true }).fill('2');
+  await panel('scatter').getByLabel('decal scatter density', { exact: true }).press('Enter');
   await drag(await at(SCATTER_FROM), await at(SCATTER_TO));
   let stroke: ToolState['stroke'] = null;
   await expect.poll(async () => ((stroke = (await state())?.stroke ?? null), stroke !== null && stroke.stored > 0 && stroke.stored === stroke.places), { message: 'the scatter stroke stored' }).toBe(true);
@@ -664,11 +680,13 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await page.mouse.click(t.x, t.y);
   await page.keyboard.up('Shift');
   await expect.poll(async () => (await state())?.selection, { message: 'Shift+click adds it again' }).toEqual([projected, other]);
-  await expect(column.getByLabel('selected decals')).toContainText('2 decals selected');
+  // The selection's fields are its panel's (shown while decals are selected).
+  const selection = panel('selection');
+  await expect(selection.getByLabel('selected decals')).toContainText('2 decals selected');
   // One field on both: one setComponent (one undo puts both back); the sizes differ, so it says "mixed" where they do.
-  await expect(column.getByLabel('selection width', { exact: true })).toHaveValue('mixed');
-  await column.getByLabel('selection opacity albedo', { exact: true }).fill('40');
-  await column.getByLabel('selection opacity albedo', { exact: true }).press('Enter');
+  await expect(selection.getByLabel('selection width', { exact: true })).toHaveValue('mixed');
+  await selection.getByLabel('selection opacity albedo', { exact: true }).fill('40');
+  await selection.getByLabel('selection opacity albedo', { exact: true }).press('Enter');
   await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity?.albedo, (await entity(other))!.components.decal!.opacity?.albedo], { message: 'the opacity set on both' }).toEqual([0.4, 0.4]);
   await undo();
   await expect.poll(async () => [(await entity(projected))!.components.decal!.opacity, (await entity(other))!.components.decal!.opacity], { message: 'one undo puts both back' }).toEqual([undefined, undefined]);
@@ -684,7 +702,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   // Clipped: the preview is a mesh cut from the block tops under the pointer, drawn at once; a click places it.
   await mode.getByRole('tab', { name: 'Place' }).click();
   await armTile(column.getByRole('toolbar', { name: 'decal place tool' }).getByRole('button', { name: 'Place', exact: true }));
-  await column.getByRole('radio', { name: 'Clipped' }).click();
+  await panel('placement').getByRole('radio', { name: 'Clipped' }).click();
   const c = await at(TOOL_CLIPPED_AT);
   const hovered = Date.now();
   await page.mouse.move(c.x, c.y);
@@ -701,7 +719,7 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   // selected decal's grips stand over its mark): both stored marks drawn.
   await page.mouse.move(box.x + 20, box.y + box.height - 20);
   await expect.poll(async () => (await state())?.preview ?? null).toBeNull();
-  await column.getByRole('radio', { name: 'Projected' }).click();
+  await panel('placement').getByRole('radio', { name: 'Projected' }).click();
   await mode.getByRole('button', { name: /Done/ }).click();
   await expect(mode).toBeHidden();
   await expect.poll(async () => view.getAttribute('data-decal-tool')).toBeNull();

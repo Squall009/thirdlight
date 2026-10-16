@@ -3,8 +3,9 @@
  * whether it reads paint (with Make it paintable first when it does not),
  * the tools (Paint, Erase: one brush, X switches), the palette of what the
  * paint means on that material (a layered surface's Base, layers 2–4 and
- * Wet; a trim sheet's grime and wetness; a tint's colour and amount), the
- * shared brush panel and noise mask.
+ * Wet; a trim sheet's grime and wetness; a tint's colour and amount); and as
+ * docked panels over the view the shared brush, its noise mask and the
+ * channel view (top left).
  *
  * Browser-only (React).
  */
@@ -12,16 +13,17 @@ import { useState, type JSX } from 'react';
 
 import { brushKeyHints, paletteKeyHint } from '../../session/edit-keys';
 import { VERTEX_PAINT_USES } from '../../session/vertex-paint-brush';
-import { BrushPanel } from '../brush/BrushPanel';
-import { NoiseMask } from '../brush/NoiseMask';
 import { Banner } from '../editmode/Banner';
+import { brushPanels } from '../editmode/brush-panels';
 import { CheckRow } from '../editmode/CheckRow';
 import { Section } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { LayerPalette } from '../palette/LayerPalette';
 import { setUpLayered } from '../palette/MaterialLayers';
+import { ChannelViewList } from './ChannelView';
 import { PaintMaterialCard } from './PaintMaterialCard';
 import { useVertexPaint, type VertexPaintSetup } from './vertex-paint-column';
 
@@ -108,13 +110,13 @@ export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
           <LayerPalette layers={channels.tiles} active={vp.tile} onPick={(i) => vp.setState({ tile: i })} thumbnails={host.palette.thumbnails} compact keys={paintable} disabled={!paintable} aria="paint layers" />
           <p className="tl-hint">{channels.hint}</p>
         </Section>
-        <Section title="Brush" aside="Shared by every brush">
-          <BrushPanel settings={settings} store={store} uses={VERTEX_PAINT_USES.filter((u) => u !== 'mask')} invert="Erase" />
-        </Section>
-        <Section title="Noise mask" open={settings.mask.on} aside={<span className={`tl-tag${settings.mask.on ? ' tl-tag--ok' : ''}`}>{settings.mask.on ? 'on' : 'off'}</span>}>
-          <NoiseMask settings={settings} store={store} />
-        </Section>
       </div>
+      <EditPanels
+        panels={[
+          ...brushPanels({ settings, store, uses: VERTEX_PAINT_USES, invert: 'Erase', off: !paintable }),
+          ...(channels.meaning !== 'none' ? [{ id: 'channel-view', title: 'Channel view', dock: 'tl' as const, badge: 'V cycles', render: () => <div className="tl-dpanel__pad"><ChannelViewList vp={vp} /></div> }] : []),
+        ]}
+      />
     </div>
   );
 }

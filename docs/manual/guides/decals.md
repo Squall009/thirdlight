@@ -49,9 +49,10 @@ three modes (Shift+1–3):
    sheet's decal cell: a cell gets its decal material when you pick it,
    sized at the sheet's texel density). No decal material yet? Drop an
    image file (a PNG with the mark's shape in its alpha) on **Drop an image
-   to make a decal material**, or click it to pick a texture. Set
-   **Projection** (Projected or Clipped, see below), the **width**,
-   **height** and **depth** of the box, and a **turn**.
+   to make a decal material**, or click it to pick a texture. In the
+   **Placement** panel on the view's right edge set **Projection**
+   (Projected or Clipped, see below), the **width**, **height** and
+   **depth** of the box, and a **turn**.
 2. Move the pointer over a surface: the decal shows there as it will be
    placed, facing out of the surface (on a floor the image's top points to
    −Z, on a wall up the wall). **Click** to place it: one undo step. It is
@@ -59,23 +60,25 @@ three modes (Shift+1–3):
    surface normal (15° steps with snapping on), its **corner** to scale its
    width and height; each drag is one undo step, Esc drops it.
 3. **Shift+click** stamps more: each with a random turn and size (the
-   **Stamps** section) drawn from the **seed**, so the same clicks with the
+   **Stamps** panel) drawn from the **seed**, so the same clicks with the
    same seed give the same marks.
 4. **Scatter.** Drag over the ground, a wall or a slope to scatter the
    picked decal: **density** decals per square metre, each turned and sized
-   at random from the seed. The brush is the shared one (`[` `]` size, F
+   at random from the seed (the **Scatter** panel). The brush is the shared one (`[` `]` size, F
    then drag to resize in the view). Each stroke is one undo step.
 5. **Select.** With no tool (**Navigate**, how the editor opens; Esc drops
    Place, Scatter or Box) click a decal in any mode; Shift+click adds,
    Ctrl+click removes; a drag orbits. The **Box** tool (B) drags a box. **Filter** picks only
-   one material's decals, or one decal layer's. With several selected, the
-   **Selection** fields change all of them at once (one undo step): size,
+   one material's decals, or one decal layer's. With decals selected, the
+   **Selection** panel's fields change all of them at once (one undo step): size,
    projection, opacity per channel, fades and order; a field they disagree
    on says "mixed". Drag a selected decal to move it over the surfaces;
    **Del** deletes the selection (one undo step brings it all back);
    **Esc** clears it.
 
-Along the bottom of the view, the **Decal atlas** shows the decal pages Play
+Along the bottom of the view, the **Decal atlas** panel (collapsed to its
+title bar, which says how many pages and how much of them is unused; click
+it to open it) shows the decal pages Play
 and the export will put the images on (see
 [decal pages](../features/decals.md#decal-pages)): how many pages and how
 large, how much of them no image uses, their GPU memory, and each page with
@@ -87,8 +90,8 @@ for example "Poster (1024 × 512) sets every page to 1024². Shrink to 512 ×
 made); with **Scene view draws from the pages** on, the Scene view then draws
 the decals from them, as Play does. An edit that changes what the pages hold
 (a decal of a new material, a texture imported again) puts the Scene view
-back on each decal material's own textures until you rebuild. The arrow at
-the right folds the atlas away (its head stays).
+back on each decal material's own textures until you rebuild. A click on
+its title bar collapses it again.
 
 **Done** (or Esc with nothing selected and no tool armed) leaves the editor. A double-click
 on a decal in the Hierarchy or the Scene view opens it in Select with that
@@ -155,7 +158,7 @@ edited, a wall's preset or slider changed, a model reimported); nothing is
 stored but the box.
 
 To edit a mark by hand, select it in the decal editor and press **Bake to
-model** in the Selection section: the clipped mesh becomes a model asset
+model** in the Selection panel: the clipped mesh becomes a model asset
 (its decal material mapped) placed on the same object, and the decal
 component goes. It is an
 ordinary model asset from then on: reimport an edited file over it.

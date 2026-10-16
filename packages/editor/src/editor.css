@@ -814,8 +814,10 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-preview { flex: none; display: flex; flex-direction: column; gap: 4px; max-height: 60%; overflow-y: auto; padding: 6px;
   font-size: 12px; border-bottom: 1px solid var(--line); background: var(--surface-1); }
 .tl-preview[hidden] { display: none; }
-/* The pane takes the Inspector's width below it (its long captions wrap rather than widen the column). */
-.tl-editor-window__side > .tl-preview { width: 0; min-width: 100%; }
+/* The pane takes the Inspector's width below it (its long captions wrap rather than widen the column); its host element
+   (moved into an editor's Preview panel when that editor holds it) takes no box of its own. */
+.tl-preview-host { display: contents; }
+.tl-editor-window__side > .tl-preview-host > .tl-preview { width: 0; min-width: 100%; }
 .tl-preview > .tl-subhead { display: flex; align-items: center; gap: 6px; }
 .tl-preview__canvas { flex: none; width: 100%; aspect-ratio: 1; max-height: 360px; display: block; border: 1px solid var(--line);
   border-radius: var(--radius); background: #000; touch-action: none; }
@@ -1561,7 +1563,6 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
   font-size: var(--text-sm); color: var(--text); background: rgba(40,33,16,.92); border: 1px solid rgba(255,207,92,.45); border-radius: var(--radius-md); box-shadow: 0 8px 22px rgba(0,0,0,.45); }
 .tl-toast > svg { color: var(--warn); flex: none; }
 /* The channel view's chips, top right of the lent Scene view. */
-.tl-vp-chips { margin-left: auto; margin-right: 76px; pointer-events: auto; padding: 3px; background: rgba(20,23,28,.78); border: 1px solid var(--line); border-radius: var(--radius-md); backdrop-filter: blur(6px); }
 /* MaterialCard: the material a mode works through. */
 .tl-matcard { display: flex; align-items: center; gap: 10px; }
 .tl-matcard__ball { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; overflow: hidden; border: 1px solid var(--line-strong); background: var(--surface-3); cursor: pointer; }
@@ -1623,125 +1624,6 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-slider.is-mixed .tl-slider__thumb { opacity: .45; }
 .tl-emh__note { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; font-size: var(--text-sm); color: var(--text-dim); white-space: nowrap; }
 .tl-decal-box { position: absolute; pointer-events: none; border: 1px solid var(--select); background: var(--select-bg); z-index: 3; }
-/* The decal atlas: a drawer along the decal editor's Scene view (its head always shown), stat cards, the page-size
-   warning, each page with its decal images' rectangles (the selection's blue, the images setting the page size amber). */
-.tl-atlas { position: absolute; z-index: 3; left: 0; right: 0; bottom: 0; background: rgba(20,23,28,.97); border-top: 1px solid var(--line-strong); box-shadow: 0 -10px 30px rgba(0,0,0,.35); }
-.tl-atlas__head { display: flex; align-items: center; gap: 12px; height: 38px; padding: 0 10px 0 14px; }
-.tl-atlas.is-open .tl-atlas__head { border-bottom: 1px solid var(--line); }
-.tl-atlas__title { display: inline-flex; align-items: center; gap: 8px; font-weight: var(--weight-bold); white-space: nowrap; }
-.tl-atlas__status { flex: 1; min-width: 0; text-align: right; font-size: var(--text-xs); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tl-atlas__head .tl-btn--primary { align-self: center; height: 26px; }
-.tl-atlas__body { display: flex; gap: 18px; padding: 12px 14px; align-items: flex-start; max-height: 270px; overflow: auto; }
-.tl-atlas__stats { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-content: start; max-width: 640px; min-width: 420px; }
-.tl-atlas__stat { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; background: var(--surface-1); border: 1px solid var(--line); border-radius: var(--radius-md); }
-.tl-atlas__stat span { font-size: var(--text-xs); color: var(--text-faint); }
-.tl-atlas__stat b { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
-.tl-atlas__stat small { font-size: var(--text-xs); color: var(--text-dim); }
-.tl-atlas__check { grid-column: 1 / -1; justify-content: flex-start; }
-.tl-atlas__check > svg { flex: none; color: var(--warn); margin-top: 1px; }
-.tl-atlas__note, .tl-atlas__error { grid-column: 1 / -1; margin: 0; font-size: var(--text-xs); color: var(--text-dim); }
-.tl-atlas__error { color: var(--err); }
-.tl-atlas__pages { display: flex; gap: 18px; flex-wrap: wrap; }
-.tl-atlas__page { display: flex; flex-direction: column; gap: 6px; width: 210px; font-size: var(--text-xs); color: var(--text-dim); }
-.tl-atlas__sheet { position: relative; width: 210px; height: 210px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; background-color: #0b0d11;
-  background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px); background-size: 12.5% 12.5%; }
-.tl-atlas__rect { position: absolute; padding: 2px; margin: 0; cursor: pointer; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.25); }
-.tl-atlas__rect:hover { border-color: var(--text); }
-.tl-atlas__rect.is-offender { border-color: var(--warn); }
-.tl-atlas__rect.is-selected { border: 2px solid var(--select); }
-.tl-atlas__img { display: block; width: 100%; height: 100%; object-fit: contain; background-repeat: no-repeat; pointer-events: none; }
-.tl-atlas__caption { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* The kit editor (an editor-window document): slots on the left, the trim checker in the centre; the preview pane
-   shows the picked piece and the Inspector the slot. State colours: ok green, warn amber, err red. */
-.tl-kit-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
-.tl-kit-doc__main { flex: 1; display: flex; min-height: 0; gap: 0; }
-.tl-kit-doc__side { width: 300px; flex: none; overflow-y: auto; background: var(--surface-1); border-right: 1px solid var(--line); }
-.tl-kit-doc__centre { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
-.tl-kit-doc__tally.is-err { background: var(--err-bg); color: var(--err); }
-.tl-kit-doc__tally.is-warn { background: var(--warn-bg); color: var(--warn); }
-.tl-kit-doc__tally.is-ok { background: var(--ok-bg); color: var(--ok); }
-.tl-kit-slots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.tl-kit-slot { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; text-align: left; font: inherit; color: var(--text);
-  background: var(--surface-0); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
-.tl-kit-slot:hover { border-color: var(--line-strong); }
-.tl-kit-slot.is-active { background: var(--select-bg); border-color: var(--select); box-shadow: inset 0 0 0 1px var(--select-line); }
-.tl-kit-slot.is-empty { border-style: dashed; background: transparent; }
-.tl-kit-slot.is-drop { border-color: var(--select); background: var(--select-bg); border-style: solid; }
-.tl-kit-slot__thumb { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: var(--surface-2); color: var(--text-faint); overflow: hidden; }
-.tl-kit-slot__thumb img { width: 100%; height: 100%; object-fit: contain; }
-.tl-kit-slot__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.tl-kit-slot__name { font-size: var(--text-md); font-weight: 600; }
-.tl-kit-slot__sub { font-size: var(--text-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tl-kit-slot.is-empty .tl-kit-slot__sub { color: var(--text-faint); }
-.tl-kit-slot__state { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; }
-.tl-kit-slot__state.is-ok { color: var(--ok); background: var(--ok-bg); }
-.tl-kit-slot__state.is-warn { color: var(--warn); background: var(--warn-bg); }
-.tl-kit-slot__state.is-err { color: var(--err); background: var(--err-bg); }
-.tl-kit-slots__more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 6px; padding: 6px; font: inherit; font-size: var(--text-sm);
-  color: var(--text-dim); background: none; border: 1px dashed var(--line-strong); border-radius: 6px; cursor: pointer; }
-.tl-kit-slots__more:hover { color: var(--text); border-color: var(--select); }
-.tl-kit-slots__add { display: flex; gap: 6px; margin-top: 6px; }
-.tl-kit-slots__add .tl-input { flex: 1; }
-.tl-kit-sheet, .tl-kit-picture { display: flex; flex-direction: column; gap: 7px; }
-.tl-kit-sheet__card { display: flex; align-items: center; gap: 10px; }
-.tl-kit-sheet__thumb, .tl-kit-picture__img { flex: none; width: 48px; height: 48px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
-.tl-kit-sheet__thumb img, .tl-kit-picture__img img { width: 100%; height: 100%; object-fit: cover; }
-/* A picture made from the sheet shows its walls and floor (the top of the spec's layout). */
-.tl-kit-picture__img.is-sheet img { object-position: top; transform: scale(1.6); transform-origin: top; }
-.tl-kit-picture__about { resize: vertical; min-height: 48px; font: inherit; font-size: var(--text-sm); }
-.tl-kit-uses { display: flex; flex-direction: column; gap: 4px; list-style: none; margin: 0 0 8px; padding: 0; }
-.tl-kit-uses ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.tl-kit-uses li { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); }
-.tl-kit-uses li > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tl-kit-uses__head { font-size: var(--text-sm); font-weight: 600; color: var(--text-dim); }
-.tl-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; color: var(--text-dim); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
-.tl-icon-btn:hover { color: var(--text); border-color: var(--line-strong); }
-.tl-kit-spec { flex: 1; overflow: auto; padding: 12px 16px; }
-.tl-kit-spec__text { margin: 0; white-space: pre-wrap; font: 12px/1.5 ui-monospace, monospace; color: var(--text); }
-/* The trim checker: the sheet with row bounds over it, the rows, the checks. */
-.tl-trimcheck { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.tl-trimcheck__head { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--text-md); }
-.tl-trimcheck__body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 300px) minmax(280px, 1fr) minmax(280px, 1.2fr); gap: 12px; padding: 10px 12px; overflow: auto; align-items: start; }
-.tl-trimcheck__sheet { position: relative; aspect-ratio: 1; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.tl-trimcheck__sheet > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; }
-.tl-trimcheck__sheet > .tl-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 8px; text-align: center; }
-.tl-trimcheck__row { position: absolute; left: 0; right: 0; box-sizing: border-box; border: 1px solid rgba(76, 141, 255, .9); border-left-width: 3px; }
-.tl-trimcheck__row.is-warn { border-color: var(--warn); }
-.tl-trimcheck__row.is-err { border-color: var(--err); }
-.tl-trimcheck__row.is-hidden { border-color: transparent; }
-.tl-trimcheck__gutter { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(45deg, rgba(255, 255, 255, .28) 0 2px, transparent 2px 5px); }
-.tl-trimcheck__gutter.is-above { bottom: 100%; }
-.tl-trimcheck__gutter.is-below { top: 100%; }
-.tl-trimcheck__label { position: absolute; left: 2px; top: 1px; padding: 0 4px; font-size: 10px; line-height: 13px; color: #fff; background: rgba(13, 15, 19, .72); border-radius: 2px; }
-.tl-trimcheck__rows { border-collapse: collapse; font-size: var(--text-sm); width: 100%; }
-.tl-trimcheck__rows td { padding: 3px 6px; border-bottom: 1px solid var(--line); color: var(--text-dim); white-space: nowrap; }
-.tl-trimcheck__rows td.tl-trimcheck__slot { color: var(--text); }
-.tl-trimcheck__checks { display: flex; flex-direction: column; gap: 6px; }
-.tl-dot.is-ok { background: var(--ok); }
-.tl-dot.is-warn { background: var(--warn); }
-.tl-dot.is-err { background: var(--err); }
-.tl-dot.is-info { background: var(--text-faint); }
-/* The kit Inspector: a slot's variants, its piece checks, where it stands. */
-.tl-kit-variants { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.tl-kit-variant { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--surface-0); border: 1px solid var(--line); border-radius: 6px; }
-.tl-kit-variant.is-active { border-color: var(--select-line); }
-.tl-kit-variant__main { display: flex; align-items: center; gap: 10px; padding: 0; font: inherit; color: var(--text); text-align: left; background: none; border: 0; cursor: pointer; }
-.tl-kit-variant__tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.tl-kit-variant__tools select { flex: 1; min-width: 0; }
-.tl-kit-variant__weight { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--text-dim); }
-.tl-kit-variant__weight input { width: 56px; }
-.tl-kit-checks { display: flex; flex-direction: column; gap: 6px; }
-.tl-kit-place { display: flex; flex-direction: column; gap: 4px; font-size: var(--text-sm); }
-.tl-kit-block__facts { display: grid; grid-template-columns: 80px 1fr; gap: 3px 8px; margin: 0; font-size: var(--text-sm); }
-.tl-kit-block__facts dt { color: var(--text-dim); }
-.tl-kit-block__facts dd { margin: 0; overflow-wrap: anywhere; }
-.tl-kit-preview { display: flex; flex-direction: column; gap: 6px; }
-.tl-kit-preview__legend { display: flex; gap: 14px; font-size: var(--text-xs); color: var(--text-dim); }
-.tl-kit-preview__key::before { content: ''; display: inline-block; width: 14px; height: 9px; margin-right: 5px; vertical-align: -1px; border: 1.5px solid; }
-.tl-kit-preview__key.is-cell::before { border-color: var(--select); border-style: dashed; }
-.tl-kit-preview__key.is-draws::before { border-color: var(--err); }
-
 /* The block editor (ui/blocks): the detail column, the palette of block types, the slice chip, lists and the block type editor. */
 .tl-bcol, .tl-btype { display: flex; flex-direction: column; flex: none; padding-bottom: 12px; }
 .tl-bcol__note, .tl-bcol__clip { margin: 0; padding: 0 12px 8px; }

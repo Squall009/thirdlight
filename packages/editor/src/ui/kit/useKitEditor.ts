@@ -65,6 +65,9 @@ export interface KitEditor extends KitEdits {
   /** What is being done ("Importing door.glb…"), shown in the toolbar. */
   busy: string | null;
   error: string | null;
+  /** Asks the kit document to show the picked part's panels (the Inspector's link); counts up on each ask. */
+  reveal: number;
+  revealPanels: () => void;
 }
 
 export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, kits: readonly KitDef[], revision: number): KitEditor {
@@ -79,6 +82,8 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
   /** Kits whose sheet pixels were read in this session. */
   const pixelsRead = useRef(new Set<string>());
   const seq = useRef(0);
+  const [reveal, setReveal] = useState(0);
+  const revealPanels = useCallback(() => setReveal((n) => n + 1), []);
 
   const run = useCallback(
     async (id: string, pixels: boolean) => {
@@ -234,5 +239,5 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     if (kitId !== null) setPicks((m) => ({ ...m, [kitId]: p }));
   }, [kitId]);
 
-  return { kitId, kit, pick, setPick, report: report !== null && report.kitId === kitId ? report : null, checking, checkAll, save, swapSheet, grouped, importModel, mapMaterial, busy, error };
+  return { kitId, kit, pick, setPick, report: report !== null && report.kitId === kitId ? report : null, checking, checkAll, save, swapSheet, grouped, importModel, mapMaterial, busy, error, reveal, revealPanels };
 }

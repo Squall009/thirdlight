@@ -243,7 +243,6 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
           {/* Empty for React: the Scene view's canvas is put here (and taken back) by the editor. */}
           <div className="tl-editmode__canvas" ref={viewHost} />
           {scene ? <ViewportChrome objectName={name} context chip={kind.chip} extra={kind.viewExtra?.(sceneView)} panels={<PanelsChip host={docks} />} /> : <ViewportChrome objectName={name} context={state.context} extra={kind.viewExtra?.({ entity: entity!, mode: rail.id, host: p.host })} panels={<PanelsChip host={docks} />} />}
-          {scene && kind.drawer?.(sceneView)}
           <DockLayer host={docks} />
           {p.notice !== null && (
             <div className="tl-notice" role="alert">

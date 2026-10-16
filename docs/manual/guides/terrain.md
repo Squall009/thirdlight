@@ -162,9 +162,11 @@ of, over the ground as sculpted by hand: switch a layer off, weigh it, move
 it, delete it. **Stamp** (W) places a heightmap (picked by its picture) as
 wide as the brush with a click; with no tool (**Navigate**) the stamps'
 squares show on the ground — click one to pick it, drag its body to move
-it, a corner to resize it, the knob to turn it, or set its numbers in the
-column. **Erode** (E) erodes the square
-under the brush with a click (hydraulic and thermal, every setting of each).
+it, a corner to resize it, the knob to turn it, or set its numbers in its
+**Picked stamp** panel. **Erode** (E) erodes the square
+under the brush with a click (hydraulic and thermal, every setting of each:
+the **Erode** panel; the Stamp tool's heightmap and height are the **New
+stamp** panel).
 
 **API:** `setComponent` of the terrain's `layers`
 ([`TerrainLayer`](../reference/types-p-u.md#type-terrain-layer)) and
@@ -175,9 +177,9 @@ under the brush with a click (hydraulic and thermal, every setting of each).
 **Editor:** the **Tiles** mode draws the tile grid on the ground: click an
 empty square beside the terrain (dashed, with a "+") to add a tile there —
 it carries the ground on from its neighbours' edges — or click a tile to
-pick it and **Remove** it. **Import heightmap** lays a 16-bit PNG or RAW file
-from the picked tile; **From a block layer** converts a block layer's
-surface. The **Settings** mode holds the tile size, the height range, the
+pick it and **Remove** it. **Import heightmap** (a panel on the view's
+right edge) lays a 16-bit PNG or RAW file from the picked tile; **From a
+block layer** (another) converts a block layer's surface. The **Settings** mode holds the tile size, the height range, the
 detail distance and collision.
 
 **API:** `editTerrain` kind `addTiles {tiles: [[x, z]]}` and kind `import`

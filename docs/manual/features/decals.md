@@ -562,7 +562,7 @@ decals with a page), `pages` (arrays), `layers`, `bytes`, `onGpu` and
 `missing` — next to `renderer.textures` (the budget); an exported game's
 canvas carries `data-tl-decal-pages` (`arrays|layers|bytes|uploaded`).
 
-**The decal atlas.** The decal editor's drawer shows the pages a build will
+**The decal atlas.** The decal editor's Decal atlas panel shows the pages a build will
 make, planned from the materials the build ships with the same planner
 (`GET …/content/decal-pages`): the page count and size, each image's
 rectangle (the materials drawing it), the share of page area no rectangle

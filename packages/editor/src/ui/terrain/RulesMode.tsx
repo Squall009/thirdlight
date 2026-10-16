@@ -6,7 +6,9 @@
  * in one command (`editTerrain` bake; hand paint stays over the rules) — or
  * Revert to what is stored.
  *
- * The preview is drawn by the Scene view from the draft (`previewRules`);
+ * The cards, Bake and Revert are the column's; the preview's switches are a
+ * docked panel (top right). The preview is drawn by the Scene view from the
+ * draft (`previewRules`);
  * leaving the mode, or a bake landing, gives the stored layers back.
  *
  * Browser-only (React).
@@ -17,6 +19,7 @@ import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 
 import { surfaceRuleTitle } from '../../session/rule-text';
 import { Section, Toggle } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import { LayerPicker } from '../palette/LayerPalette';
 import { usePalette } from '../palette/MaterialLayers';
@@ -75,21 +78,33 @@ export function RulesColumn(p: TerrainColumnProps): JSX.Element {
         <p className="tl-hint">Rules apply top to bottom; a later rule paints over the ones above it. Where none applies, the first layer. Hand painting stays on top.</p>
         <div role="group" aria-label="material rules">
           <MaterialRuleCards rules={draft} onChange={setDraft} selected={selected} onSelect={(i) => setState({ rule: i })} blocks={false} layerField={layerField} layerName={layerName} height={heightTrack(p)} disabled={p.locked} />
+          <div className="tl-inspector__modes">
+            <button type="button" className="tl-btn tl-btn--primary" aria-label="bake rules" disabled={busy || p.locked || !changed} onClick={() => void bake()}>
+              {busy ? 'Baking…' : 'Bake rules'}
+            </button>
+            <button type="button" className="tl-btn tl-btn--small" aria-label="revert rules" disabled={!changed || busy} onClick={revert}>
+              Revert to last bake
+            </button>
+          </div>
         </div>
       </Section>
-      <Section title="Preview">
-        <Toggle label="Live preview of the bake" aria="live preview" hint="Draw the rules on the terrain as they would bake, while you edit them." on={state.livePreview} onChange={(on) => setState({ livePreview: on })} />
-        <Toggle label="Only the open rule" aria="open rule alone" hint="Draw the open card's rule alone, over the first layer: where it applies." disabled={!state.livePreview || selected === null} on={state.solo} onChange={(on) => setState({ solo: on })} />
-        {covered !== null && covered.covered < covered.total && <p className="tl-hint">Previewed on the {covered.covered} tiles nearest the view (of {covered.total}); the bake does every tile.</p>}
-        <div className="tl-inspector__modes">
-          <button type="button" className="tl-btn tl-btn--primary" aria-label="bake rules" disabled={busy || p.locked || !changed} onClick={() => void bake()}>
-            {busy ? 'Baking…' : 'Bake rules'}
-          </button>
-          <button type="button" className="tl-btn tl-btn--small" aria-label="revert rules" disabled={!changed || busy} onClick={revert}>
-            Revert to last bake
-          </button>
-        </div>
-      </Section>
+      <EditPanels
+        panels={[
+          {
+            id: 'rules-preview',
+            title: 'Preview',
+            dock: 'tr',
+            badge: state.livePreview ? (changed ? 'live · not baked' : 'live') : 'off',
+            render: () => (
+              <div className="tl-dpanel__pad">
+                <Toggle label="Live preview of the bake" aria="live preview" hint="Draw the rules on the terrain as they would bake, while you edit them." on={state.livePreview} onChange={(on) => setState({ livePreview: on })} />
+                <Toggle label="Only the open rule" aria="open rule alone" hint="Draw the open card's rule alone, over the first layer: where it applies." disabled={!state.livePreview || selected === null} on={state.solo} onChange={(on) => setState({ solo: on })} />
+                {covered !== null && covered.covered < covered.total && <p className="tl-hint">Previewed on the {covered.covered} tiles nearest the view (of {covered.total}); the bake does every tile.</p>}
+              </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

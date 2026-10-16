@@ -101,9 +101,27 @@ export async function paintTool(page: Page, tool: 'Paint' | 'Erase'): Promise<vo
   await armTile(paintEditor(page).getByRole('toolbar', { name: 'vertex paint tool' }).getByRole('button', { name: tool, exact: true }));
   await expect.poll(async () => (await paintState(page))?.navigate ?? true).toBe(false);
 }
-/** The channel view's chip by its label ("Final", a layer's name, "Wetness"). */
+/** The channel view by its label ("Final", a layer's name, "Wetness"): Paint's Channel view panel (top left). */
 export async function channelView(page: Page, label: string): Promise<void> {
-  await paintEditor(page).getByRole('radiogroup', { name: 'channel view' }).getByRole('radio', { name: label, exact: true }).click();
+  const panel = paintEditor(page).locator('[data-panel="channel-view"]');
+  await expect(panel).toHaveAttribute('data-dock', 'tl');
+  await expect(panel).toHaveAttribute('data-open', 'true');
+  const radio = panel.getByRole('radiogroup', { name: 'channel view list' }).getByRole('radio', { name: label, exact: true });
+  await radio.click();
+  await expect(radio).toHaveAttribute('aria-checked', 'true');
+}
+/**
+ * At 1920 × 1080 no mode's settings column needs a scroll in its default state (Paint, Channels, Material): the
+ * brush, its noise mask, the channel view and what the channels mean are docked panels. Back in Paint after.
+ */
+export async function paintColumnsFit(page: Page): Promise<void> {
+  for (const name of ['Channels', 'Material', 'Paint']) {
+    const tab = paintEditor(page).getByRole('tablist', { name: 'editor modes' }).getByRole('tab', { name, exact: true });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    const fill = await paintEditor(page).locator('.tl-editmode__column-body').evaluate((el) => ({ content: el.scrollHeight, shown: el.clientHeight }));
+    expect(fill.content, `vertex paint ${name}: the column fits`).toBeLessThanOrEqual(fill.shown);
+  }
 }
 /**
  * A paint stroke across world points (the pointer down at `from`, moved to `to`); `during` runs with the button

@@ -10,7 +10,8 @@
  * the view; the panel can move from dock to dock without its content
  * starting over.
  *
- * The shell holds one dock host per editor (`useDockHost`): the layout the
+ * The shell holds one dock host per editor (`useDockHost`; a document
+ * view such as the kit editor holds its own over its centre): the layout the
  * user gave the panels (`session/dock-layout.ts`: docks, collapsed or open,
  * order), remembered per editor in the browser, never in the project. It
  * draws the panels (`DockLayer`) and the view's chip (`PanelsChip`): the
@@ -47,6 +48,8 @@ export interface EditPanel {
   readonly shown?: boolean;
   /** It edits the selection: drawn in the selection's colour. */
   readonly selection?: boolean;
+  /** On the top or bottom edge it stretches between the side columns (a wide view such as the decal atlas's pages). */
+  readonly wide?: boolean;
   /** Its content (rendered where the panel is declared, shown in the panel's body). */
   render(): ReactNode;
 }
@@ -57,6 +60,7 @@ interface PanelEntry {
   readonly title: string;
   readonly badge: string | null;
   readonly selection: boolean;
+  readonly wide: boolean;
   readonly def: PanelDefault;
   /** The element its content is rendered into (moved into the panel's body). */
   readonly content: HTMLElement;
@@ -89,6 +93,8 @@ export interface DockHost {
   toggle(id: string): void;
   move(id: string, dock: DockId): void;
   setHidden(hidden: boolean): void;
+  /** Show a panel: the panels on, it open (a link elsewhere asks for it). */
+  reveal(id: string): void;
   reset(): void;
 }
 
@@ -129,8 +135,18 @@ export function useDockHost(editor: string): DockHost {
   const toggle = useCallback((id: string) => update({ ...latest.current.docks, places: togglePanel(latest.current.docks.places, defaults(), id) }), [update, defaults]);
   const move = useCallback((id: string, dock: DockId) => update({ ...latest.current.docks, places: movePanel(latest.current.docks.places, defaults(), id, dock) }), [update, defaults]);
   const setHidden = useCallback((hidden: boolean) => update({ ...latest.current.docks, hidden }), [update]);
+  const reveal = useCallback(
+    (id: string) => {
+      const was = latest.current.docks;
+      let next = was.hidden ? { ...was, hidden: false } : was;
+      const def = entries.current.get(id)?.def;
+      if (def !== undefined && !placeFor(next.places, def).open) next = { ...next, places: togglePanel(next.places, defaults(), id) };
+      if (next !== was) update(next);
+    },
+    [update, defaults],
+  );
   const reset = useCallback(() => update(EMPTY_DOCKS), [update]);
-  return { registry, panels, docks, toggle, move, setHidden, reset };
+  return { registry, panels, docks, toggle, move, setHidden, reveal, reset };
 }
 
 /** The shell gives its dock host to everything it shows. */
@@ -157,11 +173,11 @@ export function EditPanels({ panels }: { panels: readonly EditPanel[] }): JSX.El
   const shown = panels.filter((p) => p.shown !== false);
   // What the host draws of each panel, as one value: the registrations change only when it does.
   // A panel's default place in its dock is its place in the declaration (shown or not, so it never shifts).
-  const meta = JSON.stringify(shown.map((p) => [p.id, p.title, p.dock, p.collapsed === true, panels.indexOf(p), p.badge ?? null, p.selection === true]));
+  const meta = JSON.stringify(shown.map((p) => [p.id, p.title, p.dock, p.collapsed === true, panels.indexOf(p), p.badge ?? null, p.selection === true, p.wide === true]));
   useLayoutEffect(() => {
     if (registry === null) return undefined;
-    const list = JSON.parse(meta) as [string, string, DockId, boolean, number, string | number | null, boolean][];
-    for (const [id, title, dock, collapsed, order, badge, selection] of list) registry.register({ id, title, badge: badge === null ? null : String(badge), selection, def: { id, dock, open: !collapsed, order }, content: contentOf(id) });
+    const list = JSON.parse(meta) as [string, string, DockId, boolean, number, string | number | null, boolean, boolean][];
+    for (const [id, title, dock, collapsed, order, badge, selection, wide] of list) registry.register({ id, title, badge: badge === null ? null : String(badge), selection, wide, def: { id, dock, open: !collapsed, order }, content: contentOf(id) });
     return () => {
       for (const [id] of list) registry.unregister(id, contentOf(id));
     };
@@ -354,7 +370,7 @@ function PanelFrame({ entry, place, lifted, onHeadDown, onHeadKey }: { entry: Pa
     };
   }, [entry.content, place.open]);
   return (
-    <section ref={frame} className={`tl-dpanel${place.open ? '' : ' is-closed'}${entry.selection ? ' tl-dpanel--sel' : ''}${lifted ? ' is-lifted' : ''}`} aria-label={`${entry.title} panel`} data-panel={entry.id} data-dock={place.dock} data-open={place.open}>
+    <section ref={frame} className={`tl-dpanel${place.open ? '' : ' is-closed'}${entry.selection ? ' tl-dpanel--sel' : ''}${entry.wide ? ' tl-dpanel--wide' : ''}${lifted ? ' is-lifted' : ''}`} aria-label={`${entry.title} panel`} data-panel={entry.id} data-dock={place.dock} data-open={place.open}>
       <div
         ref={head}
         className="tl-dpanel__head"

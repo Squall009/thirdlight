@@ -2,9 +2,9 @@
  * The decal editor's Select column: the tools (Navigate, whose click picks
  * a decal as it does in every mode, and Box), the filters
  * (which decals the pointer can pick: by material, by decal layer), the
- * palette (with decals selected, a pick gives them that material) and the
- * selection — how many, what they are, Select same, and the fields of all of
- * them at once: size, projection, blend, opacity per channel, fades and
+ * palette (with decals selected, a pick gives them that material); and the
+ * selection as a docked panel while there is one — how many, what they are,
+ * Select same, and the fields of all of them at once: size, projection, blend, opacity per channel, fades and
  * order. A field the selection disagrees on says "mixed"; an edit is one
  * command for every selected decal (a slider's once it rests). Bake to model
  * and Delete act on the selection.
@@ -20,6 +20,7 @@ import { paletteKeyHint } from '../../session/edit-keys';
 import { SliderField } from '../brush/SliderField';
 import { useSettledEdits } from '../brush/settle';
 import { Section, Segmented } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import { Glyph } from '../editmode/glyphs';
 import type { SceneModeView } from '../editmode/modes';
@@ -103,12 +104,25 @@ export function SelectColumn({ host }: SceneModeView): JSX.Element {
           if (n > 0 && e.material !== null) void tools.edit(host.entities, { field: 'material', value: e.material });
         }}
       />
-      <SelectionSection view={{ host }} tools={tools} fields={fields} names={sel.map((s) => s.name)} />
+      <EditPanels
+        panels={[
+          {
+            id: 'selection',
+            title: 'Selection',
+            dock: 'r',
+            selection: true,
+            shown: n > 0,
+            badge: `${n} of ${decalCount}`,
+            render: () => <SelectionFields view={{ host }} tools={tools} fields={fields} names={sel.map((s) => s.name)} />,
+          },
+        ]}
+      />
     </div>
   );
 }
 
-function SelectionSection({ view, tools, fields, names }: { view: Pick<SceneModeView, 'host'>; tools: DecalTools; fields: DecalSelectionFields; names: readonly string[] }): JSX.Element {
+/** The selected decals' fields, all at once. */
+function SelectionFields({ view, tools, fields, names }: { view: Pick<SceneModeView, 'host'>; tools: DecalTools; fields: DecalSelectionFields; names: readonly string[] }): JSX.Element {
   const { host } = view;
   const n = fields.count;
   const stored = useMemo(() => flatten(fields), [fields]);
@@ -126,10 +140,8 @@ function SelectionSection({ view, tools, fields, names }: { view: Pick<SceneMode
   const blend = (material?.params['blend'] as DecalBlend | undefined) ?? 'blend';
   const projected = fields.mode !== 'clipped';
   return (
-    <Section title="Selection" aside={<span className="tl-sec__note">{n === 0 ? 'none' : `${n} selected`}</span>}>
-      {n === 0 ? (
-        <p className="tl-hint">Click a decal in the view, or drag a box round several. Their size, projection, blend, opacity and fades are edited here, all at once.</p>
-      ) : (
+    <div className="tl-dpanel__pad" role="group" aria-label="decal selection">
+      {n > 0 && (
         <>
           <div className="tl-decal-sel" aria-label="selected decals">
             <SelThumb texture={entry?.texture ?? null} crop={entry?.crop} stacked={n > 1} thumbnails={host.palette.thumbnails} />
@@ -172,7 +184,7 @@ function SelectionSection({ view, tools, fields, names }: { view: Pick<SceneMode
           </div>
         </>
       )}
-    </Section>
+    </div>
   );
 }
 

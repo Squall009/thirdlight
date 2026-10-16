@@ -1,6 +1,6 @@
 /**
  * The decal atlas's wiring: the decal pages Play and the export will use
- * (read from the backend while the drawer shows them, or while the Scene view
+ * (read from the backend while the decal editor's atlas panel is there, or while the Scene view
  * draws from composed pages), Rebuild pages (one composition on the backend),
  * and which composed pages the Scene view draws from.
  *
@@ -20,7 +20,6 @@ import type { DecalAtlasView } from '../../session/decal-atlas';
 import type { ClientRef } from './commands';
 
 const DRAW_KEY = 'thirdlight.decalAtlas.draw.v1';
-const OPEN_KEY = 'thirdlight.decalAtlas.open.v1';
 /** A burst of edits is read once, after it. */
 const REFRESH_DELAY_MS = 400;
 
@@ -46,13 +45,10 @@ export interface DecalAtlas {
   /** A read or a composition under way. */
   readonly busy: 'reading' | 'composing' | null;
   readonly error: string | null;
-  /** The drawer is open (remembered per browser). */
-  readonly open: boolean;
-  setOpen(open: boolean): void;
   /** The Scene view draws from composed pages when there are current ones (remembered per browser). */
   readonly drawFromPages: boolean;
   setDrawFromPages(on: boolean): void;
-  /** The drawer shows (the decal editor is open): the pages are read while it does. */
+  /** The atlas panel shows (the decal editor is open): the pages are read while it does. */
   setShown(shown: boolean): void;
   /** Compose the pages now. */
   rebuild(): Promise<void>;
@@ -66,7 +62,6 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string }): Decal
   const [view, setView] = useState<DecalAtlasView | null>(null);
   const [busy, setBusy] = useState<DecalAtlas['busy']>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpenState] = useState(() => stored(OPEN_KEY, true));
   const [drawFromPages, setDrawState] = useState(() => stored(DRAW_KEY, true));
   const [shown, setShown] = useState(false);
   const composing = useRef(false);
@@ -88,17 +83,17 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string }): Decal
     }
   }, [clientRef]);
 
-  // Read while the drawer shows, or while composed pages are drawn (they may have gone out of date).
-  const matters = (shown && open) || (drawFromPages && (view?.composed ?? null) !== null);
+  // Read while the atlas panel shows, or while composed pages are drawn (they may have gone out of date).
+  const matters = shown || (drawFromPages && (view?.composed ?? null) !== null);
   useEffect(() => {
     if (!matters) return;
     const t = setTimeout(() => void read(), REFRESH_DELAY_MS);
     return () => clearTimeout(t);
   }, [watch, matters, read]);
-  // Opened: read at once.
+  // Shown: read at once.
   useEffect(() => {
-    if (shown && open) void read();
-  }, [shown, open, read]);
+    if (shown) void read();
+  }, [shown, read]);
 
   const rebuild = useCallback(async () => {
     const c = clientRef.current;
@@ -117,15 +112,11 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string }): Decal
     }
   }, [clientRef]);
 
-  const setOpen = useCallback((v: boolean) => {
-    setOpenState(v);
-    store(OPEN_KEY, v);
-  }, []);
   const setDrawFromPages = useCallback((v: boolean) => {
     setDrawState(v);
     store(DRAW_KEY, v);
   }, []);
 
   const composed = view?.composed ?? null;
-  return { view, busy, error, open, setOpen, drawFromPages, setDrawFromPages, setShown, rebuild, drawn: drawFromPages ? composed : null };
+  return { view, busy, error, drawFromPages, setDrawFromPages, setShown, rebuild, drawn: drawFromPages ? composed : null };
 }

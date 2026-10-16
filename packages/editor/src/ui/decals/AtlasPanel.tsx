@@ -1,7 +1,8 @@
 /**
- * The decal atlas: a drawer along the decal editor's Scene view showing the
- * decal pages Play and the export will use (the backend plans them as the
- * build does): how many and how large, the share of their area no image
+ * The decal atlas: a docked panel along the bottom of the decal editor's
+ * Scene view (collapsed until wanted, its title bar saying how many pages and
+ * how much of them is unused), showing the decal pages Play and the export
+ * will use (the backend plans them as the build does): how many and how large, the share of their area no image
  * uses, their GPU memory, the images that set every page's size (with what
  * shrinking them gives), and each page with every decal image's rectangle —
  * hovering one names it, a click selects the decals that use it.
@@ -19,16 +20,16 @@ import { formatBytes, formatShare, offenderText } from '../../session/decal-atla
 import type { DecalPaletteEntry } from '../../session/decal-editor';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { Toggle } from '../editmode/controls';
-import { Glyph } from '../editmode/glyphs';
+import { EditPanels } from '../editmode/docks';
 import { CheckRow } from '../editmode/CheckRow';
 import type { SceneModeView } from '../editmode/modes';
 import { cropStyle, useLayerThumb } from '../palette/LayerPalette';
 
-export function AtlasDrawer({ host }: SceneModeView): JSX.Element {
+export function AtlasPanel({ host }: SceneModeView): JSX.Element {
   const atlas = host.decalAtlas;
   const tools = host.decals;
   const { setShown } = atlas;
-  // The pages are read while the drawer shows.
+  // The pages are read while the decal editor shows (the panel's title bar says how many, collapsed too).
   useEffect(() => {
     setShown(true);
     return () => setShown(false);
@@ -53,75 +54,81 @@ export function AtlasDrawer({ host }: SceneModeView): JSX.Element {
   const composed = view?.composed ?? null;
   const status = atlas.busy === 'composing' ? 'Composing the pages…' : composed !== null ? `Made in ${composed.ms} ms${composed.stats !== null ? ` (${composed.stats.composed} composed, ${composed.stats.cached + composed.stats.asStored} reused)` : ''}${atlas.drawFromPages ? ' · the Scene view draws from them' : ''}` : report !== null && report.pages.length > 0 ? 'Not composed: the Scene view draws each decal’s own textures' : '';
   const mark = report === null ? undefined : JSON.stringify({ size: report.size, pages: report.pages.length, images: report.images, materials: report.materials, unused: report.unused, gpuBytes: report.gpuBytes, composed: composed !== null, drawn: atlas.drawn !== null });
-
+  const badge = report === null ? (atlas.error !== null ? 'not read' : 'reading…') : report.pages.length === 0 ? 'no pages' : `${report.pages.length} page${report.pages.length === 1 ? '' : 's'} · ${formatShare(report.unused)} unused`;
   return (
-    <section className={`tl-atlas${atlas.open ? ' is-open' : ''}`} aria-label="decal atlas" data-atlas={mark}>
-      <div className="tl-atlas__head">
-        <span className="tl-atlas__title">
-          <Glyph name="tiles" size={16} /> Decal atlas
-        </span>
-        <span className="tl-hint">What Play and the export use</span>
-        <span className="tl-atlas__status" role="status">
-          {status}
-        </span>
-        <Toggle label="Scene view draws from the pages" aria="scene view draws from the pages" on={atlas.drawFromPages} onChange={atlas.setDrawFromPages} hint="Draw the decals from the composed pages, as Play does (off: each decal material's own textures)" />
-        <button type="button" className="tl-btn tl-btn--small tl-btn--primary" disabled={atlas.busy === 'composing' || report === null || report.pages.length === 0} onClick={() => void atlas.rebuild()} title="Compose the pages now (the next Play finds them made)">
-          Rebuild pages
-        </button>
-        <button type="button" className="tl-iconbtn" aria-label={atlas.open ? 'close the decal atlas' : 'open the decal atlas'} aria-expanded={atlas.open} onClick={() => atlas.setOpen(!atlas.open)}>
-          <Glyph name={atlas.open ? 'down' : 'up'} size={16} />
-        </button>
-      </div>
-      {atlas.open && (
-        <div className="tl-atlas__body">
-          {atlas.error !== null && (
-            <p className="tl-atlas__error" role="alert">
-              {atlas.error}
-            </p>
-          )}
-          {report === null ? (
-            <p className="tl-hint">{atlas.error === null ? 'Reading the decal pages…' : ''}</p>
-          ) : report.pages.length === 0 ? (
-            <p className="tl-hint">No decal images to place: Play needs no decal pages.</p>
-          ) : (
-            <>
-              <div className="tl-atlas__stats">
-                <Stat label="Pages" value={String(report.pages.length)} sub={`${report.size}² each`} />
-                <Stat label="Decals" value={`${report.images} image${report.images === 1 ? '' : 's'}`} sub={`${report.materials} material${report.materials === 1 ? '' : 's'}`} />
-                <Stat label="Unused" value={formatShare(report.unused)} sub="of page area" />
-                <Stat label="GPU memory" value={formatBytes(report.gpuBytes)} sub={`${report.maps} map${report.maps === 1 ? '' : 's'} · compressed`} />
-                {offender !== null && (
-                  <CheckRow state="warn" className="tl-atlas__check" role="note" aria="page size warning" title={offender.title} detail={offender.detail} />
-                )}
-                {report.notes.map((n) => (
-                  <p key={n} className="tl-atlas__note">
-                    {n}
+    <EditPanels
+      panels={[
+        {
+          id: 'atlas',
+          title: 'Decal atlas',
+          dock: 'b',
+          collapsed: true,
+          wide: true,
+          badge,
+          render: () => (
+            <section className="tl-atlas" aria-label="decal atlas" data-atlas={mark}>
+              <div className="tl-atlas__head">
+                <span className="tl-hint">What Play and the export use</span>
+                <span className="tl-atlas__status" role="status">
+                  {status}
+                </span>
+                <Toggle label="Scene view draws from the pages" aria="scene view draws from the pages" on={atlas.drawFromPages} onChange={atlas.setDrawFromPages} hint="Draw the decals from the composed pages, as Play does (off: each decal material's own textures)" />
+                <button type="button" className="tl-btn tl-btn--small tl-btn--primary" disabled={atlas.busy === 'composing' || report === null || report.pages.length === 0} onClick={() => void atlas.rebuild()} title="Compose the pages now (the next Play finds them made)">
+                  Rebuild pages
+                </button>
+              </div>
+              <div className="tl-atlas__body">
+                {atlas.error !== null && (
+                  <p className="tl-atlas__error" role="alert">
+                    {atlas.error}
                   </p>
-                ))}
+                )}
+                {report === null ? (
+                  <p className="tl-hint">{atlas.error === null ? 'Reading the decal pages…' : ''}</p>
+                ) : report.pages.length === 0 ? (
+                  <p className="tl-hint">No decal images to place: Play needs no decal pages.</p>
+                ) : (
+                  <>
+                    <div className="tl-atlas__stats">
+                      <Stat label="Pages" value={String(report.pages.length)} sub={`${report.size}² each`} />
+                      <Stat label="Decals" value={`${report.images} image${report.images === 1 ? '' : 's'}`} sub={`${report.materials} material${report.materials === 1 ? '' : 's'}`} />
+                      <Stat label="Unused" value={formatShare(report.unused)} sub="of page area" />
+                      <Stat label="GPU memory" value={formatBytes(report.gpuBytes)} sub={`${report.maps} map${report.maps === 1 ? '' : 's'} · compressed`} />
+                      {offender !== null && (
+                        <CheckRow state="warn" className="tl-atlas__check" role="note" aria="page size warning" title={offender.title} detail={offender.detail} />
+                      )}
+                      {report.notes.map((n) => (
+                        <p key={n} className="tl-atlas__note">
+                          {n}
+                        </p>
+                      ))}
+                    </div>
+                    <div className="tl-atlas__pages" role="list" aria-label="decal pages">
+                      {report.pages.map((p) => (
+                        <Page
+                          key={p.page}
+                          page={p}
+                          size={report.size}
+                          nameOf={nameOf}
+                          entryOf={entryOf}
+                          thumbnails={host.palette.thumbnails}
+                          selected={selectedMaterials}
+                          offenders={offenders}
+                          onPick={(r) => {
+                            const ids = r.materials.flatMap((m) => decalsOf.get(m) ?? []);
+                            tools.select(ids, ids[0] ?? null);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="tl-atlas__pages" role="list" aria-label="decal pages">
-                {report.pages.map((p) => (
-                  <Page
-                    key={p.page}
-                    page={p}
-                    size={report.size}
-                    nameOf={nameOf}
-                    entryOf={entryOf}
-                    thumbnails={host.palette.thumbnails}
-                    selected={selectedMaterials}
-                    offenders={offenders}
-                    onPick={(r) => {
-                      const ids = r.materials.flatMap((m) => decalsOf.get(m) ?? []);
-                      tools.select(ids, ids[0] ?? null);
-                    }}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </section>
+            </section>
+          ),
+        },
+      ]}
+    />
   );
 }
 

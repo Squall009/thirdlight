@@ -4,7 +4,8 @@
  * its neighbours' edges: `editTerrain` addTiles), click a tile to pick it and
  * remove it — and the ways to bring ground in: a 16-bit heightmap laid onto
  * the tiles from a tile on (the picked one by default), or a block layer's
- * surface converted. Each is one command, one undo step.
+ * surface converted, each a docked panel (collapsed until wanted). Each is
+ * one command, one undo step.
  *
  * Browser-only (React).
  */
@@ -12,6 +13,7 @@ import { useState, type JSX } from 'react';
 import { HEIGHTMAP_FORMATS, TERRAIN_TILE_COORD_MAX, terrainTileSize, type HeightmapFormat } from '@thirdlight/runtime';
 
 import { Section, Segmented } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import { Glyph } from '../editmode/glyphs';
 import { useTerrainTool, useTerrainToolState, type TerrainColumnProps } from './terrain-column';
@@ -47,12 +49,12 @@ export function TilesColumn(p: TerrainColumnProps): JSX.Element {
           </button>
         </div>
       </Section>
-      <Section title="Import heightmap">
-        <HeightmapImport p={p} at={picked} />
-      </Section>
-      <Section title="From a block layer" open={p.blockLayers.length > 0}>
-        <ConvertBlocks p={p} />
-      </Section>
+      <EditPanels
+        panels={[
+          { id: 'import-heightmap', title: 'Import heightmap', dock: 'r', collapsed: true, badge: '16-bit PNG or RAW', render: () => <div className="tl-dpanel__pad"><HeightmapImport p={p} at={picked} /></div> },
+          { id: 'from-blocks', title: 'From a block layer', dock: 'r', collapsed: true, badge: `${p.blockLayers.length} block layer${p.blockLayers.length === 1 ? '' : 's'}`, render: () => <div className="tl-dpanel__pad"><ConvertBlocks p={p} /></div> },
+        ]}
+      />
     </div>
   );
 }

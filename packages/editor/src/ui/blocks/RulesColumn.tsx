@@ -19,6 +19,7 @@ import { blockModeOf, blockToolUses, BLOCK_INVERT_LABELS } from '../../session/b
 import { brushKeyHints } from '../../session/edit-keys';
 import { useBrush } from '../brush/useBrush';
 import { Section, Segmented } from '../editmode/controls';
+import { brushPanels } from '../editmode/brush-panels';
 import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import type { EditModeView } from '../editmode/modes';
@@ -26,7 +27,7 @@ import { ToolGrid } from '../editmode/ToolGrid';
 import { MaterialRulesEditor } from '../rules/MaterialRuleCards';
 import { ScatterRulesEditor } from '../rules/ScatterRuleCards';
 import { blockCommand, useBlockSetup, useBlockTool } from './block-column';
-import { blockTypePanel, brushPanels, layerPanel, openedTypeShown } from './block-panels';
+import { blockTypePanel, layerPanel, openedTypeShown } from './block-panels';
 
 /** The heights a block layer's cells span (metres above its object): the rules' height sliders' track. */
 const blockHeights = (c: { bounds: { min: readonly number[]; max: readonly number[] }; cellSize: readonly number[] }): [number, number] => [c.bounds.min[1]! * c.cellSize[1]!, Math.max(c.bounds.min[1]! * c.cellSize[1]! + 1, c.bounds.max[1]! * c.cellSize[1]!)];

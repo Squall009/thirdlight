@@ -124,8 +124,6 @@ export interface SceneEditModeKind extends EditModeBase {
   column(view: SceneModeView): ReactNode;
   /** What the editor lays over the Scene view in every mode (its tool armed, chips beside the isolation chip). */
   viewExtra?(view: SceneModeView): ReactNode;
-  /** A drawer along the Scene view's bottom edge, in every mode (the decal atlas). */
-  drawer?(view: SceneModeView): ReactNode;
 }
 
 /** An object's edit mode (a terrain, a model's vertex paint): it alone is drawn (Context: the rest too, not pickable). */

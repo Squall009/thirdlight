@@ -56,7 +56,7 @@ import { makePng } from './png-make';
 import { consoleErrors, refusedObjects } from './console-errors';
 import { changedPixels, decodePng, type Image } from './png';
 import { inspector } from './ui';
-import { channelView, enterPaint, fit, frame, leavePaint, paintDrag, paintEditor, paintState, paintTool, pickTile, select, sceneProjector, setPaint, strokeDone, view, type Projector } from './vertex-paint-drive';
+import { channelView, enterPaint, fit, frame, leavePaint, paintColumnsFit, paintDrag, paintEditor, paintState, paintTool, pickTile, select, sceneProjector, setPaint, strokeDone, view, type Projector } from './vertex-paint-drive';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -238,6 +238,8 @@ async function vertexPaint(page: Page, ids: { set: string; layer: string; platfo
   await enterPaint(page, ids.platform);
   await expect(view(page)).toHaveAttribute('data-isolation', new RegExp(`"ids":\\["${ids.platform}"\\]`));
   const col = paintEditor(page);
+  await paintColumnsFit(page);
+  await expect.poll(async () => (await paintState(page))?.navigate, { message: 'back in Paint, the tool armed again' }).toBe(false);
   await expect(col.getByLabel('material card')).toContainText('Paint tint');
   await expect(col.getByLabel('material card')).toContainText('reads paint');
   await expect(col.getByRole('radiogroup', { name: 'paint layers' }).getByRole('radio')).toHaveText([/Tint red/, /Tint green/, /Tint blue/, /Tint amount/]);

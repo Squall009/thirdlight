@@ -1,8 +1,9 @@
 /* ---- Docked panels over an edit mode's Scene view (ui/editmode/docks.tsx). ----
    Three columns over the view: each side stacks its top corner, edge and bottom corner; the middle one the top and
    bottom edges. A side with no panel takes no room, so the edges centre on what is left. The layer itself lets the
-   pointer through; only the panels take it. */
-.tl-vdocks { position: absolute; z-index: 3; left: 8px; right: 8px; top: 80px; bottom: 8px; display: flex; gap: 8px; pointer-events: none; }
+   pointer through; only the panels take it. `--dock-top` is where the docks start below the host's top row of chips
+   (an edit mode's view; a document's head row). */
+.tl-vdocks { position: absolute; z-index: 3; left: 8px; right: 8px; top: var(--dock-top, 80px); bottom: 8px; display: flex; gap: 8px; pointer-events: none; }
 .tl-vdocks__side { flex: none; display: flex; flex-direction: column; min-height: 0; max-width: 340px; }
 .tl-vdocks__mid { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .tl-vdock { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 0 1 auto; }
@@ -49,11 +50,11 @@
   background: rgba(76,141,255,.10); border: 1.5px dashed rgba(76,141,255,.6); border-radius: 8px; }
 .tl-vdrop.is-hot { background: rgba(76,141,255,.32); border-style: solid; border-color: var(--select); color: #fff; box-shadow: 0 0 0 3px rgba(76,141,255,.25); }
 .tl-vdrop span { padding: 2px 8px; border-radius: 999px; background: rgba(13,15,19,.75); }
-.tl-vdrop--tl { left: 8px; top: 80px; width: 150px; height: 110px; }
-.tl-vdrop--tr { right: 8px; top: 80px; width: 150px; height: 110px; }
+.tl-vdrop--tl { left: 8px; top: var(--dock-top, 80px); width: 150px; height: 110px; }
+.tl-vdrop--tr { right: 8px; top: var(--dock-top, 80px); width: 150px; height: 110px; }
 .tl-vdrop--bl { left: 8px; bottom: 8px; width: 150px; height: 110px; }
 .tl-vdrop--br { right: 8px; bottom: 8px; width: 150px; height: 110px; }
-.tl-vdrop--t { left: 50%; top: 80px; width: 300px; height: 64px; transform: translateX(-50%); }
+.tl-vdrop--t { left: 50%; top: var(--dock-top, 80px); width: 300px; height: 64px; transform: translateX(-50%); }
 .tl-vdrop--b { left: 50%; bottom: 8px; width: 300px; height: 64px; transform: translateX(-50%); }
 .tl-vdrop--l { left: 8px; top: 50%; width: 72px; height: 220px; transform: translateY(-50%); }
 .tl-vdrop--r { right: 8px; top: 50%; width: 72px; height: 220px; transform: translateY(-50%); }
@@ -71,3 +72,8 @@
   border-radius: 4px; height: 20px; padding: 0 7px; margin-left: 4px; cursor: pointer; }
 .tl-panelschip__reset:hover:not(:disabled) { border-color: var(--line-strong); }
 .tl-panelschip__reset:disabled { opacity: .45; cursor: default; }
+
+/* A wide panel on the top or bottom edge stretches between the side columns (the decal atlas's pages). */
+.tl-vdock--t > .tl-dpanel--wide, .tl-vdock--b > .tl-dpanel--wide { flex: 1 1 auto; width: auto; min-width: 0; }
+/* An edge's row of panels keeps within the edge's share of the view; a taller one scrolls inside itself. */
+.tl-vdock--t > .tl-dpanel, .tl-vdock--b > .tl-dpanel { max-height: 100%; }

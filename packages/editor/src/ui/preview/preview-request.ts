@@ -72,6 +72,9 @@ export function previewKey(r: PreviewRequest): string {
 
 export const PreviewRequestContext = createContext<(request: PreviewRequest | null) => void>(() => undefined);
 
+/** Where the front editor wants the preview pane drawn (an element of its own; null: above the Inspector). */
+export const PreviewPlaceContext = createContext<(place: HTMLElement | null) => void>(() => undefined);
+
 /** Ask the preview pane to show `request` while this editor is in front (null: nothing). */
 export function usePreview(request: PreviewRequest | null): void {
   const set = useContext(PreviewRequestContext);

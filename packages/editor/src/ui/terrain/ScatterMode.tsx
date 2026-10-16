@@ -4,7 +4,9 @@
  * the rules stored and their copies baked into every tile in one command —
  * and the hand-scatter brush: drag to put the chosen rule's copies under it
  * whatever its conditions, X (or Ctrl held) to take them off. Hand edits
- * stay over every later bake.
+ * stay over every later bake. The tools and the rules are the column's; the
+ * brush (with the rule it places) is the Scatter brush panel, sharing the
+ * brush panel's place.
  *
  * Browser-only (React).
  */
@@ -14,10 +16,12 @@ import { TERRAIN_DEFAULT_COLOURS } from '@thirdlight/three-adapter';
 
 import { brushKeyHints } from '../../session/edit-keys';
 import { TERRAIN_INVERT_LABELS, TERRAIN_MODES, terrainToolUses } from '../../session/terrain-brush';
-import { BrushPanel } from '../brush/BrushPanel';
 import { useBrush } from '../brush/useBrush';
+import { brushPanels } from '../editmode/brush-panels';
 import { Section, Segmented } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
+import { useToolArmed } from '../editmode/edit-tool';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { LayerPicker } from '../palette/LayerPalette';
 import { usePalette } from '../palette/MaterialLayers';
@@ -59,8 +63,13 @@ export function ScatterColumn(p: TerrainColumnProps): JSX.Element {
     }
   };
   useEditStatus({ tool: tile.label, text: rule === '' ? 'Add a rule and bake it; then drag on the ground to place its copies by hand.' : tile.hint, keys: [...toolKeysHint(MODE.tiles), ...brushKeyHints(uses, TERRAIN_INVERT_LABELS.scatter)] });
+  const armed = useToolArmed();
   return (
     <div className="tl-terrain" aria-label="terrain tools">
+      <Section title="Tool">
+        <ToolGrid tools={MODE.tiles} active={tile.id} onPick={(id) => store.set({ invert: MODE.tiles.find((t) => t.id === id)!.invert === true })} aria="terrain tool" cols={4} disabled={p.locked} />
+        {armed && <p className="tl-hint">{tile.hint}</p>}
+      </Section>
       <Section title="Rules" aside={`${draft.length} rule${draft.length === 1 ? '' : 's'}`}>
         <p className="tl-hint">Models placed where the conditions hold, baked into the tiles; a sculpt or paint bakes them again around itself.</p>
         <div role="group" aria-label="scatter rules">
@@ -75,18 +84,26 @@ export function ScatterColumn(p: TerrainColumnProps): JSX.Element {
           </div>
         </div>
       </Section>
-      <Section title="Scatter by hand">
-        <ToolGrid tools={MODE.tiles} active={tile.id} onPick={(id) => store.set({ invert: MODE.tiles.find((t) => t.id === id)!.invert === true })} aria="terrain tool" cols={4} disabled={p.locked} />
-        {stored.length === 0 ? (
-          <p className="tl-hint">Bake a rule first: the brush places a stored rule's copies.</p>
-        ) : (
-          <div className="tl-frow tl-frow--stack">
-            <span className="tl-frow__label">Rule</span>
-            <Segmented small aria="scatter brush rule" value={rule} options={stored.map((id) => ({ id, label: id }))} onChange={(id) => setState({ brush: { ...state.brush, rule: id } })} />
-          </div>
-        )}
-        <BrushPanel settings={settings} store={store} uses={uses} invert={TERRAIN_INVERT_LABELS.scatter!} />
-      </Section>
+      <EditPanels
+        panels={brushPanels({
+          settings,
+          store,
+          uses,
+          invert: TERRAIN_INVERT_LABELS.scatter!,
+          off: p.locked,
+          title: 'Scatter brush',
+          badge: rule === '' ? 'no stored rule' : rule,
+          head:
+            stored.length === 0 ? (
+              <p className="tl-hint">Bake a rule first: the brush places a stored rule's copies.</p>
+            ) : (
+              <div className="tl-frow tl-frow--stack">
+                <span className="tl-frow__label">Rule</span>
+                <Segmented small aria="scatter brush rule" value={rule} options={stored.map((id) => ({ id, label: id }))} onChange={(id) => setState({ brush: { ...state.brush, rule: id } })} />
+              </div>
+            ),
+        })}
+      />
     </div>
   );
 }

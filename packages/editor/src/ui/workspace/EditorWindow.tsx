@@ -6,7 +6,8 @@
  * left, the editor's one Inspector on the right (the same component the
  * default view docks, moved here while the window shows, never a second
  * copy), one splitter between them whose width the layout storage remembers.
- * Editors that preview share one preview pane above that Inspector.
+ * Editors that preview share one preview pane above that Inspector; an
+ * editor with panels of its own may hold the pane in one (`PreviewPlace`).
  * Several open items are tabs of the window: closable, reorderable by drag,
  * middle-click closes, Ctrl+Tab / Ctrl+Shift+Tab cycle them. Esc or the
  * window's × return to the default view with the selection it had; the tabs
@@ -15,7 +16,8 @@
  *
  * Browser-only (React).
  */
-import { useCallback, useEffect, useReducer, useRef, useState, type Dispatch, type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type Dispatch, type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   INITIAL_WORKSPACE,
@@ -32,7 +34,7 @@ import {
 import { KNOWN_DOCUMENT_KINDS, documentIcon, documentKind, documentTitle, type WorkspaceHost } from './kinds';
 import { EditorHeader } from './EditorHeader';
 import { PreviewPane } from '../preview/PreviewPane';
-import { PreviewRequestContext, type PreviewRequest } from '../preview/preview-request';
+import { PreviewPlaceContext, PreviewRequestContext, type PreviewRequest } from '../preview/preview-request';
 
 const TAB_DRAG_TYPE = 'application/x-thirdlight-workspace-tab';
 
@@ -196,6 +198,19 @@ function OpenEditorWindow({ state, dispatch, host, inspector, onSplitter }: Edit
   const doc = activeDoc(state)!;
   // What the front editor asks the preview pane to show (it asks again when it comes to the front).
   const [preview, setPreview] = useState<PreviewRequest | null>(null);
+  // The pane is drawn into one element, put above the Inspector or into the place the front editor gives it (its
+  // Preview panel): moving the element keeps the pane's renderer and canvas.
+  const [paneHost] = useState(() => {
+    const el = document.createElement('div');
+    el.className = 'tl-preview-host';
+    return el;
+  });
+  const [place, setPlace] = useState<HTMLElement | null>(null);
+  const side = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const to = place ?? side.current;
+    if (to !== null && paneHost.parentElement !== to) to.insertBefore(paneHost, to.firstChild);
+  }, [place, paneHost]);
   return (
     <section className="tl-editor-window" aria-label="editor window" data-doc-kind={doc.kind}>
       <div className="tl-editor-window__head">
@@ -210,14 +225,16 @@ function OpenEditorWindow({ state, dispatch, host, inspector, onSplitter }: Edit
             <EditorHeader key={`header:${docKey(doc)}`} doc={doc} host={host} />
             {/* Keyed by the document: every tab gets its own view state. */}
             <div className="tl-workspace__view" key={docKey(doc)}>
-              <PreviewRequestContext.Provider value={setPreview}>{documentKind(doc.kind)?.render(doc.id, host) ?? <p className="tl-hint">Unknown document kind "{doc.kind}".</p>}</PreviewRequestContext.Provider>
+              <PreviewRequestContext.Provider value={setPreview}>
+                <PreviewPlaceContext.Provider value={setPlace}>{documentKind(doc.kind)?.render(doc.id, host) ?? <p className="tl-hint">Unknown document kind "{doc.kind}".</p>}</PreviewPlaceContext.Provider>
+              </PreviewRequestContext.Provider>
             </div>
           </div>
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={onSplitter} role="separator" aria-orientation="vertical" aria-label="Resize the editor window's inspector" />
-        {/* The one preview pane above the one Inspector; it keeps its renderer while the window shows. */}
-        <div className="tl-editor-window__side">
-          <PreviewPane request={preview} deps={host.preview} />
+        {/* The one preview pane above the one Inspector (unless the front editor holds it); it keeps its renderer while the window shows. */}
+        <div className="tl-editor-window__side" ref={side}>
+          {createPortal(<PreviewPane request={preview} deps={host.preview} />, paneHost)}
           {inspector}
         </div>
       </div>

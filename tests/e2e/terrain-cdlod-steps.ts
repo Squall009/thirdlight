@@ -778,7 +778,20 @@ export function expectFrame(img: Image, what: string): void {
 export type PreviewDiff = { samples: number; stepsMax: number; stepsDiffering: number; normalMax: number; weightMax: number; holesDiffering: number; indicesDiffering: number };
 export type StrokeInfo = { serial: number; tool: string; dabs: number; commitMs: number | null; stored: boolean | null; preview?: { active: boolean; settling: boolean; dabs: number; passes: number; tiles: number; msMax: number; msMean: number; frames: number; msMaxAfterFirst: number; settleMs: number | null; diff: PreviewDiff | null } };
 export const strokeInfo = async (page: Page): Promise<StrokeInfo | null> => JSON.parse((await viewport(page).getAttribute('data-terrain-stroke')) ?? 'null') as StrokeInfo | null;
-export const terrainPanel = (page: Page) => page.getByLabel('terrain tools');
+/** The terrain editor: its column (the tools, lists and palettes) and its docked panels (the settings of what is picked). */
+export const terrainPanel = (page: Page) => editMode(page);
+/** The edit mode's Panels switch: every docked panel shown or hidden. */
+async function panelsShown(page: Page, on: boolean): Promise<void> {
+  const sw = editMode(page).getByRole('group', { name: 'panels layout' }).locator('.tl-panelschip__switch');
+  if ((await sw.getAttribute('aria-pressed')) !== String(on)) await sw.click();
+  await expect(sw).toHaveAttribute('aria-pressed', String(on));
+}
+/** Open a docked panel of the terrain editor by its id ("import-heightmap") unless it is open; panels remember their state. */
+async function openTerrainPanel(page: Page, id: string): Promise<void> {
+  const panel = editMode(page).locator(`[data-panel="${id}"]`);
+  if ((await panel.getAttribute('data-open')) !== 'true') await panel.locator('.tl-dpanel__head').click();
+  await expect(panel).toHaveAttribute('data-open', 'true');
+}
 /** The terrain editor's rail mode and tool tile of each tool. */
 const TOOL_MODES: Readonly<Record<string, [string, string]>> = { Raise: ['Sculpt', 'Raise'], Lower: ['Sculpt', 'Lower'], Smooth: ['Sculpt', 'Smooth'], Flatten: ['Sculpt', 'Flatten'], Noise: ['Sculpt', 'Noise'], Ramp: ['Sculpt', 'Ramp'], Paint: ['Paint', 'Paint'], Erase: ['Paint', 'Erase'], Holes: ['Holes', 'Cut'], Scatter: ['Scatter', 'Place'], Select: ['Stack', 'Navigate'], Stamp: ['Stack', 'Stamp'], Erode: ['Stack', 'Erode'] };
 /** Pick a terrain tool: its mode on the terrain editor's rail, then its tile in the mode's tool grid (Select: no tool, Navigate, picks stamps). */
@@ -1231,8 +1244,11 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   await setNumber(page, 'brush size', 2.4);
   await setNumber(page, 'brush strength', 60);
   await terrainPanel(page).getByRole('radiogroup', { name: 'brush falloff' }).getByRole('radio', { name: 'Constant' }).click();
+  // The spot is picked, and painted, with the docked panels hidden (the Panels switch): the same spot whatever they cover.
+  await panelsShown(page, false);
   const paintAt = await visibleSpot(page, ground, spots([...grove, raiseAt]));
   const paint = await terrainStroke(page, [[paintAt[0] - 0.3, paintAt[1], paintAt[2]], [paintAt[0] + 0.3, paintAt[1], paintAt[2]]], paintAt, 30);
+  await panelsShown(page, true);
   expect(share(paint.before, isRed), `${renderer}: red before the paint`).toBeGreaterThan(0.6);
   expect(share(paint.preview, isBlue), `${renderer}: the paint previewed`).toBeGreaterThan(0.6);
   expect(share(paint.after, isBlue), `${renderer}: the paint stored`).toBeGreaterThan(0.6);
@@ -1243,7 +1259,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
 
   // ---- paint through the noise mask with a 50 % opacity: the GPU preview (its mask and the stroke's coverage) against the stored tiles.
   await setNumber(page, 'brush opacity', 50);
-  const noise = terrainPanel(page).getByRole('region', { name: 'noise mask' });
+  const noise = editMode(page).locator('[data-panel="noise-mask"]');
   await noise.getByLabel('paint through noise').check();
   await setNumber(page, 'mask scale', 0.6);
   await setNumber(page, 'mask contrast', 3);
@@ -1252,8 +1268,10 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   const strips: V3[] = [];
   for (let z = PLAYER[1]; z >= HOLE[1]; z -= 3) strips.push([PLAYER[0], 0, z]);
   for (let x = PLAYER[0]; x >= WEST_TO; x -= 3) strips.push([x, 0, PLAYER[1]]);
+  await panelsShown(page, false);
   const maskedAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt, ...strips]));
   const masked = await terrainStroke(page, [[maskedAt[0] - 0.3, maskedAt[1], maskedAt[2]], [maskedAt[0] + 0.3, maskedAt[1], maskedAt[2]], [maskedAt[0] - 0.3, maskedAt[1], maskedAt[2]]], maskedAt, 30);
+  await panelsShown(page, true);
   const md = masked.info.preview!.diff!;
   expect(md.weightMax, `${renderer} masked paint: preview weights against the stored tiles ${JSON.stringify(md)}`).toBeLessThanOrEqual(4);
   expect(md.indicesDiffering).toBe(0);
@@ -1285,8 +1303,10 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
   // ---- holes: one click, the sky through it.
   await pickTool(page, 'Holes');
   await setNumber(page, 'brush size', 2);
+  await panelsShown(page, false);
   const holeAt = await visibleSpot(page, ground, spots([...grove, raiseAt, paintAt, maskedAt]));
   const hole = await terrainStroke(page, [holeAt], holeAt, 16);
+  await panelsShown(page, true);
   expect(share(hole.before, isSky), `${renderer}: ground before the hole`).toBeLessThan(0.05);
   expect(share(hole.preview, isSky), `${renderer}: the hole previewed`).toBeGreaterThan(0.5);
   expect(share(hole.after, isSky), `${renderer}: the hole stored`).toBeGreaterThan(0.5);
@@ -1324,7 +1344,13 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
     const raw = new Uint8Array(33 * 33 * 2);
     const v = Math.round(((10 - RANGE[0]) / (RANGE[1] - RANGE[0])) * 65535);
     for (let i = 0; i < 33 * 33; i++) new DataView(raw.buffer).setUint16(i * 2, v, true);
-    await editModeTab(page, 'Tiles');
+    // At 1920 × 1080 no mode's settings column needs a scroll in its default state: the settings are docked panels.
+    for (const m of ['Sculpt', 'Paint', 'Holes', 'Material rules', 'Scatter', 'Stack', 'Settings', 'Tiles']) {
+      await editModeTab(page, m);
+      const fill = await editMode(page).locator('.tl-editmode__column-body').evaluate((el) => ({ content: el.scrollHeight, shown: el.clientHeight }));
+      expect(fill.content, `terrain ${m}: the column fits`).toBeLessThanOrEqual(fill.shown);
+    }
+    await openTerrainPanel(page, 'import-heightmap');
     const dialog = terrainPanel(page).getByRole('group', { name: 'import heightmap' });
     await dialog.getByLabel('heightmap file').setInputFiles({ name: 'patch.raw', mimeType: 'application/octet-stream', buffer: Buffer.from(raw) });
     await expect(dialog.getByRole('radiogroup', { name: 'heightmap format' }).getByRole('radio', { name: 'RAW 16-bit' })).toHaveAttribute('aria-checked', 'true');
@@ -1343,6 +1369,7 @@ export async function terrainTools(page: Page, renderer: string, ground: string,
     await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 8, 3, 8], cell: { block: 'stone' } }] });
     await selectEntity(page, big);
     await editModeTab(page, 'Tiles');
+    await openTerrainPanel(page, 'from-blocks');
     await terrainPanel(page).getByLabel('convert source').selectOption(layer);
     const bigAt: [number, number] = [BIG_ORIGIN[0] + 104, BIG_ORIGIN[2] + 104];
     const bigHeight = async (): Promise<number> => ((await query('queryTerrain', { entityId: big, points: [bigAt] }))['points'] as { height: number }[])[0]!.height;
@@ -1707,6 +1734,7 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await pickTool(page, 'Scatter');
   await expect(terrainPanel(page).getByRole('radiogroup', { name: 'scatter brush rule' }).getByRole('radio', { name: 'posts' })).toHaveAttribute('aria-checked', 'true');
   await setNumber(page, 'brush size', 3);
+  await panelsShown(page, false);
   const center = await visibleSpot(page, ground, posts.slice(0, 12).map((c) => [c.x, c.z] as [number, number]));
   const s = await screenOf(page, center);
   const near = (list: Copy[]): number => list.filter((c) => Math.hypot(c.x - center[0], c.z - center[2]) < 1.2).length;
@@ -1720,6 +1748,7 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'the brush took the posts off' }).toBe(0);
   await cmd('undo', {});
   await expect.poll(async () => near(await copies()), { timeout: 30_000, message: 'undone: the posts are back' }).toBe(near(posts));
+  await panelsShown(page, true);
   await pickTool(page, 'Raise');
 
   // The terrace's Scatter rules in the block editor: posts on its flat tops (rows 2), none over its sloped cell (0, 1, 0).

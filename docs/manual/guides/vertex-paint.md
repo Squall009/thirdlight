@@ -57,8 +57,8 @@ materials on it.
 ## Paint
 
 1. In **Paint**, pick the tool (**Paint** `B` or **Erase** `X`) and a tile.
-2. Set the brush — the same panel as every brush
-   ([Brushes](brushes.md)): **Size** (metres across), **Strength** (one
+2. Set the brush in the **Brush** panel on the view's right edge — the same
+   panel as every brush ([Brushes](brushes.md)): **Size** (metres across), **Strength** (one
    dab), **Opacity** (the most one stroke reaches), **Falloff**,
    **Spacing**, and **Paint through noise** for broken edges (moss, rust).
 3. Drag on the object. The cursor lies flat on the face under the pointer;
@@ -79,9 +79,10 @@ Alt+drag orbits, `Home` frames the object, Esc drops a stroke in progress.
 
 **Channels** shows one channel of the paint as grey over the view (white:
 full, black: none) — for paint a material shows only faintly (wetness,
-grime, a soft blend). The same choice sits over the view in every mode;
-`V` cycles it. The mode also lists what each of R, G, B and A means on the
-material and what the object keeps painted.
+grime, a soft blend). In Paint the same list is the **Channel view** panel
+at the top left of the view; `V` cycles it. The panels **What the channels
+mean** (R, G, B and A on the material) and **Stored paint** (what the object
+keeps painted) sit on the view's right edge.
 
 ## Material
 

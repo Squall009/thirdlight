@@ -2,16 +2,15 @@
  * What the vertex paint editor lays over the Scene view while it shows, in
  * every rail mode: the brush armed on the object (Paint and Channels; the
  * Material mode only looks; with no tool, Navigate, it shows the channel
- * view but paints nothing and a drag orbits), the channel view's chips (Final, then what each
- * channel means; V cycles them) and, when the material reads no paint, a
- * toast saying so with Make it paintable.
+ * view but paints nothing and a drag orbits), V cycling the channel view
+ * (its list is Paint's panel and Channels' column) and, when the material
+ * reads no paint, a toast saying so with Make it paintable.
  *
  * Browser-only (React).
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import { isTyping } from '../workspace/EditorWindow';
-import { Segmented } from '../editmode/controls';
 import { useToolArmed } from '../editmode/edit-tool';
 import { Toast } from '../editmode/Banner';
 import type { EditModeView } from '../editmode/modes';
@@ -65,11 +64,6 @@ export function VertexPaintView({ entity, mode, host }: EditModeView): JSX.Eleme
   };
   return (
     <>
-      {channels.meaning !== 'none' && (
-        <div className="tl-vp-chips" title="The channel view: one channel of the paint as grey (white: full), or the material as drawn. V cycles.">
-          <Segmented small aria="channel view" options={views.map((v) => ({ id: v.channel === null ? 'final' : String(v.channel), label: v.label }))} value={view === null ? 'final' : String(view)} onChange={(id) => setState({ view: id === 'final' ? null : Number(id) })} />
-        </div>
-      )}
       {channels.meaning === 'none' && !vp.locked && (
         <Toast aria="painting is off" action={{ label: 'Make it paintable', onClick: () => void makePaintable(), busy }}>
           Painting is off: <b>{channels.material?.name ?? entity.name}</b> {channels.material === null ? 'wears no material that reads' : "doesn't read"} paint.

@@ -28,6 +28,7 @@ import { useBrush } from '../brush/useBrush';
 import { TEXTURE_KINDS } from '../catalog/RefPicker';
 import { Banner } from '../editmode/Banner';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { brushPanels } from '../editmode/brush-panels';
 import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import { useToolArmed } from '../editmode/edit-tool';
@@ -38,7 +39,7 @@ import { usePalette, withTextureSet } from '../palette/MaterialLayers';
 import { useCatalog } from '../catalog/catalog-context';
 import { TextureBrowser } from '../palette/TextureBrowser';
 import { blockBrushStore, blockCommand, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
-import { blockTypePanel, brushPanels, layerPanel, openedTypeShown } from './block-panels';
+import { blockTypePanel, layerPanel, openedTypeShown } from './block-panels';
 import { PaletteSection, SliceField, toolKeysHint } from './BuildColumn';
 
 /** The tile of a brush mode matching the brush's invert now (X and Ctrl switch it), else the remembered one. */

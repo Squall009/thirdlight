@@ -7,11 +7,14 @@
  * - No tool (Navigate): a stamp's square in the view is picked with a
  *   click; its body drags it, a corner resizes it, the knob turns it (one
  *   command on release); its height, side, turn, edge fade and mode in the
- *   column. Esc lets it go.
+ *   Picked stamp panel. Esc lets it go.
  * - Stamp: a click places the chosen heightmap as a stamp, its side the
- *   brush size, into a stamps layer.
+ *   brush size, into a stamps layer (its settings: the New stamp panel).
  * - Erode: a click erodes the square under the brush (hydraulic, thermal,
- *   every setting of each) into an erosion layer.
+ *   every setting of each) into an erosion layer (the Erode panel).
+ *
+ * The column holds the tools and the layer stack (what is picked from);
+ * the panels over the view the settings of what is picked.
  *
  * Every change is one command: the layer list (`setComponent terrain`) or
  * an erosion (`editTerrain` erode); the backend combines the ground again.
@@ -32,8 +35,9 @@ import { BrushPanel } from '../brush/BrushPanel';
 import { useSettledEdits, type SettledEdits } from '../brush/settle';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
-import { EntryName, TEXTURE_KINDS } from '../catalog/RefPicker';
+import { EntryName, TEXTURE_KINDS, useEntryName } from '../catalog/RefPicker';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { EditPanels, type EditPanel } from '../editmode/docks';
 import { useEditSelection, useEditTool, useToolArmed } from '../editmode/edit-tool';
 import { useEditStatus } from '../editmode/edit-status';
 import { Glyph } from '../editmode/glyphs';
@@ -99,78 +103,98 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
   });
   const settings = useBrush(store ?? terrainBrushStore('stamp'));
   const uses = terrainToolUses(tool);
-  const text = tool === 'stamp' && state.stamp.asset === '' ? 'Choose a heightmap below, then click the ground.' : tile.hint;
+  const text = tool === 'stamp' && state.stamp.asset === '' ? 'Choose a heightmap in the New stamp panel, then click the ground.' : tile.hint;
   useEditStatus({ tool: tool === 'stamps' ? 'Navigate' : tile.label, text, keys: [...toolKeysHint(MODE.tiles), ...brushKeyHints(uses)] });
+  const armed = tool !== 'stamps';
+  const pickedName = useEntryName(picked?.stamp.asset ?? null, TEXTURE_KINDS);
+  const panels: EditPanel[] = [
+    {
+      id: 'picked-stamp',
+      title: 'Picked stamp',
+      dock: 'r',
+      selection: true,
+      shown: picked !== null && !armed,
+      ...(picked !== null ? { badge: pickedName?.name ?? picked.stamp.asset } : {}),
+      render: () => (picked === null ? null : <PickedStamp p={p} picked={picked} edits={edits} onDrop={() => setState({ pickedStamp: null })} />),
+    },
+    {
+      id: 'new-stamp',
+      title: 'New stamp',
+      dock: 'r',
+      badge: 'the Stamp tool',
+      shown: tool === 'stamp' && store !== null,
+      render: () =>
+        store === null ? null : (
+          <div className="tl-dpanel__pad">
+            <StampOptions stamp={state.stamp} set={(x) => setState({ stamp: { ...state.stamp, ...x } })} layers={layers.filter((l) => l.kind === 'stamps').map((l) => l.id)} thumbnails={p.palette.thumbnails} />
+            <BrushPanel settings={settings} store={store} uses={uses} />
+          </div>
+        ),
+    },
+    {
+      id: 'erode',
+      title: 'Erode',
+      dock: 'r',
+      badge: 'the Erode tool',
+      shown: tool === 'erode' && store !== null,
+      render: () =>
+        store === null ? null : (
+          <div className="tl-dpanel__pad">
+            <ErodeOptions erode={state.erode} set={(x) => setState({ erode: { ...state.erode, ...x } })} />
+            <BrushPanel settings={settings} store={store} uses={uses} />
+          </div>
+        ),
+    },
+  ];
   return (
     <div className="tl-terrain" aria-label="terrain tools">
       <Section title="Tool">
-        <ToolGrid tools={MODE.tiles} active={tile.id} onPick={(id) => setState({ tiles: { ...state.tiles, stack: id } })} aria="terrain tool" cols={3} disabled={p.locked} />
-        <p className="tl-hint">{text}</p>
+        <ToolGrid tools={MODE.tiles} active={tile.id} onPick={(id) => setState({ tiles: { ...state.tiles, stack: id } })} aria="terrain tool" cols={4} disabled={p.locked} />
+        <p className="tl-hint">{armed ? text : stamps.length === 0 ? 'No stamps yet: the Stamp tool places them.' : "Click a stamp's square in the view, or one in the list below."}</p>
       </Section>
-      {tool === 'stamps' && <PickedStamp p={p} picked={picked} layers={layers} edits={edits} onDrop={() => setState({ pickedStamp: null })} />}
-      {tool === 'stamp' && store !== null && (
-        <Section title="New stamp">
-          <StampOptions stamp={state.stamp} set={(x) => setState({ stamp: { ...state.stamp, ...x } })} layers={layers.filter((l) => l.kind === 'stamps').map((l) => l.id)} thumbnails={p.palette.thumbnails} />
-          <BrushPanel settings={settings} store={store} uses={uses} />
-        </Section>
-      )}
-      {tool === 'erode' && store !== null && (
-        <Section title="Erode">
-          <ErodeOptions erode={state.erode} set={(x) => setState({ erode: { ...state.erode, ...x } })} />
-          <BrushPanel settings={settings} store={store} uses={uses} />
-        </Section>
-      )}
       <LayerList
         p={p}
         picked={picked}
         onPick={(ref) => {
           setState({ pickedStamp: ref === null ? null : { layer: ref.layer, index: ref.index } });
-          // A stamp picked in the list is edited with no tool in hand (its handles in the view, its settings above).
+          // A stamp picked in the list is edited with no tool in hand (its handles in the view, its settings in its panel).
           edit?.drop();
         }}
         layers={layers}
         edits={edits}
       />
+      <EditPanels panels={panels} />
     </div>
   );
 }
 
-/** The picked stamp's settings (Select): what it is, where, how high, turned, how it meets the ground; delete. */
-function PickedStamp(p: { p: TerrainColumnProps; picked: StampRef | null; layers: readonly TerrainLayer[]; edits: LayerEdits; onDrop: () => void }): JSX.Element {
+/** The picked stamp's settings: what it is, where, how high, turned, how it meets the ground; delete. */
+function PickedStamp(p: { p: TerrainColumnProps; picked: StampRef; edits: LayerEdits; onDrop: () => void }): JSX.Element {
   const r = p.picked;
-  if (r === null) {
-    return (
-      <Section title="Picked stamp">
-        <p className="tl-hint">{terrainStamps(p.layers).length === 0 ? 'No stamps yet: the Stamp tool places them.' : 'Click a stamp\'s square in the view, or one in the list below.'}</p>
-      </Section>
-    );
-  }
   const s = r.stamp;
   const off = p.p.locked;
   // Keyed by the stamp and the setting: a drag's moves replace each other; other settings wait beside it.
   const change = (what: string, patch: Partial<TerrainStamp>, now = false): void => p.edits.edit(`stamp ${r.layer} ${r.index} ${Object.keys(patch).join()}`, what, (ls) => layersWithStampChanged(ls, r.layer, r.index, patch), now);
   return (
-    <Section title="Picked stamp" aside={<EntryName id={s.asset} kinds={TEXTURE_KINDS} />}>
-      <div role="group" aria-label="picked stamp" className="tl-sec__stack">
-        <SliderField label="Height" aria="picked stamp height" value={s.height} min={-100} max={100} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="Metres the image's white stands for (negative digs)." disabled={off} onChange={(v) => change('Stamp height', { height: v })} />
-        <SliderField label="Side" aria="picked stamp size" value={s.size} min={1} max={2048} log limit={[TERRAIN_STAMP_SIZE_LIMITS.min, TERRAIN_STAMP_SIZE_LIMITS.max]} step={0.5} unit="m" hint="Metres along a side. A corner in the view drags it too." disabled={off} onChange={(v) => change('Stamp size', { size: v })} />
-        <SliderField label="Turn" aria="picked stamp rotation" value={s.rotation ?? 0} min={-180} max={180} step={1} unit="°" hint="Degrees about up. The knob in the view turns it too." disabled={off} onChange={(v) => change('Turn stamp', { rotation: v })} />
-        <SliderField label="Edge fade" aria="picked stamp falloff" value={s.falloff ?? TERRAIN_STAMP_FALLOFF_DEFAULT} min={0} max={0.5} step={0.01} scale={100} unit="%" hint="The share of the side over which it fades in from its edges." disabled={off} onChange={(v) => change('Stamp fade', { falloff: v })} />
-        <div className="tl-frow">
-          <span className="tl-frow__label">Meets the ground</span>
-          <Segmented small aria="picked stamp mode" value={s.mode ?? 'add'} options={TERRAIN_STAMP_MODES.map((m) => ({ id: m, label: MODE_LABEL[m] ?? m, hint: m === 'add' ? 'Raised by the shape' : m === 'max' ? 'Raised up to the shape' : 'Cut down to the shape' }))} onChange={(m) => change('Stamp mode', { mode: m === 'add' ? undefined : m }, true)} />
-        </div>
-        {s.mode !== undefined && s.mode !== 'add' && (
-          <SliderField label="Its zero at" aria="picked stamp base" value={s.y ?? p.p.origin[1]} min={heightTrack(p.p)[0]} max={heightTrack(p.p)[1]} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="The world height the image's black stands for: the ground is raised up to, or cut down to, the shape from there." disabled={off} onChange={(v) => change('Stamp base', { y: v })} />
-        )}
-        <button type="button" className="tl-btn tl-btn--small" aria-label="delete picked stamp" disabled={off} onClick={() => {
-          p.onDrop();
-          p.edits.edit(`stamp ${r.layer} ${r.index} remove`, 'Remove stamp', (ls) => layersWithoutStamp(ls, r.layer, r.index), true);
-        }}>
-          <Glyph name="trash" size={14} /> Delete stamp
-        </button>
+    <div role="group" aria-label="picked stamp" className="tl-dpanel__pad">
+      <SliderField label="Height" aria="picked stamp height" value={s.height} min={-100} max={100} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="Metres the image's white stands for (negative digs)." disabled={off} onChange={(v) => change('Stamp height', { height: v })} />
+      <SliderField label="Side" aria="picked stamp size" value={s.size} min={1} max={2048} log limit={[TERRAIN_STAMP_SIZE_LIMITS.min, TERRAIN_STAMP_SIZE_LIMITS.max]} step={0.5} unit="m" hint="Metres along a side. A corner in the view drags it too." disabled={off} onChange={(v) => change('Stamp size', { size: v })} />
+      <SliderField label="Turn" aria="picked stamp rotation" value={s.rotation ?? 0} min={-180} max={180} step={1} unit="°" hint="Degrees about up. The knob in the view turns it too." disabled={off} onChange={(v) => change('Turn stamp', { rotation: v })} />
+      <SliderField label="Edge fade" aria="picked stamp falloff" value={s.falloff ?? TERRAIN_STAMP_FALLOFF_DEFAULT} min={0} max={0.5} step={0.01} scale={100} unit="%" hint="The share of the side over which it fades in from its edges." disabled={off} onChange={(v) => change('Stamp fade', { falloff: v })} />
+      <div className="tl-frow">
+        <span className="tl-frow__label">Meets the ground</span>
+        <Segmented small aria="picked stamp mode" value={s.mode ?? 'add'} options={TERRAIN_STAMP_MODES.map((m) => ({ id: m, label: MODE_LABEL[m] ?? m, hint: m === 'add' ? 'Raised by the shape' : m === 'max' ? 'Raised up to the shape' : 'Cut down to the shape' }))} onChange={(m) => change('Stamp mode', { mode: m === 'add' ? undefined : m }, true)} />
       </div>
-    </Section>
+      {s.mode !== undefined && s.mode !== 'add' && (
+        <SliderField label="Its zero at" aria="picked stamp base" value={s.y ?? p.p.origin[1]} min={heightTrack(p.p)[0]} max={heightTrack(p.p)[1]} limit={[-TERRAIN_HEIGHT_LIMIT, TERRAIN_HEIGHT_LIMIT]} step={0.5} unit="m" hint="The world height the image's black stands for: the ground is raised up to, or cut down to, the shape from there." disabled={off} onChange={(v) => change('Stamp base', { y: v })} />
+      )}
+      <button type="button" className="tl-btn tl-btn--small" aria-label="delete picked stamp" disabled={off} onClick={() => {
+        p.onDrop();
+        p.edits.edit(`stamp ${r.layer} ${r.index} remove`, 'Remove stamp', (ls) => layersWithoutStamp(ls, r.layer, r.index), true);
+      }}>
+        <Glyph name="trash" size={14} /> Delete stamp
+      </button>
+    </div>
   );
 }
 

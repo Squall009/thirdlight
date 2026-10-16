@@ -1,9 +1,10 @@
 /**
  * The decal editor's Place and Scatter columns: the tool (Navigate, or
- * the mode's own: Place, Scatter), the palette (what is placed), how a placed decal is made (projected or clipped, its size and
- * turn) and, in Place, the random turn and size of Shift+click stamps; in
- * Scatter, the shared brush's footprint and the scatter's density, jitter and
- * seed. The settings are the editor's (remembered per browser); only the
+ * the mode's own: Place, Scatter) and the palette (what is placed). As docked
+ * panels over the view: how a placed decal is made (projected or clipped, its
+ * size and turn) and, in Place, the random turn and size of Shift+click
+ * stamps; in Scatter, the shared brush's footprint and the scatter's density,
+ * jitter and seed. The settings are the editor's (remembered per browser); only the
  * placements are commands.
  *
  * Browser-only (React).
@@ -15,10 +16,11 @@ import { DECAL_SCATTER_LIMITS, scatterSpacing } from '../../session/decal-editor
 import { DECAL_STAMP_SCALE_MAX, type DecalToolSettings } from '../../session/decal-place';
 import { brushKeyHints, paletteKeyHint } from '../../session/edit-keys';
 import { DECAL_SCATTER_USES } from '../../viewport/decal-tool';
-import { BrushPanel } from '../brush/BrushPanel';
 import { SliderField } from '../brush/SliderField';
 import { useBrush } from '../brush/useBrush';
+import { brushPanels } from '../editmode/brush-panels';
 import { Section, Segmented } from '../editmode/controls';
+import { EditPanels, type EditPanel } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
 import type { SceneModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
@@ -42,7 +44,7 @@ function PlacementFields({ tools }: { tools: DecalTools }): JSX.Element {
     set({ size: next });
   };
   return (
-    <Section title="Placement">
+    <div className="tl-dpanel__pad" role="group" aria-label="decal placement">
       <div className="tl-frow">
         <span className="tl-frow__label">Projection</span>
         <Segmented small aria="decal projection" options={PROJECTIONS} value={s.mode} onChange={(mode) => set({ mode })} />
@@ -51,9 +53,18 @@ function PlacementFields({ tools }: { tools: DecalTools }): JSX.Element {
       <SliderField label="Height" aria="decal height" value={s.size[1]} min={0.05} max={20} log limit={[0.001, DECAL_LIMITS.sizeMax]} step={0.01} unit="m" hint="Height of the mark." onChange={(v) => size(1, v)} />
       <SliderField label="Depth" aria="decal depth" value={s.size[2]} min={0.05} max={10} log limit={[0.001, DECAL_LIMITS.sizeMax]} step={0.01} unit="m" hint="How deep the box reaches through the surface: half in front of the point clicked, half behind." onChange={(v) => size(2, v)} />
       <SliderField label="Turn" aria="decal angle" value={s.angle} min={-180} max={180} step={15} unit="°" hint="Degrees a placed decal turns about the surface's normal." onChange={(v) => set({ angle: v })} />
-    </Section>
+    </div>
   );
 }
+
+/** How a placed decal is made, as the panel Place opens and Scatter keeps collapsed (one place for both). */
+function placementPanel(tools: DecalTools, collapsed: boolean): EditPanel {
+  const s = tools.settings;
+  return { id: 'placement', title: 'Placement', dock: 'r', collapsed, badge: `${s.mode === 'clipped' ? 'clipped' : 'projected'} · ${fmt(s.size[0])} × ${fmt(s.size[1])} m`, render: () => <PlacementFields tools={tools} /> };
+}
+
+/** A size in a title bar: two figures at most. */
+const fmt = (v: number): string => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
 
 /** Place's and Scatter's one tool each (no tool, Navigate, selects decals as in Select). */
 const PLACE_TOOL = [{ id: 'place', label: 'Place', glyph: 'place', key: 'B', hint: 'Click a surface to place the picked decal; Shift+click stamps more.' }] as const;
@@ -77,13 +88,26 @@ export function PlaceColumn({ host }: SceneModeView): JSX.Element {
         <ToolGrid tools={PLACE_TOOL} active="place" onPick={() => undefined} aria="decal place tool" cols={4} />
       </Section>
       <DecalPalette tools={tools} thumbnails={host.palette.thumbnails} active={s.material} onPick={(e) => void tools.pick(e)} />
-      <PlacementFields tools={tools} />
-      <Section title="Stamps" aside={<span className="tl-sec__note">Shift+click</span>} open={false}>
-        <SliderField label="Turn ±" aria="decal stamp turn" value={s.stamp.turn} min={0} max={180} step={15} unit="°" hint="Each stamp turns by a random angle up to this either way." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, turn: v } })} />
-        <SliderField label="Size min" aria="decal stamp size min" value={s.stamp.scaleMin} min={0.1} max={DECAL_STAMP_SCALE_MAX} log step={0.05} unit="×" hint="Each stamp is sized by a random factor between min and max." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, scaleMin: v, scaleMax: Math.max(v, s.stamp.scaleMax) } })} />
-        <SliderField label="Size max" aria="decal stamp size max" value={s.stamp.scaleMax} min={0.1} max={DECAL_STAMP_SCALE_MAX} log step={0.05} unit="×" hint="Each stamp is sized by a random factor between min and max." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, scaleMax: v, scaleMin: Math.min(v, s.stamp.scaleMin) } })} />
-        <SeedField aria="decal stamp seed" value={s.stamp.seed} onChange={(n) => tools.setSettings({ ...s, stamp: { ...s.stamp, seed: Math.abs(n) } })} />
-      </Section>
+      <EditPanels
+        panels={[
+          placementPanel(tools, false),
+          {
+            id: 'stamps',
+            title: 'Stamps',
+            dock: 'r',
+            collapsed: true,
+            badge: 'Shift+click',
+            render: () => (
+              <div className="tl-dpanel__pad" role="group" aria-label="decal stamps">
+                <SliderField label="Turn ±" aria="decal stamp turn" value={s.stamp.turn} min={0} max={180} step={15} unit="°" hint="Each stamp turns by a random angle up to this either way." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, turn: v } })} />
+                <SliderField label="Size min" aria="decal stamp size min" value={s.stamp.scaleMin} min={0.1} max={DECAL_STAMP_SCALE_MAX} log step={0.05} unit="×" hint="Each stamp is sized by a random factor between min and max." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, scaleMin: v, scaleMax: Math.max(v, s.stamp.scaleMax) } })} />
+                <SliderField label="Size max" aria="decal stamp size max" value={s.stamp.scaleMax} min={0.1} max={DECAL_STAMP_SCALE_MAX} log step={0.05} unit="×" hint="Each stamp is sized by a random factor between min and max." onChange={(v) => tools.setSettings({ ...s, stamp: { ...s.stamp, scaleMax: v, scaleMin: Math.min(v, s.stamp.scaleMin) } })} />
+                <SeedField aria="decal stamp seed" value={s.stamp.seed} onChange={(n) => tools.setSettings({ ...s, stamp: { ...s.stamp, seed: Math.abs(n) } })} />
+              </div>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -107,17 +131,27 @@ export function ScatterColumn({ host }: SceneModeView): JSX.Element {
         <ToolGrid tools={SCATTER_TOOL} active="scatter" onPick={() => undefined} aria="decal scatter tool" cols={4} />
       </Section>
       <DecalPalette tools={tools} thumbnails={host.palette.thumbnails} active={s.material} onPick={(e) => void tools.pick(e)} />
-      <Section title="Brush" aside="Shared by every brush">
-        <BrushPanel settings={brush} store={tools.brush} uses={DECAL_SCATTER_USES} />
-      </Section>
-      <Section title="Scatter">
-        <SliderField label="Density" aria="decal scatter density" value={sc.density} min={L.density[0]} max={L.density[1]} log step={0.01} unit="/m²" hint={`Decals per square metre of surface; never closer than ${scatterSpacing(sc).toFixed(2)} m.`} onChange={(v) => tools.setScatter({ ...sc, density: v })} />
-        <SliderField label="Turn ±" aria="decal scatter turn" value={sc.turn} min={0} max={180} step={15} unit="°" hint="Each decal turns by a random angle up to this either way." onChange={(v) => tools.setScatter({ ...sc, turn: v })} />
-        <SliderField label="Size min" aria="decal scatter size min" value={sc.scaleMin} min={L.scale[0]} max={L.scale[1]} log step={0.05} unit="×" hint="Each decal is sized by a random factor between min and max." onChange={(v) => tools.setScatter({ ...sc, scaleMin: v, scaleMax: Math.max(v, sc.scaleMax) })} />
-        <SliderField label="Size max" aria="decal scatter size max" value={sc.scaleMax} min={L.scale[0]} max={L.scale[1]} log step={0.05} unit="×" hint="Each decal is sized by a random factor between min and max." onChange={(v) => tools.setScatter({ ...sc, scaleMax: v, scaleMin: Math.min(v, sc.scaleMin) })} />
-        <SeedField aria="decal scatter seed" value={sc.seed} onChange={(n) => tools.setScatter({ ...sc, seed: Math.abs(n) })} />
-      </Section>
-      <PlacementFields tools={tools} />
+      <EditPanels
+        panels={[
+          ...brushPanels({ settings: brush, store: tools.brush, uses: DECAL_SCATTER_USES }),
+          {
+            id: 'scatter',
+            title: 'Scatter',
+            dock: 'r',
+            badge: `${fmt(sc.density)} /m²`,
+            render: () => (
+              <div className="tl-dpanel__pad" role="group" aria-label="decal scatter">
+                <SliderField label="Density" aria="decal scatter density" value={sc.density} min={L.density[0]} max={L.density[1]} log step={0.01} unit="/m²" hint={`Decals per square metre of surface; never closer than ${scatterSpacing(sc).toFixed(2)} m.`} onChange={(v) => tools.setScatter({ ...sc, density: v })} />
+                <SliderField label="Turn ±" aria="decal scatter turn" value={sc.turn} min={0} max={180} step={15} unit="°" hint="Each decal turns by a random angle up to this either way." onChange={(v) => tools.setScatter({ ...sc, turn: v })} />
+                <SliderField label="Size min" aria="decal scatter size min" value={sc.scaleMin} min={L.scale[0]} max={L.scale[1]} log step={0.05} unit="×" hint="Each decal is sized by a random factor between min and max." onChange={(v) => tools.setScatter({ ...sc, scaleMin: v, scaleMax: Math.max(v, sc.scaleMax) })} />
+                <SliderField label="Size max" aria="decal scatter size max" value={sc.scaleMax} min={L.scale[0]} max={L.scale[1]} log step={0.05} unit="×" hint="Each decal is sized by a random factor between min and max." onChange={(v) => tools.setScatter({ ...sc, scaleMax: v, scaleMin: Math.min(v, sc.scaleMin) })} />
+                <SeedField aria="decal scatter seed" value={sc.seed} onChange={(n) => tools.setScatter({ ...sc, seed: Math.abs(n) })} />
+              </div>
+            ),
+          },
+          placementPanel(tools, true),
+        ]}
+      />
     </div>
   );
 }

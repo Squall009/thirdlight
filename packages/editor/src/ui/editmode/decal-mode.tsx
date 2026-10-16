@@ -8,14 +8,15 @@
  * The edits are the commands the Scene view always sent for decals (one
  * `createEntity` a placement, one `createEntities` a scatter stroke, one
  * `setTransform` or `setComponent` a grip drag) and one `setComponent` for a
- * field edited on the whole selection. Along the view's bottom, the decal
- * atlas: the decal pages Play and the export will use, composed on request.
+ * field edited on the whole selection. A docked panel along the view's
+ * bottom edge holds the decal atlas: the decal pages Play and the export will
+ * use, composed on request.
  *
  * Browser-only (React).
  */
 import type { JSX } from 'react';
 
-import { AtlasDrawer } from '../decals/AtlasDrawer';
+import { AtlasPanel } from '../decals/AtlasPanel';
 import { PlaceColumn, ScatterColumn } from '../decals/DecalColumns';
 import { DecalView } from '../decals/DecalView';
 import { SelectColumn } from '../decals/SelectColumn';
@@ -56,7 +57,11 @@ export const decalMode: SceneEditModeKind = {
     const Column = COLUMNS[view.mode] ?? PlaceColumn;
     return <Column key={view.mode} {...view} />;
   },
-  viewExtra: (view) => <DecalView {...view} />,
-  // The decal atlas: the decal pages Play and the export will use, along the view's bottom edge.
-  drawer: (view) => <AtlasDrawer {...view} />,
+  // The decal atlas (the decal pages Play and the export will use) is a panel of every mode, on the view's bottom edge.
+  viewExtra: (view) => (
+    <>
+      <DecalView {...view} />
+      <AtlasPanel {...view} />
+    </>
+  ),
 };

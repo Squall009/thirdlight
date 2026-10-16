@@ -7,7 +7,8 @@
  * with the selection it had; undo, the change feed and MCP edits reach the
  * open editor. The default view's centre keeps the Scene and Game views only.
  * A kit opens in the kit editor: a GLB dropped on a slot is imported and its
- * piece checks fail or pass; the preview pane shows the piece.
+ * piece checks fail or pass in the slot's panel; the Preview panel shows the
+ * piece; the Inspector links to the panels.
  *
  * An object's edit mode (a terrain's) takes the same place: a double-click
  * (Hierarchy, Scene view) or the Inspector's Edit opens it over the work area
@@ -27,7 +28,7 @@ import { skinnedGlb } from './skinned-glb';
 import { decodePng } from './png';
 import { makePng } from './png-make';
 import { publishTexture } from './painted-layers';
-import { editMode, editModeTab, editorPane, editorTab, editorWindow, inspector, menu, openEditor, projectWindow } from './ui';
+import { editMode, editModeTab, editorPane, editorTab, editorWindow, editPanel, inspector, menu, openEditor, openPanel, projectWindow } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -246,12 +247,21 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   await expect(doorSlot).toContainText('Drop a GLB or a piece');
   const door = (centred: boolean): Buffer => multiPieceGlb([{ name: 'door', lods: [[1, 2, 0.1], [1, 2, 0.1], [1, 2, 0.1]], col: [1, 2, 0.1] }], { centred });
   await dropFile(page, doorSlot, 'door-corner.glb', door(false));
-  const origin = inspector(page).getByLabel('piece checks').locator('[data-check="origin"]');
+  // The picked slot's piece, checks and placement are a panel over the kit document; the preview pane is its Preview panel.
+  const slotPanel = kitView.locator('[data-panel="kit-pick"]');
+  await expect(slotPanel.locator('.tl-dpanel__title')).toHaveText('Door slot');
+  const origin = slotPanel.getByLabel('piece checks').locator('[data-check="origin"]');
   await expect(origin).toHaveAttribute('data-state', 'err', { timeout: 30_000 });
   await expect(origin).toContainText('0.50 m right (+X)');
   await expect(doorSlot).toHaveAttribute('data-state', 'err');
   await expect(kitView.getByLabel('kit problems')).toHaveAttribute('data-errors', '1');
-  await expect(page.getByLabel('preview canvas')).toHaveAttribute('data-subject', /^kit-piece:town:door/);
+  await expect(kitView.locator('[data-panel="preview"]').getByLabel('preview canvas')).toHaveAttribute('data-subject', /^kit-piece:town:door/);
+  // The global Inspector keeps only a link: collapsed, the slot's panel opens from it.
+  await slotPanel.locator('.tl-dpanel__head').click();
+  await expect(slotPanel).toHaveAttribute('data-open', 'false');
+  await inspector(page).getByRole('button', { name: 'show the kit panels' }).click();
+  await expect(slotPanel).toHaveAttribute('data-open', 'true');
+  await expect(inspector(page).getByLabel('piece checks')).toHaveCount(0);
   type KitRow = { kitId: string; trimMaterial?: string; pieces?: Record<string, { assetId: string }[]> };
   const town = async (): Promise<KitRow | undefined> => ((await query('queryGameConfig'))['kits'] as KitRow[]).find((k) => k.kitId === 'town');
   const cornerDoor = (await town())?.pieces?.['door']?.[0]?.assetId;
@@ -569,12 +579,18 @@ async function editModeChecks(page: Page): Promise<void> {
   const dipAt: [number, number] = [-1, -8];
   await cmd('editTerrain', { entityId: hill, kind: 'lower', dabs: [dipAt], radius: 2.5, strength: 1.5 });
   await expect.poll(async () => ((await query('queryTerrain', { entityId: hill, points: [dipAt] }))['points'] as { height: number }[])[0]!.height, { timeout: 15_000 }).toBeLessThan(-0.5);
+  // The view's Panels switch hides the docked panels (the brush's are dark too), and shows them again after.
+  const panelsSwitch = mode.getByRole('group', { name: 'panels layout' }).locator('.tl-panelschip__switch');
+  await panelsSwitch.click();
+  await expect(mode.locator('[data-panel]')).toHaveCount(0);
   await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'isolated: no part of the ground square drawn' }).toBeLessThan(0.002);
   await page.keyboard.press('c');
   // (Seen at the working view's shallow angle: a thin strip, above the isolated bound.)
   await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context: the ground square drawn again' }).toBeGreaterThan(0.003);
   await page.keyboard.press('c');
   await expect.poll(() => groundSquareShare(page), { timeout: 30_000, message: 'Context off: the square gone again' }).toBeLessThan(0.002);
+  await panelsSwitch.click();
+  await expect(mode.locator('[data-panel="brush"]')).toBeVisible();
 
   // ---- The rail: Shift+number and a click switch modes (Material rules arms no brush).
   await page.keyboard.press('Shift+Digit2');
@@ -688,9 +704,11 @@ async function editModeChecks(page: Page): Promise<void> {
   const unmasked = await patch();
   await page.keyboard.press('Control+z');
   await expect.poll(() => greenNear(page, paintAt, 24), { timeout: 30_000, message: 'undone: green again' }).toBeGreaterThan(0.6);
-  const noise = mode.getByRole('region', { name: 'noise mask' });
+  // The noise mask is a docked panel (open in Paint); its title bar says whether it is on.
+  const noise = editPanel(page, 'noise-mask');
+  await expect(noise).toHaveAttribute('data-open', 'true');
   await noise.getByLabel('paint through noise').check();
-  await expect(noise.getByText('on', { exact: true })).toBeVisible();
+  await expect(noise.locator('.tl-dpanel__badge')).toHaveText('on');
   await fill('mask scale', 1.5);
   await fill('mask contrast', 3);
   // The cursor's fill shows the mask.

@@ -9,8 +9,10 @@ for any other made to it. What a kit is: [Blocks: kits](../features/blocks.md#ki
 
 Double-click a kit in the project window (or make one: **Create → Kit**, or
 **Create → Basic Kit (ready-made)** for the engine's prototype kit). It
-opens as a tab of the editor window, **Kit: <name>**, with the preview pane
-and the Inspector on the right. Every change is one undo step (`setKit`, the
+opens as a tab of the editor window, **Kit: <name>**. The picked slot's
+settings and the preview are docked panels over the kit's centre (they
+collapse, move to another edge or corner, and keep their layout); the
+Inspector beside the window only links to them. Every change is one undo step (`setKit`, the
 same command MCP sends); a GLB file you drop is imported and put in its
 slot as one step too.
 
@@ -25,8 +27,9 @@ tick when its checks pass, amber when one warns, red when one fails.
 - **Drop** a GLB file from your computer on a slot, or a model (or one
   piece of a multi-piece file) from the project window. Dropped on a filled
   slot it replaces the piece.
-- **Click** a slot: the Inspector shows its pieces and the preview pane the
-  piece. In the Inspector, **Replace** or the drop zone opens a browser of
+- **Click** a slot: its panel (named after it, on the right edge) shows its
+  pieces, their checks, where it stands and the presets that place it; the
+  **Preview** panel (top right) the piece. In the slot's panel, **Replace** or the drop zone opens a browser of
   the project's models (the project window may be hidden by the editor
   window), or **Choose a GLB…**.
 - A slot can hold up to eight **variants**: add more with the drop zone,
@@ -54,7 +57,7 @@ are not mapped to the kit's trim sheet is not UV-checked; the check offers
 that fail with an error are also listed in Problems (`tl_diagnostics`) on
 the kit's line.
 
-The **preview pane** shows the piece where the engine would put it: in an
+The **Preview** panel shows the piece where the engine would put it: in an
 opening of a sample wall (a door on the floor, a window 1 m up), on the
 wall's line (a wall override, a railing) or on the floor before it, the
 wall and floor wearing the kit's trim sheet. **Wall**, **Room** and **Piece

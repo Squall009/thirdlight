@@ -1,13 +1,17 @@
 /**
- * The Inspector beside a kit's tab: what is picked in the kit editor.
+ * The kit editor's docked panels over its centre, what is picked on its left:
  *
- * - A slot: its pieces (one or several weighted variants — each with its
- *   picture, file facts, the piece of its file it draws, its weight,
- *   Replace and Remove), a drop zone and a browser of the project's models
- *   to add one, the picked variant's piece checks (with their fixes), where
- *   the piece stands, and the kit's presets that place it.
+ * - A slot (a panel named after it): its pieces (one or several weighted
+ *   variants — each with its picture, file facts, the piece of its file it
+ *   draws, its weight, Replace and Remove), a drop zone and a browser of the
+ *   project's models to add one, the picked variant's piece checks (with
+ *   their fixes), where the piece stands, and the kit's presets that place it.
  * - A block type the kit names: what it is (read-only; it is edited in the
  *   block editor).
+ * - The preview: the editor window's one preview pane, held in a panel while
+ *   a slot's piece is picked (`PreviewPlace`).
+ *
+ * The global Inspector keeps only a link that shows these panels.
  *
  * Browser-only (React).
  */
@@ -22,13 +26,15 @@ import { MODEL_KINDS } from '../catalog/RefPicker';
 import { useAssetSummaries } from '../catalog/catalog-context';
 import { CheckRow } from '../editmode/CheckRow';
 import { Section } from '../editmode/controls';
+import type { EditPanel } from '../editmode/docks';
 import { Glyph } from '../editmode/glyphs';
 import { Popover } from '../palette/LayerPalette';
 import { TextureBrowser } from '../palette/TextureBrowser';
-import { dropOnSlot, slotDragOk } from './KitDocument';
+import { PreviewPlace } from '../preview/PreviewPlace';
+import { dropOnSlot, slotDragOk } from './kit-drop';
 import type { KitEditor } from './useKitEditor';
 
-export interface KitInspectorProps {
+export interface KitPanelsProps {
   editor: KitEditor;
   kit: KitDef;
   graphs: readonly GraphDocument[];
@@ -37,25 +43,63 @@ export interface KitInspectorProps {
   onOpenGraph: (id: string) => void;
 }
 
-export function KitInspector(p: KitInspectorProps): JSX.Element {
+/** The picked part's panel id (a slot or a block type: one place for both). */
+export const KIT_PICK_PANEL = 'kit-pick';
+
+/** What the picked slot's title bar says: its variants and how its picked piece checks out. */
+function slotBadge(editor: KitEditor, kit: KitDef, slot: string, index: number): string {
+  const pieces = kit.pieces?.[slot] ?? [];
+  if (pieces.length === 0) return 'no piece yet';
+  const picked = pieces[Math.min(index, pieces.length - 1)]!;
+  const report = slotReports(editor.report, slot).find((r) => r.assetId === picked.assetId);
+  const variants = `${pieces.length} variant${pieces.length === 1 ? '' : 's'}`;
+  if (report === undefined) return variants;
+  const errors = report.checks.filter((c) => c.state === 'err').length;
+  const warnings = report.checks.filter((c) => c.state === 'warn').length;
+  return `${variants} · ${errors + warnings === 0 ? 'all checks pass' : `${errors} error${errors === 1 ? '' : 's'} · ${warnings} warning${warnings === 1 ? '' : 's'}`}`;
+}
+
+/** The kit document's panels for what is picked: the preview (while a slot's piece is) and the picked part. */
+export function kitPanels(p: KitPanelsProps): EditPanel[] {
   const pick = p.editor.pick;
+  const slotPieces = pick?.kind === 'slot' ? (p.kit.pieces?.[pick.slot] ?? []) : [];
+  return [
+    { id: 'preview', title: 'Preview', dock: 'tr', badge: 'kit piece in a sample wall', shown: slotPieces.length > 0, render: () => <PreviewPlace /> },
+    pick === null
+      ? { id: KIT_PICK_PANEL, title: 'Picked', dock: 'r', shown: false, render: () => null }
+      : pick.kind === 'slot'
+        ? { id: KIT_PICK_PANEL, title: `${kitSlotLabel(pick.slot)} slot`, dock: 'r', selection: true, badge: slotBadge(p.editor, p.kit, pick.slot, pick.index), render: () => <SlotPanel {...p} slot={pick.slot} index={pick.index} /> }
+        : { id: KIT_PICK_PANEL, title: p.blockTypes.find((b) => b.blockId === pick.id)?.name ?? pick.id, dock: 'r', selection: true, badge: 'block type', render: () => <BlockTypeSummary type={p.blockTypes.find((b) => b.blockId === pick.id) ?? null} id={pick.id} /> },
+  ];
+}
+
+/** The global Inspector beside a kit's tab: a note and a link that shows the kit document's panels. */
+export function KitInspectorLink({ editor, kit }: { editor: KitEditor; kit: KitDef }): JSX.Element {
+  const pick = editor.pick;
+  const what = pick === null ? null : pick.kind === 'slot' ? `the ${kitSlotLabel(pick.slot)} slot's` : "the block type's";
   return (
     <div className="tl-inspector tl-kit-inspector" aria-label="kit inspector">
       <div className="tl-panel__title">
-        Inspector <span className="tl-hint">{pick === null ? p.kit.name : pick.kind === 'slot' ? `${kitSlotLabel(pick.slot)} slot` : 'Block type'}</span>
+        Inspector <span className="tl-hint">{kit.name}</span>
       </div>
-      {pick === null ? (
-        <div className="tl-inspector__empty">Pick a slot on the left to set its piece and see its checks, or a block type the kit names.</div>
-      ) : pick.kind === 'slot' ? (
-        <SlotInspector {...p} slot={pick.slot} index={pick.index} />
-      ) : (
-        <BlockTypeSummary type={p.blockTypes.find((b) => b.blockId === pick.id) ?? null} id={pick.id} />
-      )}
+      <div className="tl-kit-link">
+        <Glyph name="panels" size={16} />
+        <span>
+          <b>{kit.name}</b> is edited in its kit document: the picked slot's piece, checks, placement and preview are panels there.
+        </span>
+        {what !== null ? (
+          <button type="button" className="tl-btn tl-btn--small" aria-label="show the kit panels" onClick={editor.revealPanels}>
+            Show {what} panels
+          </button>
+        ) : (
+          <span className="tl-hint">Pick a slot on the left to set its piece and see its checks, or a block type the kit names.</span>
+        )}
+      </div>
     </div>
   );
 }
 
-function SlotInspector(p: KitInspectorProps & { slot: string; index: number }): JSX.Element {
+function SlotPanel(p: KitPanelsProps & { slot: string; index: number }): JSX.Element {
   const { editor, kit, slot } = p;
   const pieces = kit.pieces?.[slot] ?? [];
   const index = Math.min(p.index, Math.max(0, pieces.length - 1));
@@ -79,7 +123,7 @@ function SlotInspector(p: KitInspectorProps & { slot: string; index: number }): 
   };
   const tally = report === undefined ? null : { errors: report.checks.filter((c) => c.state === 'err').length, warnings: report.checks.filter((c) => c.state === 'warn').length };
   return (
-    <>
+    <div className="tl-kit-slotpanel" aria-label="kit slot">
       <Section title="Piece" aside={pieces.length > 1 ? <span className="tl-tag">{pieces.length} variants</span> : undefined}>
         <ul className="tl-kit-variants" aria-label="slot pieces">
           {pieces.map((piece, i) => (
@@ -199,7 +243,7 @@ function SlotInspector(p: KitInspectorProps & { slot: string; index: number }): 
           />
         </Popover>
       )}
-    </>
+    </div>
   );
 }
 

@@ -144,6 +144,7 @@ manual → acceptance.
 | 37.2 | Done 2026-10-16: one Navigate state in the shell (`editmode/edit-tool.tsx`) for all four editors — Navigate tile, click-select with hover (rooms/buildings/paths outlined, blocks, decals, stamps, tiles), Space, the SPEC's Esc order with Done's badge dimming, a click on a room with a drawing tool selects it; vitest for the keys, Esc order and the room pick. E2E (2 workers, last full gate → this fast gate): block-editor 7.4 → 8.4 s, editor-window 11.3 → 10.8, terrain-paint 11.0 → 10.9, terrain-brushes 5.3 → 4.7, layered-material 52.1 → 50.2, instance-brush 31.7 → 31.2, level-acceptance 28.2 → 25.5, terrain-cdlod 3.4 → 3.2 min (net −17 s); village perf in its limits. |
 | 37.3 | Done 2026-10-16: one docked-panel component in the shell (`editmode/docks.tsx`, maths and memory in `session/dock-layout.ts`, CSS in `styles/docks.css`): 8 docks, stacking, title click / Enter collapse, title drag with drop targets (Esc cancels), Panels switch + Reset layout chip, layout per editor in browser storage; Rooms & buildings moved onto it (Rooms list top right collapsed, the picked room's properties right edge). Vitest 7 checks; e2e steps in the rooms helpers: layered-material 50.2 → 49.7 s (block-editor untouched; one Make-it-paintable undo poll failed once and passed on rerun); village perf in its limits. |
 | 37.4 | Done 2026-10-16: the block editor on panels per the SPEC (Build: Selection, Block type, Stamps, Layer; Shape/Paint: Brush, Noise mask, Layer; Regions: Theme, Metadata, Layer size; Rules: Scatter brush, Layer; Rooms: Layer); the detail column removed from the shell; every block mode's column fits at 1920×1080 (an e2e step measures all six). E2E (2 workers, previous → this fast gate): block-editor 8.4 → 8.4 s, block-world-uv 8.7 → 9.5, layered-material 49.7 → 50.2, terrain-brushes 4.7 → 4.5, terrain-paint 10.9 → 10.2, block-layers → 15.6 (net +0.4 s, host noise); the Make-it-paintable undo passed in all 3 runs; village perf in its limits. Screens on WebGPU and WebGL 2 looked at against mockup 02/04/04b.
+| 37.5 | Done 2026-10-16: terrain (every mode), vertex paint, decals (the atlas a collapsed bottom-edge panel; the shell's drawer slot removed) and the kit editor (its own docks: the slot's panel and Preview, which holds the window's one preview pane; the Inspector keeps a link) on panels; one shared `brushPanels` in `editmode/`; every column fits at 1920×1080 (e2e steps in terrain-cdlod, instance-brush, the decal drive). 37.4's Rooms sighting is no regression (the building draws, selected or not, both renderers; F had framed the view inside its walls). E2E (2 workers, previous → this fast gate): terrain-cdlod 3.2 → 3.2 min, editor-window 10.8 → 10.7 s, layered-material 50.2 → 50.7, instance-brush 31.2 → 31.8, level-acceptance 25.5 → 27.1 (unchanged file), block-editor 8.4 → 8.2, block-world-uv 9.5 → 8.7, terrain-paint 10.2 → 10.4, terrain-brushes 4.5 → 4.9, project-items 9.0 → 9.0 (net +2.2 s, host noise); village perf in its limits. Screens of all four editors on WebGPU and WebGL 2 looked at against mockups 05a–d and 06. |
 
 ## 6. Decision log
 
@@ -239,3 +240,53 @@ manual → acceptance.
     210 px over);
   - a short panel's kept height now counts its frame's borders (it
     scrolled by 2 px under a fade that hid its last row).
+
+- 2026-10-16 (37.5): The terrain, vertex paint and decal editors and the
+  kit editor on panels, split as the SPEC's tables say. The brush and noise
+  mask panels are one function for every editor (`editmode/brush-panels.tsx`,
+  moved out of the block editor). Defaults chosen, owner to confirm:
+  - **Terrain:** Sculpt's column is its tool grid alone (four wide), Brush
+    and Noise mask are panels, and the Noise tool's bump size and seed a
+    Noise panel shown with that tool; Paint's mask panel starts open (the
+    SPEC), the others' collapsed unless the mask is on. **Material rules**
+    keeps the cards with Bake and Revert in the column (the cards are the
+    block editor's Rules cards too, which 37.4 kept in the column); the
+    preview's switches are a Preview panel (top right, open) — the SPEC's
+    "open rule's settings" panel is not made. **Scatter**: tool grid and
+    rule cards in the column, the rule it places and the brush in the
+    Scatter brush panel (the brush's place). **Stack**: Picked stamp
+    (right edge, in the selection's colour, while one is picked with no
+    tool), New stamp and Erode (each with its brush size) shown with their
+    tool. **Tiles**: Import heightmap and From a block layer are collapsed
+    panels. **Settings** fits and has none.
+  - **Vertex paint:** the channel chips over the view are gone: Paint has
+    the Channel view panel (top left), Channels its list in the column with
+    What the channels mean (open) and Stored paint (collapsed) as panels;
+    Material none (it paints nothing, so no channel view).
+  - **Decals:** Place: Placement (open) and Stamps (collapsed, its own
+    panel); Scatter: Brush, Scatter and Placement (collapsed, the same
+    panel id, so one place); Select: Selection while decals are selected.
+    The atlas is a bottom-edge panel, collapsed, stretching between the side
+    columns (a new `wide` flag on a panel); its title bar says the pages and
+    the unused share; its switch and Rebuild sit in a row at the top of its
+    body (a click on the title bar only collapses). Its open state is the
+    panel's (the old remembered drawer state is dropped); the pages are read
+    while the decal editor is open, as with the drawer open by default. The
+    shell's `drawer` slot is removed.
+  - **Kit editor:** the kit document holds its own dock host over its centre
+    (`useDockHost('kit')`; `--dock-top` puts the docks under the centre's
+    head row); the picked slot's panel (named after the slot: Piece, Piece
+    checks, Placement, Placed by; or the block type's summary) on the right
+    edge, Preview at the top right. The editor window's one preview pane is
+    moved into the Preview panel (`PreviewPlace`: the same element, so the
+    same renderer), and goes back above the Inspector for other editors.
+    The global Inspector keeps a note and **Show the Door slot's panels**,
+    which turns the panels on, opens the slot's panel and focuses it
+    (`DockHost.reveal`). The trim checker's grid leaves the right 340 px
+    for the panels: the sheet, its rows beside it, the checks under the rows.
+  - **37.4's Rooms check:** not a regression. In the same kind of scene (a
+    layer, a two-storey building on a Basic Kit preset) the building draws in
+    Rooms & buildings on both renderers, selected or not (Home frames the
+    layer). The view framed with F on the rooms object lands inside the
+    building's walls, where the floor and the selection outline are what
+    shows — which matches what 37.4 saw.

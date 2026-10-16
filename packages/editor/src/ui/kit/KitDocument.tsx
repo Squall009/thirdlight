@@ -10,9 +10,10 @@
  * - Centre: the trim checker — the sheet with its row bounds and gutters
  *   drawn over it, its rows, and the spec's checklist run on it — or the
  *   spec itself.
- * - The preview pane shows the picked slot's piece in a sample wall, a room
- *   or alone; the Inspector beside it the slot (its variants, piece checks,
- *   placement) or a block type.
+ * - Docked panels over the centre (`KitPanels.tsx`): the picked slot (its
+ *   variants, piece checks, placement, the presets that place it) or block
+ *   type, and the preview of the picked slot's piece in a sample wall, a room
+ *   or alone. The global Inspector keeps only a link to them.
  *
  * Every edit is one undo step: one `setKit`; a dropped GLB published and put
  * in its slot; a trim sheet swapped together with the kit's presets and
@@ -21,25 +22,27 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useMemo, useRef, useState, type DragEvent, type JSX } from 'react';
-import type { GraphDocument, KitDef, MaterialDef } from '@thirdlight/project-model';
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import type { BlockType, GraphDocument, KitDef, MaterialDef } from '@thirdlight/project-model';
 import { kitSlotPlacement } from '@thirdlight/project-model/limits';
 import { ARCHITECTURE_PRESET_KIND } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from '@thirdlight/three-adapter';
 
-import { assignPiece, customSlotName, kitSlots, kitTally, slotReports, slotState, withId, type KitSlotView, type SharedKitPart } from '../../session/kit-edits';
+import { customSlotName, kitSlots, kitTally, slotReports, slotState, withId, type KitSlotView, type SharedKitPart } from '../../session/kit-edits';
 import { trimSheetMaterials } from '../../session/layer-palette';
-import { ASSET_DRAG_TYPE, assetDropOf } from '../../session/placement';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { TileImage } from '../assets/TileImage';
 import { useAssetSummaries } from '../catalog/catalog-context';
 import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 import { CheckRow } from '../editmode/CheckRow';
 import { Section } from '../editmode/controls';
+import { DockLayer, DockProvider, EditPanels, PanelsChip, useDockHost } from '../editmode/docks';
 import { Glyph } from '../editmode/glyphs';
 import { TextureBrowser } from '../palette/TextureBrowser';
 import { useLayerThumb } from '../palette/LayerPalette';
 import { usePreview } from '../preview/preview-request';
+import { dropOnSlot, slotDragOk } from './kit-drop';
+import { KIT_PICK_PANEL, kitPanels } from './KitPanels';
 import { TrimChecker } from './TrimChecker';
 import { Dialog } from '../Dialog';
 import type { KitEditor, SharedSwapChoice } from './useKitEditor';
@@ -49,7 +52,7 @@ export interface KitDocumentHost {
   kits: readonly KitDef[];
   materials: readonly MaterialDef[];
   graphs: readonly GraphDocument[];
-  blockTypes: readonly { blockId: string; name: string }[];
+  blockTypes: readonly BlockType[];
   thumbnails: TileThumbnails | null;
   /** Open a preset (or any graph) in its tab, a material in its tab. */
   onOpen: (kind: 'graph' | 'material', id: string) => void;
@@ -63,23 +66,6 @@ export interface KitDocumentProps extends KitDocumentHost {
 
 /** The spec's page in the manual. */
 export const TRIM_SPEC_TOPIC = 'guides/trim-sheet-spec';
-
-/** A GLB file or a model tile dropped on a slot: published if it is a file, then the slot holds it (variant `index`, or added). */
-export async function dropOnSlot(ev: DragEvent, editor: KitEditor, kit: KitDef, slot: string, index: number | null): Promise<void> {
-  const file = ev.dataTransfer.files[0];
-  const tile = file === undefined ? assetDropOf(ev, 'model') : null;
-  if (file === undefined && tile === null) return;
-  ev.preventDefault();
-  await editor.grouped(async (ed) => {
-    const assetId = file !== undefined ? await ed.importModel(file) : tile!.assetId;
-    if (typeof assetId !== 'string') return;
-    editor.setPick({ kind: 'slot', slot, index: index ?? (kit.pieces?.[slot]?.length ?? 0) });
-    await ed.save(assignPiece(editor.kit ?? kit, slot, index, { assetId, ...(tile?.piece !== undefined ? { piece: tile.piece } : {}) }));
-  });
-}
-
-/** Whether a drag carries something a slot takes (a file, a model tile). */
-export const slotDragOk = (ev: DragEvent): boolean => ev.dataTransfer.types.includes('Files') || ev.dataTransfer.types.includes(ASSET_DRAG_TYPE);
 
 export function KitDocument(p: KitDocumentProps): JSX.Element {
   const { editor } = p;
@@ -124,6 +110,18 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
   );
   // A slot of its own that got a piece is stored: it is no longer pending.
   useEffect(() => setPending((list) => list.filter((s) => kit?.pieces?.[s] === undefined)), [kit]);
+  // The picked part's settings and the preview are panels over the centre, their layout remembered as the kit editor's.
+  const docks = useDockHost('kit');
+  const centre = useRef<HTMLElement | null>(null);
+  // The Inspector's link asks for them: the panels on, the picked part's open, its title bar focused.
+  const { reveal } = docks;
+  const asked = useRef(editor.reveal);
+  useEffect(() => {
+    if (editor.reveal === asked.current) return;
+    asked.current = editor.reveal;
+    reveal(KIT_PICK_PANEL);
+    requestAnimationFrame(() => centre.current?.querySelector<HTMLElement>(`[data-panel="${KIT_PICK_PANEL}"] .tl-dpanel__head`)?.focus());
+  }, [editor.reveal, reveal]);
   if (kit === null) return <p className="tl-hint">This kit is not in the project (deleted or undone). Close the tab, or undo the deletion.</p>;
 
   const slots: KitSlotView[] = [...kitSlots(kit), ...pending.filter((s) => kit.pieces?.[s] === undefined).map((slot) => ({ slot, label: slot, standard: false, placement: kitSlotPlacement(slot), pieces: [] }))];
@@ -260,7 +258,16 @@ export function KitDocument(p: KitDocumentProps): JSX.Element {
             />
           </Section>
         </aside>
-        <section className="tl-kit-doc__centre">{spec ? <SpecView docs={p.docs} /> : <TrimChecker sheet={report?.sheet ?? null} hasSheet={kit.trimMaterial !== undefined} albedo={(sheetDef?.textures['map'] as string | undefined) ?? null} thumbnails={p.thumbnails} onSpec={() => setSpec(true)} />}</section>
+        <section className="tl-kit-doc__centre" ref={centre}>
+          <DockProvider host={docks}>
+            <div className="tl-kit-doc__scroll">{spec ? <SpecView docs={p.docs} /> : <TrimChecker sheet={report?.sheet ?? null} hasSheet={kit.trimMaterial !== undefined} albedo={(sheetDef?.textures['map'] as string | undefined) ?? null} thumbnails={p.thumbnails} onSpec={() => setSpec(true)} />}</div>
+            <span className="tl-kit-doc__chip">
+              <PanelsChip host={docks} />
+            </span>
+            <DockLayer host={docks} />
+            <EditPanels panels={kitPanels({ editor, kit, graphs: p.graphs, blockTypes: p.blockTypes, thumbnails: p.thumbnails, onOpenGraph: (id) => p.onOpen('graph', id) })} />
+          </DockProvider>
+        </section>
       </div>
     </div>
   );

@@ -51,7 +51,7 @@ import type { BlockLayers } from './useBlockLayers';
 import type { PlaySession } from './usePlaySession';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
-import { KitInspector } from '../kit/KitInspector';
+import { KitInspectorLink } from '../kit/KitPanels';
 import type { KitEditor } from '../kit/useKitEditor';
 
 export interface InspectorDockProps {
@@ -127,7 +127,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   return (
     <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
     {placement === 'window' && props.kit.kit !== null ? (
-      <KitInspector editor={props.kit} kit={props.kit.kit} graphs={graphs} blockTypes={props.blocks.blockTypes} thumbnails={props.tileThumbnails} onOpenGraph={(id) => props.openDocument('graph', id)} />
+      <KitInspectorLink editor={props.kit} kit={props.kit.kit} />
     ) : activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
       <div className="tl-inspector" aria-label="animator inspector">
         <div className="tl-panel__title">Inspector</div>
