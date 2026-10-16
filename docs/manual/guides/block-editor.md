@@ -23,8 +23,11 @@ selection as before. The Scene view shows only the layer and the rooms
 drawn on it; **Context** (C) shows the rest of the scene, not pickable.
 The rail on the left holds the modes (Shift+1 … Shift+6), the column on the
 right the mode's tools and settings, the line at the bottom the tool, what
-to do and its keys. Some settings are panels over the view (Rooms &
-buildings: the Rooms list and the picked room's properties): a click on a
+to do and its keys. The column holds what you pick from (tools, palettes,
+lists); the settings of what is picked are panels over the view: the
+selection, the block type, the brush and its noise mask, the stamps, the
+theme, metadata and layer size, the Rooms list and the picked room's
+properties, and the layer's lock (**Layer**, bottom left). A click on a
 panel's title bar collapses or opens it, dragging the title bar moves it
 to another edge or corner of the view, and the view's **Panels** chip hides
 them all or resets their layout (kept per editor, in this browser).
@@ -57,8 +60,9 @@ an adding tool places on the face it points at.
 
 ## The block type editor
 
-The type picked in the palette is edited in the column beside it (in Build
-and Shape). Every setting is a control, none a JSON field, and each change
+The type picked in the palette is edited in Build's **Block type** panel
+(in the other modes it shows while a block clicked with no tool is
+selected). Every setting is a control, none a JSON field, and each change
 is one `setBlockType` (one undo step). The header renames, copies or deletes the type.
 
 - **Looks**: a model (browse or drop one), a kit piece, a prefab or a

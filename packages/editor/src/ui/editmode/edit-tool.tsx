@@ -5,7 +5,7 @@
  * which Esc clears before it drops the tool and before it leaves.
  *
  * The shell holds the one state and gives it to everything it shows (the
- * column, the detail column, what lies over the view); a column reads
+ * column, its panels, what lies over the view); a column reads
  * `useToolArmed` to arm its tool in the Scene view or put it in Navigate, its
  * tool grid says it is there (`useToolGridPresence`), and whatever holds a
  * selection says so with `useEditSelection`. Outside an editor (no shell) a

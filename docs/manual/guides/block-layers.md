@@ -34,8 +34,8 @@ How to turn, pan and zoom the Scene view while you paint:
    layer in the Hierarchy, or press **Edit blocks** in its Inspector.
 2. In Build's **Palette**, press **New type**: a coloured stand-in, `Block 1`
    with the id `block` (the next one `block-2`; the id never changes, and
-   scripts and the API use it). The **Block type** column beside the
-   palette edits the picked type: rename it `Stone`, keep **Collision**
+   scripts and the API use it). The **Block type** panel over the
+   view edits the picked type: rename it `Stone`, keep **Collision**
    Full. Its **Looks** take a model (drop one, or pick it), a kit piece or a
    colour, each with a weight. Make a second type `Wall` and set
    **Placement** to **On a cell edge**. With a kit on the layer (the

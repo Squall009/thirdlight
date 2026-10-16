@@ -12,7 +12,7 @@
  *   piece put: a door or window piece takes the hole its size needs, from
  *   its slot's sill (`KIT_STANDARD_SLOTS`).
  *
- * Two docked panels over the view (`EditPanels`):
+ * Docked panels over the view (`EditPanels`):
  * - **Rooms** (top right, collapsed): the list, and Presets in use — every
  *   room wearing one preset swapped to another, the outlines kept
  *   (`PresetSwap`). The view is where rooms are mostly picked: with no tool
@@ -20,6 +20,7 @@
  *   does; it is outlined there, and Esc lets it go.
  * - **The picked room, building or path** (right edge, while one is picked):
  *   its properties (`RoomInspector`).
+ * - **Layer** (bottom left, collapsed): the layer's lock.
  *
  * Browser-only (React).
  */
@@ -35,13 +36,14 @@ import { PresetSwap } from '../architecture/PresetSwap';
 import { useRoomsBinding } from '../architecture/useRoomsBinding';
 import { SliderField } from '../brush/SliderField';
 import { Section } from '../editmode/controls';
-import { EditPanels } from '../editmode/docks';
+import { EditPanels, type EditPanel } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
-import { useEditSelection } from '../editmode/edit-tool';
+import { useEditSelection, useToolArmed } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
-import { LayerSection, SliceField, toolKeysHint } from './BuildColumn';
+import { layerPanel } from './block-panels';
+import { SliceField, toolKeysHint } from './BuildColumn';
 import { RoomInspector, roomTitle, type RoomPieces } from './RoomInspector';
 import { Pick } from './RoomFields';
 
@@ -76,6 +78,7 @@ function PiecePick(p: { label: string; none: string; choices: readonly KitPieceC
 
 export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   const s = useBlockSetup(entity, host);
+  const armed = useToolArmed();
   useBlockTool(s, 'room');
   const mode = blockModeOf('rooms');
   const tile = mode.tiles.find((t) => t.id === s.state.tiles.rooms) ?? mode.tiles[0]!;
@@ -122,7 +125,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   const needsPiece = (tile.id === 'piece' && opts.wallModel === null) || (tile.id === 'corner' && opts.cornerModel === null);
   useEditStatus({
     tool: tile.label,
-    text: s.locked ? `${entity.name} is locked: unlock it below to draw rooms.` : needsPiece ? `Pick a ${tile.id === 'corner' ? 'corner' : 'wall'} piece from the kit in the column first.` : (tile.hint ?? mode.hint),
+    text: s.locked ? `${entity.name} is locked: unlock it in its Layer panel to draw rooms.` : needsPiece ? `Pick a ${tile.id === 'corner' ? 'corner' : 'wall'} piece from the kit in the column first.` : (tile.hint ?? mode.hint),
     keys: [...toolKeysHint(mode.tiles), ...(drawing ? [{ keys: ['Enter'], label: 'Finish' }, { keys: ['Backspace'], label: 'Undo corner' }] : []), ...(tile.id === 'piece' || tile.id === 'corner' ? [{ keys: ['Ctrl', 'Click'], label: 'Take off' }] : []), { keys: ['PgUp / PgDn'], label: 'Floor' }],
     right: s.state.hover,
   });
@@ -134,14 +137,67 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
     const { kitId: _k, ...rest } = b.component;
     void b.setRooms(id === '' ? rest : { ...rest, kitId: id }, id === '' ? 'Rooms kit: the layer’s' : 'Rooms kit');
   };
+  const roomPanels: EditPanel[] =
+    b === undefined
+      ? []
+      : [
+          {
+            id: 'rooms',
+            title: 'Rooms',
+            dock: 'tr',
+            collapsed: true,
+            badge: outlines.length,
+            render: () => (
+              <>
+                <Section title="List">
+                  <div className="tl-rooms__list" aria-label="rooms">
+                    {outlines.length === 0 && <p className="tl-note">No rooms yet: draw one on the slice's floor.</p>}
+                    {outlines.map((o) => (
+                      <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === room?.id ? ' is-active' : ''}`} aria-label={`${isBuilding(b.component, o.id) ? 'building' : 'room'} ${o.id}`} aria-pressed={o.id === room?.id} onClick={() => s.set({ room: o.id })}>
+                        {o.id}
+                        {o.path.closed === true ? '' : ' (path)'}
+                      </button>
+                    ))}
+                  </div>
+                </Section>
+                {outlines.length > 0 && (
+                  <Section title="Presets in use">
+                    <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
+                  </Section>
+                )}
+              </>
+            ),
+          },
+          {
+            id: 'selection',
+            title: room === null ? '' : roomTitle(b.component, room),
+            dock: 'r',
+            shown: room !== null,
+            selection: true,
+            ...(room !== null ? { badge: `${room.path.points.length} corners` } : {}),
+            render: () =>
+              room !== null && (
+                <RoomInspector
+                  s={s}
+                  b={b}
+                  room={room}
+                  pieces={pieces}
+                  presets={s.blocks.presets}
+                  objectSheet={objectSheet}
+                  edgeTypes={s.blocks.types.filter((t) => t.placement === 'edge')}
+                  onDerive={(base) => void s.blocks.grouped((g) => b.derive(base, g.clientRef))}
+                  onPick={(id) => s.set({ room: id })}
+                />
+              ),
+          },
+        ];
   return (
     <div className="tl-bcol" aria-label="block rooms">
       <Section title="Tool">
         <ToolGrid tools={mode.tiles} active={tile.id} onPick={(id) => s.set((st) => ({ tiles: { ...st.tiles, rooms: id } }))} aria="room tool" cols={4} disabled={s.locked} />
-        <p className="tl-hint">{tile.hint}</p>
+        {armed && <p className="tl-hint">{tile.hint}</p>}
         {drawing && <SliderField label="Arc" aria="arc bulge" value={s.state.roomOpts.bulge} min={-2.4} max={2.4} step={0.05} hint="The next side bends this much (0: straight; minus bends the other way)." onChange={(v) => setOpts({ bulge: v })} />}
         <SliceField s={s} />
-        <p className="tl-hint">Rooms are drawn on the slice's floor: the top of the row under it.</p>
       </Section>
       {b !== undefined && (
         <Section title="New rooms">
@@ -189,62 +245,12 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
           </>
         )}
       </Section>
-      <LayerSection s={s} />
-      {b !== undefined && (
-        <EditPanels
-          panels={[
-            {
-              id: 'rooms',
-              title: 'Rooms',
-              dock: 'tr',
-              collapsed: true,
-              badge: outlines.length,
-              render: () => (
-                <>
-                  <Section title="List">
-                    <div className="tl-rooms__list" aria-label="rooms">
-                      {outlines.length === 0 && <p className="tl-note">No rooms yet: draw one on the slice's floor.</p>}
-                      {outlines.map((o) => (
-                        <button key={o.id} type="button" className={`tl-btn tl-btn--small${o.id === room?.id ? ' is-active' : ''}`} aria-label={`${isBuilding(b.component, o.id) ? 'building' : 'room'} ${o.id}`} aria-pressed={o.id === room?.id} onClick={() => s.set({ room: o.id })}>
-                          {o.id}
-                          {o.path.closed === true ? '' : ' (path)'}
-                        </button>
-                      ))}
-                    </div>
-                  </Section>
-                  {outlines.length > 0 && (
-                    <Section title="Presets in use">
-                      <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
-                    </Section>
-                  )}
-                </>
-              ),
-            },
-            {
-              id: 'selection',
-              title: room === null ? '' : roomTitle(b.component, room),
-              dock: 'r',
-              shown: room !== null,
-              selection: true,
-              ...(room !== null ? { badge: `${room.path.points.length} corners` } : {}),
-              render: () =>
-                room !== null && (
-                  <RoomInspector
-                    s={s}
-                    b={b}
-                    room={room}
-                    pieces={pieces}
-                    presets={s.blocks.presets}
-                    objectSheet={objectSheet}
-                    edgeTypes={s.blocks.types.filter((t) => t.placement === 'edge')}
-                    onDerive={(base) => void s.blocks.grouped((g) => b.derive(base, g.clientRef))}
-                    onPick={(id) => s.set({ room: id })}
-                  />
-                ),
-            },
-          ]}
-        />
-      )}
+      <EditPanels
+        panels={[
+          ...roomPanels,
+          layerPanel(s),
+        ]}
+      />
     </div>
   );
 }

@@ -107,7 +107,6 @@
   --editmode-header: 46px;
   --editmode-rail: 76px;
   --editmode-col: 340px;
-  --editmode-detail: 300px;
   --editmode-hints: 30px;
 }
 * { box-sizing: border-box; }
@@ -1744,8 +1743,6 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-kit-preview__key.is-draws::before { border-color: var(--err); }
 
 /* The block editor (ui/blocks): the detail column, the palette of block types, the slice chip, lists and the block type editor. */
-.tl-editmode__detail { flex: none; width: var(--editmode-detail); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: var(--surface-0); border-left: 1px solid var(--line); }
-.tl-editmode__folded { border-top: 1px solid var(--line); margin-top: 4px; }
 .tl-bcol, .tl-btype { display: flex; flex-direction: column; flex: none; padding-bottom: 12px; }
 .tl-bcol__note, .tl-bcol__clip { margin: 0; padding: 0 12px 8px; }
 .tl-bpal { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -1792,9 +1789,9 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-bdetails[open] { display: flex; flex-direction: column; gap: 6px; }
 .tl-bfield { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); }
 .tl-bfield .tl-frow > .tl-input[type='number'] { width: 70px; flex: none; }
-.tl-btype__head { align-items: center; gap: 8px; }
+.tl-btype__head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 4px; }
 .tl-btype__name { flex: 1; min-width: 0; height: 24px; }
-.tl-btype__empty { margin: 0; padding: 0 12px; }
+.tl-btype__empty { margin: 0; padding: 10px 12px 0; }
 .tl-blooks { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .tl-blook { display: flex; align-items: center; gap: 8px; padding: 6px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 6px; }
 .tl-blook__thumb { flex: none; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--text-dim); background: var(--surface-2); border-radius: 4px; }
@@ -1820,6 +1817,8 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 /* Rooms & buildings: the rooms as chips; an opening or a stair as its name, its piece across, then its numbers four to a row. */
 .tl-rooms__list { display: flex; flex-wrap: wrap; gap: 4px; }
 .tl-rooms__list .tl-btn.is-active { background: var(--select-bg); border-color: var(--select); color: #fff; }
+/* A picker in a settings column sits beside its label, as the column's other rows do (the column fits without a scroll). */
+.tl-editmode__column .tl-field:has(> select) { display: grid; grid-template-columns: 98px minmax(0, 1fr); align-items: center; gap: 10px; margin-bottom: 6px; }
 .tl-rooms__opening { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 6px; align-items: end; padding-top: 6px; border-top: 1px solid var(--line); }
 .tl-rooms__opening > .tl-field__label:first-child { grid-column: 1 / -1; font-weight: 600; color: var(--text); }
 .tl-rooms__opening > .tl-field:has(select) { grid-column: 1 / -1; }

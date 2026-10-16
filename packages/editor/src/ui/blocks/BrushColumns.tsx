@@ -11,6 +11,9 @@
  *   2, 3, 4, Wet). A material that reads no paint gets a banner with
  *   **Make it paintable**.
  *
+ * The brush (and Paint's noise mask) are docked panels over the view, on
+ * the right edge; the layer's lock is one at the bottom left.
+ *
  * A stroke is one `editBlocks` of dabs, sent by the Scene view's block tools.
  *
  * Browser-only (React).
@@ -21,13 +24,13 @@ import type { BlockType, MaterialDef, PaintTarget } from '@thirdlight/project-mo
 import { blockModeOf, blockPaintChannels, blockToolUses, BLOCK_INVERT_LABELS, type BlockModeId, type BlockToolTile } from '../../session/block-mode';
 import { brushKeyHints, paletteKeyHint } from '../../session/edit-keys';
 import { paintableMaterial, withSlotTexture } from '../../session/layer-palette';
-import { BrushPanel } from '../brush/BrushPanel';
-import { NoiseMask } from '../brush/NoiseMask';
 import { useBrush } from '../brush/useBrush';
 import { TEXTURE_KINDS } from '../catalog/RefPicker';
 import { Banner } from '../editmode/Banner';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
+import { useToolArmed } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { LayerPalette, Popover } from '../palette/LayerPalette';
@@ -35,7 +38,8 @@ import { usePalette, withTextureSet } from '../palette/MaterialLayers';
 import { useCatalog } from '../catalog/catalog-context';
 import { TextureBrowser } from '../palette/TextureBrowser';
 import { blockBrushStore, blockCommand, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
-import { LayerSection, PaletteSection, SliceField, toolKeysHint } from './BuildColumn';
+import { blockTypePanel, brushPanels, layerPanel, openedTypeShown } from './block-panels';
+import { PaletteSection, SliceField, toolKeysHint } from './BuildColumn';
 
 /** The tile of a brush mode matching the brush's invert now (X and Ctrl switch it), else the remembered one. */
 function brushTile(s: BlockSetup, modeId: BlockModeId): BlockToolTile {
@@ -57,28 +61,28 @@ function brushModeTools({ s, modeId }: { s: BlockSetup; modeId: BlockModeId }): 
   return { tile, pick };
 }
 
-export function ShapeColumn({ entity, host }: EditModeView): JSX.Element {
+export function ShapeColumn(view: EditModeView): JSX.Element {
+  const { entity, host } = view;
   const s = useBlockSetup(entity, host);
+  const armed = useToolArmed();
   const { tile, pick } = brushModeTools({ s, modeId: 'shape' });
   const store = useBlockTool(s, tile.tool)!;
   const settings = useBrush(store);
   const uses = blockToolUses(tile.tool);
   const invert = BLOCK_INVERT_LABELS[tile.tool];
-  useEditStatus({ tool: tile.label, text: s.locked ? `${entity.name} is locked: unlock it in Build to shape it.` : tile.hint, keys: [...toolKeysHint(blockModeOf('shape').tiles), ...brushKeyHints(uses, invert)], right: s.state.hover });
+  useEditStatus({ tool: tile.label, text: s.locked ? `${entity.name} is locked: unlock it in its Layer panel to shape it.` : tile.hint, keys: [...toolKeysHint(blockModeOf('shape').tiles), ...brushKeyHints(uses, invert)], right: s.state.hover });
   return (
     <div className="tl-bcol" aria-label="block shape tools">
       <Section title="Tool">
         <ToolGrid tools={blockModeOf('shape').tiles} active={tile.id} onPick={pick} aria="shape tool" cols={4} disabled={s.locked} />
-        <p className="tl-hint">{tile.hint}</p>
-      </Section>
-      <Section title="Brush" aside="Shared by every brush">
-        <BrushPanel settings={settings} store={store} uses={uses} preview {...(invert !== undefined ? { invert } : {})} />
+        {armed && <p className="tl-hint">{tile.hint}</p>}
       </Section>
       <PaletteSection s={s} keys={!s.locked} />
       <p className="tl-hint tl-bcol__note">Raising where nothing stands fills the ground with the picked block type.</p>
       <Section title="Slice" open={false}>
         <SliceField s={s} />
       </Section>
+      <EditPanels panels={[...brushPanels({ settings, store, uses, preview: true, off: s.locked, ...(invert !== undefined ? { invert } : {}) }), blockTypePanel(view, s, openedTypeShown(s)), layerPanel(s)]} />
     </div>
   );
 }
@@ -123,7 +127,8 @@ const PAINT_TARGETS: readonly { id: PaintTarget; label: string; hint: string }[]
 
 const NO_STAND_INS: readonly string[] = [];
 
-export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
+export function PaintColumn(view: EditModeView): JSX.Element {
+  const { entity, host } = view;
   const s = useBlockSetup(entity, host);
   const { tile, pick } = brushModeTools({ s, modeId: 'paint' });
   const store = useBlockTool(s, 'paint')!;
@@ -145,7 +150,7 @@ export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
   const paintable = !s.locked;
   useEditStatus({
     tool: tile.label,
-    text: s.locked ? `${entity.name} is locked: unlock it in Build to paint.` : !ch.reads ? "The block types' material doesn't read paint: Make it paintable to see it on the blocks." : `Drag on the ${brush.paintTarget === 'tops' ? 'tops' : brush.paintTarget === 'walls' ? 'walls' : 'tops and walls'} to ${erase ? 'take' : 'paint'} ${picked?.name ?? 'the layer'}${erase ? ' off' : ''}.`,
+    text: s.locked ? `${entity.name} is locked: unlock it in its Layer panel to paint.` : !ch.reads ? "The block types' material doesn't read paint: Make it paintable to see it on the blocks." : `Drag on the ${brush.paintTarget === 'tops' ? 'tops' : brush.paintTarget === 'walls' ? 'walls' : 'tops and walls'} to ${erase ? 'take' : 'paint'} ${picked?.name ?? 'the layer'}${erase ? ' off' : ''}.`,
     keys: paintable ? [...paletteKeyHint(ch.tiles.length, 'Layer'), ...brushKeyHints(uses, 'Erase')] : [],
     right: s.state.hover,
   });
@@ -214,14 +219,8 @@ export function PaintColumn({ entity, host }: EditModeView): JSX.Element {
             />
           )}
         </Section>
-        <Section title="Brush" aside="Shared by every brush">
-          <BrushPanel settings={settings} store={store} uses={uses.filter((u) => u !== 'mask')} invert="Erase" />
-        </Section>
-        <Section title="Noise mask" open={settings.mask.on} aside={<span className={`tl-tag${settings.mask.on ? ' tl-tag--ok' : ''}`}>{settings.mask.on ? 'on' : 'off'}</span>}>
-          <NoiseMask settings={settings} store={store} />
-        </Section>
       </div>
-      <LayerSection s={s} />
+      <EditPanels panels={[...brushPanels({ settings, store, uses, invert: 'Erase', off: !paintable }), blockTypePanel(view, s, openedTypeShown(s)), layerPanel(s)]} />
       {chooser !== null && palette.source.kind === 'layered' && (
         <Popover anchor={chooser.anchor} onClose={() => setChooser(null)} title={`Layer ${chooser.index + 1}`} aria="layer texture">
           <TextureBrowser

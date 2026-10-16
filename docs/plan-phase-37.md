@@ -143,6 +143,7 @@ manual → acceptance.
 | 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); the owner approved it 2026-10-16. |
 | 37.2 | Done 2026-10-16: one Navigate state in the shell (`editmode/edit-tool.tsx`) for all four editors — Navigate tile, click-select with hover (rooms/buildings/paths outlined, blocks, decals, stamps, tiles), Space, the SPEC's Esc order with Done's badge dimming, a click on a room with a drawing tool selects it; vitest for the keys, Esc order and the room pick. E2E (2 workers, last full gate → this fast gate): block-editor 7.4 → 8.4 s, editor-window 11.3 → 10.8, terrain-paint 11.0 → 10.9, terrain-brushes 5.3 → 4.7, layered-material 52.1 → 50.2, instance-brush 31.7 → 31.2, level-acceptance 28.2 → 25.5, terrain-cdlod 3.4 → 3.2 min (net −17 s); village perf in its limits. |
 | 37.3 | Done 2026-10-16: one docked-panel component in the shell (`editmode/docks.tsx`, maths and memory in `session/dock-layout.ts`, CSS in `styles/docks.css`): 8 docks, stacking, title click / Enter collapse, title drag with drop targets (Esc cancels), Panels switch + Reset layout chip, layout per editor in browser storage; Rooms & buildings moved onto it (Rooms list top right collapsed, the picked room's properties right edge). Vitest 7 checks; e2e steps in the rooms helpers: layered-material 50.2 → 49.7 s (block-editor untouched; one Make-it-paintable undo poll failed once and passed on rerun); village perf in its limits. |
+| 37.4 | Done 2026-10-16: the block editor on panels per the SPEC (Build: Selection, Block type, Stamps, Layer; Shape/Paint: Brush, Noise mask, Layer; Regions: Theme, Metadata, Layer size; Rules: Scatter brush, Layer; Rooms: Layer); the detail column removed from the shell; every block mode's column fits at 1920×1080 (an e2e step measures all six). E2E (2 workers, previous → this fast gate): block-editor 8.4 → 8.4 s, block-world-uv 8.7 → 9.5, layered-material 49.7 → 50.2, terrain-brushes 4.7 → 4.5, terrain-paint 10.9 → 10.2, block-layers → 15.6 (net +0.4 s, host noise); the Make-it-paintable undo passed in all 3 runs; village perf in its limits. Screens on WebGPU and WebGL 2 looked at against mockup 02/04/04b.
 
 ## 6. Decision log
 
@@ -213,3 +214,28 @@ manual → acceptance.
   - panel stylesheets go in `packages/editor/src/styles/*.css`, inlined
     after `editor.css` by the build;
   - Rooms & buildings' Layer section stays in the column until 37.4.
+
+- 2026-10-16 (37.4): The block editor on panels, split as the SPEC's
+  table says (Build: Selection, Block type, Stamps, Layer; Shape: Brush,
+  Layer; Paint: Brush, Noise mask, Layer; Regions: Theme, Metadata, Layer
+  size; Rooms & buildings: Layer added). The detail column is gone: only
+  the block editor used it, so the shell's support for it went too.
+  Defaults chosen, owner to confirm:
+  - **Rules:** the column keeps the Tool grid (Navigate + Scatter) and
+    the two rule lists; the scatter brush's rule picker and settings are
+    the **Scatter brush** panel (right edge, open), sharing the Brush
+    panel's id so it keeps one place across Shape, Paint and Rules;
+  - the Block type panel is open in Build; in Shape, Paint, Regions and
+    Rules it shows only while a block clicked in Navigate is selected (the
+    37.2 rule that a click opens the block's type);
+  - panels whose tool needs them open with it: Stamps with the Stamp tool,
+    Metadata with the Metadata tool, Noise mask while the mask is on, Layer
+    while the layer is locked (until the user opens or closes them, which
+    is remembered);
+  - Build's tool grid is five tiles wide (as the mockup), the column's
+    pickers sit beside their labels, and in Navigate the column shows the
+    "No tool" note instead of the remembered tile's hint: that is what
+    makes Build and Rooms & buildings fit at 1920 × 1080 (Rooms was
+    210 px over);
+  - a short panel's kept height now counts its frame's borders (it
+    scrolled by 2 px under a fade that hid its last row).

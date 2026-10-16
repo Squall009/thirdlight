@@ -6,8 +6,7 @@
  * decals). A mode registers here, as a document kind registers in
  * `workspace/kinds.tsx`: which objects it edits (an object's mode) or opens
  * on (a scene's), its rail of modes with their hints, the settings column of
- * each (and the detail column beside it that edits the item picked there),
- * the Scene view's tools its keys reach, and how the view is set up —
+ * each (which declares its docked panels over the view), the Scene view's tools its keys reach, and how the view is set up —
  * the object alone and framed, or the whole scene with only the objects of
  * one component pickable. The shell (`EditModeShell`) — the header, the
  * rail, the lent Scene view, isolation, the status line, the keys, Done and
@@ -153,12 +152,6 @@ export interface ObjectEditModeKind extends EditModeBase {
   readonly framesOnEnter?: boolean;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
-  /**
-   * The detail column beside it, editing what is picked in the settings
-   * column (the block editor's block type); null or absent: none in this
-   * mode. On a narrow window it folds into the settings column's end.
-   */
-  detail?(view: EditModeView): ReactNode;
   /**
    * Other objects drawn and picked with the edited one (absent: none): what
    * belongs to it, as the rooms drawn on a block layer do.

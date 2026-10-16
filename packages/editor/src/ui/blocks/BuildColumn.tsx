@@ -2,8 +2,10 @@
  * The block editor's Build mode: the tools (single, line, rect, box, flood,
  * column, erase, pick, replace, stamp, paste, select), the palette of block
  * types from the layer's kit, how the brush places (turn, look, box height,
- * the slice), the selection (copy, move, mirror, turn, delete, save as a
- * stamp), the stamps, and the layer's lock.
+ * the slice) in the column; over the view, docked panels hold the
+ * selection (copy, move, mirror, turn, delete, save as a stamp; while a box
+ * is selected), the picked block type (the block type editor), the stamps
+ * (collapsed, open with the Stamp tool) and the layer's lock.
  *
  * Every stroke is one `editBlocks` sent by the Scene view's block tools;
  * new block types and stamps are content commands.
@@ -20,12 +22,15 @@ import { paletteKeyHint, type KeyHint } from '../../session/edit-keys';
 import { assetDropOf } from '../../session/placement';
 import { SliderField } from '../brush/SliderField';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
+import { useToolArmed } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { blockCommand, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
 import type { BlockModeHost } from './block-host';
 import { BlockPalette } from './BlockPalette';
+import { blockTypePanel, layerPanel } from './block-panels';
 import { copySelection, deleteSelection } from './BlockView';
 
 /** The tile picked in a mode (the remembered one, else the first). */
@@ -149,7 +154,9 @@ function PlacementSection({ s, tool }: { s: BlockSetup; tool: string }): JSX.Ele
   );
 }
 
-function SelectionSection({ s, box }: { s: BlockSetup; box: CellBox }): JSX.Element {
+const cellsWord = (n: number): string => `${n} cell${n === 1 ? '' : 's'}`;
+
+function SelectionBody({ s, box }: { s: BlockSetup; box: CellBox }): JSX.Element {
   const edit = async (what: string, e: Parameters<BlockSetup['blocks']['edit']>[2][number], next: CellBox | null): Promise<void> => {
     if (await s.blocks.edit(what, s.entity.id, [e])) s.set({ selection: next });
   };
@@ -157,9 +164,9 @@ function SelectionSection({ s, box }: { s: BlockSetup; box: CellBox }): JSX.Elem
   const turned = rotatedBox(box);
   const fits = turned[3] <= b.max[0] && turned[5] <= b.max[2];
   return (
-    <Section title="Selection" aside={<span className="tl-sec__note">{boxVolume(box)} cells</span>}>
+    <div className="tl-dpanel__pad" role="group" aria-label="selection">
       <p className="tl-hint" aria-label="selection box">
-        [{box.slice(0, 3).join(', ')}] – [{box.slice(3).map((v) => v - 1).join(', ')}] · {boxVolume(box)} cells
+        [{box.slice(0, 3).join(', ')}] – [{box.slice(3).map((v) => v - 1).join(', ')}] · {cellsWord(boxVolume(box))}
       </p>
       <div className="tl-btnrow">
         <button type="button" className="tl-btn tl-btn--small" onClick={() => copySelection(s, false)} title="Copy (Ctrl+C); then click with Paste">
@@ -182,7 +189,7 @@ function SelectionSection({ s, box }: { s: BlockSetup; box: CellBox }): JSX.Elem
         </button>
       </div>
       <StampSave s={s} box={box} />
-    </Section>
+    </div>
   );
 }
 
@@ -214,10 +221,10 @@ function StampSave({ s, box }: { s: BlockSetup; box: CellBox }): JSX.Element {
   );
 }
 
-function StampsSection({ s }: { s: BlockSetup }): JSX.Element {
+function StampsBody({ s }: { s: BlockSetup }): JSX.Element {
   const st = s.state.stamp;
   return (
-    <Section title="Stamps" aside={<span className="tl-sec__note">{s.blocks.stamps.length}</span>}>
+    <div className="tl-dpanel__pad">
       {s.blocks.stamps.length === 0 ? (
         <p className="tl-hint">No stamps yet: select cells (Select) and save them as a stamp.</p>
       ) : (
@@ -241,12 +248,14 @@ function StampsSection({ s }: { s: BlockSetup }): JSX.Element {
           <Segmented small aria="stamp mirror" value={st.mirror ?? 'none'} options={[{ id: 'none', label: 'As saved' }, { id: 'x', label: 'Mirror X' }, { id: 'z', label: 'Mirror Z' }]} onChange={(m) => s.set({ stamp: { ...st, mirror: m === 'none' ? null : m } })} />
         </div>
       )}
-    </Section>
+    </div>
   );
 }
 
-export function BuildColumn({ entity, host }: EditModeView): JSX.Element {
+export function BuildColumn(view: EditModeView): JSX.Element {
+  const { entity, host } = view;
   const s = useBlockSetup(entity, host);
+  const armed = useToolArmed();
   const mode = BLOCK_MODES[0]!;
   const tile = pickedTile(s, 'build');
   useBlockTool(s, tile.tool);
@@ -261,34 +270,31 @@ export function BuildColumn({ entity, host }: EditModeView): JSX.Element {
     }
     s.set((st) => ({ tiles: { ...st.tiles, build: id } }));
   };
+  const sel = s.state.selection;
   const needsBlock = ['single', 'line', 'rect', 'box', 'flood', 'replace'].includes(tile.tool);
   useEditStatus({
     tool: tile.label,
-    text: s.locked ? `${entity.name} is locked: unlock it below to build.` : needsBlock && t === undefined ? 'Pick a block type in the palette first.' : `${tile.hint}${needsBlock && t !== undefined ? ` (${t.name})` : ''}`,
+    text: s.locked ? `${entity.name} is locked: unlock it in its Layer panel to build.` : needsBlock && t === undefined ? 'Pick a block type in the palette first.' : `${tile.hint}${needsBlock && t !== undefined ? ` (${t.name})` : ''}`,
     keys: [...toolKeysHint(mode.tiles), ...paletteKeyHint(s.palette.length, 'Block type'), { keys: ['T'], label: 'Turn' }, { keys: ['PgUp / PgDn'], label: 'Slice' }, ...(tile.tool === 'column' ? [{ keys: ['Ctrl'], label: 'Lower' }] : [])],
     right: s.state.hover,
   });
   return (
     <div className="tl-bcol" aria-label="block tools">
       <Section title="Tool">
-        <ToolGrid tools={mode.tiles} active={tile.id} onPick={pick} aria="block tool" cols={4} disabled={s.locked} />
-        <p className="tl-hint">{tile.hint}</p>
+        <ToolGrid tools={mode.tiles} active={tile.id} onPick={pick} aria="block tool" cols={5} disabled={s.locked} />
+        {armed && <p className="tl-hint">{tile.hint}</p>}
       </Section>
       <PaletteSection s={s} keys={!s.locked} />
       <PlacementSection s={s} tool={tile.tool} />
-      {s.state.selection !== null && <SelectionSection s={s} box={s.state.selection} />}
       {s.state.clip !== null && <p className="tl-hint tl-bcol__clip">{s.state.clip.move ? 'Moving' : 'Copied'} {boxVolume(s.state.clip.box)} cells: Paste, then click where their corner goes.</p>}
-      {(tile.tool === 'stamp' || tile.tool === 'select' || s.blocks.stamps.length > 0) && <StampsSection s={s} />}
-      <LayerSection s={s} />
+      <EditPanels
+        panels={[
+          { id: 'stamps', title: 'Stamps', dock: 'tr', collapsed: tile.tool !== 'stamp', badge: s.blocks.stamps.length, render: () => <StampsBody s={s} /> },
+          { id: 'selection', title: 'Selection', dock: 'r', selection: true, shown: sel !== null, ...(sel !== null ? { badge: cellsWord(boxVolume(sel)) } : {}), render: () => sel !== null && <SelectionBody s={s} box={sel} /> },
+          blockTypePanel(view, s),
+          layerPanel(s),
+        ]}
+      />
     </div>
-  );
-}
-
-/** The layer's lock (its Hierarchy flag), so a finished layer is not changed by a stray stroke. */
-export function LayerSection({ s }: { s: BlockSetup }): JSX.Element {
-  return (
-    <Section title="Layer" open={s.locked}>
-      <Toggle label="Locked (nothing can be edited)" aria="lock layer" on={s.locked} onChange={(on) => s.blocks.setFlag(s.entity.id, 'locked', on)} hint="The object's Locked flag, as in the Hierarchy." />
-    </Section>
   );
 }

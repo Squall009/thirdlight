@@ -9,7 +9,10 @@
  * one undo step, its latency measured), a rectangle with its readout, a
  * flood fill, the eyedropper (I) and replace, a selection saved as a stamp
  * and placed, an edge piece's rectangle (a room's outline on the cell
- * edges), the slice (PageUp). It opens in Navigate: a click selects a block
+ * edges), the slice (PageUp). At 1920 × 1080 no mode's settings column
+ * needs a scroll in its default state: the selection, the block type, the
+ * brush, the theme, the metadata, the layer's size and its lock are docked
+ * panels over the view. It opens in Navigate: a click selects a block
  * (its cell, its type in the block type editor) and Esc lets it go; a tool
  * is armed by its letter, dropped by a click on its tile or Esc, and Space
  * arms it again; with no tool a drag orbits. The block type editor edits a type in plain
@@ -38,7 +41,7 @@ import { expect, test, type Page } from './pw';
 import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng } from './png';
-import { editMode, editModeTab, inspector, leaveEditMode, menu, menuItem } from './ui';
+import { editMode, editModeTab, editPanel, inspector, leaveEditMode, menu, menuItem, openPanel } from './ui';
 
 /** Done's Esc badge (it says whether Esc would leave now). */
 const escBadge = (page: Page) => editMode(page).locator('.tl-done kbd');
@@ -127,7 +130,10 @@ function countPixels(png: Buffer, test: (r: number, g: number, b: number) => boo
 
 const tile = (page: Page, id: string) => editMode(page).getByRole('radio', { name: `block ${id}`, exact: true });
 const tool = (page: Page, name: string) => editMode(page).getByRole('toolbar', { name: 'block tool' }).getByRole('button', { name, exact: true });
-const typeEditor = (page: Page) => editMode(page).getByLabel('block type editor', { exact: true });
+const typeEditor = (page: Page) => editPanel(page, 'block-type').getByLabel('block type editor', { exact: true });
+
+/** The settings column's height and what it holds (the fit rule: it needs no scroll in a mode's default state). */
+const columnFill = (page: Page) => editMode(page).locator('.tl-editmode__column-body').evaluate((el) => ({ content: el.scrollHeight, shown: el.clientHeight }));
 
 test('the block editor builds, fills, picks, replaces, stamps and draws walls; edits block types, regions, metadata and paint; props snap to cell tops', async ({ page }) => {
   test.setTimeout(240_000);
@@ -158,6 +164,16 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Last tool: Single');
     await expect(escBadge(page)).toHaveAttribute('data-esc-leaves', 'true');
     await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
+  });
+
+  await test.step('at 1920 × 1080 no mode\'s settings column needs a scroll in its default state (the rest is in panels)', async () => {
+    for (const n of [1, 2, 3, 4, 5, 6, 1]) {
+      await page.keyboard.press(`Shift+${n}`);
+      const name = await editMode(page).getByRole('tablist', { name: 'editor modes' }).getByRole('tab', { selected: true }).textContent();
+      const fill = await columnFill(page);
+      expect(fill.content, `${name}: the column fits`).toBeLessThanOrEqual(fill.shown);
+    }
+    await expect(editMode(page).getByRole('tab', { name: 'Build', exact: true })).toHaveAttribute('aria-selected', 'true');
   });
 
   await test.step('Navigate: a click selects a block (its cell; its type in the block type editor); Esc lets it go and stays', async () => {
@@ -311,21 +327,25 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect(editMode(page).getByRole('tab', { name: 'Regions', exact: true })).toHaveAttribute('aria-selected', 'true');
     const col = editMode(page).getByLabel('edit mode settings');
     await page.keyboard.press('m');
-    await col.getByLabel('metadata field').selectOption('hazard');
-    await col.getByRole('radiogroup', { name: 'metadata shape' }).getByRole('radio', { name: 'Rectangle' }).click();
+    // The Metadata tool's panel opens with it.
+    const meta = editPanel(page, 'metadata');
+    await expect(meta).toHaveAttribute('data-open', 'true');
+    await meta.getByLabel('metadata field').selectOption('hazard');
+    await meta.getByRole('radiogroup', { name: 'metadata shape' }).getByRole('radio', { name: 'Rectangle' }).click();
     await stroke(page, [await aim(page, top(0, 7, 0), [0, 7, 0]), await screen(page, mid(3, 7, 5))]);
     await expect.poll(async () => [...(await cells(layer, [0, 7, 0, 4, 8, 6])).values()].filter((c) => c.meta['hazard'] === true).length).toBe(24);
     const redOff = countPixels(await view(page).screenshot(), red);
-    await col.getByRole('button', { name: 'overlay hazard' }).click();
+    await meta.getByRole('button', { name: 'overlay hazard' }).click();
     await expect.poll(async () => Number((await view(page).getAttribute('data-block-overlay')) ?? 0)).toBe(24);
     await expect.poll(async () => countPixels(await view(page).screenshot(), red), { timeout: 20_000, message: 'the overlay in the Scene view' }).toBeGreaterThan(redOff + 150);
-    await col.getByRole('button', { name: 'overlay hazard' }).click();
+    await meta.getByRole('button', { name: 'overlay hazard' }).click();
     await expect(view(page)).toHaveAttribute('data-block-overlay', '0');
     await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'region', regionId: 'upper', op: 'set', boxes: [[0, 8, 0, 64, 16, 64]] }] });
     await col.getByLabel('cut away upper', { exact: true }).click();
     await expect.poll(async () => (await entity(layer)).components.blockLayer?.cutaway).toEqual({ regions: [{ region: 'upper' }] });
     await col.getByLabel('theme upper', { exact: true }).selectOption('burnt');
-    await col.getByLabel('layer theme', { exact: true }).selectOption('burnt');
+    const theme = await openPanel(page, 'theme');
+    await theme.getByLabel('layer theme', { exact: true }).selectOption('burnt');
     // The themes in any order (each select is its own command).
     const themes = async (): Promise<string[]> => ((await entity(layer)).components.blockLayer?.kits as { kit: string; region?: string }[] | undefined ?? []).map((k) => `${k.kit}@${k.region ?? ''}`).sort();
     await expect.poll(themes).toEqual(['burnt@', 'burnt@upper']);
@@ -336,23 +356,24 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect.poll(async () => [(await entity(layer)).components.blockLayer?.cutaway, await themes()]).toEqual([{ regions: [{ region: 'top' }] }, ['burnt@', 'burnt@top']]);
     await col.getByRole('button', { name: 'delete region top', exact: true }).click();
     await expect.poll(async () => [(await entity(layer)).components.blockLayer?.cutaway, await themes()]).toEqual([undefined, ['burnt@']]);
-    await col.getByLabel('layer theme', { exact: true }).selectOption('');
+    await theme.getByLabel('layer theme', { exact: true }).selectOption('');
     await expect.poll(async () => (await entity(layer)).components.blockLayer?.kits).toBeUndefined();
     // The layer's size: grown on every side by the step, typed back, and a shrink past a block refused and said.
     type Bounds = { min: number[]; max: number[] };
     const bounds = async (): Promise<Bounds> => (await entity(layer)).components.blockLayer?.bounds as Bounds;
     const b0 = await bounds();
-    await col.getByLabel('bounds step', { exact: true }).fill('2');
-    await col.getByRole('button', { name: 'Grow every side', exact: true }).click();
+    const size = await openPanel(page, 'layer-size');
+    await size.getByLabel('bounds step', { exact: true }).fill('2');
+    await size.getByRole('button', { name: 'Grow every side', exact: true }).click();
     await expect.poll(bounds).toEqual({ min: [b0.min[0]! - 2, b0.min[1], b0.min[2]! - 2], max: [b0.max[0]! + 2, b0.max[1], b0.max[2]! + 2] });
-    await col.getByRole('button', { name: 'Shrink every side', exact: true }).click();
+    await size.getByRole('button', { name: 'Shrink every side', exact: true }).click();
     await expect.poll(bounds).toEqual(b0);
-    const from = col.getByLabel('bounds from x', { exact: true });
+    const from = size.getByLabel('bounds from x', { exact: true });
     // The boxes show the stored bounds again before typing (a box re-made by the shrink's echo would drop the typing).
     await expect(from).toHaveValue(String(b0.min[0]));
     await from.fill(String(b0.min[0]! + 4));
     await from.press('Enter');
-    await expect(col.getByRole('alert')).toContainText("can't shrink past a block");
+    await expect(size.getByRole('alert')).toContainText("can't shrink past a block");
     await expect(from).toHaveValue(String(b0.min[0]));
     expect(await bounds()).toEqual(b0);
   });
@@ -378,8 +399,7 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
   await test.step('locked, no tool can be armed (Navigate) and nothing changes; unlocked, the tool is back', async () => {
     await page.keyboard.press('Shift+1');
     const before = await cellCount(layer);
-    const lock = editMode(page).getByRole('switch', { name: 'lock layer' });
-    await editMode(page).getByRole('button', { name: 'Layer', exact: true }).click();
+    const lock = (await openPanel(page, 'layer')).getByRole('switch', { name: 'lock layer' });
     await lock.click();
     await expect.poll(async () => (await entity(layer)).locked).toBe(true);
     await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');

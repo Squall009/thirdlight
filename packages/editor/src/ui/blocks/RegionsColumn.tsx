@@ -8,6 +8,10 @@
  * layer's size (its bounds in cells, grown or shrunk by numbers or a step on
  * every side).
  *
+ * The column holds the tool and the regions list; the layer's theme, the
+ * metadata (open with the Metadata tool) and the layer's size are docked
+ * panels on the right edge.
+ *
  * Region edits are `editBlocks` (one undo step each); a rename or delete
  * then lets the layer's cut-aways, themes and walk follow (one
  * `setComponent`). Cut-aways and themes are `setComponent`; the fields are
@@ -24,10 +28,13 @@ import { boundsGrown, isCutAway, themeOf, withBounds, withCutaway, withRegionFol
 import { enumColors, fieldColor, overlayLegend } from '../../session/block-overlay';
 import { newBlockId } from '../../session/block-type-edits';
 import { Section, Segmented, Toggle } from '../editmode/controls';
+import { EditPanels } from '../editmode/docks';
 import { useEditStatus } from '../editmode/edit-status';
+import { useToolArmed } from '../editmode/edit-tool';
 import type { EditModeView } from '../editmode/modes';
 import { ToolGrid } from '../editmode/ToolGrid';
 import { blockCommand, metaValueOf, useBlockSetup, useBlockTool, type BlockSetup } from './block-column';
+import { blockTypePanel, openedTypeShown } from './block-panels';
 import { pickedTile, toolKeysHint } from './BuildColumn';
 
 const CELL_FIELD_TYPES: readonly { id: CellFieldType; label: string }[] = [
@@ -172,10 +179,9 @@ function RegionsSection({ s }: { s: BlockSetup }): JSX.Element {
   );
 }
 
-function ThemeSection({ s }: { s: BlockSetup }): JSX.Element {
-  const themes = blockKitNames(s.blocks.types);
+function ThemeBody({ s, themes }: { s: BlockSetup; themes: readonly string[] }): JSX.Element {
   return (
-    <Section title="Theme" aside={<span className="tl-sec__note">{themes.length === 0 ? 'none yet' : `${themes.length}`}</span>}>
+    <div className="tl-dpanel__pad">
       {themes.length === 0 ? (
         <p className="tl-hint">A theme draws every block as another type (winter, ruined…) without changing the cells. Give a block type a theme in its Themes section.</p>
       ) : (
@@ -194,7 +200,7 @@ function ThemeSection({ s }: { s: BlockSetup }): JSX.Element {
           </select>
         </div>
       )}
-    </Section>
+    </div>
   );
 }
 
@@ -211,7 +217,7 @@ const BOUNDS_AXES = [
  * cell 0's corner), so growing towards minus adds room without moving
  * anything; shrinking past a block is refused by the backend and said.
  */
-function BoundsSection({ s }: { s: BlockSetup }): JSX.Element {
+function BoundsBody({ s }: { s: BlockSetup }): JSX.Element {
   const { min, max } = s.component.bounds;
   const cell = s.component.cellSize;
   const [step, setStep] = useState(8);
@@ -235,7 +241,7 @@ function BoundsSection({ s }: { s: BlockSetup }): JSX.Element {
   };
   const size = [0, 1, 2].map((i) => max[i]! - min[i]!);
   return (
-    <Section title="Layer size" aside={<span className="tl-sec__note">{size.join(' × ')} cells</span>}>
+    <div className="tl-dpanel__pad">
       <div className="tl-bbox" aria-label="layer bounds">
         {BOUNDS_AXES.map(({ label, axis }) => (
           <div key={axis} className="tl-bbox__row">
@@ -295,7 +301,7 @@ function BoundsSection({ s }: { s: BlockSetup }): JSX.Element {
           {error}
         </p>
       )}
-    </Section>
+    </div>
   );
 }
 
@@ -316,7 +322,7 @@ export function MetaValueField({ field, value, onChange, aria }: { field: CellFi
   return <input className="tl-input" type="number" aria-label={aria} step={field.type === 'int' ? 1 : 0.1} min={field.min} max={field.max} defaultValue={typeof value === 'number' ? value : 0} key={String(value)} onBlur={(e) => Number.isFinite(Number(e.target.value)) && onChange(field.type === 'int' ? Math.round(Number(e.target.value)) : Number(e.target.value))} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />;
 }
 
-function MetadataSection({ s }: { s: BlockSetup }): JSX.Element {
+function MetadataBody({ s }: { s: BlockSetup }): JSX.Element {
   const fields = s.blocks.fields;
   const m = s.state.meta;
   const field = fields.find((f) => f.key === m.field);
@@ -325,7 +331,7 @@ function MetadataSection({ s }: { s: BlockSetup }): JSX.Element {
   const legend = overlayLegend(fields, shown);
   const setMeta = (patch: Partial<typeof m>): void => s.set((st) => ({ meta: { ...st.meta, ...patch } }));
   return (
-    <Section title="Metadata" aside={<span className="tl-sec__note">{fields.length} field{fields.length === 1 ? '' : 's'}</span>}>
+    <div className="tl-dpanel__pad">
       {fields.length === 0 ? (
         <p className="tl-hint">No cell fields yet. A field is data every cell can carry (walkable, slippery, cost…): add one below.</p>
       ) : (
@@ -383,7 +389,7 @@ function MetadataSection({ s }: { s: BlockSetup }): JSX.Element {
         </>
       )}
       <CellFields s={s} />
-    </Section>
+    </div>
   );
 }
 
@@ -455,14 +461,20 @@ function CellFields({ s }: { s: BlockSetup }): JSX.Element {
   );
 }
 
-export function RegionsColumn({ entity, host }: EditModeView): JSX.Element {
+export function RegionsColumn(view: EditModeView): JSX.Element {
+  const { entity, host } = view;
   const s = useBlockSetup(entity, host);
+  const armed = useToolArmed();
   const tile = pickedTile(s, 'regions');
   useBlockTool(s, tile.tool);
   const mode = blockModeOf('regions');
+  const themes = blockKitNames(s.blocks.types);
+  const fields = s.blocks.fields.length;
+  const { min, max } = s.component.bounds;
+  const size = [0, 1, 2].map((i) => max[i]! - min[i]!);
   useEditStatus({
     tool: tile.label,
-    text: tile.tool === 'region' ? (s.state.region === null ? 'Pick or make a region below, then drag rectangles to add to it.' : `Drag a rectangle to add it to ${s.state.region} (Ctrl held: take it out).`) : metaValueOf(s).ok ? tile.hint : 'Pick a field to paint below.',
+    text: tile.tool === 'region' ? (s.state.region === null ? 'Pick or make a region in the column, then drag rectangles to add to it.' : `Drag a rectangle to add it to ${s.state.region} (Ctrl held: take it out).`) : metaValueOf(s).ok ? tile.hint : 'Pick a field to paint in the Metadata panel.',
     keys: [...toolKeysHint(mode.tiles), ...(tile.tool === 'region' ? [{ keys: ['Ctrl'], label: 'Take out' }] : [])],
     right: s.state.hover,
   });
@@ -470,12 +482,17 @@ export function RegionsColumn({ entity, host }: EditModeView): JSX.Element {
     <div className="tl-bcol" aria-label="block region tools">
       <Section title="Tool">
         <ToolGrid tools={mode.tiles} active={tile.id} onPick={(id) => s.set((st) => ({ tiles: { ...st.tiles, regions: id } }))} aria="region tool" cols={4} disabled={s.locked} />
-        <p className="tl-hint">{tile.hint}</p>
+        {armed && <p className="tl-hint">{tile.hint}</p>}
       </Section>
       <RegionsSection s={s} />
-      <ThemeSection s={s} />
-      <MetadataSection s={s} />
-      <BoundsSection s={s} />
+      <EditPanels
+        panels={[
+          { id: 'theme', title: 'Theme', dock: 'r', badge: themeOf(s.component, null) || (themes.length === 0 ? 'none yet' : 'authored looks'), render: () => <ThemeBody s={s} themes={themes} /> },
+          { id: 'metadata', title: 'Metadata', dock: 'r', collapsed: tile.tool !== 'meta', badge: `${fields} field${fields === 1 ? '' : 's'}`, render: () => <MetadataBody s={s} /> },
+          { id: 'layer-size', title: 'Layer size', dock: 'r', collapsed: true, badge: `${size.join(' × ')} cells`, render: () => <BoundsBody s={s} /> },
+          blockTypePanel(view, s, openedTypeShown(s)),
+        ]}
+      />
     </div>
   );
 }

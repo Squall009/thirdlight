@@ -202,12 +202,13 @@ export function Popover(p: { anchor: HTMLElement; onClose: () => void; title: Re
   useLayoutEffect(() => {
     const put = (): void => {
       const a = p.anchor.getBoundingClientRect();
-      // From the detail column it opens left of the settings column too: into the view, never over the column beside it.
-      const inDetail = p.anchor.closest('.tl-editmode__detail') !== null;
-      const column = (inDetail ? p.anchor.closest('.tl-editmode')?.querySelector('.tl-editmode__column') : p.anchor.closest('.tl-editmode__column, .tl-dock, aside'))?.getBoundingClientRect() ?? a;
+      // Left of what it was opened from (the column, or a docked panel over the view), never over it; kept on the screen.
+      const column = p.anchor.closest('.tl-dpanel, .tl-editmode__column, .tl-dock, aside')?.getBoundingClientRect() ?? a;
       const h = Math.min(box.current?.offsetHeight ?? 200, window.innerHeight - 16);
+      const w = box.current?.offsetWidth ?? 0;
       const top = Math.max(8, Math.min(window.innerHeight - h - 8, a.top + a.height / 2 - 28));
-      setPlace((was) => (was !== null && was.top === top && was.right === window.innerWidth - column.left + 10 ? was : { right: window.innerWidth - column.left + 10, top, arrow: a.top + a.height / 2 - top }));
+      const right = Math.min(window.innerWidth - column.left + 10, window.innerWidth - w - 8);
+      setPlace((was) => (was !== null && was.top === top && was.right === right ? was : { right, top, arrow: a.top + a.height / 2 - top }));
     };
     put();
     // Its content grows (a texture browser opened in it): placed again so it stays on the screen.

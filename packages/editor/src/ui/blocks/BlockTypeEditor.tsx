@@ -1,7 +1,7 @@
 /**
- * The block type editor: the detail column beside the block editor's
- * settings, editing the block type picked in the palette — everything a
- * block type stores, in plain controls (no JSON):
+ * The block type editor: the Block type panel over the block editor's
+ * view, editing the block type picked in the palette (or opened by a click
+ * on a block) — everything a block type stores, in plain controls (no JSON):
  *
  * - **Looks**: its models, kit pieces, prefab or stand-in colour, each with
  *   its weight (how often a cell picks it) and where its texture
@@ -497,17 +497,13 @@ export function BlockTypeEditor({ entity, host }: EditModeView): JSX.Element {
   if (t === undefined)
     return (
       <div className="tl-btype" aria-label="block type editor">
-        <div className="tl-editmode__column-head">
-          <b>Block type</b>
-        </div>
         <p className="tl-hint tl-btype__empty">Pick a block type in the palette to edit its looks, shape, turns, connections, themes, metadata and material.</p>
       </div>
     );
   const save = (next: BlockType, what = 'Edit block type'): void => void blockCommand(s, what, 'setBlockType', { block: next });
   return (
     <div className="tl-btype" aria-label="block type editor" data-block-type={t.blockId}>
-      <div className="tl-editmode__column-head tl-btype__head">
-        <b>Block type</b>
+      <div className="tl-btype__head">
         <input className="tl-input tl-btype__name" aria-label="block type name" defaultValue={t.name} key={`${t.blockId}:${t.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== t.name && save({ ...t, name: e.target.value.trim().slice(0, 64) }, 'Rename block type')} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
         <button type="button" className="tl-btn tl-btn--small" title="A copy of this type to change" onClick={() => {
           const copy = duplicateBlockType(t, s.blocks.types);

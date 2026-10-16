@@ -339,7 +339,8 @@ function PanelFrame({ entry, place, lifted, onHeadDown, onHeadKey }: { entry: Pa
     const h = head.current;
     if (f === null || b === null || h === null) return undefined;
     const fit = (): void => {
-      f.style.minHeight = place.open ? `${panelKeepHeight(h.offsetHeight, entry.content.offsetHeight)}px` : '';
+      // The frame's borders count too (its height is its border box), else a short panel scrolls by a pixel or two.
+      f.style.minHeight = place.open ? `${panelKeepHeight(h.offsetHeight + f.offsetHeight - f.clientHeight, entry.content.offsetHeight)}px` : '';
       f.classList.toggle('is-more', place.open && b.scrollTop + b.clientHeight < b.scrollHeight - 1);
     };
     fit();

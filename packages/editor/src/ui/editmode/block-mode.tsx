@@ -1,9 +1,9 @@
 /**
  * The block editor: a block layer's edit mode. Its rail holds the editor's
  * modes (`BLOCK_MODES`: Build, Shape, Paint, Regions, Rooms & buildings,
- * Rules); each mode's column is its own (`ui/blocks/`), the block type
- * picked in the palette is edited in the detail column beside it, and the
- * strokes are the Scene view's block tools, one `editBlocks` each, as
+ * Rules); each mode's column is its own (`ui/blocks/`) and declares its
+ * docked panels (the block type picked in the palette is edited in Build's
+ * Block type panel), and the strokes are the Scene view's block tools, one `editBlocks` each, as
  * before. The rooms drawn on the layer are drawn and picked with it.
  *
  * Browser-only (React).
@@ -13,7 +13,6 @@ import type { ArchitectureComponent, BlockLayerComponent } from '@thirdlight/pro
 
 import { BLOCK_MODES, type BlockModeId } from '../../session/block-mode';
 import type { ProjectedEntity } from '../../session/projection';
-import { BlockTypeEditor } from '../blocks/BlockTypeEditor';
 import { BlockView } from '../blocks/BlockView';
 import { PaintColumn, ShapeColumn } from '../blocks/BrushColumns';
 import { BuildColumn } from '../blocks/BuildColumn';
@@ -32,9 +31,6 @@ const COLUMNS: Readonly<Record<BlockModeId, (v: EditModeView) => JSX.Element>> =
   rooms: RoomsColumn,
   rules: RulesColumn,
 };
-
-/** The modes whose palette picks a block type (the detail column edits it). */
-const TYPE_MODES: readonly string[] = ['build', 'shape'];
 
 export const blockMode: ObjectEditModeKind = {
   kind: 'blocks',
@@ -67,6 +63,5 @@ export const blockMode: ObjectEditModeKind = {
     const Column = COLUMNS[view.mode as BlockModeId] ?? BuildColumn;
     return <Column key={view.mode} {...view} />;
   },
-  detail: (view) => (TYPE_MODES.includes(view.mode) ? <BlockTypeEditor {...view} /> : null),
   viewExtra: (view) => <BlockView {...view} />,
 };

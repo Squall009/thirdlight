@@ -6,8 +6,7 @@
  * input): the header (what is edited, Context, undo, Done), the rail of the
  * editor's modes on the left, the live Scene view in the middle — its own
  * canvas, lent with input, never a second renderer — the mode's settings
- * column on the right (with its detail column beside it, folded into the
- * settings column on a narrow window) and the status line with its hints
+ * column on the right and the status line with its hints
  * and keys.
  *
  * While it shows, the view draws only the edited object (Context: the rest
@@ -30,7 +29,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type JSX, type RefObject } from 'react';
+import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
 
 import { editKeyAction, escapeStep, sharedKeyHints } from '../../session/edit-keys';
 import type { Viewport } from '../../viewport/viewport';
@@ -74,27 +73,11 @@ const OWN_SPACE = 'button, input, select, textarea, [role="button"], [role="tab"
 /** Controls a mouse click leaves without the keyboard focus (fields, menus and sliders keep it: they are typed or stepped in). */
 const CLICK_RELEASES_FOCUS = 'button, [role="button"], [role="switch"], [role="radio"], [role="tab"], [role="checkbox"], input[type="checkbox"], input[type="radio"]';
 
-/** Narrower than this, a detail column folds into the settings column (the view keeps room to work in). */
-const DETAIL_COLUMN_MIN_WIDTH = '(min-width: 1440px)';
-
-/** Whether the window is wide enough for a detail column beside the settings column. */
-function useWideWindow(): boolean {
-  return useSyncExternalStore(
-    (l) => {
-      const q = window.matchMedia(DETAIL_COLUMN_MIN_WIDTH);
-      q.addEventListener('change', l);
-      return () => q.removeEventListener('change', l);
-    },
-    () => window.matchMedia(DETAIL_COLUMN_MIN_WIDTH).matches,
-  );
-}
-
 /** The shell while a mode shows (rendered only then). */
 export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const { state, entity, kind } = p.mode;
   const viewHost = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<EditStatus | null>(null);
-  const wide = useWideWindow();
   const railNow = state === null || kind === undefined ? undefined : (kind.rail.find((r) => r.id === state.mode) ?? kind.rail[0]);
   const tool = useEditToolHost(state?.armed ?? false, p.mode.setArmed, railNow?.navigate ?? NAVIGATE_HINT);
   const docks = useDockHost(kind?.kind ?? '');
@@ -229,7 +212,6 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const name = scene ? (p.host.scene?.name ?? 'Scene') : entity!.name;
   const meta = scene ? kind.meta?.(sceneView) : kind.meta?.(entity!);
   const objectView = scene ? null : { entity: entity!, mode: rail.id, host: p.host };
-  const detail = objectView === null || isSceneMode(kind) ? null : (kind.detail?.(objectView) ?? null);
   const navigate = tool.tools && !tool.api.armed;
   const selected = tool.selected[0] ?? null;
   const escLeaves = escapeStep({ selection: selected !== null, armed: tool.api.armed }) === 'leave';
@@ -280,15 +262,9 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
           <div className="tl-editmode__column-body" key={scene ? kind.kind : entity!.id}>
             <EditStatusContext.Provider value={setStatus}>
               {scene ? kind.column(sceneView) : kind.column(objectView!)}
-              {detail !== null && !wide && <div className="tl-editmode__folded">{detail}</div>}
             </EditStatusContext.Provider>
           </div>
         </aside>
-        {detail !== null && wide && (
-          <aside className="tl-editmode__detail" aria-label="edit mode detail" key={entity!.id}>
-            {detail}
-          </aside>
-        )}
       </div>
       </DockProvider>
       </EditToolContext.Provider>
