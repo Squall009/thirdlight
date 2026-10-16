@@ -140,10 +140,27 @@ manual → acceptance.
 | Item | Status |
 |---|---|
 | 37.0 | Done 2026-10-16: three.js 0.186.1 is still the latest on npm (no update); Rapier 0.21.0 is out, the pinned 0.20.0 stays (nothing here needs it). §2 recon is at `8cde51d2`, current. |
-| 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); owner look pending before 37.3. |
+| 37.1 | Mockup done 2026-10-16 (`~/.cache/thirdlight-phase37/mockup`, 12 screens at 1920×1080 + SPEC.md, on the review page); the owner approved it 2026-10-16. |
 
 ## 6. Decision log
 
 - 2026-10-16: Planned from the owner's look at phases 34–36. The owner
   chose: Esc drops the tool and a second Esc leaves; docked, collapsible
   panels; and the load-time defects in this phase. Phase 33 follows.
+
+- 2026-10-16 (37.1): The owner looked at the mockup ("I like it") and asked
+  for all of phase 37 to be built, then they will use it and give feedback.
+  The mockup's `SPEC.md` (`~/.cache/thirdlight-phase37/mockup/SPEC.md`) is
+  the layout to build. Its open choices are taken as shown:
+  - a lit **Navigate** tile in the tool grid (screen 01), not the no-tile
+    variant;
+  - **Space** brings back the last tool;
+  - the default docks: settings on the right edge, lists collapsed at the
+    top right, Layer at the bottom left;
+  - the brush is a panel in every editor;
+  - the Rooms list is a collapsed panel;
+  - decal Select's separate Click tile is dropped (Navigate selects), and
+    the atlas is a bottom-dock panel, collapsed by default;
+  - the kit editor has a picked-slot panel and a preview panel, and the
+    global Inspector keeps only a link;
+  - Done's Esc badge dims while Esc would not leave.
