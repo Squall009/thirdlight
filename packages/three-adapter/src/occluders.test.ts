@@ -83,19 +83,27 @@ describe('occluder stand-ins', () => {
     const scene = new THREE.Scene();
     const view = camera();
     const shadow = camera();
-    let path: 'off' | 'hiz' = 'off';
-    const culler = new OcclusionCuller({ scene, setting: () => (path === 'off' ? 'off' : 'auto'), renderer: () => 'webgpu', pinned: null, view: { is: (c) => c === view } });
+    let path: 'off' | 'auto' = 'off';
+    let gpu: 'webgl2' | 'webgpu' = 'webgl2';
+    const culler = new OcclusionCuller({ scene, setting: () => path, renderer: () => gpu, pinned: null, view: { is: (c) => c === view } });
     const draws = (c: THREE.Camera): number => {
       occ.onBeforeRender(null as never, scene, c, occ.geometry, occ.material as THREE.Material, null as never);
       return occ.geometry.drawRange.count;
     };
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    path = 'hiz';
+    // The queries' path: into the view's depth.
+    path = 'auto';
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([Number.POSITIVE_INFINITY, 0]);
     culler.update();
     expect(culler.diagnostics().standins).toBe(1);
+    // The pyramid's path: only in its first pass and with its material (none here: no WebGPU renderer), never into the depth.
+    gpu = 'webgpu';
+    culler.update();
+    expect([draws(view), draws(shadow)]).toEqual([0, 0]);
+    gpu = 'webgl2';
+    culler.update();
     // An object that opts out draws no stand-in either.
     applyObjectOccluder(root, { model: { occluder: false } });
     expect(draws(view)).toBe(0);

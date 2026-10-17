@@ -841,7 +841,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, view: viewCull.view, canvas: canvasLike, changed: () => opts.onChange?.() });
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.() });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1481,13 +1481,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
       // a game whose scenes set no look renders as one without an environment.
       const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envLook.presets.size > 0 || envLook.blendActive);
-      if ((wanted || qualityControl.needsEnvironment() || renderControl.needsEnvironment()) && environmentRenderer === null) {
+      if ((wanted || qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment()) && environmentRenderer === null) {
         // The sky, its faces and the grading LUT are held for the environment's life. They are the same
         // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
         // from their images and never changes them), so a texture used by both is decoded once.
         const envTextures = textureHolds(resources, opts.environment?.loadTexture ?? (async () => null));
         // A sky image that arrives later is drawn by the next frame (a host drawing on demand is told).
-        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment'), ...(opts.onChange !== undefined ? { onChange: opts.onChange } : {}) });
+        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment'), scenePasses: () => occlusion.scenePasses(), ...(opts.onChange !== undefined ? { onChange: opts.onChange } : {}) });
         environmentHolds = envTextures;
         environmentRenderer.set(effectiveEnvironment());
         qualityControl.applyEnvironment(environmentRenderer);

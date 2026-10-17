@@ -42,6 +42,7 @@ import * as TSLTyped from 'three/tsl';
 
 import { compileEffect, EffectInstance, Rng, type CompiledNode, type EffectOrigin, type EffectProgram, type SystemProgram, type WireSource } from '@thirdlight/effects';
 
+import { releaseStorage } from './dispose';
 import { curveNode, gradientNode, hash32, hashFloat, hexLinear, normalize0, permutationTable, rotate, toLocalPoint, toLocalVector, toWorldDirection, toWorldPoint, toWorldVector, TslNoise, TslRng, type N, type OriginNodes } from './effects-tsl';
 
 /** TSL untyped (see effects-tsl.ts). */
@@ -1152,20 +1153,4 @@ export class GpuEffectExecutor {
     this.shared.perm.value?.dispose?.();
     releaseStorage(renderer, [this.shared.perm.value]);
   }
-}
-
-/**
- * Free compute-only storage buffers on the renderer that created them.
- * three 0.186 frees a node's buffer only together with a geometry that drew
- * it (`BufferAttribute.dispose()` is a TODO in its `Geometries`), so buffers
- * only compute passes use (particle state, free list, sort keys, the noise
- * table) would stay allocated after their passes are disposed — the 20.3
- * leak check measured 5 per system. The renderer's attribute map is private
- * API of the pinned three version; deleting an attribute it never saw (or
- * already freed) does nothing.
- */
-function releaseStorage(renderer: THREE.WebGPURenderer | null | undefined, buffers: readonly unknown[]): void {
-  const map = (renderer as unknown as { _attributes?: { delete(a: unknown): unknown } | null } | null | undefined)?._attributes;
-  if (map === null || map === undefined || typeof map.delete !== 'function') return;
-  for (const b of buffers) if (b !== null && b !== undefined) map.delete(b);
 }

@@ -47,15 +47,20 @@ export const OCCLUDER_EARLY_RENDER_ORDER = -1;
 export const OCCLUDER_STANDIN_RENDER_ORDER = 1_000_000;
 
 /**
- * `scene.userData[STANDIN_VIEW_KEY]`: `(camera) => boolean`, whether the
- * stand-ins draw for `camera` (the view's, while a culling path is on). Set
- * by the occlusion culler; absent: stand-ins draw for no camera.
+ * `scene.userData[STANDIN_VIEW_KEY]`: `(camera, standin) => boolean`,
+ * whether `standin` draws for `camera` (the view's, while a culling path is
+ * on). Set by the occlusion culler; absent: stand-ins draw for no camera.
  */
 export const STANDIN_VIEW_KEY = 'tlOccluderView';
 
-/** The one material stand-ins draw with: depth written, no colour (an instance's clone keeps both). */
+/**
+ * The material stand-ins draw with into the view's depth: depth written, no
+ * colour (an instance's clone keeps both). The depth pyramid path gives them
+ * its own while it runs (occlusion-pyramid.ts: the pyramid only, not the
+ * scene's depth) and this one back after.
+ */
 let standinMaterial: THREE.MeshBasicMaterial | null = null;
-function standinMaterialOf(): THREE.MeshBasicMaterial {
+export function standinMaterialOf(): THREE.MeshBasicMaterial {
   if (standinMaterial === null) {
     standinMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, depthTest: true });
     standinMaterial.name = 'tl-occluder-standin';
@@ -74,8 +79,8 @@ export function isOccluderStandin(o: THREE.Object3D): boolean {
  * nothing for any other camera (shadow maps, probes, a bake).
  */
 function standinBeforeRender(this: THREE.Mesh, _r: unknown, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry): void {
-  const view = scene.userData[STANDIN_VIEW_KEY] as ((c: THREE.Camera) => boolean) | undefined;
-  const draw = this.userData[NOT_OCCLUDER_KEY] !== true && view !== undefined && view(camera);
+  const view = scene.userData[STANDIN_VIEW_KEY] as ((c: THREE.Camera, standin: THREE.Mesh) => boolean) | undefined;
+  const draw = this.userData[NOT_OCCLUDER_KEY] !== true && view !== undefined && view(camera, this);
   geometry.drawRange.count = draw ? Number.POSITIVE_INFINITY : 0;
 }
 

@@ -351,7 +351,10 @@ export { BUILD_KEEP_URL_PARAM, buildKeepFromUrl, RELEASED_BUILD_KEEP_MS } from '
 export { OCCLUSION_ORACLE_KEY, type OracleResult } from './occlusion-oracle';
 export { hiddenFractions, ORACLE_KINDS, type OracleKind, type OracleShare } from './occlusion-oracle-count';
 // Occlusion culling: the page flag, the scene's switch tools read and pin, and the draws it may leave out.
-export { OCCLUSION_SWITCH_KEY, OCCLUSION_URL_PARAM, occlusionFromUrl, type OcclusionDiagnostics, type OcclusionSwitch } from './occlusion';
+export { OCCLUSION_SWITCH_KEY, OCCLUSION_URL_PARAM, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionDiagnostics, type OcclusionSwitch } from './occlusion';
+// The depth pyramid's layout and rule (what a read-back is checked against).
+export { pyramidBreaks, pyramidLayout, type PyramidLayout } from './occlusion-pyramid-rule';
+export type { PyramidReadback } from './occlusion-pyramid';
 // Occluders: `_OCC` stand-ins (depth only, the view only) and the marks of what does not count.
 export { applyModelOccluders, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OCCLUDER_STANDIN_RENDER_ORDER, occluderRoleOfDraw, type ModelOccluders } from './occluders';
 export { markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';

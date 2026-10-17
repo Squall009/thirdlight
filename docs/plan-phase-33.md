@@ -296,7 +296,7 @@ animating hidden characters.
 | 33.1 | Done 2026-10-17: `--view street\|valley` on village and level, `--oracle` (per item and whole draws, then the wholly hidden draws left out and measured again); before table below. Occluded views hide 76–93 % of draws and 83–93 % of triangles; leaving every wholly hidden draw out saves ≤ 1.2 ms GPU and ≤ 1.7 ms main thread, frame p95 mostly within noise: the work is there, its time is small at these class sizes. Verdict in §7: all items go ahead except 33.9 (dropped) and 33.6's per-member merged cells (dropped). |
 | 33.2 | Done 2026-10-17: `occlusion_culling` (0 off / 1 auto, absent auto) and a level's `occlusionCulling`, `?occlusion=off\|queries\|hiz` and the scene switch, the occludee registry (village: 604 on WebGPU, 608 on WebGL 2) and `occludeeClassOf` in runtime, diagnostics (Play, `ctx.stats.occlusion`, `data-tl-occlusion`), `expectOcclusionMatch` in rendering.e2e (export on vs off: strict); culling still a no-op. Village A/B (3 rounds, same browser) on vs `occlusion=off`: p50 equal (WebGL 2 4.7/4.7, WebGPU 5.5/5.5 ms), main thread +0.06–0.14 ms (≤ +0.2, §5). The fast gate's perf missed twice under another session's load (load 10–12), then passed at load 2: webgl2 p50 4.8 ms (limit 4.84). |
 | 33.3 | Done 2026-10-17: `<piece>_OCC` stand-ins (project-model naming and import check, `occluderPointsOutside` with 1 mm; ignored ones → Problems `model_occluder_ignored` and dropped at load), drawn depth only, last among the opaque draws, for the view's camera only while a path is on (`data-tl-occlusion` 5th field: stand-in draws); occluder roles in runtime (`occluderRoleOf`), object `occluder` (box, model) and model `occluder: auto\|occ\|none`; terrain, block and architecture draws take the merged cells' order. vitest +3 files; rendering.e2e's export on/off check gained two fences with `_OCC` panels, one seen through the boxes' gaps, one behind the camera with the sun behind it (WebGPU: strict pixels equal, worst 0; stand-ins drawn only with culling on; seen in the frame: no panel colour, no panel shadow; WebGL 2 unverified). Before → after, same hour, load 2.7–3.6: village open p50 5.7→5.6 / 4.6→4.7 ms (WebGPU / WebGL 2), street 6.0→6.0 / 4.9→4.9, main 6.23→6.22 / 6.13→6.08 ms; landscape valley 10.0→10.0 / 3.3→3.0, GPU 14.87→14.73 ms; draws and oracle shares unchanged (nothing culls yet): equal within noise, no target applies yet. |
-| 33.4 | |
+| 33.4 | Done 2026-10-17: on `hiz` the scene pass's render is drawn as two (`occlusion-passes.ts`: occluders and stand-ins, then role `none` opaques and transparents, no clear) with the depth pyramid between them (`occlusion-pyramid.ts`: two dispatches, 16 × 16 tiles in workgroup memory down to level 4, one workgroup for the rest; MSAA depth by its samples); frames on `hiz` always draw through the scene pass; `_OCC` stand-ins record into level 0 only (atomics from their fragments), never into the scene's depth; `?occlusion=pyramid[:level]` debug view; `gpuMs` and `pyramid` in the diagnostics. rendering.e2e's export: culling on vs off bit-identical (worst 0) with AO and glass behind a stand-in, plain MSAA, render scale 0.5 and three poses along a flown camera (a control with the stand-ins in the scene depth: mean 3.6, worst 137), pyramid read back (rule kept level over level), debug view drawn; vitest for the rule. Same hour, load 1.8–3.4, WebGPU on vs `occlusion=off`: village open p50 5.7/5.6 ms, main 6.42/6.21 (+0.21, §5 ≤ +0.2: at the limit); street p50 6.2, main 6.85; landscape open 10.4/10.4, main 10.56/10.51, valley 10.2; WebGL 2 unchanged (4.8/4.7). Pyramid GPU 0.31–0.44 ms (three's compute timestamps, §5 ≤ 0.4: at the limit), main 0.03–0.06 ms, second render 0.13–0.2 ms main; memory 2.76 MB at 1080p (+2.3 MB of stand-in records only in scenes with `_OCC`). Second pass's own GPU time not separable (unverified against ≤ 0.2 ms). Dynamic resolution not checked by pixels (it changes the same scene pass size the render scale does). |
 | 33.5 | |
 | 33.6 | Scope cut by 33.1: merged cells culled as whole draws, no per-member compaction (§7). |
 | 33.7 | |
@@ -459,4 +459,34 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   makes the model, so the export and Play never draw it. The object's
   `occluder` reaches the Inspector through its descriptor; the asset
   inspector's import field and the editor test of both are 33.10's.
-
+- 2026-10-17 (33.4, default chosen, owner to confirm): **`_OCC` stand-ins go
+  into the depth pyramid only, not into the scene's depth.** With them in the
+  depth, what later reads it changed pixels with culling on: glass behind a
+  stand-in disappeared and ambient occlusion darkened a cut-out's gaps
+  (rendering.e2e's control: mean 3.6, worst 137). On WebGPU a stand-in now
+  draws without depth test or write and its fragments record, per level-0
+  texel, which pixels it covers and the farthest stand-in depth there
+  (atomics); level 0 takes the nearer of scene and stand-in depth at the
+  covered pixels, so it is never nearer than the stand-in. This replaces 33.3's
+  "the author's promise" for AO, fog and transparent draws on WebGPU; WebGL 2's
+  queries (33.7) still need the stand-ins in the depth they test against and
+  must restore or avoid it for what reads the depth after them.
+- 2026-10-17 (33.4, default chosen, owner to confirm): **frames on `hiz` always
+  draw through the environment renderer's scene pass** (a plain one without
+  post effects), not straight to the canvas: three's direct path keeps its
+  depth in a private target, the scene pass's depth is a texture the pyramid
+  reads. Pixels equal the direct path's to the bit (rendering.e2e, `ao=off`).
+- 2026-10-17 (33.4): the passes are split by three's render-object function
+  only. The renderer's `opaque` / `transparent` switches and the clear flags
+  are left alone: a shadow map drawn inside a pass resets only part of the
+  renderer's state, so it kept `transparent = false` and lost transparent
+  casters (a 2-level edge on glass), or would keep `autoClearDepth = false`.
+  The second render turns `autoClear` off and lifts a colour background for
+  itself; the first pass's draws are hidden while three walks the scene for
+  the second render and shown at its first draw, before a shadow map could be
+  drawn.
+- 2026-10-17 (33.4): the pyramid is one float buffer, every level packed
+  (`pyramidLayout`), reduced in two dispatches (one dispatch a level measured
+  slower on the GPU and costs 11 encodes a frame at 1080p). A thread reads 2 × 2
+  level-0 texels; a tile's texels past an edge are reduced from clamped reads
+  and only repeat the edge's inputs. 33.5 reads the same buffer.

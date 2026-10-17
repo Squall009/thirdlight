@@ -65,6 +65,7 @@ import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
+import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
 
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy); values stay three objects. */
@@ -187,6 +188,10 @@ export interface PostPlan {
   samples: number;
   /** Drawn at a share of the screen's resolution and upscaled (null: at the screen's; `scale` is the first frame's, `setScale` moves it). */
   upscale: { filter: UpscaleFilter; scale: number } | null;
+  /** The scene pass's render drawn in two passes with a depth pyramid between them (occlusion-passes.ts; absent or null: one). */
+  scenePasses?: ScenePasses | null;
+  /** The pyramid shown instead of the picture (`?occlusion=pyramid`; absent or null: the picture). */
+  pyramidView?: ReturnType<ScenePasses['view']>;
 }
 
 /** A fog volume in world space (min/max corners). */
@@ -396,6 +401,26 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       }
     };
   }
+  // The frame in two passes: the scene pass's one render (its target, outputs and clear set by three's PassNode)
+  // is taken over for this frame and drawn as both passes, the pyramid between them.
+  if (plan.scenePasses !== null && plan.scenePasses !== undefined) {
+    const passes = plan.scenePasses;
+    const draw = scenePass.updateBefore.bind(scenePass) as (frame: unknown) => unknown;
+    const target = (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget;
+    const r = renderer as unknown as { render(scene: THREE.Object3D, camera: THREE.Camera): void };
+    scenePass.updateBefore = (frame: unknown): unknown => {
+      const own = r.render;
+      r.render = (s, c) => {
+        r.render = own;
+        passes.draw((s2, c2) => own.call(renderer, s2, c2), s, c, target);
+      };
+      try {
+        return draw(frame);
+      } finally {
+        r.render = own;
+      }
+    };
+  }
   const bgScene = plan.displayBackground === 'image' ? new THREE.Scene() : null;
   // A colour background: the scene's colour (working space, as three clears with it), set each frame.
   const bgColor: N = plan.displayBackground === 'color' ? uniform(new THREE.Color()) : null;
@@ -501,6 +526,16 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   let bokehBase = 1;
   if (upscaling) applyScale();
 
+  // The pyramid instead of the picture; the picture stays in the graph (× 0) so its scene pass still draws.
+  const viewNear = uniform(0.1);
+  const viewFar = uniform(1000);
+  if (plan.pyramidView !== null && plan.pyramidView !== undefined) {
+    const c = color;
+    const shown: N = plan.pyramidView.node({ near: viewNear, far: viewFar });
+    color = vec4(shown.rgb, shown.a.add(c.a.mul(0)));
+    passes.push('pyramid');
+  }
+
   const pipeline = new RenderPipeline(renderer, color);
   // Tone mapping and sRGB happen at the output step above (grading and AA work on the display picture).
   pipeline.outputColorTransform = false;
@@ -508,6 +543,9 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   return {
     passes,
     update(cam, volumes) {
+      const lens = cam as { near?: number; far?: number };
+      viewNear.value = lens.near ?? 0.1;
+      viewFar.value = lens.far ?? 1000;
       invProjection.value.copy(cam.projectionMatrixInverse);
       cameraWorld.value.copy(cam.matrixWorld);
       const n = Math.min(MAX_FOG_VOLUMES, volumes.length);

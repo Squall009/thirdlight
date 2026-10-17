@@ -36,6 +36,7 @@ import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, 
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
+import type { ScenePasses } from './occlusion-passes';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { createHeightFog, type HeightFogLike } from './height-fog';
 import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
@@ -202,6 +203,13 @@ export interface EnvironmentRendererOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   /** A texture arrived or the sky was rebuilt: the host should draw a new frame. */
   onChange?: () => void;
+  /**
+   * The frame drawn in two passes with a depth pyramid between them
+   * (occlusion culling's WebGPU path; null: one pass). While given, frames
+   * draw through the post stack's scene pass, a plain one without post
+   * effects: its depth is the pyramid's source.
+   */
+  scenePasses?: () => ScenePasses | null;
 }
 
 export interface EnvironmentRenderer {
@@ -222,7 +230,7 @@ export interface EnvironmentRenderer {
   setQuality(level: QualityLevel | null): void;
   /** The render settings (unset parts keep their value). A scale change alone rebuilds nothing when `dynamic` is on. */
   setRender(options: Partial<RenderOptions>): void;
-  /** Whether frames go through the post pipeline for the render scale alone (a host draws through this renderer then). */
+  /** Whether frames go through the post pipeline for the render scale or the two-pass frame alone (a host draws through this renderer then). */
   needsPipeline(): boolean;
   render(camera: THREE.Camera): void;
   /**
@@ -799,6 +807,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const isPost = anyPost(w);
     // A render scale below 1 (or one dynamic resolution may lower) draws through the pipeline's upscale.
     const upscaling = render.scale < 1 || render.dynamic;
+    const scenePasses = options.scenePasses?.() ?? null;
+    const pyramidView = scenePasses?.view() ?? null;
     // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
     // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
     // background is laid under the picture: a colour as a uniform (at any render scale, so Play under a
@@ -816,7 +826,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // The scale itself is not in the key: the built stack follows it in place.
     // The level is not in the key: what it changes (the wanted passes, the post, MSAA) is, so a level that draws the
     // same stack rebuilds nothing.
-    const key = JSON.stringify({ w, structure, cam: camera.uuid, noMsaa, displayBackground, ao: w.ssao ? render.ao : null, upscale: upscaling ? render.upscale : null });
+    const key = JSON.stringify({ w, structure, cam: camera.uuid, noMsaa, displayBackground, ao: w.ssao ? render.ao : null, upscale: upscaling ? render.upscale : null, twoPass: scenePasses !== null, view: pyramidView?.key ?? null });
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
@@ -829,7 +839,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       aoLight = null;
     }
     samplesNow = renderer.samples;
-    if (!isPost && !noMsaa && displayBackground === null && !upscaling) return;
+    if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null) return;
     const g = post?.grading;
     const perspective = camera instanceof THREE.PerspectiveCamera;
     const plan: PostPlan = {
@@ -855,6 +865,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // The post stack renders without MSAA (as the archived EffectComposer did); a plain frame keeps the renderer's.
       samples: isPost || noMsaa ? 0 : renderer.samples,
       upscale: upscaling ? { filter: render.upscale, scale: render.scale } : null,
+      scenePasses,
+      pyramidView,
     };
     if (plan.ao !== null && aoLight === null) {
       aoLight = new ScreenSpaceOcclusion();
@@ -985,7 +997,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       if (render.ao !== was.ao || upscaled(render) !== upscaled(was) || render.upscale !== was.upscale) composerKey = '';
       else if (render.scale !== was.scale) pipeline?.setScale(render.scale);
     },
-    needsPipeline: () => render.scale < 1 || render.dynamic,
+    needsPipeline: () => render.scale < 1 || render.dynamic || (options.scenePasses?.() ?? null) !== null,
     render(camera) {
       if (disposed) return;
       // The lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes);

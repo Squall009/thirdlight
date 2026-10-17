@@ -22,6 +22,8 @@ export interface GpuTiming {
   recent(): number | null;
   /** Whether the last drawn frame's renderer measures GPU time. */
   measuring(): boolean;
+  /** GPU ms per frame of the compute passes in the last resolve (three times them in a pool of their own; null: none measured). */
+  computeMs(): number | null;
 }
 
 /** Whether this renderer records GPU timestamps (made with trackTimestamp, and the device has the queries). */
@@ -40,6 +42,7 @@ export function createGpuTiming(): GpuTiming {
   let worst = 0;
   let recentMs = 0;
   let recentFrames = 0;
+  let compute: number | null = null;
   return {
     afterFrame(renderer) {
       measuring = measuresGpuTime(renderer);
@@ -50,22 +53,30 @@ export function createGpuTiming(): GpuTiming {
       resolving = true;
       const covered = unresolved;
       unresolved = 0;
-      r.resolveTimestampsAsync('render').then(
-        (total) => {
-          resolving = false;
+      r.resolveTimestampsAsync('render')
+        .then((total) => {
           const t = Number(total ?? 0);
-          if (!Number.isFinite(t) || t < 0) return;
-          ms += t;
-          frames += covered;
-          recentMs += t;
-          recentFrames += covered;
-          // The slowest frame is not seen apart from the others it was resolved with: the resolve's mean stands for it.
-          worst = Math.max(worst, t / covered);
-        },
-        () => {
-          resolving = false;
-        },
-      );
+          if (Number.isFinite(t) && t >= 0) {
+            ms += t;
+            frames += covered;
+            recentMs += t;
+            recentFrames += covered;
+            // The slowest frame is not seen apart from the others it was resolved with: the resolve's mean stands for it.
+            worst = Math.max(worst, t / covered);
+          }
+          // The compute passes of the same frames (none recorded: three answers nothing).
+          return r.resolveTimestampsAsync!('compute');
+        })
+        .then(
+          (total) => {
+            resolving = false;
+            const t = Number(total ?? 0);
+            if (Number.isFinite(t) && t > 0) compute = t / covered;
+          },
+          () => {
+            resolving = false;
+          },
+        );
     },
     recent() {
       if (recentFrames === 0) return null;
@@ -75,6 +86,7 @@ export function createGpuTiming(): GpuTiming {
       return v;
     },
     measuring: () => measuring,
+    computeMs: () => (measuring ? compute : null),
     take() {
       if (!measuring) return null;
       const out = { ms, frames, worst };

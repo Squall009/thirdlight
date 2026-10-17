@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { occludeeClassOf, type OcclusionCulling } from '@thirdlight/runtime';
 
 import { markOccludee, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds } from './occludees';
-import { OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, type OcclusionSwitch } from './occlusion';
+import { OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionSwitch } from './occlusion';
 import { createQualityControl } from './quality-control';
 import { createRenderControl } from './render-control';
 import { LodTuning } from './lod-switch';
@@ -110,6 +110,10 @@ describe('occlusion culler', () => {
     expect(h.marks[h.marks.length - 1]).toBe('off|0|0|0|0');
     expect(occlusionFromUrl('?occlusion=hiz&x=1')).toBe('hiz');
     expect(occlusionFromUrl('?occlusion=on')).toBeNull();
+    // The pyramid's debug view pins the path that builds it.
+    expect(occlusionFromUrl('?occlusion=pyramid')).toBe('hiz');
+    expect(occlusionFromUrl('?occlusion=pyramid:4')).toBe('hiz');
+    expect([occlusionPyramidFromUrl('?occlusion=pyramid'), occlusionPyramidFromUrl('?occlusion=pyramid:4'), occlusionPyramidFromUrl('?occlusion=hiz'), occlusionPyramidFromUrl('?occlusion=pyramid:x')]).toEqual([0, 4, null, null]);
     const pinned = culler({ value: 'auto' }, { value: 'webgpu' }, 'off');
     expect(pinned.c.diagnostics()).toMatchObject({ path: 'off', source: 'page', pinned: 'off' });
   });

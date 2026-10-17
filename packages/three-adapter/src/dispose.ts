@@ -443,3 +443,19 @@ export function releaseMrtContexts(renderer: unknown, mrt: unknown): number {
   }
   return released;
 }
+
+/**
+ * Free compute-only storage buffers on the renderer that created them.
+ * three 0.186 frees a node's buffer only together with a geometry that drew
+ * it (`BufferAttribute.dispose()` is a TODO in its `Geometries`), so buffers
+ * only compute passes use (particle state, free list, sort keys, the noise
+ * table, a depth pyramid) would stay allocated after their passes are
+ * disposed (the leak check measured 5 per particle system). The renderer's
+ * attribute map is private API of the pinned three version; deleting an
+ * attribute it never saw (or already freed) does nothing.
+ */
+export function releaseStorage(renderer: unknown, buffers: readonly unknown[]): void {
+  const map = (renderer as RendererInternals | null | undefined)?._attributes;
+  if (map === null || map === undefined || typeof map.delete !== 'function') return;
+  for (const b of buffers) if (b !== null && b !== undefined) map.delete(b);
+}

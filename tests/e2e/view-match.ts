@@ -92,17 +92,14 @@ export interface OcclusionShot {
 }
 
 /**
- * Occlusion culling leaves out only what no pixel shows: the same pose drawn
- * with the setting's culling (`on`, or `shoot('')`) and with `?occlusion=off`
- * (`shoot('occlusion=off')`) is the same picture under the strict rule. The
- * marks say which path each drew with. `label` names the saved diff.
+ * Occlusion culling leaves out only what no pixel shows: one pose drawn with
+ * the setting's culling and with it off is the same picture under the strict
+ * rule. The marks say which path each drew with; `label` names the saved diff.
  */
-export async function expectOcclusionMatch(shoot: (query: string) => Promise<OcclusionShot>, label: string, on?: OcclusionShot): Promise<{ diff: Diff; on: OcclusionShot; off: OcclusionShot }> {
-  const culled = on ?? (await shoot(''));
-  const off = await shoot('occlusion=off');
+export function expectOcclusionShotsMatch(culled: OcclusionShot, off: OcclusionShot, label: string): Diff {
   expect(culled.occlusion, 'the page reports its occlusion culling').not.toBeNull();
   expect(culled.occlusion!.split('|')[0], 'culled on a path').not.toBe('off');
-  expect(off.occlusion?.split('|')[0], 'the page flag turns it off').toBe('off');
+  expect(off.occlusion?.split('|')[0], 'culling is off').toBe('off');
   const d = diff(culled.image, off.image, STRICT);
   if (!within(d, STRICT)) {
     const out = test.info().outputPath();
@@ -111,5 +108,37 @@ export async function expectOcclusionMatch(shoot: (query: string) => Promise<Occ
   }
   console.log(`[occlusion] ${label}: ${culled.occlusion} against ${off.occlusion}: ${show(d, STRICT)}`);
   expect(within(d, STRICT), `${label}: culling on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
-  return { diff: d, on: culled, off };
+  return d;
+}
+
+/**
+ * In a page, before its scripts (`addInitScript`): keep the scenes three
+ * makes (its devtools channel announces each), so a test reaches the game
+ * scene's occlusion switch (`scene.userData.tlOcclusion`) in an export.
+ */
+export function keepThreeScenes(): void {
+  const w = window as unknown as { __tlScenes?: object[]; __THREE_DEVTOOLS__?: EventTarget };
+  if (w.__tlScenes !== undefined) return;
+  const scenes: object[] = [];
+  w.__tlScenes = scenes;
+  const hub = w.__THREE_DEVTOOLS__ ?? new EventTarget();
+  w.__THREE_DEVTOOLS__ = hub;
+  hub.addEventListener('observe', (ev) => {
+    const d = (ev as CustomEvent).detail as { isScene?: boolean } | null;
+    if (d?.isScene === true) scenes.push(d);
+  });
+}
+
+/** Call `method` of the page's occlusion switch (a page made with `keepThreeScenes`); typed arrays come back as arrays. */
+export async function onOcclusionSwitch<T>(page: Page, method: 'pin' | 'showPyramid' | 'readPyramid' | 'diagnostics', arg?: unknown): Promise<T> {
+  return (await page.evaluate(
+    async ([m, a]) => {
+      const scenes = (window as unknown as { __tlScenes?: { userData?: Record<string, unknown> }[] }).__tlScenes ?? [];
+      const sw = scenes.map((s) => s.userData?.['tlOcclusion'] as Record<string, (x?: unknown) => unknown> | undefined).find((x) => x !== undefined);
+      if (sw === undefined) throw new Error('no scene with an occlusion switch');
+      const r = (await sw[m as string]!(a)) as { data?: Float32Array } | null | undefined;
+      return r !== null && r !== undefined && r.data instanceof Float32Array ? { ...r, data: Array.from(r.data) } : r;
+    },
+    [method, arg] as const,
+  )) as T;
 }

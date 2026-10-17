@@ -83,6 +83,8 @@ export interface SceneAdapterOptions {
   portals?: boolean;
   /** The occlusion culling path the page pins (`?occlusion=`, a diagnostic comparison; absent or null: the setting's). */
   occlusion?: import('@thirdlight/runtime').OcclusionPath | null;
+  /** The depth pyramid level drawn over the frame (`?occlusion=pyramid`; absent or null: the picture). */
+  occlusionPyramid?: number | null;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */

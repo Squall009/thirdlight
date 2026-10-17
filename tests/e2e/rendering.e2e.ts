@@ -4,11 +4,16 @@
  *  - Automatic instancing: a field of 121 boxes (one colour and size, one
  *    project material on a few) is drawn in a handful of draw calls in the
  *    Scene view, in Play and in the static export — and looks the same as with
- *    instancing off (`?batching=off`, one draw per object) and as with
- *    occlusion culling off (`?occlusion=off`): the export's frames are
- *    compared pixel by pixel; a fence's `_OCC` stand-in is drawn into the
- *    view's depth with culling on and leaves no colour and no shadow. Picking and selection still work on a batched
- *    box (a click on the canvas selects it).
+ *    instancing off (`?batching=off`, one draw per object): the export's
+ *    frames are compared pixel by pixel. Picking and selection still work on
+ *    a batched box (a click on the canvas selects it).
+ *  - Occlusion culling's frame on WebGPU (two passes, the depth pyramid
+ *    between them) draws the export's picture bit for bit as with culling
+ *    off, through the post stack with ambient occlusion, the plain MSAA frame
+ *    and a render scale, and at poses along a moving camera; a fence's `_OCC`
+ *    stand-in goes into the pyramid only (no colour, no shadow, no ambient
+ *    occlusion, glass behind it still drawn); the pyramid read back keeps its
+ *    rule level over level, and its debug view draws.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -40,14 +45,15 @@ import { existsSync, createReadStream, mkdirSync, statSync, writeFileSync } from
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { expect, test, type Page } from './pw';
+import { expect, test, type Locator, type Page } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb, type PieceSpec } from './multi-piece-glb';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { showView } from './ui';
 import { backendOf, editorUrlFor, expectRendererBackend } from './renderer-variants';
-import { expectOcclusionMatch, settledShot } from './view-match';
+import { expectOcclusionShotsMatch, keepThreeScenes, onOcclusionSwitch, settledShot } from './view-match';
+import { pyramidBreaks, type PyramidLayout } from '../../packages/three-adapter/src/occlusion-pyramid-rule';
 import type { Image } from './png';
 import { decodePng } from './png';
 
@@ -91,6 +97,21 @@ const BOXES = 121;
  * them, inside the posts' bounds (36 triangles in all, about 3 KB; no LODs: it is a test piece, not game art).
  */
 const FENCE: PieceSpec = { name: 'fence', lods: [], parts: [{ size: [0.2, 2, 0.2], at: [0, 0, 0] }, { size: [0.2, 2, 0.2], at: [2.8, 0, 0] }], occ: { size: [2.6, 1.8, 0.1], at: [0.2, 0.1, 0] } };
+
+/** While `flyCam` is held the camera flies forward and to the left, a little each step (its own transform, so it starts where it stands). */
+const FLY_CAMERA = [
+  'export default {',
+  '  instantiate() { return { fly: false }; },',
+  '  step(state: { fly: boolean }, ctx: any) {',
+  "    if (ctx.phase === 'intent') { state.fly = ctx.input.held('flyCam'); return; }",
+  "    if (ctx.phase !== 'transform' || !state.fly) return;",
+  '    const t = ctx.world.transform(ctx.entityId);',
+  '    if (t === undefined) return;',
+  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: t.position[0] - 0.05, y: t.position[1], z: t.position[2] - 0.1 }, quaternion: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]] });",
+  '  },',
+  '};',
+  '',
+].join('\n');
 
 /** An 11 × 11 field of equal boxes around the origin (the middle one is "centre"); every tenth wears a project material. */
 async function boxField(): Promise<void> {
@@ -244,7 +265,16 @@ test('the export draws the box field instanced and looks the same as without ins
   // camera with the sun behind it (a panel that cast would shade the whole field the camera sees).
   await publishBytes(be, new Uint8Array(multiPieceGlb([FENCE])), 'model', 'fence', 'Fence');
   const fence = (id: string, z: number) => ({ id, name: id, components: { transform: { position: [-15, 0, z], rotation: [0, 0, 0, 1], scale: [10, 10, 10] }, model: { asset: { assetId: 'fence' } } } });
-  await command('pasteEntities', { sceneId: 'scene-main', entities: [fence('fence-far', -14), fence('fence-back', 14)] });
+  // A glass pane behind the far fence's stand-in: drawn after the opaque surfaces, it must see the depth without the
+  // stand-in (a stand-in in the scene's depth would hide it, and ambient occlusion would darken the fence's gap).
+  await command('setMaterial', { material: { materialId: 'mat-glass', name: 'Glass', shader: 'standard', params: { color: '#60a0e0', alphaMode: 'blend', opacity: 0.5 }, textures: {} } });
+  const glass = { id: 'glass', name: 'glass', components: { transform: { position: [0, 6, -17], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [12, 8, 0.2], material: { color: '#60a0e0' } }, materials: { '*': 'mat-glass' } } };
+  await command('pasteEntities', { sceneId: 'scene-main', entities: [fence('fence-far', -14), fence('fence-back', 14), glass] });
+  // Ambient occlusion: the frame draws through the post stack (`?ao=off`: the plain frame, MSAA, no post stack).
+  await command('setEnvironment', { sceneId: 'scene-main', environment: { post: { ssao: { enabled: true, radius: 0.5, intensity: 1.5 } } } });
+  // The camera flies forward while F is held (its script): poses along the way are compared with culling on and off.
+  await command('setInput', { input: { actions: [{ name: 'flyCam', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyF' }] }] } });
+  await publishScript(be, 'fly-cam', FLY_CAMERA, 'cam-main', ['@self']);
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   // The same field with a third of it below a parent: a second export.
@@ -259,13 +289,18 @@ test('the export draws the box field instanced and looks the same as without ins
   const out = test.info().outputPath();
   mkdirSync(out, { recursive: true });
   try {
-    const frameOf = async (path: string, label: string): Promise<{ png: Buffer; draws: number; occlusion: string | null }> => {
+    /** A game page of the export, its canvas drawing (scenes kept: its occlusion switch is reachable). */
+    const openGame = async (path: string): Promise<{ game: Page; canvas: Locator }> => {
       const game = await page.context().newPage();
+      await game.addInitScript(keepThreeScenes);
       await game.setViewportSize({ width: 800, height: 450 });
       await game.goto(path);
       const canvas = game.locator('canvas').first();
       await expect.poll(async () => Number((await canvas.getAttribute('data-tl-draws')) ?? 0), { timeout: 60_000 }).toBeGreaterThan(0);
-      // Two equal frames in a row: shaders compiled, the shadow map drawn.
+      return { game, canvas };
+    };
+    /** Two equal frames in a row (shaders compiled, the shadow map drawn), saved as `label`.png, with the canvas's marks. */
+    const shootGame = async (canvas: Locator, label: string): Promise<{ png: Buffer; draws: number; occlusion: string | null }> => {
       let last = '';
       await expect
         .poll(
@@ -281,10 +316,73 @@ test('the export draws the box field instanced and looks the same as without ins
       const draws = Number(await canvas.getAttribute('data-tl-draws'));
       const occlusion = await canvas.getAttribute('data-tl-occlusion');
       writeFileSync(join(out, `${label}.png`), Buffer.from(last, 'base64'));
-      await game.close();
       return { png: Buffer.from(last, 'base64'), draws, occlusion };
     };
-    const batched = await frameOf(site.url, 'batched');
+    const frameOf = async (path: string, label: string): Promise<{ png: Buffer; draws: number; occlusion: string | null }> => {
+      const { game, canvas } = await openGame(path);
+      const f = await shootGame(canvas, label);
+      await game.close();
+      return f;
+    };
+    const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
+    /** The pose drawn with the setting's culling, then pinned off in the same page: the same picture (`label`). */
+    const onAndOff = async (game: Page, canvas: Locator, label: string, on?: { png: Buffer; draws: number; occlusion: string | null }) => {
+      const culled = on ?? (await shootGame(canvas, `${label}-on`));
+      await onOcclusionSwitch(game, 'pin', 'off');
+      const off = await shootGame(canvas, `${label}-off`);
+      await onOcclusionSwitch(game, 'pin', null);
+      // Not only within the strict rule: drawing the frame in two passes changes no pixel.
+      expect(expectOcclusionShotsMatch(shot(culled), shot(off), label).worst, `${label}: identical`).toBe(0);
+      return { on: culled, off };
+    };
+
+    const first = await openGame(site.url);
+    const batched = await shootGame(first.canvas, 'batched');
+    // Occlusion culling draws the same picture as with it off, through the post stack with ambient occlusion: the
+    // fence's stand-in went into the depth pyramid only (the mark's last field: stand-in draws) and left no colour, no
+    // shadow, no ambient occlusion and nothing missing behind it.
+    const occ = await onAndOff(first.game, first.canvas, 'export', batched);
+    expect(occ.on.occlusion!.split('|')[0], 'WebGPU culls on the depth pyramid path').toBe('hiz');
+    expect(Number(occ.on.occlusion!.split('|')[4]), 'the stand-in is drawn into the pyramid with culling on').toBeGreaterThan(0);
+    expect(occ.off.occlusion!.split('|')[4], 'and not at all with it off').toBe('0');
+    // The pyramid as built: half the scene pass's size per level, each texel the farthest of the four under it, the
+    // sky at the far plane and the boxes nearer.
+    type Readback = { layout: PyramidLayout; reversed: boolean; data: number[] };
+    await shootGame(first.canvas, 'export-on-again');
+    const pyramid = await onOcclusionSwitch<Readback | null>(first.game, 'readPyramid');
+    expect(pyramid).not.toBeNull();
+    expect([pyramid!.layout.sourceWidth, pyramid!.layout.sourceHeight]).toEqual([800, 450]);
+    expect([pyramid!.layout.levels[0]!.width, pyramid!.layout.levels[0]!.height, pyramid!.layout.levels.at(-1)!.width]).toEqual([400, 225, 1]);
+    expect(pyramidBreaks(pyramid!.data, pyramid!.layout, pyramid!.reversed), 'every texel the farthest of the four under it').toBeNull();
+    const level0 = pyramid!.data.slice(0, 400 * 225);
+    const far = pyramid!.reversed ? 0 : 1;
+    expect(level0.filter((d) => d === far).length, 'the sky').toBeGreaterThan(0);
+    expect(level0.filter((d) => d !== far).length, 'the field').toBeGreaterThan(400 * 225 * 0.2);
+    // The debug view (`?occlusion=pyramid`): a level drawn instead of the picture, grey (near bright).
+    await onOcclusionSwitch(first.game, 'showPyramid', 3);
+    const view = decodePng((await shootGame(first.canvas, 'pyramid-level-3')).png);
+    let grey = 0;
+    let bright = 0;
+    for (let y = 0; y < view.height; y += 9) {
+      for (let x = 0; x < view.width; x += 9) {
+        const [r, g, b] = view.pixel(x, y);
+        if (Math.abs(r - g) <= 2 && Math.abs(g - b) <= 2) grey += 1;
+        if (r > 40) bright += 1;
+      }
+    }
+    expect(grey, 'the pyramid view is grey').toBe(Math.ceil(view.width / 9) * Math.ceil(view.height / 9));
+    expect(bright, 'and shows the field nearer than the sky').toBeGreaterThan(0);
+    await onOcclusionSwitch(first.game, 'showPyramid', null);
+    // Along a moving camera: it flies while F is held, and each pose it reaches is drawn the same with culling on and off.
+    await first.canvas.focus();
+    for (let leg = 1; leg <= 3; leg++) {
+      await first.game.keyboard.down('KeyF');
+      await first.game.waitForTimeout(400);
+      await first.game.keyboard.up('KeyF');
+      await onAndOff(first.game, first.canvas, `export-path-${leg}`);
+    }
+    await first.game.close();
+
     const single = await frameOf(`${site.url}?batching=off`, 'single');
     console.log(`[rendering] export draw calls: ${batched.draws} instanced, ${single.draws} one per object`);
     expect(single.draws).toBeGreaterThan(BOXES);
@@ -295,12 +393,18 @@ test('the export draws the box field instanced and looks the same as without ins
     if (!within(d, STRICT)) writeFileSync(join(out, 'diff.png'), diffPng(a, b));
     console.log(`[rendering] export instanced vs single: ${show(d, STRICT)}`);
     expect(within(d, STRICT), show(d, STRICT)).toBe(true);
-    // Occlusion culling draws the same picture as the page with it off: the fence's stand-in went into the view's
-    // depth (the mark's last field: stand-in draws) and left no colour and no shadow.
-    const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
-    const occ = await expectOcclusionMatch(async (query) => shot(await frameOf(`${site.url}?${query}`, `occlusion-${query}`)), 'export', shot(batched));
-    expect(Number(occ.on.occlusion!.split('|')[4]), 'the stand-in is drawn into the depth with culling on').toBeGreaterThan(0);
-    expect(occ.off.occlusion!.split('|')[4], 'and not at all with it off').toBe('0');
+    // The other frame layouts: the plain frame with MSAA (culling off draws it straight to the canvas, culling on
+    // through the scene pass whose depth the pyramid reads), and under a render scale (the pyramid follows the scene
+    // pass's size).
+    for (const query of ['ao=off', 'ao=off&renderScale=0.5']) {
+      const g = await openGame(`${site.url}?${query}`);
+      await onAndOff(g.game, g.canvas, `export-${query}`);
+      if (query.includes('renderScale')) {
+        const p = await onOcclusionSwitch<Readback | null>(g.game, 'readPyramid');
+        expect([p!.layout.sourceWidth, p!.layout.sourceHeight], 'the pyramid follows the scene pass at half the canvas').toEqual([400, 225]);
+      }
+      await g.game.close();
+    }
     // Parents compose in the engine's world table: the parented boxes are drawn where the flat ones were.
     const parented = await frameOf(siteRigged.url, 'parented');
     const c = decodePng(parented.png);

@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, l
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { architectureFromUrl, batchingFromUrl, decalsFromUrl, occlusionFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, batchingFromUrl, decalsFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -938,8 +938,10 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           architecture: architectureFromUrl(pageSearch()),
           // What the rooms' portals do not show is left out unless the page says ?portals=off (a diagnostic comparison).
           portals: portalsFromUrl(pageSearch()),
-          // Occlusion culling on the setting's path unless the page pins one, ?occlusion=off|queries|hiz (a diagnostic comparison).
+          // Occlusion culling on the setting's path unless the page pins one, ?occlusion=off|queries|hiz (a diagnostic comparison;
+          // `pyramid` pins hiz and draws its depth pyramid instead of the picture).
           occlusion: occlusionFromUrl(pageSearch()),
+          occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
           ...(o.keepGeneratedArchitecture === true ? ((store) => (store !== null ? { architectureStore: store } : {}))(browserArchitectureStore()) : {}),
           // The style and preset graphs outlines are made by.
           ...(manifest.architectureStyles !== undefined ? { architectureStyles: manifest.architectureStyles } : {}),
