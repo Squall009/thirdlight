@@ -19,6 +19,7 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Stats entities](graph-behavior-6.md#node-behavior--api-stats-entities) (`api.stats.entities`, as in `behavior`): Objects in the simulation.
 - [Stats quality](graph-behavior-6.md#node-behavior--api-stats-quality) (`api.stats.quality`, as in `behavior`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
 - [Stats frame rate cap](graph-behavior-6.md#node-behavior--api-stats-frame-rate-cap) (`api.stats.frameRateCap`, as in `behavior`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
+- [Stats occlusion](graph-behavior-6.md#node-behavior--api-stats-occlusion) (`api.stats.occlusion`, as in `behavior`): Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
 - [Stats window ms](graph-behavior-6.md#node-behavior--api-stats-window-ms) (`api.stats.windowMs`, as in `behavior`): The window the times are measured over (ms).
 
 <a id="graph-behavior-function--display"></a>

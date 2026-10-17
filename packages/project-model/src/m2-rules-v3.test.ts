@@ -307,6 +307,8 @@ describe('gameplay settings resolution', () => {
       'ambient_occlusion',
       'render_scale',
       'dynamic_resolution',
+      // Occlusion culling (0 off, 1 auto; absent: auto).
+      'occlusion_culling',
       // The memory streamed world cells may take (MiB; absent: 768).
       'streaming_budget_mb',
       // Exports ship generated architecture's meshes too (0 no, 1 yes).

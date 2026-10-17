@@ -32,6 +32,7 @@
  *   of them.
  */
 import * as THREE from 'three';
+import { markOccludee } from './occludees';
 import {
   ARCHITECTURE_CHUNK_DEFAULT,
   INSTANCE_FLOATS,
@@ -1152,6 +1153,7 @@ export class ArchitectureView {
         geometries.push(g);
         const mesh = new THREE.Mesh(g, material);
         mesh.name = `architecture:${id}:${ck}:${m.material}:lod${level}`;
+        markOccludee(mesh, 'architecture');
         // A chunk spans rooms: each face is lit by the room it looks into and drawn while that room is seen (room-culling.ts).
         mesh.userData[ROOM_TAG_KEY] = true;
         mesh.castShadow = cast;

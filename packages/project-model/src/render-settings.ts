@@ -1,12 +1,13 @@
 /**
  * The render settings a game sets and a player may change: the kind of
  * ambient occlusion, the render scale (the share of the screen's resolution
- * the 3D view is drawn at, upscaled with FSR 1), and dynamic resolution (the
+ * the 3D view is drawn at, upscaled with FSR 1), dynamic resolution (the
  * scale lowered while the GPU runs over its frame budget, raised again when
- * it has room).
+ * it has room) and occlusion culling (a game sets it; a quality level may
+ * turn it off).
  *
  * Where a game sets them: the project settings `ambient_occlusion`,
- * `render_scale` and `dynamic_resolution`; a player's settings field bound
+ * `render_scale`, `dynamic_resolution` and `occlusion_culling`; a player's settings field bound
  * to `ambientOcclusion` (an enum of off/ssao/gtao), `renderScale` (a number
  * within 0.5–1) or `dynamicResolution` (a bool), which scripts change through
  * `ctx.saves.setSetting` like any settings field.
@@ -42,6 +43,33 @@ export function ambientOcclusionSettingValue(kind: AmbientOcclusionKind): number
 }
 
 /**
+ * Occlusion culling: what solid things in front hide is not drawn. `auto`
+ * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
+ * queries on WebGL 2); `off` draws everything in view. Culling draws the
+ * same picture as without it, so `auto` is also what a project that does not
+ * set it gets: an existing game keeps its look.
+ */
+export const OCCLUSION_CULLING_MODES = ['off', 'auto'] as const;
+export type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
+/** The `occlusion_culling` setting's values, in `OCCLUSION_CULLING_MODES` order. */
+export const OCCLUSION_CULLING_SETTING_VALUES = [0, 1] as const;
+export const OCCLUSION_CULLING_DEFAULT: OcclusionCulling = 'auto';
+
+/** An occlusion culling mode from a setting value (0/1) or a name ('off'/'auto'); undefined when it is neither. */
+export function occlusionCullingOf(v: unknown): OcclusionCulling | undefined {
+  if (typeof v === 'number') {
+    const i = (OCCLUSION_CULLING_SETTING_VALUES as readonly number[]).indexOf(v);
+    return i < 0 ? undefined : OCCLUSION_CULLING_MODES[i];
+  }
+  return (OCCLUSION_CULLING_MODES as readonly unknown[]).includes(v) ? (v as OcclusionCulling) : undefined;
+}
+
+/** An occlusion culling mode as its `occlusion_culling` setting value. */
+export function occlusionCullingSettingValue(mode: OcclusionCulling): number {
+  return OCCLUSION_CULLING_SETTING_VALUES[OCCLUSION_CULLING_MODES.indexOf(mode)]!;
+}
+
+/**
  * The render scale's range. Below half the resolution FSR 1 can no longer
  * rebuild edges (AMD's lowest preset, "performance", is 0.5); 1 is the
  * screen's own resolution (the render pixel ratio's cap still applies).
@@ -55,9 +83,10 @@ export interface RenderSettings {
   /** 0.5–1: the scale the 3D view is drawn at (with dynamic resolution, the most it is drawn at). */
   readonly renderScale: number;
   readonly dynamicResolution: boolean;
+  readonly occlusionCulling: OcclusionCulling;
 }
 
-export const RENDER_SETTINGS_DEFAULT: Readonly<RenderSettings> = Object.freeze({ ambientOcclusion: AMBIENT_OCCLUSION_DEFAULT, renderScale: RENDER_SCALE_DEFAULT, dynamicResolution: false });
+export const RENDER_SETTINGS_DEFAULT: Readonly<RenderSettings> = Object.freeze({ ambientOcclusion: AMBIENT_OCCLUSION_DEFAULT, renderScale: RENDER_SCALE_DEFAULT, dynamicResolution: false, occlusionCulling: OCCLUSION_CULLING_DEFAULT });
 
 /** An AO kind from a setting value (0/1/2) or a player's choice ('off'/'ssao'/'gtao'); undefined when it is neither. */
 export function ambientOcclusionOf(v: unknown): AmbientOcclusionKind | undefined {
@@ -80,5 +109,6 @@ export function renderSettingsOf(settings: unknown): RenderSettings {
     ambientOcclusion: ambientOcclusionOf(s['ambient_occlusion']) ?? AMBIENT_OCCLUSION_DEFAULT,
     renderScale: renderScaleOf(s['render_scale']) ?? RENDER_SCALE_DEFAULT,
     dynamicResolution: s['dynamic_resolution'] === 1,
+    occlusionCulling: occlusionCullingOf(s['occlusion_culling']) ?? OCCLUSION_CULLING_DEFAULT,
   };
 }

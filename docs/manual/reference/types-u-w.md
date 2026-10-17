@@ -1,8 +1,38 @@
-# Types (UiStyleValues to WindConfig)
+# Types (UiSounds to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-sounds"></a>
+### UiSounds
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+/** Sounds a widget plays on the `ui` bus (audio assets): a click (any activation), the pointer coming over it, the focus moving to it. */
+interface UiSounds {
+  click?: string;
+  hover?: string;
+  focus?: string;
+}
+```
+
+<a id="type-ui-style"></a>
+### UiStyle
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+interface UiStyle extends UiStyleValues {
+  /** The sounds of the widgets in this style (under a widget's own). */
+  sounds?: UiSounds;
+  hover?: UiStyleValues;
+  focus?: UiStyleValues;
+  pressed?: UiStyleValues;
+  disabled?: UiStyleValues;
+}
+```
 
 <a id="type-ui-style-values"></a>
 ### UiStyleValues

@@ -54,6 +54,7 @@ import { type BlockLayerViewDiagnostics } from './block-layers';
 import { createLevelViews } from './level-views';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
+import { OcclusionCuller } from './occlusion';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
@@ -839,6 +840,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let lastFrameSkipped = false;
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
+  // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, canvas: canvasLike, changed: () => opts.onChange?.() });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1457,6 +1460,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.update(camera!);
     archHost.rooms.update(camera!);
     isolation.sweep();
+    // Then what is hidden behind what is in front of it (what the frustum, the rooms and isolation left drawn).
+    occlusion.update();
     lights.budgetShadows(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     terrains.update(viewCull.view, renderer as never);
@@ -1632,6 +1637,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && stream !== null) d.streaming = stream.diagnostics();
     if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
     if (!disposed && architecture.ids().length > 0) [d.architecture, d.rooms] = [architecture.diagnostics(), archHost.rooms.diagnostics()];
+    if (!disposed) d.occlusion = occlusion.diagnostics();
     if (!disposed) scatter.diagnostics(d);
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
@@ -1718,6 +1724,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     stopCellUv?.();
     batcher?.dispose();
     viewCull.dispose();
+    occlusion.dispose();
     blockView.dispose();
     terrains.dispose();
     splines.dispose();

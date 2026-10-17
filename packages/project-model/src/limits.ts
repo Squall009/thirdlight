@@ -27,7 +27,7 @@ export { MATERIAL_DATA_MAX } from './material-graph-kinds';
 export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
 // The frame-rate caps (the Saves panel's settings field and the UI action's choices).
 export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
-export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, AMBIENT_OCCLUSION_NEW_PROJECT, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
+export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, AMBIENT_OCCLUSION_NEW_PROJECT, OCCLUSION_CULLING_DEFAULT, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
 export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
 export { DEFAULT_QUALITY_LEVELS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, qualityLevelsOf, SHADOW_MAP_SIZES } from './quality-levels';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';

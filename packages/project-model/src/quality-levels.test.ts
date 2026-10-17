@@ -84,6 +84,8 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', localLights: 17 }] })).toEqual(['/qualityLevels/0/localLights']);
     expect(paths({ qualityLevels: [{ id: 'a', renderScale: 0.25 }] })).toEqual(['/qualityLevels/0/renderScale']);
     expect(paths({ qualityLevels: [{ id: 'a', pixelRatio: 3 }] })).toEqual(['/qualityLevels/0/pixelRatio']);
+    expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'off' }, { id: 'b', occlusionCulling: 'auto' }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'hiz' }] })).toEqual(['/qualityLevels/0/occlusionCulling']);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);
@@ -93,6 +95,7 @@ describe('quality levels', () => {
   it('stores a level\'s fields in a fixed order and keeps the levels\' order; a settings field bound to the quality names the project\'s levels', () => {
     const env = canonicalEnvironment({ qualityLevels: [{ renderScale: 0.5, id: 'b' } as QualityLevelConfig, { id: 'a' }] });
     expect(JSON.stringify(env)).toBe('{"qualityLevels":[{"id":"b","renderScale":0.5},{"id":"a"}]}');
+    expect(JSON.stringify(canonicalEnvironment({ qualityLevels: [{ occlusionCulling: 'off', id: 'low' } as QualityLevelConfig] }))).toBe('{"qualityLevels":[{"id":"low","occlusionCulling":"off"}]}');
     const schema = { version: 1, slots: 3, settings: [{ key: 'q', type: 'enum', default: 'b', values: ['a', 'b', 'c'], engine: 'quality' }] };
     const errors: ModelErrorV2[] = [];
     validateQualityBindings(schema, ['a', 'b'], '/saveSchema', errors);

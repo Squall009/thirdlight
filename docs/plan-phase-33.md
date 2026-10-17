@@ -294,7 +294,7 @@ animating hidden characters.
 |---|---|
 | 33.0 | Done 2026-10-17: three.js 0.186.1 still the latest (r185/r186 notes in §3: no change to `setIndirect`, queries more robust, storage read-write in vertex stages); Rapier 0.21.0 exists, 0.20.0 stays; §2 re-checked at `60bd1f69` (isolation, the borrowed Scene view, stand-ins, docked panels added); the WIP branch's oracle and views ported by hand (isolation now takes bit 4, occlusion 8). |
 | 33.1 | Done 2026-10-17: `--view street\|valley` on village and level, `--oracle` (per item and whole draws, then the wholly hidden draws left out and measured again); before table below. Occluded views hide 76–93 % of draws and 83–93 % of triangles; leaving every wholly hidden draw out saves ≤ 1.2 ms GPU and ≤ 1.7 ms main thread, frame p95 mostly within noise: the work is there, its time is small at these class sizes. Verdict in §7: all items go ahead except 33.9 (dropped) and 33.6's per-member merged cells (dropped). |
-| 33.2 | |
+| 33.2 | Done 2026-10-17: `occlusion_culling` (0 off / 1 auto, absent auto) and a level's `occlusionCulling`, `?occlusion=off\|queries\|hiz` and the scene switch, the occludee registry (village: 604 on WebGPU, 608 on WebGL 2) and `occludeeClassOf` in runtime, diagnostics (Play, `ctx.stats.occlusion`, `data-tl-occlusion`), `expectOcclusionMatch` in rendering.e2e (export on vs off: strict); culling still a no-op. Village A/B (3 rounds, same browser) on vs `occlusion=off`: p50 equal (WebGL 2 4.7/4.7, WebGPU 5.5/5.5 ms), main thread +0.06–0.14 ms (≤ +0.2, §5). The fast gate's perf missed twice under another session's load (load 10–12), then passed at load 2: webgl2 p50 4.8 ms (limit 4.84). |
 | 33.3 | |
 | 33.4 | |
 | 33.5 | |
@@ -398,3 +398,30 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   draw and save GPU time only. 33.5 (instanced copies on the GPU) is the
   WebGPU item with the most to remove: 94–97 % of copies are hidden in
   the street views, more than whole-draw culling can reach.
+- 2026-10-17 (33.2, default chosen, owner to confirm): **the setting is a
+  project setting plus a quality level field**, layered like ambient
+  occlusion through the render control: `occlusion_culling` (Rendering
+  group, 0 off / 1 auto, absent auto) and a level's `occlusionCulling:
+  off | auto` (absent: the project's). No player settings binding (none was
+  asked for). New projects write nothing: absent already is the new
+  default, and auto draws the same picture.
+- 2026-10-17 (33.2): `?occlusion=off|queries|hiz` pins a path; a pinned path
+  the renderer lacks (`hiz` on WebGL 2) draws with none, so a comparison
+  never measures another path than the one it named. The same pin is on the
+  scene (`scene.userData.tlOcclusion`: `path()`, `pin()`, `diagnostics()`),
+  which the oracle reads; its ideal hiding pins culling off first, since both
+  use `HIDDEN_BY_OCCLUSION`.
+- 2026-10-17 (33.2, default chosen, owner to confirm): what is worth testing
+  is `occludeeClassOf` in runtime `occlusion.ts`: under
+  `OCCLUSION_MIN_TRIANGLES` = 64 a draw costs about what a WebGL 2 query's
+  box does; over `OCCLUSION_MAX_SCREEN_SHARE` = 0.5 of the view's height a
+  draw tested whole is almost never hidden; instanced copies and terrain
+  nodes are tested one by one. 33.5–33.7 tune the numbers with measurements.
+- 2026-10-17 (33.2): the occludee registry follows `scene.children` once a
+  frame while a path is on (the render graph pushes drawables into the
+  scene directly, so there are no add/remove events to hear); block,
+  architecture and terrain draws are marked by their owners, the rest is told
+  from its three.js type. The editor's Scene view is not wired yet (33.10),
+  so `viewport.ts` was not split; editor Play does not forward `?occlusion=`
+  (as `?portals=`). The manual page is 33.11's.
+

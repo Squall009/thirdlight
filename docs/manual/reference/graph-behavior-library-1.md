@@ -241,6 +241,7 @@ Implicit conversions:
 - [Settings ambient occlusion](graph-behavior-2.md#node-behavior--api-settings-ambient-occlusion) (`api.settings.ambient_occlusion`, as in `behavior`): The kind of ambient occlusion where a look turns it on (0 off, 1 SSAO, 2 GTAO; absent: SSAO).
 - [Settings render scale](graph-behavior-2.md#node-behavior--api-settings-render-scale) (`api.settings.render_scale`, as in `behavior`): The share of the screen's resolution Play and the export draw at (0.5–1; absent: 1).
 - [Settings dynamic resolution](graph-behavior-2.md#node-behavior--api-settings-dynamic-resolution) (`api.settings.dynamic_resolution`, as in `behavior`): Whether the render scale drops while the GPU runs over budget (0 off, 1 on; absent: off).
+- [Settings occlusion culling](graph-behavior-2.md#node-behavior--api-settings-occlusion-culling) (`api.settings.occlusion_culling`, as in `behavior`): Whether what solid objects hide is left out of the view (0 off, 1 auto; absent: auto).
 - [Settings streaming budget mb](graph-behavior-2.md#node-behavior--api-settings-streaming-budget-mb) (`api.settings.streaming_budget_mb`, as in `behavior`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - [Settings architecture ship meshes](graph-behavior-2.md#node-behavior--api-settings-architecture-ship-meshes) (`api.settings.architecture_ship_meshes`, as in `behavior`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
 
@@ -270,7 +271,7 @@ Implicit conversions:
 <a id="graph-behavior-library--world"></a>
 ## World
 
-- [Transform of](graph-behavior-2.md#node-behavior--api-world-transform) (`api.world.transform`, as in `behavior`): The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
+- [Transform of](graph-behavior-3.md#node-behavior--api-world-transform) (`api.world.transform`, as in `behavior`): The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
 - [World transform of](graph-behavior-3.md#node-behavior--api-world-world-transform) (`api.world.worldTransform`, as in `behavior`): The entity's world transform this step so far: its transform composed up its parents, where it is drawn. Under a parent scaled unevenly and turned, the scale is the length of each world axis. `undefined` when it is not loaded. An empty entity means this object.
 - [Find object by name](graph-behavior-3.md#node-behavior--api-world-find) (`api.world.find`, as in `behavior`): The first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`. Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.
 - [Find objects by name](graph-behavior-3.md#node-behavior--api-world-find-all) (`api.world.findAll`, as in `behavior`): Every loaded entity whose name is exactly `name` (case-sensitive), in load order (spawned copies included).

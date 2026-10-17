@@ -115,6 +115,14 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 |---|---|---|
 | <a id="limit-intent-limits"></a>`INTENT_LIMITS` | `{"perInstancePerStep":40,"perStep":64,"transformWritesPerEntity":3,"logsPerStepPerInstance":16,"logMessageLength":256,"logsRetainedPerInstance":32}` | The intent/log bounds. (The per-instance log bound is a per-step count; the retained ring is the behavior host's per-instance ring.) |
 
+<a id="limits-runtime--occlusion"></a>
+## `occlusion.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-occlusion-max-screen-share"></a>`OCCLUSION_MAX_SCREEN_SHARE` | `0.5` | The largest share of the view's height a draw tested whole may cover (its bounding sphere's projected radius over half the view's height). Something that large is almost never hidden whole, and the eye is often inside its box; per-item draws are tested by their items, so this does not apply to them. |
+| <a id="limit-occlusion-min-triangles"></a>`OCCLUSION_MIN_TRIANGLES` | `64` | The fewest triangles a draw (all of its items together) must draw for a test to pay: a WebGL 2 query draws a 12-triangle box in a draw call of its own, so a draw below this costs about what its test does. |
+
 <a id="limits-runtime--physics-query-args"></a>
 ## `physics-query-args.ts`
 

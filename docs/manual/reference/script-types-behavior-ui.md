@@ -114,6 +114,8 @@ export interface BehaviorStats {
   readonly quality: string;
   /** The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate). */
   readonly frameRateCap: number | null;
+  /** Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's). */
+  readonly occlusion: BehaviorStatsOcclusion;
   /** The window the times are measured over (ms). */
   readonly windowMs: number;
 }

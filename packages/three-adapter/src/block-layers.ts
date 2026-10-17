@@ -58,6 +58,7 @@
  */
 import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
+import { markOccludee } from './occludees';
 import {
   BlockGrid,
   CHUNK_SIZE,
@@ -1221,6 +1222,7 @@ export class BlockLayerView {
       const material = look.color !== null ? this.colorMaterial(look.color) : (look.materials[p.material] ?? look.materials[0] ?? this.colorMaterial('#b0b0b0'));
       const m = new THREE.Mesh(geometry, material);
       m.name = `block:${p.key}`;
+      markOccludee(m, 'blocks');
       // Rooms drawn on the layer stand on its cells: each face is lit by the room it looks into (room-culling.ts).
       m.userData[ROOM_TAG_KEY] = entityId;
       m.castShadow = layer.component.castShadow !== false;

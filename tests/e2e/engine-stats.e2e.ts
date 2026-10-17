@@ -5,9 +5,10 @@
  * - Without the `stats_overlay` setting there is no overlay, and F3 brings
  *   none; a script still reads `ctx.stats` (published to the view model) and
  *   a UI text binds `$flow.stats`: fps, frame and CPU times, draw calls,
- *   objects, the texture budget, the quality level. Play diagnostics carry
- *   the same frame times and the environment renderer's post passes and
- *   quality. GPU time is a number only where the browser has timestamp
+ *   objects, the texture budget, the quality level, occlusion culling's
+ *   path. Play diagnostics carry the same frame times, the environment
+ *   renderer's post passes and quality, and occlusion culling's setting,
+ *   path and occludees. GPU time is a number only where the browser has timestamp
  *   queries, else null (reported, never estimated).
  * - With `stats_overlay` 2 the overlay waits hidden; F3 shows it (fps, the
  *   times, "gpu"), F3 hides it again. With 1 the exported game (backend
@@ -58,7 +59,7 @@ const SCRIPT = [
 const HUD = { uiDocumentId: 'hud', name: 'Hud', layer: 5, root: { type: 'panel', stretch: 'both', children: [{ id: 'fps', type: 'text', anchor: [1, 1], pivot: [1, 1], text: 'fps {$flow.stats.fps} draws {$flow.stats.drawCalls} q {$flow.stats.quality}', css: { color: '#ffffff' } }] } };
 
 type Time = { avg: number; worst: number };
-type Stats = { fps: number; frameMs: Time; cpuMs: Time; gpuMs: Time | null; drawCalls: number; triangles: number; textureBytes: number; textureBudgetBytes: number; geometryBytes: number; entities: number; quality: string; windowMs: number };
+type Stats = { fps: number; frameMs: Time; cpuMs: Time; gpuMs: Time | null; drawCalls: number; triangles: number; textureBytes: number; textureBudgetBytes: number; geometryBytes: number; entities: number; quality: string; occlusion: { path: string; tested: number; culled: number }; windowMs: number };
 
 async function startPlay(page: Page): Promise<{ psid: string; frame: FrameLocator }> {
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
@@ -94,16 +95,20 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   expect(s.textureBudgetBytes).toBe(512 * 1024 * 1024);
   expect(s.quality).toBe('high');
   if (s.gpuMs !== null) expect(s.gpuMs.avg).toBeGreaterThan(0);
+  // Occlusion culling on the renderer's path (the project leaves the setting unset: auto).
+  expect(['queries', 'hiz']).toContain(s.occlusion.path);
   // $flow.stats in a UI document.
   const hud = frame.locator('[data-tl-ui-doc="hud"] [data-widget="fps"]');
   await expect(hud).toHaveText(/^fps \d+(\.\d+)? draws [1-9]\d* q high$/, { timeout: 10_000 });
 
   // Play diagnostics: the same frame times, the post passes and the quality level.
-  const d = (await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { frameTimes: Stats | null; renderer: { environment?: { post: boolean; passes: string[]; quality: string; samples: number } } };
+  const d = (await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { frameTimes: Stats | null; renderer: { environment?: { post: boolean; passes: string[]; quality: string; samples: number }; occlusion?: { setting: string; path: string; occludees: number } } };
   expect(d.frameTimes).not.toBeNull();
   expect(d.frameTimes!.fps).toBeGreaterThan(1);
   expect(d.frameTimes!.gpuMs === null ? 'not measured' : 'measured').toBe(s.gpuMs === null ? 'not measured' : 'measured');
   expect(d.renderer.environment).toMatchObject({ post: true, quality: 'high' });
+  expect(d.renderer.occlusion).toMatchObject({ setting: 'auto', path: s.occlusion.path });
+  expect(d.renderer.occlusion!.occludees).toBeGreaterThan(0);
   // The vignette is drawn in the grading pass.
   expect(d.renderer.environment!.passes).toEqual(expect.arrayContaining(['render', 'grading', 'output']));
   test.info().annotations.push({ type: 'stats', description: JSON.stringify({ fps: s.fps, frameMs: s.frameMs, cpuMs: s.cpuMs, gpuMs: s.gpuMs, passes: d.renderer.environment!.passes }) });

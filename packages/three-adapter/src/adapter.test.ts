@@ -81,6 +81,8 @@ describe('scene adapter surface (Node unit/mock-level)', () => {
       'canvasSize',
       // The lights that are on (none here).
       'lights',
+      // Occlusion culling: its setting and path (off without a renderer).
+      'occlusion',
       'pixelRatio',
       // The quality level drawn and its renderer settings.
       'quality',
@@ -100,6 +102,7 @@ describe('scene adapter surface (Node unit/mock-level)', () => {
     expect(d.pixelRatio).toBe(1); // Node: no window.devicePixelRatio
     expect(d.shadows).toBe('off');
     expect(d.shadowReason).toBe('cast_shadow_false');
+    expect(d.occlusion).toMatchObject({ setting: 'auto', path: 'off', source: 'setting', occludees: 0 });
     adapter.dispose();
     runtime.dispose();
   });

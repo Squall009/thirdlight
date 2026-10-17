@@ -81,6 +81,8 @@ export interface SceneAdapterOptions {
   architecture?: boolean;
   /** Leave out what the rooms' portals do not show (default true; false: drawn anyway, a diagnostic comparison). */
   portals?: boolean;
+  /** The occlusion culling path the page pins (`?occlusion=`, a diagnostic comparison; absent or null: the setting's). */
+  occlusion?: import('@thirdlight/runtime').OcclusionPath | null;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */
@@ -377,6 +379,8 @@ export interface SceneAdapterDiagnostics {
   architecture?: import('./architecture-view').ArchitectureViewDiagnostics;
   /** The rooms generated architecture makes: rooms and portals, what the view sees, draws hidden, lights per room. */
   rooms?: import('./room-culling').RoomCullingDiagnostics;
+  /** Occlusion culling: the setting, the path frames cull on, the draws that could be left out and what the last frame left out. ABSENT after dispose. */
+  occlusion?: import('./occlusion').OcclusionDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
   scatter?: import('./scatter-view').ScatterViewDiagnostics;
   /** Ground cover made near the camera. */

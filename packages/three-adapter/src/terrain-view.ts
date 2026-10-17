@@ -53,6 +53,7 @@
  */
 import type { ScatterSink } from './scatter-view';
 import * as THREE from 'three';
+import { markOccludee } from './occludees';
 import type { WebGPURenderer } from 'three/webgpu';
 import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type GridRenderChange, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
@@ -1301,6 +1302,7 @@ export class TerrainView {
     mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
     mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
+    markOccludee(mesh, 'terrain');
     const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null };
     if (rec.component.macroDistance !== undefined) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
@@ -1373,6 +1375,7 @@ export class TerrainView {
     const made = nodeGeometry(grid, 64);
     const mesh = new THREE.Mesh(made.geometry, material);
     mesh.name = `terrain-macro:${rec.id}`;
+    markOccludee(mesh, 'terrain');
     mesh.frustumCulled = false;
     mesh.matrixAutoUpdate = false;
     mesh.userData[STATIC_CASTER_KEY] = true;

@@ -28,21 +28,21 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 81 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)](types-a-d.md) | 75 sections |
-| [Types (DecalPageRef to PartialTransformArgs)](types-d-p.md) | 94 sections |
-| [Types (PasteEntitiesArgs to UiStyle)](types-p-u.md) | 97 sections |
-| [Types (UiStyleValues to WindConfig)](types-u-w.md) | 14 sections |
+| [Types (DecalPageRef to PaintVerticesArgs)](types-d-p.md) | 95 sections |
+| [Types (PartialTransformArgs to UiScaleMode)](types-p-u.md) | 96 sections |
+| [Types (UiSounds to WindConfig)](types-u-w.md) | 16 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 21 sections |
 | [Script API types (from `BehaviorUi`)](script-types-behavior-ui.md) | 58 sections |
-| [Script API types (from `GridCell`)](script-types-grid-cell.md) | 75 sections |
+| [Script API types (from `GridCell`)](script-types-grid-cell.md) | 76 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics, Tags, World |
-| [Graph: Visual script (part 3, from World transform of (`api.world.worldTransform`))](graph-behavior-3.md) | 84 sections |
+| [Graph: Visual script (part 3, from Transform of (`api.world.transform`))](graph-behavior-3.md) | 85 sections |
 | [Graph: Visual script (part 4, from Audio)](graph-behavior-4.md) | Audio, Effects, Decals, Save, Grid |
 | [Graph: Visual script (part 5, from Set edge (`api.grid.setEdge`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves, Assets, UI |
 | [Graph: Visual script (part 6, from UI event (`api.ui.event`))](graph-behavior-6.md) | Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
@@ -68,7 +68,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
 | [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 34 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
-| [Limits and defaults: runtime](limits-runtime.md) | 25 sections |
+| [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
 | [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 21 sections |
 | [MCP tools (part 3, from tl_command: Timelines)](mcp-tools-3.md) | 18 sections |

@@ -924,6 +924,7 @@ Fields:
 - Settings ambient occlusion (`api.settings.ambient_occlusion`): The kind of ambient occlusion where a look turns it on (0 off, 1 SSAO, 2 GTAO; absent: SSAO).
 - Settings render scale (`api.settings.render_scale`): The share of the screen's resolution Play and the export draw at (0.5–1; absent: 1).
 - Settings dynamic resolution (`api.settings.dynamic_resolution`): Whether the render scale drops while the GPU runs over budget (0 off, 1 on; absent: off).
+- Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto; absent: auto).
 - Settings streaming budget mb (`api.settings.streaming_budget_mb`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - Settings architecture ship meshes (`api.settings.architecture_ship_meshes`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
 
@@ -1085,6 +1086,16 @@ Outputs:
 ### Settings dynamic resolution (`api.settings.dynamic_resolution`)
 
 Whether the render scale drops while the GPU runs over budget (0 off, 1 on; absent: off).
+
+Outputs:
+
+- `value` (number)
+- `found` (boolean)
+
+<a id="node-behavior--api-settings-occlusion-culling"></a>
+### Settings occlusion culling (`api.settings.occlusion_culling`)
+
+Whether what solid objects hide is left out of the view (0 off, 1 auto; absent: auto).
 
 Outputs:
 
@@ -1544,26 +1555,3 @@ Fields:
 - Find object by name (`api.world.find`): The first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`. Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.
 - Find objects by name (`api.world.findAll`): Every loaded entity whose name is exactly `name` (case-sensitive), in load order (spawned copies included).
 - Find objects with component (`api.world.withComponent`): Every loaded entity carrying a component of this kind (as stored on the entity, e.g. `'collider'`, `'light'`, `'behavior'`), in load order (spawned copies included).
-
-<a id="node-behavior--api-world-transform"></a>
-### Transform of (`api.world.transform`)
-
-The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
-
-Inputs:
-
-- `entityId` "entity" (string)
-
-Outputs:
-
-- `position` (vector)
-- `rotation` (list)
-- `scale` (vector)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `space` | space | enum | `"local"` | `local`, `world` |

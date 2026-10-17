@@ -43,7 +43,7 @@ import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES } from './quality-levels';
-import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
+import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { MAX_TAGS } from './types-v3';
 import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, obj, ref, scene, str, vec2, vec3, when } from './descriptor-builders';
 import { ASSET_KINDS, type ContentBlockDescriptor, type DescriptorJson, type DescriptorUnit, type FieldDescriptor, type ListFieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
@@ -198,6 +198,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   enm('ambientOcclusion', 'Ambient occlusion', 'Where a look has AO (absent: ambient_occlusion).', [...AMBIENT_OCCLUSION_KINDS], { labels: { off: 'Off', ssao: 'SSAO', gtao: 'GTAO' } }),
   num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),
+  enm('occlusionCulling', 'Occlusion culling', 'Leave out what solid objects hide; Off draws everything in view (absent: occlusion_culling).', [...OCCLUSION_CULLING_MODES], { labels: { off: 'Off', auto: 'Auto' } }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [

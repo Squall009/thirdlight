@@ -44,6 +44,7 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].ambientOcclusion` | enum: `off`, `ssao`, `gtao` |  |  | **Ambient occlusion.** Where a look has AO (absent: ambient_occlusion). |
 | `qualityLevels[].lodBias` | number |  | 0.25 – 4, step 0.05 | **LOD bias.** Above 1 keeps finer LODs further (absent: lod_bias). |
 | `qualityLevels[].dynamicResolution` | bool |  |  | **Dynamic resolution.** Lower the scale while the GPU is over budget (absent: dynamic_resolution). |
+| `qualityLevels[].occlusionCulling` | enum: `off`, `auto` |  |  | **Occlusion culling.** Leave out what solid objects hide; Off draws everything in view (absent: occlusion_culling). |
 | `presets` | list of objects, ≤ 64 items |  |  | **Presets.** Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene's look. |
 | `presets[]` | object |  |  | **Preset.** A named look: sky, fog, post-processing, light values, a lightmap multiplier and the wetness. (rules: Preset ids are unique.) |
 | `presets[].presetId` | string, identifier, 1–64 chars |  |  | **Id.** A stable id scripts use: a-z, 0-9, _ or -. (required; format identifier) |

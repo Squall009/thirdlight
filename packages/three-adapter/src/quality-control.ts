@@ -8,7 +8,7 @@
  * Its settings go to:
  *
  * - the environment renderer (`setQuality`): the look's post per effect and MSAA;
- * - the render control: AO kind, render scale, dynamic resolution (over the
+ * - the render control: AO kind, render scale, dynamic resolution, occlusion culling (over the
  *   project's settings, under a player's fields and the page's flags);
  * - the LOD tuning: the bias (over the project's `lod_bias`);
  * - the scene lights: the largest shadow map and the point/spot light budget;
@@ -108,6 +108,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       ...(l.ambientOcclusion !== undefined ? { ambientOcclusion: l.ambientOcclusion } : {}),
       ...(l.renderScale !== undefined ? { renderScale: l.renderScale } : {}),
       ...(l.dynamicResolution !== undefined ? { dynamicResolution: l.dynamicResolution } : {}),
+      ...(l.occlusionCulling !== undefined ? { occlusionCulling: l.occlusionCulling } : {}),
     });
     targets.lodTuning.set({ ...projectLod, ...(l.lodBias !== undefined ? { bias: l.lodBias } : {}) });
     if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null, localLights: l.localLights ?? null, shadowedLights: l.shadowedLights ?? null })) targets.reselectLights();

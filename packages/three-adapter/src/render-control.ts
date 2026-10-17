@@ -2,14 +2,15 @@
  * The adapter's render settings: the kind of ambient occlusion, the render
  * scale and dynamic resolution (the project's `ambient_occlusion`,
  * `render_scale`, `dynamic_resolution`, or a player's settings fields), applied
- * to the environment renderer, with dynamic resolution fed from each drawn
+ * to the environment renderer, and occlusion culling (`occlusion_culling`,
+ * read by the occlusion culler), with dynamic resolution fed from each drawn
  * frame's GPU time (`gpu-timing.ts`) and frame interval.
  *
  * Kept out of `adapter.ts`: the adapter creates one, tells it the settings and
  * each drawn frame, and draws through the environment renderer while
  * `needsEnvironment()` says the scale needs its pipeline.
  */
-import { AMBIENT_OCCLUSION_DEFAULT, frameTargetMs, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, frameTargetMs, OCCLUSION_CULLING_DEFAULT, type OcclusionCulling, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/runtime';
 
 import { DynamicResolution, type DynamicResolutionState } from './dynamic-resolution';
 import type { EnvironmentRenderer } from './environment';
@@ -22,6 +23,8 @@ export interface RenderSettingsLike {
   /** 0.5–1 (out of range: clamped). */
   readonly renderScale?: number;
   readonly dynamicResolution?: boolean;
+  /** Occlusion culling (the project's `occlusion_culling`, a quality level's). */
+  readonly occlusionCulling?: OcclusionCulling;
 }
 
 /** The project's settings (the options' own fields) under the quality level's, under a player's, under the page's flags. */
@@ -43,6 +46,8 @@ export interface RenderControlDiagnostics {
   /** The project's or player's scale (the most dynamic resolution draws at). */
   readonly renderScale: number;
   readonly dynamicResolution: boolean;
+  /** Occlusion culling as set (the path it takes is the occlusion diagnostics'). */
+  readonly occlusionCulling: OcclusionCulling;
   /** The scale frames are drawn at now. */
   readonly scale: number;
   readonly upscale: UpscaleFilter;
@@ -60,6 +65,8 @@ export interface RenderControl {
   apply(env: EnvironmentRenderer): void;
   /** A frame was drawn (`cpuMs`: the adapter's own work for it): dynamic resolution picks the next frame's scale. */
   frameDrawn(env: EnvironmentRenderer | null, now: number, cpuMs: number, gpu: GpuTiming): void;
+  /** Occlusion culling as the layers set it now. */
+  occlusionCulling(): OcclusionCulling;
   diagnostics(): RenderControlDiagnostics;
 }
 
@@ -89,6 +96,7 @@ const defined = (s: RenderSettingsLike): RenderSettingsLike => ({
   ...(s.ambientOcclusion !== undefined ? { ambientOcclusion: s.ambientOcclusion } : {}),
   ...(s.renderScale !== undefined ? { renderScale: s.renderScale } : {}),
   ...(s.dynamicResolution !== undefined ? { dynamicResolution: s.dynamicResolution } : {}),
+  ...(s.occlusionCulling !== undefined ? { occlusionCulling: s.occlusionCulling } : {}),
 });
 
 export function createRenderControl(opts: RenderControlOptions = {}): RenderControl {
@@ -145,6 +153,7 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
       dirty = false;
       env.setRender({ ao, scale: scaleNow(), dynamic, upscale });
     },
+    occlusionCulling: () => resolved().occlusionCulling ?? OCCLUSION_CULLING_DEFAULT,
     frameDrawn(env, now, cpuMs, gpu) {
       const interval = lastFrameAt === null ? null : now - lastFrameAt;
       lastFrameAt = now;
@@ -153,6 +162,6 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
       const s = drs.frame({ now, gpuMs: gpu.recent(), measuresGpu: gpu.measuring(), intervalMs: interval, cpuMs, budgetMs: opts.frameBudgetMs?.() ?? frameTargetMs(null) });
       if (s !== before) env.setRender({ scale: s });
     },
-    diagnostics: () => ({ ambientOcclusion: ao, renderScale, dynamicResolution: dynamic, scale: scaleNow(), upscale, dynamic: dynamic ? drs.state() : null }),
+    diagnostics: () => ({ ambientOcclusion: ao, renderScale, dynamicResolution: dynamic, occlusionCulling: resolved().occlusionCulling ?? OCCLUSION_CULLING_DEFAULT, scale: scaleNow(), upscale, dynamic: dynamic ? drs.state() : null }),
   };
 }

@@ -21,6 +21,10 @@ import { attribute, float, Fn, floor, instanceIndex, mod, uniform, vec4 } from '
 import type { NodeBuilder, WebGPURenderer } from 'three/webgpu';
 
 import { countOracle, hiddenEntries, memberTriangles, ORACLE_ID_LIMIT, type OracleCount, type OracleEntry, type OracleKind } from './occlusion-oracle-count';
+import type { OcclusionPath } from '@thirdlight/runtime';
+
+import { OCCLUSION_SWITCH_KEY, type OcclusionSwitch } from './occlusion';
+import { drawCapacityOf, drawTrianglesOf } from './occludees';
 import { mergedMembersOf } from './static-merge';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
@@ -36,6 +40,8 @@ export interface OracleResult extends OracleCount {
   /** Drawables left out, by why: `points`, `lines`, `sprites` (not meshes), `ids` (past the id range). */
   skipped: Record<string, number>;
   ms: number;
+  /** The occlusion culling path the view was drawn with (what it counts is what that path left drawn). */
+  occlusion: OcclusionPath;
   /** With `hideHidden`: the draws now hidden from the view (every item of theirs hidden). */
   hiddenNow?: number;
 }
@@ -44,32 +50,9 @@ export interface OracleOptions {
   /**
    * Afterwards, hide from the view every draw none of whose items was seen (shadows keep them): the frame as an
    * ideal culling of whole draws would draw it, for as long as the view stays where it is. A measurement's last
-   * step; nothing puts them back.
+   * step; nothing puts them back. Occlusion culling is pinned off first, so the ideal culling stands alone.
    */
   readonly hideHidden?: boolean;
-}
-
-/** The most items a drawable can draw (instances it holds, members, or 1). */
-function capacityOf(mesh: THREE.Mesh, members: readonly unknown[] | null): number {
-  if (members !== null) return Math.max(1, members.length);
-  if ((mesh as THREE.InstancedMesh).isInstancedMesh === true) return Math.max(1, (mesh as THREE.InstancedMesh).count);
-  const g = mesh.geometry as THREE.InstancedBufferGeometry;
-  if (g.isInstancedBufferGeometry !== true) return 1;
-  let n = 0;
-  for (const a of Object.values(g.attributes)) {
-    const ia = a as THREE.BufferAttribute & { isInstancedBufferAttribute?: boolean; data?: { isInstancedInterleavedBuffer?: boolean; count: number } };
-    if (ia.isInstancedBufferAttribute === true) n = Math.max(n, ia.count);
-    else if (ia.data?.isInstancedInterleavedBuffer === true) n = Math.max(n, ia.data.count);
-  }
-  if (Number.isFinite(g.instanceCount)) n = Math.max(n, g.instanceCount);
-  return Math.max(1, n);
-}
-
-/** Triangles one copy of the geometry draws (its draw range). */
-function trianglesOf(g: THREE.BufferGeometry): number {
-  const total = g.index !== null ? g.index.count : (g.getAttribute('position')?.count ?? 0);
-  const start = Math.max(0, g.drawRange.start);
-  return Math.floor(Math.max(0, Math.min(total - start, g.drawRange.count)) / 3);
 }
 
 /** Items drawn by the view's render of `mesh` (read right after its own `onBeforeRender` chose them). */
@@ -115,7 +98,7 @@ export async function runOcclusionOracle(renderer: WebGPURenderer, scene: THREE.
   let next = 1;
   for (const mesh of meshes) {
     const members = mergedMembersOf(mesh);
-    const cap = capacityOf(mesh, members);
+    const cap = drawCapacityOf(mesh, members);
     if (next + cap >= ORACLE_ID_LIMIT) {
       skip(mesh, 'ids');
       continue;
@@ -226,7 +209,7 @@ export async function runOcclusionOracle(renderer: WebGPURenderer, scene: THREE.
     const g = p.mesh.geometry;
     const draws = Array.isArray(p.mesh.material) ? Math.max(1, g.groups.length) : 1;
     let kind: OracleKind = p.transparent ? 'transparent' : p.members !== null ? 'merged' : 'single';
-    let triangles: number | Float64Array = trianglesOf(g);
+    let triangles: number | Float64Array = drawTrianglesOf(g);
     let count = p.drawn;
     if (p.members !== null && g.index !== null) {
       // A merged draw's view part is a leading index range; its members are counted by their triangles in it.
@@ -241,8 +224,10 @@ export async function runOcclusionOracle(renderer: WebGPURenderer, scene: THREE.
     meshOf.set(entry, p.mesh);
   }
   const counted = countOracle(entries, pictures);
-  const out: OracleResult = { ...counted, width, height, skipped, ms: Math.round(performance.now() - t0) };
+  const culling = scene.userData[OCCLUSION_SWITCH_KEY] as OcclusionSwitch | undefined;
+  const out: OracleResult = { ...counted, width, height, skipped, ms: Math.round(performance.now() - t0), occlusion: culling?.path() ?? 'off' };
   if (options.hideHidden === true) {
+    culling?.pin('off');
     let n = 0;
     for (const e of hiddenEntries(entries, pictures)) if (hideFromView(meshOf.get(e)!, HIDDEN_BY_OCCLUSION, true)) n += 1;
     out.hiddenNow = n;

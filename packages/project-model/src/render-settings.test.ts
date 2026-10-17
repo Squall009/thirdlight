@@ -1,17 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
 import { NEW_PROJECT_SETTINGS, resolveGameplaySettings } from './index';
-import { ambientOcclusionOf, RENDER_SETTINGS_DEFAULT, renderScaleOf, renderSettingsOf } from './render-settings';
+import { ambientOcclusionOf, occlusionCullingOf, occlusionCullingSettingValue, RENDER_SETTINGS_DEFAULT, renderScaleOf, renderSettingsOf } from './render-settings';
 
 describe('render settings', () => {
   it('reads the project settings, with defaults for what is absent or out of range', () => {
     expect(renderSettingsOf(undefined)).toEqual(RENDER_SETTINGS_DEFAULT);
     // Unset: GTAO, the kind every project drew before the setting existed (new projects write SSAO).
-    expect(renderSettingsOf({})).toEqual({ ambientOcclusion: 'gtao', renderScale: 1, dynamicResolution: false });
+    expect(renderSettingsOf({})).toEqual({ ambientOcclusion: 'gtao', renderScale: 1, dynamicResolution: false, occlusionCulling: 'auto' });
     expect(renderSettingsOf(NEW_PROJECT_SETTINGS)).toMatchObject({ ambientOcclusion: 'ssao' });
-    expect(renderSettingsOf({ ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1 })).toEqual({ ambientOcclusion: 'gtao', renderScale: 0.75, dynamicResolution: true });
+    expect(renderSettingsOf({ ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1 })).toEqual({ ambientOcclusion: 'gtao', renderScale: 0.75, dynamicResolution: true, occlusionCulling: 'auto' });
     expect(renderSettingsOf({ ambient_occlusion: 0, render_scale: 0.2 })).toMatchObject({ ambientOcclusion: 'off', renderScale: 0.5 });
     expect(renderSettingsOf({ ambient_occlusion: 7, render_scale: 'x' })).toMatchObject({ ambientOcclusion: 'gtao', renderScale: 1 });
+  });
+
+  it('occlusion culling: absent or unknown is auto (it draws the same picture), 0 turns it off; the setting round-trips', () => {
+    expect(renderSettingsOf({}).occlusionCulling).toBe('auto');
+    expect(renderSettingsOf(NEW_PROJECT_SETTINGS).occlusionCulling).toBe('auto');
+    expect(renderSettingsOf({ occlusion_culling: 0 }).occlusionCulling).toBe('off');
+    expect(renderSettingsOf({ occlusion_culling: 1 }).occlusionCulling).toBe('auto');
+    expect(renderSettingsOf({ occlusion_culling: 5 }).occlusionCulling).toBe('auto');
+    for (const mode of ['off', 'auto'] as const) expect(occlusionCullingOf(occlusionCullingSettingValue(mode))).toBe(mode);
+    expect(occlusionCullingOf('auto')).toBe('auto');
+    expect(occlusionCullingOf('hiz')).toBeUndefined();
+    expect(resolveGameplaySettings({ settings: { occlusion_culling: 0 } }).ok).toBe(true);
+    expect(resolveGameplaySettings({ settings: { occlusion_culling: 2 } }).ok).toBe(false);
   });
 
   it("takes a player's choices by name", () => {

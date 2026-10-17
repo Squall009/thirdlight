@@ -1,8 +1,27 @@
-# Types (PasteEntitiesArgs to UiStyle)
+# Types (PartialTransformArgs to UiScaleMode)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-partial-transform-args"></a>
+### PartialTransformArgs
+
+Declared in `packages/commands/src/entity-types.ts`.
+
+```ts
+/**
+ * Partial transform args: any non-empty subset; a present field replaces the
+ * whole field (arrays are never merged component-wise). Element values
+ * (length, finiteness, ranges, quaternion norm) are re-checked by the
+ * project-model validation of the resulting scene.
+ */
+interface PartialTransformArgs {
+  position?: readonly number[];
+  rotation?: readonly number[];
+  scale?: readonly number[];
+}
+```
 
 <a id="type-paste-entities-args"></a>
 ### PasteEntitiesArgs
@@ -348,6 +367,8 @@ interface QualityLevelConfig {
   /** 0.25–4: divides every LOD switch point and cull size (over the project's `lod_bias`). */
   lodBias?: number;
   dynamicResolution?: boolean;
+  /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
+  occlusionCulling?: OcclusionCulling;
 }
 ```
 
@@ -1599,34 +1620,4 @@ Declared in `packages/project-model/src/ui-documents.ts`.
 
 ```ts
 type UiScaleMode = 'fit' | 'width' | 'height' | 'cover' | 'expand';
-```
-
-<a id="type-ui-sounds"></a>
-### UiSounds
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-/** Sounds a widget plays on the `ui` bus (audio assets): a click (any activation), the pointer coming over it, the focus moving to it. */
-interface UiSounds {
-  click?: string;
-  hover?: string;
-  focus?: string;
-}
-```
-
-<a id="type-ui-style"></a>
-### UiStyle
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-interface UiStyle extends UiStyleValues {
-  /** The sounds of the widgets in this style (under a widget's own). */
-  sounds?: UiSounds;
-  hover?: UiStyleValues;
-  focus?: UiStyleValues;
-  pressed?: UiStyleValues;
-  disabled?: UiStyleValues;
-}
 ```

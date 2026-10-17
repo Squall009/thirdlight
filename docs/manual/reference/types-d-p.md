@@ -1,4 +1,4 @@
-# Types (DecalPageRef to PartialTransformArgs)
+# Types (DecalPageRef to PaintVerticesArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1520,6 +1520,31 @@ Declared in `packages/project-model/src/quality-levels.ts`.
 type MsaaSamples = (typeof MSAA_SAMPLE_COUNTS)[number];
 ```
 
+<a id="type-occlusion-culling-modes"></a>
+### OCCLUSION_CULLING_MODES
+
+Declared in `packages/project-model/src/render-settings.ts`.
+
+```ts
+/**
+ * Occlusion culling: what solid things in front hide is not drawn. `auto`
+ * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
+ * queries on WebGL 2); `off` draws everything in view. Culling draws the
+ * same picture as without it, so `auto` is also what a project that does not
+ * set it gets: an existing game keeps its look.
+ */
+const OCCLUSION_CULLING_MODES: readonly ["off", "auto"];
+```
+
+<a id="type-occlusion-culling"></a>
+### OcclusionCulling
+
+Declared in `packages/project-model/src/render-settings.ts`.
+
+```ts
+type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
+```
+
 <a id="type-owned-component"></a>
 ### OwnedComponent
 
@@ -1610,24 +1635,5 @@ Declared in `packages/commands/src/vertex-paint-ops.ts`.
 /** `paintVertices` args: the object and one stroke. */
 interface PaintVerticesArgs extends VertexPaintStroke {
   entityId: string;
-}
-```
-
-<a id="type-partial-transform-args"></a>
-### PartialTransformArgs
-
-Declared in `packages/commands/src/entity-types.ts`.
-
-```ts
-/**
- * Partial transform args: any non-empty subset; a present field replaces the
- * whole field (arrays are never merged component-wise). Element values
- * (length, finiteness, ranges, quaternion norm) are re-checked by the
- * project-model validation of the resulting scene.
- */
-interface PartialTransformArgs {
-  position?: readonly number[];
-  rotation?: readonly number[];
-  scale?: readonly number[];
 }
 ```

@@ -350,3 +350,6 @@ export { BUILD_KEEP_URL_PARAM, buildKeepFromUrl, RELEASED_BUILD_KEEP_MS } from '
 // The occlusion oracle a measurement runs from the scene (what the view draws that no pixel shows).
 export { OCCLUSION_ORACLE_KEY, type OracleResult } from './occlusion-oracle';
 export { hiddenFractions, ORACLE_KINDS, type OracleKind, type OracleShare } from './occlusion-oracle-count';
+// Occlusion culling: the page flag, the scene's switch tools read and pin, and the draws it may leave out.
+export { OCCLUSION_SWITCH_KEY, OCCLUSION_URL_PARAM, occlusionFromUrl, type OcclusionDiagnostics, type OcclusionSwitch } from './occlusion';
+export { markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';

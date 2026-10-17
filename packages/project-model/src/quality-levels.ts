@@ -16,7 +16,8 @@
  * - renderer settings: the render scale, the most drawing-buffer pixels per
  *   CSS pixel, MSAA, the largest shadow map, how many point and spot lights
  *   are drawn and how many of them draw their shadow, the kind of ambient
- *   occlusion, the LOD bias and dynamic resolution. Each one a level leaves out is the project's setting.
+ *   occlusion, the LOD bias, dynamic resolution and occlusion culling. Each one a level leaves out is the
+ *   project's setting.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -25,7 +26,7 @@
  * Pure: no I/O.
  */
 import type { PostConfig } from './materials';
-import type { AmbientOcclusionKind } from './render-settings';
+import type { AmbientOcclusionKind, OcclusionCulling } from './render-settings';
 
 /** A level's id: what `environment.quality`, a player's quality setting and the game-control command name. */
 export const QUALITY_LEVEL_ID_RE = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -88,6 +89,8 @@ export interface QualityLevelConfig {
   /** 0.25–4: divides every LOD switch point and cull size (over the project's `lod_bias`). */
   lodBias?: number;
   dynamicResolution?: boolean;
+  /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
+  occlusionCulling?: OcclusionCulling;
 }
 
 /**

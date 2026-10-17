@@ -103,10 +103,11 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-ambient-occlusion-default"></a>`AMBIENT_OCCLUSION_DEFAULT` | `"gtao"` | The kind a project that does not set `ambient_occlusion` draws: GTAO, the only kind before the setting existed, so an existing game keeps its look. |
+| <a id="limit-occlusion-culling-default"></a>`OCCLUSION_CULLING_DEFAULT` | `"auto"` |  |
 | <a id="limit-render-scale-default"></a>`RENDER_SCALE_DEFAULT` | `1` |  |
 | <a id="limit-render-scale-max"></a>`RENDER_SCALE_MAX` | `1` |  |
 | <a id="limit-render-scale-min"></a>`RENDER_SCALE_MIN` | `0.5` | The render scale's range. Below half the resolution FSR 1 can no longer rebuild edges (AMD's lowest preset, "performance", is 0.5); 1 is the screen's own resolution (the render pixel ratio's cap still applies). |
-| <a id="limit-render-settings-default"></a>`RENDER_SETTINGS_DEFAULT` | `{"ambientOcclusion":"gtao","renderScale":1,"dynamicResolution":false}` |  |
+| <a id="limit-render-settings-default"></a>`RENDER_SETTINGS_DEFAULT` | `{"ambientOcclusion":"gtao","renderScale":1,"dynamicResolution":false,"occlusionCulling":"auto"}` |  |
 
 <a id="limits-project-model--save-schema"></a>
 ## `save-schema.ts`

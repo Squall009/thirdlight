@@ -90,7 +90,7 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect.poll(() => (content()['environment'] as { quality?: string } | undefined)?.quality).toBe('low');
   // Quality levels: the engine's three until the project customizes them; a level's fields round-trip, a new level
   // joins the starting-level choice, and the starting level stays.
-  type Env = { quality?: string; qualityLevels?: { id: string; renderScale?: number; shadowMapSize?: number; post?: { ssao?: { enabled?: boolean } } }[] };
+  type Env = { quality?: string; qualityLevels?: { id: string; renderScale?: number; shadowMapSize?: number; occlusionCulling?: string; post?: { ssao?: { enabled?: boolean } } }[] };
   const env = (): Env => (content()['environment'] ?? {}) as Env;
   const levels = panel('Quality').getByLabel('quality levels', { exact: true });
   await expect(levels.getByLabel('engine quality levels')).toBeVisible();
@@ -102,6 +102,9 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect.poll(() => env().qualityLevels?.[0]?.renderScale).toBe(0.5);
   await levels.getByLabel('level 2 shadowMapSize', { exact: true }).selectOption('1024');
   await expect.poll(() => env().qualityLevels?.[1]?.shadowMapSize).toBe(1024);
+  // A level may turn occlusion culling off (absent: the project's setting).
+  await levels.getByLabel('level 1 occlusionCulling', { exact: true }).selectOption('off');
+  await expect.poll(() => env().qualityLevels?.[0]?.occlusionCulling).toBe('off');
   await levels.getByRole('button', { name: 'add quality level' }).click();
   await expect.poll(() => env().qualityLevels?.map((l) => l.id)).toEqual(['low', 'medium', 'high', 'level4']);
   await expect(level.locator('option')).toHaveText(['Low', 'Medium', 'High', 'level4']);
@@ -119,7 +122,7 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(cap.locator('option')).toHaveText(["None (the display's rate)", '30 fps', '60 fps', '120 fps']);
   await cap.selectOption('30');
   await expect.poll(async () => (await settings())['frame_rate_cap']).toBe(30);
-  // Ambient occlusion (SSAO by default), the render scale and dynamic resolution.
+  // Ambient occlusion (SSAO by default), the render scale, dynamic resolution and occlusion culling.
   const ao = quality.getByLabel('settings ambient_occlusion', { exact: true });
   await expect(ao).toHaveValue('1');
   await expect(ao.locator('option')).toHaveText(['Off', 'SSAO (fast, half resolution)', 'GTAO (quality)']);
@@ -133,6 +136,11 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(drs).toHaveValue('0');
   await drs.selectOption('1');
   await expect.poll(async () => (await settings())['dynamic_resolution']).toBe(1);
+  // Occlusion culling: absent is auto (it draws the same picture); a project may turn it off.
+  const occ = quality.getByLabel('settings occlusion_culling', { exact: true });
+  await expect(occ).toHaveValue('1');
+  await occ.selectOption('0');
+  await expect.poll(async () => (await settings())['occlusion_culling']).toBe(0);
 
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');

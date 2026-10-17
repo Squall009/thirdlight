@@ -4,9 +4,10 @@
  *  - Automatic instancing: a field of 121 boxes (one colour and size, one
  *    project material on a few) is drawn in a handful of draw calls in the
  *    Scene view, in Play and in the static export — and looks the same as with
- *    instancing off (`?batching=off`, one draw per object): the export's frames
- *    are compared pixel by pixel. Picking and selection still work on a
- *    batched box (a click on the canvas selects it).
+ *    instancing off (`?batching=off`, one draw per object) and as with
+ *    occlusion culling off (`?occlusion=off`): the export's frames are
+ *    compared pixel by pixel. Picking and selection still work on a batched
+ *    box (a click on the canvas selects it).
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -44,7 +45,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { showView } from './ui';
 import { backendOf, editorUrlFor, expectRendererBackend } from './renderer-variants';
-import { settledShot } from './view-match';
+import { expectOcclusionMatch, settledShot } from './view-match';
 import type { Image } from './png';
 import { decodePng } from './png';
 
@@ -243,7 +244,7 @@ test('the export draws the box field instanced and looks the same as without ins
   const out = test.info().outputPath();
   mkdirSync(out, { recursive: true });
   try {
-    const frameOf = async (path: string, label: string): Promise<{ png: Buffer; draws: number }> => {
+    const frameOf = async (path: string, label: string): Promise<{ png: Buffer; draws: number; occlusion: string | null }> => {
       const game = await page.context().newPage();
       await game.setViewportSize({ width: 800, height: 450 });
       await game.goto(path);
@@ -263,9 +264,10 @@ test('the export draws the box field instanced and looks the same as without ins
         )
         .toBe(true);
       const draws = Number(await canvas.getAttribute('data-tl-draws'));
+      const occlusion = await canvas.getAttribute('data-tl-occlusion');
       writeFileSync(join(out, `${label}.png`), Buffer.from(last, 'base64'));
       await game.close();
-      return { png: Buffer.from(last, 'base64'), draws };
+      return { png: Buffer.from(last, 'base64'), draws, occlusion };
     };
     const batched = await frameOf(site.url, 'batched');
     const single = await frameOf(`${site.url}?batching=off`, 'single');
@@ -278,6 +280,9 @@ test('the export draws the box field instanced and looks the same as without ins
     if (!within(d, STRICT)) writeFileSync(join(out, 'diff.png'), diffPng(a, b));
     console.log(`[rendering] export instanced vs single: ${show(d, STRICT)}`);
     expect(within(d, STRICT), show(d, STRICT)).toBe(true);
+    // Occlusion culling draws the same picture as the page with it off.
+    const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
+    await expectOcclusionMatch(async (query) => shot(await frameOf(`${site.url}?${query}`, `occlusion-${query}`)), 'export', shot(batched));
     // Parents compose in the engine's world table: the parented boxes are drawn where the flat ones were.
     const parented = await frameOf(siteRigged.url, 'parented');
     const c = decodePng(parented.png);

@@ -751,6 +751,21 @@ export interface BehaviorStatsTime {
 }
 ```
 
+<a id="script-type-behavior-stats-occlusion"></a>
+## `BehaviorStatsOcclusion`
+
+```ts
+/** Occlusion culling in the last frame: what hidden draws the view left out. */
+export interface BehaviorStatsOcclusion {
+  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU), 'queries' (occlusion queries) or 'off'. */
+  readonly path: 'off' | 'queries' | 'hiz';
+  /** Draws tested against what is in front of them. */
+  readonly tested: number;
+  /** Draws left out of the view because something in front hides them. */
+  readonly culled: number;
+}
+```
+
 <a id="script-type-dialogue-variable-value"></a>
 ## `DialogueVariableValue`
 

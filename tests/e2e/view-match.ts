@@ -3,13 +3,15 @@
  * camera put where the Scene view's is (its pose, and a lens narrowed so
  * Play's picture is the middle of the Scene view's at the same scale), and
  * the middle of an image. Shared by the Scene view parity spec and the probe
- * lighting spec (lightmaps.e2e.ts).
+ * lighting spec (lightmaps.e2e.ts). Also occlusion culling's proof: a pose
+ * drawn with culling on and off is the same picture.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
+import { diff, diffPng, show, STRICT, within, type Diff } from './parity';
 import { decodePng, type Image } from './png';
 import { expectRendererBackend, type RendererVariant } from './renderer-variants';
 import { showView } from './ui';
@@ -81,4 +83,33 @@ export async function gameCameraAtView(page: Page, command: Command, variant: Re
   const camEntity = await queryEntity('cam-main');
   await command('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...(camEntity.components.virtualCamera ?? { rig: 'fixed' }), fovY: gameFov, near: cam.near, far: cam.far } });
   return cam;
+}
+
+/** A settled picture of a game page and its canvas's `data-tl-occlusion` mark (path|occludees|tested|culled). */
+export interface OcclusionShot {
+  readonly image: Image;
+  readonly occlusion: string | null;
+}
+
+/**
+ * Occlusion culling leaves out only what no pixel shows: the same pose drawn
+ * with the setting's culling (`on`, or `shoot('')`) and with `?occlusion=off`
+ * (`shoot('occlusion=off')`) is the same picture under the strict rule. The
+ * marks say which path each drew with. `label` names the saved diff.
+ */
+export async function expectOcclusionMatch(shoot: (query: string) => Promise<OcclusionShot>, label: string, on?: OcclusionShot): Promise<Diff> {
+  const culled = on ?? (await shoot(''));
+  const off = await shoot('occlusion=off');
+  expect(culled.occlusion, 'the page reports its occlusion culling').not.toBeNull();
+  expect(culled.occlusion!.split('|')[0], 'culled on a path').not.toBe('off');
+  expect(off.occlusion?.split('|')[0], 'the page flag turns it off').toBe('off');
+  const d = diff(culled.image, off.image, STRICT);
+  if (!within(d, STRICT)) {
+    const out = test.info().outputPath();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `${label}-diff.png`), diffPng(culled.image, off.image));
+  }
+  console.log(`[occlusion] ${label}: ${culled.occlusion} against ${off.occlusion}: ${show(d, STRICT)}`);
+  expect(within(d, STRICT), `${label}: culling on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
+  return d;
 }

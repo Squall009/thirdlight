@@ -5,10 +5,10 @@
  * each as the average and the worst frame over a window (`STATS_WINDOW_MS`),
  * with the last frame's draw calls and triangles, the resident texture and
  * geometry bytes against the texture budget, the objects, the quality
- * level and the frame-rate cap. One snapshot per window feeds `ctx.stats`, `$flow.stats`, the stats
+ * level, the frame-rate cap and what occlusion culling left out. One snapshot per window feeds `ctx.stats`, `$flow.stats`, the stats
  * overlay and Play diagnostics, so they all read the same numbers.
  */
-import { STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsTime } from '@thirdlight/runtime';
+import { ENGINE_STATS_NONE, STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsOcclusion, type BehaviorStatsTime } from '@thirdlight/runtime';
 
 /** What one window's snapshot is made from, read when the window ends. */
 export interface FrameStatsSources {
@@ -24,6 +24,8 @@ export interface FrameStatsSources {
   readonly quality: () => string;
   /** The frame-rate cap the page draws under (null: none). */
   readonly frameRateCap: () => number | null;
+  /** Occlusion culling in the last frame (absent: none, on no path). */
+  readonly occlusion?: () => BehaviorStatsOcclusion | undefined;
 }
 
 export interface FrameStats {
@@ -80,6 +82,7 @@ export function createFrameStats(sources: FrameStatsSources, windowMs: number = 
         entities: sources.entities(),
         quality: sources.quality(),
         frameRateCap: sources.frameRateCap(),
+        occlusion: sources.occlusion?.() ?? ENGINE_STATS_NONE.occlusion,
         windowMs: round(elapsed),
       };
       windowStart = now;
@@ -97,7 +100,7 @@ export function createFrameStats(sources: FrameStatsSources, windowMs: number = 
 
 /** What the host gives its stats: the adapter, the runtime and the page's resource views, read when a window ends. */
 export interface HostStatsDeps {
-  readonly adapter: () => { diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number } } } | { ok: false }; takeGpuTime?(): { ms: number; frames: number; worst: number } | null; qualityLevel?(): string } | null;
+  readonly adapter: () => { diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number }; occlusion?: { path: BehaviorStatsOcclusion['path']; tested: number; culled: number } } } | { ok: false }; takeGpuTime?(): { ms: number; frames: number; worst: number } | null; qualityLevel?(): string } | null;
   readonly entities: () => number;
   /** The texture streamer's observation (resident and budget bytes). */
   readonly textureStreaming?: () => object;
@@ -130,11 +133,15 @@ export function geometryBytesOf(resident: Readonly<Record<string, { bytes: numbe
 }
 
 export function createHostStats(deps: HostStatsDeps): HostStats {
+  let lastOcclusion: { path: BehaviorStatsOcclusion['path']; tested: number; culled: number } | undefined;
   const stats = createFrameStats({
     frame: () => {
       const d = deps.adapter()?.diagnostics?.();
+      lastOcclusion = d !== undefined && d.ok ? d.diagnostics.occlusion : undefined;
       return d !== undefined && d.ok ? d.diagnostics.frame : undefined;
     },
+    // Read with the frame's counts above (one diagnostics read a window).
+    occlusion: () => (lastOcclusion !== undefined ? { path: lastOcclusion.path, tested: lastOcclusion.tested, culled: lastOcclusion.culled } : undefined),
     gpu: () => deps.adapter()?.takeGpuTime?.() ?? null,
     textures: () => {
       const t = deps.textureStreaming?.() as { residentBytes?: unknown; budgetBytes?: unknown } | undefined;

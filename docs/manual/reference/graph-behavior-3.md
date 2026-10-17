@@ -1,8 +1,31 @@
-# Graph: Visual script (part 3, from World transform of (`api.world.worldTransform`))
+# Graph: Visual script (part 3, from Transform of (`api.world.transform`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-world-transform"></a>
+### Transform of (`api.world.transform`)
+
+The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "entity" (string)
+
+Outputs:
+
+- `position` (vector)
+- `rotation` (list)
+- `scale` (vector)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `space` | space | enum | `"local"` | `local`, `world` |
 
 <a id="node-behavior--api-world-world-transform"></a>
 ### World transform of (`api.world.worldTransform`)

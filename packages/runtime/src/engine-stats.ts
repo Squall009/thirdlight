@@ -7,7 +7,8 @@
  */
 import { frameRateCapOf, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model';
 
-import type { BehaviorStats, BehaviorStatsTime } from './types-behavior-world';
+import { occlusionPathFrom } from './occlusion';
+import type { BehaviorStats, BehaviorStatsOcclusion, BehaviorStatsTime } from './types-behavior-world';
 
 /**
  * The window the page measures frame times over (ms): the average and the
@@ -31,8 +32,18 @@ export const ENGINE_STATS_NONE: BehaviorStats = Object.freeze({
   entities: 0,
   quality: 'high',
   frameRateCap: null,
+  occlusion: Object.freeze({ path: 'off' as const, tested: 0, culled: 0 }),
   windowMs: 0,
 });
+
+/** The occlusion part of reported stats; absent reads as none culled on no path (a host without culling). */
+const occlusionOf = (v: unknown): BehaviorStatsOcclusion | null => {
+  if (v === undefined) return ENGINE_STATS_NONE.occlusion;
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const path = occlusionPathFrom(o['path']);
+  return path !== null && count(o['tested']) && count(o['culled']) ? Object.freeze({ path, tested: o['tested'], culled: o['culled'] }) : null;
+};
 
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const timeOf = (v: unknown): BehaviorStatsTime | null => {
@@ -56,6 +67,8 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
   const cap = s['frameRateCap'];
   const frameRateCap = cap === null || cap === undefined ? null : typeof cap === 'number' && cap > 0 ? frameRateCapOf(cap) : undefined;
   if (frameRateCap === undefined) return null;
+  const occlusion = occlusionOf(s['occlusion']);
+  if (occlusion === null) return null;
   return Object.freeze({
     fps: s['fps'] as number,
     frameMs,
@@ -69,6 +82,7 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
     entities: s['entities'] as number,
     quality: s['quality'],
     frameRateCap,
+    occlusion,
     windowMs: s['windowMs'] as number,
   });
 }

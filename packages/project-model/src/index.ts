@@ -1661,6 +1661,11 @@ export {
   ambientOcclusionSettingValue,
   AMBIENT_OCCLUSION_SETTING_VALUES,
   ambientOcclusionOf,
+  OCCLUSION_CULLING_DEFAULT,
+  OCCLUSION_CULLING_MODES,
+  OCCLUSION_CULLING_SETTING_VALUES,
+  occlusionCullingOf,
+  occlusionCullingSettingValue,
   RENDER_SCALE_DEFAULT,
   RENDER_SCALE_MAX,
   RENDER_SCALE_MIN,
@@ -1668,6 +1673,7 @@ export {
   renderScaleOf,
   renderSettingsOf,
   type AmbientOcclusionKind,
+  type OcclusionCulling,
   type RenderSettings,
 } from './render-settings';
 // Quality levels (the project's or the engine's low/medium/high) and how a level changes a scene's post.

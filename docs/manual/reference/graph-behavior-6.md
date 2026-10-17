@@ -45,6 +45,7 @@ Fields:
 - Stats entities (`api.stats.entities`): Objects in the simulation.
 - Stats quality (`api.stats.quality`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
 - Stats frame rate cap (`api.stats.frameRateCap`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
+- Stats occlusion (`api.stats.occlusion`): Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
 - Stats window ms (`api.stats.windowMs`): The window the times are measured over (ms).
 
 <a id="node-behavior--api-stats-fps"></a>
@@ -159,6 +160,17 @@ Outputs:
 
 - `value` (number)
 - `found` (boolean)
+
+<a id="node-behavior--api-stats-occlusion"></a>
+### Stats occlusion (`api.stats.occlusion`)
+
+Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
+
+Outputs:
+
+- `path` (string)
+- `tested` (number)
+- `culled` (number)
 
 <a id="node-behavior--api-stats-window-ms"></a>
 ### Stats window ms (`api.stats.windowMs`)

@@ -606,12 +606,14 @@ export { AUDIO_BUS_NAMES, AUDIO_MAX_HANDLES, AUDIO_MAX_QUEUED_COMMANDS, AUDIO_MA
 // Graph-material parameters per object — ctx.materials, the catalogue and the renderer's changes.
 export { MATERIAL_WRITES_PER_STEP, RuntimeMaterials, materialCatalogOf, materialCatalogProblem, materialChangeKey, type BehaviorMaterials, type MaterialSaveEntry, type MaterialParamValue, type MaterialRenderChange, type RuntimeMaterialCatalog, type RuntimeMaterialParameter, type RuntimeMaterialParameterType } from './material-params';
 // The project UI — ctx.ui, the UI events of an input frame, the view-model diff the host draws from.
-export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsTime, BehaviorDisplay } from './types';
+export type { BehaviorUi, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsOcclusion, BehaviorStatsTime, BehaviorDisplay } from './types';
 export { FRAME_RATE_CAP_URL_PARAM, FramePacer, frameRateCapFromUrl, frameTargetMs, UNCAPPED_TARGET_FPS, SIM_DELAY_URL_PARAM, simDelayFromUrl, type FramePacingStats } from './frame-pacing';
 // The frame-rate cap's values (project-model owns them), for the page's pacing and the shell.
 export { FRAME_RATE_CAPS, frameRateCapOf, projectFrameRateCap, type FrameRateCap } from '@thirdlight/project-model';
-// The render settings (ambient occlusion, render scale, dynamic resolution) the renderer and the game page read.
-export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, ambientOcclusionOf, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf, renderSettingsOf, type AmbientOcclusionKind, type RenderSettings } from '@thirdlight/project-model';
+// The render settings (ambient occlusion, render scale, dynamic resolution, occlusion culling) the renderer and the game page read.
+export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, ambientOcclusionOf, OCCLUSION_CULLING_DEFAULT, OCCLUSION_CULLING_MODES, occlusionCullingOf, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf, renderSettingsOf, type AmbientOcclusionKind, type OcclusionCulling, type RenderSettings } from '@thirdlight/project-model';
+// Occlusion culling's paths and which draws are worth testing (thresholds defined there once).
+export { OCCLUDEE_KINDS, occludeeClassOf, occludeeScreenShare, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, OCCLUSION_PATHS, occlusionPathAvailable, occlusionPathFrom, occlusionPathOf, type OccludeeClass, type OccludeeFacts, type OccludeeKind, type OcclusionPath, type OcclusionPathChoice, type OcclusionRenderer } from './occlusion';
 export { DEFAULT_QUALITY_LEVELS, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';

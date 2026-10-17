@@ -127,6 +127,16 @@ export interface BehaviorStatsTime {
   readonly worst: number;
 }
 
+/** Occlusion culling in the last frame: what hidden draws the view left out. */
+export interface BehaviorStatsOcclusion {
+  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU), 'queries' (occlusion queries) or 'off'. */
+  readonly path: 'off' | 'queries' | 'hiz';
+  /** Draws tested against what is in front of them. */
+  readonly tested: number;
+  /** Draws left out of the view because something in front hides them. */
+  readonly culled: number;
+}
+
 /**
  * `ctx.stats` (and `$flow.stats` in UI documents): how the game runs on this
  * device, measured by the page over its last stats window. Presentation, not
@@ -158,6 +168,8 @@ export interface BehaviorStats {
   readonly quality: string;
   /** The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate). */
   readonly frameRateCap: number | null;
+  /** Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's). */
+  readonly occlusion: BehaviorStatsOcclusion;
   /** The window the times are measured over (ms). */
   readonly windowMs: number;
 }
