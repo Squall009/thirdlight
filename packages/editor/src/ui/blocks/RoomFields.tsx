@@ -10,7 +10,11 @@ import { useEffect, useState, type JSX } from 'react';
 
 import type { PickOption } from '../architecture/preset-choices';
 
-export function Num(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; placeholder?: string; onCommit: (v: number | undefined) => void }): JSX.Element {
+/**
+ * A number field. `placeholder` is what an empty field means, kept short (a number input is narrow): "auto" with
+ * `hint` saying what auto is, shown under the field.
+ */
+export function Num(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; placeholder?: string; hint?: string; onCommit: (v: number | undefined) => void }): JSX.Element {
   const [draft, setDraft] = useState(props.value === undefined ? '' : String(props.value));
   useEffect(() => setDraft(props.value === undefined ? '' : String(props.value)), [props.value]);
   const commit = (): void => {
@@ -22,7 +26,8 @@ export function Num(props: { label: string; value: number | undefined; min?: num
   return (
     <label className="tl-field">
       <span className="tl-field__label">{props.label}</span>
-      <input className="tl-input tl-input--num" aria-label={props.label} type="number" step={props.step ?? 0.1} placeholder={props.placeholder} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+      <input className="tl-input tl-input--num" aria-label={props.label} type="number" step={props.step ?? 0.1} placeholder={props.placeholder} title={props.hint} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+      {props.hint !== undefined && <span className="tl-field__hint">{props.hint}</span>}
     </label>
   );
 }

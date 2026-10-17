@@ -25,15 +25,26 @@ function fakeBackend(refuse: ReadonlySet<string> = new Set()) {
       log.push('group');
       return reply(200, { ok: true, grouped: (body['requestIds'] as unknown[]).length });
     }
-    const env = body as { op: string; requestId: string; args: { value?: { tag?: string } } };
+    const env = body as { op: string; requestId: string; expectedRevision: number; args: { value?: { tag?: string } } };
     const tag = env.args.value?.tag ?? env.op;
     if (refuse.has(tag)) return reply(400, { ok: false, error: { code: 'invalid_args', cls: 'validation', message: 'no' } });
+    // As the backend: an undo or redo against a revision that is not the latest is refused.
+    if ((env.op === 'undo' || env.op === 'redo') && env.expectedRevision !== revision) {
+      log.push(`${env.op} refused`);
+      return reply(409, { ok: false, error: { code: 'revision_conflict', cls: 'conflict', message: 'stale' } });
+    }
     revision += 1;
     stored.push(tag);
     log.push(tag);
     return reply(200, { ok: true, op: env.op, requestId: env.requestId, revision, duplicated: false, change: null });
   });
-  return { fetchStub, groups, stored, log };
+  /** Another client's command stored now. */
+  const foreign = (tag: string): void => {
+    revision += 1;
+    stored.push(tag);
+    log.push(tag);
+  };
+  return { fetchStub, groups, stored, log, foreign, revision: () => revision };
 }
 
 function makeClient(): SessionClient {
@@ -119,8 +130,31 @@ describe('SessionClient.grouped', () => {
     });
     // The action's last command is stored; the request joining its commands is not sent yet.
     await stored;
-    const undo = c.command('undo', {}, c.projection.revision);
+    // Pressed on the view the user sees: the action's stored commands in it.
+    const undo = c.command('undo', {}, be.revision());
     await Promise.all([action, undo]);
     expect(be.log).toEqual(['a', 'b', 'group', 'undo']);
+  });
+
+  it('that undo is still checked against what the user saw: another client\'s command meanwhile makes it refused, not undone', async () => {
+    const be = fakeBackend();
+    vi.stubGlobal('fetch', be.fetchStub);
+    const c = makeClient();
+    let lastStored: () => void = () => undefined;
+    const stored = new Promise<void>((r) => (lastStored = r));
+    const action = c.grouped(async (g) => {
+      await edit(g, 'a');
+      await edit(g, 'b');
+      lastStored();
+    });
+    await stored;
+    // Pressed on the view the user sees: the action's stored commands in it.
+    const undo = c.command('undo', {}, be.revision());
+    // An MCP client stores a command while the action is being made one step.
+    be.foreign('mcp');
+    await action;
+    const r = await undo;
+    expect(r.ok).toBe(false);
+    expect(be.log).toEqual(['a', 'b', 'mcp', 'group', 'undo refused']);
   });
 });

@@ -391,7 +391,8 @@ button, input, select, textarea { font-family: inherit; }
 .tl-input { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
   border-radius: 4px; padding: 4px 6px; font-size: 12px; font-family: inherit; }
 .tl-input:focus { outline: none; border-color: var(--accent); }
-.tl-input--num { width: 72px; font-variant-numeric: tabular-nums; }
+.tl-input--num { width: 64px; font-variant-numeric: tabular-nums; }
+.tl-field__hint { color: var(--text-faint); font-size: var(--text-xs); line-height: 1.3; }
 .tl-input[type="number"] { -moz-appearance: textfield; }
 .tl-btn--danger { background: rgba(255,82,82,.12); border-color: var(--err); color: var(--err); }
 .tl-btn--danger:hover:not(:disabled) { border-color: var(--err); background: rgba(255,82,82,.2); }
@@ -686,7 +687,6 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-param.is-set .tl-field__label { color: var(--brand); }
 .tl-param__number, .tl-param__vec2 { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tl-param__number input[type="range"] { flex: 1; min-width: 60px; }
-.tl-input--num { width: 64px; }
 .tl-param__value { font-size: 11px; color: var(--text-dim); min-width: 36px; text-align: right; }
 .tl-param__reset { padding: 0 6px; }
 .tl-btn--danger { color: #ff8a80; }

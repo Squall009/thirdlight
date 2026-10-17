@@ -405,6 +405,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   const props: FurnishedProp[] = [];
   const lights: FurnishedLight[] = [];
   const planRooms: ArchitectureOutline[] = [];
+  const rises: Record<string, number> = {};
   let swapped = false;
   const append = <T>(to: T[], from: readonly T[]): void => {
     for (const v of from) to.push(v);
@@ -437,10 +438,11 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
     append(props, x.props);
     append(lights, x.lights);
     append(planRooms, x.planRooms);
+    Object.assign(rises, x.rises);
     if (x.swapped) swapped = true;
   }
   const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
-  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}), ...(swapped ? { swapped } : {}) };
+  return { component: { ...rest, elements, profiles, ...(paint !== null ? { paint } : {}) }, materials, problems: [...new Set(problems)], presets, rooms, ...(props.length > 0 ? { props } : {}), ...(lights.length > 0 ? { lights } : {}), ...(planRooms.length > 0 ? { planRooms } : {}), ...(Object.keys(rises).length > 0 ? { rises } : {}), ...(swapped ? { swapped } : {}) };
 }
 
 /**
@@ -464,6 +466,7 @@ export function expandArchitectureUngrouped(c: ArchitectureComponent, origin: re
     ...(x.props.length > 0 ? { props: [...x.props] } : {}),
     ...(x.lights.length > 0 ? { lights: [...x.lights] } : {}),
     ...(x.planRooms.length > 0 ? { planRooms: [...x.planRooms] } : {}),
+    ...(Object.keys(x.rises).length > 0 ? { rises: { ...x.rises } } : {}),
     ...(x.swapped ? { swapped: true } : {}),
   };
 }
@@ -480,6 +483,7 @@ interface GroupExpansion {
   props: readonly FurnishedProp[];
   lights: readonly FurnishedLight[];
   planRooms: readonly ArchitectureOutline[];
+  rises: Readonly<Record<string, number>>;
   /** Whether a swap changed a preset it resolves. */
   swapped: boolean;
 }
@@ -668,9 +672,11 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   for (const X of insts) X.spans = X.spans.filter((sp) => X.wall !== null && sp.other.wall !== null);
   // The rooms' floor plans: regions of the layer they are drawn on, and what the rooms see each other through.
   const planOf = new Map<Inst, ArchitectureRoomPlan>();
+  const storeyRises: Record<string, number> = {};
   for (const X of insts) {
     if (X.s.o.path.closed !== true || X.s.o.path.points.length < 3) continue;
     const top = wallTop(X.elements, X.path, profiles) ?? (X.s.o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK);
+    if (X.storey === 0) storeyRises[X.s.o.id] = (X.s.o.storeys ?? 1) > 1 ? storeyRise(X.s) : r6(top);
     const ceil = r6(X.base + top);
     const type = X.s.o.roomType;
     const plan: ArchitectureRoomPlan = { id: X.id, outline: X.s.o.id, storey: X.storey, ...(type !== undefined ? { type } : {}), points: X.s.o.path.points.map((q) => [q[0], q[2]] as [number, number]), floor: X.base, top: ceil, openings: roomOpenings(X, ceil, [...X.openings, ...X.parentExtra]), covered: hasFill(X, (y, up) => !up || y > X.base + 0.5), holes: [] };
@@ -765,12 +771,46 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   }
 
   // The outside presets' walls (their inner faces dress this room's outer faces) and trims along the open stretches.
+  // An outside preset's style makes its trims for walls of its own height, but the walls are this room's: a Tall room's
+  // facade on a Room's storeys floated its crown above the walls and sank the ground storey's into the storey above. So
+  // it is evaluated at this room's wall top — its parameter that is the walls' height (the one that moves their top
+  // metre for metre) set to it; a style with no such parameter keeps its own height.
+  const fitted = new Map<string, NonNullable<Styled['outside']>>();
+  const fitOutside = (X: Inst, out: NonNullable<Styled['outside']>, probe: ArchitectureOutline): NonNullable<Styled['outside']> => {
+    const top = wallTop(X.elements, X.path, profiles);
+    const key = `${X.s.index} ${top}`;
+    const known = fitted.get(key);
+    if (known !== undefined) return known;
+    let made = out;
+    // Trial evaluations write their profiles and problems aside: only the chosen one's are kept.
+    const topWith = (value: (name: string) => number): number | null => {
+      const scratch = { ...profiles };
+      const els: ArchitectureElement[] = [];
+      evaluateStyle(out.r.style!, value, probe, out.r.sheet, els, scratch, []);
+      return wallTop(els, probe.path, scratch);
+    };
+    const own = top === null ? null : topWith(out.value);
+    if (top !== null && own !== null && Math.abs(own - top) > EPS) {
+      for (const p of out.r.style!.params.values()) {
+        const v0 = out.value(p.name);
+        const step = v0 + 1 <= p.max ? 1 : -1;
+        const set = (v: number) => (name: string): number => (name === p.name ? v : out.value(name));
+        const moved = topWith(set(v0 + step));
+        if (moved === null || Math.abs((moved - own) / step - 1) > 1e-3) continue;
+        made = { r: out.r, value: set(Math.min(p.max, Math.max(p.min, v0 + top - own))) };
+        break;
+      }
+    }
+    fitted.set(key, made);
+    return made;
+  };
   const outsideWall = new Map<Inst, ArchitectureProfile>();
   const exterior: ArchitectureElement[] = [];
   for (const X of insts) {
-    const out = X.s.outside;
-    if (out === null || X.s.o.path.closed !== true) continue;
+    const declared = X.s.outside;
+    if (declared === null || X.s.o.path.closed !== true) continue;
     const reversed = reversedPath(X.path);
+    const out = fitOutside(X, declared, { id: `${X.id}-x`, path: reversed, preset: X.s.o.outside! });
     const probe = evaluate(out, { id: `${X.id}-x`, path: reversed, preset: X.s.o.outside! });
     const w = probe.find((e) => e.kind === 'sweep' && e.wall === true) as ArchitectureSweep | undefined;
     if (w !== undefined && profiles[w.profile] !== undefined) outsideWall.set(X, profiles[w.profile]!);
@@ -816,7 +856,7 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...props.map(propElement));
   const made: Record<string, ArchitectureProfile> = {};
   for (const name in profiles) if (profiles[name] !== c.profiles?.[name]) made[name] = profiles[name]!;
-  return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms, swapped };
+  return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms, rises: storeyRises, swapped };
 }
 
 /** A pinned prop as placed (standing in `room`, "" for none). */

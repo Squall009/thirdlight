@@ -23,7 +23,7 @@
  * layer's, so they are also layer metres); y is the floor height drawn on.
  */
 import type { ArchitectureBuilding, ArchitectureComponent, ArchitectureElement, ArchitectureModelRef, ArchitectureOpening, ArchitectureOutline, ArchitectureOverride, ArchitecturePath, ArchitectureSweep } from '@thirdlight/project-model';
-import { sampleArchitecturePath, type ArchitecturePathSamples } from '@thirdlight/runtime';
+import { ARCHITECTURE_STOREY_HEIGHT_FALLBACK, sampleArchitecturePath, type ArchitecturePathSamples } from '@thirdlight/runtime';
 
 export type RoomToolMode = 'rect' | 'polygon' | 'path' | 'building' | 'door' | 'window' | 'arch' | 'walls' | 'piece' | 'corner';
 
@@ -564,29 +564,43 @@ function insideCorners(pts: readonly (readonly number[])[], x: number, z: number
   return inside;
 }
 
+/** Storey heights by outline id: the expansion's `rises` (what the runtime builds each storey to). */
+export type OutlineRises = Readonly<Record<string, number>>;
+
+/** An outline's storey height: as the runtime builds it (`rises`), else its own, else the fallback. */
+export function storeyRiseOf(o: ArchitectureOutline, rises: OutlineRises | undefined): number {
+  return rises?.[o.id] ?? o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK;
+}
+
 /**
- * The room, building or path a ray meets first (the rooms object's frame;
- * `dir` need not be unit length), and the ray's parameter there. A room or
- * building is its footprint stood up to its storeys (`height`: one storey's
- * metres when it names none); a path, its line stood up `runHeight` metres
- * and, seen from above, a ribbon `reach` metres either side of it.
+ * The room, building or path a ray picks (the rooms object's frame; `dir`
+ * need not be unit length), and the ray's parameter there. A room or
+ * building is its footprint stood up to its storeys (`rises`: each one's
+ * storey height); a path, its line stood up `runHeight` metres and, seen from
+ * above, a ribbon `reach` metres either side of it. The nearest wins — but a
+ * click on the `selected` room or building goes in: it picks what is drawn
+ * inside its footprint under the pointer (a room or path in a building),
+ * each stood up to the outer one's top, since the building's walls and roof
+ * hide it. So a first click selects a building, a second one the room in it
+ * under the pointer, and a click there again the building.
  */
-export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonly number[], dir: readonly number[], height: number, runHeight: number, reach: number): { id: string; t: number } | null {
+export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonly number[], dir: readonly number[], rises: OutlineRises | undefined, runHeight: number, reach: number, selected: string | null = null): { id: string; t: number } | null {
   const [ox, oy, oz] = [origin[0]!, origin[1]!, origin[2]!];
   const [dx, dy, dz] = [dir[0]!, dir[1]!, dir[2]!];
-  let best: { id: string; t: number } | null = null;
-  const take = (id: string, t: number): void => {
-    if (t > 0 && (best === null || t < best.t)) best = { id, t };
-  };
   /** Where the ray crosses the level y (null: never, or behind). */
   const atLevel = (y: number): number | null => (Math.abs(dy) < 1e-12 ? null : (y - oy) / dy);
-  for (const o of allOutlines(c)) {
+  const topOf = (o: ArchitectureOutline): number => o.path.points[0]![1]! + (o.path.closed === true && o.path.points.length >= 3 ? (o.storeys ?? 1) * storeyRiseOf(o, rises) : runHeight);
+  /** The ray's nearest hit on one outline (its top at `y1`), or null. */
+  const hitOf = (o: ArchitectureOutline, y1: number): number | null => {
     // An arc or curve is taken by its chords: near enough to pick by.
     const pts = o.path.points;
-    if (pts.length < 2) continue;
+    if (pts.length < 2) return null;
+    let best: number | null = null;
+    const take = (t: number): void => {
+      if (t > 0 && (best === null || t < best)) best = t;
+    };
     const y0 = pts[0]![1]!;
     const closed = o.path.closed === true && pts.length >= 3;
-    const y1 = y0 + (closed ? (o.storeys ?? 1) * (o.storeyHeight ?? height) : runHeight);
     // The sides stood up: where the ray crosses each between the floor and the top.
     const segs = closed ? pts.length : pts.length - 1;
     for (let i = 0; i < segs; i++) {
@@ -599,40 +613,71 @@ export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonl
       const t = ((a[0]! - ox) * ez - (a[2]! - oz) * ex) / den;
       const u = ((a[0]! - ox) * dz - (a[2]! - oz) * dx) / den;
       const y = oy + t * dy;
-      if (u >= 0 && u <= 1 && y >= y0 && y <= y1) take(o.id, t);
+      if (u >= 0 && u <= 1 && y >= y0 && y <= y1) take(t);
     }
     if (closed) {
       // The floor and the top: a ray from above or below meets them inside the footprint.
       for (const y of [y0, y1]) {
         const t = atLevel(y);
-        if (t !== null && insideCorners(pts, ox + t * dx, oz + t * dz)) take(o.id, t);
+        if (t !== null && insideCorners(pts, ox + t * dx, oz + t * dz)) take(t);
       }
-    } else {
-      // A path from above: the ground within reach of its line.
-      const t = atLevel(y0);
-      if (t === null) continue;
-      const x = ox + t * dx;
-      const z = oz + t * dz;
-      for (let i = 0; i < segs; i++) {
-        const a = pts[i]!;
-        const b = pts[i + 1]!;
-        const ex = b[0]! - a[0]!;
-        const ez = b[2]! - a[2]!;
-        const l2 = ex * ex + ez * ez;
-        const k = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]!) * ex + (z - a[2]!) * ez) / l2));
-        if (Math.hypot(a[0]! + ex * k - x, a[2]! + ez * k - z) <= reach) take(o.id, t);
-      }
+      return best;
     }
+    // A path from above: the ground within reach of its line.
+    const t = atLevel(y0);
+    if (t === null) return best;
+    const x = ox + t * dx;
+    const z = oz + t * dz;
+    for (let i = 0; i < segs; i++) {
+      const a = pts[i]!;
+      const b = pts[i + 1]!;
+      const ex = b[0]! - a[0]!;
+      const ez = b[2]! - a[2]!;
+      const l2 = ex * ex + ez * ez;
+      const k = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - a[0]!) * ex + (z - a[2]!) * ez) / l2));
+      if (Math.hypot(a[0]! + ex * k - x, a[2]! + ez * k - z) <= reach) take(t);
+    }
+    return best;
+  };
+  const all = allOutlines(c);
+  let best: { o: ArchitectureOutline; t: number } | null = null;
+  for (const o of all) {
+    const t = hitOf(o, topOf(o));
+    if (t !== null && (best === null || t < best.t)) best = { o, t };
   }
-  return best;
+  const outer = best?.o;
+  if (outer !== undefined && outer.id === selected && outer.path.closed === true && outer.path.points.length >= 3) {
+    const top = topOf(outer);
+    let inner: { o: ArchitectureOutline; t: number } | null = null;
+    for (const o of all) {
+      if (o === outer || !within(o, outer)) continue;
+      const t = hitOf(o, Math.max(topOf(o), top));
+      if (t !== null && (inner === null || t < inner.t)) inner = { o, t };
+    }
+    if (inner !== null) best = inner;
+  }
+  return best === null ? null : { id: best.o.id, t: best.t };
+}
+
+/** Whether outline `o` lies inside closed outline `outer`'s footprint (its corners within the footprint's box, its middle inside it). */
+function within(o: ArchitectureOutline, outer: ArchitectureOutline): boolean {
+  const box = outer.path.points;
+  const eps = 1e-6;
+  const [x0, x1] = [Math.min(...box.map((q) => q[0]!)) - eps, Math.max(...box.map((q) => q[0]!)) + eps];
+  const [z0, z1] = [Math.min(...box.map((q) => q[2]!)) - eps, Math.max(...box.map((q) => q[2]!)) + eps];
+  const pts = o.path.points;
+  if (pts.some((q) => q[0]! < x0 || q[0]! > x1 || q[2]! < z0 || q[2]! > z1)) return false;
+  const mx = pts.reduce((n, q) => n + q[0]!, 0) / pts.length;
+  const mz = pts.reduce((n, q) => n + q[2]!, 0) / pts.length;
+  return insideCorners(box, mx, mz);
 }
 
 /** The lines that outline a room, building or path stood up to its height: its floor and top rings and its corners' verticals (pairs of points, the rooms object's frame). */
-export function outlineFrame(o: ArchitectureOutline, height: number, runHeight: number): Point3[] {
+export function outlineFrame(o: ArchitectureOutline, rises: OutlineRises | undefined, runHeight: number): Point3[] {
   const pts = o.path.points;
   const closed = o.path.closed === true && pts.length >= 3;
   const y0 = pts[0]?.[1] ?? 0;
-  const y1 = y0 + (closed ? (o.storeys ?? 1) * (o.storeyHeight ?? height) : runHeight);
+  const y1 = y0 + (closed ? (o.storeys ?? 1) * storeyRiseOf(o, rises) : runHeight);
   const out: Point3[] = [];
   const segs = closed ? pts.length : pts.length - 1;
   for (let i = 0; i < segs; i++) {

@@ -108,8 +108,9 @@ export class SessionClient extends SessionClientCore {
   override command(op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> {
     if ((op !== 'undo' && op !== 'redo') || this.groupsUnderWay.size === 0) return super.command(op, args, expectedRevision, requestId, origin);
     const waiting = [...this.groupsUnderWay];
-    // The view it was asked on is behind by the action's own commands only: sent against the revision after them.
-    return Promise.allSettled(waiting).then(() => super.command(op, args, this.projection.revision, requestId, origin));
+    // Sent against the revision the user saw: the action's own commands since then move it on (own commands), and a
+    // command anyone else stored meanwhile makes the backend refuse it rather than take that command back.
+    return Promise.allSettled(waiting).then(() => this.commandAsSeen(op, args, expectedRevision, requestId, origin));
   }
 
   /** The client as one `grouped` action sees it: its stored commands' request ids go to `ids`, in the order they were stored. */

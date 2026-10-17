@@ -129,6 +129,12 @@ export interface ArchitectureExpansion {
   lights?: readonly FurnishedLight[];
   /** The rooms buildings' room programs made (what locking a plan stores; absent: none). */
   planRooms?: readonly ArchitectureOutline[];
+  /**
+   * Each room's and building's storey height by outline id (metres: its
+   * `storeyHeight`, else its walls' top); what the editor picks and frames
+   * them by. Absent: no room.
+   */
+  rises?: Readonly<Record<string, number>>;
 }
 
 /** A room storey's floor plan (object frame): what a block layer's regions and grid walks read. */

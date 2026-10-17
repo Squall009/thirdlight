@@ -133,7 +133,7 @@ export function BuildingFields(p: { building: ArchitectureBuilding; binding: Roo
       <Pick label="roof shape" value={roof?.shape ?? ''} options={[['', '— none —'], ...ARCHITECTURE_ROOF_SHAPES.map((s) => [s, s] as const)]} onCommit={(v) => setRoof(v === '' ? undefined : { ...(roof ?? {}), shape: v as NonNullable<ArchitectureBuilding['roof']>['shape'] }, 'Roof shape')} />
       {roof !== undefined && (
         <>
-          <Num label="roof rise" value={roof.rise} min={0} placeholder="half the deepest inset" onCommit={(v) => roofNum('rise', v)} />
+          <Num label="roof rise" value={roof.rise} min={0} placeholder="auto" hint="Empty: half the deepest inset." onCommit={(v) => roofNum('rise', v)} />
           <Num label="roof overhang" value={roof.overhang} min={0} placeholder="0.3" onCommit={(v) => roofNum('overhang', v)} />
           <Text
             label="roof slot"

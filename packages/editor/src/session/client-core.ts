@@ -1109,13 +1109,30 @@ export class SessionClientCore {
     requestId?: string,
     origin: Origin = { kind: 'browser', clientId: this.sessionId },
   ): Promise<CommandResult> {
+    return this.issue(op, args, expectedRevision, requestId, origin, true);
+  }
+
+  /**
+   * As `command`, but a refusal because someone else's command came first is
+   * surfaced, never sent again after the feed: for an undo or redo that
+   * waited (seconds, while an action's commands were joined into one step),
+   * sent again it would take back whatever is latest, another client's
+   * command included, which the user never saw. The view being behind only
+   * by this editor's own commands still moves it on.
+   */
+  protected commandAsSeen(op: string, args: unknown, expectedRevision: number, requestId?: string, origin: Origin = { kind: 'browser', clientId: this.sessionId }): Promise<CommandResult> {
+    return this.issue(op, args, expectedRevision, requestId, origin, false);
+  }
+
+  private issue(op: string, args: unknown, expectedRevision: number, requestId: string | undefined, origin: Origin, afterFeed: boolean): Promise<CommandResult> {
     const lazy = typeof args === 'function';
     // A whole-document op with args built at call time keeps its revision (stale args conflict instead of undoing an edit).
     const rebases = lazy || !WHOLE_DOCUMENT_OPS.has(op);
+    const resends = rebases && afterFeed;
     return this.ownCommands.enqueue(async () => {
       const expected = rebases ? this.ownCommands.rebase(expectedRevision, this.projection.revision) : expectedRevision;
-      const first = await this.sendCommand(op, lazy ? (args as () => unknown)() : args, expected, requestId, origin, !rebases);
-      if (first.ok || first.response.ok || first.response.code !== 'revision_conflict' || !rebases) return first;
+      const first = await this.sendCommand(op, lazy ? (args as () => unknown)() : args, expected, requestId, origin, !resends);
+      if (first.ok || first.response.ok || first.response.code !== 'revision_conflict' || !resends) return first;
       const behind = first.response.currentRevision;
       if (!(await this.rebaseAfterFeed(typeof behind === 'number' ? behind : this.projection.revision + 1))) {
         return this.finishCommand({ status: 'response', response: first.response }, expected);

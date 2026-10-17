@@ -26,10 +26,13 @@ const toSrgbByte = (l: number): number => {
   return Math.max(0, Math.min(255, Math.round(c * 255)));
 };
 
-/** The means of an RGBA image (an empty one: mid grey, opaque). */
+/** The mean of a texture that has none (empty, or not decodable): mid grey, opaque. */
+export const MEAN_UNKNOWN = [128, 128, 128, 255] as const;
+
+/** The means of an RGBA image (an empty one: `MEAN_UNKNOWN`). */
 export function meanOfRgba(rgba: Uint8Array): TextureMean {
   const n = rgba.length >> 2;
-  if (n === 0) return { srgb: [128, 128, 128, 255], plain: [128, 128, 128, 255] };
+  if (n === 0) return { srgb: MEAN_UNKNOWN, plain: MEAN_UNKNOWN };
   let r = 0;
   let g = 0;
   let b = 0;

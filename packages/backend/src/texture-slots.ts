@@ -40,7 +40,8 @@ import type { DecalPageRequest, DecalPageResult } from './decal-page-assembly';
 import type { HeightAlphaChecks } from './height-alpha';
 import { sourceFormat } from './image-decode';
 import { readKtx2 } from './ktx2-container';
-import { KTX2_ENCODER, KTX2_SOURCE_PIXELS_MAX, type Ktx2Mode, type Ktx2PackResult, type PackLayer, type TextureEncoder } from './texture-encode';
+import { KTX2_ENCODER, KTX2_SOURCE_PIXELS_MAX, wholeKtx2Layers, type Ktx2Mode, type Ktx2PackResult, type PackLayer, type TextureEncoder } from './texture-encode';
+import { MEAN_UNKNOWN } from './texture-mean';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 
 /** One layer: a texture asset's version and its file's digest; a constant layer (`fillLayerId`) is its id in all three. */
@@ -188,16 +189,14 @@ function packLayersOf(resolved: ResolvedLayers, derived: readonly boolean[]): Pa
   });
 }
 
-/** A layer's mean when its texture cannot be decoded: mid grey, opaque. */
-const MEAN_UNKNOWN = [128, 128, 128, 255] as const;
 /** A brightness height's middle (`brightnessHeight` stretches every texture over 0–255). */
 const DERIVED_HEIGHT_MIDDLE = 128;
 
-/** A refused array in plain words, for the project's Problems: which layers, and why. */
+/** A refused array in plain words, for the project's Problems: why first (the line is cut to its length), then which layers. */
 export function slotArrayRefusalLine(layers: readonly SlotLayer[], mode: Ktx2Mode, reason: string): string {
   const names = layers.map((l) => (parseFillLayer(l.assetId) !== null ? 'a constant' : `"${l.assetId}"`));
   const kind = mode === 'color' ? 'colour' : mode;
-  return `The ${kind} texture array of the layers ${names.join(', ')} could not be made, so the surface draws a stand-in: ${reason}`;
+  return `A ${kind} texture array could not be made, so the surface draws a stand-in: ${reason.replace(/\.?$/, '.')} Its layers: ${names.join(', ')}`;
 }
 
 export function createTextureSlotAssembler(deps: {
@@ -209,7 +208,7 @@ export function createTextureSlotAssembler(deps: {
   refused?: (projectId: string, code: string, message: string) => void;
 }): TextureSlotAssembler {
   const stats = { assembled: 0, cached: 0 };
-  /** The refusals told, by project, array key and reason (an editor asks again on every view load). */
+  /** The refusals told, by project, array key and reason (an editor asks again on every view load); forgotten once the array is made. */
   const told = new Set<string>();
   /** The assemblies running now, by project and key: a second request waits for the first. */
   const running = new Map<string, Promise<SlotArrayResult>>();
@@ -280,6 +279,8 @@ export function createTextureSlotAssembler(deps: {
       }
       return { ok: false, code: 'conversion_failed', message: packed.message };
     }
+    const made = `${projectId}\u0000${key.sourceDigest}\u0000`;
+    for (const t of told) if (t.startsWith(made)) told.delete(t);
     const stored = deps.service.writeImportedArtifact(projectId, key, packed.ktx2);
     if (!stored.ok) return { ok: false, code: stored.error.code, message: stored.error.message };
     const file = deps.service.locateImportedArtifact(projectId, key);
@@ -325,7 +326,8 @@ export function createTextureSlotAssembler(deps: {
       const t0 = deps.now();
       const p = await prepare(projectId, layers, mode, options);
       if ('ok' in p) return p;
-      if (p.found !== null) return { ok: true, final: true };
+      // Made already, or layers joined as stored (no encode to wait for): the array itself, not a preview of it.
+      if (p.found !== null || wholeKtx2Layers(p.resolved.sources, packLayersOf(p.resolved, p.derived)) !== null) return { ok: true, final: true };
       const encoder = deps.encoder;
       if (encoder === undefined) return { ok: false, code: 'converter_unavailable', message: 'KTX2 encoding is not available on this server' };
       const id = `${projectId}\u0000${p.key.sourceDigest}`;

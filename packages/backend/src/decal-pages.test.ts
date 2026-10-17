@@ -236,8 +236,8 @@ describe('decal pages in a real export', () => {
     const bytes = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages/arrays/${arrayId}`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
     expect(bytes.status).toBe(200);
     expect(Buffer.from(await bytes.arrayBuffer()).equals(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === arrayId)!.sourceDigest)))).toBe(true);
-    // Rebuild pages three times while a composition runs (the routes over the real project, the first held open):
-    // they wait for it, then share the one composition after it; none overlaps another.
+    // Rebuild pages three times while a composition runs (the routes over the real project, the first held open): the
+    // contents it read are the same, so they share it; none overlaps another.
     let release!: () => void;
     const held = new Promise<void>((r) => (release = r));
     let calls = 0;
@@ -266,7 +266,7 @@ describe('decal pages in a real export', () => {
     expect(calls).toBe(1);
     release();
     await Promise.all([first, ...later]);
-    expect([calls, most]).toEqual([2, 1]);
+    expect([calls, most]).toEqual([1, 1]);
     expect(sent.map((x) => x.status)).toEqual([200, 200, 200, 200]);
     for (const x of sent) expect((x.body as View).composed!.refs).toEqual(shipped);
     // A new decal material changes the pages: the composition is no longer current.
@@ -325,5 +325,42 @@ describe('decal pages in a real export', () => {
     expect(cachedSides().every((side) => side === sheetSide)).toBe(true);
     // Made already: a preview asked now answers the pages themselves.
     expect(((await api(`${tb.authUrl}/api/v1/projects/${PID}/content/decal-pages?preview=1`, { method: 'POST', token: tb.adminToken, origin: null })).json as View).composed!.refs).toEqual(shipped);
+  }, 180_000);
+
+  it('the pages asked for right after a preview share the composition the preview started; a change meanwhile waits for one of its own', async () => {
+    type View = { ok: true; composed: { preview?: true } | null };
+    await command('setMaterial', { material: { materialId: 'mat-mark-3', name: 'Mark 3', shader: 'decal', params: {}, textures: { map: ids['mark'] } } });
+    await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'mark 3', components: { decal: { size: [1, 1, 0.5], material: 'mat-mark-3' } } });
+    let finals = 0;
+    const holds = new Map<number, Promise<void>>();
+    const releases = new Map<number, () => void>();
+    for (const n of [1, 2]) holds.set(n, new Promise<void>((r) => releases.set(n, r)));
+    const port = {
+      decalPages: async (p: string, request: Parameters<NonNullable<typeof tb.backend._test.textureSlots.decalPages>>[1], options?: { readonly preview?: boolean }) => {
+        if (options?.preview !== true) await holds.get(++finals);
+        return tb.backend._test.textureSlots.decalPages!(p, request, options);
+      },
+    };
+    const sent: { status: number; body: unknown }[] = [];
+    const routes = makeDecalAtlasRoutes({ service: tb.backend._test.service, port, requireAuth: () => null, sendJson: (_res, status, body) => void sent.push({ status, body }), sendError: (_res, error, status) => void sent.push({ status: status ?? 400, body: error }) });
+    const post = (preview: boolean): Promise<void> => routes({ method: 'POST' } as IncomingMessage, {} as ServerResponse, ['api', 'v1', 'projects', PID, 'content', 'decal-pages'], new Map(preview ? [['preview', '1']] : []));
+    // The preview, then the pages composing behind it (held); the editor's request for the pages shares that one.
+    await post(true);
+    expect((sent[0]!.body as View).composed!.preview).toBe(true);
+    await expect.poll(() => finals).toBe(1);
+    const pages = post(false);
+    releases.get(1)!();
+    await pages;
+    expect(finals).toBe(1);
+    // A composition running (held), the contents changed: a request now waits for a composition of its own after it.
+    await command('setMaterial', { material: { materialId: 'mat-mark-3', name: 'Mark 3', shader: 'decal', params: {}, textures: { map: ids['mark-glow'] } } });
+    const running = post(false);
+    await expect.poll(() => finals).toBe(2);
+    await command('setMaterial', { material: { materialId: 'mat-mark-3', name: 'Mark 3', shader: 'decal', params: {}, textures: { map: ids['mark'] } } });
+    const changed = post(false);
+    releases.get(2)!();
+    await Promise.all([running, changed]);
+    expect(finals).toBe(3);
+    expect(sent.slice(1).map((x) => [x.status, (x.body as View).composed?.preview])).toEqual([[200, undefined], [200, undefined], [200, undefined]]);
   }, 180_000);
 });

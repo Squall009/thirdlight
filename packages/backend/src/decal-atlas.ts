@@ -105,9 +105,12 @@ export function makeDecalAtlasRoutes(o: {
    * Per project, one composition at a time: the one running, and the one
    * that starts after it. A request while one runs waits for the next (the
    * project may have changed since the running one read it); every request
-   * arriving before that next one starts shares its answer.
+   * arriving before that next one starts shares its answer. A request for
+   * the very contents the running one read (the same signature) shares the
+   * running one: the editor's request for the pages right after a preview
+   * finds the background composition the preview started.
    */
-  const running = new Map<string, Promise<Outcome>>();
+  const running = new Map<string, { run: Promise<Outcome>; signature: string | null }>();
   const waiting = new Map<string, Promise<Outcome>>();
 
   /** The pages as the project's build would plan them now (null: the project cannot be read; a string: why not). */
@@ -140,8 +143,8 @@ export function makeDecalAtlasRoutes(o: {
   };
 
   /** Compose the pages (`preview`: at a preview size while some page is not made yet) and remember them. */
-  const composeNow = async (projectId: string, preview = false): Promise<Outcome> => {
-    const r = read(projectId);
+  const composeNow = async (projectId: string, preview = false, pre?: Read | string | null): Promise<Outcome> => {
+    const r = pre !== undefined ? pre : read(projectId);
     if (r === null) return { ok: false, error: sessionError('project_not_found', 'not_found', 'the project cannot be read', { projectId }), status: 404 };
     if (typeof r === 'string') return { ok: false, error: sessionError('invalid_request', 'validation', r) };
     if (o.port?.decalPages === undefined) return { ok: false, error: sessionError('converter_unavailable', 'unavailable', 'decal page assembly is not available on this server') };
@@ -190,17 +193,21 @@ export function makeDecalAtlasRoutes(o: {
     const queued = waiting.get(projectId);
     if (queued !== undefined) return queued;
     const settle = (e: unknown): Outcome => ({ ok: false, error: sessionError('conversion_failed', 'internal', `decal pages: ${e instanceof Error ? e.message : String(e)}`.slice(0, 256)) });
+    const signatureOf = (r: Read | string | null): string | null => (r !== null && typeof r !== 'string' ? r.signature : null);
     const begin = (): Promise<Outcome> => {
-      const run = composeNow(projectId).catch(settle);
-      running.set(projectId, run);
+      const r = read(projectId);
+      const run = composeNow(projectId, false, r).catch(settle);
+      const entry = { run, signature: signatureOf(r) };
+      running.set(projectId, entry);
       void run.finally(() => {
-        if (running.get(projectId) === run) running.delete(projectId);
+        if (running.get(projectId) === entry) running.delete(projectId);
       });
       return run;
     };
     const busy = running.get(projectId);
     if (busy === undefined) return begin();
-    const next = busy.then(() => {
+    if (busy.signature !== null && busy.signature === signatureOf(read(projectId))) return busy.run;
+    const next = busy.run.then(() => {
       waiting.delete(projectId);
       return begin();
     });
@@ -218,7 +225,13 @@ export function makeDecalAtlasRoutes(o: {
     const known = lastOf(projectId)?.composed;
     if (r !== null && typeof r !== 'string' && known !== undefined && known.signature === r.signature && known.preview !== true) return { ok: true, view: { ok: true, report: r.report, signature: r.signature, composed: known } };
     const out = await composeNow(projectId, true).catch((e: unknown): Outcome => ({ ok: false, error: sessionError('conversion_failed', 'internal', `decal pages: ${e instanceof Error ? e.message : String(e)}`.slice(0, 256)) }));
-    if (out.ok && out.view.composed?.preview === true) void enqueue(projectId);
+    // The pages start behind the preview. Should they fail, the preview is not kept as the pages: a later read finds
+    // none and asks again (the error reaches the request that shares this composition).
+    if (out.ok && out.view.composed?.preview === true) {
+      void enqueue(projectId).then((made) => {
+        if (!made.ok && last.get(projectId)?.composed.preview === true) last.delete(projectId);
+      });
+    }
     return out;
   };
 

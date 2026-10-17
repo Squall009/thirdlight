@@ -37,9 +37,14 @@ each tool grid.
 - Pick a tool by its tile or its letter. A click on the lit tile drops it
   (back to Navigate). **Space** arms the last tool again; its tile has a
   small *last* mark.
-- With a drawing tool armed (Rect, Polygon, Building), a click without a
-  drag on a room or building selects it; a drag still draws, so a room can
-  be drawn inside a building.
+- With **Rect** armed, a click without a drag on a room or building
+  selects it; a drag still draws, so a room can be drawn inside a building.
+  Polygon, Path and Building place a corner with every click, the first one
+  too, even over a building.
+- A click on a building selects the building; with it selected, a click
+  goes in and selects the room or path drawn inside it under the pointer
+  (through its walls or roof), and a click there again selects the
+  building.
 - With a tool armed, Alt + drag orbits.
 
 ## Esc

@@ -33,6 +33,8 @@
 .tl-dpanel__body::-webkit-scrollbar-track { background: rgba(0,0,0,.18); }
 .tl-dpanel__content > .tl-sec:last-child, .tl-dpanel__content > * > .tl-sec:last-child { border-bottom: 0; }
 .tl-dpanel__pad { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; }
+/* A panel stacks a field's label over its input: a number field takes the panel's width, as the pickers beside it do. */
+.tl-dpanel .tl-field > .tl-input--num { width: 100%; }
 /* More below than the body shows: a fade at its foot says so. */
 .tl-dpanel.is-more::after { content: 'scroll for more ▾'; position: absolute; left: 1px; right: 10px; bottom: 1px; height: 34px; display: flex; align-items: flex-end; justify-content: center;
   padding-bottom: 4px; font-size: 10px; color: var(--text-faint); background: linear-gradient(180deg, rgba(27,31,38,0), rgba(27,31,38,.97) 70%); pointer-events: none; border-radius: 0 0 8px 8px; }

@@ -33,9 +33,8 @@
 import * as THREE from 'three';
 import type { ArchitectureComponent, ArchitectureElement, BlockLayerComponent } from '@thirdlight/project-model';
 
-import { ARCHITECTURE_STOREY_HEIGHT_FALLBACK } from '@thirdlight/runtime';
 
-import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, moveWall, nearestCorner, nearestSegment, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, outlineFrame, outlineOfElement, outlineUnderRay, rectPath, roomPath, sideDragOffset, snapCorner, straightSides, withBuilding, withOutline, withOutlineSet, withOverride, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
+import { allOutlines, DEFAULT_ROOM_OPTIONS, isBuilding, moveWall, nearestCorner, nearestSegment, nearestSide, NEW_BUILDING_ROOF, nextOutlineId, openingOn, outlineFrame, outlineOfElement, outlineUnderRay, rectPath, roomPath, sideDragOffset, snapCorner, storeyRiseOf, straightSides, withBuilding, withOutline, withOutlineSet, withOverride, type OutlineRises, type OutlineSide, type Point3, type RoomToolOptions } from '../session/room-draw';
 import { BrushHud, tokenColour } from './brush-cursor';
 
 /** The rooms object of the edited layer (null id and component: none yet). */
@@ -46,6 +45,8 @@ export interface RoomsTarget {
   origin: readonly number[];
   /** Its elements as expanded (the rooms' generated walls: what wall and corner pieces go on). */
   elements: readonly ArchitectureElement[];
+  /** Each room's and building's storey height as built (the expansion's): what picks and frames stand up to. */
+  rises?: OutlineRises;
 }
 
 export interface RoomToolHost {
@@ -73,8 +74,11 @@ const GHOST = 0x9ad7ff;
 const PICK = 0xffc857;
 /** How near (cells) the pointer must be to a wall to put an opening on it or drag it, or to a path to pick it. */
 const WALL_REACH_CELLS = 0.6;
-/** The drawing tools: a click on an existing outline selects it rather than starting a new one. */
-const DRAWING_MODES: readonly string[] = ['rect', 'polygon', 'path', 'building'];
+/**
+ * The tools whose click on an existing outline selects it (a drag draws). Only Rect: it draws by dragging, so a click
+ * is free to select. Polygon, Path and Building place a corner with each click, the first one too, wherever it is.
+ */
+const SELECTING_MODES: readonly string[] = ['rect'];
 
 /** Outline lines drawn over everything (an outline picked or under the pointer shows through the walls). */
 function frameLines(material: THREE.LineBasicMaterial): THREE.LineSegments {
@@ -155,7 +159,7 @@ export class RoomTool {
     if (o === undefined || l === null) return null;
     const off = this.offset();
     const box = new THREE.Box3();
-    for (const p of outlineFrame(o, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, l.component.cellSize[1]!)) box.expandByPoint(new THREE.Vector3(p[0] + off[0], p[1] + off[1], p[2] + off[2]));
+    for (const p of outlineFrame(o, this.target.rises, l.component.cellSize[1]!)) box.expandByPoint(new THREE.Vector3(p[0] + off[0], p[1] + off[1], p[2] + off[2]));
     if (box.isEmpty()) return null;
     const roof = (o as { roof?: { rise?: number } }).roof;
     if (roof !== undefined) box.max.y += roof.rise ?? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
@@ -171,7 +175,7 @@ export class RoomTool {
     const r = this.host.ray(clientX, clientY);
     const o = this.target.origin;
     const cs = l.component.cellSize;
-    const hit = outlineUnderRay(this.target.component, [r.origin.x - (o[0] ?? 0), r.origin.y - (o[1] ?? 0), r.origin.z - (o[2] ?? 0)], [r.direction.x, r.direction.y, r.direction.z], ARCHITECTURE_STOREY_HEIGHT_FALLBACK, cs[1]!, WALL_REACH_CELLS * cs[0]!);
+    const hit = outlineUnderRay(this.target.component, [r.origin.x - (o[0] ?? 0), r.origin.y - (o[1] ?? 0), r.origin.z - (o[2] ?? 0)], [r.direction.x, r.direction.y, r.direction.z], this.target.rises, cs[1]!, WALL_REACH_CELLS * cs[0]!, this.selectedId);
     return hit?.id ?? null;
   }
 
@@ -208,7 +212,7 @@ export class RoomTool {
       return;
     }
     const off = this.offset();
-    const pts = outlineFrame(o, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, l.component.cellSize[1]!);
+    const pts = outlineFrame(o, this.target.rises, l.component.cellSize[1]!);
     const arr = new Float32Array(pts.length * 3);
     pts.forEach((p, i) => arr.set([p[0] + off[0], p[1] + off[1] + 0.03, p[2] + off[2]], i * 3));
     lines.geometry.dispose();
@@ -248,8 +252,8 @@ export class RoomTool {
     if (l === null || at === null) return true;
     const cs = l.component.cellSize;
     const m = this.opts.mode;
-    // Nothing drawn yet and the press is on an existing outline: a click selects it, a drag draws.
-    if (DRAWING_MODES.includes(m) && !this.inFlight()) {
+    // Rect, nothing drawn yet and the press is on an existing outline: a click selects it, a drag draws.
+    if (SELECTING_MODES.includes(m) && !this.inFlight()) {
       const id = this.outlineAt(e.clientX, e.clientY);
       if (id !== null) {
         this.pending = { x: e.clientX, y: e.clientY, corner: at.corner, id };
@@ -303,7 +307,7 @@ export class RoomTool {
     }
     const c = this.target.component!;
     const o = near.side.outline;
-    const storeyHeight = o.storeyHeight ?? ARCHITECTURE_STOREY_HEIGHT_FALLBACK;
+    const storeyHeight = storeyRiseOf(o, this.target.rises);
     const storey = Math.max(0, Math.min((o.storeys ?? 1) - 1, Math.round((at.corner[1] - (o.path.points[0]?.[1] ?? 0)) / storeyHeight)));
     const opening = openingOn(near.side, near.along, m, cs, storey, m === 'door' ? this.opts.doorPiece : m === 'window' ? this.opts.windowPiece : null);
     if (opening === null) {
@@ -326,8 +330,8 @@ export class RoomTool {
       const l = this.host.layer();
       if (l !== null) this.press(this.opts.mode, { x: 0, z: 0, corner: p.corner }, { clientX: p.x, clientY: p.y, ctrlKey: false, metaKey: false }, l.entityId, l.component.cellSize);
     }
-    // Before anything is drawn, a drawing tool outlines what a click would select.
-    if (DRAWING_MODES.includes(this.opts.mode) && !this.inFlight() && e.buttons === 0) this.hoverAt({ x: e.clientX, y: e.clientY });
+    // Before anything is drawn, Rect outlines what a click would select.
+    if (SELECTING_MODES.includes(this.opts.mode) && !this.inFlight() && e.buttons === 0) this.hoverAt({ x: e.clientX, y: e.clientY });
     else this.hoverAt(null);
     const d = this.drag;
     if (d !== null && at !== null) {

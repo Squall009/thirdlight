@@ -238,6 +238,20 @@ const BASIS_TEX_2D_ARRAY = 1;
 const SOURCE_RAW = 0;
 
 /**
+ * The source each layer takes whole (its four channels in order) when every
+ * layer is one KTX2 source's whole RGBA, else null: such layers are joined as
+ * stored, not encoded (when they are UASTC alike), so there is nothing to
+ * preview — the array itself is as quick.
+ */
+export function wholeKtx2Layers(sources: readonly Uint8Array[], layers: readonly PackLayer[]): number[] | null {
+  const whole = layers.map((l) => {
+    const s = l[0];
+    return s !== undefined && 'source' in s && l.every((c, k) => 'channel' in c && c.source === s.source && c.channel === k) ? s.source : -1;
+  });
+  return whole.every((i) => i >= 0 && sources[i] !== undefined && sourceFormat(sources[i]!) === 'ktx2') ? whole : null;
+}
+
+/**
  * Pack and encode in this thread. Every source is decoded
  * (PNG/JPEG/WebP), all must share one size; each layer's four channels are read
  * from them (or set to a constant), and the layers are encoded together as a
@@ -254,11 +268,8 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
   if (used.size === 0 && sources.length > 0) used.add(0);
   if (used.size === 0) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture needs at least one source image (its size)' };
   // Every layer the whole RGBA of one KTX2: join them as stored when they are UASTC alike.
-  const whole = layers.map((l) => {
-    const s = l[0];
-    return s !== undefined && 'source' in s && l.every((c, k) => 'channel' in c && c.source === s.source && c.channel === k) ? s.source : -1;
-  });
-  if (whole.every((i) => i >= 0 && sources[i] !== undefined && sourceFormat(sources[i]!) === 'ktx2')) {
+  const whole = wholeKtx2Layers(sources, layers);
+  if (whole !== null) {
     const joined = joinUastcLayers(whole.map((i) => sources[i]!), mode === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR);
     if (joined.ok) {
       const head = readKtx2(joined.ktx2)!;

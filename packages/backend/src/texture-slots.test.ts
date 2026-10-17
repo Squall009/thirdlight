@@ -326,7 +326,7 @@ describe('per-layer texture slots: Play and export arrays', () => {
     const problems = (await (await fetch(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { headers: { authorization: `Bearer ${tb.adminToken}` } })).json()) as { problems: { code: string; message: string }[] };
     const told = problems.problems.filter((p) => p.code === 'texture_array_refused');
     expect(told).toHaveLength(1);
-    expect(told[0]!.message).toMatch(new RegExp(`^The colour texture array of the layers "${big}", "${ids['c-red']}" could not be made, so the surface draws a stand-in: every source .* one size`));
+    expect(told[0]!.message).toMatch(new RegExp(`^A colour texture array could not be made, so the surface draws a stand-in: every source .* one size.* Its layers: "${big}", "${ids['c-red']}"$`));
   }, 180_000);
 
   it('an array past the encoder\'s limit is encoded a layer at a time in UASTC and joined; one within it stays one ETC1S job', async () => {

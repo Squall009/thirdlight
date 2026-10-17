@@ -29,6 +29,7 @@ import { readFileSync } from 'node:fs';
 
 import type { DecalPageChannel, DecalPageLayer, DecalPageSet } from '@thirdlight/project-model';
 import { DECAL_PAGE_ENCODINGS, DECAL_PAGE_SETS, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
+import type { ClosureDecalPageArray } from '@thirdlight/exporter';
 import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspace';
 
 import type { ComposeChannel, ComposeLayer } from './decal-page-compose';
@@ -52,11 +53,8 @@ export interface DecalPageRequest {
   readonly sources: ReadonlyMap<string, DecalPageSource>;
 }
 
-/**
- * One array of a set: its file and how many pages it holds (the set's pages
- * in order, array after array); a preview's array is its bytes, never stored.
- */
-export type DecalPageArray = { readonly file: BlobFile; readonly layers: number } | { readonly preview: Uint8Array; readonly digest: string; readonly layers: number };
+/** One array of a set, as the exporter's closure takes it (a preview's array is its bytes, never stored). */
+export type DecalPageArray = ClosureDecalPageArray;
 
 export type DecalPageResult =
   | {

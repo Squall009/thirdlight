@@ -16,8 +16,9 @@
  * - **Rooms** (top right, collapsed): the list, and Presets in use — every
  *   room wearing one preset swapped to another, the outlines kept
  *   (`PresetSwap`). The view is where rooms are mostly picked: with no tool
- *   a click selects one, and with a drawing tool a click on it (no drag)
- *   does; it is outlined there, and Esc lets it go.
+ *   a click selects one, and with Rect a click on it (no drag) does (the
+ *   click-placed tools place a corner); it is outlined there, and Esc lets
+ *   it go.
  * - **The picked room, building or path** (right edge, while one is picked):
  *   its properties (`RoomInspector`).
  * - **Layer** (bottom left, collapsed): the layer's lock.
@@ -92,9 +93,9 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   useEffect(() => editor?.rooms.setOptions(JSON.parse(optsKey) as RoomToolOptions), [editor, optsKey]);
   useEffect(() => {
     if (b === undefined) return;
-    editor?.rooms.setTarget({ entityId: b.entityId, component: b.component, origin: b.origin, elements: b.elements });
+    editor?.rooms.setTarget({ entityId: b.entityId, component: b.component, origin: b.origin, elements: b.elements, rises: b.rises });
     editor?.setRoomWalls(b.walls);
-  }, [editor, b?.entityId, b?.component, b?.origin, b?.elements, b?.walls]); // eslint-disable-line react-hooks/exhaustive-deps -- the binding is made again each render; these are what the tool reads
+  }, [editor, b?.entityId, b?.component, b?.origin, b?.elements, b?.rises, b?.walls]); // eslint-disable-line react-hooks/exhaustive-deps -- the binding is made again each render; these are what the tool reads
   if (editor !== null && b !== undefined) {
     editor.roomHandlers.current = {
       onRooms: (_layerId, next, what) => b.setRooms(next, what),

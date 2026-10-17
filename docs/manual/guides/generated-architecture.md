@@ -59,7 +59,8 @@ picks a room, building or path, and **Home** frames it from outside.
 5. **Move walls** (M) drags a straight wall by whole cells (a wall two rooms
    share moves with both); a click picks the room.
 6. A click on a room, path or building picks it (with no tool, or a click
-   without a drag with a drawing tool); the **Rooms** panel over the view
+   without a drag with Rect; with a building selected, a click on it picks
+   the room inside it under the pointer); the **Rooms** panel over the view
    (top right, collapsed to its title bar until you click it) lists them all
    too. The picked one is edited in its own panel on the view's right edge:
    its inside and outside (or facade) presets, **Preset sliders**

@@ -243,29 +243,60 @@ describe('picking a room, building or path in the view', () => {
   const c: ArchitectureComponent = { ...room, buildings: [{ id: 'building-1', preset: 'starter-room', storeys: 2, storeyHeight: 3, path: rectPath([8, 0, 0], [12, 0, 4])! }], outlines: [...(room.outlines ?? []), { id: 'run-1', preset: 'starter-fence', path: { points: [[0, 0, 10], [12, 0, 10]] } }] };
 
   it('finds a footprint from above and a wall from the side, the nearest first', () => {
-    expect(outlineUnderRay(c, [2, 20, 2], [0, -1, 0], 3, 1, 0.6)?.id).toBe('room-1');
-    expect(outlineUnderRay(c, [10, 20, 2], [0, -1, 0], 3, 1, 0.6)?.id).toBe('building-1');
+    expect(outlineUnderRay(c, [2, 20, 2], [0, -1, 0], undefined, 1, 0.6)?.id).toBe('room-1');
+    expect(outlineUnderRay(c, [10, 20, 2], [0, -1, 0], undefined, 1, 0.6)?.id).toBe('building-1');
     // From the side at 5 m up: the room (3 m) is passed over, the two-storey building is met.
-    expect(outlineUnderRay(c, [-10, 5, 2], [1, 0, 0], 3, 1, 0.6)?.id).toBe('building-1');
+    expect(outlineUnderRay(c, [-10, 5, 2], [1, 0, 0], undefined, 1, 0.6)?.id).toBe('building-1');
     // At 1 m up the room's wall is nearer.
-    const hit = outlineUnderRay(c, [-10, 1, 2], [1, 0, 0], 3, 1, 0.6)!;
+    const hit = outlineUnderRay(c, [-10, 1, 2], [1, 0, 0], undefined, 1, 0.6)!;
     expect(hit.id).toBe('room-1');
     expect(hit.t).toBeCloseTo(10);
     // Between them, nothing.
-    expect(outlineUnderRay(c, [6, 20, 2], [0, -1, 0], 3, 1, 0.6)).toBeNull();
+    expect(outlineUnderRay(c, [6, 20, 2], [0, -1, 0], undefined, 1, 0.6)).toBeNull();
   });
 
   it('finds a path from above within reach of its line, and nothing behind the ray', () => {
-    expect(outlineUnderRay(c, [5, 20, 10.4], [0, -1, 0], 3, 1, 0.6)?.id).toBe('run-1');
-    expect(outlineUnderRay(c, [5, 20, 11], [0, -1, 0], 3, 1, 0.6)).toBeNull();
-    expect(outlineUnderRay(c, [2, 20, 2], [0, 1, 0], 3, 1, 0.6)).toBeNull();
+    expect(outlineUnderRay(c, [5, 20, 10.4], [0, -1, 0], undefined, 1, 0.6)?.id).toBe('run-1');
+    expect(outlineUnderRay(c, [5, 20, 11], [0, -1, 0], undefined, 1, 0.6)).toBeNull();
+    expect(outlineUnderRay(c, [2, 20, 2], [0, 1, 0], undefined, 1, 0.6)).toBeNull();
   });
 
   it('outlines an outline as its floor and top rings and its corners stood up', () => {
     const b = c.buildings![0]!;
-    const lines = outlineFrame(b, 3, 1);
+    const lines = outlineFrame(b, undefined, 1);
     // Four sides twice (floor, top) and four verticals: 12 lines, 24 points; the top at two storeys.
     expect(lines).toHaveLength(24);
     expect(Math.max(...lines.map((p) => p[1]))).toBe(6);
+  });
+
+  it('stands a building up to the storeys the runtime builds (a tall preset), as the expansion gives them', () => {
+    const table = architectureStylesOf(ARCHITECTURE_STARTER_GRAPHS as never);
+    const tall: ArchitectureComponent = { elements: [], buildings: [{ id: 'building-1', preset: 'starter-room-tall', storeys: 2, path: rectPath([0, 0, 0], [4, 0, 4])! }] };
+    const rises = expandArchitecture(tall, [0, 0, 0], table).rises;
+    expect(rises?.['building-1']).toBeCloseTo(4.2, 3);
+    const b = tall.buildings![0]!;
+    expect(Math.max(...outlineFrame(b, rises, 1).map((p) => p[1]))).toBeCloseTo(8.4, 3);
+    // From the side at 7 m up: the second storey of a tall building (3 m storeys would end at 6).
+    expect(outlineUnderRay(tall, [-10, 7, 2], [1, 0, 0], rises, 1, 0.6)?.id).toBe('building-1');
+    expect(outlineUnderRay(tall, [-10, 7, 2], [1, 0, 0], undefined, 1, 0.6)).toBeNull();
+  });
+
+  it('picks the building first; with it selected, a click goes in to the room or path under the pointer, and out again', () => {
+    const inside: ArchitectureComponent = {
+      elements: [],
+      buildings: [{ id: 'building-1', preset: 'starter-room', storeys: 2, storeyHeight: 3, path: rectPath([0, 0, 0], [8, 0, 8])! }],
+      outlines: [{ id: 'room-1', preset: 'starter-room', path: rectPath([1, 0, 1], [4, 0, 4])! }, { id: 'run-1', preset: 'starter-fence', path: { points: [[5, 0, 6], [7, 0, 6]] } }],
+    };
+    const pick = (o: number[], d: number[], selected: string | null = null): string | undefined => outlineUnderRay(inside, o, d, undefined, 1, 0.6, selected)?.id;
+    expect(pick([2, 20, 2], [0, -1, 0])).toBe('building-1');
+    expect(pick([2, 20, 2], [0, -1, 0], 'building-1')).toBe('room-1');
+    expect(pick([6, 20, 6.2], [0, -1, 0], 'building-1')).toBe('run-1');
+    // A low view through the building's wall: the room behind it (its 3 m walls under the building's 6 m).
+    expect(pick([-10, 2, 2.5], [1, 0, 0], 'building-1')).toBe('room-1');
+    // An oblique view onto the building's top above the room: the room stood up to the building's top is met.
+    expect(pick([2.5 + 12, 6 + 6, 2.5], [-12, -6, 0], 'building-1')).toBe('room-1');
+    // Nothing inside under the pointer: the building stays; the room selected, the same click picks the building again.
+    expect(pick([6, 20, 2], [0, -1, 0], 'building-1')).toBe('building-1');
+    expect(pick([2, 20, 2], [0, -1, 0], 'room-1')).toBe('building-1');
   });
 });

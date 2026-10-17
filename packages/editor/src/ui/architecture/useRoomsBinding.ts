@@ -31,6 +31,8 @@ export interface RoomsBinding {
   elements: readonly ArchitectureElement[];
   /** Each room storey's floor plan (expanded: floors and wall tops). */
   plans: readonly ArchitectureRoomPlan[];
+  /** Each room's and building's storey height as built (expanded; absent: no room). */
+  rises: Readonly<Record<string, number>> | undefined;
   /** Buildings' furnished and pinned props, and the rooms their programs made (expanded). */
   props: readonly FurnishedProp[];
   planRooms: readonly ArchitectureOutline[];
@@ -87,6 +89,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     origin,
     layerOrigin,
     plans: expanded?.rooms ?? [],
+    rises: expanded?.rises,
     props: expanded?.props ?? [],
     planRooms: expanded?.planRooms ?? [],
     programs,

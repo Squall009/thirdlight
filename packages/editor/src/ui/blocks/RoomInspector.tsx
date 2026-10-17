@@ -133,7 +133,8 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
               label="storey height"
               value={room.storeyHeight}
               min={0.1}
-              placeholder="the walls' top"
+              placeholder="auto"
+              hint="Empty: the inside preset's wall height."
               onCommit={(v) => {
                 const { storeyHeight: _h, ...rest } = room;
                 set(v === undefined ? rest : { ...rest, storeyHeight: v }, 'Storey height');

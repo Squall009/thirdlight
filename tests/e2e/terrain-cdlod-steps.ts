@@ -693,8 +693,12 @@ export async function screenOf(page: Page, p: V3): Promise<{ x: number; y: numbe
   const ny = (m[1]! * x + m[5]! * y + m[9]! * z + m[13]!) / w;
   return { x: box.x + ((nx + 1) / 2) * box.width, y: box.y + ((1 - ny) / 2) * box.height };
 }
-/** Zoom the Scene view out until every point is in it (away from its edges), run `check`, and zoom back in. */
-export async function zoomedOutTo(page: Page, points: readonly V3[], check: () => Promise<void>): Promise<void> {
+/**
+ * Zoom the Scene view out until every point is in it (away from its edges), run `check`, and zoom back. With `spanPx`,
+ * the view then zooms in (toward the orbit target) while the first two points lie closer than that on screen and every
+ * point stays in view: a small thing sampled in a far view (a whole terrain framed) is too few pixels to judge.
+ */
+export async function zoomedOutTo(page: Page, points: readonly V3[], check: () => Promise<void>, spanPx = 0): Promise<void> {
   const box = (await viewport(page).boundingBox())!;
   const inView = async (): Promise<boolean> => {
     for (const p of points) {
@@ -710,12 +714,28 @@ export async function zoomedOutTo(page: Page, points: readonly V3[], check: () =
     await page.waitForTimeout(80);
   }
   expect(await inView(), 'the points in the Scene view').toBe(true);
+  const span = async (): Promise<number> => {
+    const [a, b] = [await screenOf(page, points[0]!), await screenOf(page, points[1]!)];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  if (spanPx > 0 && points.length >= 2) {
+    for (let i = 0; i < 30 && (await span()) < spanPx; i++) {
+      await page.mouse.wheel(0, -200);
+      await page.waitForTimeout(80);
+      zoomed--;
+      if (await inView()) continue;
+      await page.mouse.wheel(0, 200);
+      await page.waitForTimeout(80);
+      zoomed++;
+      break;
+    }
+  }
   // The pictures are of the ground: the brush cursor (its fill) off it until a check moves the pointer back.
   await pointerOffView(page);
   await check();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < zoomed; i++) {
-    await page.mouse.wheel(0, -200);
+  for (let i = 0; i < Math.abs(zoomed); i++) {
+    await page.mouse.wheel(0, zoomed > 0 ? -200 : 200);
     await page.waitForTimeout(80);
   }
 }
@@ -1585,11 +1605,14 @@ export async function materialRules(page: Page, ground: string, blocks: string):
   await fill(rules, 'rule 1 slope', `>${STEEP_RULE.slope.min}`);
   await fill(rules, 'rule 1 slope softness', 1);
   // The live preview: the draft drawn on the terrain before it is baked — the steep ramp shows layer 3 (magenta), stored still layer 0.
+  // The ramp is 3 m wide: the view (a whole 256 m terrain framed beside the panels) is zoomed in until its middle
+  // 2.4 m span 40 px, so the sampled square lies well inside it.
   const rampMid: V3 = [RAMP_MID[0], (await surface(ground, ...RAMP_MID))[1], RAMP_MID[1]];
-  await zoomedOutTo(page, [rampMid], async () => {
+  const rampAcross: V3[] = [[RAMP_MID[0] - 1.2, rampMid[1], RAMP_MID[1]], [RAMP_MID[0] + 1.2, rampMid[1], RAMP_MID[1]]];
+  await zoomedOutTo(page, [...rampAcross, rampMid], async () => {
     await expect.poll(async () => JSON.parse((await viewport(page).getAttribute('data-terrain-rules-preview')) || '{"covered":0}').covered as number, { timeout: 15_000, message: 'the rules previewed' }).toBeGreaterThan(0);
     await expect.poll(() => shareNear(page, rampMid, isMagenta, 8), { timeout: 15_000, message: 'the preview paints the steep ramp with layer 3' }).toBeGreaterThan(0.5);
-  });
+  }, 40);
   expect((await layersAt(RAMP_MID)).layers, 'not baked yet').not.toEqual([STEEP_RULE.layer]);
   const rev0 = Number((await query('queryProject')).revision);
   await terrainPanel(page).getByRole('button', { name: 'bake rules' }).click();

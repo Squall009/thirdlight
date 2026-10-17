@@ -966,7 +966,9 @@ export class Viewport {
   /**
    * Orbit around the entity's world position, keeping the view direction and
    * distance — unless that puts the camera inside what the entity draws (a
-   * building's walls): then the view frames it from outside.
+   * building's walls): then the view frames it from outside. A terrain is
+   * ground, not walls: a view low over it is inside its box but sees it, so F
+   * orbits it.
    */
   focus(id: string): void {
     this.adapter.sync?.();
@@ -975,7 +977,8 @@ export class Viewport {
     const world = new THREE.Vector3().setFromMatrixPosition(m);
     const offset = this.camera.position.clone().sub(this.orbit.target);
     const box = this.boundsOf(this.subtreeIds(id), () => true);
-    if (!box.isEmpty() && insideBox(world.clone().add(offset).toArray(), { min: box.min.toArray(), max: box.max.toArray() }, this.camera.near)) {
+    const ground = this.adapter.terrains?.()?.field(id) != null;
+    if (!ground && !box.isEmpty() && insideBox(world.clone().add(offset).toArray(), { min: box.min.toArray(), max: box.max.toArray() }, this.camera.near)) {
       this.fitBox(box);
       return;
     }
