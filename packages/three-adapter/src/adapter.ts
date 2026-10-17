@@ -52,6 +52,7 @@ import { syncCellUv } from './block-cell-uv';
 import { type BlockLayerViewDiagnostics } from './block-layers';
 import { createLevelViews } from './level-views';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
+import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
@@ -299,6 +300,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   if (opts.lod !== undefined) graph.lodTuning.set(opts.lod);
   // Tools reading the scene (the perf harness) find the frame's LOD switches with it.
   scene.userData[LOD_TUNING_KEY] = graph.lodTuning;
+  // The perf harness measures how much of the view's drawn work no pixel shows (occlusion-oracle.ts).
+  scene.userData[OCCLUSION_ORACLE_KEY] = (renderer: Parameters<typeof runOcclusionOracle>[0], camera: THREE.Camera, options?: OracleOptions) => runOcclusionOracle(renderer, scene, camera, options);
   /** One object's own meshes (its child objects have nodes of their own). */
   const ownMeshes = (entityId: string): THREE.Object3D[] => {
     const out: THREE.Object3D[] = [];

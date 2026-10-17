@@ -21,7 +21,8 @@ import { chromium, type Browser } from '@playwright/test';
 import { FRAME_RATE_CAP_URL_PARAM } from '@thirdlight/runtime';
 
 import { browserLaunchEnv, GPU_ARGS } from '../../tests/e2e/browser-env.mjs';
-import { installFrameProbe, probeGpuPasses, probeSceneCounts, probeSetGpuTiming, type GpuTimings, type SceneCounts } from './frame-probe';
+import { installFrameProbe, probeGpuPasses, probeOcclusionOracle, probeSceneCounts, probeSetGpuTiming, type GpuTimings, type SceneCounts } from './frame-probe';
+import type { OracleResult } from '@thirdlight/three-adapter';
 import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
 import { profileSplit, type ProfileSplit } from './profile';
 import { dumpScene, type DumpSummary } from './scene-dump';
@@ -70,6 +71,23 @@ export interface FrameRunOptions {
   busyMs?: number;
   /** The longest wait (ms) for the scene to settle (absent: 90 s; a flying camera's scene never stops changing). */
   settleMs?: number;
+  /** Last, after everything else (it makes the page build its programs again): the occlusion oracle's count. */
+  oracle?: boolean;
+  /**
+   * With `oracle`: then leave out of the view every draw the oracle found wholly hidden and measure the frames
+   * again (frames, draws, main thread, GPU passes): what an ideal culling of whole draws would save here.
+   */
+  oracleCull?: boolean;
+}
+
+/** The frames measured again with the draws the oracle found wholly hidden left out of the view. */
+export interface OracleCulledRun {
+  hiddenDraws: number;
+  frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number };
+  draws: Summary;
+  tris: Summary;
+  mainThread: { taskMsPerFrame: number };
+  gpu: GpuTimings | null;
 }
 
 /**
@@ -109,6 +127,9 @@ export interface FrameRunResult {
   dump?: DumpSummary | string;
   /** The engine's user-timing marks (`tl:…`) seen by the end of the run. */
   marks?: PageSample['marks'];
+  /** What the view draws that no pixel shows (`oracle`), or why it could not be counted. */
+  oracle?: OracleResult | { error: string };
+  oracleCulled?: OracleCulledRun;
   errors: string[];
 }
 
@@ -269,9 +290,41 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     };
     if (opts.dump === true) out.dump = await page.evaluate(dumpScene);
     if (opts.shot !== undefined) await page.screenshot({ path: opts.shot });
+    if (opts.oracle === true) {
+      out.oracle = await page
+        .evaluate(probeOcclusionOracle, { hideHidden: opts.oracleCull === true })
+        .then((o) => (o === null ? { error: 'no scene carries the oracle' } : (o as OracleResult)))
+        .catch((e: unknown) => ({ error: String(e).slice(0, 500) }));
+      if (opts.oracleCull === true && !('error' in out.oracle)) out.oracleCulled = await culledWindow(context, page, opts, out.oracle.hiddenNow ?? 0);
+    }
     return out;
   } finally {
     await context.close();
+  }
+}
+
+/** After the oracle hid the wholly hidden draws: the programs it changed built again, then a frame window and the GPU passes. */
+async function culledWindow(context: import('@playwright/test').BrowserContext, page: import('@playwright/test').Page, opts: FrameRunOptions, hiddenDraws: number): Promise<OracleCulledRun> {
+  await new Promise((r) => setTimeout(r, Math.max(3000, opts.warmupMs)));
+  const cdp = await context.newCDPSession(page);
+  try {
+    await cdp.send('Performance.enable');
+    const task = async (): Promise<number> => ((await cdp.send('Performance.getMetrics')) as { metrics: { name: string; value: number }[] }).metrics.find((m) => m.name === 'TaskDuration')?.value ?? 0;
+    const a = await task();
+    await page.evaluate(startRecording);
+    await new Promise((r) => setTimeout(r, opts.recordMs));
+    const sample = await page.evaluate(readSample, true);
+    const taskMs = ((await task()) - a) * 1000;
+    const s = summarize(sample.frames);
+    let gpu: GpuTimings | null = null;
+    if (opts.gpuMs > 0) {
+      const on = await page.evaluate(probeSetGpuTiming, true);
+      gpu = on ? await page.evaluate(probeGpuPasses, opts.gpuMs) : { available: false, frames: 0, msPerFrame: 0, passes: [] };
+      await page.evaluate(probeSetGpuTiming, false);
+    }
+    return { hiddenDraws, frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean }, draws: summarize(sample.frameDraws), tris: summarize(sample.frameTris), mainThread: { taskMsPerFrame: Math.round((taskMs / Math.max(1, sample.frames.length)) * 100) / 100 }, gpu };
+  } finally {
+    await cdp.detach().catch(() => undefined);
   }
 }
 

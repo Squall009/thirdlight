@@ -92,7 +92,7 @@ import { layeredMaterial, riverMaterial } from '../../packages/editor/src/sessio
 import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
-import { prng, type BehaviorPlan, type EntityValue } from './generate';
+import { EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValue } from './generate';
 import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, COPY_STROKE_RADIUS, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINT_STROKE_RADIUS, PAINTED_MATERIAL, type LevelMarks, type LevelMarksOptions } from './level-marks';
 import { layeredWallMaterial, layeredWalls, wallCounts, wallEntities, wallLayerIds, wallLayerTextures, wallSheetMaterial, wallStrokes, wallTrimSheet, NO_LAYERED_WALLS, WALL_LAYER_SETS, WALL_MATERIAL, type LayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
@@ -498,6 +498,53 @@ function copies(n: number, at: (i: number) => { x: number; y: number; z: number;
     f.set([r3(c.x), r3(c.y), r3(c.z), 0, Math.sin(c.yaw / 2), 0, Math.cos(c.yaw / 2), r3(c.s), r3(c.s), r3(c.s)], i * 10);
   }
   return f;
+}
+
+/**
+ * The occluded views a class can be measured from instead of its open one (`--view`), each against the open view
+ * of the same build: `street` stands at eye height in the area's middle street (the plots' boundary at the area's
+ * centre line, which no room reaches) and looks along it between the walled rooms; `valley` stands at eye height
+ * in the hills, where a hill rises between the eye and the area, and looks over it towards the area.
+ */
+export type LevelView = 'street' | 'valley';
+export const LEVEL_VIEWS: readonly LevelView[] = ['street', 'valley'];
+
+/** The camera of `view` in a class's plan (a pure function of the plan). */
+export function levelViewCamera(plan: Pick<LevelPlan, 'kind'>, view: LevelView): LevelPlan['camera'] {
+  const N = LEVEL_SPEC.areaSide;
+  const half = N / 2;
+  if (view === 'street') {
+    if (plan.kind === 'interior') throw new Error('--view street: an outdoor class (the interior is seen from inside as it is)');
+    // Rooms keep 2 columns inside their plots (a quarter of the side each), so the centre column is a street.
+    return { position: [0, r3(groundY(half, N - 3) + EYE_HEIGHT_M), half - 3], rotation: [0, 0, 0, 1] };
+  }
+  if (!hasTerrain(plan.kind)) throw new Error(`--view valley: a class with a terrain (landscape, world), not ${plan.kind}`);
+  const flat = terrainShapeOf(plan.kind).flat;
+  const h = (x: number, z: number): number => levelTerrainHeight(x, z, flat);
+  // Every 10 degrees round the area and every 50 m through the hills: the eye whose way to the area's middle
+  // crosses the highest hill (the largest rise over the eye's horizon 60–600 m ahead), not a slope at its feet.
+  let best = { score: -Infinity, x: 0, z: 0 };
+  for (let k = 0; k < 36; k += 1) {
+    const a = (k * Math.PI) / 18;
+    for (let r = flat[1]! + 50; r <= flat[1]! + 600; r += 50) {
+      const x = r * Math.cos(a);
+      const z = r * Math.sin(a);
+      const eye = h(x, z) + EYE_HEIGHT_M;
+      let near = -Infinity;
+      let far = -Infinity;
+      for (let d = 10; d <= Math.min(600, r - 60); d += 10) {
+        const t = d / r;
+        const rise = Math.atan2(h(x * (1 - t), z * (1 - t)) - eye, d);
+        if (d < 60) near = Math.max(near, rise);
+        else far = Math.max(far, rise);
+      }
+      const score = far - Math.max(0, near);
+      if (score > best.score) best = { score, x, z };
+    }
+  }
+  // Looking at the area's middle, level: three cameras look down -z, so the yaw turns -z towards it.
+  const yaw = Math.atan2(best.x, best.z);
+  return { position: [r3(best.x), r3(h(best.x, best.z) + EYE_HEIGHT_M), r3(best.z)], rotation: yawQ(yaw) };
 }
 
 export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false, markOptions: LevelMarksOptions = NO_LEVEL_MARKS, wallOptions: LayeredWallsOptions = NO_LAYERED_WALLS): LevelPlan {

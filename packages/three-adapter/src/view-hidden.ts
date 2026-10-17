@@ -23,6 +23,8 @@ export const HIDDEN_BY_CUTAWAY = 1;
 export const HIDDEN_BY_ROOM = 2;
 /** Another object than the one an editor's edit mode isolates (isolation-view.ts): hidden from the shadows too. */
 export const HIDDEN_BY_ISOLATION = 4;
+/** Hidden behind what is drawn in front of it (the occlusion oracle's ideal culling, for a measurement). */
+export const HIDDEN_BY_OCCLUSION = 8;
 
 /** The reasons that hide a mesh from the shadow cameras as well. */
 const HIDDEN_FROM_SHADOWS = HIDDEN_BY_ISOLATION;

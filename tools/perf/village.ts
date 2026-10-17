@@ -19,7 +19,7 @@
  */
 import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
-import { BENCH_BEHAVIORS, prng, type BehaviorPlan, type EntityValue } from './generate';
+import { BENCH_BEHAVIORS, EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValue } from './generate';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
 import { FIGURE_CLIP_SECONDS, figureGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
@@ -123,6 +123,18 @@ function fireEffect(): Record<string, unknown> {
     }
   }
   return { effectId: FIRE_EFFECT, name: 'Fire', duration: 1, loop: true, seed: 3, bounds: { center: [0, 1, 0], size: [3, 4, 3] }, systems: [{ systemId: 'sparks', name: 'Sparks', maxParticles: 48, space: 'world', graph: { nodes, edges } }] };
+}
+
+/** The occluded view the village can be measured from (`--view street`), against its open view of the same build. */
+export type VillageView = 'street';
+
+/**
+ * `street`: at eye height in the village's middle (the props keep 2 m clear of it), level, looking the way the open
+ * view looks: the props round the eye hide most of those behind them.
+ */
+export function villageViewCamera(view: VillageView): VillagePlan['camera'] {
+  if (view !== 'street') throw new Error(`--view: street, not ${String(view)}`);
+  return { position: [0, GROUND_Y + EYE_HEIGHT_M, 0], rotation: [0, 0, 0, 1] };
 }
 
 export function villagePlan(seed = VILLAGE_SEED): VillagePlan {

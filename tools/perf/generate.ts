@@ -81,6 +81,9 @@ export interface BenchPlan {
   counts: Record<string, number>;
 }
 
+/** A standing player's eye over the ground (m): the eye height of the classes' occluded views. */
+export const EYE_HEIGHT_M = 1.7;
+
 /** mulberry32: a tiny, well-mixed 32-bit PRNG. */
 export function prng(seed: number): () => number {
   let a = seed >>> 0;

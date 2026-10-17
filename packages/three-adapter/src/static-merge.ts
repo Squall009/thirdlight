@@ -420,6 +420,18 @@ function fillIndex(b: Built, list: readonly Slot[], order: Uint32Array | null): 
   return n;
 }
 
+/** The built cell behind each merged mesh, for tools that look inside a merged draw. */
+const builtOf = new WeakMap<THREE.Mesh, Built>();
+
+/**
+ * The members a merged mesh draws now: each one's vertex range in the mesh's geometry (null: not a merged
+ * mesh). Its index holds only these members' triangles, the view's in its leading part.
+ */
+export function mergedMembersOf(mesh: THREE.Object3D): { vStart: number; vCount: number }[] | null {
+  const b = builtOf.get(mesh as THREE.Mesh);
+  return b === undefined ? null : b.drawnSlots.map((s) => ({ vStart: s.vStart, vCount: s.vCount }));
+}
+
 /**
  * A built cell that culls its slots in the view: their triangles in view lead
  * the index, nearest first, and the view's pass draws only those
@@ -690,6 +702,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     if (cell.built !== null) releaseBuilt(cell.built);
     const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });
     cell.built = built;
+    builtOf.set(mesh, built);
     options.viewCull?.add(built);
     cell.dead = 0;
     cell.needsBuild = false;

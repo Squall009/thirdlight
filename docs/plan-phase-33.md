@@ -61,78 +61,106 @@ expected to need it).
     write solid depth (cut-out hedges, glass, thin detail) or are too
     detailed to be worth testing against.
 
-## 2. Where things stand (checked at `a4e4a7fa`, 2026-10-09)
+## 2. Where things stand (checked at `a4e4a7fa`, 2026-10-09; re-checked at `60bd1f69`, 2026-10-17, after phases 34–37)
 
 - **Frustum culling inside draws** (`three-adapter/src/view-cull.ts:1-26`).
   Instance-set chunks, automatic batches and merged static cells are tested
   item by item against the view. What the view sees is ordered first, and
   each draw's count is chosen per camera in `onBeforeRender`: the view's
   camera draws the leading part, every other camera (shadow maps, probes)
-  draws everything (`attribute-instancing.ts:325-328`,
-  `static-merge.ts:487-488`). The cached static shadow camera is marked
+  draws everything (`attribute-instancing.ts:358-361`,
+  `static-merge.ts:517-518`). The cached static shadow camera is marked
   (`view-cull.ts:36`) and draws every copy at full detail. This per-camera
   count is the hook occlusion uses: the view gets a culled draw, every
   other camera the full one.
-- **Hidden from the view, kept in shadows** (`view-hidden.ts:13-39`). A
+- **Hidden from the view, kept in shadows** (`view-hidden.ts:21-55`). A
   mesh hidden by a cut-away or a room moves to layer 31, which shadow
-  cameras see and the view does not. Reasons are bits (cut-away 1, room 2);
-  occlusion adds a third.
+  cameras see and the view does not. Reasons are bits: cut-away 1, room 2,
+  isolation 4 (phase 34: hidden from the shadows too), occlusion 8
+  (`HIDDEN_BY_OCCLUSION`, used by the oracle's ideal-culling measurement;
+  33.2 uses it for real).
+- **Edit-mode isolation** (`isolation-view.ts`, phase 34). An edit mode
+  shows only the edited object: every other drawable leaves the view's and
+  the shadows' layers; batches and merged cells are hidden whole and the
+  isolated object's own meshes leave them meanwhile (`ISOLATED_DRAW_KEY`,
+  `batching.ts:82`) and draw alone; once a frame, after the batcher and
+  after rooms, the scene is swept (`adapter.ts:1502`, `:1511`). Occlusion
+  must test only what isolation left drawn and never hide the isolated
+  object (it is what is edited) or anything that belongs to no object
+  (overlays, gizmos, brush cursors).
+- **The borrowed Scene view** (`editor/src/ui/shell/useSceneViewLending.ts`,
+  phases 34 and 37). Edit modes and preview panes draw on the Scene view's
+  own canvas, renderer and scene, moved into their pane; docked panels lie
+  over the view (the canvas keeps its size; framing fits the view minus the
+  open panels). So the editor has one view path; culling in it is the
+  Play path with the editor's camera, and panels over the view are drawn
+  under, not culled.
+- **Texture stand-ins** (phase 37: block layers, `block-layers.ts`, and
+  material graphs, `material-graph.ts:142`). While texture arrays encode,
+  surfaces draw with a stand-in and swap programs when the textures arrive.
+  Pixel comparisons (culling on vs off) wait for the stand-ins to be gone,
+  as `view-match.ts` already waits for a settled scene.
 - **Room portals** (`project-model/src/arch-portals.ts`, walk at `:390`;
-  page side `three-adapter/src/room-culling.ts`, update at `:251`, hiding at
-  `:530`). The walk narrows a screen rectangle portal by portal, only when
+  page side `three-adapter/src/room-culling.ts`, update at `:306`, hiding at
+  `:580`). The walk narrows a screen rectangle portal by portal, only when
   the view moved or a door changed. Drawables get a room from their bounds'
   middle; wall chunks get rooms per vertex. 30.27 measured the interior
   class: `portals=off` adds 277 draws and 0.5–1.0 ms on WebGPU (plan-phase-30
   §6). Instanced draws stay in no room and are not culled by rooms.
 - **Static batching** (`static-merge.ts`): static meshes merged per material
-  and 64 m cell (`batching.ts:222`, `BATCH_CELL_SIZE_M`), drawn first
-  (`MERGED_RENDER_ORDER = -1`, `static-merge.ts:66`) so the level's dense
+  and 64 m cell (`batching.ts:245`, `BATCH_CELL_SIZE_M`), drawn first
+  (`MERGED_RENDER_ORDER = -1`, `static-merge.ts:72`) so the level's dense
   geometry fills depth early. A cell's members are index ranges, re-ordered
   when the view changes.
-- **Instance sets** (`instancing.ts`, `instance-prepare.ts:25-27`): chunks of
-  about 2,048 copies, LOD per chunk or per copy (`instance-lod.ts`), density
-  falloff; scatter (`scatter-view.ts`) and ground cover (`cover-view.ts`,
-  32 m squares made on a worker) draw through them.
+- **Instance sets** (`instancing.ts`, `instance-prepare.ts:24`,
+  `INSTANCE_CHUNK_COPIES = 2048`): LOD per chunk or per copy
+  (`instance-lod.ts`), density falloff; scatter (`scatter-view.ts`) and
+  ground cover (`cover-view.ts`, 32 m squares made on a worker) draw through
+  them.
 - **LOD** (`lod-switch.ts`): picked per frame on the CPU; only the picked
   level is attached.
-- **Render graph** (`render-graph.ts:1-55`): only drawables are in the
+- **Render graph** (`render-graph.ts:1-56`): only drawables are in the
   three.js scene; parked members draw through their batch or cell.
-- **Terrain** (`terrain-view.ts:1263-1266`): CDLOD nodes drawn instanced, one
+- **Terrain** (`terrain-view.ts:1313-1316`): CDLOD nodes drawn instanced, one
   draw per page; the view draws its nodes in view, shadow cameras all.
 - **Generated architecture** (`architecture-view.ts`): one mesh per chunk
   per material slot, static, in the cached static shadow.
 - **Streaming** (`three-adapter/src/world-stream.ts`): residency by
   distance from the eye under a memory budget; it does not look at
   visibility.
-- **Frame order** (`adapter.ts:1394-1431`): streaming, block and
-  architecture updates, LOD picks, the batcher, `viewCull.update`, rooms,
-  the shadow budget, terrain nodes, then the draw through the environment
-  renderer (`environment.ts`, a three `RenderPipeline` whose scene pass has
-  depth and normal outputs; AO reprojects last frame's depth already,
-  `post-ao.ts:24-34`). Render scale and dynamic resolution
+- **Frame order** (`adapter.ts:1473-1517`, the draw at `:1575`): streaming,
+  block and architecture updates, LOD picks, isolation's batch hook, the
+  batcher, `viewCull.update`, rooms, isolation's sweep, the shadow budget,
+  terrain nodes, then the draw through the environment renderer
+  (`environment.ts`, a three `RenderPipeline` whose scene pass has depth and
+  normal outputs; AO reprojects last frame's depth already,
+  `post-ao.ts:24-31`). Render scale and dynamic resolution
   (`dynamic-resolution.ts`) change the scene pass size. Depth may be
-  standard, logarithmic or reversed (`renderer-factory.ts:332`).
-- **`adapter.ts` is 1,864 lines**; occlusion lives in its own module and the
-  adapter gains only its wiring (split first if it would pass 2,000).
+  standard, logarithmic or reversed (`renderer-factory.ts:334`).
+- **File sizes**: `adapter.ts` is 1,979 lines (1,864 at `a4e4a7fa`), and
+  `editor/src/viewport/viewport.ts` 1,990: occlusion lives in its own
+  modules and each gains only its wiring; 33.2 and 33.10 move an area out
+  first if their wiring would pass 2,000.
 - **No occlusion culling exists**: no depth pyramid, no indirect draws, no
   occlusion queries (`grep occlusionTest` finds none). `_COL` and `_LOD<n>`
-  node names are read in `three-adapter/src/pieces.ts:20-21`; there is no
+  node names are read in `three-adapter/src/pieces.ts:19-20`; there is no
   `_OCC`.
 - **Measurement**: `node tools/perf/run.mjs village|blocks|level` with
   classes area, landscape, world, interior, `--switches` per page query,
   GPU pass timestamps on WebGPU (none on WebGL 2); the fast gate checks the
-  village against `tests/perf/village-baseline.json`. No class looks from
-  eye height at an occluded view, and nothing measures how much of what is
-  drawn is hidden.
-- **Gate time**: the full gate is over its 15 min budget (D181, open).
+  village against `tests/perf/village-baseline.json`. 33.1 adds the
+  occluded views (`--view street|valley`) and the oracle (`--oracle`).
+- **Gate time**: the full gate takes 31 min against its 15 min budget
+  (D181, D253: the owner's): no new e2e files and no net added e2e time;
+  pixel checks extend existing rendering and level files.
 
-## 3. How other engines do it (from their documentation; 33.0 re-reads the current pages before design)
+## 3. How other engines do it (from their documentation; re-read 2026-10-11 and checked again 2026-10-17 in 33.0)
 
 | Topic | Unreal | Unity 6 | Godot 4 | GPU-driven pipelines (AC Unity, Frostbite) | Thirdlight after phase 33 |
 |---|---|---|---|---|---|
-| Default method | Hardware occlusion queries per actor, read back a frame later; "can cause them to pop in if the camera is moving very fast" [1] | GPU occlusion culling (URP/HDRP with GPU Resident Drawer), on the GPU from a downsampled depth buffer [2][3] | CPU raster of occluder meshes into a low-resolution buffer (Embree), objects' boxes tested against it [4] | Depth pyramid, per-instance and per-cluster culling in compute, indirect draws [6] | WebGPU: depth pyramid + compute + indirect draws; WebGL 2: queries on boxes |
+| Default method | Hardware occlusion queries per actor by default ("Dynamic Occlusion"; HZB is the more conservative option, `r.HZBOcclusion`), read back a frame later, so objects can pop in when the camera moves very fast [1] | GPU occlusion culling (URP with the GPU Resident Drawer: Forward+, compute shaders, SRP Batcher) on the GPU; the drawer still supports Dynamic Occlusion too [2][3] | CPU raster of occluder meshes into a low-resolution buffer (Embree), objects' boxes tested against it [4] | Depth pyramid, per-instance and per-cluster culling in compute, indirect draws (AC Unity: ~300 best occluders at 512 × 256 combined with last frame's reprojected depth) [6] | WebGPU: depth pyramid + compute + indirect draws; WebGL 2: queries on boxes |
 | Depth used | HZB: a mipmapped scene depth [1]; Nanite: two passes, last frame's HZB first, then this frame's for what was culled [5] | Depth of the current and previous frames [2] | Occluders only, this frame | Last frame's depth reprojected plus this frame's occluders | Two passes: last frame's pyramid, then this frame's |
-| Occluders | Everything opaque drawn | Everything opaque drawn | `OccluderInstance3D`: baked from meshes or boxes, quads, polygons; MultiMesh not baked [4] | Selected large occluders plus the depth buffer | Everything opaque drawn; `_OCC` depth-only stand-ins |
+| Occluders | Everything opaque drawn | Everything opaque drawn | `OccluderInstance3D`: baked (simplified) from meshes, or quad, box, sphere, polygon, array shapes; MultiMesh, particles and CSG not baked; occluders should not move [4] | Selected large occluders plus the depth buffer | Everything opaque drawn; `_OCC` depth-only stand-ins |
 | Occludee bounds | Actor bounds | Bounding spheres, so long thin objects cull poorly [2] | Boxes; must be fully hidden [4] | Instance and cluster bounds | Boxes per chunk, copy, object or merged member |
 | When it hurts | Query cost per actor | "If occlusion culling doesn't have a big effect … rendering time might increase" [2] | Simplify occluders to save CPU [4] | Setup cost | Measured per class against an open view (§5) |
 | Precomputed | Precomputed visibility for static actors [1] | Umbra baked occlusion (built-in pipeline) | Portals were Godot 3 rooms | — | Room portals (30.24) |
@@ -154,7 +182,7 @@ three.js r186 (pinned) provides, read in `node_modules/three`:
   adapter has it (`WebGPUBackend.js:231-246`). No depth pyramid helper.
 - **Occlusion queries on both backends**: an object with
   `occlusionTest = true` has its own draw wrapped in a query
-  (`RenderList.js:313-319`); results are read asynchronously
+  (`RenderList.js:317-322`); results are read asynchronously
   (`WebGLBackend.js` `resolveOccludedAsync`: `ANY_SAMPLES_PASSED`, polled by
   `requestAnimationFrame`; WebGPU maps a buffer) and answered by
   `renderer.isOccluded(object)` for the render context being drawn
@@ -162,12 +190,22 @@ three.js r186 (pinned) provides, read in `node_modules/three`:
   object that is not drawn gets no result: proxies (boxes) are needed. WebGL 2
   makes results available no earlier than a later task, never in the frame
   that issued them.
+- **Release notes read (r185, r186; r186 is still the latest on
+  2026-10-17):** occlusion queries made more robust and stale queries
+  fixed (#33959, #33972), WebGPU checks render bundles against occlusion
+  queries (#34286); read-write storage buffers and atomics allowed in
+  non-compute stages (#33626: a vertex stage may read a compacted copy
+  list), `compileComputeAsync()` (#32551), `updateBefore`/`updateAfter` on
+  compute nodes (#34401), `batchIndirectIndex` for `BatchedMesh` (#34111,
+  not used here); `PassNode` fixes the pixel ratio of derived passes
+  (#34453) and no longer makes a depth texture with `depthBuffer: false`.
+  Nothing changes `setIndirect` or adds multi-draw-indirect.
 
 Sources:
 [1] https://dev.epicgames.com/documentation/en-us/unreal-engine/visibility-and-occlusion-culling-in-unreal-engine
-[2] https://docs.unity3d.com/6000.0/Documentation/Manual/urp/gpu-culling.html
-[3] https://docs.unity3d.com/6000.0/Documentation/Manual/urp/gpu-resident-drawer.html
-[4] https://docs.godotengine.org/en/stable/tutorials/3d/occlusion_culling.html
+[2] https://docs.unity3d.com/6000.3/Documentation/Manual/urp/gpu-culling.html (Unity 6.3 LTS)
+[3] https://docs.unity3d.com/6000.3/Documentation/Manual/urp/gpu-resident-drawer.html
+[4] https://docs.godotengine.org/en/stable/tutorials/3d/occlusion_culling.html (Godot 4.7)
 [5] B. Karis et al., "Nanite: A Deep Dive", SIGGRAPH 2021 Advances; summary https://www.elopezr.com/a-macro-view-of-nanite/
 [6] U. Haar, S. Aaltonen, "GPU-Driven Rendering Pipelines", SIGGRAPH 2015 Advances (Assassin's Creed Unity); Frostbite: G. Wihlidal, "Optimizing the Graphics Pipeline with Compute", GDC 2016
 [7] `node_modules/three/src/renderers/webgpu/WebGPUBackend.js`, `…/webgl-fallback/WebGLBackend.js`, `…/common/Renderer.js`, `…/common/RenderList.js`, `…/core/BufferGeometry.js:250-256`
@@ -254,19 +292,57 @@ animating hidden characters.
 
 | Item | Status |
 |---|---|
-| 33.0 | |
-| 33.1 | |
+| 33.0 | Done 2026-10-17: three.js 0.186.1 still the latest (r185/r186 notes in §3: no change to `setIndirect`, queries more robust, storage read-write in vertex stages); Rapier 0.21.0 exists, 0.20.0 stays; §2 re-checked at `60bd1f69` (isolation, the borrowed Scene view, stand-ins, docked panels added); the WIP branch's oracle and views ported by hand (isolation now takes bit 4, occlusion 8). |
+| 33.1 | Done 2026-10-17: `--view street\|valley` on village and level, `--oracle` (per item and whole draws, then the wholly hidden draws left out and measured again); before table below. Occluded views hide 76–93 % of draws and 83–93 % of triangles; leaving every wholly hidden draw out saves ≤ 1.2 ms GPU and ≤ 1.7 ms main thread, frame p95 mostly within noise: the work is there, its time is small at these class sizes. Verdict in §7: all items go ahead except 33.9 (dropped) and 33.6's per-member merged cells (dropped). |
 | 33.2 | |
 | 33.3 | |
 | 33.4 | |
 | 33.5 | |
-| 33.6 | |
+| 33.6 | Scope cut by 33.1: merged cells culled as whole draws, no per-member compaction (§7). |
 | 33.7 | |
 | 33.8 | |
-| 33.9 | |
+| 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm). |
 | 33.10 | |
 | 33.11 | |
 | 33.12 | |
+
+**33.1 before numbers** (HEAD `60bd1f69` plus the harness, Iris Xe, 1920 × 1080, DPR 1, uncapped; frame
+p50/p95/p99 ms; GPU = three's pass timestamps per frame, WebGPU only, waits included; main = main-thread
+task ms per frame; hidden = the oracle's share of the view's draws / triangles / items (copies, merged
+members) with no visible pixel; "ideal" = the same page with every wholly hidden draw left out of the
+view: what a perfect culler of whole draws saves). Village at load 3–4; level classes at load 10–14 (another
+session's tests), so their frame times are noisy — compare within a row, not across rows.
+
+| Class, view, renderer | frame | GPU | main | draws | tris | hidden (draws, tris, items) | ideal: frame, GPU, main, draws |
+|---|---|---|---|---|---|---|---|
+| village open webgpu | 5.5/8.2/15.3 | 9.33 | 6.05 | 222 | 107k | 44 %, 63 %, 84 % | 5.4/8.2/15.5, 9.18, 6.00, 142 |
+| village open webgl2 | 4.7/6.1/38.9 | - | 6.01 | 224 | 106k | 44 %, 62 %, 84 % | 4.5/6.4/56.5, -, 5.93, 143 |
+| village street webgpu | 6.0/9.6/12.4 | 10.15 | 6.55 | 265 | 139k | 78 %, 83 %, 93 % | 6.0/9.5/16.4, 9.82, 6.48, 92 |
+| village street webgl2 | 5.0/7.1/22.4 | - | 6.71 | 265 | 139k | 78 %, 84 %, 93 % | 4.0/6.4/73.4, -, 6.29, 91 |
+| area open webgpu | 6.3/13.7/22 | 10.54 | 6.98 | 260 | 271k | 14 %, 35 %, 71 % | 6.3/13/21.1, 10.17, 6.76, 226 |
+| area open webgl2 | 3.9/10.7/144.6 | - | 7.51 | 260 | 271k | 14 %, 35 %, 71 % | 3.4/10/125.7, -, 6.81, 226 |
+| area street webgpu | 6.8/14.8/22.5 | 12.31 | 7.48 | 259 | 275k | 76 %, 86 %, 95 % | 6.8/15.7/22.2, 11.26, 7.46, 79 |
+| area street webgl2 | 3.3/10.1/176.2 | - | 7.57 | 259 | 275k | 76 %, 86 %, 95 % | 3.2/11.3/70.6, -, 6.85, 79 |
+| landscape open webgpu | 9.7/17/28.3 | 15.69 | 10.01 | 343 | 547k | 29 %, 61 %, 85 % | 9.8/21.4/30.1, 14.75, 10.45, 252 |
+| landscape open webgl2 | 4.3/9.9/281 | - | 10.37 | 343 | 547k | 29 %, 61 %, 85 % | 4.2/7.9/214.4, -, 10.19, 252 |
+| landscape street webgpu | 10.5/12.7/28.3 | 15.30 | 10.72 | 344 | 558k | 79 %, 91 %, 97 % | 9.6/11/27.1, 14.54, 9.71, 92 |
+| landscape street webgl2 | 4.0/11.7/175.8 | - | 8.52 | 344 | 557k | 79 %, 91 %, 97 % | 4.7/8.1/14.9, -, 7.85, 92 |
+| landscape valley webgpu | 10/11.3/27 | 14.71 | 10.05 | 298 | 441k | 93 %, 90 %, 83 % | 9.3/10.4/26.4, 14.63, 9.36, 44 |
+| landscape valley webgl2 | 3.2/12.7/211.3 | - | 10.66 | 298 | 441k | 93 %, 90 %, 83 % | 10/11.7/27.3, -, 10.16, 44 |
+| world open webgpu | 8.9/11.4/26.6 | 13.64 | 9.05 | 384 | 565k | 22 %, 47 %, 70 % | 8.7/11.9/25.9, 13.08, 8.98, 304 |
+| world open webgl2 | 4.5/8.8/178 | - | 9.25 | 384 | 565k | 22 %, 47 %, 70 % | 4.6/14.8/126.3, -, 9.19, 304 |
+| world street webgpu | 8.3/11.5/17.8 | 12.87 | 8.55 | 381 | 571k | 83 %, 93 %, 97 % | 7.3/10.2/23, 11.66, 7.48, 83 |
+| world street webgl2 | 4.5/9/198.3 | - | 8.88 | 384 | 576k | 84 %, 93 %, 98 % | 3.2/8.5/14.5, -, 7.22, 83 |
+| world valley webgpu | 9.9/12.4/27.5 | 14.72 | 10.23 | 182 | 401k | 82 %, 87 %, 85 % | 9.1/10.3/26.3, 14.28, 9.19, 53 |
+| world valley webgl2 | 3.1/9.9/26.9 | - | 9.27 | 182 | 401k | 82 %, 87 %, 85 % | 8.6/9.3/16.7, -, 8.96, 53 |
+| interior webgpu | 8.6/11.9/25.7 | 13.64 | 8.66 | 102 | 132k | 52 %, 12 %, 61 % | 8.2/10.9/25.6, 14.56, 8.36, 67 |
+| interior webgl2 | 8.7/9.3/26.5 | - | 9.31 | 102 | 132k | 52 %, 12 %, 61 % | 8.3/8.9/16.4, -, 8.30, 67 |
+
+By kind (street views): instance copies are the bulk of the hidden items (94–97 % of copies, 87 % of their
+triangles, but only 65–76 % of their draws hidden whole: a chunk with one copy in sight draws); merged
+cells 70–74 % of draws; single draws 73–84 % of their triangles. Oracle runs 0.6–1.2 s, 0 stray ids. The
+interior's 52 % hidden draws are left after the portals (instanced draws, which rooms never cull). The
+WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both columns.
 
 ## 7. Decision log
 
@@ -285,3 +361,40 @@ animating hidden characters.
   `auto` (same pixels as before); WebGL 2 with at most one frame of
   lateness; `_OCC` as depth-only stand-ins inside the model; presentation
   only.
+- 2026-10-17 (33.0): three.js 0.186.1 is still the latest release (no patch
+  to take); Rapier 0.21.0 exists and the pin 0.20.0 stays (nothing here
+  touches physics). The r185/r186 notes are summarised in §3; read-write
+  storage buffers in vertex stages (#33626) are what 33.5's compacted copy
+  list needs. The WIP branch `wip/33.1-measure` was ported by hand, not
+  merged: isolation took bit 4 meanwhile, so `HIDDEN_BY_OCCLUSION` is 8;
+  the eye height is defined once in the harness (`generate.ts`).
+- 2026-10-17 (33.1, default chosen, owner to confirm): **the phase goes
+  ahead.** Every occluded view hides most of its work (76–93 % of draws,
+  83–93 % of triangles, 93–98 % of copies), so each class has hidden work
+  that matters by count. Its time is small at these class sizes on this
+  host: leaving every wholly hidden draw out saves ≤ 1.2 ms GPU and ≤ 1.7 ms
+  main thread, and frame p95 moves mostly within noise; the frames are
+  bound by the post stack and fixed per-frame work, not by these draws.
+  So §5's "p95 25 % lower" is out of reach here; the occluded-view target
+  that counts is the other one, "half of what the oracle says is hidden
+  culled", together with the open-view cost limits (≤ +0.3 ms GPU,
+  ≤ +0.2 ms main thread), which become the deciding guard: culling must
+  cost less than the ≤ 1 ms it can save. The saving grows with denser
+  content (a town, a forest behind a hill), which the classes do not have.
+- 2026-10-17 (33.1, default chosen, owner to confirm): **33.9 (terrain
+  horizon on the CPU) is dropped.** In the valley views the ideal culling
+  of every hidden draw saves 0.5–0.7 ms main thread; 33.5–33.7 reach the
+  same draws, and a second culling path for that is not worth its code.
+- 2026-10-17 (33.1, default chosen, owner to confirm): **33.6's merged
+  cells per member are dropped**; merged cells are culled as whole draws
+  (one slot per cell) like block and architecture chunks. Hidden merged
+  triangles are 11–18k per view (a few percent of the frame's), and a
+  compacted index buffer per cell is the part most likely to need a
+  three.js workaround.
+- 2026-10-17 (33.1, default chosen, owner to confirm): **WebGL 2 (33.7)
+  keeps its place and is where the CPU saving is**: leaving hidden draws
+  out drops main thread by 0.4–1.7 ms there (village street p50 5.0 →
+  4.0 ms at low load), while WebGPU's indirect draws still encode every
+  draw and save GPU time only. 33.5 (instanced copies on the GPU) is the
+  WebGPU item with the most to remove: 94–97 % of copies are hidden in
+  the street views, more than whole-draw culling can reach.
