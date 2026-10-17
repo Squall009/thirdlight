@@ -22,15 +22,25 @@ names the layer and its size in cells, **Done** (Esc) goes back with the
 selection as before. The Scene view shows only the layer and the rooms
 drawn on it; **Context** (C) shows the rest of the scene, not pickable.
 The rail on the left holds the modes (Shift+1 … Shift+6), the column on the
-right the mode's tools and settings, the line at the bottom the tool, what
-to do and its keys. The column holds what you pick from (tools, palettes,
-lists); the settings of what is picked are panels over the view: the
-selection, the block type, the brush and its noise mask, the stamps, the
-theme, metadata and layer size, the Rooms list and the picked room's
-properties, and the layer's lock (**Layer**, bottom left). A click on a
-panel's title bar collapses or opens it, dragging the title bar moves it
-to another edge or corner of the view, and the view's **Panels** chip hides
-them all or resets their layout (kept per editor, in this browser).
+right what you pick from (the tool grid, palettes, lists), panels over the
+view the settings of what is picked, and the line at the bottom the tool,
+what to do and its keys. It opens in **Navigate** (no tool): a drag orbits
+and a click selects a block (its cell, and its type in the Block type
+panel) or, in Rooms & buildings, a room, building or path. How panels
+collapse, move and reset, Esc and Home: [Level editors](level-editors.md).
+
+| Mode | Column | Panels (where they start) |
+|---|---|---|
+| **Build** | Tool, Palette, Placement (turn, look, box height, slice) | **Selection** (right edge, while cells are selected) · **Block type** (right edge, open) · **Stamps** (top right; opens with the Stamp tool) · **Layer** (bottom left, collapsed) |
+| **Shape** | Tool, Palette, Slice | **Brush** (right edge) · **Layer** |
+| **Paint** | the banner when the material reads no paint, Tool, Layers (palette, Paint on, walls' own paint) | **Brush** · **Noise mask** (open while it is on) · **Layer** |
+| **Regions** | Tool, Regions (the list) | **Theme** (right edge, open) · **Metadata** (opens with the Metadata tool) · **Layer size** (collapsed) |
+| **Rooms & buildings** | Tool (with the slice), New rooms, Kit pieces | **Rooms**: the list and Presets in use (top right, collapsed) · the picked room, building or path, named after it (right edge, while one is selected) · **Layer** |
+| **Rules** | Tool (Navigate, Scatter), Material rules, Scatter rules | **Scatter brush** (right edge) · **Layer** |
+
+**Layer** holds the layer's lock: while the layer is locked no tool can be
+armed. The block type panel shows in the other modes too while a block
+clicked with no tool is selected.
 
 ## The modes
 
@@ -105,7 +115,8 @@ rooms drawn on the layer show it on their walls.
 - **A layer's texture:** click an empty layer (2, 3, 4) to choose its colour
   texture; a normal map and an ORM named alike (`moss_albedo`,
   `moss_normal`, `moss_orm`) come with it. The textures load in the
-  background: until they arrive the painted cells draw plain.
+  background: meanwhile the layer draws its average colour, then a small
+  preview, never white ([While textures load](level-editors.md#while-textures-load)).
 - **Paint on:** Tops, Walls or Both. **Walls have their own paint** paints
   wall faces apart from the top above them. With it on, a wall nobody
   painted shows **layer 2**, not Base: to keep a wall's base look and add

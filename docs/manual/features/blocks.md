@@ -345,7 +345,7 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   project item that gathers a trim sheet, presets, block types and pieces):
   one layout, several looks — a dungeon and its burnt or ruined state share
   their cells.
-  - A block type's `kits` (Inspector **Themes** on the block type, MCP
+  - A block type's `kits` (**Themes** in the block editor's Block type panel, MCP
     `setBlockType`) maps a theme name to what it shows under that theme:
     `{block, variant?, variants?}` — another block type of the same placement
     (cell or edge) and footprint (checked: a theme keeps the layout), and

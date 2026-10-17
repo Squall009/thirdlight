@@ -10,8 +10,10 @@ one works in the next. The editors themselves are compared in
 
 ## The settings
 
-The **Brush** section of a tool's column shows the settings that tool uses;
-a tool that has no use for one leaves it out.
+In an editor the **Brush** panel (on the view's right edge until you move
+it) shows the settings the armed tool uses, and the **Noise mask** panel
+the mask; the instance brush shows them in the Inspector. A tool that has
+no use for a setting leaves it out.
 
 | Setting | What it does |
 |---|---|

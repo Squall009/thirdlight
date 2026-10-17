@@ -29,8 +29,11 @@ How to turn, pan and zoom the Scene view while you paint:
 
 1. **GameObject → Block layer** makes a layer of 1 m cells and opens it in
    the **block editor** (a full-screen mode on the Scene view: its modes on
-   the left — Build, Shape, Paint, Regions, Rooms & buildings, Rules —, its
-   settings on the right, Done or Esc to leave). Later, double-click the
+   the left — Build, Shape, Paint, Regions, Rooms & buildings, Rules —, the
+   tools and palette on the right, the settings of what is picked in panels
+   over the view, Done or Esc to leave; see
+   [Level editors](level-editors.md)). It opens with no tool: pick one by its
+   tile or letter. Later, double-click the
    layer in the Hierarchy, or press **Edit blocks** in its Inspector.
 2. In Build's **Palette**, press **New type**: a coloured stand-in, `Block 1`
    with the id `block` (the next one `block-2`; the id never changes, and

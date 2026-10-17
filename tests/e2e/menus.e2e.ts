@@ -137,6 +137,7 @@ test('Window and Help menus: panels, views, shortcuts dialog; the full-screen bu
   await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
   await menu(page, 'Help', 'Keyboard shortcuts');
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Undo / redo');
+  await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('arm the last tool again');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 

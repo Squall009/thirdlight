@@ -42,8 +42,18 @@ All use a **decal material**.
 
 The quickest way to put marks on a level: **Window → Decals** (or the
 **decal** button in the tool row) opens the **decal editor** over the work
-area. The whole scene stays drawn; only decals can be picked. Its rail has
-three modes (Shift+1–3):
+area. The whole scene stays drawn; only decals can be picked. It opens in
+**Navigate** (no tool): a drag orbits, a click selects a decal. Its rail has
+three modes (Shift+1–3); the column holds the palette, panels over the
+view the settings:
+
+| Mode | Column | Panels (where they start) |
+|---|---|---|
+| **Place** | Tool (Navigate, Place), Decals (the palette) | **Placement** (right edge, open) · **Stamps** (collapsed) · **Decal atlas** (bottom edge, collapsed) |
+| **Scatter** | Tool (Navigate, Scatter), Decals | **Brush** (right edge) · **Scatter** · **Placement** (collapsed) · **Decal atlas** |
+| **Select** | Tool (Navigate, Box, the filter), Decals | **Selection** (right edge, while decals are selected) · **Decal atlas** |
+
+How panels collapse, move and reset, Esc and Home: [Level editors](level-editors.md).
 
 1. **Place.** Pick a decal in the palette (a decal material, or a trim
    sheet's decal cell: a cell gets its decal material when you pick it,
@@ -88,7 +98,10 @@ pages share one size), a warning names it and says what shrinking it gives,
 for example "Poster (1024 × 512) sets every page to 1024². Shrink to 512 ×
 256: …". **Rebuild pages** makes the pages now (the next Play finds them
 made); with **Scene view draws from the pages** on, the Scene view then draws
-the decals from them, as Play does. An edit that changes what the pages hold
+the decals from them, as Play does. Pages not made yet show as quick
+**preview pages** first (a quarter of the size, in a second or two; the
+panel says "Preview in … ms · composing the pages…"), and the full pages
+replace them in the background. An edit that changes what the pages hold
 (a decal of a new material, a texture imported again) puts the Scene view
 back on each decal material's own textures until you rebuild. A click on
 its title bar collapses it again.

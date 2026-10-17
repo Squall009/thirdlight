@@ -31,6 +31,12 @@ buildings** mode (Shift+5): double-click a block layer (or **Edit blocks**
 in its Inspector), then pick the mode on the rail. Selecting the rooms
 object itself shows **Edit in block editor**, which opens the same place.
 
+The column holds the **Tool** grid (with the slice), **New rooms** and
+**Kit pieces**; the **Rooms** list and the picked room, building or path
+are panels over the view, and so is the layer's lock (**Layer**, bottom
+left). The mode opens with no tool (**Navigate**): a drag orbits, a click
+picks a room, building or path, and **Home** frames it from outside.
+
 1. **Tool** (letters on the tiles): **Rect** (R) drags a room from corner to
    corner on the slice's floor (PageUp / PageDown move the slice);
    **Polygon** (P) clicks corners (**Arc** bends the next side); **Path** (L)

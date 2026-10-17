@@ -329,12 +329,15 @@ The Scene view's camera turns around a point in front of it:
   drag** pans; the **wheel** and the **middle drag** move closer or further.
   Shift or Ctrl with a left drag pans too.
 - **F** moves the point to the selected object's origin and keeps the
-  distance. A block layer's origin is its corner, not its middle: after F,
-  wheel in or pan to the cells.
-- In the block editor the left button belongs to the block tools:
-  **right drag** or **Alt + left drag** turns the view,
-  **middle drag** pans, the wheel zooms. Space + drag paints there; it does
-  not pan.
+  distance; when that would put the camera inside the object (a building's
+  walls), it frames the object from outside instead. A block layer's
+  origin is its corner, not its middle: after F, wheel in or pan to the
+  cells.
+- In a level editor ([Level editors](../guides/level-editors.md)) with no
+  tool (**Navigate**) a left drag turns the view and a click selects; with
+  a tool armed the left button is the tool's and **Alt + left drag** turns
+  the view; a right drag pans either way. **Home** frames the selection
+  beside the open panels.
 - A larger browser window gives the Scene view more room; the Project /
   Console / Problems dock and the side panels take the rest.
 

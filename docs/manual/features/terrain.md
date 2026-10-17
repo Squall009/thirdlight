@@ -142,8 +142,10 @@ edited in the editor's **terrain editor** (below).
   away) — and opens it. Its rail holds the modes (Shift+1 … Shift+8):
   **Sculpt**, **Paint**, **Holes**, **Material rules**, **Scatter**,
   **Stack**, **Tiles** and **Settings**; the column the mode's tool grid
-  (letter keys on the tiles), brush and settings; the status line the tool,
-  what to do and its keys.
+  (letter keys on the tiles) and lists; panels over the view the brush, its
+  noise mask and the picked stamp's or a tool's settings
+  ([the split per mode](../guides/terrain.md#make-the-terrain)); the status
+  line the tool, what to do and its keys. It opens with no tool armed.
   - **Sculpt**: Raise (Q), Lower (W), Smooth (E), Flatten (R: to the height
     where the stroke began), Noise (T: bump size, seed), Ramp (Y: drag from
     one end to the other). **Paint**: Paint (B) and Erase (X) — one tool,
@@ -161,7 +163,8 @@ edited in the editor's **terrain editor** (below).
     them strength, F then a drag resizes on the ground (Shift+F strength; a
     click sets, Esc puts it back), X switches paint and erase, Ctrl held
     (or the invert toggle) lowers, takes hand paint back or fills holes for
-    one stroke. A left drag sculpts (Alt+drag or the right button orbits),
+    one stroke. A left drag sculpts (Alt+drag orbits; with no tool armed a
+    drag orbits),
     Esc drops the stroke in flight. The cursor lies on the ground under the
     pointer: an outer ring at the size, a dashed ring where the falloff is
     at half strength, a fill at the dab's weight (amber; red while erasing

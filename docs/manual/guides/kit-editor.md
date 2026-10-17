@@ -16,6 +16,16 @@ Inspector beside the window only links to them. Every change is one undo step (`
 same command MCP sends); a GLB file you drop is imported and put in its
 slot as one step too.
 
+| Part | Where |
+|---|---|
+| Piece slots, Trim sheet, Picture and notes, Uses | the left side of the kit |
+| The trim checker, or the spec | the centre; the panels dock over it |
+| **Preview**: the piece in a sample wall | a panel (top right, open) |
+| The picked slot: its pieces, Piece checks, Placement, Placed by (or a block type's summary) | one panel named after the slot ("Door slot", right edge, open) |
+| The Inspector | a note and **Show the Door slot's panels**, which shows and opens that panel |
+
+The panels work as in the level editors: [Level editors](level-editors.md#panels).
+
 ## Slots and pieces
 
 The left column lists the **piece slots**: Door, Window, Wall override,

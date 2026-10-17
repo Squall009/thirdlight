@@ -17,7 +17,18 @@ work area over, as the [terrain editor](terrain.md) does:
   rest of the scene too, not paintable);
 - the rail on the left has three modes: **Paint**, **Channels** and
   **Material** (`Shift+1…3`);
+- the column on the right holds what you pick from, panels over the view
+  the brush and the views (below); it opens in **Navigate** (no tool), where
+  a drag orbits;
 - the status line at the bottom says what to do and lists the keys.
+
+| Mode | Column | Panels (where they start) |
+|---|---|---|
+| **Paint** | the banner when the material reads no paint, Material (its card), Tool, Layers | **Brush** (right edge) · **Noise mask** (open while it is on) · **Channel view** (top left; `V` cycles it) |
+| **Channels** | Channel view (the list) | **What the channels mean** (right edge, open) · **Stored paint** (collapsed) |
+| **Material** | Material, Layers | none |
+
+How panels collapse, move and reset, Esc and Home: [Level editors](level-editors.md).
 
 A double-click on a model does not open it (every model can be painted, so
 a double-click keeps renaming in the Hierarchy and picking in the Scene

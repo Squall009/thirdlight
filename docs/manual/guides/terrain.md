@@ -18,8 +18,10 @@ and opens it in the **terrain editor**: a full-screen editor on the Scene
 view that shows only the terrain. Its rail on the left holds the modes
 (**Sculpt**, **Paint**, **Holes**, **Material rules**, **Scatter**,
 **Stack**, **Tiles**, **Settings**; Shift+1 … Shift+8), the column on the
-right the mode's tools (a letter key on each tool's tile picks it), and the
-line at the bottom the tool, what to do and the keys. **Context** (C) shows
+right what you pick from (the tool grid — a letter key on each tile picks
+it — and lists), panels over the view the brush and the settings of what
+is picked, and the line at the bottom the tool, what to do and the keys. It
+opens in **Navigate** (no tool): a drag orbits. **Context** (C) shows
 the rest of the scene around it (it cannot be picked). The sky, fog and
 lights are no objects: they draw and light the terrain as in the scene, and
 the terrain's own icon is not drawn while you edit it. Entering looks
@@ -31,6 +33,19 @@ above the horizon: give the scene a sky in its look ([**Window → Environment**
 Hierarchy or the Scene view, or press **Edit terrain** in its Inspector (the
 Inspector keeps only the terrain's plain fields). Play sets the editor aside
 and comes back to it.
+
+| Mode | Column | Panels (where they start) |
+|---|---|---|
+| **Sculpt** | Tool | **Brush** with its preview (right edge) · **Noise mask** (collapsed) · **Noise**: the Noise tool's bump size and seed (with that tool) |
+| **Paint** | Tool, Layers (the palette) | **Brush** · **Noise mask** (open) |
+| **Holes** | Tool | **Brush** · **Noise mask** (collapsed) |
+| **Material rules** | the rule cards, Bake, Revert | **Preview** (top right) |
+| **Scatter** | Tool, the rule cards | **Scatter brush**: the rule it places and the brush (right edge) |
+| **Stack** | Tool, Layers (the stack, its stamps, the add buttons) | **Picked stamp** (right edge, while one is picked) · **New stamp** (with the Stamp tool) · **Erode** (with the Erode tool) |
+| **Tiles** | Tiles | **Import heightmap** · **From a block layer** (both collapsed) |
+| **Settings** | tile size, heights, detail, collision | none |
+
+How panels collapse, move and reset, Esc and Home: [Level editors](level-editors.md).
 
 **API:** [`createEntity`](../reference/ops-detail.md#op-createEntity) with a
 [`terrain`](../reference/components-rendering-1.md#component-terrain)

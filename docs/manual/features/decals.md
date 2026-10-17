@@ -572,7 +572,12 @@ they were half as large. **Rebuild pages** (`POST …/content/decal-pages`)
 makes them as Play does (each page encoded on the backend's encoder thread,
 cached in the import cache) and answers each decal material's place; the
 Scene view then draws from those arrays until an edit changes what the
-pages hold.
+pages hold. Pages not composed yet are shown first as **preview pages**:
+every page at a quarter of its side, composed small and encoded fast, held
+in memory only (never stored); the Scene view draws from them at once and
+swaps the full pages in when they are made. The panel says "Preview in …
+ms · composing the pages…" meanwhile, and **Rebuild pages** waits for the
+full pages. An export started meanwhile ships the full pages.
 
 Related: [trim sheets](material-graphs.md#trim-sheets),
 [light layers](lighting.md#light-layers), the reference for the
