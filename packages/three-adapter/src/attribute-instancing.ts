@@ -112,18 +112,26 @@ const culledPlace = (): U => {
 };
 
 /**
+ * The copy's per-instance vec4 `name` (vertex stage): the geometry's
+ * attribute, or, in a draw the GPU culls, the same 4 floats from the pools at
+ * the place the list names (vec4 `i` of the copy's 16 floats as drawn).
+ */
+export function culledCopyVec4(name: string, i: number): ReturnType<typeof attribute<'vec4'>> {
+  return Fn((builder: NodeBuilder) => {
+    const own = attribute<'vec4'>(name, 'vec4');
+    if (!buildReadsCulledCopies(builder)) return own;
+    const fromPool = culledMatrices.element((culledBase as unknown as U).add(culledPlace()).mul(4).add(i));
+    return (culledList as unknown as U).greaterThan(0).select(fromPool, own);
+  })() as unknown as ReturnType<typeof attribute<'vec4'>>;
+}
+
+/**
  * Column `i` of this copy's matrix (vertex stage): the geometry's attribute,
- * or, in a draw the GPU culls, the same 4 floats from the pools at the place
- * the list names (the columns' values as drawn: the paint slot in float 3
- * comes with them).
+ * or, in a draw the GPU culls, the same 4 floats from the pools (the columns'
+ * values as drawn: the paint slot in float 3 comes with them).
  */
 export function instanceColumn(i: number): ReturnType<typeof attribute<'vec4'>> {
-  return Fn((builder: NodeBuilder) => {
-    const column = attribute<'vec4'>(COLUMNS[i]!, 'vec4');
-    if (!buildReadsCulledCopies(builder)) return column;
-    const fromPool = culledMatrices.element((culledBase as unknown as U).add(culledPlace()).mul(4).add(i));
-    return (culledList as unknown as U).greaterThan(0).select(fromPool, column);
-  })() as unknown as ReturnType<typeof attribute<'vec4'>>;
+  return culledCopyVec4(COLUMNS[i]!, i);
 }
 
 /** This copy's place in its draw's drawn order (what `instanceIndex` is for a draw drawn whole; vertex stage). */
@@ -267,14 +275,36 @@ export interface InstanceIndirect {
   release(): void;
 }
 
-/** `scene.userData[INSTANCE_CULLER_KEY]`: a culler that adopts each draw through instance-matrix columns before it is first drawn. */
+/** `scene.userData[INSTANCE_CULLER_KEY]`: a culler that adopts each draw whose copies it may cull before it is first drawn. */
 export const INSTANCE_CULLER_KEY = '__tlInstanceCuller';
 export interface InstanceCullerHost {
-  adopt(draw: AttributeInstancedMesh): void;
+  adopt(draw: CullableCopies): void;
 }
 
+/**
+ * A draw of copies the GPU may cull one by one: groups drawn through instance-matrix columns
+ * ({@link AttributeInstancedMesh}, found by `VIEW_CULL_KEY`) and terrain pages' nodes (found by
+ * {@link CULLABLE_COPIES_KEY}). Its vertex stage reads each copy's vec4s through {@link culledCopyVec4}.
+ */
+export interface CullableCopies {
+  readonly mesh: THREE.Mesh;
+  /** The most copies it holds (a draw that outgrows it is a new one). */
+  readonly capacity: number;
+  /** What the view's draw holds, as culled for the current view (null: not culled for it; every pass draws all). */
+  viewDraw(): InstanceViewDraw | null;
+  /** The culler drawing the view's draw on the GPU (null: none). */
+  indirect: InstanceIndirect | null;
+  /** Mark the geometry as culled on the GPU (or not): its builds read copies through a list ({@link CULLED_COPIES_ATTRIBUTE}). */
+  markCulled(on: boolean): void;
+  /** Its copies are tested as their world boxes, which each drawn copy carries in its floats from `COPY_BOX_FLOAT` (else as their spheres). */
+  readonly boxes?: boolean;
+}
+
+/** `mesh.userData[CULLABLE_COPIES_KEY]`: the {@link CullableCopies} of a draw not culled inside by the view (a terrain page). */
+export const CULLABLE_COPIES_KEY = '__tlCullableCopies';
+
 /** One group drawn through instance-matrix columns (culled per instance in the view: `view-cull.ts`). */
-export interface AttributeInstancedMesh extends ViewCullable {
+export interface AttributeInstancedMesh extends ViewCullable, CullableCopies {
   /** The drawn mesh (a plain `THREE.Mesh`; its matrix is the identity). */
   readonly mesh: THREE.Mesh;
   /** Slots (16 floats each: a column-major matrix per instance). */

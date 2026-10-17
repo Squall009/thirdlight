@@ -42,6 +42,7 @@ import * as TSLTyped from 'three/tsl';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { WORLD_UV_PERIOD_METRES } from '@thirdlight/runtime';
 
+import { culledCopyVec4 } from './attribute-instancing';
 import type { N } from './effects-tsl';
 import type { GraphSurface } from './material-graph';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
@@ -138,8 +139,9 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
   const vUv = varyingProperty('vec2', 'tlTerrainUv');
   const texel = (layer: N, x: N, z: N): N => textureLoad(heights, ivec2(x, z)).depth(layer);
   const position = Fn(() => {
-    const node = attribute(TERRAIN_NODE_ATTRIBUTE, 'vec4');
-    const sub = attribute(TERRAIN_SUB_ATTRIBUTE, 'vec4');
+    // The node's own attributes, or (a page whose nodes the GPU culls, terrain-node-culling.ts) the same floats from its list.
+    const node: N = culledCopyVec4(TERRAIN_NODE_ATTRIBUTE, 0);
+    const sub: N = culledCopyVec4(TERRAIN_SUB_ATTRIBUTE, 1);
     const layer = int(node.w.add(0.5));
     const grid = positionGeometry.xz;
     const metres = node.z.mul(u.spacing);

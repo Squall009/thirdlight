@@ -31,6 +31,12 @@ import { fartherDepth, type PyramidLayout } from './occlusion-pyramid-rule';
 export const COPY_FLOATS = 16;
 
 /**
+ * Where a copy tested as a box keeps it in its 16 floats (terrain nodes, which use the first eight, and draws
+ * culled whole, which use none): its world box's min xyz from this float, its max xyz four floats later.
+ */
+export const COPY_BOX_FLOAT = 8;
+
+/**
  * A copy is hidden only when its nearest depth is past the pyramid's
  * farthest by more than this (in depth units): a 24-bit depth buffer
  * rounds a surface's depth by 2^-24, which must never cull a copy whose
@@ -192,25 +198,52 @@ const mul4 = (m: ArrayLike<number>, x: number, y: number, z: number): [number, n
  */
 export function sphereMayShow(t: SphereTest, cx: number, cy: number, cz: number, r: number): boolean {
   const [vx, vy, vz] = mul4(t.view, cx, cy, cz);
-  const dist = -vz;
-  const nearZ = vz + r + HIDDEN_NEAR_MARGIN_M + dist * HIDDEN_NEAR_MARGIN_SHARE;
+  const corners: [number, number, number][] = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) corners.push([vx + sx * r, vy + sy * r, vz + sz * r]);
+  return rectMayShow(t, corners, vz + r);
+}
+
+/**
+ * Whether a world-space box (min xyz, max xyz) may show a pixel: the same
+ * test over its eight corners (a flat terrain node or a long wall is far
+ * tighter as a box than as its sphere).
+ */
+export function boxMayShow(t: SphereTest, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): boolean {
+  const corners: [number, number, number][] = [];
+  let nearest = -Infinity;
+  for (const x of [x0, x1]) {
+    for (const y of [y0, y1]) {
+      for (const z of [z0, z1]) {
+        const [vx, vy, vz] = mul4(t.view, x, y, z);
+        corners.push([vx, vy, vz]);
+        nearest = Math.max(nearest, vz);
+      }
+    }
+  }
+  return rectMayShow(t, corners, nearest);
+}
+
+/**
+ * The test both bounds share: `corners` (view space) bound what may be drawn,
+ * `nearest` is the view-space z of its nearest point (negative ahead). Hidden
+ * only when that point, moved a margin nearer, is past the pyramid's farthest
+ * depth over every pixel the corners' projection covers.
+ */
+function rectMayShow(t: SphereTest, corners: readonly (readonly [number, number, number])[], nearest: number): boolean {
+  const nearZ = nearest + HIDDEN_NEAR_MARGIN_M - nearest * HIDDEN_NEAR_MARGIN_SHARE;
   if (-nearZ <= t.near) return true;
   let x0 = Infinity;
   let x1 = -Infinity;
   let y0 = Infinity;
   let y1 = -Infinity;
-  for (const sx of [-1, 1]) {
-    for (const sy of [-1, 1]) {
-      for (const sz of [-1, 1]) {
-        const c = mul4(t.projection, vx + sx * r, vy + sy * r, vz + sz * r);
-        const nx = c[0] / c[3];
-        const ny = c[1] / c[3];
-        x0 = Math.min(x0, nx);
-        x1 = Math.max(x1, nx);
-        y0 = Math.min(y0, ny);
-        y1 = Math.max(y1, ny);
-      }
-    }
+  for (const [vx, vy, vz] of corners) {
+    const c = mul4(t.projection, vx, vy, vz);
+    const nx = c[0] / c[3];
+    const ny = c[1] / c[3];
+    x0 = Math.min(x0, nx);
+    x1 = Math.max(x1, nx);
+    y0 = Math.min(y0, ny);
+    y1 = Math.max(y1, ny);
   }
   const clamp = (v: number): number => Math.min(1, Math.max(0, v));
   const W = t.layout.sourceWidth;

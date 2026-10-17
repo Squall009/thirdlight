@@ -298,7 +298,7 @@ animating hidden characters.
 | 33.3 | Done 2026-10-17: `<piece>_OCC` stand-ins (project-model naming and import check, `occluderPointsOutside` with 1 mm; ignored ones → Problems `model_occluder_ignored` and dropped at load), drawn depth only, last among the opaque draws, for the view's camera only while a path is on (`data-tl-occlusion` 5th field: stand-in draws); occluder roles in runtime (`occluderRoleOf`), object `occluder` (box, model) and model `occluder: auto\|occ\|none`; terrain, block and architecture draws take the merged cells' order. vitest +3 files; rendering.e2e's export on/off check gained two fences with `_OCC` panels, one seen through the boxes' gaps, one behind the camera with the sun behind it (WebGPU: strict pixels equal, worst 0; stand-ins drawn only with culling on; seen in the frame: no panel colour, no panel shadow; WebGL 2 unverified). Before → after, same hour, load 2.7–3.6: village open p50 5.7→5.6 / 4.6→4.7 ms (WebGPU / WebGL 2), street 6.0→6.0 / 4.9→4.9, main 6.23→6.22 / 6.13→6.08 ms; landscape valley 10.0→10.0 / 3.3→3.0, GPU 14.87→14.73 ms; draws and oracle shares unchanged (nothing culls yet): equal within noise, no target applies yet. |
 | 33.4 | Done 2026-10-17: on `hiz` the scene pass's render is drawn as two (`occlusion-passes.ts`: occluders and stand-ins, then role `none` opaques and transparents, no clear) with the depth pyramid between them (`occlusion-pyramid.ts`: two dispatches, 16 × 16 tiles in workgroup memory down to level 4, one workgroup for the rest; MSAA depth by its samples); frames on `hiz` always draw through the scene pass; `_OCC` stand-ins record into level 0 only (atomics from their fragments), never into the scene's depth; `?occlusion=pyramid[:level]` debug view; `gpuMs` and `pyramid` in the diagnostics. rendering.e2e's export: culling on vs off bit-identical (worst 0) with AO and glass behind a stand-in, plain MSAA, render scale 0.5 and three poses along a flown camera (a control with the stand-ins in the scene depth: mean 3.6, worst 137), pyramid read back (rule kept level over level), debug view drawn; vitest for the rule. Same hour, load 1.8–3.4, WebGPU on vs `occlusion=off`: village open p50 5.7/5.6 ms, main 6.42/6.21 (+0.21, §5 ≤ +0.2: at the limit); street p50 6.2, main 6.85; landscape open 10.4/10.4, main 10.56/10.51, valley 10.2; WebGL 2 unchanged (4.8/4.7). Pyramid GPU 0.31–0.44 ms (three's compute timestamps, §5 ≤ 0.4: at the limit), main 0.03–0.06 ms, second render 0.13–0.2 ms main; memory 2.76 MB at 1080p (+2.3 MB of stand-in records only in scenes with `_OCC`). Second pass's own GPU time not separable (unverified against ≤ 0.2 ms). Dynamic resolution not checked by pixels (it changes the same scene pass size the render scale does). |
 | 33.5 | Done 2026-10-17: instance-set chunks (scatter, ground cover, kit copies) and automatic batches culled copy by copy on the GPU (`occlusion-instances.ts`; rule and CPU reference in `occlusion-instances-rule.ts`): shared pools (matrices as drawn, paint slot included; world spheres; slots), a dispatch before pass 1 lists last frame's visible copies of occluder draws, one in the pyramid's compute pass tests the rest and lists the newly visible, a workgroup a draw (order kept), indirect draws per pass, the view only (shadows, probes, the static shadow draw every copy from their columns); a draw is culled only when its copies in view draw ≥ `OCCLUSION_MIN_COPIES_TRIANGLES` (2048). WebGPU, on vs `occlusion=off`, same hour, load 2–4: village open p50 5.7/5.6 and 6.1/5.7 ms, main 6.28/6.26 and 6.61/6.20 (two rounds; noise ±0.3), culled 197 of 418 tested (oracle 649 hidden); village street culled 446 (oracle 842 hidden: 53 %), p50 6.5, main 6.93; landscape open p50 10.4/10.4, main 10.47/10.48, scene pass GPU 4.39/9.56 ms, culled 9178 (oracle 15911: 58 %); landscape valley culled 6932 (oracle 10565: 66 %), scene pass 2.83 ms. Pyramid + culling compute 0.44–0.51 ms GPU on landscape (§5 ≤ 0.4 missed), ~0.3 on the village. Frames are main-thread bound here, so frame times barely move (§5's p95 −25 % unmet; "half of the oracle's hidden culled" met in the occluded views). rendering.e2e's export: a 945-copy painted scatter set and batches, 862 of 879 copies culled at the still pose, culling on vs off bit-identical there, along the flown path, with AO, MSAA and render scale; no GPU validation errors. Fast gate green (village p50 5.9 ms, limit 6.16). Terrain nodes (the row's part B) not done: left for 33.6. WebGL 2 unchanged (no marker, no variant). |
-| 33.6 | Scope cut by 33.1: merged cells culled as whole draws, no per-member compaction (§7). |
+| 33.6 | Done 2026-10-17: block and architecture chunks, merged cells (whole) and models alone culled whole on the GPU as rows of 33.5's table (`occlusion-whole.ts`; pass by the last read-back answer, `instanceCount` 0/1 in pass 2, tested as world boxes, ≥ `OCCLUSION_MIN_COPIES_TRIANGLES`), terrain nodes culled per node (`terrain-node-culling.ts`, boxes); fixed 33.5's rebuilt late kernel reading last frame's pyramid. WebGPU A/B against `00c4eef9`, same hour, load 1.1–3.6 (before the 2048 floor for whole draws): landscape valley triangles 287k → 43k, scene pass GPU 2.96 → 2.54 ms, main 10.16 → 10.05; area street 200k → 190k tris, main 7.33 → 7.36; village street main 7.20 → 6.79; village open on vs off unchanged; pyramid + culling compute on landscape 0.44–0.52 → 0.52–0.54 ms (§5 ≤ 0.4 still missed). Village gate check interleaved (9 rounds, load 2–4): before 6.0–6.1, after 6.0–6.3 ms p50, equal main thread; the fast gate's perf missed 6.2–6.3 ms three times, then passed at 6.1 (limit 6.16, host state: D199). rendering.e2e's export: 2 of 3 models culled whole, 2 of 10 terrain nodes culled, WebGPU on vs off bit-identical at the pose, along the path, with AO, MSAA and render scale. WebGL 2 unverified (unchanged path). |
 | 33.7 | |
 | 33.8 | |
 | 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm). |
@@ -526,6 +526,43 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   off for the page (reported once) instead of leaving the scene pass's targets
   set: a throw inside the pass once left the renderer's MRT on and every later
   frame black.
+- 2026-10-17 (33.6, default chosen, owner to confirm): **draws culled whole are
+  rows of the instanced copies' table** (one copy each, `occlusion-whole.ts`),
+  not a second table and kernel: block and architecture chunks, merged cells
+  (as whole draws, §7 above) and models drawn alone. Each is encoded once a
+  frame: in the first pass, drawn whole, when it fills the depth and the last
+  answer said seen (or none came yet); else in the second, through its
+  indirect draw, whose instance count the late dispatch writes 0 or 1. The
+  test runs for both, its answer is written into the row's unused first-pass
+  instance count and read back every frame (one read in flight, into one
+  `ReadbackBuffer`), so a draw hidden by the first pass's occluders moves to
+  the second a few frames later and back at its first "seen". A late answer
+  only delays a saving. A draw of several groups or a wireframe stays drawn
+  whole (an indirect draw has one range). Worth a test by `occludeeClassOf`
+  (≤ half the view's height) and the floor instanced copies use,
+  `OCCLUSION_MIN_COPIES_TRIANGLES` (2048): with only the 64-triangle floor the
+  village's small models alone and the late kernel's box branch cost +0.1–0.2 ms
+  p50 and failed the fast gate; the box test is built into the kernel only
+  while a frame has boxed rows. No new constant.
+- 2026-10-17 (33.6): **draws culled whole and terrain nodes are tested as their
+  world boxes, copies still as spheres.** A flat 32 m terrain node's sphere
+  reaches 22 m above it and a wall chunk's far past its ends: in rendering.e2e's
+  export no terrain node was culled as a sphere, 2 of 10 as boxes. The box
+  rides in the copy's unused floats 8–14 (`COPY_BOX_FLOAT`), a table flag picks
+  the test; the CPU rule `boxMayShow` shares the screen-rectangle part with
+  `sphereMayShow`.
+- 2026-10-17 (33.6): **terrain nodes are copies of the page's draw** (one draw a
+  page stays): the node's eight floats ride in a copy's first half and the
+  terrain's vertex stage reads them through the list (`culledCopyVec4`); a
+  node's visibility is kept by its place in the selection, so a new selection
+  costs the first pass some draws, never a seen node. The frame's occlusion
+  update now runs after the terrains' node selection and the ground cover, so
+  both are this frame's when the copies are listed.
+- 2026-10-17 (33.6): fixed in 33.5's code: a late dispatch rebuilt that frame
+  (the pools grew, the pyramid's size changed, the first frame) was submitted
+  from inside the pyramid's build, before the reduction, so it tested against
+  last frame's pyramid (an empty one at the first frame: everything hidden in
+  the second pass for one frame). It now runs right after the pyramid's pass.
 - 2026-10-17 (33.4): the pyramid is one float buffer, every level packed
   (`pyramidLayout`), reduced in two dispatches (one dispatch a level measured
   slower on the GPU and costs 11 encodes a frame at 1080p). A thread reads 2 × 2

@@ -15,7 +15,9 @@
  *    occlusion, glass behind it still drawn); the pyramid read back keeps its
  *    rule level over level, and its debug view draws. The batches' and an
  *    instance set's copies (painted ones among them) hidden behind the boxes
- *    are culled on the GPU and the picture stays the same.
+ *    are culled on the GPU, as are a model drawn alone behind a wall (culled
+ *    whole) and the terrain's nodes behind a ridge, and the picture stays
+ *    the same.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -169,6 +171,45 @@ async function paintedCopies(): Promise<void> {
   }
 }
 
+/**
+ * Models drawn alone, culled whole: a wall to the right of the view and three copies of a denser block (2,352
+ * triangles, few enough copies to stay single draws): one behind the wall, one among the boxes, one far behind them.
+ */
+async function wholeDraws(): Promise<void> {
+  const piece = { name: 'dense', lods: [[1, 1, 1]] as [number, number, number][], colors: [[0.2, 0.4, 0.9]] as [number, number, number][], segments: 14 };
+  await publishBytes(be, new Uint8Array(multiPieceGlb([piece], { centred: true })), 'model', 'dense-block', 'Dense block');
+  const wall = { id: 'wall', name: 'wall', components: { transform: { position: [4, 1.5, -1], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [6, 3, 0.3], material: { color: '#c8c0b0' } } } };
+  await command('pasteEntities', { sceneId: 'scene-main', entities: [wall] });
+  for (const [name, x, z] of [['behind the wall', 4.5, -4], ['among the boxes', -3, -3], ['far', -1, -12]] as const) {
+    await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: `dense ${name}`, transform: { position: [x, 0, z] }, model: { asset: { assetId: 'dense-block' }, piece: 'dense' } });
+  }
+}
+
+/**
+ * Ground under the field: one terrain tile 128 m a side, flat where the field stands and with a 6 m ridge across it
+ * 44 m ahead, which hides the terrain's nodes behind it (and the fence's stand-in those behind the fence).
+ */
+async function ridgeGround(): Promise<void> {
+  const samples = 65;
+  const spacing = 2;
+  const range: [number, number] = [-4, 12];
+  const ground = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [-64, 0, -64] } }))['createdId']);
+  await command('setComponent', { entityId: ground, component: 'terrain', value: { tileSamples: samples, spacing, heightRange: range, tiles: [{ x: 0, z: 0 }] } });
+  const raw = new Uint8Array(samples * samples * 2);
+  const dv = new DataView(raw.buffer);
+  for (let j = 0; j < samples; j++) {
+    const z = -64 + j * spacing;
+    const h = 6 * Math.max(0, 1 - Math.abs(z + 44) / 8);
+    for (let i = 0; i < samples; i++) dv.setUint16((j * samples + i) * 2, Math.round(((h - range[0]) / (range[1] - range[0])) * 65535), true);
+  }
+  const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
+  const base = `${be.origin}/api/v1/projects/${be.projectId}/content/stages`;
+  const stage = (await (await fetch(base, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
+  const put = await fetch(`${base}/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(raw.length) }, body: raw });
+  expect(put.status).toBe(200);
+  await command('editTerrain', { entityId: ground, kind: 'import', stageId: stage.stageId, format: 'raw16', at: [0, 0] });
+}
+
 const attr = async (page: Page, name: string): Promise<string> => (await page.locator('canvas.tl-viewport').getAttribute(name)) ?? '';
 
 test('repeated boxes are drawn instanced in the Scene view and Play; picking works; the idle Scene view draws nothing', async ({ page }) => {
@@ -312,6 +353,8 @@ test('the export draws the box field instanced and looks the same as without ins
   await command('setInput', { input: { actions: [{ name: 'flyCam', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyF' }] }] } });
   await publishScript(be, 'fly-cam', FLY_CAMERA, 'cam-main', ['@self']);
   await paintedCopies();
+  await wholeDraws();
+  await ridgeGround();
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   // The same field with a third of it below a parent: a second export.
@@ -391,6 +434,29 @@ test('the export draws the box field instanced and looks the same as without ins
     const [, , tested, culled] = occ.on.occlusion!.split('|').map(Number);
     expect(tested, 'copies tested against the pyramid').toBeGreaterThan(0);
     expect(culled, 'hidden copies culled').toBeGreaterThan(0);
+    // The models drawn alone are culled whole: the one behind the wall is tested in the second pass and not drawn.
+    // The terrain's nodes behind the ridge and the fence are culled one by one.
+    type Whole = { tested: number; second: number; culled: number };
+    type Counts = { whole: Whole; terrain: { tested: number; culled: number } };
+    const countsOf = async (): Promise<Counts | null> => (await onOcclusionSwitch<{ instances: Counts | null }>(first.game, 'diagnostics')).instances;
+    // (Culling was pinned off and back on just now: the answers come back over a few frames.)
+    let last: Counts | null = null;
+    await expect
+      .poll(
+        async () => {
+          last = await countsOf();
+          return (last?.whole.culled ?? 0) >= 1 && (last?.terrain.culled ?? 0) >= 1;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true)
+      .catch((e: unknown) => {
+        console.log(`[rendering] export culled (failed): ${JSON.stringify(last)}`);
+        throw e;
+      });
+    const counts = (await countsOf())!;
+    console.log(`[rendering] export culled whole: ${JSON.stringify(counts.whole)}, terrain nodes: ${JSON.stringify(counts.terrain)}`);
+    expect(counts.whole.tested, 'the dense models tested whole').toBe(3);
     // The pyramid as built: half the scene pass's size per level, each texel the farthest of the four under it, the
     // sky at the far plane and the boxes nearer.
     type Readback = { layout: PyramidLayout; reversed: boolean; data: number[] };

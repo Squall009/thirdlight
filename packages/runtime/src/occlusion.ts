@@ -82,12 +82,13 @@ const ITEM_KINDS: ReadonlySet<OccludeeKind> = new Set(['instanced', 'terrain']);
 export const OCCLUSION_MIN_TRIANGLES = 64;
 
 /**
- * The fewest triangles an instanced draw's copies in view must draw together
- * for them to be culled one by one on the GPU (else the draw is drawn whole
- * that frame): a culled draw is an indirect draw in both passes of the frame,
- * kept up to date on the main thread, which the GPU time a draw of fewer
- * triangles saves does not win back. Measured on the village class (Iris Xe),
- * whose automatic batches of a few small props cost more culled than drawn.
+ * The fewest triangles a draw culled on the GPU must draw in view: an
+ * instanced draw's copies together (else it is drawn whole that frame), or a
+ * draw culled whole (a chunk, a merged cell, a model alone). A culled draw is
+ * a row of the GPU's tests and an indirect draw, kept up to date on the main
+ * thread, which the GPU time a draw of fewer triangles saves does not win
+ * back. Measured on the village class (Iris Xe), whose automatic batches of a
+ * few small props, and models alone, cost more culled than drawn.
  */
 export const OCCLUSION_MIN_COPIES_TRIANGLES = 2048;
 

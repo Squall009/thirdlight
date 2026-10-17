@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, terrainMinLodDistance, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile } from './terrain-quadtree';
+import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, terrainMinLodDistance, TERRAIN_NODE_BOX_FLOATS, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile } from './terrain-quadtree';
 
 /** A rolling heightfield in steps (one step = 1 cm), sample (gx, gz) of the whole terrain. */
 const stepAt = (gx: number, gz: number): number => Math.round(3000 + 1500 * Math.sin(gx / 37) * Math.cos(gz / 23) + 400 * Math.sin((gx + gz) / 7));
@@ -40,6 +40,21 @@ function nodesOf(p: PageNodes): Node[] {
   return out;
 }
 
+/** Every node's box (the culling's bounds) holds its surface: every height its samples take over its square. */
+function expectBoxesHold(p: PageNodes): void {
+  for (let i = 0; i < p.count; i++) {
+    const d = p.data.subarray(i * TERRAIN_NODE_FLOATS);
+    const [x0, y0, z0, x1, y1, z1] = Array.from(p.boxes.subarray(i * TERRAIN_NODE_BOX_FLOATS, (i + 1) * TERRAIN_NODE_BOX_FLOATS));
+    expect([x0, z0, x1, z1], `node ${i}'s square`).toEqual([d[0], d[1], d[0]! + d[2]!, d[1]! + d[2]!]);
+    for (let z = d[1]!; z <= d[1]! + d[2]!; z += d[2]! / 4) {
+      for (let x = d[0]!; x <= d[0]! + d[2]!; x += d[2]! / 4) {
+        const y = Math.fround(metres(stepAt(Math.round(x), Math.round(z))));
+        expect(y >= y0! && y <= y1!, `node ${i} at ${x}, ${z}: ${y} in ${y0}..${y1}`).toBe(true);
+      }
+    }
+  }
+}
+
 /** The shader's morph factor of a grid vertex at world (x, z): by its distance to the eye, its height a sample's. */
 const morphK = (n: Node, x: number, z: number, eye: readonly number[]): number => {
   const d = Math.hypot(x - eye[0]!, metres(stepAt(Math.round(x), Math.round(z))) - eye[1]!, z - eye[2]!);
@@ -56,6 +71,7 @@ describe('terrain CDLOD selection', () => {
     selectTerrainNodes(tiles, { layout, ranges: terrainLodRanges(layout, undefined, 1), eye, heightOf: metres, inView: (x) => x < 256 }, [page], stats);
     const nodes = nodesOf(page);
     expect(nodes.length).toBe(stats.nodes);
+    expectBoxesHold(page);
     const area = nodes.reduce((s, n) => s + n.size * n.size, 0);
     expect(area).toBe(4 * 4 * 128 * 128);
     // The ones in view lead.
@@ -78,6 +94,9 @@ describe('terrain CDLOD selection', () => {
     const n = nodesOf(near);
     const f = nodesOf(far);
     expect(n.length + f.length).toBe(all.length);
+    // Each node keeps its box in either list.
+    expectBoxesHold(near);
+    expectBoxesHold(far);
     const gap = (x: Node): number => Math.hypot(Math.max(x.x0 - eye[0], 0, eye[0] - x.x0 - x.size), Math.max(x.z0 - eye[2], 0, eye[2] - x.z0 - x.size));
     expect(f.length).toBeGreaterThan(0);
     for (const x of f) expect(gap(x)).toBeGreaterThan(200);

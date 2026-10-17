@@ -58,6 +58,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type GridRenderChange, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { disposeSharingGeometry } from './dispose';
+import { TerrainNodeCopies } from './terrain-node-culling';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { GRAPH_SURFACE_KEY, type MaterialLibrary, type MaterialOverridesLike } from './material-library';
 import type { GraphSurface } from './material-graph';
@@ -271,6 +272,8 @@ interface Page {
   stamp: number;
   /** Its far ground (a terrain with a macro distance), else null. */
   macro: PageMacro | null;
+  /** Its nodes as copies the GPU may cull (terrain-node-culling.ts). */
+  copies: TerrainNodeCopies;
 }
 
 /** A page's far ground: the tiles' macro textures and the mesh that draws the far nodes from them. */
@@ -287,6 +290,7 @@ interface PageMacro {
   baked: Uint8Array;
   /** The page material (and its nodes) those bakes drew: another one, every tile baked again. */
   bakedWith: readonly unknown[] | null;
+  copies: TerrainNodeCopies;
 }
 
 interface TerrainRec {
@@ -1303,7 +1307,9 @@ export class TerrainView {
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
     mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
     markOccludee(mesh, 'terrain');
-    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes: new PageNodes(), listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null };
+    const nodes = new PageNodes();
+    const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;
+    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes, listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null, copies: new TerrainNodeCopies(mesh, () => page, nodes, selectedForView) };
     if (rec.component.macroDistance !== undefined) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
     mesh.raycast = (raycaster, hits) => {
@@ -1312,9 +1318,11 @@ export class TerrainView {
       const hit = this.fieldOf(rec).raycast([r.origin.x, r.origin.y, r.origin.z], [r.direction.x, r.direction.y, r.direction.z], raycaster.far);
       if (hit !== null && hit.distance >= raycaster.near) hits.push({ distance: hit.distance, point: new THREE.Vector3(...hit.point), object: mesh });
     };
-    // Per pass: the view draws the nodes in view (they lead), any other camera all of them.
-    mesh.onBeforeRender = (_r, _s, camera) => {
-      page.geometry.instanceCount = page.view !== null && page.stamp === page.view.stamp && page.view.is(camera) ? page.nodes.inView : page.nodes.count;
+    // Per pass: the view draws the nodes in view (they lead; those the GPU culls left out), any other camera all of them.
+    mesh.onBeforeRender = (_r, scene, camera) => {
+      const view = selectedForView() && page.view!.is(camera);
+      page.geometry.instanceCount = view ? page.nodes.inView : page.nodes.count;
+      page.copies.beforeDraw(scene, view);
     };
     geometry.instanceCount = 0;
     return page;
@@ -1381,9 +1389,13 @@ export class TerrainView {
     mesh.userData[STATIC_CASTER_KEY] = true;
     // Picking stays with the page's own mesh (it answers from the terrain's field).
     mesh.raycast = () => undefined;
-    const macro: PageMacro = { arrays, material, mesh, ...made, nodes: new PageNodes(), listed: false, baked: new Uint8Array(capacity), bakedWith: null };
-    mesh.onBeforeRender = (_r, _s, camera) => {
-      macro.geometry.instanceCount = page.view !== null && page.stamp === page.view.stamp && page.view.is(camera) ? macro.nodes.inView : macro.nodes.count;
+    const nodes = new PageNodes();
+    const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;
+    const macro: PageMacro = { arrays, material, mesh, ...made, nodes, listed: false, baked: new Uint8Array(capacity), bakedWith: null, copies: new TerrainNodeCopies(mesh, () => macro, nodes, selectedForView) };
+    mesh.onBeforeRender = (_r, scene, camera) => {
+      const view = selectedForView() && page.view!.is(camera);
+      macro.geometry.instanceCount = view ? macro.nodes.inView : macro.nodes.count;
+      macro.copies.beforeDraw(scene, view);
     };
     made.geometry.instanceCount = 0;
     applyEntityRenderFlags(mesh, rec.look.components);
@@ -1398,6 +1410,7 @@ export class TerrainView {
   }
 
   private disposeMacro(m: PageMacro): void {
+    m.copies.dispose();
     (m.mesh as unknown as { dispose?: () => void }).dispose?.();
     disposeSharingGeometry(m.geometry, m.own);
     m.arrays.albedo.dispose();
@@ -1587,6 +1600,7 @@ export class TerrainView {
     for (const p of rec.pages) {
       this.list(p, false);
       p.undoMaterial?.();
+      p.copies.dispose();
       (p.mesh as unknown as { dispose?: () => void }).dispose?.();
       disposeSharingGeometry(p.geometry, p.own);
       p.heights.dispose();
@@ -1648,7 +1662,7 @@ export class TerrainView {
   }
 
   /** A mesh's instance buffer filled with its nodes (a larger buffer made when they no longer fit). */
-  private upload(rec: TerrainRec, target: { geometry: THREE.InstancedBufferGeometry; buffer: THREE.InstancedInterleavedBuffer; own: THREE.InterleavedBufferAttribute[]; mesh: THREE.Mesh }, nodes: PageNodes): void {
+  private upload(rec: TerrainRec, target: { geometry: THREE.InstancedBufferGeometry; buffer: THREE.InstancedInterleavedBuffer; own: THREE.InterleavedBufferAttribute[]; mesh: THREE.Mesh; copies: TerrainNodeCopies }, nodes: PageNodes): void {
     const need = nodes.count * TERRAIN_NODE_FLOATS;
     if (need > target.buffer.array.length) {
       const old = target.geometry;
@@ -1660,11 +1674,13 @@ export class TerrainView {
       target.own = made.own;
       target.mesh.geometry = made.geometry;
       disposeSharingGeometry(old, oldOwn);
+      target.copies.renewed();
     }
     (target.buffer.array as Float32Array).set(nodes.data.subarray(0, need));
     target.buffer.clearUpdateRanges();
     target.buffer.addUpdateRange(0, need);
     target.buffer.needsUpdate = true;
     target.geometry.instanceCount = nodes.count;
+    target.copies.uploaded();
   }
 }

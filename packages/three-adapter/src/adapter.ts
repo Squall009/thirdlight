@@ -1460,14 +1460,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     viewCull.update(camera!);
     archHost.rooms.update(camera!);
     isolation.sweep();
-    // Then what is hidden behind what is in front of it (what the frustum, the rooms and isolation left drawn).
-    occlusion.update();
     lights.budgetShadows(camera!);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     terrains.update(viewCull.view, renderer as never);
     // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).
     scatter.cover.update(viewCull.view);
     materialLibrary?.setViewEye(viewCull.view.eye[0]!, viewCull.view.eye[1]!, viewCull.view.eye[2]!);
+    // Then what is hidden behind what is in front of it (what the frustum, the rooms and isolation left drawn, the
+    // terrains' nodes and the cover chosen for this view).
+    occlusion.update();
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with

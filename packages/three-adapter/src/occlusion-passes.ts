@@ -16,7 +16,11 @@
  * the first pass draws; after the pyramid another tests every copy in view
  * and lists those visible now that the first pass left out, which the second
  * pass draws (an instanced occluder is drawn in both passes, each time its
- * own list).
+ * own list). Block and architecture chunks, merged cells and models drawn
+ * alone are culled whole (occlusion-whole.ts): each is encoded in one pass,
+ * the first when it fills the depth and was seen at the last answer, else the
+ * second, where its indirect draw draws it only if this frame's pyramid shows
+ * it.
  *
  * Each draw is drawn once, in one of the passes, with what it reads in the
  * one-pass frame: the depth it tests against is the opaque depth in front of
@@ -37,6 +41,7 @@ import type { N } from './effects-tsl';
 import type { OccludeeRegistry } from './occludees';
 import { InstanceOcclusion } from './occlusion-instances';
 import { DepthPyramid } from './occlusion-pyramid';
+import { WholeOcclusion } from './occlusion-whole';
 
 /** What the environment renderer's scene pass asks of a frame drawn in two passes. */
 export interface ScenePasses {
@@ -69,6 +74,8 @@ export class TwoPassFrame implements ScenePasses {
   readonly pyramid: DepthPyramid;
   /** The instanced copies culled against the pyramid. */
   readonly instances: InstanceOcclusion;
+  /** The draws culled whole against it. */
+  readonly wholes: WholeOcclusion;
   /** The pass drawing now (0: neither): the stand-ins draw in the first only. */
   drawing: 0 | 1 | 2 = 0;
   /** The pyramid level shown over the frame (null: the picture). */
@@ -87,12 +94,13 @@ export class TwoPassFrame implements ScenePasses {
     const frame = this as TwoPassFrame;
     this.pyramid = new DepthPyramid(renderer);
     this.instances = new InstanceOcclusion(renderer, { get drawing() { return frame.drawing; }, firstPass: (o) => !this.secondPass(o) });
+    this.wholes = new WholeOcclusion(this.instances);
     this.r = renderer as unknown as PassRenderer;
   }
 
-  /** Whether `object` draws in the second pass: an occludee that is no occluder (its role is `none`). */
+  /** Whether `object` draws in the second pass: an occludee that is no occluder (its role is `none`), or a draw culled whole that was hidden at its last answer. */
   secondPass(object: THREE.Object3D): boolean {
-    return this.registry.get(object)?.role === 'none';
+    return this.registry.get(object)?.role === 'none' || this.wholes.second(object);
   }
 
   private readonly first: RenderObjectFunction = (object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
@@ -105,6 +113,10 @@ export class TwoPassFrame implements ScenePasses {
     // The opaque list again: only what the first pass left (three's background mesh, drawn first, is not drawn twice),
     // and the culled instanced occluders' copies it left out.
     if (camera === this.camera && !drawnAsTransparent(material) && !this.secondPass(object) && !this.instances.bothPasses(object)) return;
+    if (camera === this.camera && this.wholes.second(object)) {
+      this.wholes.drawSecond(object, geometry, () => this.r.renderObject(object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId));
+      return;
+    }
     this.r.renderObject(object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId);
   };
 
@@ -121,6 +133,7 @@ export class TwoPassFrame implements ScenePasses {
       this.drawing = 0;
       if (target.depthTexture !== null) {
         this.pyramid.build({ depth: target.depthTexture, width: target.width, height: target.height, samples: target.samples }, () => this.instances.lateNode(this.pyramid, camera));
+        this.instances.runFresh();
       }
       this.drawing = 2;
       // No clear: three clears without autoClear only for a colour background, so it is lifted for this render.
@@ -134,7 +147,7 @@ export class TwoPassFrame implements ScenePasses {
       // three walks the scene, and shown again at its first draw (before anything it draws can render a shadow
       // map, which must see every caster).
       for (const o of this.registry.values()) {
-        if (o.role !== 'none' && o.object.visible && !this.instances.bothPasses(o.object)) {
+        if (o.role !== 'none' && o.object.visible && !this.instances.bothPasses(o.object) && !this.wholes.second(o.object)) {
           o.object.visible = false;
           this.lifted.push(o.object);
         }
@@ -166,6 +179,7 @@ export class TwoPassFrame implements ScenePasses {
   }
 
   dispose(): void {
+    this.wholes.clear();
     this.instances.dispose();
     this.pyramid.dispose();
   }

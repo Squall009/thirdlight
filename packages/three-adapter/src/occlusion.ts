@@ -23,7 +23,9 @@
  * pyramid (never into the scene's depth, which ambient occlusion, fog and
  * transparent draws read), and the copies of instanced draws are culled on
  * the GPU against it (occlusion-instances.ts; the diagnostics' tested and
- * culled count copies, read back a few frames late).
+ * culled count copies, read back a few frames late), as are block and
+ * architecture chunks, merged cells and models drawn alone, each as a whole
+ * (occlusion-whole.ts; counted with the copies).
  *
  * Runs once a frame after the frustum, the rooms and an edit mode's isolation
  * have had their say (what they hide is not tested again). Kept out of
@@ -33,10 +35,11 @@
 import type * as THREE from 'three';
 import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
 
-import { OccludeeRegistry } from './occludees';
+import { OccludeeRegistry, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinMaterialOf } from './occluders';
 import { TwoPassFrame, type ScenePasses } from './occlusion-passes';
 import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
+import { culledWhole } from './occlusion-whole';
 import type { PyramidReadback } from './occlusion-pyramid';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
@@ -89,10 +92,10 @@ export interface OcclusionDiagnostics {
   readonly byRole: Readonly<Record<OccluderRole, number>>;
   /** `_OCC` stand-in draws the view drew into its depth in the last frame. */
   readonly standins: number;
-  /** Items tested and left out (instanced copies; read back from the GPU on `hiz`, a few frames late). */
+  /** Items tested and left out (instanced copies and draws culled whole; read back from the GPU on `hiz`, a few frames late). */
   readonly tested: number;
   readonly culled: number;
-  /** On the two-pass path: items left out of the first pass by last frame's answer, and items drawn in the second. */
+  /** On the two-pass path: items left out of the first pass by the last answer (copies, and draws culled whole moved to the second), and items drawn in the second. */
   readonly pass1Culled: number;
   readonly pass2Drawn: number;
   /** Instanced copies culled on the GPU (`hiz`; null: none). */
@@ -136,8 +139,9 @@ export class OcclusionCuller implements OcclusionSwitch {
   private readonly counts = { tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null as number | null, ms: 0, standins: 0 };
   /** Stand-in draws so far in this frame (the last frame's when `update` starts the next). */
   private standinDraws = 0;
-  /** The occludees of kind `instanced` (null: to be listed). */
+  /** The occludees culled copy by copy (instanced draws, terrain pages' nodes), and those culled whole (null: to be listed). */
   private instancedDraws: THREE.Object3D[] | null = null;
+  private wholeDraws: Occludee[] = [];
   private mark = '';
   /** The frame in two passes and its pyramid (`hiz` on WebGPU), and the renderer it was made for. */
   private frame: TwoPassFrame | null = null;
@@ -218,21 +222,28 @@ export class OcclusionCuller implements OcclusionSwitch {
     if (path === 'off') {
       if (this.registry.size > 0) this.registry.clear();
       this.instancedDraws = null;
+      this.wholeDraws = [];
     } else if (this.registry.sync(this.deps.scene.children) || this.instancedDraws === null) {
       // The instanced draws the GPU may cull, listed again only when the scene's draws changed.
       this.instancedDraws = [];
-      for (const o of this.registry.values()) if (o.kind === 'instanced') this.instancedDraws.push(o.object);
+      this.wholeDraws = [];
+      for (const o of this.registry.values()) {
+        if (o.kind === 'instanced' || o.kind === 'terrain') this.instancedDraws.push(o.object);
+        else if (culledWhole(o.kind)) this.wholeDraws.push(o);
+      }
     }
     if (path === 'hiz') this.dressStandins();
     const instances = path === 'hiz' ? (this.frame?.instances ?? null) : null;
     if (instances !== null) {
       instances.attach(this.deps.scene);
-      instances.update(this.instancedDraws ?? [], this.deps.view?.camera ?? null);
+      const camera = this.deps.view?.camera ?? null;
+      instances.update(this.instancedDraws ?? [], camera, this.frame!.wholes.update(this.wholeDraws, camera, (o) => o.role !== 'none'));
       const d = instances.diagnostics();
-      this.counts.tested = d.tested;
-      this.counts.culled = Math.max(0, d.tested - d.drawn1 - d.drawn2);
-      this.counts.pass1Culled = d.pass1Left;
-      this.counts.pass2Drawn = d.drawn2;
+      const w = d.whole;
+      this.counts.tested = d.tested + w.tested;
+      this.counts.culled = Math.max(0, d.tested - d.drawn1 - d.drawn2) + w.culled;
+      this.counts.pass1Culled = d.pass1Left + w.second;
+      this.counts.pass2Drawn = d.drawn2 + w.second - w.culled;
     } else {
       this.counts.tested = 0;
       this.counts.culled = 0;
@@ -279,6 +290,7 @@ export class OcclusionCuller implements OcclusionSwitch {
     // instanced draws draw every copy in view with the programs they had.
     if (this.applied === 'hiz' && this.choice.path !== 'hiz') {
       this.undressStandins();
+      this.frame?.wholes.clear();
       this.frame?.instances.detach(this.deps.scene);
       this.frame?.instances.clear();
     }

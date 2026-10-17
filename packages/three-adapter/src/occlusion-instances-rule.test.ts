@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { depthOfViewZ, firstPassList, levelFor, listedCopy, RangeAllocator, secondPassList, sphereMayShow, type CopyStep, type SphereTest } from './occlusion-instances-rule';
+import { boxMayShow, depthOfViewZ, firstPassList, levelFor, listedCopy, RangeAllocator, secondPassList, sphereMayShow, type CopyStep, type SphereTest } from './occlusion-instances-rule';
 import { pyramidLayout, reducePyramid } from './occlusion-pyramid-rule';
 
 describe('the pools of culled copies', () => {
@@ -94,6 +94,17 @@ describe('a copy\'s sphere against the depth pyramid', () => {
       expect(sphereMayShow(t, -0.3, 0, -20, 1), 'reaching past its edge').toBe(true);
       expect(sphereMayShow(t, -3, 0, -10.5, 0.5), 'touching it').toBe(true);
       expect(sphereMayShow(t, -3, 0, -20.0, 10.5), 'reaching the eye').toBe(true);
+    });
+
+    it(`tests a box by its corners: a flat one behind the wall is hidden where its sphere is not (${reversed ? 'reversed' : 'standard'} depth)`, () => {
+      const t = sceneWith(reversed);
+      const flat = [-6, -0.1, -30, -1, 0.1, -20] as const;
+      expect(boxMayShow(t, ...flat), 'the box behind the wall').toBe(false);
+      const c = [(flat[0] + flat[3]) / 2, 0, (flat[2] + flat[5]) / 2] as const;
+      expect(sphereMayShow(t, ...c, Math.hypot(2.5, 0.1, 5)), 'its sphere reaches past the wall\'s edge').toBe(true);
+      expect(boxMayShow(t, -6, -0.1, -30, 1, 0.1, -20), 'past the edge, under the sky').toBe(true);
+      expect(boxMayShow(t, -6, -0.1, -12, -1, 0.1, -5), 'in front of the wall').toBe(true);
+      expect(boxMayShow(t, -6, -0.1, -30, -1, 0.1, 0.5), 'reaching behind the eye').toBe(true);
     });
   }
 

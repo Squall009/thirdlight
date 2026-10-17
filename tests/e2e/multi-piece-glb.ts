@@ -31,9 +31,11 @@ export interface PieceSpec {
   parts?: { size: [number, number, number]; at: [number, number, number] }[];
   /** Its `_OCC` occluder stand-in: one box moved to `at`. */
   occ?: { size: [number, number, number]; at: [number, number, number] };
+  /** Each render box's faces cut into this many rows and columns of quads (absent: 1; 12 × segments² triangles). */
+  segments?: number;
 }
 
-function box(size: [number, number, number], centred = false): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
+function box(size: [number, number, number], centred = false, segments = 1): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
   const [sx, sy, sz] = size;
   // Pivot at the base centre-left like a kit piece: x 0..sx, y 0..sy, z -sz/2..sz/2 (centred: x -sx/2..sx/2).
   const x0 = centred ? -sx / 2 : 0, x1 = centred ? sx / 2 : sx, y0 = 0, y1 = sy, z0 = -sz / 2, z1 = sz / 2;
@@ -50,16 +52,26 @@ function box(size: [number, number, number], centred = false): { positions: numb
   const uv1: number[] = [];
   const indices: number[] = [];
   // UV1: a 3 × 2 grid of cells, one face per cell, with a margin between faces.
-  const corners: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const s = Math.max(1, Math.floor(segments));
   faces.forEach((f, i) => {
     const cu = i % 3, cv = Math.floor(i / 3);
-    f.v.forEach((v, k) => {
-      positions.push(...v);
-      normals.push(...f.n);
-      uv1.push((cu + 0.05 + corners[k]![0] * 0.9) / 3, (cv + 0.05 + corners[k]![1] * 0.9) / 2);
-    });
-    const b = i * 4;
-    indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    // A (s + 1)² grid over the face, bilinear between its corners (one quad at s = 1).
+    const b = positions.length / 3;
+    for (let r = 0; r <= s; r += 1) {
+      for (let c = 0; c <= s; c += 1) {
+        const u = c / s, w = r / s;
+        const at = (k: number): number => (1 - u) * (1 - w) * f.v[0]![k]! + u * (1 - w) * f.v[1]![k]! + u * w * f.v[2]![k]! + (1 - u) * w * f.v[3]![k]!;
+        positions.push(at(0), at(1), at(2));
+        normals.push(...f.n);
+        uv1.push((cu + 0.05 + u * 0.9) / 3, (cv + 0.05 + w * 0.9) / 2);
+      }
+    }
+    for (let r = 0; r < s; r += 1) {
+      for (let c = 0; c < s; c += 1) {
+        const q = b + r * (s + 1) + c;
+        indices.push(q, q + 1, q + s + 2, q, q + s + 2, q + s + 1);
+      }
+    }
   });
   return { positions, normals, uv1, indices };
 }
@@ -79,8 +91,8 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     return bufferViews.length - 1;
   };
   const extraMaterials: Record<string, unknown>[] = [];
-  const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number], vertexColor: [number, number, number, number] = [1, 0, 0, 1]): number => {
-    const g = box(size, options.centred === true);
+  const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number], vertexColor: [number, number, number, number] = [1, 0, 0, 1], segments = 1): number => {
+    const g = box(size, options.centred === true, segments);
     const count = g.positions.length / 3;
     const pos = addView(Buffer.from(new Float32Array(g.positions).buffer), 34962);
     const xMin = options.centred === true ? -size[0] / 2 : 0;
@@ -124,7 +136,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
       nodes.push({ name: p.name, children: kids });
     } else p.lods.forEach((size, i) => {
       const name = p.lods.length === 1 ? p.name : `${p.name}_LOD${i}`;
-      nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i], p.vertexColor) });
+      nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i], p.vertexColor, p.segments) });
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
     if (p.occ !== undefined) nodes.push({ name: `${p.name}_OCC`, mesh: addMesh(`${p.name}_OCC`, p.occ.size, false), translation: p.occ.at });

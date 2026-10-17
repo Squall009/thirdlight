@@ -228,6 +228,15 @@ interface Built extends ViewCullable {
   full: number;
   /** Every vertex's bounds (the geometry's sphere is moved to sort the draw: `cullableCell`). */
   readonly bounds: THREE.Sphere;
+  /** What the view's draw holds, as last culled for `camera` (null: not culled for it; it draws all). */
+  viewDraw?(camera: THREE.Camera): MergedViewDraw | null;
+}
+
+/** What a merged cell's view draw holds: its index's leading `count` entries, inside `box` (world min xyz, max xyz) and `sphere` round it (centre xyz, radius). */
+export interface MergedViewDraw {
+  readonly count: number;
+  readonly box: Float64Array;
+  readonly sphere: Float64Array;
 }
 
 interface Cell {
@@ -426,6 +435,11 @@ function fillIndex(b: Built, list: readonly Slot[], order: Uint32Array | null): 
 /** The built cell behind each merged mesh, for tools that look inside a merged draw. */
 const builtOf = new WeakMap<THREE.Mesh, Built>();
 
+/** What the view's draw of a merged mesh holds for `camera` (null: not a merged mesh, or not culled for that camera). */
+export function mergedViewDrawOf(mesh: THREE.Object3D, camera: THREE.Camera): MergedViewDraw | null {
+  return builtOf.get(mesh as THREE.Mesh)?.viewDraw?.(camera) ?? null;
+}
+
 /**
  * The members a merged mesh draws now: each one's vertex range in the mesh's geometry (null: not a merged
  * mesh). Its index holds only these members' triangles, the view's in its leading part.
@@ -449,6 +463,10 @@ function cullableCell(parts: Pick<Built, 'mesh' | 'geometry' | 'template' | 'ind
   let order = new Uint32Array(0);
   let depths = new Float32Array(0);
   let seenFor: Slot[] | null = null;
+  /** The box over the members in view (min xyz, max xyz) and the sphere round it, made when asked (`boxFor`: the stamp it was made at). */
+  const box = new Float64Array(6);
+  let boxFor = -1;
+  const viewDrawn = { count: 0, box, sphere: new Float64Array(4) };
   const b: Built = {
     ...parts,
     drawnSlots: [],
@@ -491,6 +509,7 @@ function cullableCell(parts: Pick<Built, 'mesh' | 'geometry' | 'template' | 'ind
         if (v === 1) n += list[i]!.iCount;
       }
       inView = n;
+      boxFor = -1;
       if (!changed) return false;
       // In view first, nearest first (shaded once where they overlap), then the rest.
       let k = 0;
@@ -516,9 +535,33 @@ function cullableCell(parts: Pick<Built, 'mesh' | 'geometry' | 'template' | 'ind
       return true;
     },
   };
+  const culledForView = (camera: THREE.Camera): boolean => culledFor !== null && culledStamp === culledFor.stamp && seenFor === b.drawnSlots && culledFor.is(camera);
+  b.viewDraw = (camera) => {
+    if (!culledForView(camera)) return null;
+    viewDrawn.count = inView;
+    if (boxFor !== culledStamp) {
+      // The members in view, bounded (an occlusion test of the view's draw needs no more than what it draws).
+      boxFor = culledStamp;
+      box.fill(Infinity, 0, 3);
+      box.fill(-Infinity, 3, 6);
+      const list = b.drawnSlots;
+      for (let i = 0; i < list.length; i += 1) {
+        if (seen[i] !== 1) continue;
+        const sp = list[i]!.sphere;
+        for (let a = 0; a < 3; a += 1) {
+          box[a] = Math.min(box[a]!, sp[a]! - sp[3]!);
+          box[a + 3] = Math.max(box[a + 3]!, sp[a]! + sp[3]!);
+        }
+      }
+      const s = viewDrawn.sphere;
+      for (let a = 0; a < 3; a += 1) s[a] = (box[a]! + box[a + 3]!) / 2;
+      s[3] = inView > 0 ? Math.hypot(box[3]! - box[0]!, box[4]! - box[1]!, box[5]! - box[2]!) / 2 : -1;
+    }
+    return viewDrawn;
+  };
   // Per pass: the view draws the slots in view, any other camera (a shadow map) all of them.
   b.mesh.onBeforeRender = (_r, _s, camera) => {
-    b.geometry.drawRange.count = culledFor !== null && culledStamp === culledFor.stamp && seenFor === b.drawnSlots && culledFor.is(camera) ? inView : b.full;
+    b.geometry.drawRange.count = culledForView(camera) ? inView : b.full;
   };
   return b;
 }

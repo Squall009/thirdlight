@@ -148,13 +148,18 @@ export interface SelectTile {
   readonly bounds: TileHeightBounds;
 }
 
-/** One page's drawn nodes: those in view first. */
+/** Floats of a node's bounds in {@link PageNodes.boxes}: its box in the terrain's frame (min xyz, max xyz). */
+export const TERRAIN_NODE_BOX_FLOATS = 6;
+
+/** One page's drawn nodes: those in view first, each with its box (the tile's height bounds over its square). */
 export class PageNodes {
   data: Float32Array<ArrayBuffer> = new Float32Array(TERRAIN_NODE_FLOATS * 64);
+  boxes: Float32Array<ArrayBuffer> = new Float32Array(TERRAIN_NODE_BOX_FLOATS * 64);
   count = 0;
   inView = 0;
   /** Scratch for the nodes out of view (appended after the ones in view). */
   private rest: Float32Array<ArrayBuffer> = new Float32Array(TERRAIN_NODE_FLOATS * 16);
+  private restBoxes: Float32Array<ArrayBuffer> = new Float32Array(TERRAIN_NODE_BOX_FLOATS * 16);
   private restCount = 0;
 
   begin(): void {
@@ -162,35 +167,46 @@ export class PageNodes {
     this.restCount = 0;
   }
 
-  push(inView: boolean, a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number): void {
+  /** A node: its eight floats (`a`…`h`), then its box (`box`, 6 floats from `at`). */
+  push(inView: boolean, a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, box: ArrayLike<number>, at = 0): void {
+    const B = TERRAIN_NODE_BOX_FLOATS;
     let arr: Float32Array<ArrayBuffer>;
-    let at: number;
+    let bx: Float32Array<ArrayBuffer>;
+    let i: number;
     if (inView) {
       if ((this.count + 1) * TERRAIN_NODE_FLOATS > this.data.length) this.data = grow(this.data);
+      if ((this.count + 1) * B > this.boxes.length) this.boxes = grow(this.boxes);
       arr = this.data;
-      at = this.count * TERRAIN_NODE_FLOATS;
+      bx = this.boxes;
+      i = this.count;
       this.count += 1;
     } else {
       if ((this.restCount + 1) * TERRAIN_NODE_FLOATS > this.rest.length) this.rest = grow(this.rest);
+      if ((this.restCount + 1) * B > this.restBoxes.length) this.restBoxes = grow(this.restBoxes);
       arr = this.rest;
-      at = this.restCount * TERRAIN_NODE_FLOATS;
+      bx = this.restBoxes;
+      i = this.restCount;
       this.restCount += 1;
     }
-    arr[at] = a;
-    arr[at + 1] = b;
-    arr[at + 2] = c;
-    arr[at + 3] = d;
-    arr[at + 4] = e;
-    arr[at + 5] = f;
-    arr[at + 6] = g;
-    arr[at + 7] = h;
+    const o = i * TERRAIN_NODE_FLOATS;
+    arr[o] = a;
+    arr[o + 1] = b;
+    arr[o + 2] = c;
+    arr[o + 3] = d;
+    arr[o + 4] = e;
+    arr[o + 5] = f;
+    arr[o + 6] = g;
+    arr[o + 7] = h;
+    for (let k = 0; k < B; k += 1) bx[i * B + k] = box[at + k]!;
   }
 
   end(): void {
     this.inView = this.count;
     const total = this.count + this.restCount;
     while (total * TERRAIN_NODE_FLOATS > this.data.length) this.data = grow(this.data);
+    while (total * TERRAIN_NODE_BOX_FLOATS > this.boxes.length) this.boxes = grow(this.boxes);
     this.data.set(this.rest.subarray(0, this.restCount * TERRAIN_NODE_FLOATS), this.count * TERRAIN_NODE_FLOATS);
+    this.boxes.set(this.restBoxes.subarray(0, this.restCount * TERRAIN_NODE_BOX_FLOATS), this.count * TERRAIN_NODE_BOX_FLOATS);
     this.count = total;
   }
 }
@@ -215,10 +231,13 @@ export function splitFarNodes(near: PageNodes, far: PageNodes, eye: readonly [nu
     const dx = Math.max(d[o]! - eye[0], 0, eye[0] - d[o]! - size);
     const dz = Math.max(d[o + 1]! - eye[1], 0, eye[1] - d[o + 1]! - size);
     if (dx * dx + dz * dz > d2 && farOk(d[o + 3]!)) {
-      far.push(i < near.inView, d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!, d[o + 6]!, d[o + 7]!);
+      far.push(i < near.inView, d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!, d[o + 4]!, d[o + 5]!, d[o + 6]!, d[o + 7]!, near.boxes, i * TERRAIN_NODE_BOX_FLOATS);
       continue;
     }
-    if (keep !== i) d.copyWithin(keep * F, o, o + F);
+    if (keep !== i) {
+      d.copyWithin(keep * F, o, o + F);
+      near.boxes.copyWithin(keep * TERRAIN_NODE_BOX_FLOATS, i * TERRAIN_NODE_BOX_FLOATS, (i + 1) * TERRAIN_NODE_BOX_FLOATS);
+    }
     keep += 1;
     if (i < near.inView) keepInView += 1;
   }
@@ -271,7 +290,7 @@ export function selectTerrainNodes(tiles: Iterable<SelectTile>, input: SelectInp
     if (page === undefined) continue;
     const ox = t.x * tileSize;
     const oz = t.z * tileSize;
-    /** Distance from the eye to a node's box, and its box's centre and half diagonal. */
+    /** Distance from the eye to a node's box, and its box's centre and half diagonal (then the box: min xyz, max xyz). */
     const box = (level: number, ix: number, iz: number, out: Float64Array): number => {
       const side = layout.cells / layout.grid / 2 ** level;
       const size = tileSize / side;
@@ -287,15 +306,21 @@ export function selectTerrainNodes(tiles: Iterable<SelectTile>, input: SelectInp
       out[1] = (y0 + y1) / 2;
       out[2] = z0 + size / 2;
       out[3] = Math.sqrt(size * size * 0.5 + ((y1 - y0) * (y1 - y0)) / 4);
+      out[4] = x0;
+      out[5] = y0;
+      out[6] = z0;
+      out[7] = x0 + size;
+      out[8] = y1;
+      out[9] = z0 + size;
       return Math.sqrt(dx * dx + dy * dy + dz * dz);
     };
-    const tmp = new Float64Array(4);
+    const tmp = new Float64Array(10);
     const add = (level: number, ix: number, iz: number): void => {
       box(level, ix, iz, tmp);
       const seen = inView === null || inView(tmp[0]!, tmp[1]!, tmp[2]!, tmp[3]!);
       const samples = layout.grid * 2 ** level;
       const [ms, mi] = morph[level]!;
-      page.push(seen, ox + ix * samples * layout.spacing, oz + iz * samples * layout.spacing, samples, t.layer, ix * samples, iz * samples, ms, mi);
+      page.push(seen, ox + ix * samples * layout.spacing, oz + iz * samples * layout.spacing, samples, t.layer, ix * samples, iz * samples, ms, mi, tmp, 4);
       stats.nodes += 1;
       if (seen) stats.inView += 1;
       stats.perLevel[level]! += 1;
