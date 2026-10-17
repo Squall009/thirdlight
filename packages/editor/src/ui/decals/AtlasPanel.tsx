@@ -52,7 +52,7 @@ export function AtlasPanel({ host }: SceneModeView): JSX.Element {
   const offender = report === null ? null : offenderText(report, nameOf);
   const offenders = new Set(report?.offender?.materials ?? []);
   const composed = view?.composed ?? null;
-  const status = atlas.busy === 'composing' ? 'Composing the pages…' : atlas.busy === 'finishing' && composed?.preview === true ? `Preview in ${composed.ms} ms · composing the pages…` : composed !== null ? `Made in ${composed.ms} ms${composed.stats !== null ? ` (${composed.stats.composed} composed, ${composed.stats.cached + composed.stats.asStored} reused)` : ''}${atlas.drawFromPages ? ' · the Scene view draws from them' : ''}` : report !== null && report.pages.length > 0 ? 'Not composed: the Scene view draws each decal’s own textures' : '';
+  const status = atlas.busy === 'composing' ? 'Composing the pages…' : atlas.busy === 'finishing' && composed?.preview === true ? `Preview in ${composed.ms} ms · composing the pages…` : composed !== null && atlas.rebuilt?.signature === composed.signature ? `Preview in ${atlas.rebuilt.previewMs} ms · the pages in ${formatSeconds(atlas.rebuilt.ms)}${atlas.drawFromPages ? ' · the Scene view draws from them' : ''}` : composed !== null ? `Made in ${composed.ms} ms${composed.stats !== null ? ` (${composed.stats.composed} composed, ${composed.stats.cached + composed.stats.asStored} reused)` : ''}${atlas.drawFromPages ? ' · the Scene view draws from them' : ''}` : report !== null && report.pages.length > 0 ? 'Not composed: the Scene view draws each decal’s own textures' : '';
   const mark = report === null ? undefined : JSON.stringify({ size: report.size, pages: report.pages.length, images: report.images, materials: report.materials, unused: report.unused, gpuBytes: report.gpuBytes, composed: composed !== null, preview: composed?.preview === true, drawn: atlas.drawn !== null });
   const badge = report === null ? (atlas.error !== null ? 'not read' : 'reading…') : report.pages.length === 0 ? 'no pages' : `${report.pages.length} page${report.pages.length === 1 ? '' : 's'} · ${formatShare(report.unused)} unused`;
   return (
@@ -130,6 +130,12 @@ export function AtlasPanel({ host }: SceneModeView): JSX.Element {
       ]}
     />
   );
+}
+
+/** A wait in seconds, one decimal under ten. */
+function formatSeconds(ms: number): string {
+  const s = ms / 1000;
+  return `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }): JSX.Element {

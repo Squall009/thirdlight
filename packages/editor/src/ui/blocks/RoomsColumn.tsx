@@ -126,7 +126,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   useEditStatus({
     tool: tile.label,
     text: s.locked ? `${entity.name} is locked: unlock it in its Layer panel to draw rooms.` : needsPiece ? `Pick a ${tile.id === 'corner' ? 'corner' : 'wall'} piece from the kit in the column first.` : (tile.hint ?? mode.hint),
-    keys: [...toolKeysHint(mode.tiles), ...(drawing ? [{ keys: ['Enter'], label: 'Finish' }, { keys: ['Backspace'], label: 'Undo corner' }] : []), ...(tile.id === 'piece' || tile.id === 'corner' ? [{ keys: ['Ctrl', 'Click'], label: 'Take off' }] : []), { keys: ['PgUp / PgDn'], label: 'Floor' }],
+    keys: [...toolKeysHint(mode.tiles), ...(armed && drawing ? [{ keys: ['Enter'], label: 'Finish' }, { keys: ['Backspace'], label: 'Undo corner' }] : []), ...(armed && (tile.id === 'piece' || tile.id === 'corner') ? [{ keys: ['Ctrl', 'Click'], label: 'Take off' }] : []), { keys: ['PgUp / PgDn'], label: 'Floor' }],
     right: s.state.hover,
   });
   const roomsEntity = b?.entityId !== null && b?.entityId !== undefined ? host.entities.find((e) => e.id === b.entityId) : undefined;

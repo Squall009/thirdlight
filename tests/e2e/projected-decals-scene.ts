@@ -548,6 +548,8 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await page.unroute(finalRoute);
   await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true false true');
   console.log(`decal atlas ${what}: preview pages drawn from ${atlasPreviewMs} ms after Rebuild, the pages ${Date.now() - rebuilt} ms (their request held until the preview showed)`);
+  // The status times the wait for the pages from Rebuild, not the last request that found them composed.
+  await expect(drawer.getByRole('status')).toContainText(/Preview in \d+ ms · the pages in [\d.]+ s/);
   // The pages themselves on the GPU (their bytes the report's: the preview's smaller arrays let go).
   const gpuBytes = (await atlasMark())!.gpuBytes;
   await expect.poll(async () => (await view.getAttribute('data-tl-decal-pages'))?.split('|').slice(2).join('|'), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBe(`${gpuBytes}|2`);

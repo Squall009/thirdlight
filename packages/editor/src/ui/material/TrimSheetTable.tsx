@@ -129,7 +129,7 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
         <NumberField label="sheet height (px)" value={sheet.size[1]} onCommit={(v) => save({ ...sheet, size: [sheet.size[0], v!] })} />
         <NumberField label="texel density (px/m)" value={sheet.texelDensity} onCommit={(v) => save({ ...sheet, texelDensity: v! })} />
         <NumberField label="padding (px)" value={sheet.padding} onCommit={(v) => save({ ...sheet, padding: v! })} />
-        <label className="tl-field" title="Draw every row at its own height in metres: fields repeat up a wall at that height, trims show at their painted scale. Off: each part is fitted to whole rows (how sheets made before this option drew).">
+        <label className="tl-field tl-field--inline" title="Draw every row at its own height in metres: fields repeat up a wall at that height, trims show at their painted scale. Off: each part is fitted to whole rows (how sheets made before this option drew).">
           <input type="checkbox" aria-label="rows at their real height" checked={sheet.realHeight === true} onChange={(e) => save({ ...sheet, realHeight: e.target.checked })} />
           <span className="tl-field__label">rows at their real height</span>
         </label>

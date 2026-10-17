@@ -13,7 +13,8 @@
  * up); on entering, the editor's panel layout is the one the rooms' drawing left (the Rooms list top left)
  * and Reset layout puts it back; the picked building's panel sets two 3 m storeys, the roof's rise and
  * slot, takes the panes out of the windows, makes a new interior scene and
- * moves the interior 100 m along x. A fixed camera in the interior scene
+ * moves the interior 100 m along x; Home frames the building beside its panel, and the vertex paint editor
+ * entered on its object frames it whole. A fixed camera in the interior scene
  * looks at the front wall from inside. A script loads the interior scene
  * through the door's link (`ctx.grid.doorLink`) when a key is pressed.
  *
@@ -25,7 +26,7 @@
 import { expect, type Page } from './pw';
 
 import { aimCorner, frameOn, screen } from './rooms-drawing';
-import { armTile, editMode, editModeTab, editPanel, enterBlockEditor, leaveEditMode } from './ui';
+import { armTile, editMode, editModeTab, editPanel, enterBlockEditor, inspector, leaveEditMode } from './ui';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type Query = (op: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -246,6 +247,22 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
     return xs.every((x) => x > viewBox.x && x < column.x);
   }, { message: 'Home on the building: beside the panels, not under them' }).toBe(true);
   await leaveEditMode(page);
+  // Vertex paint on the building's object: entering frames what it generates (its chunks, drawn apart from the
+  // object's node), not the object's origin at the layer's corner.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${roomsId}"]`).click();
+  await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
+  const paint = page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
+  await expect(paint).toHaveAttribute('data-entity-id', roomsId);
+  const paintView = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  await expect.poll(async () => {
+    for (const [x, y, z] of [[219, 0, -44], [229, 0, -44], [219, 0, -34], [229, 0, -34], [219, 6, -34], [229, 6, -44]] as const) {
+      const p = await screen(page, [x, y, z]);
+      if (p === null || p.x < paintView.x || p.x > paintView.x + paintView.width || p.y < paintView.y || p.y > paintView.y + paintView.height) return false;
+    }
+    return true;
+  }, { message: 'vertex paint on the building: entering frames it whole' }).toBe(true);
+  await paint.getByRole('button', { name: /^done/i }).click();
+  await expect(paint).toHaveCount(0);
 
   // The interior scene's camera, and the script that goes through the door on a key.
   await cmd('createEntity', { sceneId: interiorScene, parentId: null, kind: 'group', name: 'Interior camera', transform: { position: [...INTERIOR_CAMERA.at], rotation: [0, 1, 0, 0] }, components: { virtualCamera: { rig: 'fixed', priority: 10, blend: 'cut', fovY: INTERIOR_CAMERA.fovY, near: 0.05, far: 60 } } });

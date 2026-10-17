@@ -58,6 +58,11 @@ export interface DecalAtlas {
   rebuild(): Promise<void>;
   /** The places the Scene view draws from (null: the materials' own textures); the same pages keep their signature. */
   readonly drawn: { readonly signature: string; readonly refs: Readonly<Record<string, DecalPageRef>>; readonly preview?: true } | null;
+  /**
+   * The last Rebuild that went through preview pages: the preview's time and the wait for the pages from the click.
+   * The backend's own answer for the pages times only its last request, which finds them composed behind the preview.
+   */
+  readonly rebuilt: { readonly previewMs: number; readonly ms: number; readonly signature: string } | null;
 }
 
 /** How long the decoded pages are held past the swap (the decals' materials take their own holds within a frame or two). */
@@ -74,6 +79,7 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string; preload?
   const [error, setError] = useState<string | null>(null);
   const [drawFromPages, setDrawState] = useState(() => stored(DRAW_KEY, true));
   const [shown, setShown] = useState(false);
+  const [rebuilt, setRebuilt] = useState<DecalAtlas['rebuilt']>(null);
   const composing = useRef(false);
 
   const read = useCallback(async () => {
@@ -110,6 +116,7 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string; preload?
     if (c === null || composing.current) return;
     composing.current = true;
     setBusy('composing');
+    const started = performance.now();
     try {
       const first = await c.decalAtlas(true, true);
       if (!first.ok) {
@@ -121,6 +128,8 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string; preload?
       if (first.view.composed?.preview !== true) return;
       // The preview shows; the pages themselves are composed behind it.
       setBusy('finishing');
+      // The preview's own time, as the status said while it showed.
+      const previewMs = first.view.composed.ms;
       const r = await c.decalAtlas(true);
       if (!r.ok) {
         setError(r.error.message);
@@ -129,6 +138,7 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string; preload?
       const held = r.view.composed !== null ? (preload?.(decalPageArrayIds(r.view.composed.refs)) ?? null) : null;
       await held?.ready;
       setView(r.view);
+      if (r.view.composed !== null) setRebuilt({ previewMs, ms: Math.round(performance.now() - started), signature: r.view.composed.signature });
       if (held !== null) setTimeout(() => held.release(), PRELOAD_HOLD_MS);
     } finally {
       composing.current = false;
@@ -142,5 +152,5 @@ export function useDecalAtlas(o: { clientRef: ClientRef; watch: string; preload?
   }, []);
 
   const composed = view?.composed ?? null;
-  return { view, busy, error, drawFromPages, setDrawFromPages, setShown, rebuild, drawn: drawFromPages ? composed : null };
+  return { view, busy, error, drawFromPages, setDrawFromPages, setShown, rebuild, drawn: drawFromPages ? composed : null, rebuilt };
 }

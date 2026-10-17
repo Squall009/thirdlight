@@ -87,7 +87,7 @@ import { makePng } from './png-make';
 import { expectRendererBackend } from './renderer-variants';
 import { frameShareNear, projectWith, serveDir, type CameraView, type V3 } from './frame-reading';
 import { BACKENDS, cmd, query, relay, useBackend } from './terrain-cdlod-steps';
-import { enterPaint, fit, frame as frameEntity, leavePaint, paintDrag, pickTile, setPaint, strokeDone } from './vertex-paint-drive';
+import { enterPaint, fit, leavePaint, paintDrag, pickTile, setPaint, strokeDone } from './vertex-paint-drive';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -636,7 +636,7 @@ async function editorStrokes(page: Page, b: Built): Promise<void> {
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   let strokes = 0;
   const brush = async (entityId: string, [from, to]: [V3, V3], size: string, what: string): Promise<void> => {
-    await frameEntity(page, entityId);
+    // Entering frames the object (what it draws, a spline's strip too); no F first.
     await enterPaint(page, entityId);
     await setPaint(page, { size, strength: '100', falloff: 'Constant' });
     await fit(page, [from, to]);

@@ -850,17 +850,20 @@ export class Viewport {
     return out;
   }
 
-  /** Every mesh an entity draws itself (not its overlays, not its children's), with current world matrices. */
-  private drawnMeshes(id: string): THREE.Mesh[] {
+  /**
+   * Every mesh an entity draws itself (not its overlays, not its children's), with current world matrices. `paths`:
+   * with what it generates outside its node too (a building's or a spline's chunks carry its id, not its node).
+   */
+  private drawnMeshes(id: string, paths = false): THREE.Mesh[] {
     const node = this.adapter.entityObject?.(id) ?? null;
-    if (node === null) return [];
     const out: THREE.Mesh[] = [];
     const visit = (o: THREE.Object3D): void => {
       if (o.userData[OVERLAY_KEY] === true) return;
       if ((o as THREE.Mesh).isMesh === true) out.push(o as THREE.Mesh);
       for (const c of o.children) visit(c);
     };
-    visit(node);
+    if (node !== null) visit(node);
+    if (paths) for (const o of this.adapter.pickables?.() ?? []) if (o !== node && o !== this.overlay && this.adapter.paintOwnerOf?.(o) === id) visit(o);
     return out;
   }
 
@@ -869,7 +872,7 @@ export class Viewport {
     const one = new THREE.Box3();
     for (const id of ids) {
       if (!include(this.synced.get(id))) continue;
-      for (const mesh of this.drawnMeshes(id)) {
+      for (const mesh of this.drawnMeshes(id, true)) {
         if (mesh.userData['tlBatch'] === true) continue;
         mesh.updateWorldMatrix(true, false);
         one.makeEmpty().expandByObject(mesh, false);
