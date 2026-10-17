@@ -79,6 +79,19 @@ interface Standins {
   readonly material: MeshBasicNodeMaterial;
 }
 
+/**
+ * The depth buffer's value at view-space z (TSL): the formula three's own
+ * materials and projection use for the camera's kind and the depth buffer
+ * (what the pyramid holds and a culling test compares with).
+ */
+export function depthOfViewZNode(z: N, near: N, far: N, kind: { readonly perspective: boolean; readonly reversed: boolean; readonly logarithmic: boolean }): N {
+  if (kind.perspective) {
+    if (kind.logarithmic) return TSL.viewZToLogarithmicDepth(z, near, far);
+    return kind.reversed ? TSL.viewZToReversedPerspectiveDepth(z, near, far) : TSL.viewZToPerspectiveDepth(z, near, far);
+  }
+  return kind.reversed ? TSL.viewZToReversedOrthographicDepth(z, near, far) : TSL.viewZToOrthographicDepth(z, near, far);
+}
+
 /** Farther / nearer of two depths in the shader, for reversed Z or not. */
 function fartherOf(reversed: boolean): (a: N, b: N) => N {
   return reversed ? (a, b) => TSL.min(a, b) : (a, b) => TSL.max(a, b);
@@ -130,8 +143,12 @@ export class DepthPyramid {
     return this.capacity * 4 + standins;
   }
 
-  /** Reduce `source` into the pyramid (after the first pass, before the second). */
-  build(source: PyramidSource): void {
+  /**
+   * Reduce `source` into the pyramid (after the first pass, before the
+   * second). `then` may give a compute node that reads the pyramid: it runs in
+   * the same compute pass, after the reduction (one submit a frame).
+   */
+  build(source: PyramidSource, then?: () => N | null): void {
     if (this.disposed) return;
     const layout = pyramidLayout(source.width, source.height);
     const l0 = layout.levels[0]!;
@@ -153,6 +170,8 @@ export class DepthPyramid {
     this.tiles.dispatchSize = [Math.ceil(l0.width / TILE), Math.ceil(l0.height / TILE), 1];
     const nodes: N[] = layout.levels.length > TILE_LEVELS ? [this.tiles, this.tail] : [this.tiles];
     this.current = layout;
+    const after = then?.() ?? null;
+    if (after !== null) nodes.push(after);
     void this.renderer.compute(nodes);
   }
 
@@ -236,14 +255,9 @@ export class DepthPyramid {
     const { width0, height0 } = this.size;
     const logarithmic = (this.renderer as { logarithmicDepthBuffer?: boolean }).logarithmicDepthBuffer === true;
     // The depth this fragment would have: the formula three's own materials and projection use, for this camera and depth buffer.
-    const fragmentDepth = TSL.Fn((_: unknown, builder: { camera: { isPerspectiveCamera?: boolean } }) => {
-      const z = TSL.positionView.z;
-      if (builder.camera.isPerspectiveCamera === true) {
-        if (logarithmic) return TSL.viewZToLogarithmicDepth(z, TSL.cameraNear, TSL.cameraFar);
-        return reversed ? TSL.viewZToReversedPerspectiveDepth(z, TSL.cameraNear, TSL.cameraFar) : TSL.viewZToPerspectiveDepth(z, TSL.cameraNear, TSL.cameraFar);
-      }
-      return reversed ? TSL.viewZToReversedOrthographicDepth(z, TSL.cameraNear, TSL.cameraFar) : TSL.viewZToOrthographicDepth(z, TSL.cameraNear, TSL.cameraFar);
-    });
+    const fragmentDepth = TSL.Fn((_: unknown, builder: { camera: { isPerspectiveCamera?: boolean } }) =>
+      depthOfViewZNode(TSL.positionView.z, TSL.cameraNear, TSL.cameraFar, { perspective: builder.camera.isPerspectiveCamera === true, reversed, logarithmic }),
+    );
     material.colorNode = TSL.Fn(() => {
       const px = TSL.uvec2(TSL.screenCoordinate.floor());
       const tx = px.x.shiftRight(1);

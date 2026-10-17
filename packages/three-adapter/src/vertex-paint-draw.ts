@@ -36,7 +36,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { INSTANCE_MATRIX_ATTRIBUTE, PAINT_SLOT_ATTRIBUTE } from './attribute-instancing';
+import { instanceColumn, PAINT_SLOT_ATTRIBUTE } from './attribute-instancing';
 import { disposeSharingGeometry } from './dispose';
 import type { N } from './effects-tsl';
 
@@ -227,7 +227,8 @@ const streamVertices: N = uniform(0, 'int').onObjectUpdate(({ object }: { object
 
 /** The paint of this vertex of this instance from the draw's stream (vertex stage). */
 const streamRead: N = Fn(() => {
-  const slot = attribute(`${INSTANCE_MATRIX_ATTRIBUTE}0`, 'vec4').w;
+  // Through the column reader: a draw whose copies the GPU culls reads the slot of the copy its list names.
+  const slot = (instanceColumn(0) as N).w;
   const at = max(int(slot.add(0.5)).sub(1), int(0)).mul(streamVertices).add(int(vertexIndex));
   const texel = streamTexture.load(ivec2(at.mod(PAINT_STREAM_WIDTH), at.div(PAINT_STREAM_WIDTH)));
   return slot.greaterThan(0.5).select(texel, vec4(0));

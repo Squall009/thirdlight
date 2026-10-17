@@ -696,6 +696,7 @@
 "limit.NAME_MIN": {"page":"limits-project-model-2.md","section":"limits-project-model--validate"},
 "limit.OCCLUSION_CULLING_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--render-settings"},
 "limit.OCCLUSION_MAX_SCREEN_SHARE": {"page":"limits-runtime.md","section":"limits-runtime--occlusion"},
+"limit.OCCLUSION_MIN_COPIES_TRIANGLES": {"page":"limits-runtime.md","section":"limits-runtime--occlusion"},
 "limit.OCCLUSION_MIN_TRIANGLES": {"page":"limits-runtime.md","section":"limits-runtime--occlusion"},
 "limit.PAINT_BRUSH_LIMITS": {"page":"limits-project-model-2.md","section":"limits-project-model--paint-brush"},
 "limit.PHYSICS_MEMORY_CAP_BYTES": {"page":"limits-game-host.md","section":"limits-game-host--sim-protocol"},

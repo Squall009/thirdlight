@@ -82,6 +82,16 @@ const ITEM_KINDS: ReadonlySet<OccludeeKind> = new Set(['instanced', 'terrain']);
 export const OCCLUSION_MIN_TRIANGLES = 64;
 
 /**
+ * The fewest triangles an instanced draw's copies in view must draw together
+ * for them to be culled one by one on the GPU (else the draw is drawn whole
+ * that frame): a culled draw is an indirect draw in both passes of the frame,
+ * kept up to date on the main thread, which the GPU time a draw of fewer
+ * triangles saves does not win back. Measured on the village class (Iris Xe),
+ * whose automatic batches of a few small props cost more culled than drawn.
+ */
+export const OCCLUSION_MIN_COPIES_TRIANGLES = 2048;
+
+/**
  * The largest share of the view's height a draw tested whole may cover (its
  * bounding sphere's projected radius over half the view's height). Something
  * that large is almost never hidden whole, and the eye is often inside its

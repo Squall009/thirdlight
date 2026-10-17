@@ -56,6 +56,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, TextureNode } from 'three/webgpu';
 
+import { instanceDrawnIndex } from './attribute-instancing';
 import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
 import { instanceOrigin, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
@@ -1220,7 +1221,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'screenUV':
         return one('uv', builtin(scope, node.id, 'screenUV', stage));
       case 'instanceIndex': {
-        const i = T.float(T.instanceIndex);
+        // The copy's place in its draw, also where the GPU culls the draw's copies (it draws them through a list).
+        const i = T.float(instanceDrawnIndex());
         return one('index', stage === 'vertex' ? i : T.varying(i));
       }
       case 'wind': {

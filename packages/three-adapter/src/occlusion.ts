@@ -21,7 +21,9 @@
  * the frame draws in two passes with the pyramid between them
  * (occlusion-passes.ts); the stand-ins draw in the first pass only, into the
  * pyramid (never into the scene's depth, which ambient occlusion, fog and
- * transparent draws read).
+ * transparent draws read), and the copies of instanced draws are culled on
+ * the GPU against it (occlusion-instances.ts; the diagnostics' tested and
+ * culled count copies, read back a few frames late).
  *
  * Runs once a frame after the frustum, the rooms and an edit mode's isolation
  * have had their say (what they hide is not tested again). Kept out of
@@ -34,6 +36,7 @@ import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRol
 import { OccludeeRegistry } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinMaterialOf } from './occluders';
 import { TwoPassFrame, type ScenePasses } from './occlusion-passes';
+import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
 import type { PyramidReadback } from './occlusion-pyramid';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
@@ -86,12 +89,14 @@ export interface OcclusionDiagnostics {
   readonly byRole: Readonly<Record<OccluderRole, number>>;
   /** `_OCC` stand-in draws the view drew into its depth in the last frame. */
   readonly standins: number;
-  /** Draws tested and left out in the last frame. */
+  /** Items tested and left out (instanced copies; read back from the GPU on `hiz`, a few frames late). */
   readonly tested: number;
   readonly culled: number;
-  /** On the two-pass path: draws left out of the first pass by last frame's answer, and of those, drawn in the second. */
+  /** On the two-pass path: items left out of the first pass by last frame's answer, and items drawn in the second. */
   readonly pass1Culled: number;
   readonly pass2Drawn: number;
+  /** Instanced copies culled on the GPU (`hiz`; null: none). */
+  readonly instances: InstanceOcclusionDiagnostics | null;
   /** The culling's own GPU time a frame, recently (its compute passes: the depth pyramid; null: none measured). */
   readonly gpuMs: number | null;
   /** The depth pyramid (`hiz`): its level 0's size, its levels, its GPU memory (with the stand-ins' records) and the frames drawn in two passes; null: none. */
@@ -108,8 +113,8 @@ export interface OcclusionCullerDeps {
   readonly renderer: () => OcclusionRenderer;
   /** The page flag's path (null: none). */
   readonly pinned: OcclusionPath | null;
-  /** The frame's view (`view-cull.ts`): only its camera draws the stand-ins (absent: none does). */
-  readonly view?: { is(camera: THREE.Camera): boolean };
+  /** The frame's view (`view-cull.ts`): only its camera draws the stand-ins and has instanced copies culled (absent: none). */
+  readonly view?: { is(camera: THREE.Camera): boolean; readonly camera?: THREE.Camera | null };
   /** The WebGPU renderer frames are drawn with (null: none, or WebGL 2): the depth pyramid's. */
   readonly gpu?: () => unknown;
   /** The GPU time of the frame's compute passes, recently (null: not measured). */
@@ -131,6 +136,8 @@ export class OcclusionCuller implements OcclusionSwitch {
   private readonly counts = { tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null as number | null, ms: 0, standins: 0 };
   /** Stand-in draws so far in this frame (the last frame's when `update` starts the next). */
   private standinDraws = 0;
+  /** The occludees of kind `instanced` (null: to be listed). */
+  private instancedDraws: THREE.Object3D[] | null = null;
   private mark = '';
   /** The frame in two passes and its pyramid (`hiz` on WebGPU), and the renderer it was made for. */
   private frame: TwoPassFrame | null = null;
@@ -201,7 +208,8 @@ export class OcclusionCuller implements OcclusionSwitch {
 
   /**
    * Once a frame, after the frustum, the rooms and isolation: the path is chosen and the occludees follow the
-   * scene. No path tests anything yet: every draw in view is drawn.
+   * scene. On `hiz` the instanced draws' copies in view are listed for the GPU's tests (occlusion-instances.ts);
+   * other draws are not tested yet.
    */
   update(): void {
     const t0 = performance.now();
@@ -209,12 +217,28 @@ export class OcclusionCuller implements OcclusionSwitch {
     if (path !== this.applied) this.reset();
     if (path === 'off') {
       if (this.registry.size > 0) this.registry.clear();
-    } else this.registry.sync(this.deps.scene.children);
+      this.instancedDraws = null;
+    } else if (this.registry.sync(this.deps.scene.children) || this.instancedDraws === null) {
+      // The instanced draws the GPU may cull, listed again only when the scene's draws changed.
+      this.instancedDraws = [];
+      for (const o of this.registry.values()) if (o.kind === 'instanced') this.instancedDraws.push(o.object);
+    }
     if (path === 'hiz') this.dressStandins();
-    this.counts.tested = 0;
-    this.counts.culled = 0;
-    this.counts.pass1Culled = 0;
-    this.counts.pass2Drawn = 0;
+    const instances = path === 'hiz' ? (this.frame?.instances ?? null) : null;
+    if (instances !== null) {
+      instances.attach(this.deps.scene);
+      instances.update(this.instancedDraws ?? [], this.deps.view?.camera ?? null);
+      const d = instances.diagnostics();
+      this.counts.tested = d.tested;
+      this.counts.culled = Math.max(0, d.tested - d.drawn1 - d.drawn2);
+      this.counts.pass1Culled = d.pass1Left;
+      this.counts.pass2Drawn = d.drawn2;
+    } else {
+      this.counts.tested = 0;
+      this.counts.culled = 0;
+      this.counts.pass1Culled = 0;
+      this.counts.pass2Drawn = 0;
+    }
     this.counts.standins = this.standinDraws;
     this.standinDraws = 0;
     this.counts.ms = performance.now() - t0;
@@ -226,7 +250,8 @@ export class OcclusionCuller implements OcclusionSwitch {
     const p = this.frame?.pyramid.layout() ?? null;
     const pyramid = p === null || this.frame === null ? null : { size: [p.levels[0]!.width, p.levels[0]!.height] as const, levels: p.levels.length, bytes: this.frame.pyramid.bytes(), frames: this.frame.frames };
     const gpuMs = this.applied === 'hiz' ? (this.deps.computeMs?.() ?? null) : null;
-    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000 };
+    const instances = this.applied === 'hiz' ? (this.frame?.instances.diagnostics() ?? null) : null;
+    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000 };
   }
 
   /** Everything hidden is shown and the switch leaves the scene. */
@@ -250,8 +275,13 @@ export class OcclusionCuller implements OcclusionSwitch {
   private reset(): void {
     let shown = false;
     for (const o of this.deps.scene.children) if (hideFromView(o, HIDDEN_BY_OCCLUSION, false)) shown = true;
-    // Off the pyramid path the stand-ins draw into the view's depth again (the queries' path) or not at all.
-    if (this.applied === 'hiz' && this.choice.path !== 'hiz') this.undressStandins();
+    // Off the pyramid path the stand-ins draw into the view's depth again (the queries' path) or not at all, and the
+    // instanced draws draw every copy in view with the programs they had.
+    if (this.applied === 'hiz' && this.choice.path !== 'hiz') {
+      this.undressStandins();
+      this.frame?.instances.detach(this.deps.scene);
+      this.frame?.instances.clear();
+    }
     this.applied = this.choice.path;
     if (shown) this.deps.changed?.();
   }
@@ -277,6 +307,7 @@ export class OcclusionCuller implements OcclusionSwitch {
   private dropFrame(): void {
     if (this.frame === null) return;
     this.undressStandins();
+    this.frame.instances.detach(this.deps.scene);
     this.frame.dispose();
     this.frame = null;
     this.frameRenderer = null;

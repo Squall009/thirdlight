@@ -20,7 +20,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
+import { instanceColumn } from './attribute-instancing';
 import { releaseMrtContexts } from './dispose';
 import type { N } from './effects-tsl';
 import { KEEP_MATERIAL_KEY } from './material-keys';
@@ -166,10 +166,10 @@ export function impostorMesh(atlas: ImpostorAtlas, name: string): THREE.Mesh {
   const center = TSL.uniform(atlas.center.clone());
   const radius = TSL.uniform(atlas.radius);
   // The copy's matrix columns (the instance set's): its place, turn and size in the set's chunk.
-  const c0 = TSL.attribute(`${INSTANCE_MATRIX_ATTRIBUTE}0`, 'vec4').xyz;
-  const c1 = TSL.attribute(`${INSTANCE_MATRIX_ATTRIBUTE}1`, 'vec4').xyz;
-  const c2 = TSL.attribute(`${INSTANCE_MATRIX_ATTRIBUTE}2`, 'vec4').xyz;
-  const c3 = TSL.attribute(`${INSTANCE_MATRIX_ATTRIBUTE}3`, 'vec4').xyz;
+  const c0 = (instanceColumn(0) as N).xyz;
+  const c1 = (instanceColumn(1) as N).xyz;
+  const c2 = (instanceColumn(2) as N).xyz;
+  const c3 = (instanceColumn(3) as N).xyz;
   const scale = TSL.length(c0).max(1e-6);
   const toLocal = (v: N): N => TSL.vec3(TSL.dot(c0, v), TSL.dot(c1, v), TSL.dot(c2, v)).div(scale.mul(scale));
   // The sphere's centre in the chunk's space, the camera there, and the quad facing it (world up).

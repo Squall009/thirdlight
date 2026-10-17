@@ -13,7 +13,9 @@
  *    and a render scale, and at poses along a moving camera; a fence's `_OCC`
  *    stand-in goes into the pyramid only (no colour, no shadow, no ambient
  *    occlusion, glass behind it still drawn); the pyramid read back keeps its
- *    rule level over level, and its debug view draws.
+ *    rule level over level, and its debug view draws. The batches' and an
+ *    instance set's copies (painted ones among them) hidden behind the boxes
+ *    are culled on the GPU and the picture stays the same.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -131,6 +133,40 @@ async function boxField(): Promise<void> {
     });
   }
   await command('pasteEntities', { sceneId: 'scene-main', entities });
+}
+
+/**
+ * Painted copies among the field (vertex paint rides in each copy's matrix): an instance set scattering small
+ * blocks over the field's back half (some red, some blue) and an automatic batch of six placed blocks (three
+ * painted); the boxes in front hide most of the scatter.
+ */
+async function paintedCopies(): Promise<void> {
+  const piece = { name: 'block', lods: [[0.7, 0.7, 0.7]] as [number, number, number][], colors: [[1, 1, 1]] as [number, number, number][] };
+  await publishBytes(be, new Uint8Array(multiPieceGlb([piece], { centred: true })), 'model', 'paint-block', 'Paint block');
+  await command('setMaterial', { material: { materialId: 'mat-tint', name: 'Paint tint', shader: 'standard', params: { color: '#e0e0e0', roughness: 0.9, paintTint: true }, textures: {} } });
+  const tinted = { materials: { '*': 'mat-tint' } };
+  // A tint is its colour channel and the tint's amount (channel 3).
+  const stroke = async (entityId: string, at: number[], channel: number, extra: Record<string, unknown> = {}): Promise<void> => {
+    for (const c of [channel, 3]) await command('paintVertices', { entityId, dabs: [at], brush: { radius: 0.8, strength: 1, channel: c, falloff: 'constant' }, ...extra });
+  };
+  // The set: a scatter of 945 small copies (0.3 scale, 0.5 m apart) over the field's back half, in front of the far fence.
+  const cols = 45;
+  const rows = 21;
+  const placeOf = (copy: number): [number, number] => [-11 + (copy % cols) * 0.5, -Math.floor(copy / cols) * 0.5];
+  const transforms = Array.from({ length: cols * rows }, (_, copy) => [placeOf(copy)[0], 0, placeOf(copy)[1], 0, 0, 0, 1, 0.3, 0.3, 0.3]).flat();
+  const res = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/buffers`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin }, body: JSON.stringify({ transforms }) });
+  const buffer = ((await res.json()) as { digest: string }).digest;
+  const set = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'painted set', transform: { position: [0, 0, -3] }, components: { instances: { asset: { assetId: 'paint-block', piece: 'block' }, buffer, count: cols * rows }, ...tinted } }))['createdId']);
+  // Every 37th copy red, every 101st blue (spread over the rows, some in the gaps, most behind boxes).
+  for (let copy = 0; copy < cols * rows; copy += 1) {
+    if (copy % 37 !== 0 && copy % 101 !== 0) continue;
+    const [x, z] = placeOf(copy);
+    await stroke(set, [x, 0.1, z - 3], copy % 37 === 0 ? 0 : 2, { copy });
+  }
+  for (const [i, x] of [-5, -3, -1, 1, 3, 5].entries()) {
+    const id = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: `painted ${i}`, transform: { position: [x, 0, -7] }, model: { asset: { assetId: 'paint-block' }, piece: 'block' }, components: tinted }))['createdId']);
+    if (i === 1 || i === 2 || i === 4) await stroke(id, [x, 0.35, -7], i === 2 ? 2 : 0);
+  }
 }
 
 const attr = async (page: Page, name: string): Promise<string> => (await page.locator('canvas.tl-viewport').getAttribute(name)) ?? '';
@@ -275,6 +311,7 @@ test('the export draws the box field instanced and looks the same as without ins
   // The camera flies forward while F is held (its script): poses along the way are compared with culling on and off.
   await command('setInput', { input: { actions: [{ name: 'flyCam', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyF' }] }] } });
   await publishScript(be, 'fly-cam', FLY_CAMERA, 'cam-main', ['@self']);
+  await paintedCopies();
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   // The same field with a third of it below a parent: a second export.
@@ -290,8 +327,13 @@ test('the export draws the box field instanced and looks the same as without ins
   mkdirSync(out, { recursive: true });
   try {
     /** A game page of the export, its canvas drawing (scenes kept: its occlusion switch is reachable). */
+    // GPU validation errors on any game page (a pass whose command buffer is dropped draws nothing of it).
+    const gpuErrors: string[] = [];
     const openGame = async (path: string): Promise<{ game: Page; canvas: Locator }> => {
       const game = await page.context().newPage();
+      game.on('console', (m) => {
+        if (/GPUValidationError/.test(m.text())) gpuErrors.push(m.text().slice(0, 300));
+      });
       await game.addInitScript(keepThreeScenes);
       await game.setViewportSize({ width: 800, height: 450 });
       await game.goto(path);
@@ -345,6 +387,10 @@ test('the export draws the box field instanced and looks the same as without ins
     expect(occ.on.occlusion!.split('|')[0], 'WebGPU culls on the depth pyramid path').toBe('hiz');
     expect(Number(occ.on.occlusion!.split('|')[4]), 'the stand-in is drawn into the pyramid with culling on').toBeGreaterThan(0);
     expect(occ.off.occlusion!.split('|')[4], 'and not at all with it off').toBe('0');
+    // The copies the boxes hide (of the batches and the painted instance set) were left out, on the GPU.
+    const [, , tested, culled] = occ.on.occlusion!.split('|').map(Number);
+    expect(tested, 'copies tested against the pyramid').toBeGreaterThan(0);
+    expect(culled, 'hidden copies culled').toBeGreaterThan(0);
     // The pyramid as built: half the scene pass's size per level, each texel the farthest of the four under it, the
     // sky at the far plane and the boxes nearer.
     type Readback = { layout: PyramidLayout; reversed: boolean; data: number[] };
@@ -412,6 +458,7 @@ test('the export draws the box field instanced and looks the same as without ins
     if (!within(dp, STRICT)) writeFileSync(join(out, 'diff-parented.png'), diffPng(a, c));
     console.log(`[rendering] export flat vs parented: ${show(dp, STRICT)}`);
     expect(within(dp, STRICT), show(dp, STRICT)).toBe(true);
+    expect(gpuErrors, 'no GPU validation errors').toEqual([]);
   } finally {
     await site.close();
     await siteRigged.close();

@@ -20,8 +20,9 @@
  * ({@link installAttributeInstancing}). Geometry without them is untouched.
  */
 import * as THREE from 'three';
-import { attribute, Fn, mat4, normalLocal, positionLocal, positionPrevious, transformNormal, type vec3 } from 'three/tsl';
-import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
+import { RenderObjectRefreshType } from 'three';
+import { attribute, Fn, instanceIndex, mat4, normalLocal, positionLocal, positionPrevious, storage, transformNormal, uint, uniform, type vec3 } from 'three/tsl';
+import { NodeMaterial, StorageBufferAttribute, type NodeBuilder } from 'three/webgpu';
 import { disposeSharingGeometry } from './dispose';
 import { instanceSphereBounds } from './instance-prepare';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
@@ -39,23 +40,105 @@ export const PAINT_SLOT_ATTRIBUTE = 'tlPaintSlot';
 /** Where in an instance's 16 floats its paint slot rides. */
 const PAINT_SLOT_FLOAT = 3;
 
+/**
+ * The marker of a draw whose copies are culled on the GPU (occlusion
+ * culling's depth pyramid, `occlusion-instances.ts`): a view of each
+ * matrix's float 7 (the second column's `w`, also unused), never read. Its
+ * build reads the copy's matrix through the frame's compacted list when the
+ * view draws it culled (a program of its own, made only while that culling
+ * is on; every other draw keeps the program it had).
+ */
+export const CULLED_COPIES_ATTRIBUTE = 'tlCulledCopies';
+const CULLED_MARKER_FLOAT = 7;
+
 /** The columns' names. */
 const COLUMNS = [0, 1, 2, 3].map((i) => `${INSTANCE_MATRIX_ATTRIBUTE}${i}`);
 
+const geometryOfBuild = (builder: NodeBuilder): THREE.BufferGeometry | null => {
+  const g = (builder as unknown as { geometry?: THREE.BufferGeometry | null }).geometry;
+  return g !== null && g !== undefined && typeof g.getAttribute === 'function' ? g : null;
+};
+
 /** Whether a node build draws a geometry with instance-matrix columns. */
 export function buildHasInstanceColumns(builder: NodeBuilder): boolean {
-  const g = (builder as unknown as { geometry?: THREE.BufferGeometry | null }).geometry;
-  return g !== null && g !== undefined && typeof g.getAttribute === 'function' && g.getAttribute(COLUMNS[3]!) !== undefined;
+  return geometryOfBuild(builder)?.getAttribute(COLUMNS[3]!) !== undefined;
+}
+
+/** Whether a node build draws copies the GPU may cull (they are read through a list). */
+function buildReadsCulledCopies(builder: NodeBuilder): boolean {
+  return geometryOfBuild(builder)?.getAttribute(CULLED_COPIES_ATTRIBUTE) !== undefined;
+}
+
+/** `mesh.userData[CULLED_COPIES_KEY]`: where a draw culled on the GPU reads its copies in the draw being made. */
+export const CULLED_COPIES_KEY = '__tlCulledCopies';
+
+/** What the vertex stage of a culled draw reads (set per draw, right before it, by the culler's {@link InstanceIndirect}). */
+export interface CulledCopies {
+  /** Every culled draw's copies (four vec4 columns each, as drawn) and the frame's compacted lists. */
+  readonly matrices: StorageBufferAttribute;
+  readonly lists: StorageBufferAttribute;
+  /** The draw's first copy in `matrices`, and its capacity (the length of each of its two lists). */
+  readonly base: number;
+  readonly cap: number;
+  /**
+   * Where this draw's first pass list starts in `lists` (never 0); its second follows `cap` later. 0: the copies
+   * are drawn from the columns in their order. `lists[0]` holds the pass the GPU is drawing (0: the first, 1:
+   * the second), written by the culling dispatches, so a draw's uniforms stay the same in both passes.
+   */
+  readonly list: number;
+}
+
+/** Bound where a draw has no pools (never read: its list is 0). */
+const NO_MATRICES = new StorageBufferAttribute(new Float32Array(4), 4);
+const NO_LISTS = new StorageBufferAttribute(new Uint32Array(4), 1);
+const culledMatrices = storage(NO_MATRICES, 'vec4', 1).toReadOnly();
+const culledLists = storage(NO_LISTS, 'uint', 1).toReadOnly();
+/** The drawn object's list (+1; 0: none), and on the way the pools its build binds. */
+const culledList = uniform(0, 'uint').onObjectUpdate(({ object }) => {
+  const c = object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined;
+  culledMatrices.value = c?.matrices ?? NO_MATRICES;
+  culledLists.value = c?.lists ?? NO_LISTS;
+  return c?.list ?? 0;
+});
+const culledBase = uniform(0, 'uint').onObjectUpdate(({ object }) => (object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined)?.base ?? 0);
+const culledCap = uniform(0, 'uint').onObjectUpdate(({ object }) => (object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined)?.cap ?? 0);
+type U = ReturnType<typeof uint>;
+/** The copy's place in the draw's drawn order: the instance itself, or the list's entry for it. */
+const culledPlace = (): U => {
+  const pass = culledLists.element(uint(0)) as unknown as U;
+  const start = (culledList as unknown as U).add(pass.mul(culledCap as unknown as U));
+  const listed = culledLists.element(start.add(instanceIndex)) as unknown as U;
+  return (culledList as unknown as U).greaterThan(0).select(listed, instanceIndex) as unknown as U;
+};
+
+/**
+ * Column `i` of this copy's matrix (vertex stage): the geometry's attribute,
+ * or, in a draw the GPU culls, the same 4 floats from the pools at the place
+ * the list names (the columns' values as drawn: the paint slot in float 3
+ * comes with them).
+ */
+export function instanceColumn(i: number): ReturnType<typeof attribute<'vec4'>> {
+  return Fn((builder: NodeBuilder) => {
+    const column = attribute<'vec4'>(COLUMNS[i]!, 'vec4');
+    if (!buildReadsCulledCopies(builder)) return column;
+    const fromPool = culledMatrices.element((culledBase as unknown as U).add(culledPlace()).mul(4).add(i));
+    return (culledList as unknown as U).greaterThan(0).select(fromPool, column);
+  })() as unknown as ReturnType<typeof attribute<'vec4'>>;
+}
+
+/** This copy's place in its draw's drawn order (what `instanceIndex` is for a draw drawn whole; vertex stage). */
+export function instanceDrawnIndex(): U {
+  return Fn((builder: NodeBuilder) => (buildReadsCulledCopies(builder) ? culledPlace() : instanceIndex))() as unknown as U;
 }
 
 /** The instance matrix read from the geometry's columns (vertex stage). */
 export function instanceMatrixFromColumns(): ReturnType<typeof mat4> {
-  return mat4(attribute(COLUMNS[0]!, 'vec4'), attribute(COLUMNS[1]!, 'vec4'), attribute(COLUMNS[2]!, 'vec4'), attribute(COLUMNS[3]!, 'vec4')) as unknown as ReturnType<typeof mat4>;
+  return mat4(instanceColumn(0), instanceColumn(1), instanceColumn(2), instanceColumn(3)) as unknown as ReturnType<typeof mat4>;
 }
 
 /** The instance's translation from the columns (vertex stage). */
 export function instanceOriginFromColumns(): ReturnType<typeof vec3> {
-  return (attribute(COLUMNS[3]!, 'vec4') as unknown as { xyz: ReturnType<typeof vec3> }).xyz;
+  return (instanceColumn(3) as unknown as { xyz: ReturnType<typeof vec3> }).xyz;
 }
 
 /** What three's `instance()` does for an `InstancedMesh`, with the matrix from the columns. */
@@ -67,6 +150,27 @@ const applyColumns = Fn((builder: NodeBuilder) => {
   if (b.needsPreviousData?.() === true) (positionPrevious as unknown as { assign(v: unknown): void }).assign(m.mul(positionPrevious).xyz);
   if (b.hasGeometryAttribute?.('normal') === true) (normalLocal as unknown as { assign(v: unknown): void }).assign(transformNormal(normalLocal, m as never));
 }, 'void');
+
+/** What a culled draw's vertex stage last read, per render object (each camera's draw has its own). */
+const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; lists: unknown }>();
+
+/** A full refresh whenever what the render object's culled draw reads changed since its last draw, else three's own answer. */
+function refreshOnCulledChange(base: (renderObject: { object: THREE.Object3D }, frame: unknown) => number): (renderObject: { object: THREE.Object3D }, frame: unknown) => number {
+  return (renderObject, frame) => {
+    const refresh = base(renderObject, frame);
+    const c = renderObject.object.userData[CULLED_COPIES_KEY] as CulledCopies | undefined;
+    const list = c?.list ?? 0;
+    const base0 = c?.base ?? 0;
+    const cap = c?.cap ?? 0;
+    const matrices = c?.matrices ?? NO_MATRICES;
+    const lists = c?.lists ?? NO_LISTS;
+    const was = culledSeen.get(renderObject);
+    if (was !== undefined && was.list === list && was.base === base0 && was.cap === cap && was.matrices === matrices && was.lists === lists) return refresh;
+    if (was === undefined) culledSeen.set(renderObject, { list, base: base0, cap, matrices, lists });
+    else Object.assign(was, { list, base: base0, cap, matrices, lists });
+    return RenderObjectRefreshType.FULL;
+  };
+}
 
 let installed = false;
 
@@ -81,12 +185,22 @@ let installed = false;
 export function installAttributeInstancing(): void {
   if (installed) return;
   installed = true;
-  const proto = NodeMaterial.prototype as unknown as { setupPosition(builder: NodeBuilder): unknown };
+  const proto = NodeMaterial.prototype as unknown as { setupPosition(builder: NodeBuilder): unknown; setupObserver(builder: NodeBuilder): unknown };
   const base = proto.setupPosition;
   proto.setupPosition = function setupPositionWithColumns(this: unknown, builder: NodeBuilder): unknown {
     if (buildHasInstanceColumns(builder)) applyColumns();
     return base.call(this, builder);
   };
+  // three refreshes an object's own uniforms and bindings only when its observer sees a change it knows of; what a
+  // culled draw's vertex stage reads (its list, its range, the pools, which may be made anew) is not among them.
+  const observe = proto.setupObserver;
+  if (typeof observe === 'function') {
+    proto.setupObserver = function setupObserverOfCulled(this: unknown, builder: NodeBuilder): unknown {
+      const observer = observe.call(this, builder) as { needsRefresh?: (renderObject: { object: THREE.Object3D }, frame: unknown) => number } | null;
+      if (observer !== null && typeof observer === 'object' && typeof observer.needsRefresh === 'function' && buildReadsCulledCopies(builder)) observer.needsRefresh = refreshOnCulledChange(observer.needsRefresh.bind(observer));
+      return observer;
+    };
+  }
 }
 
 /**
@@ -131,6 +245,34 @@ export function withEmptyInstanceDraws(draw: () => void): void {
   }
 }
 
+/**
+ * What the view's draw holds for culling on the GPU: the first `count`
+ * places of the drawn buffer (`drawn`, 16 floats a place) are in view, place
+ * p holds slot `order[p]`, whose world sphere is `spheres[slot * 4 …]`.
+ * `version` changes whenever the drawn buffer is written.
+ */
+export interface InstanceViewDraw {
+  readonly version: number;
+  readonly count: number;
+  readonly drawn: Float32Array;
+  readonly order: Uint32Array;
+  readonly spheres: Float32Array;
+}
+
+/** How a draw culled on the GPU is drawn by one pass (the culler's; occlusion-instances.ts). */
+export interface InstanceIndirect {
+  /** Right before a draw: set `geometry`'s indirect slot (or none) and what the vertex stage reads; `view`: the view's culled draw. */
+  draw(geometry: THREE.InstancedBufferGeometry, view: boolean): void;
+  /** The draw is gone. */
+  release(): void;
+}
+
+/** `scene.userData[INSTANCE_CULLER_KEY]`: a culler that adopts each draw through instance-matrix columns before it is first drawn. */
+export const INSTANCE_CULLER_KEY = '__tlInstanceCuller';
+export interface InstanceCullerHost {
+  adopt(draw: AttributeInstancedMesh): void;
+}
+
 /** One group drawn through instance-matrix columns (culled per instance in the view: `view-cull.ts`). */
 export interface AttributeInstancedMesh extends ViewCullable {
   /** The drawn mesh (a plain `THREE.Mesh`; its matrix is the identity). */
@@ -159,6 +301,12 @@ export interface AttributeInstancedMesh extends ViewCullable {
   readonly paintSlots: Float32Array | null;
   /** Instance `i`'s matrix (mesh space). */
   getMatrixAt(i: number, out: THREE.Matrix4): THREE.Matrix4;
+  /** What the view's draw holds, as culled for the current view (null: not culled for it; every pass draws all). */
+  viewDraw(): InstanceViewDraw | null;
+  /** The culler drawing this group's view draw on the GPU (null: none). */
+  indirect: InstanceIndirect | null;
+  /** Mark the geometry as culled on the GPU (or not): its builds read copies through a list ({@link CULLED_COPIES_ATTRIBUTE}). */
+  markCulled(on: boolean): void;
   /**
    * Free what this group made (its instance buffer, its geometry record, its
    * render objects); the source geometry's attributes stay with their owner.
@@ -283,6 +431,10 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   const order = new Uint32Array(capacity);
   const depths = new Float32Array(capacity);
   let spheresStale = true;
+  /** Bumped whenever the drawn buffer is written (a culler on the GPU copies it again). */
+  let version = 0;
+  /** Drawn at least once (its render objects exist: a new program needs the material's version bumped). */
+  let drawnOnce = false;
   /**
    * Where three sorts the draw among the opaque ones: by its bounding sphere's centre. The group's own centre is
    * somewhere amid members spread over the scene, so the draw came before or after the objects round it at
@@ -327,6 +479,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     // Only what was written goes to the GPU (a large group's view moves every frame).
     buffer.addUpdateRange(0, len * 16);
     buffer.needsUpdate = true;
+    version += 1;
   };
   const copySlotOrder = (): void => {
     if (filter === undefined) {
@@ -334,6 +487,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) drawn[i * 16 + PAINT_SLOT_FLOAT] = paintSlots[i]!;
       buffer.addUpdateRange(0, drawnCount * 16);
       buffer.needsUpdate = true;
+      version += 1;
       includedCount = drawnCount;
       wroteAll = true;
       return;
@@ -355,11 +509,21 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     showIfDrawn();
   };
   // Per pass: the view draws those in view, any other camera (a shadow map) all that are drawn.
-  mesh.onBeforeRender = (_r, _s, camera) => {
-    if (culledFor !== null && culledStamp === culledFor.stamp && culledFor.is(camera)) geometry.instanceCount = inView;
+  mesh.onBeforeRender = (_r, scene, camera) => {
+    // A culler on the GPU takes the draw before its first render object is made (its build reads the copies by list).
+    if (!drawnOnce) {
+      (scene?.userData[INSTANCE_CULLER_KEY] as InstanceCullerHost | undefined)?.adopt(handle);
+      drawnOnce = true;
+    }
+    const view = culledFor !== null && culledStamp === culledFor.stamp && culledFor.is(camera);
+    if (view) geometry.instanceCount = inView;
     else if (filter !== undefined && camera.userData[STATIC_SHADOW_CAMERA_KEY] === true) geometry.instanceCount = filter.full && wroteAll ? drawnCount : 0;
     else geometry.instanceCount = includedCount;
+    // The view's culled draw draws what the GPU kept of those in view; every other pass draws as above.
+    handle.indirect?.draw(geometry, view);
   };
+  const marker = new THREE.InterleavedBufferAttribute(buffer, 1, CULLED_MARKER_FLOAT);
+  const viewDrawn = { version: 0, count: 0, drawn, order, spheres };
   /**
    * A draw holding nothing in the frame's passes leaves three's walks (as a merged cell with nothing to draw
    * does): three sets up every visible object of a pass even when it draws no instance, and an instance set
@@ -538,9 +702,29 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     getMatrixAt(i, out) {
       return out.fromArray(array, i * 16);
     },
+    viewDraw() {
+      if (culledFor === null || culledStamp !== culledFor.stamp) return null;
+      // One object, refreshed: asked for every draw every frame.
+      viewDrawn.version = version;
+      viewDrawn.count = inView;
+      return viewDrawn;
+    },
+    indirect: null,
+    markCulled(on) {
+      if ((geometry.getAttribute(CULLED_COPIES_ATTRIBUTE) !== undefined) === on) return;
+      if (on) geometry.setAttribute(CULLED_COPIES_ATTRIBUTE, marker);
+      else {
+        geometry.deleteAttribute(CULLED_COPIES_ATTRIBUTE);
+        geometry.indirect = null;
+      }
+      // three keeps a render object's program until its material's version changes.
+      if (drawnOnce) (mesh.material as THREE.Material).needsUpdate = true;
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      handle.indirect?.release();
+      handle.indirect = null;
       delete mesh.userData[VIEW_CULL_KEY];
       emptyDraws.delete(mesh);
       mesh.removeFromParent();
