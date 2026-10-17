@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { engineStatsOf, ENGINE_STATS_NONE } from './engine-stats';
-import { occludeeClassOf, occludeeScreenShare, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
+import { occludeeClassOf, occludeeScreenShare, occluderRoleOf, type OccluderFacts, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
 
 describe('occlusion culling rules', () => {
   it('auto takes the renderer\'s path (a depth pyramid on WebGPU, queries on WebGL 2); off and an unknown renderer draw everything', () => {
@@ -42,6 +42,21 @@ describe('occlusion culling rules', () => {
     // Transparent draws hide nothing but can be hidden.
     expect(occludeeClassOf({ kind: 'transparent', triangles: 200, ...at })).toBe('whole');
     expect(occludeeClassOf({ kind: 'single', triangles: 500, items: 1, screenShare: Number.NaN })).toBe('never');
+  });
+
+  it('occluders: level geometry first, opaque solid surfaces, stand-ins; never what is see-through, cut out, thin or opted out', () => {
+    const solid: OccluderFacts = { kind: 'single', standin: false, optedOut: false, surfacesStandDown: false, transparent: false, alphaTested: false, doubleSided: false };
+    expect(occluderRoleOf(solid)).toBe('surface');
+    expect(occluderRoleOf({ ...solid, kind: 'instanced' })).toBe('surface');
+    expect(['terrain', 'blocks', 'architecture', 'merged'].map((kind) => occluderRoleOf({ ...solid, kind: kind as OccluderFacts['kind'] }))).toEqual(['early', 'early', 'early', 'early']);
+    // Level geometry counts by kind, its cut-outs too; a see-through chunk does not.
+    expect(occluderRoleOf({ ...solid, kind: 'blocks', alphaTested: true })).toBe('early');
+    expect(occluderRoleOf({ ...solid, kind: 'blocks', transparent: true })).toBe('none');
+    expect(occluderRoleOf({ ...solid, kind: 'merged', alphaTested: true })).toBe('none');
+    expect([{ transparent: true }, { alphaTested: true }, { doubleSided: true }, { surfacesStandDown: true }, { optedOut: true }, { kind: 'transparent' as const }].map((f) => occluderRoleOf({ ...solid, ...f }))).toEqual(['none', 'none', 'none', 'none', 'none', 'none']);
+    // A stand-in counts unless its object opts out.
+    expect(occluderRoleOf({ ...solid, kind: null, standin: true })).toBe('standin');
+    expect(occluderRoleOf({ ...solid, kind: null, standin: true, optedOut: true })).toBe('none');
   });
 
   it('ctx.stats carries what occlusion culling left out; stats without it read as none on no path', () => {

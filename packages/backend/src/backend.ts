@@ -22,6 +22,7 @@ import { createKitChecker } from './kit-check';
 import { createKitProblemChecker } from './kit-problems';
 import { createBlockProblemChecker } from './block-problems';
 import { createPaintProblemChecker } from './paint-problems';
+import { createOccluderProblemChecker } from './occluder-problems';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -460,6 +461,7 @@ export function createBackend(
     blockProblems.loaded(projectId);
     paintProblems.loaded(projectId);
     heightProblems.loaded(projectId);
+    occluderProblems.loaded(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -605,6 +607,8 @@ export function createBackend(
   const paintProblems = createPaintProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
   // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
   const heightProblems = createHeightAlphaProblems({ service, checks: heightChecks, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
+  // Models' `_OCC` stand-ins that are ignored, being outside their piece (checked on load and after imports).
+  const occluderProblems = createOccluderProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
   const heightAlphaRoute = makeHeightAlphaRoute({ problems: heightProblems, requireAuth, sendJson, sendError });
   // The editor's decal atlas: the pages the build plans, composed on request (decal-atlas.ts).
   const decalAtlasRoute = makeDecalAtlasRoutes({ service, port: textureSlots, requireAuth, sendJson, sendError });
@@ -698,6 +702,7 @@ export function createBackend(
     blockProblems.changed(projectId, change);
     paintProblems.changed(projectId, change);
     heightProblems.changed(projectId, change);
+    occluderProblems.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
@@ -1528,6 +1533,7 @@ export function createBackend(
           blockProblems.loaded(projectId);
           paintProblems.loaded(projectId);
           heightProblems.loaded(projectId);
+          occluderProblems.loaded(projectId);
           // The missing asset files (the first page; the missing-files route pages them).
           const missing = missingFiles.firstPage(projectId);
           const list = problems.get(projectId) ?? [];

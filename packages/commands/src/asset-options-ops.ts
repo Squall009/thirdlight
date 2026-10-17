@@ -23,6 +23,11 @@
  * coarser level takes over and the size below which it is not drawn (null
  * = the defaults, stored as absence; `model-lod.ts`).
  *
+ * `occluder` (model only): what of it hides what is behind it from the view
+ * for occlusion culling — `auto` (stored as absence: its `_OCC` nodes when
+ * it has any, else its opaque surfaces), `occ` (only its `_OCC` nodes) or
+ * `none` (nothing; its `_OCC` nodes are not drawn); `model-occluders.ts`.
+ *
  * `sourcePath` (any kind): where the asset's file now is in the game folder.
  * The file is the asset and the id stays, so every reference keeps working;
  * the workspace moves the file and its `.tlasset` sidecar when they are still
@@ -42,7 +47,7 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   const catalog = contentOf(input.content);
   const existing = (catalog.assets as unknown as CommandAssetRecord[]).find((a) => a.assetId === args.assetId);
   if (existing === undefined) return { ok: false, error: assetNotFound(args.assetId) };
-  const modelOnly = args.vertexColors !== undefined || args.materials !== undefined || args.clipsFor !== undefined || args.lod !== undefined;
+  const modelOnly = args.vertexColors !== undefined || args.materials !== undefined || args.clipsFor !== undefined || args.lod !== undefined || args.occluder !== undefined;
   if (modelOnly && assetKindOf(existing) !== 'model') return { ok: false, error: assetKindMismatch(args.assetId, 'model', assetKindOf(existing)) };
   const audioOnly = args.loadType !== undefined || args.preload !== undefined;
   if (audioOnly && assetKindOf(existing) !== 'audio') return { ok: false, error: assetKindMismatch(args.assetId, 'audio', assetKindOf(existing)) };
@@ -77,6 +82,10 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
     const { lod: _lod, ...rest } = next as CommandAssetRecord & { lod?: ModelLodSettings };
     const lod = args.lod === null ? undefined : canonicalModelLod(args.lod);
     next = (lod === undefined ? rest : { ...rest, lod }) as CommandAssetRecord;
+  }
+  if (args.occluder !== undefined) {
+    const { occluder: _o, ...rest } = next as CommandAssetRecord & { occluder?: string };
+    next = (args.occluder === 'auto' ? rest : { ...rest, occluder: args.occluder }) as CommandAssetRecord;
   }
   if (args.sourcePath !== undefined) {
     const current = next.versions.find((v) => v.version === next.currentVersion);

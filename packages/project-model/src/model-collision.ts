@@ -11,8 +11,8 @@
  * collider wherever it is made.
  *
  * Naming follows the art rule the editor uses (`<piece>_LOD<n>` render
- * levels, `<piece>_COL` the collision mesh, pieces grouped by base name at
- * the top level) with three.js's node-name sanitizing, so a piece named in
+ * levels, `<piece>_COL` the collision mesh, `<piece>_OCC` the occluder
+ * stand-in, pieces grouped by base name at the top level) with three.js's node-name sanitizing, so a piece named in
  * the editor is found here. Each mesh primitive under a `_COL` node is one
  * convex part (Unreal's `UCX_` and Godot's `-convcolonly` take one object
  * as one hull). EXT_meshopt_compression is decoded; a Draco-compressed or
@@ -32,16 +32,30 @@ const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && 
 export const MODEL_LOD_RE = /^(.*)_LOD(\d+)$/i;
 /** A collision node's name (`rock_COL`). */
 export const MODEL_COL_RE = /^(.*)_COL$/i;
+/**
+ * An occluder stand-in's name (`hedge_OCC`): a mesh drawn into the view's
+ * depth only, never in colour or shadows, so occlusion culling hides what is
+ * behind a model whose own surfaces write no solid depth (`model-occluders.ts`).
+ */
+export const MODEL_OCC_RE = /^(.*)_OCC$/i;
 const LOD_RE = MODEL_LOD_RE;
 const COL_RE = MODEL_COL_RE;
+const OCC_RE = MODEL_OCC_RE;
 
-/** A piece's base name (`rock_LOD1` → `rock`, `rock_COL` → `rock`): the one naming rule for a model's pieces. */
+/** A piece's base name (`rock_LOD1`, `rock_COL`, `rock_OCC` → `rock`): the one naming rule for a model's pieces. */
 export function modelPieceName(name: string): string {
   const lod = LOD_RE.exec(name);
   if (lod !== null && lod[1] !== undefined && lod[1] !== '') return lod[1];
-  const col = COL_RE.exec(name);
-  if (col !== null && col[1] !== undefined && col[1] !== '') return col[1];
+  for (const re of [COL_RE, OCC_RE]) {
+    const m = re.exec(name);
+    if (m !== null && m[1] !== undefined && m[1] !== '') return m[1];
+  }
   return name;
+}
+
+/** Whether a node name is a collision or occluder node: part of a piece, never one of its drawn surfaces. */
+export function isModelHelperNode(name: string): boolean {
+  return COL_RE.test(name) || OCC_RE.test(name);
 }
 
 /** One mesh primitive of the model, in root space. */
@@ -54,6 +68,10 @@ export interface ModelGeometryPrimitive {
   higherLod: boolean;
   /** Under the top-level `<piece>_COL` node itself (a piece's collision mesh). */
   pieceCollision: boolean;
+  /** Under an `_OCC` node (an occluder stand-in: never drawn in colour, not part of the render geometry). */
+  occluder: boolean;
+  /** With `occluder`: the path of the outermost `_OCC` node it is under (what the occluder check names). */
+  occluderNode?: string;
   positions: Vec3Tuple[];
   /** Index triples into `positions` (empty for points and lines). */
   triangles: Vec3Tuple[];
@@ -251,7 +269,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
   const skipped: string[] = [];
   let positionsRead = 0;
   const materials = Array.isArray(json['materials']) ? (json['materials'] as unknown[]) : [];
-  type Ctx = { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean; lod: number | null };
+  type Ctx = { piece: string; collision: boolean; higherLod: boolean; pieceCollision: boolean; occluder: string | null; lod: number | null };
   const visit = (index: number, parent: readonly number[], depth: number, ctx: Ctx, seen: Set<number>, path: string): void => {
     if (depth > READ_LIMITS.depth || seen.has(index)) return;
     const def = nodes[index];
@@ -264,6 +282,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
       collision: ctx.collision || COL_RE.test(name),
       higherLod: ctx.higherLod || (lod !== null && Number(lod[2]) > 0),
       pieceCollision: ctx.pieceCollision || (depth === 0 && COL_RE.test(name)),
+      occluder: ctx.occluder ?? (OCC_RE.test(name) ? path : null),
       lod: depth === 0 ? (lod !== null ? Number(lod[2]) : null) : ctx.lod,
     };
     const world = mul(parent, modelNodeMatrix(def));
@@ -303,7 +322,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
           }
           indices = idx.data.filter((i) => Number.isInteger(i) && i >= 0 && i < count);
         } else indices = Array.from({ length: count }, (_, i) => i);
-        const { lod: level, ...flags } = here;
+        const { lod: level, occluder, ...flags } = here;
         const surface: Partial<ModelGeometryPrimitive> = {};
         if (options.surface === true) {
           const attrs = prim['attributes'] as Json;
@@ -314,7 +333,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
           surface.uv = uv !== null && typeof uv !== 'string' && uv.size === 2 ? uv.data : null;
           surface.colour = attrs['COLOR_0'] !== undefined;
         }
-        primitives.push({ ...flags, positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data, ...surface });
+        primitives.push({ ...flags, occluder: occluder !== null, ...(occluder !== null ? { occluderNode: occluder } : {}), positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data, ...surface });
       });
     }
     visitAll(Array.isArray(def['children']) ? (def['children'] as unknown[]) : [], world, depth + 1, here, seen, `${path}/`);
@@ -328,7 +347,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
       if (typeof k === 'number') visit(k, parent, depth, ctx, seen, `${prefix}${segments[i]!}`);
     });
   };
-  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false, lod: null }, new Set<number>(), '');
+  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false, occluder: null, lod: null }, new Set<number>(), '');
   if (positionsRead > READ_LIMITS.positions) return { ok: false, message: `the model holds over ${READ_LIMITS.positions} vertices; its collision geometry is not read` };
   return { ok: true, geometry: { primitives, skipped } };
 }
@@ -338,9 +357,9 @@ function collisionPrimitives(g: ModelGeometry, piece: string | null): ModelGeome
   return g.primitives.filter((p) => p.collision && (piece === null || (p.pieceCollision && p.piece === piece)));
 }
 
-/** A piece's render geometry at LOD0 (no collision nodes, no higher levels). */
-function renderPrimitives(g: ModelGeometry, piece: string | null): ModelGeometryPrimitive[] {
-  return g.primitives.filter((p) => !p.collision && !p.higherLod && (piece === null || p.piece === piece));
+/** A piece's render geometry at LOD0 (no collision or occluder nodes, no higher levels). */
+export function modelRenderPrimitives(g: ModelGeometry, piece: string | null): ModelGeometryPrimitive[] {
+  return g.primitives.filter((p) => !p.collision && !p.occluder && !p.higherLod && (piece === null || p.piece === piece));
 }
 
 /**
@@ -480,7 +499,7 @@ export function modelColliderShape(g: ModelGeometry, piece: string | null, kind:
     return { ok: true, shape: { type: 'compound', shapes: parts.map((p) => ({ type: 'convex', points: p.points })) }, source: 'collision', skipped };
   }
   if (kind === 'box') {
-    const prims = renderPrimitives(g, piece);
+    const prims = modelRenderPrimitives(g, piece);
     const lo = [Infinity, Infinity, Infinity];
     const hi = [-Infinity, -Infinity, -Infinity];
     for (const p of prims) for (const q of p.positions) for (let k = 0; k < 3; k += 1) {
@@ -504,10 +523,10 @@ export function modelColliderShape(g: ModelGeometry, piece: string | null, kind:
   const source: 'collision' | 'geometry' = cols.length > 0 ? 'collision' : 'geometry';
   const what = source === 'collision' ? 'collision node' : 'geometry';
   if (kind === 'polygon') {
-    const poly = polygonFromPoints((source === 'collision' ? cols : renderPrimitives(g, piece)).flatMap((p) => p.positions));
+    const poly = polygonFromPoints((source === 'collision' ? cols : modelRenderPrimitives(g, piece)).flatMap((p) => p.positions));
     return poly === null ? { ok: false, message: `the model's ${what} has no area on the 2D plane` } : { ok: true, shape: { type: 'polygon', vertices: poly }, source, skipped: source === 'collision' ? [...g.skipped] : [] };
   }
-  const { vertices, triangles } = mergedTriangles(source === 'collision' ? cols : renderPrimitives(g, piece));
+  const { vertices, triangles } = mergedTriangles(source === 'collision' ? cols : modelRenderPrimitives(g, piece));
   const made: GeometryCollider = colliderFromTriangles(vertices, triangles, kind, what);
   return made.ok ? { ok: true, shape: made.shape, source, skipped: source === 'collision' ? [...g.skipped] : [] } : made;
 }

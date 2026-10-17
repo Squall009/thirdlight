@@ -9,9 +9,15 @@
  * whose draws cannot be told apart by their three.js type mark them
  * (`markOccludee`): block chunks, architecture chunks, terrain pages.
  *
- * Never occludees: lights, points, lines and sprites, and what three is told
- * never to cull (`frustumCulled = false`: the sky, full-screen passes) unless
- * an owner marked it (terrain pages pick their own nodes and are marked).
+ * Never occludees: lights, points, lines and sprites, a model's `_OCC`
+ * stand-ins (occluders.ts: they hide, they are never hidden), and what three
+ * is told never to cull (`frustumCulled = false`: the sky, full-screen
+ * passes) unless an owner marked it (terrain pages pick their own nodes and
+ * are marked).
+ *
+ * Each occludee also has its occluder role (occluders.ts, the runtime's
+ * `occluderRoleOf`): level geometry marked by its owner draws first, so the
+ * depth a culling path reads is filled by what hides the most.
  *
  * What a culling path needs of an occludee is read when it asks: its world
  * bounds (the geometry's box, for instanced draws the box over every copy,
@@ -19,16 +25,19 @@
  * facts the runtime's `occludeeClassOf` decides on.
  */
 import * as THREE from 'three';
-import { occludeeScreenShare, OCCLUDEE_KINDS, type OccludeeFacts, type OccludeeKind } from '@thirdlight/runtime';
+import { occludeeScreenShare, OCCLUDEE_KINDS, OCCLUDER_ROLES, type OccludeeFacts, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
 
+import { isOccluderStandin, NOT_OCCLUDER_KEY, OCCLUDER_EARLY_RENDER_ORDER, occluderRoleOfDraw } from './occluders';
 import { mergedMembersOf } from './static-merge';
 
 /** `object.userData[OCCLUDEE_KIND_KEY]`: the kind an owner gave its draw (else it is told from its type). */
 export const OCCLUDEE_KIND_KEY = '__tlOccludeeKind';
 
-/** Mark `o` as an occludee of `kind` (block, architecture and terrain draws, which look like any mesh). */
+/** Mark `o` as an occludee of `kind` (block, architecture and terrain draws, which look like any mesh); level geometry draws first. */
 export function markOccludee(o: THREE.Object3D, kind: OccludeeKind): void {
   o.userData[OCCLUDEE_KIND_KEY] = kind;
+  const m = o as THREE.Mesh;
+  if (m.isMesh === true && occluderRoleOfDraw(m, occludeeKindOf(m)) === 'early') m.renderOrder = OCCLUDER_EARLY_RENDER_ORDER;
 }
 
 const materialsOf = (m: THREE.Mesh): readonly THREE.Material[] => (Array.isArray(m.material) ? m.material : [m.material]);
@@ -41,7 +50,7 @@ export function isInstancedDraw(m: THREE.Mesh): boolean {
 /** What `o` is as an occludee (null: never one). */
 export function occludeeKindOf(o: THREE.Object3D): OccludeeKind | null {
   const m = o as THREE.Mesh;
-  if (m.isMesh !== true) return null;
+  if (m.isMesh !== true || isOccluderStandin(m)) return null;
   const marked = o.userData[OCCLUDEE_KIND_KEY] as OccludeeKind | undefined;
   if (materialsOf(m).some((x) => x.transparent)) return 'transparent';
   if (marked !== undefined) return marked;
@@ -77,13 +86,17 @@ export function drawTrianglesOf(g: THREE.BufferGeometry): number {
 export interface Occludee {
   readonly object: THREE.Mesh;
   readonly kind: OccludeeKind;
+  /** What it is among the occluders (`occluderRoleOf`). */
+  readonly role: OccluderRole;
 }
 
 interface Entry extends Occludee {
   kind: OccludeeKind;
-  /** What it was classified with (a new material or geometry classifies it again). */
+  role: OccluderRole;
+  /** What it was classified with (a new material, geometry or occluder flag classifies it again). */
   material: THREE.Mesh['material'];
   geometry: THREE.BufferGeometry;
+  optedOut: boolean;
   seen: number;
 }
 
@@ -94,6 +107,7 @@ export class OccludeeRegistry {
   private readonly entries = new Map<THREE.Object3D, Entry>();
   private stamp = 0;
   private readonly kinds: Record<OccludeeKind, number> = Object.fromEntries(OCCLUDEE_KINDS.map((k) => [k, 0])) as Record<OccludeeKind, number>;
+  private readonly roles: Record<OccluderRole, number> = Object.fromEntries(OCCLUDER_ROLES.map((r) => [r, 0])) as Record<OccluderRole, number>;
 
   /** Follow the scene's drawables (`scene.children`): new ones classified, gone ones dropped; true when that changed anything. */
   sync(children: readonly THREE.Object3D[]): boolean {
@@ -103,7 +117,7 @@ export class OccludeeRegistry {
     for (const o of children) {
       const known = this.entries.get(o);
       const m = o as THREE.Mesh;
-      if (known !== undefined && known.material === m.material && known.geometry === m.geometry) {
+      if (known !== undefined && known.material === m.material && known.geometry === m.geometry && known.optedOut === (m.userData[NOT_OCCLUDER_KEY] === true)) {
         known.seen = this.stamp;
         seen += 1;
         continue;
@@ -111,12 +125,15 @@ export class OccludeeRegistry {
       const kind = occludeeKindOf(o);
       if (known !== undefined) {
         this.kinds[known.kind] -= 1;
+        this.roles[known.role] -= 1;
         this.entries.delete(o);
         changed = true;
       }
       if (kind === null) continue;
-      this.entries.set(o, { object: m, kind, material: m.material, geometry: m.geometry, seen: this.stamp });
+      const role = occluderRoleOfDraw(m, kind);
+      this.entries.set(o, { object: m, kind, role, material: m.material, geometry: m.geometry, optedOut: m.userData[NOT_OCCLUDER_KEY] === true, seen: this.stamp });
       this.kinds[kind] += 1;
+      this.roles[role] += 1;
       seen += 1;
       changed = true;
     }
@@ -126,6 +143,7 @@ export class OccludeeRegistry {
         if (e.seen === this.stamp) continue;
         this.entries.delete(o);
         this.kinds[e.kind] -= 1;
+        this.roles[e.role] -= 1;
       }
       changed = true;
     }
@@ -151,9 +169,15 @@ export class OccludeeRegistry {
     return { ...this.kinds };
   }
 
+  /** How many occludees there are of each occluder role. */
+  roleCounts(): Readonly<Record<OccluderRole, number>> {
+    return { ...this.roles };
+  }
+
   clear(): void {
     this.entries.clear();
     for (const k of OCCLUDEE_KINDS) this.kinds[k] = 0;
+    for (const r of OCCLUDER_ROLES) this.roles[r] = 0;
   }
 }
 

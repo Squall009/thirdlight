@@ -31,13 +31,14 @@
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
-import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings } from '@thirdlight/runtime';
+import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
 import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
   pieceCollider3D, pieceCollisionParts, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
+import { applyModelOccluders } from './occluders';
 import { markFileDecals } from './mesh-decals';
 import { disposeObjectTree } from './dispose';
 import { objectResidentBytes, type ObjectResidentBytes } from './resource-bytes';
@@ -279,6 +280,8 @@ export interface CreateInstanceOptions {
   readonly vertexColors?: VertexColorMode;
   /** The model's LOD group settings (switch points, cull size; absent: the defaults). */
   readonly lod?: ModelLodSettings;
+  /** What of it counts as an occluder (absent: auto: its `_OCC` nodes, else its opaque surfaces). */
+  readonly occluder?: ModelOccluderMode;
 }
 
 /** Preview-only material modes (local to one instance; never authored state). */
@@ -914,6 +917,8 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
         };
       }
       stripCollisionNodes(glbRoot);
+      // Its `_OCC` nodes become depth-only stand-ins (or are dropped) while the file's node names are as exported.
+      applyModelOccluders(glbRoot, options.occluder);
       applyLodGroups(glbRoot, options.lod);
       applyVertexColorMode(glbRoot, options.vertexColors ?? 'data');
       // The file's `*_decal` materials draw as mesh decals (a project material mapped over one replaces it).

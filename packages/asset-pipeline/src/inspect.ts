@@ -2606,7 +2606,7 @@ class Inspector {
    * The axis-aligned box of the default scene's meshes in model
    * space (metres, node transforms applied) — from each POSITION accessor's
    * `min`/`max` (required by glTF; normalized integers dequantized), so no
-   * vertex is read. `<piece>_COL` collision nodes are left out (never drawn).
+   * vertex is read. `<piece>_COL` collision and `<piece>_OCC` occluder nodes are left out (never drawn in colour).
    * Rounded to the micrometre; null when there is no geometry (an
    * animation-only file) or it lies beyond the model's length bound.
    */
@@ -2631,7 +2631,7 @@ class Inspector {
     const visit = (index: number, parent: readonly number[], depth: number): void => {
       const node = nodes[index];
       if (!isPlainObject(node) || depth > 64) return;
-      if (typeof node['name'] === 'string' && /_COL$/.test(node['name'])) return;
+      if (typeof node['name'] === 'string' && /_(COL|OCC)$/.test(node['name'])) return;
       const world = mat4Multiply(parent, nodeMatrix(node));
       const meshIndex = asIndex(node['mesh']);
       const mesh = meshIndex !== null ? meshes[meshIndex] : undefined;

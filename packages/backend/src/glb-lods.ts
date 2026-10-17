@@ -42,7 +42,8 @@ type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const LOD_RE = /_LOD\d+$/i;
-const COL_RE = /_COL$/i;
+// Collision and occluder nodes are never drawn as render levels: they keep their one mesh.
+const HELPER_RE = /_(COL|OCC)$/i;
 const FLOAT = 5126;
 const INDEX_TYPES: Readonly<Record<number, number>> = { 5121: 1, 5123: 2, 5125: 4 };
 const ELEMENT_ARRAY_BUFFER = 34963;
@@ -185,7 +186,7 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
     const own = typeof node['name'] === 'string' && node['name'] !== '' ? node['name'] : `mesh${i}`;
     const name = (named.get(own) ?? 0) > 1 ? `${own}.${i}` : own;
     const skip = (reason: string): void => void report.skipped.push({ node: name, reason });
-    if (COL_RE.test(name)) continue;
+    if (HELPER_RE.test(name)) continue;
     if (node['skin'] !== undefined) {
       skip('it is skinned');
       continue;

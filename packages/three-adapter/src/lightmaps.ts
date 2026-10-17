@@ -21,6 +21,7 @@ import { materialLightMap, uniform } from 'three/tsl';
 import { IrradianceNode } from 'three/webgpu';
 
 import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight, withoutProbeLighting } from './node-materials';
+import { isOccluderStandin } from './occluders';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import type { ProbeBakeLike } from './probe-grids';
 
@@ -171,7 +172,8 @@ export function applyLightmapTracked(
   const pairs: [THREE.Material, THREE.Material][] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh !== true || mesh.geometry.getAttribute('uv1') === undefined) return;
+    // An occluder stand-in draws no colour: nothing to light.
+    if (mesh.isMesh !== true || mesh.geometry.getAttribute('uv1') === undefined || isOccluderStandin(mesh)) return;
     const original = mesh.material;
     const list = Array.isArray(original) ? original : [original];
     const copies = list.map((m) => lightmappedMaterial(m, map, range, options.ignoreAmbient === true, options.tint));

@@ -751,6 +751,7 @@ export function canonicalBox(b: unknown): BoxComponent {
     ...(typeof o['lightLayers'] === 'number' ? { lightLayers: o['lightLayers'] } : {}),
     ...(typeof o['localLights'] === 'string' ? { localLights: o['localLights'] as LocalLightMode } : {}),
     ...(typeof o['decalLayers'] === 'number' ? { decalLayers: o['decalLayers'] } : {}),
+    ...(typeof o['occluder'] === 'boolean' ? { occluder: o['occluder'] } : {}),
   };
 }
 

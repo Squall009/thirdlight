@@ -374,6 +374,31 @@ that uses them, freed with the last: one material on 14 model files holds
 one copy of its texture on the GPU (the streamed texture's `copies` in
 `resources.textures`).
 
+## Occluder stand-ins (`_OCC`)
+
+A model's `<piece>_OCC` node is an **occluder stand-in**: a simple mesh that
+occlusion culling counts as solid where the model's own surfaces write no
+solid depth (a cut-out hedge, glass, a lattice) or are too detailed to be
+worth it. With culling on it is drawn into the view's depth only, after the
+opaque surfaces: never in colour, never into a shadow map, a probe or a
+bake, and never picked. Keep it inside the model's own surfaces: what it
+covers counts as hidden. A stand-in with a vertex outside its piece's LOD0
+bounds (more than 1 mm) is ignored and named in **Problems**
+(`model_occluder_ignored`), since it could hide what is seen beside the
+model. It is left out of the model's bounds, its colliders made from
+geometry, its vertex paint and its generated levels.
+
+- **Per model** (MCP `setAssetOptions {assetId, occluder: auto | occ | none}`,
+  stored in the asset record and its `.tlasset` sidecar): `auto` (the
+  default) counts a piece's `_OCC` nodes where it has any, else its opaque
+  surfaces; `occ` only its `_OCC` nodes; `none` nothing (its `_OCC` nodes
+  are not drawn at all).
+- **Per object**: a box's or model's `occluder: false` keeps it from hiding
+  anything (its stand-ins too). Transparent, alpha-tested and double-sided
+  materials never count; terrain, block layers and generated architecture
+  count by kind and are drawn first, so what hides the most fills the depth
+  before the detail behind it is shaded.
+
 ## Job exports from asset tools
 
 An asset tool (an art pipeline, a generator, a hand-made delivery) can hand

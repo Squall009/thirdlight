@@ -44,6 +44,8 @@ export interface ModelComponent {
   localLights?: LocalLightMode;
   /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer, none on a skinned model). */
   decalLayers?: number;
+  /** Hides what is behind it from the view for occlusion culling (absent: true; the model's `occluder` import setting says with which geometry). */
+  occluder?: boolean;
 }
 
 /** Seven-type property value vocabulary. */

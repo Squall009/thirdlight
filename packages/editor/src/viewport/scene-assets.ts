@@ -164,7 +164,7 @@ export function createSceneViewAssets(o: {
     const a = client.content.getAsset(assetId);
     const key = `${assetId}@${v.version}`;
     const hit = rows.get(key);
-    if (hit !== undefined && hit.materials === a?.materials && hit.textures === a?.textures && hit.vertexColors === (a?.vertexColors === 'tint' ? 'tint' : undefined) && hit.clipsFor === a?.clipsFor && hit.lod === a?.lod) return hit;
+    if (hit !== undefined && hit.materials === a?.materials && hit.textures === a?.textures && hit.vertexColors === (a?.vertexColors === 'tint' ? 'tint' : undefined) && hit.clipsFor === a?.clipsFor && hit.lod === a?.lod && hit.occluder === a?.occluder) return hit;
     const row: SceneAdapterModelAsset = {
       assetId,
       version: v.version,
@@ -174,6 +174,7 @@ export function createSceneViewAssets(o: {
       ...(a?.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a?.textures !== undefined ? { textures: a.textures } : {}),
       ...(a?.lod !== undefined ? { lod: a.lod } : {}),
+      ...(a?.occluder !== undefined ? { occluder: a.occluder } : {}),
     };
     rows.set(key, row);
     return row;
@@ -227,7 +228,7 @@ export function createSceneViewAssets(o: {
     files,
     assetKey: (assetId) => {
       const row = rowOf(assetId);
-      return row === undefined ? '' : JSON.stringify([row.version, row.vertexColors ?? null, row.materials ?? null, row.textures ?? null, row.clipsFor ?? null, row.lod ?? null]);
+      return row === undefined ? '' : JSON.stringify([row.version, row.vertexColors ?? null, row.materials ?? null, row.textures ?? null, row.clipsFor ?? null, row.lod ?? null, row.occluder ?? null]);
     },
     report,
     dispose() {

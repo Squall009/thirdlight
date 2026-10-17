@@ -85,7 +85,7 @@ export async function gameCameraAtView(page: Page, command: Command, variant: Re
   return cam;
 }
 
-/** A settled picture of a game page and its canvas's `data-tl-occlusion` mark (path|occludees|tested|culled). */
+/** A settled picture of a game page and its canvas's `data-tl-occlusion` mark (path|occludees|tested|culled|stand-ins drawn). */
 export interface OcclusionShot {
   readonly image: Image;
   readonly occlusion: string | null;
@@ -97,7 +97,7 @@ export interface OcclusionShot {
  * (`shoot('occlusion=off')`) is the same picture under the strict rule. The
  * marks say which path each drew with. `label` names the saved diff.
  */
-export async function expectOcclusionMatch(shoot: (query: string) => Promise<OcclusionShot>, label: string, on?: OcclusionShot): Promise<Diff> {
+export async function expectOcclusionMatch(shoot: (query: string) => Promise<OcclusionShot>, label: string, on?: OcclusionShot): Promise<{ diff: Diff; on: OcclusionShot; off: OcclusionShot }> {
   const culled = on ?? (await shoot(''));
   const off = await shoot('occlusion=off');
   expect(culled.occlusion, 'the page reports its occlusion culling').not.toBeNull();
@@ -111,5 +111,5 @@ export async function expectOcclusionMatch(shoot: (query: string) => Promise<Occ
   }
   console.log(`[occlusion] ${label}: ${culled.occlusion} against ${off.occlusion}: ${show(d, STRICT)}`);
   expect(within(d, STRICT), `${label}: culling on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
-  return d;
+  return { diff: d, on: culled, off };
 }

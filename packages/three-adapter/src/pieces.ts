@@ -2,15 +2,16 @@
  * Multi-piece GLBs: pieces, LOD groups and collision nodes by node name.
  *
  * Game art exported from Blender follows one naming rule (any kit pieces,
- * props or foliage): `<piece>_LOD0..n` are the render levels of one piece
- * and `<piece>_COL` its collision mesh (never drawn). A file's pieces are its
+ * props or foliage): `<piece>_LOD0..n` are the render levels of one piece,
+ * `<piece>_COL` its collision mesh (never drawn) and `<piece>_OCC` its
+ * occluder stand-in (depth only, occluders.ts). A file's pieces are its
  * top-level nodes grouped by that base name; a group holding only a `_COL`
  * node is not a piece. Editor, Play and export all use these helpers, so a
  * placement names a piece by the same string everywhere.
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
-import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, type ModelLodSettings } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
 import { LOD_CULL_LEVEL_KEY, LOD_MODEL_SCALE_KEY } from './lod-switch';
@@ -18,6 +19,7 @@ import { maxScaleOf } from './view-cull';
 
 const LOD_RE = /^(.*)_LOD(\d+)$/i;
 const COL_RE = /^(.*)_COL$/i;
+const OCC_RE = MODEL_OCC_RE;
 
 /**
  * The default LOD switch points as a fraction of screen height covered by the
@@ -27,17 +29,24 @@ const COL_RE = /^(.*)_COL$/i;
  */
 export const LOD_SCREEN_FRACTIONS: readonly number[] = LOD_SCREEN_SIZES_DEFAULT;
 
-/** The base name of a node (`rock_LOD1` → `rock`, `rock_COL` → `rock`, else the name). */
+/** The base name of a node (`rock_LOD1`, `rock_COL`, `rock_OCC` → `rock`, else the name). */
 export function pieceBaseName(name: string): string {
   const lod = LOD_RE.exec(name);
   if (lod !== null && lod[1] !== undefined && lod[1] !== '') return lod[1];
-  const col = COL_RE.exec(name);
-  if (col !== null && col[1] !== undefined && col[1] !== '') return col[1];
+  for (const re of [COL_RE, OCC_RE]) {
+    const m = re.exec(name);
+    if (m !== null && m[1] !== undefined && m[1] !== '') return m[1];
+  }
   return name;
 }
 
 export function isCollisionNode(o: THREE.Object3D): boolean {
   return COL_RE.test(o.name);
+}
+
+/** Whether `o` is an `_OCC` node (an occluder stand-in: never one of the piece's drawn surfaces). */
+export function isOccluderNode(o: THREE.Object3D): boolean {
+  return OCC_RE.test(o.name);
 }
 
 function lodLevel(name: string): number | null {
@@ -68,6 +77,8 @@ export function modelPieces(root: THREE.Object3D): ModelPiece[] {
       groups.set(base, g);
     }
     if (isCollisionNode(child)) g.collider = child;
+    // A stand-in belongs to its piece (kept with it) but is none of its render nodes.
+    else if (isOccluderNode(child)) continue;
     else {
       g.nodes.push(child);
       if (lodLevel(child.name) !== null) g.lods += 1;
@@ -336,9 +347,9 @@ function underHigherLod(o: THREE.Object3D, root: THREE.Object3D): boolean {
   return false;
 }
 
-/** Whether `o` or one of its ancestors below `root` is a `_COL` node. */
-function underCollision(o: THREE.Object3D, root: THREE.Object3D): boolean {
-  for (let n: THREE.Object3D | null = o; n !== null && n !== root; n = n.parent) if (isCollisionNode(n)) return true;
+/** Whether `o` or one of its ancestors below `root` is a `_COL` or `_OCC` node (no render geometry of the piece). */
+function underHelperNode(o: THREE.Object3D, root: THREE.Object3D): boolean {
+  for (let n: THREE.Object3D | null = o; n !== null && n !== root; n = n.parent) if (isCollisionNode(n) || isOccluderNode(n)) return true;
   return false;
 }
 
@@ -384,7 +395,7 @@ function modelTriangles(root: THREE.Object3D, piece: string | null): { vertices:
   if (source === 'collision') meshes.push(...cols);
   else for (const r of piece === null ? [root] : (found?.nodes ?? [])) r.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh === true && mesh.geometry !== undefined && !underCollision(o, root) && !underHigherLod(o, root)) meshes.push(mesh);
+    if (mesh.isMesh === true && mesh.geometry !== undefined && !underHelperNode(o, root) && !underHigherLod(o, root)) meshes.push(mesh);
   });
   const vertices: [number, number, number][] = [];
   const triangles: [number, number, number][] = [];
@@ -451,10 +462,10 @@ export function pieceBounds(root: THREE.Object3D, piece: string | null): THREE.B
   const nodes = piece === null ? root.children : (modelPieces(root).find((p) => p.name === piece)?.nodes ?? []);
   const tmp = new THREE.Box3();
   for (const n of nodes) {
-    if (isCollisionNode(n)) continue;
+    if (isCollisionNode(n) || isOccluderNode(n)) continue;
     n.traverse((o) => {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || isCollisionNode(o) || mesh.geometry === undefined) return;
+      if (!mesh.isMesh || mesh.geometry === undefined || underHelperNode(o, root)) return;
       const lod = lodLevel(o.name);
       if (lod !== null && lod > 0) return;
       if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();

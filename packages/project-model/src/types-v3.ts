@@ -417,6 +417,8 @@ export interface AssetRecordV3 {
   streaming?: boolean;
   /** Model only: its LOD group settings — switch points and cull size (absent: the defaults; `model-lod.ts`). */
   lod?: import('./model-lod').ModelLodSettings;
+  /** Model only: what of it counts as an occluder — only its `_OCC` nodes, or nothing (absent: auto; `model-occluders.ts`). */
+  occluder?: import('./model-occluders').ModelOccluderMode;
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */

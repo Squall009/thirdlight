@@ -8,7 +8,8 @@
  * seen; the rest is drawn work that occlusion culling could skip at best
  * (occlusion-oracle-count.ts counts it). Opaque items are drawn with their
  * own materials' vertex stages and discards (wind, cut-outs, skinning), so
- * the depth they leave is the frame's; transparent items are drawn in a
+ * the depth they leave is the frame's (models' `_OCC` stand-ins included,
+ * which write depth and no id); transparent items are drawn in a
  * second picture over the opaque depth, since they hide nothing (written
  * whole, so where two overlap only the front one's id is left there).
  *
@@ -25,6 +26,7 @@ import type { OcclusionPath } from '@thirdlight/runtime';
 
 import { OCCLUSION_SWITCH_KEY, type OcclusionSwitch } from './occlusion';
 import { drawCapacityOf, drawTrianglesOf } from './occludees';
+import { isOccluderStandin } from './occluders';
 import { mergedMembersOf } from './static-merge';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
@@ -205,7 +207,8 @@ export async function runOcclusionOracle(renderer: WebGPURenderer, scene: THREE.
   const entries: OracleEntry[] = [];
   const meshOf = new Map<OracleEntry, THREE.Mesh>();
   for (const p of plan) {
-    if (p.drawn <= 0) continue;
+    // A stand-in writes depth and no id (its material writes no colour): it hides, it is not drawn work.
+    if (p.drawn <= 0 || isOccluderStandin(p.mesh)) continue;
     const g = p.mesh.geometry;
     const draws = Array.isArray(p.mesh.material) ? Math.max(1, g.groups.length) : 1;
     let kind: OracleKind = p.transparent ? 'transparent' : p.members !== null ? 'merged' : 'single';

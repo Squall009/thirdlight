@@ -1,8 +1,20 @@
-# Types (PartialTransformArgs to UiScaleMode)
+# Types (PaintVerticesArgs to UiIcon)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-paint-vertices-args"></a>
+### PaintVerticesArgs
+
+Declared in `packages/commands/src/vertex-paint-ops.ts`.
+
+```ts
+/** `paintVertices` args: the object and one stroke. */
+interface PaintVerticesArgs extends VertexPaintStroke {
+  entityId: string;
+}
+```
 
 <a id="type-partial-transform-args"></a>
 ### PartialTransformArgs
@@ -710,6 +722,8 @@ interface SetAssetOptionsArgs {
   streaming?: boolean | null;
   /** Model only: its LOD group settings — switch points and cull size (null = the defaults). */
   lod?: ModelLodSettings | null;
+  /** Model only: what of it counts as an occluder — auto (its `_OCC` nodes, else its opaque surfaces; stored as absence), occ or none. */
+  occluder?: ModelOccluderMode;
 }
 ```
 
@@ -1602,22 +1616,4 @@ interface UiIcon {
   /** [x, y, width, height] in image pixels (absent: the whole image). */
   rect?: [number, number, number, number];
 }
-```
-
-<a id="type-ui-scalar"></a>
-### UiScalar
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiScalar = number | string | boolean | null;
-```
-
-<a id="type-ui-scale-mode"></a>
-### UiScaleMode
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiScaleMode = 'fit' | 'width' | 'height' | 'cover' | 'expand';
 ```

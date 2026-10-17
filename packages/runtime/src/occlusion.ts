@@ -15,6 +15,12 @@
  * large it is on screen and how many triangles it draws: the thresholds live
  * in this module and nowhere else.
  *
+ * Occluders are what hides them: the depth the view's draws leave before the
+ * test (a depth pyramid's source, or the depth occlusion queries are drawn
+ * against). What counts is decided here too (`occluderRoleOf`): level
+ * geometry first, then opaque solid surfaces, then `_OCC` stand-ins; never
+ * what is see-through or thin, nor what its object opts out.
+ *
  * Presentation only: the simulation never sees any of it. Pure: no I/O.
  */
 import type { OcclusionCulling } from '@thirdlight/project-model';
@@ -105,6 +111,45 @@ export function occludeeClassOf(f: OccludeeFacts): OccludeeClass {
   if (items > 1 && ITEM_KINDS.has(f.kind)) return 'items';
   if (f.screenShare > OCCLUSION_MAX_SCREEN_SHARE) return 'never';
   return 'whole';
+}
+
+/**
+ * What a draw is among the occluders. `early`: level geometry (terrain
+ * pages, block and architecture chunks, merged static cells), drawn before
+ * everything else so the depth is filled by what hides the most;
+ * `surface`: an opaque draw whose own depth counts; `standin`: a model's
+ * `_OCC` node, drawn into the view's depth only, after the opaque surfaces
+ * (so this frame's colour is what it is without it); `none`: hides nothing.
+ */
+export const OCCLUDER_ROLES = ['early', 'surface', 'standin', 'none'] as const;
+export type OccluderRole = (typeof OCCLUDER_ROLES)[number];
+
+/** What decides a draw's occluder role. */
+export interface OccluderFacts {
+  /** Its occludee kind (null: not an occludee, e.g. a draw three never culls). */
+  readonly kind: OccludeeKind | null;
+  /** A model's `_OCC` stand-in. */
+  readonly standin: boolean;
+  /** Its object's `occluder` is false. */
+  readonly optedOut: boolean;
+  /** Its model's stand-ins (or its `occluder` import setting) speak for its surfaces. */
+  readonly surfacesStandDown: boolean;
+  readonly transparent: boolean;
+  /** Its material discards pixels (alpha test, alpha to coverage): its depth has holes. */
+  readonly alphaTested: boolean;
+  /** Its material draws both faces: a card or a thin sheet, whose depth hides little and is often cut out. */
+  readonly doubleSided: boolean;
+}
+
+/** A draw's occluder role (see {@link OCCLUDER_ROLES}). */
+export function occluderRoleOf(f: OccluderFacts): OccluderRole {
+  if (f.optedOut) return 'none';
+  if (f.standin) return 'standin';
+  if (f.transparent || f.kind === 'transparent') return 'none';
+  // Level geometry counts by kind: its cut-outs (a grate, a leaf block) still write the depth of what they draw.
+  if (f.kind === 'terrain' || f.kind === 'blocks' || f.kind === 'architecture') return 'early';
+  if (f.surfacesStandDown || f.alphaTested || f.doubleSided) return 'none';
+  return f.kind === 'merged' ? 'early' : 'surface';
 }
 
 /**

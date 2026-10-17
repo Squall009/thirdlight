@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import type { BakeLightInput, BakeMeshInput, BlockLayerView } from '@thirdlight/three-adapter';
+import { isOccluderStandin } from '@thirdlight/three-adapter';
 
 import type { ProjectedEntity } from '../session/projection';
 
@@ -79,7 +80,8 @@ export function gatherBakeInputs(host: BakeInputHost, entityIds: ReadonlySet<str
         return;
       }
       const mesh = o as THREE.Mesh;
-      if (mesh.isMesh === true && (mesh as THREE.SkinnedMesh).isSkinnedMesh !== true) {
+      // An occluder stand-in is never drawn in colour or shadows: it takes no part in a bake.
+      if (mesh.isMesh === true && (mesh as THREE.SkinnedMesh).isSkinnedMesh !== true && !isOccluderStandin(mesh)) {
         const m = { geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() };
         if (mesh.geometry.getAttribute('uv1') !== undefined) {
           meshes.push(m);

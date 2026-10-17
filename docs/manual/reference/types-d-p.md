@@ -1,4 +1,4 @@
-# Types (DecalPageRef to PaintVerticesArgs)
+# Types (DecalPageRef to PaintVec3)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1352,6 +1352,16 @@ Declared in `packages/project-model/src/modes.ts`.
 type ModeBlend = 'cut' | 'linear' | 'eased';
 ```
 
+<a id="type-model-occluder-modes"></a>
+### MODEL_OCCLUDER_MODES
+
+Declared in `packages/project-model/src/model-occluders.ts`.
+
+```ts
+/** What of a model counts as an occluder (absent: `auto`). */
+const MODEL_OCCLUDER_MODES: readonly ["auto", "occ", "none"];
+```
+
 <a id="type-model-animation-roles-value"></a>
 ### ModelAnimationRolesValue
 
@@ -1407,6 +1417,15 @@ interface ModelLodSettings {
   /** Below this screen size the model is not drawn (0: always drawn). */
   cullSize?: number;
 }
+```
+
+<a id="type-model-occluder-mode"></a>
+### ModelOccluderMode
+
+Declared in `packages/project-model/src/model-occluders.ts`.
+
+```ts
+type ModelOccluderMode = (typeof MODEL_OCCLUDER_MODES)[number];
 ```
 
 <a id="type-mode-physics"></a>
@@ -1624,16 +1643,4 @@ Declared in `packages/project-model/src/vertex-paint-stroke.ts`.
 
 ```ts
 type PaintVec3 = [number, number, number];
-```
-
-<a id="type-paint-vertices-args"></a>
-### PaintVerticesArgs
-
-Declared in `packages/commands/src/vertex-paint-ops.ts`.
-
-```ts
-/** `paintVertices` args: the object and one stroke. */
-interface PaintVerticesArgs extends VertexPaintStroke {
-  entityId: string;
-}
 ```

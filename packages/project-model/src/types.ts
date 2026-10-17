@@ -44,6 +44,8 @@ export interface BoxComponent {
   localLights?: LocalLightMode;
   /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** Hides what is behind it from the view for occlusion culling (absent: true). */
+  occluder?: boolean;
 }
 
 /** `camera` component — perspective; `aspect` is never persisted. */

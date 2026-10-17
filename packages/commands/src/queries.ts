@@ -268,6 +268,8 @@ export function queryAssets(
     if (clipsFor !== undefined) summary.clipsFor = clipsFor;
     const lod = (a as { lod?: { screenSizes?: number[]; cullSize?: number } }).lod;
     if (lod !== undefined) summary.lod = { ...(lod.screenSizes !== undefined ? { screenSizes: [...lod.screenSizes] } : {}), ...(lod.cullSize !== undefined ? { cullSize: lod.cullSize } : {}) };
+    const occluder = (a as { occluder?: 'occ' | 'none' }).occluder;
+    if (occluder !== undefined) summary.occluder = occluder;
     const extracted = a as { extractTextures?: true; textures?: Record<string, string> };
     if (extracted.extractTextures === true) summary.extractTextures = true;
     if (extracted.textures !== undefined) summary.textures = { ...extracted.textures };

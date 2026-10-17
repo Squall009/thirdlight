@@ -100,14 +100,14 @@ describe('occlusion culler', () => {
     renderer.value = 'webgpu';
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ path: 'hiz', source: 'setting', occludees: 2, tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null });
-    expect(h.marks[h.marks.length - 1]).toBe('hiz|2|0|0');
+    expect(h.marks[h.marks.length - 1]).toBe('hiz|2|0|0|0');
     renderer.value = 'webgl2';
     h.c.update();
     expect(h.c.path()).toBe('queries');
     setting.value = 'off';
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ setting: 'off', path: 'off', occludees: 0 });
-    expect(h.marks[h.marks.length - 1]).toBe('off|0|0|0');
+    expect(h.marks[h.marks.length - 1]).toBe('off|0|0|0|0');
     expect(occlusionFromUrl('?occlusion=hiz&x=1')).toBe('hiz');
     expect(occlusionFromUrl('?occlusion=on')).toBeNull();
     const pinned = culler({ value: 'auto' }, { value: 'webgpu' }, 'off');

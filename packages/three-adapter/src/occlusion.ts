@@ -15,15 +15,20 @@
  * caster hidden from the view still casts into it. Whatever the culler hid
  * comes back when its path changes or it is disposed.
  *
+ * While a path is on, models' `_OCC` stand-ins (occluders.ts) draw into the
+ * view's depth: the culler answers, per camera, whether they draw (the
+ * view's camera only) and counts what they drew.
+ *
  * Runs once a frame after the frustum, the rooms and an edit mode's isolation
  * have had their say (what they hide is not tested again). Kept out of
  * `adapter.ts`, which gives it the scene, the setting and the renderer and
  * reads its diagnostics.
  */
 import type * as THREE from 'three';
-import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
+import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
 
 import { OccludeeRegistry } from './occludees';
+import { STANDIN_VIEW_KEY } from './occluders';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
 /** The page flag that pins a path (`?occlusion=off|queries|hiz`; a diagnostic comparison). */
@@ -57,6 +62,10 @@ export interface OcclusionDiagnostics {
   /** Draws that could be left out, all and by kind. */
   readonly occludees: number;
   readonly byKind: Readonly<Record<OccludeeKind, number>>;
+  /** The occludees by occluder role (what fills the depth the tests read, and in which order). */
+  readonly byRole: Readonly<Record<OccluderRole, number>>;
+  /** `_OCC` stand-in draws the view drew into its depth in the last frame. */
+  readonly standins: number;
   /** Draws tested and left out in the last frame. */
   readonly tested: number;
   readonly culled: number;
@@ -77,7 +86,9 @@ export interface OcclusionCullerDeps {
   readonly renderer: () => OcclusionRenderer;
   /** The page flag's path (null: none). */
   readonly pinned: OcclusionPath | null;
-  /** The page's canvas: `data-tl-occlusion` = "<path>|<occludees>|<tested>|<culled>" (an export's only diagnostics surface). */
+  /** The frame's view (`view-cull.ts`): only its camera draws the stand-ins (absent: none does). */
+  readonly view?: { is(camera: THREE.Camera): boolean };
+  /** The page's canvas: `data-tl-occlusion` = "<path>|<occludees>|<tested>|<culled>|<stand-ins drawn>" (an export's only diagnostics surface). */
   readonly canvas?: { setAttribute?(k: string, v: string): void } | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed?: () => void;
@@ -89,12 +100,22 @@ export class OcclusionCuller implements OcclusionSwitch {
   /** The path the last frame culled on (what is hidden belongs to it). */
   private applied: OcclusionPath = 'off';
   private choice: { path: OcclusionPath; source: 'page' | 'setting' } = { path: 'off', source: 'setting' };
-  private readonly counts = { tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null as number | null, ms: 0 };
+  private readonly counts = { tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null as number | null, ms: 0, standins: 0 };
+  /** Stand-in draws so far in this frame (the last frame's when `update` starts the next). */
+  private standinDraws = 0;
   private mark = '';
 
   constructor(private readonly deps: OcclusionCullerDeps) {
     this.pinned = deps.pinned;
     deps.scene.userData[OCCLUSION_SWITCH_KEY] = this;
+    deps.scene.userData[STANDIN_VIEW_KEY] = (camera: THREE.Camera): boolean => this.drawsStandins(camera);
+  }
+
+  /** Whether the stand-ins draw for `camera`: the view's, while the frame culls on a path. */
+  drawsStandins(camera: THREE.Camera): boolean {
+    if (this.applied === 'off' || this.deps.view?.is(camera) !== true) return false;
+    this.standinDraws += 1;
+    return true;
   }
 
   path(): OcclusionPath {
@@ -122,20 +143,25 @@ export class OcclusionCuller implements OcclusionSwitch {
     this.counts.culled = 0;
     this.counts.pass1Culled = 0;
     this.counts.pass2Drawn = 0;
+    this.counts.standins = this.standinDraws;
+    this.standinDraws = 0;
     this.counts.ms = performance.now() - t0;
     this.writeMark();
   }
 
   diagnostics(): OcclusionDiagnostics {
     const c = this.choose();
-    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, gpuMs: this.counts.gpuMs, ms: Math.round(this.counts.ms * 1000) / 1000 };
+    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, gpuMs: this.counts.gpuMs, ms: Math.round(this.counts.ms * 1000) / 1000 };
   }
 
   /** Everything hidden is shown and the switch leaves the scene. */
   dispose(): void {
     this.reset();
     this.registry.clear();
-    if (this.deps.scene.userData[OCCLUSION_SWITCH_KEY] === this) delete this.deps.scene.userData[OCCLUSION_SWITCH_KEY];
+    if (this.deps.scene.userData[OCCLUSION_SWITCH_KEY] === this) {
+      delete this.deps.scene.userData[OCCLUSION_SWITCH_KEY];
+      delete this.deps.scene.userData[STANDIN_VIEW_KEY];
+    }
   }
 
   private choose(): { path: OcclusionPath; source: 'page' | 'setting' } {
@@ -153,7 +179,7 @@ export class OcclusionCuller implements OcclusionSwitch {
   }
 
   private writeMark(): void {
-    const m = `${this.choice.path}|${this.registry.size}|${this.counts.tested}|${this.counts.culled}`;
+    const m = `${this.choice.path}|${this.registry.size}|${this.counts.tested}|${this.counts.culled}|${this.counts.standins}`;
     if (m === this.mark || typeof this.deps.canvas?.setAttribute !== 'function') return;
     this.mark = m;
     this.deps.canvas.setAttribute('data-tl-occlusion', m);

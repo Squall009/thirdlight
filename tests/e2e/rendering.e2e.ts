@@ -6,7 +6,8 @@
  *    Scene view, in Play and in the static export — and looks the same as with
  *    instancing off (`?batching=off`, one draw per object) and as with
  *    occlusion culling off (`?occlusion=off`): the export's frames are
- *    compared pixel by pixel. Picking and selection still work on a batched
+ *    compared pixel by pixel; a fence's `_OCC` stand-in is drawn into the
+ *    view's depth with culling on and leaves no colour and no shadow. Picking and selection still work on a batched
  *    box (a click on the canvas selects it).
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
@@ -41,7 +42,8 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { multiPieceGlb, type PieceSpec } from './multi-piece-glb';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { showView } from './ui';
 import { backendOf, editorUrlFor, expectRendererBackend } from './renderer-variants';
@@ -83,6 +85,12 @@ async function relay(path: string, body: unknown = {}): Promise<{ status: number
 }
 
 const BOXES = 121;
+
+/**
+ * A fence 3 m wide and 2 m tall: two 0.2 m posts are what it draws, and its `_OCC` stand-in is the panel between
+ * them, inside the posts' bounds (36 triangles in all, about 3 KB; no LODs: it is a test piece, not game art).
+ */
+const FENCE: PieceSpec = { name: 'fence', lods: [], parts: [{ size: [0.2, 2, 0.2], at: [0, 0, 0] }, { size: [0.2, 2, 0.2], at: [2.8, 0, 0] }], occ: { size: [2.6, 1.8, 0.1], at: [0.2, 0.1, 0] } };
 
 /** An 11 × 11 field of equal boxes around the origin (the middle one is "centre"); every tenth wears a project material. */
 async function boxField(): Promise<void> {
@@ -229,7 +237,14 @@ test('the export draws the box field instanced and looks the same as without ins
   test.setTimeout(240_000);
   await boxField();
   // The sun casts shadows: the instanced boxes cast and receive them like single ones.
-  await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.6], castShadow: true } });
+  // The sun shines from behind the camera (+Z), on the box faces the camera sees.
+  await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, -0.6], castShadow: true } });
+  // Two large fences whose own surfaces are two posts and whose `_OCC` stand-in is the panel between them: one past
+  // the field, seen through the gaps between the boxes (a panel drawn in colour would fill them), one behind the
+  // camera with the sun behind it (a panel that cast would shade the whole field the camera sees).
+  await publishBytes(be, new Uint8Array(multiPieceGlb([FENCE])), 'model', 'fence', 'Fence');
+  const fence = (id: string, z: number) => ({ id, name: id, components: { transform: { position: [-15, 0, z], rotation: [0, 0, 0, 1], scale: [10, 10, 10] }, model: { asset: { assetId: 'fence' } } } });
+  await command('pasteEntities', { sceneId: 'scene-main', entities: [fence('fence-far', -14), fence('fence-back', 14)] });
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   // The same field with a third of it below a parent: a second export.
@@ -280,9 +295,12 @@ test('the export draws the box field instanced and looks the same as without ins
     if (!within(d, STRICT)) writeFileSync(join(out, 'diff.png'), diffPng(a, b));
     console.log(`[rendering] export instanced vs single: ${show(d, STRICT)}`);
     expect(within(d, STRICT), show(d, STRICT)).toBe(true);
-    // Occlusion culling draws the same picture as the page with it off.
+    // Occlusion culling draws the same picture as the page with it off: the fence's stand-in went into the view's
+    // depth (the mark's last field: stand-in draws) and left no colour and no shadow.
     const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
-    await expectOcclusionMatch(async (query) => shot(await frameOf(`${site.url}?${query}`, `occlusion-${query}`)), 'export', shot(batched));
+    const occ = await expectOcclusionMatch(async (query) => shot(await frameOf(`${site.url}?${query}`, `occlusion-${query}`)), 'export', shot(batched));
+    expect(Number(occ.on.occlusion!.split('|')[4]), 'the stand-in is drawn into the depth with culling on').toBeGreaterThan(0);
+    expect(occ.off.occlusion!.split('|')[4], 'and not at all with it off').toBe('0');
     // Parents compose in the engine's world table: the parented boxes are drawn where the flat ones were.
     const parented = await frameOf(siteRigged.url, 'parented');
     const c = decodePng(parented.png);

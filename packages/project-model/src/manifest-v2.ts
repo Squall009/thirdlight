@@ -261,6 +261,8 @@ export interface CapturedAssetV3 {
   clipsFor?: string;
   /** Model only: its LOD group settings (absent: the defaults). */
   lod?: import('./model-lod').ModelLodSettings;
+  /** Model only: what of it counts as an occluder (absent: auto; `model-occluders.ts`). */
+  occluder?: import('./model-occluders').ModelOccluderMode;
   /** Model only: the version's recorded bounds (absent for versions imported before). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
@@ -317,6 +319,8 @@ export interface ManifestAssetInputV2 {
   clipsFor?: string;
   /** Model only: its LOD group settings (absent: the defaults). */
   lod?: import('./model-lod').ModelLodSettings;
+  /** Model only: what of it counts as an occluder (absent: auto; `model-occluders.ts`). */
+  occluder?: import('./model-occluders').ModelOccluderMode;
   /** Model only: the version's recorded bounds (the runtime's pickups without a size read them). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** Audio: the version's recorded duration, ms (script sounds' ends are computed from it). */
@@ -690,6 +694,8 @@ export function captureContentViewV3(
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
       // Set only (the digests of projects without LOD settings are unchanged).
       ...(record.kind === 'model' && record.lod !== undefined ? { lod: lodCopy(record.lod) } : {}),
+      // Set only (auto is the default: the digests of projects without the setting are unchanged).
+      ...(record.kind === 'model' && (record.occluder === 'occ' || record.occluder === 'none') ? { occluder: record.occluder } : {}),
       // A model version's recorded bounds (absent before; the digests of older captures are unchanged).
       ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
     })));
@@ -820,6 +826,7 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.lod !== undefined && a.kind === 'model' ? { lod: lodCopy(a.lod) } : {}),
+    ...((a.occluder === 'occ' || a.occluder === 'none') && a.kind === 'model' ? { occluder: a.occluder } : {}),
     ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
     ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),

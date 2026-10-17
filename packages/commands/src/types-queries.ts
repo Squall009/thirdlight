@@ -39,6 +39,8 @@ export interface AssetSummary {
   materials?: Record<string, string>;
   /** Model only: its LOD group settings (absent: the defaults). */
   lod?: import('@thirdlight/project-model').ModelLodSettings;
+  /** Model only: what of it counts as an occluder (absent: auto). */
+  occluder?: 'occ' | 'none';
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
   /** Model only: the "extract textures" import setting is on. */

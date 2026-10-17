@@ -130,6 +130,7 @@ export interface RecordLike {
   readonly clipsFor?: string;
   readonly streaming?: boolean;
   readonly lod?: { readonly screenSizes?: readonly number[]; readonly cullSize?: number };
+  readonly occluder?: string;
 }
 
 export function currentVersionOf(record: RecordLike): VersionLike | undefined {
@@ -211,6 +212,8 @@ export function importSettingsOf(record: RecordLike): Record<string, unknown> {
   if (record.clipsFor !== undefined) out['clipsFor'] = record.clipsFor;
   // A model's own LOD switch points and cull size (absent: the engine's defaults).
   if (record.lod !== undefined) out['lod'] = { ...(record.lod.screenSizes !== undefined ? { screenSizes: [...record.lod.screenSizes] } : {}), ...(record.lod.cullSize !== undefined ? { cullSize: record.lod.cullSize } : {}) };
+  // What of a model hides what is behind it for occlusion culling (absent: auto).
+  if (record.occluder !== undefined) out['occluder'] = record.occluder;
   // An audio file's load settings as the game uses them (the record stores only a changed one).
   if (record.kind === 'audio') Object.assign(out, audioLoadOf(record));
   // A texture with a mip chain to stream says whether it streams (the record stores only a chosen value).

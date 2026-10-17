@@ -11,6 +11,8 @@
  * embedded in the GLB (a bufferView image) and mapped through TEXCOORD_0.
  * With `{ centred: true }` a box's pivot is its base centre (a block cell's
  * frame) instead of its base centre-left.
+ * A piece's `parts` make its one render node a group of boxes (posts of a
+ * fence); its `occ` box is its `<name>_OCC` occluder stand-in.
  */
 
 export interface PieceSpec {
@@ -25,6 +27,10 @@ export interface PieceSpec {
   colors?: [number, number, number][];
   /** The COLOR_0 of its render meshes (RGBA 0-1; absent: pure red). */
   vertexColor?: [number, number, number, number];
+  /** Its render node is a group of these boxes, each moved to `at` (instead of `lods`). */
+  parts?: { size: [number, number, number]; at: [number, number, number] }[];
+  /** Its `_OCC` occluder stand-in: one box moved to `at`. */
+  occ?: { size: [number, number, number]; at: [number, number, number] };
 }
 
 function box(size: [number, number, number], centred = false): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
@@ -110,11 +116,18 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     return meshes.length - 1;
   };
   for (const p of pieces) {
-    p.lods.forEach((size, i) => {
+    if (p.parts !== undefined) {
+      const kids = p.parts.map((part, i) => {
+        nodes.push({ name: `${p.name}_p${i}`, mesh: addMesh(`${p.name}_p${i}`, part.size, true, p.colors?.[0], p.vertexColor), translation: part.at });
+        return nodes.length - 1;
+      });
+      nodes.push({ name: p.name, children: kids });
+    } else p.lods.forEach((size, i) => {
       const name = p.lods.length === 1 ? p.name : `${p.name}_LOD${i}`;
       nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i], p.vertexColor) });
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
+    if (p.occ !== undefined) nodes.push({ name: `${p.name}_OCC`, mesh: addMesh(`${p.name}_OCC`, p.occ.size, false), translation: p.occ.at });
     if (p.colParts !== undefined) {
       const parts = p.colParts.map((part, i) => {
         nodes.push({ name: `${p.name}_part${i}`, mesh: addMesh(`${p.name}_part${i}`, part.size, false), translation: part.at });

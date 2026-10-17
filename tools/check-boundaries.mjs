@@ -232,9 +232,10 @@ export const NODE_SIDE_ALLOWED = {
     // presets' row-tied sliders (a trim sheet's problems name the presets
     // that do not fit its rows) and the kits' reference problems (what a kit
     // names that the project lacks) and the kit checks against the trim sheet
-    // spec (a piece's file, a sheet's table and pixels) are the project-model
+    // spec (a piece's file, a sheet's table and pixels) and the check of a
+    // model's occluder stand-ins against its pieces are the project-model
     // values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows', 'kits', 'kit-checks'] },
+    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows', 'kits', 'kit-checks', 'model-occluders'] },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.

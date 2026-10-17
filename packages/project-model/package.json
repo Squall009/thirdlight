@@ -16,7 +16,8 @@
     "./layered-surface": "./src/layered-surface.ts",
     "./arch-style-rows": "./src/arch-style-rows.ts",
     "./kits": "./src/kits.ts",
-    "./kit-checks": "./src/kit-checks.ts"
+    "./kit-checks": "./src/kit-checks.ts",
+    "./model-occluders": "./src/model-occluders.ts"
   },
   "sideEffects": false
 }

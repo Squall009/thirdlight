@@ -841,7 +841,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, canvas: canvasLike, changed: () => opts.onChange?.() });
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, view: viewCull.view, canvas: canvasLike, changed: () => opts.onChange?.() });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;

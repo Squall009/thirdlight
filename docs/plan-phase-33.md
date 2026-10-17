@@ -295,7 +295,7 @@ animating hidden characters.
 | 33.0 | Done 2026-10-17: three.js 0.186.1 still the latest (r185/r186 notes in §3: no change to `setIndirect`, queries more robust, storage read-write in vertex stages); Rapier 0.21.0 exists, 0.20.0 stays; §2 re-checked at `60bd1f69` (isolation, the borrowed Scene view, stand-ins, docked panels added); the WIP branch's oracle and views ported by hand (isolation now takes bit 4, occlusion 8). |
 | 33.1 | Done 2026-10-17: `--view street\|valley` on village and level, `--oracle` (per item and whole draws, then the wholly hidden draws left out and measured again); before table below. Occluded views hide 76–93 % of draws and 83–93 % of triangles; leaving every wholly hidden draw out saves ≤ 1.2 ms GPU and ≤ 1.7 ms main thread, frame p95 mostly within noise: the work is there, its time is small at these class sizes. Verdict in §7: all items go ahead except 33.9 (dropped) and 33.6's per-member merged cells (dropped). |
 | 33.2 | Done 2026-10-17: `occlusion_culling` (0 off / 1 auto, absent auto) and a level's `occlusionCulling`, `?occlusion=off\|queries\|hiz` and the scene switch, the occludee registry (village: 604 on WebGPU, 608 on WebGL 2) and `occludeeClassOf` in runtime, diagnostics (Play, `ctx.stats.occlusion`, `data-tl-occlusion`), `expectOcclusionMatch` in rendering.e2e (export on vs off: strict); culling still a no-op. Village A/B (3 rounds, same browser) on vs `occlusion=off`: p50 equal (WebGL 2 4.7/4.7, WebGPU 5.5/5.5 ms), main thread +0.06–0.14 ms (≤ +0.2, §5). The fast gate's perf missed twice under another session's load (load 10–12), then passed at load 2: webgl2 p50 4.8 ms (limit 4.84). |
-| 33.3 | |
+| 33.3 | Done 2026-10-17: `<piece>_OCC` stand-ins (project-model naming and import check, `occluderPointsOutside` with 1 mm; ignored ones → Problems `model_occluder_ignored` and dropped at load), drawn depth only, last among the opaque draws, for the view's camera only while a path is on (`data-tl-occlusion` 5th field: stand-in draws); occluder roles in runtime (`occluderRoleOf`), object `occluder` (box, model) and model `occluder: auto\|occ\|none`; terrain, block and architecture draws take the merged cells' order. vitest +3 files; rendering.e2e's export on/off check gained two fences with `_OCC` panels, one seen through the boxes' gaps, one behind the camera with the sun behind it (WebGPU: strict pixels equal, worst 0; stand-ins drawn only with culling on; seen in the frame: no panel colour, no panel shadow; WebGL 2 unverified). Before → after, same hour, load 2.7–3.6: village open p50 5.7→5.6 / 4.6→4.7 ms (WebGPU / WebGL 2), street 6.0→6.0 / 4.9→4.9, main 6.23→6.22 / 6.13→6.08 ms; landscape valley 10.0→10.0 / 3.3→3.0, GPU 14.87→14.73 ms; draws and oracle shares unchanged (nothing culls yet): equal within noise, no target applies yet. |
 | 33.4 | |
 | 33.5 | |
 | 33.6 | Scope cut by 33.1: merged cells culled as whole draws, no per-member compaction (§7). |
@@ -424,4 +424,39 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   from its three.js type. The editor's Scene view is not wired yet (33.10),
   so `viewport.ts` was not split; editor Play does not forward `?occlusion=`
   (as `?portals=`). The manual page is 33.11's.
+- 2026-10-17 (33.3, default chosen, owner to confirm): **`_OCC` stand-ins draw
+  last among the opaque draws, not first.** The depth the next items read is
+  the depth after the opaque draws (33.4's pyramid is built from pass 1's
+  depth; 33.7's queries are drawn at the end of the opaque list), so a
+  stand-in drawn last culls exactly as much as one drawn first, while this
+  frame's colour stays what it is without it: drawn first, the background
+  seen through a cut-out hedge's gaps would be lost in the same frame.
+  Stand-ins draw only for the view's camera (no shadow map, probe, bake or
+  other camera; their per-camera count, as `view-cull.ts` does) and only
+  while a culling path is on. What later reads that depth (transparent
+  draws behind a stand-in, ambient occlusion and fog at uncovered pixels)
+  sees the stand-in: that is the author's promise that it lies inside the
+  model's surfaces, which the import check can only bound (LOD0 bounds,
+  1 mm).
+- 2026-10-17 (33.3): occluder roles are one pure rule in runtime
+  (`occluderRoleOf`: `early` level geometry and merged cells, `surface`,
+  `standin`, `none`); terrain, block and architecture draws take the merged
+  cells' order (`OCCLUDER_EARLY_RENDER_ORDER`, defined once in
+  `occluders.ts`; a transparent chunk keeps its place among the transparent
+  draws). Alpha-tested level geometry still counts (its cut-outs write the
+  depth of what they draw); alpha-tested, double-sided and transparent
+  models do not. An object's `occluder: false`, a model's `occluder: occ |
+  none` and a piece with a stand-in (`auto`) mark the surfaces that do not
+  count; batches and merged cells key on the marks, so one draw never mixes
+  roles. Where a `none` draw goes (after the queries, pass 2 only) is 33.4's
+  and 33.7's.
+- 2026-10-17 (33.3, default chosen, owner to confirm): the import check
+  reports through the project's Problems (`model_occluder_ignored`, checked
+  at load and after imports), not as an import diagnostic: the importer's
+  proposal is a validated protocol whose diagnostics reject a file, and an
+  ignored stand-in should not reject the model. The same rule
+  (`occluderPointsOutside`, project-model) drops the node when the adapter
+  makes the model, so the export and Play never draw it. The object's
+  `occluder` reaches the Inspector through its descriptor; the asset
+  inspector's import field and the editor test of both are 33.10's.
 

@@ -1,8 +1,26 @@
-# Types (UiSounds to WindConfig)
+# Types (UiScalar to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-scalar"></a>
+### UiScalar
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiScalar = number | string | boolean | null;
+```
+
+<a id="type-ui-scale-mode"></a>
+### UiScaleMode
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiScaleMode = 'fit' | 'width' | 'height' | 'cover' | 'expand';
+```
 
 <a id="type-ui-sounds"></a>
 ### UiSounds

@@ -274,11 +274,11 @@ export interface PaintableMesh {
   points: Float32Array;
 }
 
-/** The meshes of a model vertex paint may cover: every render primitive (every level of detail), no `_COL` part. */
+/** The meshes of a model vertex paint may cover: every render primitive (every level of detail), no `_COL` or `_OCC` part. */
 export function paintableMeshes(g: ModelGeometry, hash: (bytes: Uint8Array) => string = sha256Hex): PaintableMesh[] {
   const out: PaintableMesh[] = [];
   for (const p of g.primitives) {
-    if (p.collision || p.positions.length === 0) continue;
+    if (p.collision || p.occluder || p.positions.length === 0) continue;
     const points = new Float32Array(p.positions.length * 3);
     p.positions.forEach((q, i) => points.set(q, i * 3));
     out.push({ mesh: paintMeshKey(p.node, p.primitive), piece: p.piece, vertices: p.positions.length, positions: paintPositionsHash(p.local, hash), points });

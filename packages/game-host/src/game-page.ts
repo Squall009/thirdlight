@@ -324,8 +324,8 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
 
 /** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
 function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
-  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown; lod?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}) };
+  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown; lod?: unknown; occluder?: unknown };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}), ...(x.occluder === 'occ' || x.occluder === 'none' ? { occluder: x.occluder } : {}) };
 }
 
 /**

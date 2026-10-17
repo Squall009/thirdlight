@@ -20,7 +20,7 @@
 import { BLOCK_LAYER_DEFAULT } from './block-layers';
 import { kitSlotPlacement } from './kits';
 export { kitCheckTally } from './kits';
-import { MODEL_COL_RE, MODEL_LOD_RE, modelNodeMatrix, modelPieceName, readModelGeometry, type ModelGeometryPrimitive } from './model-collision';
+import { isModelHelperNode, MODEL_LOD_RE, modelNodeMatrix, modelPieceName, readModelGeometry, type ModelGeometryPrimitive } from './model-collision';
 import { glbChunks, sanitizeRigNodeName } from './model-rig';
 import { TRIM_PIECE_PLACE_TOLERANCE, TRIM_SHEET_DEFAULTS, TRIM_STARTER_ROWS, trimPaddingProblems, trimRowMetres, trimRowV, trimSheetProblems, trimSheetSafeMipLevel, type TrimRow, type TrimSheet } from './trim-sheet';
 
@@ -100,7 +100,7 @@ export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
   // Node names as three.js gives them (the editor names a piece by those, as the geometry reader does).
   const nameOf = (n: Record<string, unknown>): string => (typeof n['name'] === 'string' ? sanitizeRigNodeName(n['name']) : '');
   const pieces = [...new Set(top.map((n) => modelPieceName(nameOf(n))))];
-  const renderPieces = pieces.filter((p) => top.some((n) => modelPieceName(nameOf(n)) === p && !MODEL_COL_RE.test(nameOf(n))));
+  const renderPieces = pieces.filter((p) => top.some((n) => modelPieceName(nameOf(n)) === p && !isModelHelperNode(nameOf(n))));
   const want = piece ?? '';
   const mine = (name: string): boolean => want === '' || modelPieceName(name) === want;
   const found = want === '' ? top.length > 0 : renderPieces.includes(want);
@@ -129,6 +129,8 @@ export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
   const surfaces = new Map<string | null, PieceFacts['surfaces'][number]>();
   let triangles = 0;
   for (const p of prims) {
+    // An occluder stand-in is never drawn: not part of the piece's levels, bounds or surfaces.
+    if (p.occluder) continue;
     if (p.collision) {
       if (p.pieceCollision) {
         facts.collider = true;

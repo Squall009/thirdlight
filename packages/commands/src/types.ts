@@ -1430,6 +1430,8 @@ export interface SetAssetOptionsArgs {
   streaming?: boolean | null;
   /** Model only: its LOD group settings — switch points and cull size (null = the defaults). */
   lod?: import('@thirdlight/project-model').ModelLodSettings | null;
+  /** Model only: what of it counts as an occluder — auto (its `_OCC` nodes, else its opaque surfaces; stored as absence), occ or none. */
+  occluder?: import('@thirdlight/project-model').ModelOccluderMode;
 }
 
 export interface SetTransformArgs {

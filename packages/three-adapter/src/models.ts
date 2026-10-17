@@ -50,7 +50,7 @@
  * diagnostic, the run proceeds).
  */
 import * as THREE from 'three';
-import { assetVersionKey, createResourceManager, instanceDensityOf, type InstanceDensity, type LoadedResource, type ModelLodSettings, type ResourceManager } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, instanceDensityOf, type InstanceDensity, type LoadedResource, type ModelLodSettings, type ModelOccluderMode, type ResourceManager } from '@thirdlight/runtime';
 import {
   adapterError,
   type AdapterError,
@@ -106,6 +106,8 @@ export interface SceneAdapterModelAsset {
   readonly textures?: Readonly<Record<string, string>>;
   /** The model's LOD group settings (switch points, cull size; absent: the defaults). */
   readonly lod?: ModelLodSettings;
+  /** What of it counts as an occluder (absent: auto; project-model `model-occluders.ts`). */
+  readonly occluder?: ModelOccluderMode;
 }
 
 /** One committed `modelAnimation` entity mapping. */
@@ -600,6 +602,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     ...(piece !== undefined ? { piece } : {}),
     vertexColors: rowsByAsset.get(assetId)?.vertexColors === 'tint' ? 'tint' : 'data',
     ...(rowsByAsset.get(assetId)?.lod !== undefined ? { lod: rowsByAsset.get(assetId)!.lod! } : {}),
+    ...(rowsByAsset.get(assetId)?.occluder !== undefined ? { occluder: rowsByAsset.get(assetId)!.occluder! } : {}),
   });
   const attached = new Map<string, AttachedModel>(); // entityId → attached model
   const attachedSets = new Map<string, AttachedInstanceSet>(); // entityId → instanced meshes

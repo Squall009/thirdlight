@@ -475,7 +475,7 @@ export interface PageSample {
   uasm: string;
   /**
    * What drew: the canvas's data-tl-renderer attributes, its rooms' (`data-tl-rooms`: rooms seen, draws hidden,
-   * mesh–light pairs lit) and occlusion culling's (`data-tl-occlusion`: path|occludees|tested|culled).
+   * mesh–light pairs lit) and occlusion culling's (`data-tl-occlusion`: path|occludees|tested|culled|stand-ins drawn).
    */
   renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string; occlusion?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;

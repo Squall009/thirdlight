@@ -482,8 +482,8 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex', decalLayers: 5 }],
-  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0 }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex', decalLayers: 5, occluder: false }],
+  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0, occluder: true }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
@@ -892,7 +892,7 @@ function runAllProbes(): void {
   probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, occlusion_culling: 0, streaming_budget_mb: 512, architecture_ship_meshes: 1 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
-  const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk' };
+  const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk', occluder: 'occ' };
   const v0 = (MODEL_ASSET['versions'] as Obj[])[0]!;
   const texture = { ...MODEL_ASSET, assetId: 'tex-albedo', kind: 'texture', displayName: 'Albedo', versions: [{ ...v0, importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } }, metrics: { format: 'png', width: 64, height: 64, decodedBytes: 16384 } }] };
   const mat = { materialId: 'mat-a', name: 'M', shader: 'standard', params: {}, textures: {} };
@@ -1039,8 +1039,8 @@ describe('descriptor registry', () => {
     // decals — the component, decal layers on every drawn object, the decal material and trim cells — about 10 KB;
     // vertex paint — the component and an instance set's paint — about 2 KB; object icons by type and their counts, about 1.2 KB;
     // the trim sheet's rows at their real height, about 0.3 KB; kits and the kit a layer or architecture names, about 2.6 KB;
-    // occlusion culling, the setting and a quality level's field, about 0.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(331_800);
+    // occlusion culling, the setting and a quality level's field, about 0.6 KB; occluders — the object flag and a model's import setting, about 1 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(332_800);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
