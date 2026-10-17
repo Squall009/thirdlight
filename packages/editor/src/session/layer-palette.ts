@@ -47,6 +47,8 @@ export interface PaletteLayer {
   readonly checker?: boolean;
   /** The tile's accessible name (absent: "layer N"). */
   readonly aria?: string;
+  /** Its group's heading: a tile whose group differs from the tile before starts a new row under that heading. */
+  readonly group?: string;
 }
 
 /** What the palette knows of an object's material. */

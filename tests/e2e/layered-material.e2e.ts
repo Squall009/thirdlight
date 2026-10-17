@@ -753,6 +753,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   await inspector(page).getByRole('button', { name: 'Check padding' }).click();
   await expect(inspector(page).getByLabel('trim check')).toContainText('Padding OK', { timeout: 15_000 });
   const trimId = (await trimMaterial())!.materialId;
+  // The sheet's Material tab is the same row table (opened by a double-click on the item), not an empty graph tab.
+  await openEditor(page, 'Material', 'Trim');
+  await expect(editorPane(page, 'Material', 'Trim').getByRole('table', { name: 'trim rows' }).getByLabel('row 2 bottom', { exact: true })).toHaveValue('92');
+  await closeEditor(page);
   // A decal material draws the sheet's cell: its source picked in the Inspector, one setMaterial.
   await cmd('setMaterial', { material: { materialId: 'mat-stain', name: 'Stain', shader: 'decal', params: { blend: 'multiply' }, textures: {} } });
   await chooseItem(page, 'material', 'Stain');

@@ -45,6 +45,8 @@ export interface DecalPaletteEntry {
   readonly crop?: readonly [number, number, number, number];
   /** A cell's sheet and name (a material drawn from a cell has them too). */
   readonly cell?: { readonly sheet: string; readonly cell: string };
+  /** The trim sheet's name its picture comes from (null: its own image): the palette groups by it, so two sheets' "panel" cells read apart. */
+  readonly group: string | null;
 }
 
 /** The palette's filter: everything, decal materials only, or trim sheets' cells only (a project with many sheets buries its few decal materials among their cells). */
@@ -58,7 +60,12 @@ function cellCrop(sheet: MaterialDef | undefined, cell: string): [number, number
   return [c.rect[0] / t.size[0], c.rect[1] / t.size[1], c.rect[2] / t.size[0], c.rect[3] / t.size[1]];
 }
 
-/** The decal palette of a project's materials. */
+/**
+ * The decal palette of a project's materials, grouped by where the picture
+ * comes from: the decal materials with their own image first, then each trim
+ * sheet (in the project's order) with the materials drawn from its cells and
+ * its cells without one.
+ */
 export function decalPalette(materials: readonly MaterialDef[]): DecalPaletteEntry[] {
   const byId = new Map(materials.map((m) => [m.materialId, m]));
   const root = (m: MaterialDef): MaterialDef => (m.instanceOf !== undefined ? (byId.get(m.instanceOf) ?? m) : m);
@@ -77,6 +84,7 @@ export function decalPalette(materials: readonly MaterialDef[]): DecalPaletteEnt
       texture: ref !== undefined ? (sheet?.textures['map'] ?? null) : (r.textures['map'] ?? null),
       ...(crop !== null ? { crop } : {}),
       ...(ref !== undefined ? { cell: { sheet: ref.sheet, cell: ref.cell } } : {}),
+      group: ref !== undefined ? (sheet?.name ?? ref.sheet) : null,
     });
   }
   for (const sheet of materials) {
@@ -84,10 +92,13 @@ export function decalPalette(materials: readonly MaterialDef[]): DecalPaletteEnt
     for (const c of sheet.trim?.cells ?? []) {
       if (decals.some((d) => d.instanceOf === undefined && d.decal?.sheet === sheet.materialId && d.decal.cell === c.name)) continue;
       const crop = cellCrop(sheet, c.name);
-      out.push({ key: `cell:${sheet.materialId}:${c.name}`, kind: 'cell', name: c.name, material: null, texture: sheet.textures['map'] ?? null, ...(crop !== null ? { crop } : {}), cell: { sheet: sheet.materialId, cell: c.name } });
+      out.push({ key: `cell:${sheet.materialId}:${c.name}`, kind: 'cell', name: c.name, material: null, texture: sheet.textures['map'] ?? null, ...(crop !== null ? { crop } : {}), cell: { sheet: sheet.materialId, cell: c.name }, group: sheet.name });
     }
   }
-  return out;
+  // Own images first, then a sheet's entries together, each group in the order found (a stable sort).
+  const sheetOrder = new Map(materials.map((m, i) => [m.materialId, i]));
+  const rank = (e: DecalPaletteEntry): number => (e.cell === undefined ? -1 : (sheetOrder.get(e.cell.sheet) ?? materials.length));
+  return out.map((e, i) => ({ e, i })).sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i).map((x) => x.e);
 }
 
 /** The entries a palette filter shows (a material drawn from a cell counts as a material). */

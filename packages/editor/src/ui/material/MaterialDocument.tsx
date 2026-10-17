@@ -31,6 +31,7 @@ import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
 import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 import { LayerSettings } from '../palette/LayerSettings';
+import { TrimSheetTable, type TrimCheck } from './TrimSheetTable';
 
 export interface MaterialDocumentProps {
   materialId: string;
@@ -46,6 +47,8 @@ export interface MaterialDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
+  /** A trim sheet's padding check (the backend's), for the sheet's row table. */
+  checkTrim?: TrimCheck;
 }
 
 const PARAM_TYPES: readonly MaterialParameter['type'][] = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'];
@@ -79,6 +82,24 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   }, [m, p.graphs, textureIds]);
   if (m === null) return <p className="tl-hint">This material no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the material node catalogue…</p>;
+  // A trim sheet is its row table: the Inspector's own, so the tab and the Inspector are one view of it.
+  if (m.graph === undefined && m.shader === 'trim') {
+    return (
+      <div className="tl-material-doc tl-material-doc--trim" aria-label="trim sheet">
+        <EditorToolbar label="material toolbar">
+          <span className="tl-editor-toolbar__note">Trim sheet material</span>
+        </EditorToolbar>
+        {p.error !== null && (
+          <p className="tl-error" role="alert">
+            {p.error}
+          </p>
+        )}
+        <div className="tl-material-doc__trim">
+          <TrimSheetTable material={m} onSave={p.onSave} {...(p.checkTrim !== undefined ? { onCheck: p.checkTrim } : {})} />
+        </div>
+      </div>
+    );
+  }
   if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Choose it in the project window and use "Customize (convert to graph)" in its Inspector.</p>;
   const newNodeData = (type: string): Record<string, GraphValue> | undefined => {
     // A new Parameter node reads the first declared parameter; a new call runs the first function.

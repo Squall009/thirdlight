@@ -77,6 +77,7 @@ import { ViewIsolationState, type ViewIsolation } from './view-isolation';
 import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
 import type { SceneViewAssets } from './scene-assets';
+import { framePose, insideBox } from './frame-view';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -959,13 +960,22 @@ export class Viewport {
     return this.cellTopSnap?.(null, snapped, [0, 0, 0, 1]) ?? snapped;
   }
 
-  /** Orbit around the entity's world position, keeping the view direction. */
+  /**
+   * Orbit around the entity's world position, keeping the view direction and
+   * distance — unless that puts the camera inside what the entity draws (a
+   * building's walls): then the view frames it from outside.
+   */
   focus(id: string): void {
     this.adapter.sync?.();
     const m = this.worldOf(id);
     if (m === null) return;
     const world = new THREE.Vector3().setFromMatrixPosition(m);
     const offset = this.camera.position.clone().sub(this.orbit.target);
+    const box = this.boundsOf(this.subtreeIds(id), () => true);
+    if (!box.isEmpty() && insideBox(world.clone().add(offset).toArray(), { min: box.min.toArray(), max: box.max.toArray() }, this.camera.near)) {
+      this.fitBox(box);
+      return;
+    }
     this.orbit.target.copy(world);
     this.camera.position.copy(world).add(offset);
     this.orbit.update();
@@ -1892,17 +1902,36 @@ export class Viewport {
     this.fitBox(box);
   }
 
-  /** The camera backed off along its view direction until `box` fills the view. */
+  /** The camera outside `box`, looking at it whole (`framePose`: the view's heading, a pitch looking down). */
   private fitBox(box: THREE.Box3): void {
-    const center = box.getCenter(new THREE.Vector3());
-    const radius = Math.max(2, box.getSize(new THREE.Vector3()).length() / 2);
-    const distance = radius / Math.sin((this.camera.fov * Math.PI) / 360);
-    const dir = this.camera.position.clone().sub(this.orbit.target).normalize();
-    this.orbit.target.copy(center);
-    this.camera.position.copy(center).addScaledVector(dir, distance);
-    this.camera.far = Math.max(1000, distance * 10);
+    const pose = framePose({ min: box.min.toArray(), max: box.max.toArray() }, this.camera.position.toArray(), this.orbit.target.toArray(), this.camera.fov, this.camera.aspect);
+    this.orbit.target.set(...pose.target);
+    this.camera.position.set(...pose.position);
+    this.camera.far = Math.max(1000, pose.distance * 10);
     this.camera.updateProjectionMatrix();
     this.orbit.update();
+    this.requestRender();
+  }
+
+  /**
+   * Frame a box in world metres (an editor's selection: a room, a building,
+   * decals, a stamp). `ground`: a terrain object whose ground under the box's
+   * centre the box's heights are measured from.
+   */
+  frameBox(box: { min: readonly number[]; max: readonly number[] }, ground?: string): void {
+    const b = new THREE.Box3(new THREE.Vector3(...(box.min as [number, number, number])), new THREE.Vector3(...(box.max as [number, number, number])));
+    const c = b.getCenter(new THREE.Vector3());
+    const y = ground === undefined ? undefined : this.adapter.terrains?.()?.field(ground)?.heightAt(c.x, c.z);
+    if (typeof y === 'number' && Number.isFinite(y)) b.translate(new THREE.Vector3(0, y, 0));
+    this.fitBox(b);
+  }
+
+  /** An object's box in world metres: `localBox` (its own frame) through its transform, else the meshes it draws (null: none). */
+  worldBoxOf(id: string, localBox?: { min: readonly number[]; max: readonly number[] }): { min: number[]; max: number[] } | null {
+    const world = this.worldOf(id);
+    if (world === null) return null;
+    const box = localBox !== undefined ? new THREE.Box3(new THREE.Vector3(...(localBox.min as [number, number, number])), new THREE.Vector3(...(localBox.max as [number, number, number]))).applyMatrix4(world) : this.boundsOf(this.subtreeIds(id), () => true);
+    return box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
   }
 
   /** Fit the camera to the current content (called on resync). */

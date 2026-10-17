@@ -740,7 +740,10 @@ function EditorApp(): JSX.Element {
         void sceneAction({ kind: 'open', sceneId }).then(() => sceneAction({ kind: 'activate', sceneId }));
         setCenterTab('scene');
       },
-      isGraphMaterial: (id) => materials.find((m) => m.materialId === id)?.graph !== undefined,
+      opensMaterialTab: (id) => {
+        const m = materials.find((x) => x.materialId === id);
+        return m !== undefined && (m.graph !== undefined || m.shader === 'trim');
+      },
       inspect,
       showEnvironment: () => showToolWindow('environment'),
     },

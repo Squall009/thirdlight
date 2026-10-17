@@ -316,7 +316,13 @@ array file's digest) and the materials name them; the slot textures ship
 only if something else uses them. 4 × 1024²: joined in about 14 ms (UASTC),
 encoded in about 9 s (ETC1S); a cached array is found in a few
 milliseconds (the layers' files are read and any PNG beside them hashed
-first, as both are part of the key).
+first, as both are part of the key). An array past the encoder's 12 Mpix
+(four 2048² layers) is encoded a layer at a time and joined, a colour one
+in UASTC instead of ETC1S (larger: four 2048² albedos make 15 MiB in
+18 s on three encoder threads, where three in one ETC1S array make 1.3 MiB
+in 11 s). An array that cannot be
+made (layers of two sizes) is named in **Problems**, and the view keeps
+its stand-in.
 
 ## Levels of detail
 

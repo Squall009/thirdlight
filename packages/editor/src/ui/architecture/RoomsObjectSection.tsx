@@ -16,7 +16,8 @@ import type { ArchitectureComponent, ArchitectureOutline } from '@thirdlight/pro
 
 import { allOutlines, isBuilding, presetUses, withOutlineSet } from '../../session/room-draw';
 import { Pick } from '../blocks/RoomFields';
-import { presetChoices, PresetSliders, type PresetSlidersHost } from './PresetSliders';
+import { presetChoices } from './preset-choices';
+import { PresetSliders, type PresetSlidersHost } from './PresetSliders';
 import { PresetSwap } from './PresetSwap';
 
 export interface RoomsObjectSectionProps {

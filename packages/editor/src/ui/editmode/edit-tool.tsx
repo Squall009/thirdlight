@@ -15,6 +15,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { unionBoxes, type FrameBox } from '../../viewport/frame-view';
+
 export interface EditToolApi {
   /** A tool is armed (false: Navigate). False in a mode without a tool grid. */
   readonly armed: boolean;
@@ -35,6 +37,8 @@ export interface EditSelection {
   /** A shorter name where room is short (the column's head; absent: the label). */
   readonly short?: string;
   clear(): void;
+  /** Its box in world metres, which Home frames (absent or null: Home frames the whole object). */
+  bounds?(): FrameBox | null;
 }
 
 export const EditToolContext = createContext<EditToolApi | null>(null);
@@ -63,15 +67,18 @@ export function useToolGridPresence(last: string | null, usable: boolean): void 
 
 /**
  * Say what is selected in the mode (null: nothing) while the caller shows;
- * Esc calls `clear` before it drops the tool or leaves the editor.
+ * Esc calls `clear` before it drops the tool or leaves the editor, and Home
+ * frames `bounds` (the selection's box in world metres, read at the key).
  */
-export function useEditSelection(label: string | null, clear: () => void, short?: string): void {
+export function useEditSelection(label: string | null, clear: () => void, short?: string, bounds?: () => FrameBox | null): void {
   const select = useContext(EditToolContext)?.selection;
   const id = useRef(Symbol('selection')).current;
   const latest = useRef(clear);
   latest.current = clear;
+  const box = useRef(bounds);
+  box.current = bounds;
   useEffect(() => {
-    select?.(id, label === null ? null : { label, ...(short !== undefined ? { short } : {}), clear: () => latest.current() });
+    select?.(id, label === null ? null : { label, ...(short !== undefined ? { short } : {}), clear: () => latest.current(), bounds: () => box.current?.() ?? null });
   }, [select, id, label, short]);
   useEffect(() => () => select?.(id, null), [select, id]);
 }
@@ -94,6 +101,8 @@ export interface EditToolHost {
   hasTools(): boolean;
   /** Clear every selection the mode holds (Esc); false when there was none. */
   clearSelection(): boolean;
+  /** The box around what is selected, in world metres (null: nothing selected, or nothing with a box): what Home frames. */
+  selectionBox(): FrameBox | null;
 }
 
 /** The shell's side: `armed` and `setArmed` are the edit mode's state. */
@@ -166,5 +175,6 @@ export function useEditToolHost(armed: boolean, setArmed: (on: boolean) => void,
     syncSelections();
     return all.length > 0;
   }, [syncSelections]);
-  return { api, tools: gridState.tools, lastTool: gridState.last, selected: selected.labels, selectedShort: selected.short, hasSelection, isArmed, hasTools, clearSelection };
+  const selectionBox = useCallback((): FrameBox | null => unionBoxes([...selections.current.values()].map((s) => s.bounds?.() ?? null)), []);
+  return { api, tools: gridState.tools, lastTool: gridState.last, selected: selected.labels, selectedShort: selected.short, hasSelection, isArmed, hasTools, clearSelection, selectionBox };
 }

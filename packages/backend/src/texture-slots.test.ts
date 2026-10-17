@@ -25,13 +25,15 @@ import { TRIM_GROUP_KEY } from '@thirdlight/project-model/texture-slots';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { encodeRgbaPng } from './image-thumbnail';
-import { ktx2LevelData, readKtx2 } from './ktx2-container';
+import { KTX2_TRANSFER_SRGB, ktx2LevelData, readKtx2 } from './ktx2-container';
 import { createInlineTextureEncoder, encodeKtx2, packKtx2, SLOT_PREVIEW_SIDE, type Ktx2Mode, type PackLayer, type TextureEncoder } from './texture-encode';
-import { createTextureSlotAssembler, type SlotLayer } from './texture-slots';
+import { createTextureSlotAssembler, overEncodeLimit, type SlotLayer } from './texture-slots';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';
+/** KHR_DF_MODEL_UASTC: the DFD colour model of a UASTC texture. */
+const UASTC_MODEL = 166;
 
 async function ktx2(rgba: [number, number, number, number], mode: Ktx2Mode): Promise<Uint8Array> {
   const r = await encodeKtx2(encodeRgbaPng(new Uint8Array(16 * 16 * 4).map((_, i) => rgba[i % 4]!), 16, 16), mode);
@@ -301,15 +303,62 @@ describe('per-layer texture slots: Play and export arrays', () => {
     expect((await post('slots', { layers, mode: 'color', height: true, preview: true })).status).toBe(204);
     expect(((await (await post('slot-base', { layers, mode: 'color', height: true })).json()) as { final: boolean }).final).toBe(true);
 
-    // Four layers of 2048² are more than the encoder takes at once: the array is refused, its preview is still made.
+    // Four layers of 2048² are more than one encode takes: the colour array is made a layer at a time in UASTC (sRGB) and joined, the constant layer at the textures' size.
     const huge = 2048;
     writeFileSync(game('assets', 'big', 'huge.png'), encodeRgbaPng(new Uint8Array(huge * huge * 4).fill(200), huge, huge));
     await command('importAssets', { folder: 'assets/big' });
     const hugeId = ((tb.backend._test.service.query({ op: 'queryAssets', projectId: PID, args: { limit: 50, offset: 0 } }) as unknown as { assets: { assetId: string; displayName: string }[] }).assets).find((a) => a.displayName === 'huge')!.assetId;
     const four = [hugeId, hugeId, hugeId, '#3366ccff'];
-    expect((await post('slots', { layers: four, mode: 'color' })).status).toBe(400);
     const over = await post('slots', { layers: four, mode: 'color', preview: true });
     expect(over.status).toBe(200);
     expect(readKtx2(new Uint8Array(await over.arrayBuffer()))!.layerCount).toBe(4);
-  }, 120_000);
+    const whole = await post('slots', { layers: four, mode: 'color' });
+    expect(whole.status).toBe(200);
+    const made = readKtx2(new Uint8Array(await whole.arrayBuffer()))!;
+    expect([made.width, made.layerCount, made.colorModel, made.transfer]).toEqual([huge, 4, UASTC_MODEL, KTX2_TRANSFER_SRGB]);
+    // Four whole 2048² layers in the top level (UASTC: 16 bytes a 4×4 block).
+    expect(ktx2LevelData(made, 0).length).toBe((huge / 4) ** 2 * 16 * 4);
+
+    // A refusal is in the project's Problems in plain words (once), not only the route's 400: two sizes cannot share an array.
+    const refused = await post('slots', { layers: [big, ids['c-red']], mode: 'color' });
+    expect(refused.status).toBe(400);
+    expect((await post('slots', { layers: [big, ids['c-red']], mode: 'color' })).status).toBe(400);
+    const problems = (await (await fetch(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { headers: { authorization: `Bearer ${tb.adminToken}` } })).json()) as { problems: { code: string; message: string }[] };
+    const told = problems.problems.filter((p) => p.code === 'texture_array_refused');
+    expect(told).toHaveLength(1);
+    expect(told[0]!.message).toMatch(new RegExp(`^The colour texture array of the layers "${big}", "${ids['c-red']}" could not be made, so the surface draws a stand-in: every source .* one size`));
+  }, 180_000);
+
+  it('an array past the encoder\'s limit is encoded a layer at a time in UASTC and joined; one within it stays one ETC1S job', async () => {
+    const service = tb.backend._test.service;
+    const assets = (service.query({ op: 'queryAssets', projectId: PID, args: { limit: 50, offset: 0, includeVersions: true } }) as unknown as { assets: { assetId: string; displayName: string; currentVersion: number; versions: { version: number; sourceDigest: string }[] }[] }).assets;
+    const layer = (name: string): SlotLayer => {
+      const a = assets.find((x) => x.displayName === name)!;
+      return { assetId: a.assetId, version: a.currentVersion, sourceDigest: a.versions.find((v) => v.version === a.currentVersion)!.sourceDigest };
+    };
+    const fill: SlotLayer = { assetId: '#3366ccff', version: 0, sourceDigest: '#3366ccff' };
+    // An encoder that records each job (layers, whether colour asked UASTC) and answers without encoding: what is routed where.
+    const inline = createInlineTextureEncoder();
+    const jobs: string[] = [];
+    const counting: TextureEncoder = {
+      ...inline,
+      parallelism: 1,
+      pack: async (sources, layers, mode, _lossless, _effort, uastc) => {
+        const join = sources.every((b) => b.length === 4);
+        jobs.push(join ? `join ${layers.length}` : `${layers.length}${uastc === true ? ' uastc' : ''}${layers[0]!.every((c) => 'value' in c) ? ' fill' : ''}`);
+        return { ok: true, ktx2: new Uint8Array(4), width: 2048, height: 2048, layers: layers.length, reencoded: layers.map(() => false), joined: join };
+      },
+    };
+    const assembler = createTextureSlotAssembler({ service, encoder: counting, now: () => performance.now() });
+    const made = await assembler.assemble(PID, [fill, layer('huge'), layer('huge'), layer('huge')], 'color');
+    expect(made.ok).toBe(true);
+    // One thread: still a job per layer (each within the limit), the constant one too, then the join.
+    expect(jobs).toEqual(['1 uastc fill', '1 uastc', '1 uastc', '1 uastc', 'join 4']);
+    jobs.length = 0;
+    // Three 2048² layers fit one job: ETC1S, one encode.
+    expect((await assembler.assemble(PID, [fill, layer('huge'), layer('huge')], 'color')).ok).toBe(true);
+    expect(jobs).toEqual(['3 fill']);
+    expect(overEncodeLimit(2048, 2048, 4)).toBe(true);
+    expect(overEncodeLimit(2048, 2048, 3)).toBe(false);
+  });
 });

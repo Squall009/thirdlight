@@ -112,7 +112,7 @@ manual → acceptance.
 | 37.4 | **The block editor on panels** (the most-used editor first):<br>• **Rooms & buildings:** Rooms list and the selected room's properties (`RoomInspector`) in panels, and New rooms and Kit pieces in the column.<br>• **Build:** Selection, Stamps and Layer.<br>• **Paint:** Brush, Noise mask and Layer.<br>• **Regions:** Theme, Metadata and Layer size.<br>• The block type editor (the detail column) becomes a panel.<br>• The column fits at 1920×1080. |
 | 37.5 | **The other editors on panels:**<br>• **Terrain:** Brush, Noise mask, the picked stamp, Settings.<br>• **Vertex paint:** Brush, Noise mask, Channels.<br>• **Decals:** Placement, Scatter, Selection, with the atlas drawer as a bottom-dock panel.<br>• **The kit editor:** `KitInspector`'s settings move into the kit document's own panels; the global Inspector keeps only a link to them.<br>• Every column fits at 1920×1080. |
 | 37.6 | **Load times.**<br>• **No white blocks (D270 1):** until a layer's arrays arrive, the layer draws its base colour, the average of its albedo, which the backend sends ahead of the encode.<br>• **D264:** the remaining 2 × 2048² ETC1S colour job is split or encoded at a preview size first, with the final arrays swapped in.<br>• **D263:** a cold atlas shows quick preview pages within the 2 s target and swaps the final pages in, in the background.<br>• **D251:** the static shadow map is redrawn after the first frame home, or the drawing-buffer size is kept; measured with `level --edit-mode`. |
-| 37.7 | **Small lows (D270 2–4):**<br>• a trim sheet material's Material tab shows its rows and the checker;<br>• the decal palette tells same-named cells apart (by sheet);<br>• the Rooms preset pickers group presets by source: kit or starter. |
+| 37.7 | **Small lows (D270 2–4):**<br>• a trim sheet material's Material tab shows its rows and the checker;<br>• the decal palette tells same-named cells apart (by sheet);<br>• the Rooms preset pickers group presets by source: kit or starter.<br>**Added by the lead:**<br>• framing a selection (Home in any editor, F on an object) puts the camera outside its bounds at a sensible angle, looking at it (a selected building, a decal, a terrain stamp);<br>• D274: a layered surface with four 2048² tiling layers can be assembled (an over-limit colour array encoded UASTC layer by layer and joined), and a refusal that remains is in Problems. |
 | 37.8 | **The manual:**<br>• `guides/level-editors.md` gets Navigate, the Esc order and panels;<br>• the block editor, vertex paint and decal guides are updated;<br>• the reference keys are regenerated. |
 | 37.9 | **Acceptance.** The owner's flow in a real browser, on this host, both renderers, 1920×1080:<br>• enter each editor, orbit with no tool, select a building and edit it from its panel;<br>• drag a panel to another dock and collapse it; leave and come back (the layout is kept);<br>• Make it paintable (base colour, never white);<br>• a cold decal atlas.<br>Screenshots go to `~/.cache/thirdlight-phase37/acceptance`. Look: owner look pending. |
 | 37.10 | **Review fixes.** |
@@ -146,6 +146,7 @@ manual → acceptance.
 | 37.4 | Done 2026-10-16: the block editor on panels per the SPEC (Build: Selection, Block type, Stamps, Layer; Shape/Paint: Brush, Noise mask, Layer; Regions: Theme, Metadata, Layer size; Rules: Scatter brush, Layer; Rooms: Layer); the detail column removed from the shell; every block mode's column fits at 1920×1080 (an e2e step measures all six). E2E (2 workers, previous → this fast gate): block-editor 8.4 → 8.4 s, block-world-uv 8.7 → 9.5, layered-material 49.7 → 50.2, terrain-brushes 4.7 → 4.5, terrain-paint 10.9 → 10.2, block-layers → 15.6 (net +0.4 s, host noise); the Make-it-paintable undo passed in all 3 runs; village perf in its limits. Screens on WebGPU and WebGL 2 looked at against mockup 02/04/04b.
 | 37.5 | Done 2026-10-16: terrain (every mode), vertex paint, decals (the atlas a collapsed bottom-edge panel; the shell's drawer slot removed) and the kit editor (its own docks: the slot's panel and Preview, which holds the window's one preview pane; the Inspector keeps a link) on panels; one shared `brushPanels` in `editmode/`; every column fits at 1920×1080 (e2e steps in terrain-cdlod, instance-brush, the decal drive). 37.4's Rooms sighting is no regression (the building draws, selected or not, both renderers; F had framed the view inside its walls). E2E (2 workers, previous → this fast gate): terrain-cdlod 3.2 → 3.2 min, editor-window 10.8 → 10.7 s, layered-material 50.2 → 50.7, instance-brush 31.2 → 31.8, level-acceptance 25.5 → 27.1 (unchanged file), block-editor 8.4 → 8.2, block-world-uv 9.5 → 8.7, terrain-paint 10.2 → 10.4, terrain-brushes 4.5 → 4.9, project-items 9.0 → 9.0 (net +2.2 s, host noise); village perf in its limits. Screens of all four editors on WebGPU and WebGL 2 looked at against mockups 05a–d and 06. |
 | 37.6 | Done 2026-10-16: **no white layers** — a slot array being made draws its layers' known mean colours at once (mid grey unknown), then the means the backend reads in the height check's decode, then a 256 px preview encoded ahead of the rest, then the array (layered wall, arrays held: grey → means, never white, both renderers); **D264** bench (3 threads) first textured view 27.2 s → every preview 1.4 s (real 2048² albedos 8.1 → 0.38 s), all arrays 30.6 → 32.2 s; in the editor a real 2048² trim sheet: means 0.55 s, preview 1.06 s, array 6.9 s (white until then before); **D263** cold 200-image atlas: preview pages 1.36 s (3 threads; 2.7 s on one), the pages 18.9 s, never stored, an export meanwhile ships the pages; **D251** leave 827/469/1,035 ms (uncapped: a GPU queue the resize waited on) → 48/34/29 ms timed with vsync, setSize 786 → 8 ms; **Make-it-paintable undo** was a real race (an undo overtook the request joining the step), fixed. D274 new. E2E (2 workers, previous → this fast gate): layered-material 50.7 → 51.2 s, block-editor 8.2 → 8.4 s, terrain-cdlod 3.2 → 3.1 min, material-graph 9.7 s (unchanged file); net about +0.4 s; village perf in its limits. |
+| 37.7 | Done 2026-10-17: a trim sheet's Material tab is the Inspector's row table and padding check; decal palette grouped by sheet (headings); Rooms preset pickers in optgroups by source; Home frames the selection (building, decal, stamp) from outside at a 20–65° pitch, F frames what it would land inside (`viewport/frame-view.ts`, vitest); **D274** fixed: four 2048² albedos refused → 18.1 s / 15.2 MiB UASTC on 3 threads (33.8 s on 1), 442 MiB a layer job, refusals to Problems. Looked at 1920×1080 on WebGPU and WebGL 2 (framing both). E2E (previous → this fast gate): layered-material 51.2 → 51.4 s, block-editor 8.4 → 8.4, terrain-cdlod 3.1 → 3.2 min, material-graph 9.7 → 9.9 s, editor-window unchanged file; village perf in its limits. |
 
 ## 6. Decision log
 
@@ -316,4 +317,38 @@ manual → acceptance.
   - an undo or redo waits for grouped actions still being joined into one
     step (`SessionClient.grouped`);
   - the Material editor's preview pane takes the same stand-ins.
+
+- 2026-10-17 (37.7): The lead added two parts to the item: framing a
+  selection from outside it (37.5's finding: F or Home on the rooms object or
+  a building landed inside its walls), and D274 (four 2048² tiling layers
+  could not be assembled). Defaults chosen, owner to confirm:
+  - **framing** is one function for every frame (`viewport/frame-view.ts`):
+    the camera outside the box's bounding sphere, fitted to the narrower view
+    angle, the view's heading kept and its pitch held between 20° and 65°
+    down. Home frames the mode's selection when there is one (each editor's
+    `useEditSelection` gives its box: a room or building to its top storey and
+    roof, decals by their projector boxes, a stamp's square to its height),
+    else the whole object as before; in the decal editor (a scene's mode)
+    Home now frames the selected decals. Scene F keeps its orbit-around
+    behaviour unless that would put the camera inside what the object draws,
+    then it frames it. The frame centres on the whole view: the right column
+    of panels can cover part of a wide building (not changed);
+  - **D274:** an over-limit colour array is encoded UASTC a layer at a time and
+    joined (constant layers too, at the textures' size); ETC1S stays wherever
+    the array fits one job, and the 12 Mpix source limit stays. Four 2048²
+    albedos: 15.2 MiB, 18.1 s on 3 encoder threads (UASTC at the assembled
+    effort is slower per layer than the ETC1S job, not faster as D274
+    guessed); the preview covers the wait. A refusal (layers of two sizes) is
+    one Problems line (`texture_array_refused`);
+  - **the trim sheet's tab** is the Inspector's `TrimSheetTable` (rows,
+    density, Equal rows, Import layout.json, Check padding); a double-click on
+    a trim sheet in the project window now opens it (other shader materials
+    still show in the Inspector);
+  - **the decal palette** groups by source with a heading row (own images
+    first, then each sheet in project order with the materials drawn from
+    its cells and its free cells) — read clearer than a sub-label at 75 px
+    tiles; headings show only when pictures come from more than one place;
+  - **the preset pickers** (new room/path/facade, a room's inside and outside,
+    the swap) list optgroups: the rooms' kit ("Basic Kit · the rooms' kit"),
+    other kits, "This project", "Engine starters".
 

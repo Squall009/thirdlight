@@ -12,11 +12,12 @@ import type { ArchitectureComponent } from '@thirdlight/project-model';
 
 import { presetUses, withPresetSwapped } from '../../session/room-draw';
 import { Pick } from '../blocks/RoomFields';
+import type { PickOption } from './preset-choices';
 
 export interface PresetSwapProps {
   component: ArchitectureComponent | null;
   /** Every preset a room may wear: [id, name]. */
-  presets: readonly (readonly [string, string])[];
+  presets: readonly PickOption[];
   disabled?: boolean;
   onSwap(next: ArchitectureComponent, what: string): void;
 }

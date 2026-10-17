@@ -85,7 +85,7 @@ export function BlockView({ entity, mode, host }: EditModeView): JSX.Element {
   useEffect(() => editor?.setShowRegions(state.showRegions), [editor, state.showRegions]);
   useEffect(() => editor?.setSelection(state.selection), [editor, state.selection]);
   // The rooms drawn on the layer: their walls take the wall paint (and the Rooms mode draws them).
-  const rooms = useRoomsBinding(entity, host.entities, blocks.graphs, blocks.clientRef, blocks.viewportRef, blocks.reportFailure);
+  const rooms = useRoomsBinding(entity, host.entities, blocks.graphs, blocks.kits, blocks.clientRef, blocks.viewportRef, blocks.reportFailure);
   useEffect(() => editor?.setRoomWalls(rooms?.walls ?? null), [editor, rooms?.walls]);
   // Cut-away previews end with the editor.
   useEffect(() => () => {

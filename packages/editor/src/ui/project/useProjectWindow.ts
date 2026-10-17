@@ -21,8 +21,8 @@ export interface ProjectOpeners {
   openDocument(kind: string, id: string): void;
   /** Whether a behavior is a visual script (it opens as a graph). */
   isVisualScript(behaviorId: string): boolean;
-  /** Whether a material is a graph material (it opens as a graph; a shader material shows in the Inspector). */
-  isGraphMaterial(materialId: string): boolean;
+  /** Whether a material has a Material tab: a graph material (its graph) or a trim sheet (its rows); another shader material shows in the Inspector. */
+  opensMaterialTab(materialId: string): boolean;
   /** Open a scene in the Scene view and make it the active one. */
   openScene(sceneId: string): void;
   /** Show an item in the Inspector (a prefab, a shader material, an asset). */
@@ -58,8 +58,8 @@ export function useProjectWindow(clientRef: MutableRefObject<SessionClient | nul
       return openers.previewAsset(item.id);
     }
     if (item.kind === 'scene') return openers.openScene(item.id);
-    // A prefab has no editor (copies are placed from its Inspector); nor has a shader material (its values are its Inspector).
-    if (item.kind === 'prefab' || (item.kind === 'material' && !openers.isGraphMaterial(item.id))) return openers.inspect(item);
+    // A prefab has no editor (copies are placed from its Inspector); nor has a shader material but a trim sheet (its values are its Inspector).
+    if (item.kind === 'prefab' || (item.kind === 'material' && !openers.opensMaterialTab(item.id))) return openers.inspect(item);
     if (item.kind === 'envpreset') return openers.showEnvironment();
     const doc = documentOfItem(item);
     // A kind without an editor of its own (a kit) is shown in the Inspector.

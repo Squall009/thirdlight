@@ -29,6 +29,7 @@ import type { ProjectedEntity } from '../../session/projection';
 import { createEntitiesArgs } from '../../session/request-batches';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import type { DecalToolMode } from '../../viewport/decal-tool';
+import { unionBoxes, type FrameBox } from '../../viewport/frame-view';
 import { bakeClippedDecal } from './decal-bake';
 import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 
@@ -110,6 +111,8 @@ export interface DecalTools {
   remove(ids: readonly string[]): Promise<void>;
   /** Bake each selected clipped decal to a model. */
   bake(entities: readonly ProjectedEntity[]): Promise<void>;
+  /** The selected decals' box in world metres (each its projector box through its transform; null: none): what Home frames. */
+  selectionBox(entities: readonly ProjectedEntity[]): FrameBox | null;
   busy: string | null;
 }
 
@@ -343,5 +346,17 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
     if (armed.current.mode !== null) arm(armed.current.mode, armed.current.entities, armed.current.navigate);
   }, [arm]);
 
-  return { selection, select, settings: effective, setSettings, scatter, setScatter, brush, filter, setFilter, paletteFilter, setPaletteFilter, palette, materials: decalMaterials, pick, fromTexture, fromFile, arm, selected, edit, setBlend, selectSame, remove, bake, busy };
+  const selectionBox = useCallback(
+    (entities: readonly ProjectedEntity[]): FrameBox | null =>
+      unionBoxes(
+        selection.ids.map((id) => {
+          const d = entities.find((e) => e.id === id)?.components['decal'] as DecalComponent | undefined;
+          if (d === undefined) return null;
+          const [w, h, depth] = d.size;
+          return viewportRef.current?.worldBoxOf(id, { min: [-w / 2, -h / 2, -depth / 2], max: [w / 2, h / 2, depth / 2] }) ?? null;
+        }),
+      ),
+    [selection.ids, viewportRef],
+  );
+  return { selection, select, settings: effective, setSettings, scatter, setScatter, brush, filter, setFilter, paletteFilter, setPaletteFilter, palette, materials: decalMaterials, pick, fromTexture, fromFile, arm, selected, edit, setBlend, selectSame, remove, bake, selectionBox, busy };
 }

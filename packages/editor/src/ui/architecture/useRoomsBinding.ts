@@ -10,13 +10,13 @@
  * `createEntity`) or preview it in the Scene view while a wall is dragged.
  */
 import { useMemo } from 'react';
-import type { ArchitectureComponent, ArchitectureElement, ArchitectureOutline, ArchitectureRoomPlan, BlockLayerComponent, FurnishedProp, GraphDocument } from '@thirdlight/project-model';
+import type { ArchitectureComponent, ArchitectureElement, ArchitectureOutline, ArchitectureRoomPlan, BlockLayerComponent, FurnishedProp, GraphDocument, KitDef } from '@thirdlight/project-model';
 import { ARCHITECTURE_PRESET_KIND, architectureGraphsOf, architectureStylesOf, architectureWallEdges, expandArchitecture, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from '@thirdlight/runtime';
 
 import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
 import { withPresetSwapped } from '../../session/room-draw';
-import { presetChoices } from './PresetSliders';
+import { groupedPresetChoices, type PickOption } from './preset-choices';
 import { waitFor } from '../wait-for';
 
 /** The rooms object of a layer as the block editor binds it. */
@@ -39,8 +39,8 @@ export interface RoomsBinding {
   furnishings: readonly (readonly [string, string])[];
   /** The cell edges the rooms' walls stand on (the paint brush reaches their faces). */
   walls: ReadonlyMap<number, boolean> | null;
-  /** Every preset: [id, name]. */
-  presets: readonly (readonly [string, string])[];
+  /** Every preset: [id, name, group], grouped by source (the rooms' kit first, then other kits, the project's, the starters). */
+  presets: readonly PickOption[];
   /** The project's scenes ([id, name]) and the one the rooms are in (a building's interior goes in another). */
   scenes: readonly (readonly [string, string])[];
   sceneId: string | null;
@@ -61,7 +61,7 @@ const NO_ELEMENTS: readonly ArchitectureElement[] = Object.freeze([]);
 
 const NO_POSITION: readonly number[] = Object.freeze([0, 0, 0]);
 
-export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonly ProjectedEntity[], graphs: readonly GraphDocument[], clientRef: ClientRef, viewportRef: ViewportRef, reportFailure: ReportFailure): RoomsBinding | undefined {
+export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonly ProjectedEntity[], graphs: readonly GraphDocument[], kits: readonly KitDef[], clientRef: ClientRef, viewportRef: ViewportRef, reportFailure: ReportFailure): RoomsBinding | undefined {
   const comp = layer?.components['blockLayer'] as BlockLayerComponent | undefined;
   const rooms = layer === null || comp === undefined ? undefined : entities.find((e) => (e.components['architecture'] as ArchitectureComponent | undefined)?.layer === layer.id);
   const component = (rooms?.components['architecture'] as ArchitectureComponent | undefined) ?? null;
@@ -73,7 +73,9 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     if (expanded === null || comp === undefined) return null;
     return architectureWallEdges(expanded.component, [0, 1, 2].map((i) => (origin[i] ?? 0) - (layerOrigin[i] ?? 0)), comp.cellSize);
   }, [expanded, comp, origin, layerOrigin]);
-  const presets = useMemo(() => presetChoices(graphs), [graphs]);
+  // The rooms' kit: their own pick, else the layer's.
+  const kitId = component?.kitId ?? comp?.kitId;
+  const presets = useMemo(() => groupedPresetChoices(graphs, kits, kitId), [graphs, kits, kitId]);
   const programs = useMemo(() => graphs.filter((g) => g.kind === ROOM_PROGRAM_KIND).map((g) => [g.graphId, g.name] as const), [graphs]);
   const furnishings = useMemo(() => graphs.filter((g) => g.kind === FURNISHING_SET_KIND).map((g) => [g.graphId, g.name] as const), [graphs]);
   if (layer === null || comp === undefined) return undefined;
@@ -133,7 +135,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
  * (null: none yet). Two commands: callers run it as one undo step.
  * Resolves the new preset's id (null: refused).
  */
-export async function derivePreset(clientRef: ClientRef, graphs: readonly GraphDocument[], presets: readonly (readonly [string, string])[], base: string, roomsId: string | null, reportFailure: ReportFailure): Promise<string | null> {
+export async function derivePreset(clientRef: ClientRef, graphs: readonly GraphDocument[], presets: readonly PickOption[], base: string, roomsId: string | null, reportFailure: ReportFailure): Promise<string | null> {
   const c = clientRef.current;
   if (!c) return null;
   const ids = new Set(graphs.map((g) => g.graphId));

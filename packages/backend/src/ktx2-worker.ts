@@ -14,7 +14,7 @@ let queue: Promise<void> = Promise.resolve();
 // `{id, pack: {sources, layers, lossless}, mode}` packs several images into one KTX2;
 // `{id, compose: {sources, layer, size, lossless}, mode}` composes a decal page;
 // `{id, thumbnail: bytes}` makes an image's tile thumbnail (a PNG); `{id, decode: {bytes, maxPixels}}` an image's RGBA.
-parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[]; lossless?: (Uint8Array | null)[]; effort?: EncodeEffort }; compose?: { sources: Uint8Array[]; layer: ComposeLayer; size: number; lossless?: (Uint8Array | null)[]; effort?: EncodeEffort }; thumbnail?: Uint8Array; decode?: { bytes: Uint8Array; maxPixels: number }; mode: Ktx2Mode }) => {
+parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[]; lossless?: (Uint8Array | null)[]; effort?: EncodeEffort; uastc?: boolean }; compose?: { sources: Uint8Array[]; layer: ComposeLayer; size: number; lossless?: (Uint8Array | null)[]; effort?: EncodeEffort }; thumbnail?: Uint8Array; decode?: { bytes: Uint8Array; maxPixels: number }; mode: Ktx2Mode }) => {
   queue = queue.then(async () => {
     if (m.decode !== undefined) {
       const r = await decodeTextureRgba(m.decode.bytes, m.decode.maxPixels);
@@ -31,7 +31,7 @@ parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources
       parentPort!.postMessage({ id: m.id, result: r }, r.ok ? [r.ktx2.buffer as ArrayBuffer] : []);
       return;
     }
-    const result = m.pack !== undefined ? await packKtx2(m.pack.sources, m.pack.layers, m.mode, m.pack.lossless ?? [], m.pack.effort) : await encodeKtx2(m.bytes!, m.mode);
+    const result = m.pack !== undefined ? await packKtx2(m.pack.sources, m.pack.layers, m.mode, m.pack.lossless ?? [], m.pack.effort, m.pack.uastc === true) : await encodeKtx2(m.bytes!, m.mode);
     if (result.ok) parentPort!.postMessage({ id: m.id, result }, [result.ktx2.buffer as ArrayBuffer]);
     else parentPort!.postMessage({ id: m.id, result });
   });

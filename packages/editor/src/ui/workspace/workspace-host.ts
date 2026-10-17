@@ -120,6 +120,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
+      checkTrim: async (texture, trim) => clientRef.current?.checkTrimSheet(texture, trim) ?? { ok: false, error: { code: 'network', message: 'not connected' } },
     },
     effect: {
       effects,

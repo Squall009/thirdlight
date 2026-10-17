@@ -10,7 +10,8 @@
  *   layer" tile also open a texture picker on a click.
  * - `keys`: the number keys 1–9 pick a tile (the edit modes' key map).
  * - The decal editor shows its decals on the same tiles (a trim sheet's cell
- *   as its part of the sheet's picture, on a checker for the alpha).
+ *   as its part of the sheet's picture, on a checker for the alpha), under a
+ *   heading per group (`PaletteLayer.group`: the sheet a picture comes from).
  * - A layer whose albedo has no height in A (the backend's check) wears a
  *   small "no height" badge: its blends are soft until a texture with one
  *   takes its place.
@@ -19,7 +20,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type JSX, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { paletteKeyIndex } from '../../session/edit-keys';
@@ -77,8 +78,15 @@ export function LayerPalette(p: LayerPaletteProps): JSX.Element {
   const cls = `tl-palette${p.compact === true ? ' tl-palette--compact' : ''}${p.compact === true && n === 5 ? ' tl-palette--five' : ''}${p.disabled === true ? ' is-disabled' : ''}`;
   return (
     <div className={cls} role="radiogroup" aria-label={p.aria} aria-disabled={p.disabled === true ? true : undefined}>
-      {p.layers.map((l) => (
-        <LayerTile key={l.index} {...p} layer={l} picked={p.active === l.index} />
+      {p.layers.map((l, i) => (
+        <Fragment key={l.index}>
+          {l.group !== undefined && l.group !== p.layers[i - 1]?.group && (
+            <span className="tl-palette__group" role="presentation" title={l.group}>
+              {l.group}
+            </span>
+          )}
+          <LayerTile {...p} layer={l} picked={p.active === l.index} />
+        </Fragment>
       ))}
       {p.add === true && <AddTile {...p} index={p.layers.length} />}
     </div>

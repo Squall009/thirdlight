@@ -90,9 +90,10 @@ export interface TextureEncoder {
    * array with several layers). `lossless[i]`: source i's lossless original (a PNG), read in place of
    * a KTX2 source when the layers have to be encoded. `effort`: 'assembled' for what a view waits on
    * (`ASSEMBLED_UASTC_LEVEL`, `ASSEMBLED_ETC1S_LEVEL`); absent: the encoder's defaults, as imports and
-   * the pack route use.
+   * the pack route use. `uastc`: a colour pack in UASTC instead of ETC1S (a colour array too large for
+   * one job is encoded a layer at a time and joined, which only UASTC allows).
    */
-  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort): Promise<Ktx2PackResult>;
+  pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort, uastc?: boolean): Promise<Ktx2PackResult>;
   /** A decal page of side `size` composed of rectangles of the sources, one UASTC layer (`composeKtx2`; 'preview': smaller, sooner). */
   compose(sources: readonly Uint8Array[], layer: ComposeLayer, size: number, mode: Ktx2Mode, lossless?: readonly (Uint8Array | null)[], effort?: EncodeEffort): Promise<Ktx2ComposeResult>;
   /** An image's pixels (PNG, JPEG, WebP, or a single-image KTX2 transcoded: its top level) as 8-bit RGBA, at most `maxPixels`. */
@@ -242,12 +243,15 @@ const SOURCE_RAW = 0;
  * from them (or set to a constant), and the layers are encoded together as a
  * 2D array (one image: a plain 2D texture) with the mode's settings — the
  * same as `encodeKtx2`'s for colour and normal maps; `effort` 'assembled'
- * the faster efforts of what a view waits on (absent: the encoder's defaults).
+ * the faster efforts of what a view waits on (absent: the encoder's defaults);
+ * `uastc` colour in UASTC (sRGB, perceptual) instead of ETC1S.
  */
-export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = [], effort?: EncodeEffort): Promise<Ktx2PackResult> {
+export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode, lossless: readonly (Uint8Array | null)[] = [], effort?: EncodeEffort, uastc = false): Promise<Ktx2PackResult> {
   if (layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return { ok: false, code: 'texture_encode_unsupported', message: `a packed texture has 1-${MAX_TEXTURE_LAYERS} layers` };
   const used = new Set<number>();
   for (const l of layers) for (const c of l) if ('source' in c) used.add(c.source);
+  // Layers of constants only take their size from the first source (a constant layer of an array encoded a layer at a time).
+  if (used.size === 0 && sources.length > 0) used.add(0);
   if (used.size === 0) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture needs at least one source image (its size)' };
   // Every layer the whole RGBA of one KTX2: join them as stored when they are UASTC alike.
   const whole = layers.map((l) => {
@@ -330,7 +334,7 @@ export async function packKtx2(sources: readonly Uint8Array[], layers: readonly 
     return out;
   });
   const reencoded = layers.map((l) => l.some((c) => 'source' in c && transcoded.has(c.source)));
-  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color', effort);
+  const encoded = await encodeSlices(slices, width, height, mode, mode !== 'color' || uastc, effort);
   return encoded.ok ? { ok: true, ktx2: encoded.ktx2, width, height, layers: slices.length, reencoded, joined: false } : encoded;
 }
 
@@ -535,7 +539,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { parallelism: 1, encode: encodeKtx2, pack: (sources, layers, mode, lossless, effort) => packKtx2(sources, layers, mode, lossless, effort), compose: (sources, layer, size, mode, lossless, effort) => composeKtx2(sources, layer, size, mode, lossless, effort), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
+  return { parallelism: 1, encode: encodeKtx2, pack: (sources, layers, mode, lossless, effort, uastc) => packKtx2(sources, layers, mode, lossless, effort, uastc), compose: (sources, layer, size, mode, lossless, effort) => composeKtx2(sources, layer, size, mode, lossless, effort), thumbnail: (bytes) => makeImageThumbnail(bytes), decode: decodeTextureRgba };
 }
 
 /**
@@ -695,10 +699,10 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const { copies, moved } = copied([bytes]);
       return (await run({ bytes: copies[0], mode }, moved)) as Ktx2EncodeResult;
     },
-    async pack(sources, layers, mode, lossless = [], effort) {
+    async pack(sources, layers, mode, lossless = [], effort, uastc) {
       const s = copied(sources);
       const l = copied(lossless);
-      return (await run({ pack: { sources: s.copies, layers, lossless: l.copies, ...(effort !== undefined ? { effort } : {}) }, mode }, [...s.moved, ...l.moved], effort === 'preview')) as Ktx2PackResult;
+      return (await run({ pack: { sources: s.copies, layers, lossless: l.copies, ...(effort !== undefined ? { effort } : {}), ...(uastc === true ? { uastc } : {}) }, mode }, [...s.moved, ...l.moved], effort === 'preview')) as Ktx2PackResult;
     },
     async compose(sources, layer, size, mode, lossless = [], effort) {
       const s = copied(sources);

@@ -169,6 +169,8 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   const house = async (): Promise<Building | undefined> => (await roomsObject())?.buildings[0];
 
   // The footprint: six corners clicked, the first clicked again to close; the new building wears the facade preset.
+  // The preset pickers list presets by source: the project's own, then the engine's starters.
+  expect(await rooms.getByLabel('new room preset').locator('optgroup').evaluateAll((els) => els.map((e) => e.getAttribute('label')))).toEqual(['This project', 'Engine starters']);
   await rooms.getByLabel('new room preset').selectOption('e2e-house-in');
   await rooms.getByLabel('new facade preset').selectOption('e2e-house-out');
   await tool('Building');
@@ -228,6 +230,13 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
   await setNum('interior offset x', String(INTERIOR_OFFSET[0]));
   await expect.poll(async () => (await house())?.interior?.offset, { timeout: 15_000 }).toEqual([...INTERIOR_OFFSET]);
   const interiorScene = (await house())!.interior!.scene;
+  // Home frames the picked building from outside its walls and above its roof's eaves, looking down at it.
+  await page.keyboard.press('Home');
+  await expect.poll(async () => {
+    const c = (JSON.parse((await page.locator('canvas.tl-viewport').getAttribute('data-view-camera'))!) as { position: [number, number, number] }).position;
+    const inside = c[0] > 219 && c[0] < 229 && c[2] > -44 && c[2] < -34 && c[1] < 7.5;
+    return !inside && c[1] > 6;
+  }, { message: 'Home on the building: the camera outside it' }).toBe(true);
   await leaveEditMode(page);
 
   // The interior scene's camera, and the script that goes through the door on a key.

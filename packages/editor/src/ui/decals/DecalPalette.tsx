@@ -30,9 +30,33 @@ const FILTERS = [
 ] as const;
 
 /** The palette's tiles of its entries (index = position in the list shown). */
+/**
+ * The palette's tiles of its entries (index = position in the list shown).
+ * With pictures from more than one place, each tile carries its group (the
+ * sheet's name, "Images" for own pictures), which the palette shows as a
+ * heading over the group's tiles; a cell's accessible name and tip name its
+ * sheet too.
+ */
 export function paletteTiles(entries: readonly DecalPaletteEntry[]): PaletteLayer[] {
-  return entries.map((e, i) => ({ index: i, name: e.name, texture: e.texture, checker: true, aria: `decal ${e.name}`, ...(e.crop !== undefined ? { crop: e.crop } : {}), ...(e.texture === null ? { colour: 'var(--surface-3)' } : {}), ...(e.kind === 'cell' ? { sub: 'trim cell' } : {}) }));
+  const grouped = new Set(entries.map((e) => e.group)).size > 1;
+  return entries.map((e, i) => {
+    const from = e.group !== null ? ` · ${e.group}` : '';
+    return {
+      index: i,
+      name: e.name,
+      texture: e.texture,
+      checker: true,
+      aria: `decal ${e.name}${from}`,
+      ...(e.crop !== undefined ? { crop: e.crop } : {}),
+      ...(e.texture === null ? { colour: 'var(--surface-3)' } : {}),
+      ...(e.kind === 'cell' ? { sub: `trim cell${from}` } : e.group !== null ? { sub: `cell${from}` } : {}),
+      ...(grouped ? { group: e.group ?? IMAGES_GROUP } : {}),
+    };
+  });
 }
+
+/** The heading of the decals with their own picture, among sheets' groups. */
+const IMAGES_GROUP = 'Images';
 
 export function DecalPalette({ tools, thumbnails, onPick, active }: { tools: DecalTools; thumbnails: TileThumbnails | null; onPick: (e: DecalPaletteEntry) => void; active: string | null }): JSX.Element {
   const entries = useMemo(() => filterPalette(tools.palette, tools.paletteFilter), [tools.palette, tools.paletteFilter]);

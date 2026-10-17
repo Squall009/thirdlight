@@ -324,7 +324,7 @@ export function createBackend(
   const decalPages = createDecalPageAssembler({ service, encoder: textureEncoder, now: nowMs });
   // Height in alpha: the albedos layered surfaces blend by height are checked, and an array gives a layer without one a brightness height.
   const heightChecks = createHeightAlphaChecks({ service, encoder: textureEncoder });
-  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs, heights: heightChecks }), decalPages: decalPages.assemble };
+  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs, heights: heightChecks, refused: (projectId, code, message) => recordProblem(projectId, 'import', code, message) }), decalPages: decalPages.assemble };
   // A model's "extract textures" import setting: its images become texture assets.
   const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
   // The game folder is the truth for assets: moved and changed files, the import cache.

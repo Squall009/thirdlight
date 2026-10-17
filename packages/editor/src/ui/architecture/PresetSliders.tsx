@@ -33,6 +33,8 @@ import {
   type ArchitectureStyleParam,
 } from '@thirdlight/runtime';
 
+import { presetChoices } from './preset-choices';
+
 export interface PresetSlidersProps {
   presetId: string;
   /** The project's graphs (its styles and presets among them). */
@@ -70,13 +72,6 @@ export function presetSlidersHost(graphs: readonly GraphDocument[], materials: r
 }
 
 const archGraphsOf = (graphs: readonly GraphDocument[]): GraphDocument[] => graphs.filter((g) => g.kind === ARCHITECTURE_STYLE_KIND || g.kind === ARCHITECTURE_PRESET_KIND);
-
-/** Every preset's id and name: the project's, then the engine's starters it does not replace. */
-export function presetChoices(graphs: readonly GraphDocument[]): [string, string][] {
-  const own = graphs.filter((g) => g.kind === ARCHITECTURE_PRESET_KIND).map((g) => [g.graphId, g.name] as [string, string]);
-  const ids = new Set(own.map(([id]) => id));
-  return [...own, ...ARCHITECTURE_STARTER_GRAPHS.filter((g) => g.kind === ARCHITECTURE_PRESET_KIND && !ids.has(g.graphId)).map((g) => [g.graphId, g.name] as [string, string])];
-}
 
 function styleChoices(graphs: readonly GraphDocument[]): [string, string][] {
   const own = graphs.filter((g) => g.kind === ARCHITECTURE_STYLE_KIND).map((g) => [g.graphId, g.name] as [string, string]);

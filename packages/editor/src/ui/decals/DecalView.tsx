@@ -36,6 +36,6 @@ export function DecalView({ mode, host, focus }: SceneModeView): JSX.Element | n
   armRef.current = arm;
   useEffect(() => () => armRef.current(null, [], true), []);
   const n = tools.selection.ids.length;
-  useEditSelection(n === 0 ? null : n === 1 ? '1 decal' : `${n} decals`, () => select([], null));
+  useEditSelection(n === 0 ? null : n === 1 ? '1 decal' : `${n} decals`, () => select([], null), undefined, () => tools.selectionBox(host.entities));
   return null;
 }

@@ -487,8 +487,11 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
   await expect(pages).toBeHidden();
   const palette = column.getByRole('radiogroup', { name: 'decal palette', exact: true });
   await expect(palette.getByRole('radio', { name: 'decal Green mark' })).toBeVisible();
-  // The trim sheet's cell, drawn by its decal material (Stain), as its part of the sheet's picture.
-  await expect(palette.getByRole('radio', { name: 'decal Stain' })).toBeVisible();
+  // The trim sheet's cell, drawn by its decal material (Stain), as its part of the sheet's picture, under the sheet's
+  // name: the palette groups pictures by where they come from (own images first), so two sheets' same-named cells read apart.
+  await expect(palette.getByRole('radio', { name: 'decal Stain · Trim' })).toBeVisible();
+  const groups = await palette.locator('.tl-palette__group').evaluateAll((els) => els.map((e) => e.textContent));
+  expect([groups[0], groups.includes('Trim')]).toEqual(['Images', true]);
   await palette.getByRole('radio', { name: 'decal Green mark' }).click();
   await panel('placement').getByLabel('decal width', { exact: true }).fill('1.2');
   await panel('placement').getByLabel('decal width', { exact: true }).press('Enter');

@@ -179,8 +179,8 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         if (viewportRef.current?.toolKey(e, k.tools) === true) e.preventDefault();
         return;
       }
-      // A scene's mode has no object to frame or show alone: Home and C are not its keys.
-      if (isSceneMode(k) && (action.kind === 'context' || action.kind === 'frame')) return;
+      // A scene's mode has no object to frame or show alone: C is not its key, and Home frames only its selection.
+      if (isSceneMode(k) && (action.kind === 'context' || (action.kind === 'frame' && t.selectionBox() === null))) return;
       if (action.kind === 'last-tool') {
         // A control of the editor's own keeps its Space; one outside it (the button that opened the editor, under it now) does not.
         const el = e.target as HTMLElement | null;
@@ -197,7 +197,12 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
         else mode.leave();
       } else if (action.kind === 'context') mode.toggleContext();
       else if (action.kind === 'mode') mode.setMode(k.rail[action.index]!.id);
-      else if (mode.entity !== undefined && !isSceneMode(k)) viewportRef.current?.frameEntity(mode.entity.id, k.bounds?.(mode.entity) ?? undefined);
+      else {
+        // Home frames the selection in the mode (a room, a building, decals, a stamp), else the whole object.
+        const sel = t.selectionBox();
+        if (sel !== null) viewportRef.current?.frameBox(sel, sel.ground);
+        else if (mode.entity !== undefined && !isSceneMode(k)) viewportRef.current?.frameEntity(mode.entity.id, k.bounds?.(mode.entity) ?? undefined);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

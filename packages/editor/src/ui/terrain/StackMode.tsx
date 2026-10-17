@@ -30,6 +30,7 @@ import { EROSION_LIMITS, TERRAIN_HEIGHT_LIMIT, TERRAIN_STAMP_SIZE_LIMITS, TERRAI
 import { brushKeyHints } from '../../session/edit-keys';
 import { brushRadius } from '../../session/brush';
 import { TERRAIN_MODES, erodeArgs, freeLayerId, layersWithStamp, layersWithStampChanged, layersWithoutStamp, terrainStamps, terrainToolUses, type ErodeToolState, type StampRef, type StampToolState } from '../../session/terrain-brush';
+import { stampFrameBox } from '../../viewport/frame-view';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { BrushPanel } from '../brush/BrushPanel';
 import { useSettledEdits, type SettledEdits } from '../brush/settle';
@@ -83,7 +84,7 @@ export function StackColumn(p: TerrainColumnProps): JSX.Element {
   const layers = edits.value;
   const stamps = terrainStamps(layers);
   const picked = state.pickedStamp === null ? null : (stamps.find((s) => s.layer === state.pickedStamp!.layer && s.index === state.pickedStamp!.index) ?? null);
-  useEditSelection(picked === null ? null : `Stamp ${picked.index + 1} of ${picked.layer}`, () => setState({ pickedStamp: null }));
+  useEditSelection(picked === null ? null : `Stamp ${picked.index + 1} of ${picked.layer}`, () => setState({ pickedStamp: null }), undefined, () => (picked === null ? null : stampFrameBox(picked.stamp, entityId)));
   const store = useTerrainTool(p, tool, {
     place: (at) => {
       if (p.locked) return;

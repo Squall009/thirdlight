@@ -82,7 +82,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   useBlockTool(s, 'room');
   const mode = blockModeOf('rooms');
   const tile = mode.tiles.find((t) => t.id === s.state.tiles.rooms) ?? mode.tiles[0]!;
-  const b = useRoomsBinding(entity, host.entities, s.blocks.graphs, s.blocks.clientRef, s.blocks.viewportRef, s.blocks.reportFailure);
+  const b = useRoomsBinding(entity, host.entities, s.blocks.graphs, s.blocks.kits, s.blocks.clientRef, s.blocks.viewportRef, s.blocks.reportFailure);
   const editor = s.blocks.editor;
   const kitId = b?.component?.kitId ?? s.component.kitId;
   const kit = kitId === undefined ? null : (s.blocks.kits.find((k) => k.kitId === kitId) ?? null);
@@ -120,7 +120,7 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
   const room = outlines.find((o) => o.id === s.state.room) ?? null;
   useEffect(() => editor?.rooms.setSelected(room?.id ?? null), [editor, room?.id]);
   useEffect(() => () => editor?.rooms.setSelected(null), [editor]);
-  useEditSelection(room === null ? null : roomTitle(b?.component ?? null, room), () => s.set({ room: null }), room?.id);
+  useEditSelection(room === null ? null : roomTitle(b?.component ?? null, room), () => s.set({ room: null }), room?.id, () => editor?.rooms.selectionBox() ?? null);
   const drawing = tile.id === 'polygon' || tile.id === 'path' || tile.id === 'building';
   const needsPiece = (tile.id === 'piece' && opts.wallModel === null) || (tile.id === 'corner' && opts.cornerModel === null);
   useEditStatus({

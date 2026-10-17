@@ -1,11 +1,14 @@
 /**
  * The small fields of Rooms & buildings' column: a number committed on
  * Enter or blur (empty: the default, shown as its placeholder), a text, and
- * a picker that keeps showing a value no longer offered ("(missing)").
+ * a picker that keeps showing a value no longer offered ("(missing)") and
+ * lists grouped choices under their headings.
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
+
+import type { PickOption } from '../architecture/preset-choices';
 
 export function Num(props: { label: string; value: number | undefined; min?: number; max?: number; step?: number; placeholder?: string; onCommit: (v: number | undefined) => void }): JSX.Element {
   const [draft, setDraft] = useState(props.value === undefined ? '' : String(props.value));
@@ -38,17 +41,39 @@ export function Text(props: { label: string; value: string; placeholder?: string
   );
 }
 
-export function Pick(props: { label: string; value: string; options: readonly (readonly [string, string])[]; onCommit: (v: string) => void }): JSX.Element {
+/** Consecutive choices of one group, under its heading (null: ungrouped). */
+function runsOf(options: readonly PickOption[]): { group: string | null; options: PickOption[] }[] {
+  const runs: { group: string | null; options: PickOption[] }[] = [];
+  for (const o of options) {
+    const group = o[2] ?? null;
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.group === group) last.options.push(o);
+    else runs.push({ group, options: [o] });
+  }
+  return runs;
+}
+
+/** A native picker; choices with a group are listed under its heading (an optgroup). */
+export function Pick(props: { label: string; value: string; options: readonly PickOption[]; onCommit: (v: string) => void }): JSX.Element {
+  const item = ([v, text]: PickOption): JSX.Element => (
+    <option key={v} value={v}>
+      {text}
+    </option>
+  );
   return (
     <label className="tl-field">
       <span className="tl-field__label">{props.label}</span>
       <select className="tl-input" aria-label={props.label} value={props.value} onChange={(e) => props.onCommit(e.target.value)}>
         {!props.options.some(([v]) => v === props.value) && <option value={props.value}>{props.value} (missing)</option>}
-        {props.options.map(([v, text]) => (
-          <option key={v} value={v}>
-            {text}
-          </option>
-        ))}
+        {runsOf(props.options).map((r, i) =>
+          r.group === null ? (
+            r.options.map(item)
+          ) : (
+            <optgroup key={`${i}:${r.group}`} label={r.group}>
+              {r.options.map(item)}
+            </optgroup>
+          ),
+        )}
       </select>
     </label>
   );

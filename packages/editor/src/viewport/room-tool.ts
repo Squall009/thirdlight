@@ -143,6 +143,27 @@ export class RoomTool {
     this.host.canvas.setAttribute('data-room-selected', id ?? '');
   }
 
+  /**
+   * The selected outline's box in world metres (null: none): its walls'
+   * footprint from its floor to its top storey, and a roof's rise above them
+   * (its own, else half the footprint's longer side, the most any roof shape
+   * rises), so Home frames the whole building from outside.
+   */
+  selectionBox(): { min: number[]; max: number[] } | null {
+    const o = this.selectedId === null ? undefined : allOutlines(this.target.component).find((x) => x.id === this.selectedId);
+    const l = this.host.layer();
+    if (o === undefined || l === null) return null;
+    const off = this.offset();
+    const box = new THREE.Box3();
+    for (const p of outlineFrame(o, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, l.component.cellSize[1]!)) box.expandByPoint(new THREE.Vector3(p[0] + off[0], p[1] + off[1], p[2] + off[2]));
+    if (box.isEmpty()) return null;
+    const roof = (o as { roof?: { rise?: number } }).roof;
+    if (roof !== undefined) box.max.y += roof.rise ?? Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+    this.host.root.updateWorldMatrix(true, false);
+    box.applyMatrix4(this.host.root.matrixWorld);
+    return { min: box.min.toArray(), max: box.max.toArray() };
+  }
+
   /** The outline under a client point (null: none). */
   outlineAt(clientX: number, clientY: number): string | null {
     const l = this.host.layer();

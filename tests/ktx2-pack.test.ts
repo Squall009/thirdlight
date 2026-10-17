@@ -126,6 +126,9 @@ describe('packKtx2', () => {
     const small = rgbaPng(8, 8, () => [0, 0, 0, 255]);
     expect(await packKtx2([albedo, small], [[{ source: 0, channel: 0 }, { source: 1, channel: 0 }, { value: 0 }, { value: 255 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/one size/) });
     expect(await packKtx2([new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 0 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/source 1 could not be decoded: not a readable Basis Universal KTX2/) });
-    expect(await packKtx2([albedo], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/at least one source/) });
+    expect(await packKtx2([], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/at least one source/) });
+    // Constants only, with a source given: the source gives the size (an array's constant layer encoded on its own).
+    const head = await packKtx2([albedo], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data');
+    expect(head.ok && [head.width, head.layers]).toEqual([(await packKtx2([albedo], [[{ source: 0, channel: 0 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data') as { width: number }).width, 1]);
   });
 });

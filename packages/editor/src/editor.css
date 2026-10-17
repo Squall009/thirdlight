@@ -981,6 +981,9 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 
 /* The Material tab (graph materials). */
 .tl-material-doc__note { margin: 0; font-size: 12px; }
+/* A trim sheet's tab: its row table (the Inspector's), at a readable width, scrolling on its own. */
+.tl-material-doc--trim { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
+.tl-material-doc__trim { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; max-width: 720px; }
 .tl-material-preview { display: flex; flex-direction: column; gap: 4px; }
 .tl-material-preview__status { font-size: 11px; }
 .tl-material-params { display: flex; flex-direction: column; gap: 6px; }
@@ -1410,6 +1413,9 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-palette--compact.tl-palette--five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .tl-palette--compact .tl-ptile__sub { display: none; }
 .tl-palette--compact .tl-ptile__name { font-size: 10px; padding: 0 1px; }
+/* A group's heading spans the grid's row (the decal palette: the sheet its pictures come from). */
+.tl-palette__group { grid-column: 1 / -1; font-size: 10px; font-weight: var(--weight-medium); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: -2px; }
+.tl-palette__group:not(:first-child) { margin-top: 4px; }
 .tl-palette.is-disabled { opacity: .38; filter: grayscale(.7); }
 .tl-ptile { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px 4px 6px; font: inherit; text-align: left; cursor: pointer;
   background: var(--surface-0); border: 1px solid var(--line); border-radius: var(--radius-md); color: var(--text); min-width: 0; }

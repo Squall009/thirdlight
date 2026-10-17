@@ -80,10 +80,12 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
     mkdirSync(game('assets', 'layers'), { recursive: true });
     const sides = [...Array<number>(100).fill(128), ...Array<number>(70).fill(256), ...Array<number>(30).fill(512)];
     sides.forEach((side, i) => writeFileSync(game('assets', 'decals', `d${String(i).padStart(3, '0')}.png`), encodeRgbaPng(noisy(side, side, i + 1), side, side)));
-    // TL_BENCH_SHEETS=<a.png>,<b.png>: two real images of one size (2048² albedos) as the big pair instead of noise.
+    // TL_BENCH_SHEETS=<a.png>,<b.png>[,<c.png>,<d.png>]: real images of one size (2048² albedos) as the big ones instead of noise.
     const sheets = (process.env.TL_BENCH_SHEETS ?? '').split(',').filter((x) => x !== '');
-    for (const [name, side] of [['big-a', 2048], ['big-b', 2048], ['small-a', 512], ['small-b', 512]] as const) {
-      const real = sheets.length === 2 && name.startsWith('big') ? sheets[name === 'big-a' ? 0 : 1]! : null;
+    const bigs = ['big-a', 'big-b', 'big-c', 'big-d'];
+    for (const [name, side] of [['big-a', 2048], ['big-b', 2048], ['big-c', 2048], ['big-d', 2048], ['small-a', 512], ['small-b', 512]] as const) {
+      const at = bigs.indexOf(name);
+      const real = at >= 0 && at < sheets.length ? sheets[at]! : null;
       writeFileSync(game('assets', 'layers', `${name}.png`), real !== null ? readFileSync(real) : encodeRgbaPng(noisy(side, side, name.length * 31 + side), side, side));
     }
     await command('importAssets', { folder: 'assets/decals' });
@@ -198,5 +200,39 @@ describe.skipIf(process.env.TL_BENCH !== '1')('cold assembly timings', () => {
     };
     await Promise.all([finalLane(), finalLane()]);
     console.log(`slot arrays bench (previews first): every preview in ${previewsMs} ms (${previews.join(', ')}); every array in ${Math.round(performance.now() - t1)} ms (${finals.join(', ')})`);
+  }, 900_000);
+
+  it('a colour array of four 2048² layers (past one encode), against three (the most one ETC1S job takes)', async () => {
+    const service = tb.backend._test.service;
+    const captured = service.readCapturedV3(PID);
+    if (!captured.ok) throw new Error(captured.error.code);
+    const assets = ((captured.read.content as { assets?: AssetRecordLike[] } | null)?.assets ?? []) as readonly (AssetRecordLike & { displayName?: string })[];
+    const layer = (name: string): SlotLayer => {
+      const a = assets.find((x) => x.displayName === name)!;
+      const v = a.versions!.find((x) => x.version === a.currentVersion)!;
+      return { assetId: a.assetId, version: v.version, sourceDigest: v.sourceDigest! };
+    };
+    // The process's resident memory, sampled while each array is made (the encoder's workers are threads of it).
+    const peak = async (run: () => Promise<unknown>): Promise<{ result: unknown; mib: number }> => {
+      const base = process.memoryUsage().rss;
+      let top = base;
+      const timer = setInterval(() => (top = Math.max(top, process.memoryUsage().rss)), 20);
+      try {
+        return { result: await run(), mib: Math.round((top - base) / 2 ** 20) };
+      } finally {
+        clearInterval(timer);
+      }
+    };
+    // The four first: resident memory freed by a worker is not always given back, so the first array's peak is the clean one.
+    for (const names of [['big-a', 'big-b', 'big-c', 'big-d'], ['big-a', 'big-b', 'big-c']]) {
+      dropCache('texture-slots');
+      // Fresh workers for each array: a worker's WASM memory never shrinks, so one kept from the last array would hide this one's peak.
+      const fresh = createWorkerTextureEncoder(WORKER, { idleMs: 60_000, ...(threads !== undefined ? { threads } : {}) });
+      const assembler = createTextureSlotAssembler({ service, encoder: fresh, now: () => performance.now() });
+      const { result, mib } = await peak(() => assembler.assemble(PID, names.map(layer), 'color')).finally(() => fresh.dispose?.());
+      const r = result as Awaited<ReturnType<typeof assembler.assemble>>;
+      if (!r.ok) throw new Error(r.message);
+      console.log(`colour array bench: ${names.length} × 2048² in ${r.ms} ms, ${(r.file.byteLength / 2 ** 20).toFixed(1)} MiB, resident +${mib} MiB at peak (threads ${threads ?? 'default'})`);
+    }
   }, 900_000);
 });
