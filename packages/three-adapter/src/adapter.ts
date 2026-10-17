@@ -41,6 +41,7 @@ import { LOD_TUNING_KEY } from './lod-switch';
 import { BATCH_KEY, createAutoBatcher, markBatchable, unitBoxGeometry, type AutoBatcher, type AutoBatcherDiagnostics } from './batching';
 import { markStatic, STATIC_KEY } from './static-merge';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
+import { PrecompileGate } from './precompile-gate';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { createEnvironmentRenderer, environmentTextureIds, renderPixelRatio, type EnvironmentLike, type EnvironmentRenderer, type FogVolumeLike, type QualityLevel } from './environment';
 import { ENV_STALE, EnvironmentLook } from './environment-look';
@@ -110,7 +111,7 @@ import {
 } from './renderer-factory';
 
 export { PRECOMPILE_STALL_MS, PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
-import { PRECOMPILE_STALL_MS, PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
+import { type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
 
 const RENDERER_INFO_LIMIT = 128;
 
@@ -399,7 +400,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     bakedLight: (id) => lightmaps?.isBakedLight(id) === true,
     place: (id, light) => graph.nodeFor(id)?.add(light),
     shadingChanged: () => {
-      precompileWanted ??= 'scene';
+      precompile.want();
       opts.onChange?.();
     },
     tagBits: envTagBits,
@@ -532,7 +533,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const { blockView, terrains, ownTiles, cutaways } = createLevelViews({
     blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
     prefabs: blockPrefabs, assetMaterials: assetMaterialsOf, materials: materialLibrary, lightmaps: () => lightmaps,
-    scene, runtime: opts.runtime, position: (id, out) => graph.world.position(id, out), precompileIdle: () => precompileWanted === null && precompileRun === null, requestPrecompile: () => void (precompileWanted ??= 'scene'),
+    scene, runtime: opts.runtime, position: (id, out) => graph.world.position(id, out), precompileIdle: () => precompile.idle(), requestPrecompile: () => precompile.want(),
     staticShadows, listStatic: (o) => graph.listStatic(o), unlistStatic: (o) => graph.unlistStatic(o), lodBias: () => graph.lodTuning.bias,
     scatter: scatter.sink, stream, meshWorkerUrl: opts.meshWorkerUrl, tiles: opts.terrainTiles, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, onChange: () => opts.onChange?.(),
     // The key light shines along its direction: toward it is the other way.
@@ -705,7 +706,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    * instance buffers, textures, clips, later scenes — stream in.
    */
   let startModelsIn = true;
-  let startHeldSince: number | null = null;
   let modelsConfigError: AdapterError | null = null;
   if (opts.models !== undefined) {
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
@@ -946,9 +946,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     lights.rendererReplaced();
     // A new renderer (a lost device) builds its programs ahead of its first present too.
-    precompileRun?.job.release();
-    precompileRun = null;
-    precompileWanted = 'start';
+    precompile.restart();
     // The depth buffer the renderer draws with (reversed Z falls back to standard without support).
     const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
     const depthMode = depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard';
@@ -1130,13 +1128,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       preparations.realized(b.sceneId);
       frameRealized.push(b.sceneId);
       // The attached scene's programs are built before it is presented.
-      precompileWanted ??= 'scene';
+      precompile.want();
       added = true;
     }
     // The lights follow the scene set (a light switched on or off changes the shading programs too).
     if (added || removed) selectLights();
     if (added || removed) followProbeScenes();
-    if (scenesRemoved && !added && isV3) precompileWanted ??= 'scene';
+    if (scenesRemoved && !added && isV3) precompile.want();
     syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
 
@@ -1221,64 +1219,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** When the first render call began (for `onFrameDrawn`). */
   let firstRenderCallAt: number | null = null;
 
-  // --- Pipelines precompiled ahead of a present -----------------
-  /** Wanted before the next present: the first one, and after a scene attached (or a new renderer). */
-  let precompileWanted: 'start' | 'scene' | null = 'start';
-  /** The precompile running (frames are skipped until it settles, stops moving for PRECOMPILE_STALL_MS, or PRECOMPILE_WAIT_MS passed). */
-  let precompileRun: { readonly startedAt: number; readonly reason: 'start' | 'scene'; readonly job: Precompile } | null = null;
-  /** The last precompile that settled, reported with the next drawn frame. */
-  let precompileSettled: { readonly startedAt: number; readonly ms: number; readonly reason: 'start' | 'scene' } | null = null;
-  const precompileStats = { runs: 0, failed: 0, gaveUp: 0, lastMs: 0 };
-  /**
-   * Whether this frame waits for a precompile (and starts one when it is
-   * wanted): the scene as the frame would draw it, compiled with
-   * `compileAsync` — the environment renderer's scene pass, or the canvas.
-   */
-  /** A precompile runs (and is still waited for). */
-  function precompileRunning(now: number): boolean {
-    if (precompileRun === null) return false;
-    if (now - precompileRun.startedAt < PRECOMPILE_WAIT_MS && now - precompileRun.job.lastProgressAt() < PRECOMPILE_STALL_MS) return true;
-    // Too long, or stopped moving (a device that never answers, a pipeline that failed): draw; the frame builds what is left.
-    precompileRun.job.release();
-    precompileRun = null;
-    precompileStats.gaveUp += 1;
-    return false;
-  }
-  function precompileHolds(renderer: AnyRenderer): boolean {
-    const now = performance.now();
-    if (precompileRunning(now)) return true;
-    if (precompileWanted === null || camera === null) return false;
-    // The first present waits for the start scenes' models (at most PRECOMPILE_WAIT_MS).
-    // A level with clipped decals also waits for them: they are cut from the surfaces as those arrive.
-    if (precompileWanted === 'start' && (!startModelsIn || clipped?.holdsStart() === true)) {
-      startHeldSince ??= now;
-      if (now - startHeldSince < PRECOMPILE_WAIT_MS) return true;
-    }
-    const reason = precompileWanted;
-    precompileWanted = null;
-    let job: Precompile;
-    try {
-      const r = renderer as unknown as import('three/webgpu').WebGPURenderer;
-      job = environmentRenderer !== null ? environmentRenderer.compileAsync(camera) : compileIntoTarget(r, scene, camera, r.getRenderTarget(), r.getMRT());
-    } catch {
-      precompileStats.failed += 1;
-      return false;
-    }
-    const run = { startedAt: now, reason, job };
-    precompileRun = run;
-    const settle = (failed: boolean): void => {
-      if (precompileRun !== run) return;
-      precompileRun = null;
-      if (disposed) return;
-      const ms = performance.now() - run.startedAt;
-      precompileStats.runs += 1;
-      if (failed) precompileStats.failed += 1;
-      precompileStats.lastMs = Math.round(ms);
-      precompileSettled = { startedAt: run.startedAt, ms, reason };
-    };
-    job.done.then(() => settle(false), () => settle(true));
-    return true;
-  }
+  // --- Pipelines precompiled ahead of a present (precompile-gate.ts) -----------------
+  const precompile = new PrecompileGate(() => disposed);
+
+  /** The scene as the frame would draw it, compiled: the environment renderer's scene pass, or the canvas. */
+  const compileFrame = (renderer: AnyRenderer): Precompile => {
+    const r = renderer as unknown as import('three/webgpu').WebGPURenderer;
+    return environmentRenderer !== null ? environmentRenderer.compileAsync(camera!) : compileIntoTarget(r, scene, camera!, r.getRenderTarget(), r.getMRT());
+  };
 
   /**
    * The scene set, the transforms and the world matrices as the runtime has
@@ -1330,7 +1278,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // A light object hidden or switched off (or back) changes which lights are on.
       if (lightsTouched) {
         selectLights();
-        precompileWanted ??= 'scene';
+        precompile.want();
       }
     }
     return null;
@@ -1376,7 +1324,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     adoptRenderer(handle, live);
     // While a precompile runs, a skipped frame does none of the frame's work (the transform
     // sync, the batches): the compile gets the main thread, and the frame after it starts from now.
-    if (!force && precompileRunning(performance.now())) {
+    if (!force && precompile.running(performance.now())) {
       lastFrameSkipped = true;
       return { ok: true };
     }
@@ -1559,7 +1507,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // No present that would build programs in the frame — they are built ahead
     // (renderer.compileAsync) before the first present and after a scene attached; frames are
     // skipped meanwhile (the last picture stays). A capture draws regardless.
-    if (!force && precompileHolds(renderer)) {
+    if (!force && precompile.holds(() => !startModelsIn || clipped?.holdsStart() === true, camera === null ? null : () => compileFrame(renderer))) {
       if (probing) lights.probeAgain();
       lastFrameSkipped = true;
       return { ok: true };
@@ -1569,7 +1517,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const drawsBefore = frameInfo.drawCalls;
     const trianglesBefore = frameInfo.triangles;
     // A capture during a precompile draws with the renderer's own target and outputs (the compile holds the pass's).
-    const job = precompileRun?.job ?? null;
+    const job = precompile.job();
     const draw = (): void => {
       const render = (): void => {
         if (environmentRenderer !== null) environmentRenderer.render(camera!);
@@ -1611,8 +1559,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (opts.onFrameDrawn !== undefined) {
       const realized = frameRealized.splice(0);
       try {
-        const pre = precompileSettled;
-        precompileSettled = null;
+        const pre = precompile.takeSettled();
         opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: lastFrameCounts.drawCalls, sceneRevision: realizedRevision });
       } catch {
         /* a timing hook never breaks a frame */
@@ -1635,7 +1582,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       pixelRatio,
       shadows: lit.shadows,
     };
-    if (precompileRun !== null || precompileStats.runs + precompileStats.failed + precompileStats.gaveUp > 0) d.precompile = { ...precompileStats, running: precompileRun !== null };
+    const pre = precompile.diagnostics();
+    if (pre !== null) d.precompile = pre;
     const choice = owned.renderer !== null && !disposed ? owned.renderer.info() : lastRendererInfo;
     if (choice !== null) d.renderer = choice;
     // `shadowReason` is present iff `shadows === 'off'`; the lights that are on.
@@ -1958,7 +1906,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     scatter: () => scatter.stored,
     cover: () => scatter.cover,
     currentRenderer: () => (disposed ? null : (owned.renderer?.current() ?? null)),
-    frameSkipped: () => lastFrameSkipped || precompileRun !== null,
+    frameSkipped: () => lastFrameSkipped || precompile.active(),
     lastFrame: () => ({ drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles, samples: msaaMark, batching: batcher !== null && lastFrameDrawn ? batcher.diagnostics() : null }),
   };
   // The settle surface — present iff the `models` option was
