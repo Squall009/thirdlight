@@ -113,7 +113,7 @@ manual → acceptance.
 | 37.5 | **The other editors on panels:**<br>• **Terrain:** Brush, Noise mask, the picked stamp, Settings.<br>• **Vertex paint:** Brush, Noise mask, Channels.<br>• **Decals:** Placement, Scatter, Selection, with the atlas drawer as a bottom-dock panel.<br>• **The kit editor:** `KitInspector`'s settings move into the kit document's own panels; the global Inspector keeps only a link to them.<br>• Every column fits at 1920×1080. |
 | 37.6 | **Load times.**<br>• **No white blocks (D270 1):** until a layer's arrays arrive, the layer draws its base colour, the average of its albedo, which the backend sends ahead of the encode.<br>• **D264:** the remaining 2 × 2048² ETC1S colour job is split or encoded at a preview size first, with the final arrays swapped in.<br>• **D263:** a cold atlas shows quick preview pages within the 2 s target and swaps the final pages in, in the background.<br>• **D251:** the static shadow map is redrawn after the first frame home, or the drawing-buffer size is kept; measured with `level --edit-mode`. |
 | 37.7 | **Small lows (D270 2–4):**<br>• a trim sheet material's Material tab shows its rows and the checker;<br>• the decal palette tells same-named cells apart (by sheet);<br>• the Rooms preset pickers group presets by source: kit or starter.<br>**Added by the lead:**<br>• framing a selection (Home in any editor, F on an object) puts the camera outside its bounds at a sensible angle, looking at it (a selected building, a decal, a terrain stamp);<br>• D274: a layered surface with four 2048² tiling layers can be assembled (an over-limit colour array encoded UASTC layer by layer and joined), and a refusal that remains is in Problems. |
-| 37.8 | **The manual:**<br>• `guides/level-editors.md` gets Navigate, the Esc order and panels;<br>• the block editor, vertex paint and decal guides are updated;<br>• the reference keys are regenerated. |
+| 37.8 | **The manual:**<br>• `guides/level-editors.md` gets Navigate, the Esc order and panels;<br>• the block editor, vertex paint and decal guides are updated;<br>• the reference keys are regenerated.<br>**Added by the lead** (found in 37.7):<br>• framing respects the panels: a frame fits and centres in the view minus the open docked panels (measured, collapsed ones not counted);<br>• opening an editor gives a usable view: a view inside the object, below it, nearly level or looking away is framed on entry; one that shows it is kept. |
 | 37.9 | **Acceptance.** The owner's flow in a real browser, on this host, both renderers, 1920×1080:<br>• enter each editor, orbit with no tool, select a building and edit it from its panel;<br>• drag a panel to another dock and collapse it; leave and come back (the layout is kept);<br>• Make it paintable (base colour, never white);<br>• a cold decal atlas.<br>Screenshots go to `~/.cache/thirdlight-phase37/acceptance`. Look: owner look pending. |
 | 37.10 | **Review fixes.** |
 
@@ -352,3 +352,23 @@ manual → acceptance.
     the swap) list optgroups: the rooms' kit ("Basic Kit · the rooms' kit"),
     other kits, "This project", "Engine starters".
 
+
+- 2026-10-17 (37.8): The lead added two view fixes to the item (found in
+  37.7). Defaults chosen, owner to confirm:
+  - **framing beside the panels:** every frame (Home, F, entering) fits and
+    centres the box in the view minus the open panels, measured from the
+    dock layer when it frames (`panelInsets`: a side's widest open panel;
+    corners count with their side; collapsed panels and a hidden Panels
+    switch count nothing). The orbit target moves sideways with the frame
+    (no view offset), so picking and orbiting stay as they were; at least a
+    quarter of the view's width and height is always framed into. The
+    terrain's entry view (a work area) is not shifted;
+  - **the view on entry** is kept only when it shows the object sensibly
+    (`viewShowsBox`): not from inside its box, not from below it, looking
+    down at least 10° (`ENTRY_LEVEL_DEG`), and aimed at it. A block layer's
+    box includes the air above its cells, so a close view a few metres over
+    the ground, inside that box (the 3D starter's first view), is framed;
+    the terrain keeps its work-area view only when aimed and not nearly
+    level;
+  - **Home on selected block cells** frames them (the block editor gave no
+    box before, so Home framed the whole layer).

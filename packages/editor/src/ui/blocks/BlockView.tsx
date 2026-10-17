@@ -177,7 +177,7 @@ export function BlockView({ entity, mode, host }: EditModeView): JSX.Element {
   }, []);
 
   const sel = state.selection;
-  useEditSelection(sel === null ? null : sel[3] - sel[0] === 1 && sel[4] - sel[1] === 1 && sel[5] - sel[2] === 1 ? `Cell ${sel[0]}, ${sel[1]}, ${sel[2]}` : `${(sel[3] - sel[0]) * (sel[4] - sel[1]) * (sel[5] - sel[2])} cells`, () => s.set({ selection: null }));
+  useEditSelection(sel === null ? null : sel[3] - sel[0] === 1 && sel[4] - sel[1] === 1 && sel[5] - sel[2] === 1 ? `Cell ${sel[0]}, ${sel[1]}, ${sel[2]}` : `${(sel[3] - sel[0]) * (sel[4] - sel[1]) * (sel[5] - sel[2])} cells`, () => s.set({ selection: null }), undefined, () => editor?.selectionWorldBox() ?? null);
   return (
     <>
       {blockModeOf(mode).id !== 'rules' && <SliceChip s={s} />}

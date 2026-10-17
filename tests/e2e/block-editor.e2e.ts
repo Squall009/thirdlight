@@ -72,6 +72,8 @@ const top = (x: number, y: number, z: number): V3 => [ORIGIN[0] + x + 0.5, ORIGI
 const mid = (x: number, y: number, z: number): V3 => [ORIGIN[0] + x + 0.5, ORIGIN[1] + y + 0.5, ORIGIN[2] + z + 0.5];
 
 const view = (page: Page) => page.locator('canvas.tl-viewport');
+/** The Scene view camera's position. */
+const eye = async (page: Page): Promise<number[]> => (JSON.parse((await view(page).getAttribute('data-view-camera'))!) as { position: number[] }).position;
 
 /** World → client pixels through the Scene view's published view-projection matrix. */
 async function screen(page: Page, p: V3): Promise<{ x: number; y: number }> {
@@ -164,6 +166,12 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Last tool: Single');
     await expect(escBadge(page)).toHaveAttribute('data-esc-leaves', 'true');
     await expect(view(page)).toHaveAttribute('data-view-proj', /\[/);
+    // The view the editor was opened from was inside the layer's box (over its cells, under its top row): entering
+    // framed the whole layer from outside it.
+    await expect.poll(async () => {
+      const [x, y, z] = await eye(page);
+      return x! < ORIGIN[0] || x! > ORIGIN[0] + 64 || z! < ORIGIN[2] || z! > ORIGIN[2] + 64 || y! > ORIGIN[1] + 16;
+    }, { message: 'entering frames the layer from outside its box' }).toBe(true);
   });
 
   await test.step('at 1920 × 1080 no mode\'s settings column needs a scroll in its default state (the rest is in panels)', async () => {
@@ -184,6 +192,17 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect(escBadge(page), 'Esc deselects first').toHaveAttribute('data-esc-leaves', 'false');
     await expect(editMode(page).getByLabel('edit mode hints')).toContainText('Deselect');
     expect(await cellCount(layer), 'a click with no tool builds nothing').toBe(32_768);
+    // Home frames the picked block, close; the wheel backs off to see the cells round it, the corner the steps below work in.
+    const cell = [ORIGIN[0] + 6.5, ORIGIN[1] + 7.5, ORIGIN[2] + 9.5];
+    const away = async (): Promise<number> => Math.hypot(...(await eye(page)).map((v, i) => v - cell[i]!));
+    await page.keyboard.press('Home');
+    await expect.poll(away, { message: 'Home frames the picked block' }).toBeLessThan(6);
+    const middle = (await view(page).boundingBox())!;
+    await page.mouse.move(middle.x + middle.width / 2, middle.y + middle.height / 2);
+    for (let i = 0; i < 20 && (await away()) < 11; i++) {
+      await page.mouse.wheel(0, 200);
+      await page.waitForTimeout(60);
+    }
     await page.keyboard.press('Escape');
     await expect(view(page)).toHaveAttribute('data-block-selection', '');
     await expect(editMode(page)).toBeVisible();

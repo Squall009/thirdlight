@@ -30,7 +30,7 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-import { DOCK_NAMES, DOCKS, dockAt, EMPTY_DOCKS, loadDocks, movePanel, PANEL_DRAG_THRESHOLD, panelKeepHeight, placeFor, saveDocks, stacks, togglePanel, type DockId, type PanelDefault, type PanelPlace, type StoredDocks } from '../../session/dock-layout';
+import { DOCK_NAMES, DOCKS, dockAt, EMPTY_DOCKS, isDock, loadDocks, movePanel, PANEL_DRAG_THRESHOLD, panelInsets, panelKeepHeight, placeFor, saveDocks, stacks, togglePanel, type DockId, type PanelDefault, type PanelPlace, type StoredDocks } from '../../session/dock-layout';
 import { Glyph } from './glyphs';
 
 /** One panel a mode declares. */
@@ -194,6 +194,15 @@ export function EditPanels({ panels }: { panels: readonly EditPanel[] }): JSX.El
     );
   }
   return <>{shown.map((p) => createPortal(p.render(), contentOf(p.id), p.id))}</>;
+}
+
+/** What the open panels drawn over `view` (the Scene view's box) cover of it, measured now. */
+export function measuredPanelInsets(view: HTMLElement): ReturnType<typeof panelInsets> {
+  const panels = [...(view.parentElement?.querySelectorAll<HTMLElement>('.tl-dpanel[data-dock]') ?? [])].flatMap((el) => {
+    const dock = el.dataset['dock'];
+    return isDock(dock) ? [{ dock, open: el.dataset['open'] === 'true', rect: el.getBoundingClientRect() }] : [];
+  });
+  return panelInsets(view.getBoundingClientRect(), panels);
 }
 
 /** A panel being dragged by its title bar: where its ghost is (view pixels) and the dock under the pointer. */

@@ -32,11 +32,12 @@
 import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
 
 import { editKeyAction, escapeStep, sharedKeyHints } from '../../session/edit-keys';
+import { NO_INSETS } from '../../viewport/frame-view';
 import type { Viewport } from '../../viewport/viewport';
 import { iconSrc, iconTitle, objectIconFor, type IconKind, type IconTable } from '../../viewport/icons';
 import type { SceneViewLending } from '../shell/useSceneViewLending';
 import { isTyping } from '../workspace/EditorWindow';
-import { DockLayer, DockProvider, PanelsChip, useDockHost } from './docks';
+import { DockLayer, DockProvider, measuredPanelInsets, PanelsChip, useDockHost } from './docks';
 import { EditModeHeader } from './EditModeHeader';
 import { EditStatusContext, type EditStatus } from './edit-status';
 import { EditToolContext, useEditToolHost } from './edit-tool';
@@ -123,8 +124,16 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     return false;
   };
 
+  // Frames (Home, F, entering) fit beside the open panels, measured when they frame.
+  useEffect(() => {
+    const v = latest.current.p.viewportRef.current;
+    if (!open || v === null) return undefined;
+    v.setFrameInsets(() => (viewHost.current === null ? NO_INSETS : measuredPanelInsets(viewHost.current)));
+    return () => v.setFrameInsets(null);
+  }, [open]);
+
   // On entering, the view looks at a working part of the object (Home frames all of it), once the object is drawn —
-  // unless the user's view is already aimed at it, which is kept.
+  // unless the user's view already shows it sensibly (from outside and above, looking down at it), which is kept.
   useEffect(() => {
     if (entityId === null) return undefined;
     let raf = 0;
@@ -135,7 +144,8 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
       if (mode.entity === undefined || mode.kind === undefined || isSceneMode(mode.kind) || owed === null) return;
       const area = mode.kind.workArea?.(mode.entity) ?? null;
       const keepIf = owed === 'away' ? (mode.kind.bounds?.(mode.entity) ?? null) : null;
-      const keep = owed === 'away' && (mode.kind.framesOnEnter !== true || onScreen(mode.entity.id));
+      const box = owed === 'away' && area === null ? (viewportRef.current?.worldBoxOf(mode.entity.id, keepIf ?? undefined) ?? null) : null;
+      const keep = box !== null && viewportRef.current?.viewShows(box) === true && (mode.kind.framesOnEnter !== true || onScreen(mode.entity.id));
       const settled = area !== null ? viewportRef.current?.frameWorkArea(mode.entity.id, area, keepIf) : keep || viewportRef.current?.frameEntity(mode.entity.id, mode.kind.bounds?.(mode.entity) ?? undefined);
       // A new object is drawn a few frames after it is made: try again until it is (two seconds at most).
       if (settled === true || ++tries > 120) mode.frameDone();

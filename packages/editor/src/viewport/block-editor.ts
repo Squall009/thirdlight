@@ -450,6 +450,15 @@ export class BlockEditor {
     this.host.requestRender();
   }
 
+  /** The selected cells' box in world metres (null: none), which Home frames. */
+  selectionWorldBox(): { min: number[]; max: number[] } | null {
+    const l = this.layer;
+    const b = this.selection;
+    if (l === null || b === null) return null;
+    const cs = l.component.cellSize;
+    return { min: [0, 1, 2].map((i) => (l.origin[i] ?? 0) + b[i]! * cs[i]!), max: [0, 1, 2].map((i) => (l.origin[i] ?? 0) + b[i + 3]! * cs[i]!) };
+  }
+
   /** A stored cell of the selected layer (null: empty). */
   cellAt(x: number, y: number, z: number): BlockCell | null {
     return this.grid?.get(x, y, z) ?? null;

@@ -130,6 +130,35 @@ export function dockAt(x: number, y: number, view: { readonly left: number; read
   return NINTHS[row]![col]!;
 }
 
+interface Rect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/** The side of the view a dock's panels cover: a corner belongs to its side's column. */
+const DOCK_SIDE: Readonly<Record<DockId, 'left' | 'right' | 'top' | 'bottom'>> = { tl: 'left', l: 'left', bl: 'left', tr: 'right', r: 'right', br: 'right', t: 'top', b: 'bottom' };
+
+/**
+ * How much of the view (0–1 of its width or height) the open panels cover on
+ * each side, from their measured boxes: a frame fits in what is left. A
+ * collapsed panel is a title bar and leaves the view free.
+ */
+export function panelInsets(view: Rect, panels: readonly { readonly dock: DockId; readonly open: boolean; readonly rect: Rect }[]): { left: number; right: number; top: number; bottom: number } {
+  const w = view.right - view.left;
+  const h = view.bottom - view.top;
+  const out = { left: 0, right: 0, top: 0, bottom: 0 };
+  if (w <= 0 || h <= 0) return out;
+  for (const p of panels) {
+    if (!p.open) continue;
+    const side = DOCK_SIDE[p.dock];
+    const covered = side === 'left' ? (p.rect.right - view.left) / w : side === 'right' ? (view.right - p.rect.left) / w : side === 'top' ? (p.rect.bottom - view.top) / h : (view.bottom - p.rect.top) / h;
+    out[side] = Math.max(out[side], Math.min(1, Math.max(0, covered)));
+  }
+  return out;
+}
+
 /** The least height (px) an open panel keeps when its column is short of room: all of it when short, else it scrolls. */
 export function panelKeepHeight(headPx: number, bodyPx: number): number {
   return Math.min(headPx + bodyPx, PANEL_KEEP_HEIGHT);

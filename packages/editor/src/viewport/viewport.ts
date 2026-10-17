@@ -77,7 +77,7 @@ import { ViewIsolationState, type ViewIsolation } from './view-isolation';
 import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
 import type { SceneViewAssets } from './scene-assets';
-import { framePose, insideBox } from './frame-view';
+import { ENTRY_LEVEL_DEG, framePose, insideBox, NO_INSETS, viewPitchDeg, viewShowsBox, type FrameInsets } from './frame-view';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -1178,7 +1178,7 @@ export class Viewport {
       const t = this.orbit.target;
       const margin = 1;
       const aimed = t.x >= whole.min.x - margin && t.x <= whole.max.x + margin && t.z >= whole.min.z - margin && t.z <= whole.max.z + margin;
-      if (aimed) return true;
+      if (aimed && viewPitchDeg(this.camera.position.toArray(), t.toArray()) >= ENTRY_LEVEL_DEG) return true;
     }
     const dir = heading.multiplyScalar(Math.cos(pitch)).setY(Math.sin(pitch));
     this.orbit.target.copy(center);
@@ -1902,9 +1902,20 @@ export class Viewport {
     this.fitBox(box);
   }
 
-  /** The camera outside `box`, looking at it whole (`framePose`: the view's heading, a pitch looking down). */
+  /** What covers the view's sides (an editor's open panels): frames fit and centre in the rest. */
+  private frameInsets: (() => FrameInsets) | null = null;
+  setFrameInsets(read: (() => FrameInsets) | null): void {
+    this.frameInsets = read;
+  }
+
+  /** Whether the view shows `box` (world metres) sensibly: from outside and above it, looking down at it (`viewShowsBox`). */
+  viewShows(box: { min: readonly number[]; max: readonly number[] }): boolean {
+    return viewShowsBox({ min: box.min as [number, number, number], max: box.max as [number, number, number] }, this.camera.position.toArray(), this.orbit.target.toArray(), this.camera.fov, this.camera.aspect);
+  }
+
+  /** The camera outside `box`, looking at it whole in the part of the view the panels leave (`framePose`: the view's heading, a pitch looking down). */
   private fitBox(box: THREE.Box3): void {
-    const pose = framePose({ min: box.min.toArray(), max: box.max.toArray() }, this.camera.position.toArray(), this.orbit.target.toArray(), this.camera.fov, this.camera.aspect);
+    const pose = framePose({ min: box.min.toArray(), max: box.max.toArray() }, this.camera.position.toArray(), this.orbit.target.toArray(), this.camera.fov, this.camera.aspect, this.frameInsets?.() ?? NO_INSETS);
     this.orbit.target.set(...pose.target);
     this.camera.position.set(...pose.position);
     this.camera.far = Math.max(1000, pose.distance * 10);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { dockAt, dockStorageKey, EMPTY_DOCKS, loadDocks, movePanel, PANEL_KEEP_HEIGHT, panelKeepHeight, placeFor, sanitizeDocks, saveDocks, stacks, togglePanel, type PanelDefault } from './dock-layout';
+import { dockAt, dockStorageKey, EMPTY_DOCKS, loadDocks, movePanel, PANEL_KEEP_HEIGHT, panelInsets, panelKeepHeight, placeFor, sanitizeDocks, saveDocks, stacks, togglePanel, type PanelDefault } from './dock-layout';
 
 /** The Rooms & buildings mode's panels as it declares them: the list collapsed top right, the picked room on the right edge. */
 const ROOMS: readonly PanelDefault[] = [
@@ -93,5 +93,30 @@ describe('dock layout', () => {
     saveDocks('blocks', { places: {}, hidden: true }, st);
     expect(loadDocks('blocks', st)).toEqual({ places: {}, hidden: true });
     expect(sanitizeDocks(null)).toEqual(EMPTY_DOCKS);
+  });
+});
+
+describe('what the panels cover of the view (a frame fits in the rest)', () => {
+  // A 1500 × 900 view at (80, 120).
+  const view = { left: 80, top: 120, right: 1580, bottom: 1020 };
+  const box = (left: number, top: number, w: number, h: number) => ({ left, top, right: left + w, bottom: top + h });
+
+  it('each side by its widest open panel; corners count with their side; collapsed panels not at all', () => {
+    const insets = panelInsets(view, [
+      { dock: 'tr', open: false, rect: box(1240, 128, 332, 32) },
+      { dock: 'r', open: true, rect: box(1240, 400, 332, 300) },
+      { dock: 'br', open: true, rect: box(1270, 900, 302, 112) },
+      { dock: 'bl', open: false, rect: box(88, 980, 320, 32) },
+      { dock: 'b', open: true, rect: box(420, 820, 800, 192) },
+    ]);
+    expect(insets.right).toBeCloseTo((1580 - 1240) / 1500, 9);
+    expect(insets.left).toBe(0);
+    expect(insets.top).toBe(0);
+    expect(insets.bottom).toBeCloseTo((1020 - 820) / 900, 9);
+  });
+
+  it('nothing open, or no view yet: nothing covered', () => {
+    expect(panelInsets(view, [])).toEqual({ left: 0, right: 0, top: 0, bottom: 0 });
+    expect(panelInsets({ left: 0, top: 0, right: 0, bottom: 0 }, [{ dock: 'l', open: true, rect: box(0, 0, 10, 10) }])).toEqual({ left: 0, right: 0, top: 0, bottom: 0 });
   });
 });

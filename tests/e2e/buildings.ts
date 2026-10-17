@@ -237,6 +237,14 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
     const inside = c[0] > 219 && c[0] < 229 && c[2] > -44 && c[2] < -34 && c[1] < 7.5;
     return !inside && c[1] > 6;
   }, { message: 'Home on the building: the camera outside it' }).toBe(true);
+  // ... and fits it beside the open panels: every corner of its walls left of the building's panel column.
+  const column = (await editPanel(page, 'selection').boundingBox())!;
+  const viewBox = (await page.locator('canvas.tl-viewport').boundingBox())!;
+  await expect.poll(async () => {
+    const xs: number[] = [];
+    for (const [x, y, z] of [[219, 0, -44], [229, 0, -44], [219, 0, -34], [229, 0, -34], [219, 6, -44], [229, 6, -44], [219, 6, -34], [229, 6, -34]] as const) xs.push((await screen(page, [x, y, z]))?.x ?? Number.NaN);
+    return xs.every((x) => x > viewBox.x && x < column.x);
+  }, { message: 'Home on the building: beside the panels, not under them' }).toBe(true);
   await leaveEditMode(page);
 
   // The interior scene's camera, and the script that goes through the door on a key.

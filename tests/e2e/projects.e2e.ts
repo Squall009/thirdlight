@@ -8,6 +8,9 @@ import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
+import { screen } from './rooms-drawing';
+import { enterEditMode, leaveEditMode } from './ui';
+import { viewCamera } from './view-match';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -117,4 +120,24 @@ test('a wrong token is rejected and asked for again; token once, then pick a pro
   console.log(`[projects] 3D starter play: sky ${sky.map(Math.round).join(',')}, ground ${ground.map(Math.round).join(',')}`);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
+
+  // The block editor on the starter's ground opens on a usable view: the first view is a few metres up, inside the
+  // layer's box, so entering frames the layer from outside and above, looking down at it. A view that shows it so is
+  // kept when the editor opens again.
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  await rows(page).filter({ hasText: 'Ground blocks' }).click();
+  await enterEditMode(page, 'Edit blocks');
+  const camera = async (): Promise<number[]> => (await viewCamera(page)).position;
+  await expect.poll(async () => {
+    const [x, y, z] = await camera();
+    const mid = await screen(page, [0, 2, 0]);
+    const v = (await page.locator('canvas.tl-viewport').boundingBox())!;
+    return Math.max(Math.abs(x!), Math.abs(z!)) > 12 && y! > 5 && mid !== null && mid.x > v.x && mid.x < v.x + v.width && mid.y > v.y && mid.y < v.y + v.height;
+  }, { message: 'entering the block editor frames the layer from outside, above it' }).toBe(true);
+  await leaveEditMode(page);
+  const kept = await camera();
+  await enterEditMode(page, 'Edit blocks');
+  await page.waitForTimeout(300);
+  expect(await camera()).toEqual(kept);
+  await leaveEditMode(page);
 });
