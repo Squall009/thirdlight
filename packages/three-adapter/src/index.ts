@@ -357,4 +357,4 @@ export { pyramidBreaks, pyramidLayout, type PyramidLayout } from './occlusion-py
 export type { PyramidReadback } from './occlusion-pyramid';
 // Occluders: `_OCC` stand-ins (depth only, the view only) and the marks of what does not count.
 export { applyModelOccluders, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OCCLUDER_STANDIN_RENDER_ORDER, occluderRoleOfDraw, type ModelOccluders } from './occluders';
-export { markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
+export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';

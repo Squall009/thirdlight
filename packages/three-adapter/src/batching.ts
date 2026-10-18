@@ -339,6 +339,8 @@ export interface AutoBatcher extends BatchMembership {
   /** Every member is grouped again next frame (a change that reaches every object: new bakes, materials redefined). */
   touchAll(): void;
   diagnostics(): AutoBatcherDiagnostics;
+  /** The batch or merged cell a mesh is drawn through now (null: it is drawn alone, or not a member). */
+  drawOf(mesh: THREE.Mesh): THREE.Object3D | null;
   /** Work is left for later frames (static cells built in the background, members waiting to rejoin): a host drawing on demand draws again. */
   pending(): boolean;
   /** Off: every member goes back to drawing on its own. */
@@ -902,6 +904,12 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       matrixCopiesTotal: copiesTotal,
       ...(merger !== null ? { merging: merger.diagnostics() } : {}),
     }),
+    drawOf(mesh) {
+      const m = members.get(mesh);
+      if (m === undefined) return null;
+      if (m.batched) return m.group?.inst?.mesh ?? null;
+      return m.merged ? (merger?.drawOf(mesh) ?? null) : null;
+    },
     pending: () => enabled && !disposed && (waiting.size > 0 || merger?.pending() === true),
     setEnabled(on) {
       if (on === enabled || disposed) return;

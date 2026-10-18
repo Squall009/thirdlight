@@ -36,13 +36,15 @@
  * `adapter.ts`, which gives it the scene, the setting and the renderer and
  * reads its diagnostics.
  */
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
 
-import { OccludeeRegistry, type Occludee } from './occludees';
+import { OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';
 import { TwoPassFrame, type ScenePasses } from './occlusion-passes';
 import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
+import { OcclusionKeep, type OcclusionKeepHost } from './occlusion-keep';
+import { OcclusionOverlay } from './occlusion-overlay';
 import { culledWhole } from './occlusion-whole';
 import { QueryOcclusion, queryContextOf, type QueryOcclusionDiagnostics, type QueryRenderer } from './occlusion-queries';
 import type { PyramidReadback } from './occlusion-pyramid';
@@ -80,6 +82,10 @@ export interface OcclusionSwitch {
   showPyramid(level: number | null): void;
   /** The depth pyramid as last built, read back from the GPU (null: no pyramid). */
   readPyramid(): Promise<PyramidReadback | null>;
+  /** Draw a tinted box round each draw culled now (occlusion-overlay.ts), or stop. */
+  showCulled(on: boolean): void;
+  /** Never cull these objects' draws (an editor's selection, the object an edit mode edits; empty: none). */
+  keep(entityIds: ReadonlySet<string>): void;
 }
 
 export interface OcclusionDiagnostics {
@@ -113,6 +119,9 @@ export interface OcclusionDiagnostics {
   readonly pyramid: { readonly size: readonly [number, number]; readonly levels: number; readonly bytes: number; readonly frames: number } | null;
   /** The culling's main-thread time in the last frame. */
   readonly ms: number;
+  /** Draws kept from culling (`keep`) in the last frame, and the culled draws' boxes drawn (`showCulled`; null: off). */
+  readonly kept: number;
+  readonly culledBoxes: number | null;
 }
 
 export interface OcclusionCullerDeps {
@@ -137,6 +146,8 @@ export interface OcclusionCullerDeps {
   readonly canvas?: { setAttribute?(k: string, v: string): void } | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed?: () => void;
+  /** Where the objects `keep` names are drawn (absent: nothing can be kept). */
+  readonly keep?: OcclusionKeepHost;
 }
 
 export class OcclusionCuller implements OcclusionSwitch {
@@ -159,12 +170,16 @@ export class OcclusionCuller implements OcclusionSwitch {
   private queries: QueryOcclusion | null = null;
   private queriesRenderer: unknown = null;
   private shownLevel: number | null;
+  private readonly kept: OcclusionKeep | null;
+  private readonly overlay: OcclusionOverlay;
   /** Whether a draw is in the scene now (the registry follows its children once a frame). */
   private readonly inScene = (o: THREE.Object3D): boolean => this.registry.get(o) !== undefined;
 
   constructor(private readonly deps: OcclusionCullerDeps) {
     this.pinned = deps.pinned;
     this.shownLevel = deps.showPyramid ?? null;
+    this.kept = deps.keep !== undefined ? new OcclusionKeep(deps.keep) : null;
+    this.overlay = new OcclusionOverlay(deps.scene);
     deps.scene.userData[OCCLUSION_SWITCH_KEY] = this;
     deps.scene.userData[STANDIN_VIEW_KEY] = (camera: THREE.Camera, standin: THREE.Mesh): boolean => this.drawsStandins(camera, standin);
   }
@@ -248,6 +263,15 @@ export class OcclusionCuller implements OcclusionSwitch {
     return this.frame?.pyramid.read() ?? Promise.resolve(null);
   }
 
+  showCulled(on: boolean): void {
+    this.overlay.set(on);
+    this.deps.changed?.();
+  }
+
+  keep(entityIds: ReadonlySet<string>): void {
+    this.kept?.set(entityIds);
+  }
+
   path(): OcclusionPath {
     return this.choose().path;
   }
@@ -267,6 +291,8 @@ export class OcclusionCuller implements OcclusionSwitch {
     const t0 = performance.now();
     const { path } = this.choose();
     if (path !== this.applied) this.reset();
+    // What a host works on is marked first: no path tests it.
+    this.kept?.update(path !== 'off');
     if (path === 'off') {
       if (this.registry.size > 0) this.registry.clear();
       this.instancedDraws = null;
@@ -306,6 +332,7 @@ export class OcclusionCuller implements OcclusionSwitch {
       this.counts.pass1Culled = 0;
       this.counts.pass2Drawn = 0;
     }
+    if (this.overlay.on) this.overlay.update(this.culledBoxes(path, queries));
     this.counts.standins = this.standinDraws;
     this.standinDraws = 0;
     this.counts.ms = performance.now() - t0;
@@ -319,11 +346,25 @@ export class OcclusionCuller implements OcclusionSwitch {
     const gpuMs = this.applied === 'hiz' ? (this.deps.computeMs?.() ?? null) : null;
     const instances = this.applied === 'hiz' ? (this.frame?.instances.diagnostics() ?? null) : null;
     const queries = this.applied === 'queries' ? (this.queries?.diagnostics() ?? null) : null;
-    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, queries, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000 };
+    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, queries, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000, kept: this.kept?.size ?? 0, culledBoxes: this.overlay.on ? this.overlay.boxes : null };
+  }
+
+  /** The world boxes of the draws the path hides now (draws culled whole, or hidden by the queries). */
+  private culledBoxes(path: OcclusionPath, queries: QueryOcclusion | null): THREE.Box3[] {
+    const hidden = path === 'queries' ? (queries?.hidden() ?? null) : path === 'hiz' ? (this.frame?.wholes.hidden() ?? null) : null;
+    const out: THREE.Box3[] = [];
+    if (hidden === null) return out;
+    for (const mesh of hidden) {
+      const o = this.registry.get(mesh);
+      if (o !== undefined) out.push(occludeeWorldBounds(o, new THREE.Box3()));
+    }
+    return out;
   }
 
   /** Everything hidden is shown and the switch leaves the scene. */
   dispose(): void {
+    this.kept?.dispose();
+    this.overlay.dispose();
     this.reset();
     this.dropFrame();
     this.dropQueries();

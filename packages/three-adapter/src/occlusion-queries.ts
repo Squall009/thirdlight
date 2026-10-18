@@ -27,7 +27,12 @@
  * there: ambient occlusion, fog, depth of field and transparent draws read
  * the scene's depth before, so it never holds a stand-in when they read it,
  * and the next frame clears it. The query render resolves nothing (its
- * colour is unchanged, its depth must not reach the resolved depth texture).
+ * colour is unchanged, a multisampled target's depth is never resolved). A
+ * single-sampled target's depth attachment is its depth texture: the
+ * stand-ins stay in it until the next frame's clear, also while a view that
+ * draws on demand (the editor's) is idle. Nothing reads it in between: every
+ * reader (ambient occlusion, fog, depth of field, transparent draws, the next
+ * boxes) reads it inside a frame, after that frame's clear and draw.
  *
  * The queries are WebGL 2's own (pooled), begun and ended round each box's
  * draw by three's render-object function. three's `occlusionTest` makes and
@@ -312,6 +317,11 @@ export class QueryOcclusion implements ScenePasses {
     }
     this.asking.push({ entry: e, query, seq, frame: this.frame, wasHidden: e.record.hidden });
   };
+
+  /** The draws hidden now (two answers in a row saw nothing of their boxes). */
+  *hidden(): IterableIterator<THREE.Mesh> {
+    for (const e of this.entries.values()) if (e.record.hidden) yield e.mesh;
+  }
 
   diagnostics(): QueryOcclusionDiagnostics {
     return { ...this.counts, pending: this.pending.length, drawMs: Math.round(this.counts.drawMs * 1000) / 1000 };

@@ -538,6 +538,8 @@ export interface SceneAdapter {
   setIsolation?(entityIds: ReadonlySet<string> | null): void;
   /** What isolation hid at the last frame (zeros while off). */
   isolationDiagnostics?(): import('./isolation-view').IsolationDiagnostics;
+  /** Occlusion culling's switch: its path (a pin), what a host keeps from it, its overlays and diagnostics (the same as `scene.userData.tlOcclusion`). */
+  occlusion?(): import('./occlusion').OcclusionSwitch;
   /** The three.js scene drawn: the listed drawables, the lights, and what a host adds (its overlay group). */
   threeScene?(): THREE.Scene;
   /** What a ray picks among: the scene's drawables, those drawn through batches included (they are out of the scene's children). */

@@ -34,6 +34,7 @@ import type { FieldContext } from './DescriptorFields';
 import { Gesture } from '../session/gesture';
 import { Viewport, type GizmoMode } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
+import { OCCLUSION_VIEW_DEFAULT, type OcclusionViewState } from '../viewport/occlusion-view';
 import { ModelFiles } from '../viewport/model-files';
 import { createSceneViewAssets } from '../viewport/scene-assets';
 import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
@@ -244,6 +245,9 @@ function EditorApp(): JSX.Element {
   useEffect(() => viewportRef.current?.setHidden(centerTab === 'game'), [centerTab]);
   // The Scene view plays the selected object's effect (edit mode; the Gizmos menu toggles it).
   const [effectPreview, setEffectPreview] = useState(false);
+  // Occlusion culling in the Scene view (the View menu): on as Play culls, the culled draws' boxes, the depth pyramid.
+  const [occlusionView, setOcclusionView] = useState<OcclusionViewState>(OCCLUSION_VIEW_DEFAULT);
+  useEffect(() => viewportRef.current?.setOcclusionView(occlusionView), [occlusionView]);
   const [assetDropActive, setAssetDropActive] = useState(false);
   const [lightingMode, setLightingMode] = useState<'editor' | 'game'>('editor');
   const [snapping, setSnapping] = useState(true);
@@ -560,6 +564,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setAmbientOcclusion(renderSettingsOf({ ambient_occlusion: aoSetting }).ambientOcclusion);
   }, [aoSetting]);
+  // The project's occlusion culling: the Scene view culls as Play does (the View menu can turn it off there).
+  const occlusionSetting = settings?.['occlusion_culling'];
+  useEffect(() => {
+    viewportRef.current?.setOcclusionCulling(renderSettingsOf({ occlusion_culling: occlusionSetting }).occlusionCulling);
+  }, [occlusionSetting]);
 
   // The project's render_backend setting (under the page's ?renderer= flag) picks the
   // Scene view's backend and the one previews and thumbnails create their renderer with.
@@ -1002,6 +1011,8 @@ function EditorApp(): JSX.Element {
     setGizmos,
     effectPreview,
     setEffectPreview,
+    occlusionView,
+    setOcclusionView,
     workspace,
     workspaceDispatch,
     setCenterTab,

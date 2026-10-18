@@ -17,6 +17,7 @@ import type { WorkspaceAction, WorkspaceState } from '../../session/editor-windo
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import type { EditorDialogsState } from './useEditorDialogs';
+import type { OcclusionViewState } from '../../viewport/occlusion-view';
 import { BOTTOM_TABS, type BottomTab } from './dock-tabs';
 import { resetToolWindows, TOOL_WINDOWS, type ToolWindowId } from '../tools/tool-windows';
 
@@ -38,6 +39,9 @@ export interface EditorMenuInput {
   setGizmos: Dispatch<SetStateAction<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean }>>;
   effectPreview: boolean;
   setEffectPreview: Dispatch<SetStateAction<boolean>>;
+  /** The Scene view's occlusion culling switches (the View menu). */
+  occlusionView: OcclusionViewState;
+  setOcclusionView: Dispatch<SetStateAction<OcclusionViewState>>;
   workspace: WorkspaceState;
   workspaceDispatch: Dispatch<WorkspaceAction>;
   setCenterTab: (key: 'scene' | 'game') => void;
@@ -63,7 +67,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, occlusionView, setOcclusionView, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
   const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -218,6 +222,15 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: `Grid: ${gizmos.grid ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, grid: !g.grid })) },
         { label: `Light probes: ${gizmos.probes ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, probes: !g.probes })) },
         { label: `Play selected effects: ${effectPreview ? 'on' : 'off'}`, onSelect: () => setEffectPreview((v) => !v) },
+      ],
+    },
+    {
+      label: 'View',
+      items: [
+        // As Play culls (the project's setting, the renderer's path); off draws everything in view.
+        { label: `Occlusion culling: ${occlusionView.culling ? 'on' : 'off'}`, onSelect: () => setOcclusionView((v) => ({ ...v, culling: !v.culling })) },
+        { label: `Show culled draws: ${occlusionView.culled ? 'on' : 'off'}`, disabled: !occlusionView.culling, reason: 'occlusion culling is off', onSelect: () => setOcclusionView((v) => ({ ...v, culled: !v.culled })) },
+        { label: `Depth pyramid: ${occlusionView.pyramid ? 'on' : 'off'}`, disabled: !occlusionView.culling, reason: 'occlusion culling is off', onSelect: () => setOcclusionView((v) => ({ ...v, pyramid: !v.pyramid })) },
       ],
     },
     {

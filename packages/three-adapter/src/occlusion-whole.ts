@@ -208,6 +208,11 @@ export class WholeOcclusion {
     }
   }
 
+  /** The draws listed this frame whose last answer said hidden (the second pass draws them only if this frame's pyramid shows them). */
+  *hidden(): IterableIterator<THREE.Mesh> {
+    for (const e of this.entries.values()) if (e.row >= 0 && e.seen === 0) yield e.mesh;
+  }
+
   /** Draws listed this frame. */
   get count(): number {
     return this.listed;

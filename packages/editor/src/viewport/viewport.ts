@@ -31,6 +31,10 @@ import {
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
   drawOwner,
+  markHostDrawing,
+  occlusionFromUrl,
+  occlusionPyramidFromUrl,
+  portalsFromUrl,
   pageSearch,
   rendererMemory,
   type EffectComponentLike,
@@ -47,7 +51,7 @@ import {
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type OcclusionCulling, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -75,6 +79,7 @@ import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
 import type { SceneViewAssets } from './scene-assets';
 import { EffectPreview } from './effect-preview';
+import { SceneViewOcclusion, type OcclusionViewState } from './occlusion-view';
 import { ENTRY_LEVEL_DEG, framePose, insideBox, NO_INSETS, viewPitchDeg, viewShowsBox, type FrameInsets } from './frame-view';
 
 export interface ViewportCallbacks {
@@ -163,6 +168,10 @@ export class Viewport {
   private adapter: SceneAdapter;
   /** Everything the viewport draws itself, in the adapter's scene. */
   private readonly overlay = new THREE.Group();
+  /** Occlusion culling in this view: the View menu's switches, and what is never culled. */
+  private readonly occlusion = new SceneViewOcclusion(() => this.adapter, () => this.root, occlusionFromUrl(pageSearch()));
+  /** What occlusion culling leaves alone: the selection's subtree and the edited objects (made again when one changes). */
+  private occlusionKept: { selected: string | null; projected: readonly ProjectedEntity[]; edited: ReadonlySet<string> | null; ids: ReadonlySet<string> } | null = null;
   private readonly entityOverlays: EntityOverlays;
   private selectedId: string | null = null;
   /** An edit mode's isolation: what is drawn and what can be hit while a mode is open. */
@@ -238,6 +247,8 @@ export class Viewport {
     });
     this.source.setCamera(this.camera);
     this.overlay.name = 'scene-view-overlays';
+    // The view's own drawing (grid, gizmo, outlines, handles, brush cursors) is never an occludee.
+    markHostDrawing(this.overlay);
     this.entityOverlays = new EntityOverlays({ adapter: () => this.adapter, requestRender: () => this.requestRender() });
     this.adapter = this.makeAdapter(canvas);
     this.raycaster.layers.enable(BATCHED_LAYER);
@@ -392,6 +403,8 @@ export class Viewport {
   /** The project's LOD bias and hysteresis (null: the defaults), kept for an adapter made again. */
   private lodTuning: { bias: number; hysteresis: number } | null = null;
   private aoKind: 'off' | 'ssao' | 'gtao' = AMBIENT_OCCLUSION_DEFAULT;
+  /** The project's occlusion culling (null: not set, the default). */
+  private occlusionCulling: OcclusionCulling | null = null;
 
   // ---- The scene adapter -------------------------------------------------
   /** The project environment, the bakes and the lighting mode as last set (a new adapter takes them). */
@@ -416,7 +429,11 @@ export class Viewport {
       background: SCENE_BACKGROUND,
       ...(this.lodTuning !== null ? { lod: this.lodTuning } : {}),
       // The project's AO kind; full resolution whatever the quality level's render scale (the Scene view is for editing).
-      render: { ambientOcclusion: this.aoKind, fixedScale: true },
+      render: { ambientOcclusion: this.aoKind, fixedScale: true, ...(this.occlusionCulling !== null ? { occlusionCulling: this.occlusionCulling } : {}) },
+      // Occlusion culling as Play culls; `?occlusion=` and `?portals=off` on the editor page compare, as in Play.
+      occlusion: occlusionFromUrl(pageSearch()),
+      occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
+      portals: portalsFromUrl(pageSearch()),
       onChange: () => this.contentArrived(),
       renderer: {
         ...this.rendererChoice,
@@ -503,6 +520,30 @@ export class Viewport {
     this.aoKind = kind;
     this.adapter.setRenderSettings?.({ ambientOcclusion: kind }, 'project');
     this.requestRender();
+  }
+
+  /** The project's occlusion culling setting changed: the view culls as Play does. */
+  setOcclusionCulling(mode: OcclusionCulling): void {
+    if (mode === this.occlusionCulling) return;
+    this.occlusionCulling = mode;
+    this.adapter.setRenderSettings?.({ occlusionCulling: mode }, 'project');
+    this.requestRender();
+  }
+
+  /** The View menu's occlusion switches (culling on or off here, the culled boxes, the depth pyramid). */
+  setOcclusionView(state: OcclusionViewState): void {
+    if (this.occlusion.set(state)) this.requestRender();
+  }
+
+  /** The selection's subtree and the edited objects: never culled. */
+  private keptFromOcclusion(): ReadonlySet<string> {
+    const edited = this.isolation.ids;
+    const k = this.occlusionKept;
+    if (k !== null && k.selected === this.selectedId && k.projected === this.projected && k.edited === edited) return k.ids;
+    const ids = new Set<string>(this.selectedId !== null ? this.subtreeIds(this.selectedId) : []);
+    for (const id of edited ?? []) ids.add(id);
+    this.occlusionKept = { selected: this.selectedId, projected: this.projected, edited, ids };
+    return ids;
   }
 
   /** A loaded instance buffer (the copies' transforms), if here. */
@@ -1168,6 +1209,7 @@ export class Viewport {
       this.root.setAttribute('data-view-proj', viewProj);
     }
     this.followProbeDebug(adapter);
+    this.occlusion.keep(this.keptFromOcclusion());
     const drawn = adapter.renderFrame();
     // The renderer starting or a precompile running skips the frame: ask again until one is drawn.
     if (!drawn.ok || adapter.frameSkipped?.() === true) {
@@ -1182,6 +1224,7 @@ export class Viewport {
     if (terrain !== null) this.root.setAttribute('data-terrain', JSON.stringify(adapter.terrainDiagnostics?.() ?? terrain));
     else this.root.removeAttribute('data-terrain');
     this.tools.afterFrame();
+    this.occlusion.afterFrame();
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // An edit mode's isolation: drawables hidden and swept at this frame (tests and the perf check read it).
@@ -1208,7 +1251,7 @@ export class Viewport {
       this.failuresMark = mark;
       this.cb.onModelFailures?.(failures);
     }
-    if (playing || animated) this.requestRender();
+    if (playing || animated || this.occlusion.animating) this.requestRender();
     if (!playing) this.effects.idle();
   }
 
@@ -1250,6 +1293,7 @@ export class Viewport {
     this.helpers.setCanvas(next);
     this.rendererInfoNow = { requested: preference, source, backend: null, api: null, state: 'initialising', reason: 'choosing a backend', recoveries: 0 };
     this.adapter = this.makeAdapter(next);
+    this.occlusion.apply();
     this.isolation.apply();
     this.lookApplied = null;
     this.applyLightingMode();

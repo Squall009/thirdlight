@@ -1,7 +1,7 @@
 /**
  * The asset inspector's options (the Assets tab's side panel): a model's
  * vertex colours and default materials, an audio file's load type and
- * preload, a texture's mip streaming, a model's LOD switch points and cull size. Each change is one `setAssetOptions` command (one undo).
+ * preload, a texture's mip streaming, a model's LOD switch points and cull size, what of a model is an occluder. Each change is one `setAssetOptions` command (one undo).
  */
 import { useCallback, type MutableRefObject } from 'react';
 
@@ -27,7 +27,9 @@ export function useAssetOptions(clientRef: MutableRefObject<SessionClient | null
   const setTextureStreaming = useCallback((assetId: string, streaming: boolean | null) => setOptions('Texture streaming', { assetId, streaming }), [setOptions]);
   /** Null: the engine's default switch points, never culled. */
   const setModelLod = useCallback((assetId: string, lod: { screenSizes?: number[]; cullSize?: number } | null) => setOptions('Levels of detail', { assetId, lod }), [setOptions]);
-  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload, setTextureStreaming, setModelLod };
+  /** What of a model hides what is behind it: `auto` (its `_OCC` stand-ins, else its opaque surfaces), `occ` (only its stand-ins), `none`. */
+  const setModelOccluder = useCallback((assetId: string, occluder: 'auto' | 'occ' | 'none') => setOptions('Occluder', { assetId, occluder }), [setOptions]);
+  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload, setTextureStreaming, setModelLod, setModelOccluder };
 }
 
 export type AssetOptionActions = ReturnType<typeof useAssetOptions>;

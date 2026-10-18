@@ -364,6 +364,17 @@ near and far — its own lens or the project's — at the game view's aspect:
 the Game preview while it plays, else the window).
 Handles for sizes, ranges, directions and paths: see [Scene handles](#scene-handles).
 
+The **View** menu holds the Scene view's occlusion culling: **Occlusion
+culling** on (the default) culls as Play does, with the project's
+`occlusion_culling` setting on the renderer's path; off draws everything in
+view, for a comparison. **Show culled draws** draws a magenta box round
+each draw culled now (the view keeps drawing while it shows), **Depth
+pyramid** draws the depth the culling tests against instead of the picture
+(WebGPU). The selected object and the object an edit mode edits are never
+culled, nor is anything the view draws itself (gizmos, outlines, handles,
+brush cursors). On WebGL 2 the project's `auto` culls nothing; the editor
+page's `?occlusion=queries` pins the occlusion queries there (and in Play).
+
 Inspector → "+ Add component" → **Face movement** on a model under the player or a
 patroller turns it to face where its parent goes (a yaw for moving right and for
 moving left, reached over a short turn time); it keeps its facing while the

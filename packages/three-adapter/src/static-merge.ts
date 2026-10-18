@@ -188,6 +188,8 @@ export interface StaticMerger {
   unwant(mesh: THREE.Mesh): void;
   /** `mesh` is gone for good: its copy goes with the next build of its cell. */
   drop(mesh: THREE.Mesh): void;
+  /** The merged cell's draw `mesh` is drawn through now (null: none, it is drawn alone). */
+  drawOf(mesh: THREE.Mesh): THREE.Mesh | null;
   /** Build what is pending (within the budget) and rewrite the changed indices; before the draw. */
   update(): void;
   /** Work is left for later frames (a host drawing on demand draws again). */
@@ -821,6 +823,10 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     drop(mesh) {
       const s = slots.get(mesh);
       if (s !== undefined) removeSlot(s);
+    },
+    drawOf(mesh) {
+      const s = slots.get(mesh);
+      return s !== undefined && s.active ? (s.cell.built?.mesh ?? null) : null;
     },
     update() {
       if (disposed) return;

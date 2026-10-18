@@ -57,9 +57,9 @@ import { expect, test, type Locator, type Page } from './pw';
 import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb, type PieceSpec } from './multi-piece-glb';
 import { diff, diffPng, show, STRICT, within } from './parity';
-import { showView } from './ui';
+import { chooseItem, inspector, menu, showView } from './ui';
 import { backendOf, editorUrlFor, expectRendererBackend } from './renderer-variants';
-import { expectOcclusionShotsMatch, keepThreeScenes, onOcclusionSwitch, settledShot } from './view-match';
+import { expectOcclusionShotsMatch, keepThreeScenes, onOcclusionSwitch, settledShot, viewCamera } from './view-match';
 import { pyramidBreaks, type PyramidLayout } from '../../packages/three-adapter/src/occlusion-pyramid-rule';
 import type { Image } from './png';
 import { decodePng } from './png';
@@ -300,7 +300,138 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   await page.waitForTimeout(1500);
   expect((await diag())!.sceneGraph!.matrixWritesTotal).toBe(written);
   await page.getByTitle('Stop the play preview').click();
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
+  await showView(page, 'Scene');
+  await sceneViewOcclusion(page);
 });
+
+/** The Scene view's occlusion culling marks (`data-occlusion-view`). */
+type OcclusionView = { view: { culling: boolean; culled: boolean; pyramid: boolean }; path: string; kept: number; tested: number; culled: number; boxes: number | null };
+const occlusionView = async (page: Page): Promise<OcclusionView> => JSON.parse((await attr(page, 'data-occlusion-view')) || '{}') as OcclusionView;
+
+/**
+ * Occlusion culling in the Scene view, on both renderers (WebGL 2 with its queries pinned by the editor page's
+ * `?occlusion=queries`, which its auto leaves off): a wall put between the view and a dense block (2,352
+ * triangles, worth a test) hides the block, and the View menu's culled draws show its box; selected, the block
+ * is kept (outlined, never culled); the Inspector's Occluder off makes the wall hide nothing; an edit mode on the
+ * block (vertex paint, with the rest shown as context) never culls it; and the view draws the same picture
+ * with culling on and off.
+ */
+async function sceneViewOcclusion(page: Page): Promise<void> {
+  const view = page.locator('canvas.tl-viewport');
+  const piece = { name: 'dense', lods: [[1, 1, 1]] as [number, number, number][], colors: [[0.2, 0.4, 0.9]] as [number, number, number][], segments: 14 };
+  await publishBytes(be, new Uint8Array(multiPieceGlb([piece], { centred: true })), 'model', 'dense-block', 'Dense block');
+  // Along a ray a little right of the view's middle: the block at 1 m above the ground, the wall half way, facing the
+  // view (placed again for the view after a reload, which starts from its own pose).
+  const wall = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'occluding wall', transform: { position: [0, 0, 0] }, box: { size: [4, 4, 0.3], material: { color: '#c8c0b0' } } }))['createdId']);
+  const block = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'dense hidden', transform: { position: [0, 0, 0] }, model: { asset: { assetId: 'dense-block' }, piece: 'dense' } }))['createdId']);
+  const placeForView = async (): Promise<void> => {
+    const cam = await viewCamera(page);
+    const q = new Quat(cam.rotation);
+    const fwd = q.apply([0, 0, -1]);
+    const right = q.apply([1, 0, 0]);
+    const dir = norm([fwd[0]! + right[0]! * 0.25, fwd[1]! + right[1]! * 0.25, fwd[2]! + right[2]! * 0.25]);
+    const tBlock = Math.min(30, Math.max(6, dir[1]! < -0.05 ? (cam.position[1]! - 1) / -dir[1]! : 10));
+    const at = (t: number): number[] => cam.position.map((p, i) => p + dir[i]! * t);
+    await command('setTransform', { entityId: wall, transform: { position: at(tBlock * 0.55), rotation: cam.rotation, scale: [1, 1, 1] } });
+    await command('setTransform', { entityId: block, transform: { position: at(tBlock), rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  };
+  const row = (id: string): Locator => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`);
+  const culledShown = async (path: string, boxes: number, message: string): Promise<void> => {
+    let last: OcclusionView | null = null;
+    await expect.poll(async () => { last = await occlusionView(page); return `${last.path} ${last.boxes}`; }, { timeout: 20_000, message }).toBe(`${path} ${boxes}`).catch((e: unknown) => {
+      console.log(`[rendering] Scene view occlusion (failed: ${message}): ${JSON.stringify(last)}`);
+      throw e;
+    });
+  };
+  const onOff = async (label: string): Promise<void> => {
+    const on = await settledShot(view, `${label}-on`, 500);
+    const marks = await occlusionView(page);
+    await menu(page, 'View', 'Occlusion culling: on');
+    await expect.poll(async () => (await occlusionView(page)).path).toBe('off');
+    const off = await settledShot(view, `${label}-off`, 500);
+    await menu(page, 'View', 'Occlusion culling: off');
+    expectOcclusionShotsMatch({ image: on, occlusion: `${marks.path}|0|${marks.tested}|${marks.culled}|0` }, { image: off, occlusion: 'off' }, label);
+  };
+
+  // The product's renderer first (WebGPU on a GPU), then WebGL 2 (once, if the first was not it).
+  const backends = backendOf('auto') === 'webgpu' ? (['webgpu', 'webgl2'] as const) : (['webgl2'] as const);
+  for (const [k, backend] of backends.entries()) {
+    if (backend === 'webgl2') {
+      await page.goto(`${editorUrlFor(be.editorUrl, 'webgl2').replace('#', '&occlusion=queries#')}`);
+      await expect(page.locator('.tl-statusbar')).toContainText('connected');
+      await expectRendererBackend(view, 'webgl2');
+    } else await expectRendererBackend(view, 'auto');
+    const path = backend === 'webgpu' ? 'hiz' : 'queries';
+    await placeForView();
+    await expect(row(block)).toBeVisible({ timeout: 15_000 });
+    // The culled draws' boxes (the view keeps drawing while they show): the block behind the wall.
+    await menu(page, 'View', 'Show culled draws: off');
+    await culledShown(path, 1, `${backend}: the block behind the wall culled, its box shown`);
+    // Selected (in the Hierarchy: the view does not move), it is outlined and never culled.
+    await row(block).click();
+    await expect(view).toHaveAttribute('data-selection-outline', block, { timeout: 15_000 });
+    await culledShown(path, 0, `${backend}: the selected block is drawn`);
+    expect((await occlusionView(page)).kept, 'the selection kept from culling').toBeGreaterThan(0);
+    // The wall selected: the block is culled again; the wall's Occluder off, it hides nothing (one undo puts it back).
+    await row(wall).click();
+    await culledShown(path, 1, `${backend}: the block culled again once the selection moved`);
+    // The Occluder field moves the wall out of the depth the pyramid is built from (the queries test the finished frame's depth).
+    if (path === 'hiz') {
+      const occluder = inspector(page).getByRole('checkbox', { name: 'box occluder' });
+      await expect(occluder).toBeChecked();
+      // (The field shows the stored value: it turns off once the command is applied.)
+      await occluder.click();
+      await expect(occluder).not.toBeChecked();
+      await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: wall } }))['entity'] as { components: { box: { occluder?: boolean } } }).components.box.occluder).toBe(false);
+      await culledShown(path, 0, 'the wall no occluder: the block drawn');
+      await menu(page, 'Edit', 'Undo');
+      await culledShown(path, 1, 'the wall an occluder again');
+    }
+    if (k === 0) {
+      // An edit mode on the block with the rest of the scene shown (Context): the edited block is never culled.
+      await row(block).click();
+      await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
+      const mode = page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
+      await expect(mode).toBeVisible();
+      await mode.getByRole('button', { name: 'Context' }).click();
+      await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { context?: boolean }).toMatchObject({ context: true });
+      await culledShown(path, 0, 'the edited block is never culled');
+      await mode.getByRole('button', { name: /^done/i }).click();
+      await expect(mode).toHaveCount(0);
+      await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'centre' }).first().click();
+      await culledShown(path, 1, 'out of the edit mode, culled again');
+      // The model's import setting: what of it hides what is behind it (one setAssetOptions; back to auto).
+      await chooseItem(page, 'model', 'Dense block');
+      const field = inspector(page).getByLabel('occluder', { exact: true });
+      await field.selectOption('none');
+      const occluderOf = async (): Promise<unknown> => ((await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; occluder?: string }[]).find((a) => a.assetId === 'dense-block')?.occluder;
+      await expect.poll(occluderOf).toBe('none');
+      await field.selectOption('auto');
+      await expect.poll(occluderOf).toBeUndefined();
+    }
+    // The picture with culling on (the block culled, the boxes off) and off: the same.
+    await menu(page, 'View', 'Show culled draws: on');
+    await expect.poll(async () => (await occlusionView(page)).boxes).toBeNull();
+    await onOff(`scene-view-${backend}`);
+  }
+}
+
+/** A unit quaternion (x, y, z, w) turning vectors. */
+class Quat {
+  constructor(private readonly q: readonly number[]) {}
+  apply(v: readonly number[]): number[] {
+    const [x, y, z, w] = this.q as [number, number, number, number];
+    const tx = 2 * (y * v[2]! - z * v[1]!);
+    const ty = 2 * (z * v[0]! - x * v[2]!);
+    const tz = 2 * (x * v[1]! - y * v[0]!);
+    return [v[0]! + w * tx + (y * tz - z * ty), v[1]! + w * ty + (z * tx - x * tz), v[2]! + w * tz + (x * ty - y * tx)];
+  }
+}
+const norm = (v: readonly number[]): number[] => {
+  const l = Math.hypot(v[0]!, v[1]!, v[2]!);
+  return v.map((x) => x / l);
+};
 
 /** Move every third box of the field under a turned, scaled, logic-only parent (each keeps its place in the world). */
 async function boxesUnderRig(): Promise<void> {

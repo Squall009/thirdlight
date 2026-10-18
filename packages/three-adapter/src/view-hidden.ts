@@ -61,13 +61,34 @@ export function hiddenFromView(o: THREE.Object3D, reason: number): boolean {
   return (((o.userData[HIDDEN_BY_KEY] as number | undefined) ?? 0) & reason) !== 0;
 }
 
+/** `object.userData[OCCLUSION_KEPT_KEY]`: never culled by occlusion now (an editor's selection, the object an edit mode edits). */
+const OCCLUSION_KEPT_KEY = '__tlOcclusionKept';
+
+/** Draws kept now, on the page: none (Play, an export) costs the tests no read. */
+let keptDraws = 0;
+
+/** Keep `o` from occlusion culling (or let it be tested again); true when that changed. */
+export function keepFromOcclusion(o: THREE.Object3D, kept: boolean): boolean {
+  if ((o.userData[OCCLUSION_KEPT_KEY] === true) === kept) return false;
+  if (kept) o.userData[OCCLUSION_KEPT_KEY] = true;
+  else delete o.userData[OCCLUSION_KEPT_KEY];
+  keptDraws += kept ? 1 : -1;
+  return true;
+}
+
+/** Whether `o` is kept from occlusion culling. */
+export function keptFromOcclusion(o: THREE.Object3D): boolean {
+  return keptDraws > 0 && o.userData[OCCLUSION_KEPT_KEY] === true;
+}
+
 /**
- * Whether occlusion culling may test `o` for `camera`: drawn, hidden by no
- * reason decided before it, and on the camera's layers, or off them only
- * because occlusion itself hid it (a hidden draw is asked again, so it shows
- * at the first answer that sees it).
+ * Whether occlusion culling may test `o` for `camera`: drawn, kept by no
+ * host, hidden by no reason decided before it, and on the camera's layers,
+ * or off them only because occlusion itself hid it (a hidden draw is asked
+ * again, so it shows at the first answer that sees it). A draw it may not
+ * test is drawn whole by every path.
  */
 export function occlusionMayTest(o: THREE.Object3D, camera: THREE.Camera): boolean {
-  if (!o.visible || hiddenFromView(o, HIDDEN_BEFORE_OCCLUSION)) return false;
+  if (!o.visible || keptFromOcclusion(o) || hiddenFromView(o, HIDDEN_BEFORE_OCCLUSION)) return false;
   return hiddenFromView(o, HIDDEN_BY_OCCLUSION) || camera.layers.test(o.layers);
 }

@@ -108,6 +108,16 @@ export function AssetInspector(p: AssetInspectorProps): JSX.Element | null {
             </select>
           </label>
         )}
+        {a.kind === 'model' && (
+          <label className="tl-field" title="What of the model hides what is behind it from occlusion culling: auto (its _OCC stand-ins if it has any, else its opaque surfaces), only its _OCC stand-ins, or nothing (its _OCC nodes not drawn)">
+            <span className="tl-field__label">occluder</span>
+            <select className="tl-input" aria-label="occluder" value={a.occluder ?? 'auto'} onChange={(e) => void p.assetOptions.setModelOccluder(a.assetId, e.target.value === 'occ' || e.target.value === 'none' ? e.target.value : 'auto')}>
+              <option value="auto">auto (_OCC, else its surfaces)</option>
+              <option value="occ">only its _OCC stand-ins</option>
+              <option value="none">none</option>
+            </select>
+          </label>
+        )}
         {a.kind === 'model' && <ModelLodOptions assetId={a.assetId} lod={a.lod} onLod={(id, lod) => void p.assetOptions.setModelLod(id, lod)} />}
         {a.kind === 'model' && p.modelExtra}
         {a.kind === 'model' && (

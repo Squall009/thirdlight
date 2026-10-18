@@ -10,7 +10,8 @@
  * (`markOccludee`): block chunks, architecture chunks, terrain pages.
  *
  * Never occludees: lights, points, lines and sprites, a model's `_OCC`
- * stand-ins (occluders.ts: they hide, they are never hidden), and what three
+ * stand-ins (occluders.ts: they hide, they are never hidden), what a host
+ * draws for itself (`markHostDrawing`: an editor's overlays), and what three
  * is told never to cull (`frustumCulled = false`: the sky, full-screen
  * passes) unless an owner marked it (terrain pages pick their own nodes and
  * are marked).
@@ -33,6 +34,26 @@ import { mergedMembersOf } from './static-merge';
 /** `object.userData[OCCLUDEE_KIND_KEY]`: the kind an owner gave its draw (else it is told from its type). */
 export const OCCLUDEE_KIND_KEY = '__tlOccludeeKind';
 
+/** `object.userData[HOST_DRAWING_KEY]`: what a host draws for itself (an editor's overlays: outlines, gizmos, brush cursors), below this object. */
+const HOST_DRAWING_KEY = '__tlHostDrawing';
+
+/** Roots marked so far: a page without any (Play, an export) never walks a draw's parents for the mark. */
+let hostDrawings = 0;
+
+/** Mark `root` and everything below it as a host's own drawing: never an occludee (never culled, never tested). */
+export function markHostDrawing(root: THREE.Object3D): void {
+  if (root.userData[HOST_DRAWING_KEY] === true) return;
+  root.userData[HOST_DRAWING_KEY] = true;
+  hostDrawings += 1;
+}
+
+/** Whether `o` lies in a host's own drawing. */
+function inHostDrawing(o: THREE.Object3D): boolean {
+  if (hostDrawings === 0) return false;
+  for (let x: THREE.Object3D | null = o; x !== null; x = x.parent) if (x.userData[HOST_DRAWING_KEY] === true) return true;
+  return false;
+}
+
 /** Mark `o` as an occludee of `kind` (block, architecture and terrain draws, which look like any mesh); level geometry draws first. */
 export function markOccludee(o: THREE.Object3D, kind: OccludeeKind): void {
   o.userData[OCCLUDEE_KIND_KEY] = kind;
@@ -50,7 +71,7 @@ export function isInstancedDraw(m: THREE.Mesh): boolean {
 /** What `o` is as an occludee (null: never one). */
 export function occludeeKindOf(o: THREE.Object3D): OccludeeKind | null {
   const m = o as THREE.Mesh;
-  if (m.isMesh !== true || isOccluderStandin(m)) return null;
+  if (m.isMesh !== true || isOccluderStandin(m) || inHostDrawing(m)) return null;
   const marked = o.userData[OCCLUDEE_KIND_KEY] as OccludeeKind | undefined;
   if (materialsOf(m).some((x) => x.transparent)) return 'transparent';
   if (marked !== undefined) return marked;

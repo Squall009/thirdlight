@@ -538,18 +538,29 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     if (route.request().method() !== 'POST') return route.continue();
     finalAsked = () => route.continue();
   });
+  // The atlas is cold unless the backend's Play build made ahead (after a file check, once the project was left alone
+  // a second) composed the pages already: then Rebuild answers the pages themselves at once, with no preview.
   const rebuilt = Date.now();
   await drawer.getByRole('button', { name: 'Rebuild pages' }).click();
-  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the preview pages drawn from' }).toBe('true true true');
+  let rebuildAnswer = '';
+  await expect.poll(async () => { const m = await atlasMark(); return (rebuildAnswer = `${m?.composed} ${m?.preview} ${m?.drawn}`); }, { timeout: 30_000, message: 'the preview pages (or the pages composed ahead) drawn from' }).toMatch(/^true (true|false) true$/);
   const atlasPreviewMs = Date.now() - rebuilt;
-  await expect(drawer.getByRole('status')).toContainText('Preview in');
-  await expect.poll(() => finalAsked !== null, { message: 'the pages themselves asked for behind the preview' }).toBe(true);
-  await finalAsked!();
-  await page.unroute(finalRoute);
-  await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true false true');
-  console.log(`decal atlas ${what}: preview pages drawn from ${atlasPreviewMs} ms after Rebuild, the pages ${Date.now() - rebuilt} ms (their request held until the preview showed)`);
-  // The status times the wait for the pages from Rebuild, not the last request that found them composed.
-  await expect(drawer.getByRole('status')).toContainText(/Preview in \d+ ms · the pages in [\d.]+ s/);
+  if (rebuildAnswer === 'true true true') {
+    await expect(drawer.getByRole('status')).toContainText('Preview in');
+    await expect.poll(() => finalAsked !== null, { message: 'the pages themselves asked for behind the preview' }).toBe(true);
+    await finalAsked!();
+    await page.unroute(finalRoute);
+    await expect.poll(async () => { const m = await atlasMark(); return `${m?.composed} ${m?.preview} ${m?.drawn}`; }, { timeout: 30_000, message: 'the pages composed and drawn from' }).toBe('true false true');
+    console.log(`decal atlas ${what}: preview pages drawn from ${atlasPreviewMs} ms after Rebuild, the pages ${Date.now() - rebuilt} ms (their request held until the preview showed)`);
+    // The status times the wait for the pages from Rebuild, not the last request that found them composed.
+    await expect(drawer.getByRole('status')).toContainText(/Preview in \d+ ms · the pages in [\d.]+ s/);
+  } else {
+    // Composed ahead: no preview, and no second request to hold (the backend's own test covers the cold preview).
+    await page.unroute(finalRoute);
+    expect(finalAsked, 'no request for the pages behind a preview').toBeNull();
+    await expect(drawer.getByRole('status')).toContainText(/Made in \d+ ms/);
+    console.log(`decal atlas ${what}: the pages were composed ahead (the Play build made ahead); drawn from ${atlasPreviewMs} ms after Rebuild`);
+  }
   // The pages themselves on the GPU (their bytes the report's: the preview's smaller arrays let go).
   const gpuBytes = (await atlasMark())!.gpuBytes;
   await expect.poll(async () => (await view.getAttribute('data-tl-decal-pages'))?.split('|').slice(2).join('|'), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBe(`${gpuBytes}|2`);

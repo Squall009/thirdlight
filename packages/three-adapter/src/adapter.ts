@@ -55,6 +55,7 @@ import { createLevelViews } from './level-views';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
 import { OcclusionCuller } from './occlusion';
+import { markHostDrawing } from './occludees';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScatterHost } from './scatter-host';
@@ -841,7 +842,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.() });
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null } });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1877,6 +1878,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       else if (typeof o.userData[TERRAIN_ENTITY_KEY] === 'string') return o.userData[TERRAIN_ENTITY_KEY] as string;
       return null;
     },
+    occlusion: () => occlusion,
     setIsolation(ids): void {
       if (!disposed && isolation.set(ids)) opts.onChange?.();
     },
@@ -1900,6 +1902,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       let hung = overlays.get(entityId);
       if (hung === undefined) overlays.set(entityId, (hung = new Set()));
       hung.add(object);
+      // The host's own drawing: occlusion culling never leaves it out.
+      markHostDrawing(object);
       if (object.parent !== null) object.removeFromParent();
       graph.nodeFor(entityId)?.add(object);
     },
