@@ -304,7 +304,7 @@ animating hidden characters.
 | 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm). |
 | 33.10 | Done 2026-10-18: the Scene view culls through Play's culler (the project's `occlusion_culling`, the renderer's path; `?occlusion=` and `?portals=off` reach the Scene view and Play); a new View menu: Occlusion culling on/off (this view only), Show culled draws (magenta boxes round draws culled whole or hidden by queries; the view keeps drawing meanwhile), Depth pyramid; the selection's subtree and an edit mode's objects are never culled (a batch or merged cell holding one is drawn whole, untested; nothing regroups), the view's own drawing is no occludee (`markHostDrawing`); Inspector Occluder (box/model) and the asset inspector's model `occluder`. rendering.e2e's Scene view test (WebGPU, then WebGL 2 with the queries pinned): a dense block behind a wall culled and boxed, selected → outlined and drawn, the wall's Occluder off → drawn, vertex-paint mode with Context → never culled, culling on vs off bit-identical (worst 0) on both; +6.4 s (6.7 → 13.1 s, one editor reload). vitest: kept draws, host drawing, the overlay's edges, the menu switches. viewport.ts split first (effect preview, 1,990 → 1,897; now 1,942). The decal atlas flake fixed (§7). Fast gate: e2e green (D201 once, passed on rerun); its village perf check missed (WebGPU p50 7.9–8.2 ms, limit 6.16) with HEAD `b2950862` as slow: interleaved A/B, 4 rounds in both orders, main thread 7.96 (after) / 7.93 (before) ms, p50 7.1–8.2 / 7.0–8.1 ms, the second run of each pair the slower: host state (D199), baseline kept. |
 | 33.11 | Done 2026-10-18: the manual's `features/occlusion.md` (when culling pays and where walls and `_OCC` stand-ins do not, the setting and the quality-level override, WebGPU `hiz` on and WebGL 2 queries off and why, `_OCC` with its import check and the model's `occluder`, an object's `occluder: false`, the View menu, the URL switches, the diagnostics), linked from the manual's and the features' indexes, editor, assets and both performance pages; a `_OCC` section and checklist note in the trim sheet spec (the kit editor's checks list no `_OCC` check: none exists); `occlusion_culling` in the MCP `setSettings` docs (values from `OCCLUSION_CULLING_SETTING_VALUES`); reference regenerated; deployment.md untouched (server-only); the skill names no node suffixes or render settings, unchanged. Export: bundle-scan.test.ts builds the real export page with `occlusion_culling: 0` and checks the manifest's setting reads off, the page links both paths' modules and no editor, backend, MCP, workspace, commands or protocol code (every export also runs `checkBundleGraphM3`); `data-tl-occlusion` with culled draws on both renderers was already covered by rendering.e2e's export (WebGPU auto, WebGL 2 pinned). No drawing change. Fast gate: build, lint, vitest, e2e (rendering.e2e) green; its village perf check missed twice (WebGPU p50 6.3, then 7.1 ms, limit 6.16; the plain three.js page slowed with it, 6.3 → 6.5 ms) while the export page bundle is byte-identical to HEAD's (sha256 compared with and without the change): host state (D199), baseline kept. |
-| 33.12 | |
+| 33.12 | Done 2026-10-18: after numbers below (classes split by `occlusion=off`, `portals=off`, WebGPU `hiz` and WebGL 2 `auto` and pinned `queries`; the harness's `--switches` now also run at each view). Village A/B against `60bd1f69` (interleaved `village --gate`, load 3–4, fast host state): WebGPU p50 5.2–5.6 → 6.0–6.3 ms, HEAD with `occlusion=off` 5.6/5.7: a real cost of the hiz path, half from 33.4 and half from 33.5 (33.6 adds none), not host drift (D282); WebGL 2 4.6–4.9 both. One generated level (terrain with scatter and cover, block walls with a live door, generated rooms with a closed door piece, an `_OCC` hedge hiding a dense pillar) through the editor's Play button and File → Export game, both renderers, export at 1920 × 1080: 36 of 36 culling on/off comparisons bit-identical (four poses, a door opened by a script with the portals on and off, three stops after flights), the opened door's room drawn in the first shot after the key; the Scene view's culled boxes and depth pyramid looked at; the hidden pillar's shadow is not told apart by eye (it falls inside the hedge's own), only bit-identical. Not done: `level-acceptance.e2e.ts` not extended (no added e2e time; the driver covered it), the 2048-triangle floor not re-measured on denser content. Fixed: the culled boxes were never drawn on WebGL 2 (counted only; rendering.e2e now checks their pixels); a read-back finishing after Play stopped threw. §5 below: p95 −25 % missed everywhere (−2 to −8 %), half the oracle's hidden items culled in the landscape and world views (64–81 %), not in the village and area streets (45 %, 47 %); open view and draws missed (D282, D285); GPU numbers unverified (D283); D284 for the overlay. Screenshots in `~/.cache/thirdlight-phase33/acceptance/`. |
 
 **33.1 before numbers** (HEAD `60bd1f69` plus the harness, Iris Xe, 1920 × 1080, DPR 1, uncapped; frame
 p50/p95/p99 ms; GPU = three's pass timestamps per frame, WebGPU only, waits included; main = main-thread
@@ -343,6 +343,54 @@ triangles, but only 65–76 % of their draws hidden whole: a chunk with one copy
 cells 70–74 % of draws; single draws 73–84 % of their triangles. Oracle runs 0.6–1.2 s, 0 stray ids. The
 interior's 52 % hidden draws are left after the portals (instanced draws, which rooms never cull). The
 WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both columns.
+
+**33.12 after numbers** (HEAD `c3a90933` plus the harness's switches at views, 2026-10-18, Iris Xe, 1920 × 1080, DPR 1,
+uncapped, load 2.4–3.1; frame p50/p95 ms, main = main-thread ms a frame; culled/tested from `data-tl-occlusion`
+(copies and terrain nodes, plus draws culled whole); "of hidden" = culled against the oracle's hidden items). WebGPU,
+the setting's `auto` (= `hiz`) against `occlusion=off` in the same browser:
+
+| Class, view | frame on / off | main on / off | draws on / off | tris on / off | culled / tested | of hidden |
+|---|---|---|---|---|---|---|
+| village open | 7.1/9.5 / 7.5/10.4 | 7.24 / 7.61 | 229 / 222 | 92k / 107k | 197 / 418 | 27 % |
+| village street | 7.7/10.0 / 7.4/10.5 | 7.85 / 7.62 | 274 / 265 | 114k / 139k | 446 / 529 | 45 % |
+| area open | 7.7/9.4 / 7.7/9.2 | 7.77 / 7.77 | 281 / 260 | 206k / 271k | 701 / 2784 | 20 % |
+| area street | 8.4/10.1 / 8.2/10.9 | 8.44 / 8.30 | 280 / 259 | 200k / 275k | 2182 / 2829 | 47 % |
+| landscape open | 10.4/10.9–11.5 / 10.4/10.9–11.4 | 10.48 / 10.49–10.53 | 367 / 343 | 228k / 547k | 9187 / 15276 | 57 % |
+| landscape street | 9.0/10.8 / 9.2/11.8 | 9.05 / 9.23 | 368 / 344 | 203k / 557k | 14304 / 16399 | 76 % |
+| landscape valley | 10.1/10.5 / 10.0/11.2 | 10.15 / 10.04 | 299 / 298 | 167k / 441k | 7002 / 10520 | 64 % |
+| world open | 10.1/12.6 / 9.8/11.8 | 10.25 / 9.90 | 408 / 381 | 249k / 561k | 3325 / 13723 | 28 % |
+| world street | 8.6/10.0 / 8.7/10.5 | 8.77 / 8.81 | 409 / 384 | 223k / 574k | 12845 / 14816 | 74 % |
+| world valley | 10.0/11.2 / 10.2/11.0 | 10.10 / 10.25 | 193 / 182 | 44k / 401k | 13990 / 17803 | 81 % |
+| interior | 9.9/10.4 / 9.6/10.3 | 9.95 / 9.70 | 102 / 102 | 132k / 132k | 0 / 0 | - |
+| interior `portals=off` (culling on) | 10.2/10.8 | 10.23 | 384 | 344k | 1 / 2 | - |
+
+The landscape open view's first run read 12.4 ms / 12.52 main with culling on, then four alternating runs on/off/on/off in
+two pages read 10.4 ms and 10.48–10.53 main for both (the row's values): a one-off. The compute pass (pyramid and culling)
+read 0.27 (village open), 0.47 (village street), 0.35–0.37 (area), 0.30 (interior), 0.53–0.62 ms (landscape, world), an
+upper bound (D283). WebGL 2, `auto` (= off) / `occlusion=off` / `queries` pinned, frame p50/p95 and main: village open
+4.6/7.2 6.40, 4.6/7.1 6.57, 4.9/6.5 6.48; street 4.9/7.2 6.95, 4.9/7.1 6.97, 5.3/7.9 6.93; area open 2.6/7.3 7.23,
+2.6/8.1 7.46, 3.1/7.2 7.52; area street 2.6/7.8 7.35, 2.6/7.6 7.60, 3.0/7.4 7.53; landscape open 4.4/15.9 11.22, 4.0/12.7
+11.00, 4.5/7.4 11.42; street 4.1/6.6 9.56, 4.0/10.2 9.55, 4.6/8.5 9.50; valley 3.2/11.2 10.87, 3.2/11.3 10.61, 3.6/11.1
+10.67; world open 4.4/9.5 10.37, 4.5/12.3 10.29, 5.0/8.7 10.43; street 4.4/14.3 9.15, 4.4/11.6 8.81, 5.0/8.7 9.01; valley
+3.2/11.5 10.59, 2.9/11.3 10.61, 10.9/11.8 11.01; interior 7.4/11.0 9.45, 7.9/10.8 9.47, 7.0/10.9 9.09 (`portals=off`
+3.7/10.3 10.84, 384 draws). The pinned queries asked 0–30 boxes a frame and culled 0 everywhere uncapped (§7 33.7). A 60 s
+flight over the landscape at 60 Hz: 0 refreshes missed with culling on, off and the queries pinned, on both renderers;
+main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queries.
+
+**§5 after the phase:**
+
+| Measure | Result |
+|---|---|
+| Occluded views: p95 −25 %, or half the oracle's hidden culled | p95 missed (WebGPU −2 to −8 %, world valley +2 %); half culled met in the landscape and world views (64–81 % of the hidden items), missed in the village and area streets (45 %, 47 %); WebGL 2 culls nothing by default (§7 33.7) |
+| Open view: GPU ≤ +0.3 ms, main ≤ +0.2 ms | main: area, landscape equal; village +0.20–0.27, interior +0.25, world +0.35 (one run): missed, and the village frame +0.6–0.8 ms p50 (D282); GPU unverified (D283) |
+| Pyramid and culling compute ≤ 0.4 ms | met on the village open view, area and interior (0.27–0.37), missed on the village street, landscape and world (0.47–0.62), as an upper bound (D283) |
+| Second pass ≤ 0.2 ms when nothing is uncovered | unverified (not separable, D283) |
+| WebGL 2 queries ≤ 0.3 ms main | met within noise (queries pinned against off −0.38 to +0.42 ms; two readings +0.4 in the noisy landscape and world open views) |
+| No visible object culled | met at still poses: 36 of 36 on/off comparisons bit-identical in Play and the export on both renderers (poses, a door opened, stops after flights); per-frame equality along a moving path is not observable this way (rendering.e2e's flown poses only) |
+| Draws encoded ≤ culling off (+ proxies on WebGL 2) | missed on WebGPU: +7 to +27 draws (3–8 %, D285); WebGL 2 queries +2 to +31 proxies (allowed) |
+| Pyramid memory ≤ 4 MB at 1080p | met: 2.76 MB (33.4) |
+| Frames over 16.7 ms in a 60 s flight | met: 0 with and without culling, both renderers |
+| Added e2e time ≤ 60 s | unverified until the phase's full gate (33.10 +6.4 s; 33.12 adds one picture poll per renderer to rendering.e2e) |
 
 ## 7. Decision log
 
@@ -671,3 +719,19 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   it finished before Rebuild the atlas was warm, so Rebuild answered the pages themselves. The test now takes
   either: cold, the preview checks as before; warm, the pages drawn at once, "Made in", no request held. The
   backend's `decal-pages.test.ts` covers the cold preview every run.
+- 2026-10-18 (33.12): **the village's slower frame is the hiz path, not the host.** Interleaved against the phase's
+  start, the gate's WebGPU p50 is 0.6–0.8 ms higher and equal with `?occlusion=off`; 33.4's two-pass frame and 33.5's
+  copy culling each add about half (D282). Default chosen, owner to confirm: the baseline is not re-recorded (the brief
+  allows that only after a measured speedup) and `auto` stays `hiz`, so the fast gate's perf check misses about half its
+  runs until D282 is worked; the owner weighs a cheaper open view against a new baseline.
+- 2026-10-18 (33.12): fixed in 33.10's overlay: on WebGL 2 the culled draws' boxes were counted (`data-occlusion-view`)
+  but never drawn: the line geometry was first drawn without a position buffer and the one set on it later was never
+  drawn. The overlay now makes its geometry with the buffer and a new geometry when it grows; rendering.e2e's Scene view
+  test counts the boxes' magenta pixels on both renderers, not only their number.
+- 2026-10-18 (33.12): fixed in 33.5's read-back: a read in flight when Play stopped finished after the renderer was
+  disposed, and three's dispose bookkeeping for its buffer threw an uncaught error on the page; the late release is now
+  guarded.
+- 2026-10-18 (33.12): the acceptance's level was driven through the UI by a one-off driver outside the repo (no new e2e
+  file): the editor's Play button, script keys for poses, a flight and a door (`clearEdge`: a piece opened with
+  `setEdgeOpen` keeps its look, so the room behind stays hidden by it), the View menu and File → Export game. The level
+  has no animated water (a river's water mesh never settles for a strict picture comparison).

@@ -12,6 +12,9 @@ import * as THREE from 'three';
 /** The boxes' colour: a magenta no lit surface of a level is likely to be. */
 const CULLED_TINT = 0xff3cc8;
 
+/** Boxes the line buffer holds before it first grows (doubling past it). */
+const FIRST_BOXES = 16;
+
 /** The 12 edges of a box as corner index pairs (corners: bit 0 x, bit 1 y, bit 2 z). */
 const EDGES = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
 
@@ -56,9 +59,8 @@ export class OcclusionOverlay {
       this.shown = 0;
       return;
     }
-    const geometry = new THREE.BufferGeometry();
     const material = new THREE.LineBasicMaterial({ color: CULLED_TINT, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 });
-    this.lines = new THREE.LineSegments(geometry, material);
+    this.lines = new THREE.LineSegments(this.geometryFor(FIRST_BOXES), material);
     this.lines.name = 'occlusion-culled';
     this.lines.frustumCulled = false;
     this.lines.renderOrder = Number.MAX_SAFE_INTEGER;
@@ -69,17 +71,26 @@ export class OcclusionOverlay {
   update(boxes: readonly THREE.Box3[]): void {
     const lines = this.lines;
     if (lines === null) return;
+    // More boxes than the buffer holds: a new geometry, not a new attribute on the drawn one. On the WebGL 2 backend a
+    // position buffer set on a geometry three had already drawn (without one) was never drawn: the boxes stayed unseen.
     if (this.positions.length < boxes.length * 72) {
-      this.positions = new Float32Array(Math.max(72, boxes.length * 72 * 2));
-      lines.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+      const old = lines.geometry;
+      lines.geometry = this.geometryFor(boxes.length * 2);
+      old.dispose();
     }
     const n = boxEdgeVertices(boxes, this.positions);
-    const attr = lines.geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
-    if (attr !== undefined) {
-      attr.needsUpdate = true;
-      lines.geometry.setDrawRange(0, n);
-    }
+    (lines.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    lines.geometry.setDrawRange(0, n);
     this.shown = n / 24;
+  }
+
+  /** A line geometry for `boxes` boxes (24 vertices each), its position buffer the one updates write into, drawing none yet. */
+  private geometryFor(boxes: number): THREE.BufferGeometry {
+    this.positions = new Float32Array(Math.max(1, boxes) * 72);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setDrawRange(0, 0);
+    return geometry;
   }
 
   dispose(): void {

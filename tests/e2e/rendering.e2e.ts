@@ -368,6 +368,16 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
     // The culled draws' boxes (the view keeps drawing while they show): the block behind the wall.
     await menu(page, 'View', 'Show culled draws: off');
     await culledShown(path, 1, `${backend}: the block behind the wall culled, its box shown`);
+    // Seen, not only counted: the box's magenta edges are in the picture (drawn over the wall).
+    const tinted = (img: Image): number => {
+      let n = 0;
+      for (let y = 0; y < img.height; y += 1) for (let x = 0; x < img.width; x += 1) {
+        const [r, g, b] = img.pixel(x, y);
+        if (r > 180 && g < 120 && b > 140) n += 1;
+      }
+      return n;
+    };
+    await expect.poll(async () => tinted(decodePng(await view.screenshot())), { timeout: 10_000, message: `${backend}: the culled block's box drawn in the view` }).toBeGreaterThan(20);
     // Selected (in the Hierarchy: the view does not move), it is outlined and never culled.
     await row(block).click();
     await expect(view).toHaveAttribute('data-selection-outline', block, { timeout: 15_000 });

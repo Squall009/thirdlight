@@ -83,7 +83,8 @@
  *                                levelViewCamera: `street` at eye height along the area's middle street between the
  *                                walled rooms, outdoor classes; `valley` at eye height behind a hill looking towards
  *                                the area, the classes with a terrain; the interior stays as it is) and measure it
- *                                after the open view, both with the occlusion oracle (implies --oracle)
+ *                                after the open view, both with the occlusion oracle (implies --oracle); `--switches` are
+ *                                measured there too
  *   --oracle                     after each class's run, count what the view drew that no pixel showed (three-adapter
  *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
@@ -219,7 +220,7 @@ export interface LevelReport {
   classes: Partial<Record<LevelKind, Partial<Record<FrameRenderer, FrameRunResult>>>>;
   switches?: Partial<Record<LevelKind, Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>>>;
   /** `--view`: each class seen from each view that fits it instead of its open view. */
-  views?: Partial<Record<LevelKind, Partial<Record<LevelView, { camera: LevelPlan['camera']; byRenderer: Partial<Record<FrameRenderer, FrameRunResult>> }>>>>;
+  views?: Partial<Record<LevelKind, Partial<Record<LevelView, { camera: LevelPlan['camera']; byRenderer: Partial<Record<FrameRenderer, FrameRunResult>>; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> }>>>>;
   errors: string[];
 }
 
@@ -423,12 +424,19 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
         const viewSite = await serveStatic(at.dir);
         try {
           const byRenderer: Partial<Record<FrameRenderer, FrameRunResult>> = {};
-          ((report.views ??= {})[kind] ??= {})[v] = { camera: at.camera, byRenderer };
+          const seen: { camera: LevelPlan['camera']; byRenderer: typeof byRenderer; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> } = { camera: at.camera, byRenderer };
+          ((report.views ??= {})[kind] ??= {})[v] = seen;
           for (const r of renderers) {
             const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(viewSite), shot: join(runDir, `${kind}-${v}-${r}.png`), oracle: true, oracleCull: true, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
             byRenderer[r] = res;
             log(frameLine(`level ${kind} ${v} ${r}`, res) + roomsNote(res));
             log(oracleLine(`level ${kind} ${v} ${r}`, res));
+            // The switches at the view too: what each saves where much is hidden, not only in the open view.
+            for (const sw of switches) {
+              const off = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(viewSite) });
+              ((seen.switches ??= {})[sw] ??= {})[r] = off;
+              log(frameLine(`level ${kind} ${v} ${r} ${sw}`, off) + roomsNote(off));
+            }
           }
         } finally {
           await viewSite.close();

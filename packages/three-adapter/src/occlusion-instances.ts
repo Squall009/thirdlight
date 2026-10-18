@@ -872,10 +872,15 @@ export class InstanceOcclusion implements InstanceCullerHost {
       })
       .catch(() => undefined)
       .finally(() => {
-        target.release();
-        // Replaced while it was read (the arguments grew): freed now.
-        if (target !== this.readback) target.dispose();
         this.reading = false;
+        try {
+          target.release();
+          // Replaced while it was read (the arguments grew, or the culler was disposed): freed now.
+          if (target !== this.readback) target.dispose();
+        } catch {
+          // The renderer was disposed while the read was in flight (Play stopped): its memory book was reset with it,
+          // so three's own dispose bookkeeping throws for a buffer it no longer lists; nothing is left to free.
+        }
       });
   }
 

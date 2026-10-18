@@ -42,7 +42,7 @@
  *   --write-baseline FILE        record this run's frame times as the baseline
  *   --view street                also export the village seen from the street (village.ts villageViewCamera: eye height,
  *                                level, the props in front hiding much of the rest) and measure it after the open view,
- *                                both with the occlusion oracle (implies --oracle)
+ *                                both with the occlusion oracle (implies --oracle); `--switches` are measured there too
  *   --oracle                     after each export run, count what the view drew that no pixel showed (three-adapter
  *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
@@ -107,8 +107,8 @@ export interface VillageReport {
   sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
   /** The export with each `--switches` query added, per query. */
   switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>;
-  /** `--view`: the export seen from that view instead of the open one. */
-  views?: Partial<Record<VillageView, { camera: VillagePlan['camera']; export: Partial<Record<FrameRenderer, FrameRunResult>> }>>;
+  /** `--view`: the export seen from that view instead of the open one; `switches` as above, at the view. */
+  views?: Partial<Record<VillageView, { camera: VillagePlan['camera']; export: Partial<Record<FrameRenderer, FrameRunResult>>; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> }>>;
   errors: string[];
 }
 
@@ -379,12 +379,19 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       const viewSite = await serveStatic(viewDir);
       try {
         const seen: Partial<Record<FrameRenderer, FrameRunResult>> = {};
-        report.views = { [view]: { camera: viewCamera!, export: seen } };
+        const at: NonNullable<VillageReport['views']>[VillageView] = { camera: viewCamera!, export: seen };
+        report.views = { [view]: at };
         for (const r of renderers) {
           const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(viewSite), shot: join(runDir, `export-${view}-${r}.png`), oracle: true, oracleCull: true });
           seen[r] = res;
           log(frameLine(`export ${view} ${r}`, res));
           log(oracleLine(`export ${view} ${r}`, res));
+          // The switches at the view too: what each saves where much is hidden, not only in the open view.
+          for (const sw of switches) {
+            const off = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(viewSite) });
+            ((at!.switches ??= {})[sw] ??= {})[r] = off;
+            log(frameLine(`export ${view} ${r} ${sw}`, off));
+          }
         }
       } finally {
         await viewSite.close();
