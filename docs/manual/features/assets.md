@@ -399,6 +399,8 @@ geometry, its vertex paint and its generated levels.
   count by kind and are drawn first, so what hides the most fills the depth
   before the detail behind it is shaded.
 
+The setting, the paths and when culling pays: [Occlusion culling](occlusion.md).
+
 ## Job exports from asset tools
 
 An asset tool (an art pipeline, a generator, a hand-made delivery) can hand

@@ -205,6 +205,8 @@ open view, with the oracle (`node tools/perf/run.mjs level --classes area
 --view street`). The oracle counts per item, so a draw with one copy in
 sight counts as drawn; transparent items are counted over the opaque depth
 only (one hidden behind another transparent one counts as hidden).
+`--switches occlusion=off` measures the same page again with occlusion
+culling off ([Occlusion culling](occlusion.md)).
 
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance

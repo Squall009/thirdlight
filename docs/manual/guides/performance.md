@@ -40,7 +40,7 @@ Use the same numbers for your own game unless you target something else.
 - **Switches** on the game page's URL turn one feature off to see what it
   costs: `?probes=off`, `?shadowcache=off`, `?batching=off`,
   `?terrain=off`, `?scatter=off`, `?splines=off`, `?architecture=off`,
-  `?portals=off`, `?quality=<id>`, `?renderScale=0.75`. On the editor's URL
+  `?portals=off`, `?occlusion=off`, `?quality=<id>`, `?renderScale=0.75`. On the editor's URL
   they are passed on to Play.
 
 ## Keep it inside budget
@@ -59,6 +59,10 @@ Use the same numbers for your own game unless you target something else.
   instance sets, shadows only near the camera, wind only near (the foliage
   policy in [Terrain](../features/terrain.md#foliage-best-practice-the-foliage-policy)),
   a shadowed-lamp budget for interiors.
+- **Let solid things hide the rest:** occlusion culling (on by default on
+  WebGPU) leaves out what walls, buildings and hills hide; give large
+  see-through pieces an `_OCC` stand-in. See
+  [Occlusion culling](../features/occlusion.md).
 
 ## Measure a build
 

@@ -254,12 +254,34 @@ space**, so the same model restyles when the sheet is swapped.
 - **Names:** `<piece>_LOD0`, `<piece>_LOD1`, `<piece>_LOD2` for the render
   levels (the engine switches below 8 % and 3 % of screen height by default)
   and `<piece>_COL` for its collision mesh (never drawn; a few boxes or
-  convex parts). Several pieces may share one GLB as top-level nodes. See
+  convex parts), and optionally `<piece>_OCC` for an occluder stand-in
+  (below). Several pieces may share one GLB as top-level nodes. See
   [Assets: levels of detail](../features/assets.md#levels-of-detail).
 - **A triangle budget per piece**, set for the kit and kept: as a guide, a
   door or window 500–2,000 triangles at LOD0, about half at LOD1 and a
   quarter at LOD2. Fine detail goes into the sheet's normal map, not
   geometry; no hidden faces inside walls.
+
+## Occluder stand-ins (`_OCC`)
+
+[Occlusion culling](../features/occlusion.md) leaves out what solid
+surfaces hide. A piece whose own surfaces are not solid (a hedge, a fence, a
+lattice wall, a window with glass) hides nothing, unless you give it a
+`<piece>_OCC` node beside its `_LOD<n>` and `_COL` nodes:
+
+- **A few boxes or slabs inside the piece**: the stand-in counts as solid
+  wherever it covers, so keep it inside what really blocks the view. A
+  hedge's stand-in is a box a little smaller than the hedge, not its outline.
+- **Inside the LOD0 bounds**: a stand-in with a vertex more than 1 mm
+  outside them is ignored and named in Problems (`model_occluder_ignored`).
+- **Never drawn** in colour or shadows, and not part of the piece's bounds,
+  colliders, vertex paint or generated levels; no material or UVs needed.
+- **Only where it pays**: large pieces that stand between areas. A solid
+  wall piece needs none, its own surfaces hide. A small prop is not worth it.
+
+The model's import setting `occluder` (`auto`, `occ`, `none`; see
+[Assets](../features/assets.md#occluder-stand-ins-_occ)) chooses between the
+stand-in and the piece's own surfaces.
 
 ## Vertex colours the engine reserves
 
@@ -310,8 +332,8 @@ A kit piece:
 1. Origin at the bottom centre; +X along, +Z facing out, +Y up (glTF).
 2. Top-level nodes at the file origin, transforms applied.
 3. Sized in whole cells (1 m by default) and storeys.
-4. `<piece>_LOD0..2` and a `<piece>_COL` present; triangles within the
-   kit's budget.
+4. `<piece>_LOD0..2` and a `<piece>_COL` present (a `<piece>_OCC` only
+   where its own surfaces are not solid); triangles within the kit's budget.
 5. UV0 inside the rows: u = metres ÷ 4, v within one row's inset bounds,
    no face spanning two rows.
 6. No `COLOR_0` unless it carries the reserved meaning above.

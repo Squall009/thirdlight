@@ -374,6 +374,7 @@ pyramid** draws the depth the culling tests against instead of the picture
 culled, nor is anything the view draws itself (gizmos, outlines, handles,
 brush cursors). On WebGL 2 the project's `auto` culls nothing; the editor
 page's `?occlusion=queries` pins the occlusion queries there (and in Play).
+See [Occlusion culling](occlusion.md).
 
 Inspector → "+ Add component" → **Face movement** on a model under the player or a
 patroller turns it to face where its parent goes (a yaw for moving right and for

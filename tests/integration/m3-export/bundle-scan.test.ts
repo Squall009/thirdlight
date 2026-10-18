@@ -43,6 +43,7 @@ import { buildContentClosureM3, checkBundleGraphM3 } from '@thirdlight/exporter'
 import { buildM3Bundle, buildSimWorkerBundle, engineRelativeSource, MODULES_MODULE, modulesModuleSource, THREE_WEBGPU_ONLY_PLUGIN } from '../../../packages/exporter/src/export-bundle';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { fakeService, syntheticV3 } from '../m3-builds/helpers';
+import { renderSettingsOf } from '@thirdlight/project-model';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
@@ -344,6 +345,24 @@ describe('M3 export bundle re-measurement + production parity', () => {
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
       expect(b.inputs.some((p) => p.includes('packages/backend/src/'))).toBe(false);
+    }
+  }, 180_000);
+
+  it('the export ships occlusion culling: the setting in its manifest, the culling in its page, no editor, server or MCP code', async () => {
+    const { scene, content, blobs } = syntheticV3();
+    for (const e of (scene as { entities: { components: Record<string, unknown> }[] }).entities) delete e.components['controller'];
+    (content as { settings: Record<string, unknown> }).settings['occlusion_culling'] = 0;
+    const built = await buildContentClosureM3({ service: fakeService({ blobs }) as unknown as WorkspaceService, compiler: {} as never, projectId: 'demo-0006-occlusion', revision: 1, capturedAt: '2026-09-21T00:00:00Z', scene, content });
+    if (!built.ok) throw new Error(JSON.stringify(built.error));
+    // The page reads the project's setting from the manifest (renderSettingsOf), so off reaches the exported game.
+    expect(renderSettingsOf(built.closure.manifest.settings).occlusionCulling).toBe('off');
+    const [page] = await bundlesOf(built.closure);
+    // Both paths and what they share, whatever the setting: a page flag can pin either for a comparison.
+    for (const m of ['three-adapter/src/occlusion.ts', 'three-adapter/src/occlusion-pyramid.ts', 'three-adapter/src/occlusion-instances.ts', 'three-adapter/src/occlusion-whole.ts', 'three-adapter/src/occlusion-queries.ts', 'three-adapter/src/occluders.ts', 'runtime/src/occlusion.ts']) {
+      expect(page!.sources, m).toContain(`packages/${m}`);
+    }
+    for (const pkg of ['editor', 'backend', 'mcp-adapter', 'workspace', 'commands', 'protocol']) {
+      expect(page!.inputs.some((p) => p.includes(`packages/${pkg}/src/`)), pkg).toBe(false);
     }
   }, 180_000);
 

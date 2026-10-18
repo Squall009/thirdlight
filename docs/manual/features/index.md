@@ -38,6 +38,7 @@ The pages, and the Deployment sections each took:
 | [vertex-paint.md](vertex-paint.md) | — (new: vertex paint on models, instance copies and generated meshes; the paintVertices command; the Scene view's paint mode) | growing |
 | [streaming.md](streaming.md) | World streaming | done |
 | [performance.md](performance.md) | Performance | done |
+| [occlusion.md](occlusion.md) | — (new: occlusion culling, its setting and paths, `_OCC` stand-ins, switches and diagnostics) | done |
 | [ui.md](ui.md) | Project UI (UI documents), The UI document editor | done |
 | [game-modes.md](game-modes.md) | Game modes | done |
 | [dialogue.md](dialogue.md) | Dialogue | done |
