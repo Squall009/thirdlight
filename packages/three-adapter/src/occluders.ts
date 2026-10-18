@@ -30,6 +30,7 @@ import * as THREE from 'three';
 import { MODEL_OCC_RE, modelOccluderUse, occluderPointsOutside, occluderRoleOf, type ModelOccluderMode, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
 
 import { pieceBaseName, pieceBounds } from './pieces';
+import { HIDDEN_BEFORE_OCCLUSION, hiddenFromView } from './view-hidden';
 
 /** `mesh.userData[OCCLUDER_STANDIN_KEY]`: the mesh is a model's `_OCC` stand-in (depth only, the view only). */
 export const OCCLUDER_STANDIN_KEY = '__tlOccluderStandin';
@@ -66,6 +67,36 @@ export function standinMaterialOf(): THREE.MeshBasicMaterial {
     standinMaterial.name = 'tl-occluder-standin';
   }
   return standinMaterial;
+}
+
+/**
+ * A stand-in's own surfaces: its piece's meshes (the whole file's when it
+ * names no drawn piece). Kept beside the meshes, not in `userData`, which a
+ * clone copies as JSON.
+ */
+const standinSurfaces = new WeakMap<THREE.Object3D, readonly THREE.Mesh[]>();
+
+/**
+ * Whether a stand-in may fill the view's depth now: it follows what it
+ * stands in for. When every surface of its piece that is drawn on its own
+ * (`drawn`: in the scene now, not a level of detail left unattached nor
+ * parked in a batch or a merged cell) is hidden by a reason decided before
+ * occlusion (a cut-away, the rooms, isolation), the stand-in is not drawn
+ * either: the depth must never hold a model the view does not draw. With
+ * none drawn on its own it follows its own hiding only (a batch is in its
+ * members' room, as the stand-in is).
+ */
+export function standinFollowsSurfaces(standin: THREE.Object3D, drawn: (surface: THREE.Object3D) => boolean): boolean {
+  if (hiddenFromView(standin, HIDDEN_BEFORE_OCCLUSION)) return false;
+  const surfaces = standinSurfaces.get(standin);
+  if (surfaces === undefined) return true;
+  let alone = 0;
+  for (const s of surfaces) {
+    if (!drawn(s)) continue;
+    alone += 1;
+    if (!hiddenFromView(s, HIDDEN_BEFORE_OCCLUSION)) return true;
+  }
+  return alone === 0;
 }
 
 /** Whether `o` is a model's `_OCC` stand-in. */
@@ -148,8 +179,9 @@ export function applyModelOccluders(root: THREE.Object3D, mode: ModelOccluderMod
   visit(root);
   let dropped = 0;
   let standins = 0;
-  /** The pieces a kept stand-in speaks for. */
+  /** The pieces a kept stand-in speaks for, and its stand-ins by piece. */
   const spoken = new Set<string>();
+  const kept = new Map<string, THREE.Mesh[]>();
   if (nodes.length > 0) {
     root.updateMatrixWorld(true);
     const boxes = new Map<string, THREE.Box3>();
@@ -177,14 +209,25 @@ export function applyModelOccluders(root: THREE.Object3D, mode: ModelOccluderMod
         makeStandin(o as THREE.Mesh);
         standins += 1;
         spoken.add(piece);
+        const list = kept.get(piece);
+        if (list === undefined) kept.set(piece, [o as THREE.Mesh]);
+        else list.push(o as THREE.Mesh);
       });
     }
   }
   // Per piece: in a kit file one piece may have a stand-in and the next none.
+  const surfaces = new Map<string, THREE.Mesh[]>();
+  const all: THREE.Mesh[] = [];
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh !== true || isOccluderStandin(o)) return;
-    if (!modelOccluderUse(mode, spoken.has(pieceOf(root, o))).surfaces) o.userData[SURFACES_STAND_DOWN_KEY] = true;
+    const piece = pieceOf(root, o);
+    if (!modelOccluderUse(mode, spoken.has(piece)).surfaces) o.userData[SURFACES_STAND_DOWN_KEY] = true;
+    all.push(o as THREE.Mesh);
+    const list = surfaces.get(piece);
+    if (list === undefined) surfaces.set(piece, [o as THREE.Mesh]);
+    else list.push(o as THREE.Mesh);
   });
+  for (const [piece, list] of kept) for (const s of list) standinSurfaces.set(s, surfaces.get(piece) ?? all);
   return { standins, dropped };
 }
 

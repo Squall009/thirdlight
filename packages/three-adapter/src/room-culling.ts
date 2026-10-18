@@ -61,6 +61,17 @@ export function portalsFromUrl(search: string): boolean {
   return v !== 'off' && v !== '0' && v !== 'false';
 }
 
+/** `scene.userData[ROOMS_SWITCH_KEY]`: the scene's {@link RoomsSwitch}. */
+export const ROOMS_SWITCH_KEY = 'tlRooms';
+
+/** What a page tool reads and pins of room culling (a test comparing pictures with the portals on and off, as `?portals=off` does at load). */
+export interface RoomsSwitch {
+  /** Whether frames cull by rooms now. */
+  portals(): boolean;
+  /** Cull by rooms from now on, or not (what the rooms hid is shown at once; the lights' room test stays either way). */
+  pinPortals(on: boolean): void;
+}
+
 /** Metres a vertex is moved along its normal to find the room it looks into. */
 const NUDGE = 0.05;
 /** Frames between sweeps of the scene's draws while nothing changed (draws a batcher adds itself are found then). */
@@ -134,7 +145,7 @@ const _box = new THREE.Box3();
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 
-export class RoomCulling implements BatchMembership {
+export class RoomCulling implements BatchMembership, RoomsSwitch {
   private readonly objects = new Map<string, ObjectRooms>();
   private graph: RoomGraph | null = null;
   /** The block layers rooms are drawn on (only their chunks take rooms per vertex). */
@@ -173,7 +184,31 @@ export class RoomCulling implements BatchMembership {
   /** Where each dynamic drawable was last frame. */
   private readonly lastAt = new WeakMap<THREE.Object3D, THREE.Vector3>();
 
-  constructor(private readonly deps: RoomCullingDeps) {}
+  /** Cull by rooms (the page's `?portals=`, then the scene's switch). */
+  private culling: boolean;
+
+  constructor(private readonly deps: RoomCullingDeps) {
+    this.culling = deps.culling;
+    deps.scene.userData[ROOMS_SWITCH_KEY] = this;
+  }
+
+  portals(): boolean {
+    return this.culling;
+  }
+
+  pinPortals(on: boolean): void {
+    if (on === this.culling) return;
+    this.culling = on;
+    // Off: everything the rooms hid comes back; on: the next frame walks again and hides what no portal shows.
+    if (!on) for (const o of this.deps.scene.children) hideFromView(o, HIDDEN_BY_ROOM, false);
+    this.hiddenAny = false;
+    this.walked = false;
+    // The next walk sweeps the scene whatever it finds (the rooms it sees may be the ones it saw before).
+    this.sceneCount = -1;
+    this.d.hidden = 0;
+    this.writeMark();
+    this.deps.changed();
+  }
 
   /** An architecture object's rooms (expanded), or null when it has none any more. */
   setObject(id: string, origin: readonly number[], rooms: readonly ArchitectureRoomPlan[] | null, layer: RoomGraphObject['layer'] = null): void {
@@ -230,7 +265,7 @@ export class RoomCulling implements BatchMembership {
 
   /** Whether a room key is seen by the last walk (no walk, culling off, an unknown key: seen). */
   roomSeen(key: number | undefined): boolean {
-    if (key === undefined || !this.walked || !this.deps.culling) return true;
+    if (key === undefined || !this.walked || !this.culling) return true;
     if (key === 0) return this.vis.outside;
     const i = this.indexOfKey.get(key);
     return i === undefined || this.vis.rooms[i] === 1;
@@ -312,7 +347,7 @@ export class RoomCulling implements BatchMembership {
     const g = this.graph;
     if (g === null || g.rooms.length === 0) return;
     for (const [o, t] of this.dynamics) this.assign(o, t.kind);
-    if (!this.deps.culling) {
+    if (!this.culling) {
       if (++this.frames % (SWEEP_FRAMES * 2) === 0) {
         this.countPairs();
         this.writeMark();
@@ -352,6 +387,7 @@ export class RoomCulling implements BatchMembership {
   /** Every drawable back in the view, keys and tags gone. */
   dispose(): void {
     for (const o of this.deps.scene.children) hideFromView(o, HIDDEN_BY_ROOM, false);
+    if (this.deps.scene.userData[ROOMS_SWITCH_KEY] === this) delete this.deps.scene.userData[ROOMS_SWITCH_KEY];
     this.objects.clear();
     this.tracked.clear();
     this.dynamics.clear();
@@ -575,7 +611,7 @@ export class RoomCulling implements BatchMembership {
   }
 
   private applyTo(o: THREE.Object3D): void {
-    if (!this.deps.culling || (o as THREE.Light).isLight === true) return;
+    if (!this.culling || (o as THREE.Light).isLight === true) return;
     const hide = this.unseen(o);
     hideFromView(o, HIDDEN_BY_ROOM, hide);
     if (hide) this.hiddenAny = true;
@@ -607,7 +643,7 @@ export class RoomCulling implements BatchMembership {
   private writeMark(): void {
     const n = this.graph?.rooms.length ?? 0;
     let seen = 0;
-    if (this.walked && this.deps.culling) for (const v of this.vis.rooms) seen += v;
+    if (this.walked && this.culling) for (const v of this.vis.rooms) seen += v;
     else seen = n;
     const mark = `${seen}/${n} ${this.d.hidden} ${this.d.lightPairs}/${this.d.lightPairsWithout}`;
     if (mark === this.mark || typeof this.deps.canvas?.setAttribute !== 'function') return;

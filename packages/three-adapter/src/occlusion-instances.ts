@@ -35,15 +35,16 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { IndirectStorageBufferAttribute, ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
-import { occludeeClassOf, OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
+import { OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
 
 import { CULLABLE_COPIES_KEY, CULLED_COPIES_KEY, INSTANCE_CULLER_KEY, type CullableCopies, type CulledCopies, type InstanceCullerHost, type InstanceViewDraw } from './attribute-instancing';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
 import { drawTrianglesOf, OCCLUDEE_KIND_KEY } from './occludees';
-import { COPY_BOX_FLOAT, COPY_FLOATS, HIDDEN_DEPTH_MARGIN, HIDDEN_NEAR_MARGIN_M, HIDDEN_NEAR_MARGIN_SHARE, RangeAllocator } from './occlusion-instances-rule';
+import { COPY_BOX_FLOAT, COPY_FLOATS, copiesWorthCulling, HIDDEN_DEPTH_MARGIN, HIDDEN_NEAR_MARGIN_M, HIDDEN_NEAR_MARGIN_SHARE, RangeAllocator } from './occlusion-instances-rule';
 import { depthOfViewZNode, type DepthPyramid } from './occlusion-pyramid';
 import { VIEW_CULL_KEY } from './view-cull';
+import { occlusionMayTest } from './view-hidden';
 
 /** TSL untyped (see effects-tsl.ts). */
 const TSL: N = TSLTyped;
@@ -282,7 +283,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const items = handle.capacity;
     const triangles = drawTrianglesOf(mesh.geometry);
-    const worth = !materials.some((m) => m.transparent) && occludeeClassOf({ kind: 'instanced', triangles, items, screenShare: 0 }) === 'items' && triangles * items >= OCCLUSION_MIN_COPIES_TRIANGLES;
+    const worth = copiesWorthCulling(triangles, items, materials.some((m) => m.transparent));
     if (!worth) {
       this.passed.set(handle, mesh.material);
       return;
@@ -343,7 +344,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
       d.seen = this.stamp;
       d.row = -1;
       const m = o as THREE.Mesh;
-      if (camera === null || !m.visible || !camera.layers.test(m.layers)) continue;
+      if (camera === null || !occlusionMayTest(m, camera)) continue;
       const vd = d.handle.viewDraw();
       // Too few triangles in view to win back the draw's second encode and upkeep: drawn whole this frame.
       if (vd === null || vd.count * d.triangles < OCCLUSION_MIN_COPIES_TRIANGLES) continue;

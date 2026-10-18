@@ -25,7 +25,20 @@
  * depth: larger is farther; reversed Z: smaller), with a margin that only
  * ever keeps a copy.
  */
+import { occludeeClassOf, OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
+
 import { fartherDepth, type PyramidLayout } from './occlusion-pyramid-rule';
+
+/**
+ * Whether an instanced draw is worth culling copy by copy: opaque, worth a
+ * test by the runtime's rule, and drawing at least
+ * `OCCLUSION_MIN_COPIES_TRIANGLES` with every copy it holds. A draw of one
+ * copy (copies drawn per room often are) is tested as its one copy; the
+ * runtime calls it a whole draw, which no other path culls.
+ */
+export function copiesWorthCulling(triangles: number, copies: number, transparent: boolean): boolean {
+  return !transparent && occludeeClassOf({ kind: 'instanced', triangles, items: copies, screenShare: 0 }) !== 'never' && triangles * copies >= OCCLUSION_MIN_COPIES_TRIANGLES;
+}
 
 /** Floats a copy's matrix takes in the pools (column-major, as drawn). */
 export const COPY_FLOATS = 16;

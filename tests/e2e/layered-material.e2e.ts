@@ -113,9 +113,10 @@ import { makePng } from './png-make';
 import { stripPatchCentre, TEST_TRIM_CELL, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
+import { keepThreeScenes } from './view-match';
 import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openPanel, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
-import { expectCulled, judgeLitRooms, makeLitRooms } from './rooms-lighting';
+import { expectCulled, expectRoomsCullingMatch, judgeLitRooms, makeLitRooms } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
 import { consoleErrors, refusedObjects } from './console-errors';
@@ -1069,6 +1070,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const game = await page.context().newPage();
   const errors: string[] = [];
   game.on('pageerror', (e) => errors.push(e.message));
+  // Its scenes kept: the occlusion and rooms switches are reachable.
+  await game.addInitScript(keepThreeScenes);
   try {
     await game.goto(`${site.url}${exportQueryFor(variant)}`);
     const exported = game.locator('canvas').first();
@@ -1104,6 +1107,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     const [seenRooms, allRooms] = (seenOf ?? '').split('/').map(Number);
     expect(seenRooms!).toBeLessThan(allRooms!);
     expect(Number(hiddenDraws)).toBeGreaterThan(0);
+    // The portals run first and occlusion culling tests what they left: either on or off, the same picture.
+    await expectRoomsCullingMatch(game, exported, `rooms-culling-${variant}`);
     // The building outside, then through its door (the key) to the interior's camera.
     let outsideExport = judgeOutside(() => [0, 0, 0], rowHue);
     await expect.poll(async () => {

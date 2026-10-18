@@ -45,7 +45,7 @@ import type { ScenePasses } from './occlusion-passes';
 import { hiddenByAnswers, queryAnswered, queryAsked, queryDue, queryForget, QueryRecord } from './occlusion-queries-rule';
 import { TestView, wholeTestOf, culledWhole } from './occlusion-whole';
 import { VIEW_CULL_KEY } from './view-cull';
-import { HIDDEN_BY_CUTAWAY, HIDDEN_BY_ISOLATION, HIDDEN_BY_OCCLUSION, HIDDEN_BY_ROOM, hiddenFromView, hideFromView } from './view-hidden';
+import { HIDDEN_BY_OCCLUSION, hideFromView, occlusionMayTest } from './view-hidden';
 
 type RenderObjectFunction = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: unknown, lightsNode: unknown, clippingContext: unknown, passId: unknown) => void;
 
@@ -61,9 +61,6 @@ export interface QueryRenderer {
   renderObject: RenderObjectFunction;
   render(scene: THREE.Object3D, camera: THREE.Camera): void;
 }
-
-/** The reasons other than occlusion that hide a draw (what they hide is not asked). */
-const HIDDEN_OTHERWISE = HIDDEN_BY_CUTAWAY | HIDDEN_BY_ROOM | HIDDEN_BY_ISOLATION;
 
 /** Frames a draw may go without being worth a query before its record and box are dropped. */
 const FORGET_FRAMES = 120;
@@ -383,9 +380,8 @@ export class QueryOcclusion implements ScenePasses {
   private test(o: Occludee, camera: THREE.Camera): Entry | null {
     const m = o.object;
     if (o.kind === 'terrain') return null;
-    // Hidden by the frustum's owner, the rooms or isolation: not asked. Hidden by occlusion only: still asked.
-    if (!m.visible || hiddenFromView(m, HIDDEN_OTHERWISE)) return null;
-    if (!hiddenFromView(m, HIDDEN_BY_OCCLUSION) && !camera.layers.test(m.layers)) return null;
+    // Hidden by the frustum's owner, a cut-away, the rooms or isolation: not asked. Hidden by occlusion only: still asked.
+    if (!occlusionMayTest(m, camera)) return null;
     let copies: InstanceViewDraw | null = null;
     if (o.kind === 'instanced') {
       copies = (m.userData[VIEW_CULL_KEY] as { mesh?: unknown; viewDraw?: () => InstanceViewDraw | null } | undefined)?.viewDraw?.() ?? null;

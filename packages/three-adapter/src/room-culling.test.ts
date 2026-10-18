@@ -14,7 +14,7 @@ import { architectureStylesOf, expandArchitecture, type ArchitectureComponent, t
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { CutawayDrawing } from './block-cutaway-view';
 import { LayeredPointLight, lightsObject, ROOM_ATTRIBUTE, ROOM_KEY, ROOM_VERTEX_KEYS } from './light-layers';
-import { portalsFromUrl, RoomCulling, ROOM_TAG_KEY } from './room-culling';
+import { portalsFromUrl, RoomCulling, ROOM_TAG_KEY, ROOMS_SWITCH_KEY, type RoomsSwitch } from './room-culling';
 import { OFF_VIEW_LAYER } from './view-hidden';
 
 const box = (x0: number, z0: number, x1: number, z1: number): [number, number, number][] => [
@@ -130,6 +130,28 @@ describe('room culling', () => {
     rooms.update(camera([3, 1.6, 1.5], [-10, 1.2, 1.5]));
     expect(c.userData[ROOM_KEY]).toBe(3);
     expect(inView(c)).toBe(true);
+  });
+
+  it('the scene\'s switch turns the portals off and on again at run time', () => {
+    const { rooms, scene } = setup();
+    placeRooms(rooms);
+    const [a, c] = [prop(scene, rooms, 2, 2), prop(scene, rooms, 10, 2)];
+    const away = camera([3, 1.6, 1.5], [-10, 1.2, 1.5]);
+    rooms.update(away);
+    expect([a, c].map(inView)).toEqual([true, false]);
+    const sw = scene.userData[ROOMS_SWITCH_KEY] as RoomsSwitch;
+    sw.pinPortals(false);
+    expect(sw.portals()).toBe(false);
+    // Shown at once, and kept shown by the frames after.
+    expect(inView(c)).toBe(true);
+    rooms.update(away);
+    expect(inView(c)).toBe(true);
+    // On again: the same view's next frame hides it again (the walk sees what it saw before, the scene is swept).
+    sw.pinPortals(true);
+    rooms.update(away);
+    expect([a, c].map(inView)).toEqual([true, false]);
+    rooms.dispose();
+    expect(scene.userData[ROOMS_SWITCH_KEY]).toBeUndefined();
   });
 
   it('a lamp lights only its room\'s drawables; a chunk spanning rooms by the room each face looks into', () => {

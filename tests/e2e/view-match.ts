@@ -18,8 +18,8 @@ import { showView } from './ui';
 
 type Command = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
-/** A canvas's picture once two shots in a row are the same (shaders built, shadow map drawn, textures in); saved as `label`.png. */
-export async function settledShot(target: Locator, label: string): Promise<Image> {
+/** A canvas's picture once two shots in a row (`intervalMs` apart) are the same (shaders built, shadow map drawn, textures in); saved as `label`.png. */
+export async function settledShot(target: Locator, label: string, intervalMs = 1000): Promise<Image> {
   let last = '';
   await expect
     .poll(
@@ -29,7 +29,7 @@ export async function settledShot(target: Locator, label: string): Promise<Image
         last = png;
         return same;
       },
-      { timeout: 90_000, intervals: [1000] },
+      { timeout: 90_000, intervals: [intervalMs] },
     )
     .toBe(true);
   const out = test.info().outputPath();
@@ -130,7 +130,7 @@ export function keepThreeScenes(): void {
 }
 
 /** Call `method` of the page's occlusion switch (a page made with `keepThreeScenes`); typed arrays come back as arrays. */
-export async function onOcclusionSwitch<T>(page: Page, method: 'pin' | 'showPyramid' | 'readPyramid' | 'diagnostics', arg?: unknown): Promise<T> {
+export async function onOcclusionSwitch<T>(page: Page, method: 'pin' | 'path' | 'showPyramid' | 'readPyramid' | 'diagnostics', arg?: unknown): Promise<T> {
   return (await page.evaluate(
     async ([m, a]) => {
       const scenes = (window as unknown as { __tlScenes?: { userData?: Record<string, unknown> }[] }).__tlScenes ?? [];
@@ -141,4 +141,14 @@ export async function onOcclusionSwitch<T>(page: Page, method: 'pin' | 'showPyra
     },
     [method, arg] as const,
   )) as T;
+}
+
+/** Turn the page's room culling (its portals) on or off (`scene.userData.tlRooms`, a page made with `keepThreeScenes`), as `?portals=off` does at load. */
+export async function pinPortals(page: Page, on: boolean): Promise<void> {
+  await page.evaluate((v) => {
+    const scenes = (window as unknown as { __tlScenes?: { userData?: Record<string, unknown> }[] }).__tlScenes ?? [];
+    const sw = scenes.map((s) => s.userData?.['tlRooms'] as { pinPortals(on: boolean): void } | undefined).find((x) => x !== undefined);
+    if (sw === undefined) throw new Error('no scene with a rooms switch');
+    sw.pinPortals(v);
+  }, on);
 }

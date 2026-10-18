@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { boxMayShow, depthOfViewZ, firstPassList, levelFor, listedCopy, RangeAllocator, secondPassList, sphereMayShow, type CopyStep, type SphereTest } from './occlusion-instances-rule';
+import { boxMayShow, copiesWorthCulling, depthOfViewZ, firstPassList, levelFor, listedCopy, RangeAllocator, secondPassList, sphereMayShow, type CopyStep, type SphereTest } from './occlusion-instances-rule';
 import { pyramidLayout, reducePyramid } from './occlusion-pyramid-rule';
 
 describe('the pools of culled copies', () => {
@@ -116,5 +116,17 @@ describe('a copy\'s sphere against the depth pyramid', () => {
     expect(levelFor(3, 6, 0, 0, 8)).toBe(1);
     expect(levelFor(3, 8, 0, 0, 8)).toBe(2);
     expect(levelFor(0, 1000, 0, 0, 4)).toBe(3);
+  });
+});
+
+describe('instanced draws worth culling', () => {
+  it('counts every copy against the floor, a draw of one copy included', () => {
+    // One dense copy (a kit copy alone in its room's draw): tested; one light copy: not.
+    expect(copiesWorthCulling(2352, 1, false)).toBe(true);
+    expect(copiesWorthCulling(12, 1, false)).toBe(false);
+    // Many light copies together over the floor; under it, or see-through, not.
+    expect(copiesWorthCulling(12, 200, false)).toBe(true);
+    expect(copiesWorthCulling(12, 100, false)).toBe(false);
+    expect(copiesWorthCulling(2352, 4, true)).toBe(false);
   });
 });

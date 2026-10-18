@@ -23,8 +23,15 @@ export const HIDDEN_BY_CUTAWAY = 1;
 export const HIDDEN_BY_ROOM = 2;
 /** Another object than the one an editor's edit mode isolates (isolation-view.ts): hidden from the shadows too. */
 export const HIDDEN_BY_ISOLATION = 4;
-/** Hidden behind what is drawn in front of it (the occlusion oracle's ideal culling, for a measurement). */
+/** Hidden behind what is drawn in front of it (occlusion queries' answers, the occlusion oracle's ideal culling). */
 export const HIDDEN_BY_OCCLUSION = 8;
+
+/**
+ * The reasons decided before occlusion culling runs, each frame: a cut-away,
+ * the rooms' portals, an edit mode's isolation. They are exact and cheap, so
+ * what they hide is never tested against the depth or asked a query.
+ */
+export const HIDDEN_BEFORE_OCCLUSION = HIDDEN_BY_CUTAWAY | HIDDEN_BY_ROOM | HIDDEN_BY_ISOLATION;
 
 /** The reasons that hide a mesh from the shadow cameras as well. */
 const HIDDEN_FROM_SHADOWS = HIDDEN_BY_ISOLATION;
@@ -52,4 +59,15 @@ export function hideFromView(o: THREE.Object3D, reason: number, hidden: boolean)
 /** Whether `o` is hidden from the view for `reason`. */
 export function hiddenFromView(o: THREE.Object3D, reason: number): boolean {
   return (((o.userData[HIDDEN_BY_KEY] as number | undefined) ?? 0) & reason) !== 0;
+}
+
+/**
+ * Whether occlusion culling may test `o` for `camera`: drawn, hidden by no
+ * reason decided before it, and on the camera's layers, or off them only
+ * because occlusion itself hid it (a hidden draw is asked again, so it shows
+ * at the first answer that sees it).
+ */
+export function occlusionMayTest(o: THREE.Object3D, camera: THREE.Camera): boolean {
+  if (!o.visible || hiddenFromView(o, HIDDEN_BEFORE_OCCLUSION)) return false;
+  return hiddenFromView(o, HIDDEN_BY_OCCLUSION) || camera.layers.test(o.layers);
 }

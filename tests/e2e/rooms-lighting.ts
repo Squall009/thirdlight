@@ -15,7 +15,13 @@
  *   lamp's range (no light through the wall), where without the rooms'
  *   light layer the lamp would light it.
  * - Culling: C is not seen (its only portal is shut), so its box is not
- *   drawn (Play's diagnostics, the export canvas' `data-tl-rooms`).
+ *   drawn (Play's diagnostics, the export canvas' `data-tl-rooms`), nor a
+ *   dense kit copy standing in it (enough triangles to be worth occlusion
+ *   culling's test): hidden by the rooms it is never tested; with the
+ *   portals off the walls in front of it hide it from the depth's test.
+ * - Culling together: the rooms' portals run first and occlusion culling
+ *   tests only what they left drawn; with either on or off the picture is
+ *   the same, to the pixel.
  * - Furniture: kit copies of one grey cube model placed by an architecture
  *   object of their own (one chunk, one model): one in L just across the
  *   wall from the lamp, one far in R. Copies are drawn per room, so the L
@@ -23,8 +29,10 @@
  *   camera (the sun lights both); drawn as one draw, the draw's bounds'
  *   middle lies in R and the lamp would light the L cube through the wall.
  */
+import { diff, show, STRICT, within } from './parity';
 import { multiPieceGlb } from './multi-piece-glb';
-import { expect } from './pw';
+import { expect, type Locator, type Page } from './pw';
+import { expectOcclusionShotsMatch, onOcclusionSwitch, pinPortals, settledShot } from './view-match';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 type V3 = readonly [number, number, number];
@@ -43,6 +51,14 @@ export const ROOM_LIGHT_READS = {
 const CUBE = 0.5;
 const FLOOR_Y = 0.02;
 const CUBES = { across: [214.1, FLOOR_Y, -20.75], far: [210.6, FLOOR_Y, -21.9] } as const;
+/**
+ * The dense copy (a cube of this side) and its foot (world, in C, beside C's box, its query box grown by the
+ * margin still inside C's walls), its faces' quads a side: 12 × 14² = 2352 triangles, over occlusion culling's
+ * floor for a draw (2048).
+ */
+const DENSE = 0.3;
+const DENSE_AT = [211.5, FLOOR_Y, -26.9] as const;
+const DENSE_SEGMENTS = 14;
 /** The reads on the L cube: its face toward −x (toward the lamp; the camera, far to the left, sees it) and its face toward the camera (+z). */
 export const CUBE_READS = {
   toLamp: [CUBES.across[0] - CUBE / 2, FLOOR_Y + CUBE / 2, CUBES.across[2]] as V3,
@@ -59,10 +75,11 @@ const box = (x0: number, z0: number, x1: number, z1: number): number[][] => [
 /** Make the rooms, the door piece, the box in C, the lamp in R and the cubes (`publishModel` publishes a model asset). */
 export async function makeLitRooms(cmd: Cmd, trimId: string, publishModel: (bytes: Uint8Array, assetId: string) => Promise<void>): Promise<void> {
   await publishModel(new Uint8Array(multiPieceGlb([{ name: 'cube', lods: [[CUBE, CUBE, CUBE]], colors: [[0.6, 0.6, 0.6]], vertexColor: [1, 1, 1, 1] }], { centred: true })), 'e2e-lit-cube');
+  await publishModel(new Uint8Array(multiPieceGlb([{ name: 'dense', lods: [[DENSE, DENSE, DENSE]], colors: [[0.6, 0.6, 0.6]], vertexColor: [1, 1, 1, 1], segments: DENSE_SEGMENTS }], { centred: true })), 'e2e-lit-dense');
   // A kit copy at a foot (world), as the rooms object's element (its frame is the layer's).
-  const cube = (id: string, foot: readonly number[]): Record<string, unknown> => {
+  const cube = (id: string, foot: readonly number[], assetId = 'e2e-lit-cube'): Record<string, unknown> => {
     const [x, y, z] = [foot[0]! - LAYER_AT[0], foot[1]! - LAYER_AT[1], foot[2]! - LAYER_AT[2]];
-    return { id, kind: 'repeat', path: { points: [[x, y, z], [x + 1, y, z]] }, spacing: 100, piece: { model: { assetId: 'e2e-lit-cube' } } };
+    return { id, kind: 'repeat', path: { points: [[x, y, z], [x + 1, y, z]] }, spacing: 100, piece: { model: { assetId } } };
   };
   await cmd('setBlockType', { block: { blockId: 'e2e-lit-ground', name: 'Lit ground', variants: [{ color: '#303030' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'e2e-lit-door', name: 'Lit door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' } });
@@ -89,7 +106,7 @@ export async function makeLitRooms(cmd: Cmd, trimId: string, publishModel: (byte
   await cmd('setComponent', { entityId: rooms, component: 'materials', value: { '*': trimId } });
   // The cubes: an object of their own, so they wear their model's grey (the rooms' `*` would put the trim sheet on them).
   const furniture = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lit furniture', transform: { position: [...LAYER_AT] } }))['createdId']);
-  await cmd('setComponent', { entityId: furniture, component: 'architecture', value: { elements: Object.entries(CUBES).map(([id, foot]) => cube(`cube-${id}`, foot)) } });
+  await cmd('setComponent', { entityId: furniture, component: 'architecture', value: { elements: [...Object.entries(CUBES).map(([id, foot]) => cube(`cube-${id}`, foot)), cube('dense-c', DENSE_AT, 'e2e-lit-dense')] } });
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Box in C', box: { size: [0.6, 0.6, 0.6], material: { color: '#40ff40' } }, transform: { position: [LAYER_AT[0] + 1.5, 0.3, LAYER_AT[2] + 2] } });
   // Low by the shared wall, near the arches (the floor reads are 1.2 m from it across the wall, 2.6 m off).
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Lamp in R', transform: { position: [LAYER_AT[0] + 2.75, 0.8, LAYER_AT[2] + 7] }, components: { light: { type: 'point', color: '#ffffff', intensity: 15, range: 2, decay: 2 } } });
@@ -109,4 +126,38 @@ export function expectCulled(rooms: { rooms?: number; seen?: number; hidden?: nu
   expect(rooms!.doorsClosed).toBe(1);
   expect(rooms!.seen!).toBeLessThan(rooms!.rooms!);
   expect(rooms!.hidden!).toBeGreaterThan(0);
+}
+
+/**
+ * The rooms' portals and occlusion culling together draw the picture each
+ * draws alone and the one with neither, at the page's still pose: occlusion
+ * on (its setting's path, or WebGL 2's queries pinned where the setting's
+ * culls nothing) and off, each
+ * with the portals on and off (`game`'s scenes kept: `keepThreeScenes`).
+ * Leaves both as the page had them.
+ */
+export async function expectRoomsCullingMatch(game: Page, canvas: Locator, label: string): Promise<void> {
+  await onOcclusionSwitch(game, 'pin', null);
+  const path = (await onOcclusionSwitch<string>(game, 'path')) === 'off' ? 'queries' : null;
+  const shot = async (name: string): Promise<{ image: Awaited<ReturnType<typeof settledShot>>; occlusion: string | null }> => ({ image: await settledShot(canvas, `${label}-${name}`, 250), occlusion: await canvas.getAttribute('data-tl-occlusion') });
+  // `data-tl-occlusion`: "<path>|<occludees>|<tested>|<culled>|…" (the GPU's counts read back about once a second).
+  const culled = (m: string | null): number => Number((m ?? '').split('|')[3] ?? 0);
+  await onOcclusionSwitch(game, 'pin', path);
+  const both = await shot('portals-occlusion');
+  await onOcclusionSwitch(game, 'pin', 'off');
+  const portals = await shot('portals');
+  await pinPortals(game, false);
+  const neither = await shot('neither');
+  await onOcclusionSwitch(game, 'pin', path);
+  // The rooms hid C's dense copy, so it was not tested; without them it is, and the walls in front of it hide it.
+  await expect.poll(async () => culled(await canvas.getAttribute('data-tl-occlusion')), { timeout: 10_000, message: `${label}: occlusion culls C's dense copy once the portals do not` }).toBeGreaterThan(culled(both.occlusion));
+  const occlusion = await shot('occlusion');
+  console.log(`[rooms] ${label}: occlusion with the portals ${both.occlusion}, without ${occlusion.occlusion}`);
+  expect(expectOcclusionShotsMatch(both, portals, `${label} portals on`).worst, `${label}: occlusion on and off with the portals, identical`).toBe(0);
+  expect(expectOcclusionShotsMatch(occlusion, neither, `${label} portals off`).worst, `${label}: occlusion on and off without the portals, identical`).toBe(0);
+  const d = diff(portals.image, neither.image, STRICT);
+  console.log(`[rooms] ${label}: portals on against off: ${show(d, STRICT)}`);
+  expect(within(d, STRICT) && d.worst === 0, `${label}: the portals on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
+  await pinPortals(game, true);
+  await onOcclusionSwitch(game, 'pin', null);
 }

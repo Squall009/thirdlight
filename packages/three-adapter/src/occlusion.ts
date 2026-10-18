@@ -40,7 +40,7 @@ import type * as THREE from 'three';
 import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
 
 import { OccludeeRegistry, type Occludee } from './occludees';
-import { isOccluderStandin, STANDIN_VIEW_KEY, standinMaterialOf } from './occluders';
+import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';
 import { TwoPassFrame, type ScenePasses } from './occlusion-passes';
 import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
 import { culledWhole } from './occlusion-whole';
@@ -159,6 +159,8 @@ export class OcclusionCuller implements OcclusionSwitch {
   private queries: QueryOcclusion | null = null;
   private queriesRenderer: unknown = null;
   private shownLevel: number | null;
+  /** Whether a draw is in the scene now (the registry follows its children once a frame). */
+  private readonly inScene = (o: THREE.Object3D): boolean => this.registry.get(o) !== undefined;
 
   constructor(private readonly deps: OcclusionCullerDeps) {
     this.pinned = deps.pinned;
@@ -174,6 +176,8 @@ export class OcclusionCuller implements OcclusionSwitch {
    */
   drawsStandins(camera: THREE.Camera, standin?: THREE.Mesh): boolean {
     if (this.applied === 'off' || this.deps.view?.is(camera) !== true) return false;
+    // What it stands in for is hidden from the view (a cut-away, the rooms, isolation): so is it from the depth.
+    if (standin !== undefined && !standinFollowsSurfaces(standin, this.inScene)) return false;
     // On the queries path only in the query render after the frame (never in the depth the frame's draws read).
     if (this.applied === 'queries' && this.queries?.drawing !== true) return false;
     if (this.applied === 'hiz' && (this.frame === null || this.frame.drawing !== 1 || standin === undefined || standin.material !== this.frame.pyramid.standinMaterial())) return false;

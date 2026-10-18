@@ -32,6 +32,7 @@ import { occludeeClassOf, occludeeScreenShare, OCCLUSION_MIN_COPIES_TRIANGLES, t
 import type { Occludee } from './occludees';
 import type { InstanceOcclusion, WholeRow } from './occlusion-instances';
 import { mergedViewDrawOf } from './static-merge';
+import { occlusionMayTest } from './view-hidden';
 
 /** The kinds tested whole here (instanced copies and terrain nodes are tested one by one; what is blended hides nothing and stays last). */
 const WHOLE_KINDS: ReadonlySet<OccludeeKind> = new Set(['merged', 'blocks', 'architecture', 'single']);
@@ -153,7 +154,7 @@ export class WholeOcclusion {
       _view.set(camera);
       for (const o of occludees) {
         const m = o.object;
-        if (!m.visible || !camera.layers.test(m.layers)) continue;
+        if (!occlusionMayTest(m, camera)) continue;
         const range = wholeTestOf(o, camera, _view, _corners);
         if (range === null) continue;
         let e = this.entries.get(m);
