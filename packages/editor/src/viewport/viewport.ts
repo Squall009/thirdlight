@@ -27,7 +27,6 @@ import {
   batchingFromUrl,
   mergingFromUrl,
   shadowCacheFromUrl,
-  createEffectsPlayer,
   createProbeDebugView,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
@@ -36,10 +35,8 @@ import {
   rendererMemory,
   type EffectComponentLike,
   type EffectDefLike,
-  type EffectsPlayer,
   type EnvironmentLike,
   type LightingBakeLike,
-  type MaterialLibrary,
   type ProbeDebugView,
   type ProbeLighting,
   type RendererInfo,
@@ -77,6 +74,7 @@ import { ViewIsolationState, type ViewIsolation } from './view-isolation';
 import { SceneSource } from './scene-source';
 import { EntityOverlays, OVERLAY_KEY } from './entity-overlays';
 import type { SceneViewAssets } from './scene-assets';
+import { EffectPreview } from './effect-preview';
 import { ENTRY_LEVEL_DEG, framePose, insideBox, NO_INSETS, viewPitchDeg, viewShowsBox, type FrameInsets } from './frame-view';
 
 export interface ViewportCallbacks {
@@ -992,32 +990,15 @@ export class Viewport {
   }
 
   // ---- The edit-mode effect preview ------------------------------------
-  private effectsPlayer: EffectsPlayer | null = null;
-  private effectTarget: { id: string; component: EffectComponentLike } | null = null;
-  private effectAttached: { id: string; obj: THREE.Object3D; key: string } | null = null;
-  private effectRenderer: unknown = null;
-  private effectLastNow: number | null = null;
-  /** The material holders the preview asked the library for (released with the preview). */
-  private effectHolders: { holders: Map<string, { mesh: THREE.Mesh; undo: () => void }>; placeholder: THREE.Material } | null = null;
-
-  /** Release the edit-mode effect preview (player, library holders, placeholder). */
-  private releaseEffectPreview(): void {
-    this.effectsPlayer?.dispose();
-    this.effectsPlayer = null;
-    this.effectAttached = null;
-    this.effectRenderer = null;
-    this.effectTarget = null;
-    const h = this.effectHolders;
-    this.effectHolders = null;
-    if (h !== null) {
-      for (const { mesh, undo } of h.holders.values()) {
-        undo();
-        mesh.geometry.dispose();
-      }
-      h.holders.clear();
-      h.placeholder.dispose();
-    }
-  }
+  private readonly effects = new EffectPreview({
+    overlay: this.overlay,
+    camera: () => this.camera,
+    canvas: () => this.root,
+    adapter: () => this.adapter,
+    materialLibrary: () => this.assets.materialLibrary,
+    api: () => this.rendererInfoNow.api,
+    requestRender: () => this.requestRender(),
+  });
 
   /**
    * Play the selected object's effect in the Scene view (the Gizmos menu's
@@ -1026,75 +1007,7 @@ export class Viewport {
    * no effect on the selection): nothing plays.
    */
   setEffectPreview(on: boolean, defs: readonly EffectDefLike[], target: { id: string; component: EffectComponentLike } | null, loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
-    if (!on) {
-      this.releaseEffectPreview();
-      this.root.setAttribute('data-effects', JSON.stringify({ preview: false }));
-      this.requestRender();
-      return;
-    }
-    if (this.effectsPlayer === null) {
-      const lib = (): MaterialLibrary => this.assets.materialLibrary;
-      const holders = new Map<string, { mesh: THREE.Mesh; undo: () => void }>();
-      const placeholder = new THREE.MeshBasicMaterial();
-      this.effectHolders = { holders, placeholder };
-      this.effectsPlayer = createEffectsPlayer({
-        // The particles are the view's own overlay (the game's effects play in Play).
-        scene: this.overlay as never,
-        defs,
-        loadTexture: loadTexture ?? (async () => null),
-        replayFinished: true,
-        projectMaterial: (id) => {
-          if (id === '') return null;
-          let h = holders.get(id);
-          if (h === undefined) {
-            const mesh = new THREE.Mesh(new THREE.BufferGeometry(), placeholder);
-            h = { mesh, undo: lib().apply(mesh, { '*': id }) };
-            holders.set(id, h);
-          }
-          return h.mesh.material === placeholder ? null : (h.mesh.material as never);
-        },
-      });
-    } else this.effectsPlayer.setDefs(defs);
-    this.effectTarget = target;
-    this.requestRender();
-  }
-
-  /** Attach the preview to the selected object (again when its node or component changed). */
-  private syncEffectTarget(): void {
-    const p = this.effectsPlayer;
-    if (p === null) return;
-    const t = this.effectTarget;
-    const obj = t !== null ? (this.adapter.entityObject?.(t.id, true) ?? null) : null;
-    const key = t !== null ? JSON.stringify(t.component) : '';
-    const a = this.effectAttached;
-    if (a !== null && (t === null || a.id !== t.id || a.obj !== obj || a.key !== key)) {
-      p.detach(a.id);
-      this.effectAttached = null;
-    }
-    if (t !== null && obj !== null && this.effectAttached === null) {
-      // The preview plays whatever the component's start setting (a signal or script would start it in the game).
-      p.attach(t.id, obj, { ...t.component, playOnStart: true }, true);
-      this.effectAttached = { id: t.id, obj, key };
-    }
-  }
-
-  /** One preview step before a frame is drawn; true while something plays (the view keeps drawing). */
-  private stepEffects(renderer: unknown): boolean {
-    const p = this.effectsPlayer;
-    if (p === null || renderer === null) return false;
-    if (this.effectRenderer !== renderer) {
-      p.setRenderer(renderer as never, this.rendererInfoNow.api === 'webgpu' ? 'webgpu' : 'webgl2');
-      this.effectRenderer = renderer;
-      this.effectAttached = null;
-    }
-    this.syncEffectTarget();
-    const now = performance.now();
-    const dt = this.effectLastNow === null ? 0 : Math.max(0, (now - this.effectLastNow) / 1000);
-    this.effectLastNow = now;
-    p.update(dt, this.camera as never);
-    const d = p.diagnostics();
-    this.root.setAttribute('data-effects', JSON.stringify({ preview: true, executor: d.executor, playing: d.playing, particles: d.particles }));
-    return p.active;
+    this.effects.set(on, defs, target, loadTexture);
   }
 
   /** The Game view is in front (the view draws nothing meanwhile). */
@@ -1242,7 +1155,7 @@ export class Viewport {
     }
     const renderer = adapter.currentRenderer?.() ?? null;
     // The effect preview steps before the frame and keeps the view drawing while it plays.
-    const playing = this.stepEffects(renderer);
+    const playing = this.effects.step(renderer);
     // Animated materials (wind, water) tick with the frame (the adapter ticks them) and keep the view drawing;
     // nothing else draws unless something asked for a frame (render on demand).
     const animated = this.assets.materialLibrary.animated();
@@ -1296,7 +1209,7 @@ export class Viewport {
       this.cb.onModelFailures?.(failures);
     }
     if (playing || animated) this.requestRender();
-    if (!playing) this.effectLastNow = null;
+    if (!playing) this.effects.idle();
   }
 
   // ---- The renderer backend --------------------------------------------
@@ -1321,7 +1234,7 @@ export class Viewport {
     const next = document.createElement('canvas');
     for (const a of [...old.attributes]) if (!a.name.startsWith('data-tl-renderer')) next.setAttribute(a.name, a.value);
     this.unbindCanvasEvents();
-    this.releaseEffectRenderer();
+    this.effects.rendererGone();
     this.overlay.removeFromParent();
     // The old canvas is never drawn to again: the adapter frees its renderer (and its WebGL context).
     this.adapter.dispose();
@@ -1346,12 +1259,6 @@ export class Viewport {
     if (this.blockInput !== null) this.setBlockLayers(this.blockInput.types, this.blockInput.layers, this.blockInput.revision);
     this.resize();
     this.cb.onRendererChange?.(this.rendererInfoNow);
-  }
-
-  /** The effect preview's executor is rebuilt on the next renderer. */
-  private releaseEffectRenderer(): void {
-    this.effectRenderer = null;
-    this.effectAttached = null;
   }
 
   private readTarget(): GizmoTransform {
@@ -1968,7 +1875,7 @@ export class Viewport {
 
   dispose(): void {
     this.tools.dispose();
-    this.releaseEffectPreview();
+    this.effects.release();
     this.copyHighlight?.removeFromParent();
     this.copyHighlight?.dispose();
     this.copyHighlight = null;
