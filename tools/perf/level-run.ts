@@ -78,7 +78,8 @@
  *   --query 'a=b&c=d'            add to the export's page query
  *   --switches 'a=off,b=off'     measure each export again with each query added (one switch at a time)
  *                                (`--classes interior --switches portals=off`: the interior again with room/portal
- *                                culling off, what the culling saves; `occlusion=off` the same for occlusion culling)
+ *                                culling off, what the culling saves; `occlusion=hiz` occlusion culling on, as the
+ *                                setting's auto culls nothing)
  *   --view street,valley         also export each class seen from each of these views that fits it (level.ts
  *                                levelViewCamera: `street` at eye height along the area's middle street between the
  *                                walled rooms, outdoor classes; `valley` at eye height behind a hill looking towards

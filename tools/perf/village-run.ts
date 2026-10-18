@@ -20,7 +20,7 @@
  *   --query 'a=b&c=d'            add to the export's and the Scene view's page query (e.g. merging=off to compare)
  *   --switches 'a=off,b=off&c=d' measure the export again with each of these queries in the same browser after its own
  *                                run (one optimization switched off at a time: each one's share of the frame)
- *                                (`occlusion=off`: occlusion culling's share; each frame line logs the page's
+ *                                (`occlusion=hiz`: occlusion culling on, as the setting's auto culls nothing; each frame line logs the page's
  *                                `data-tl-occlusion` path|occludees|tested|culled|stand-ins)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped: frame drops
  *                                show as intervals of two refreshes or more

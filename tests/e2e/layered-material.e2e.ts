@@ -116,7 +116,7 @@ import { serveDir } from './frame-reading';
 import { keepThreeScenes } from './view-match';
 import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openPanel, openWindow } from './ui';
 import { drawRooms, ROOM_READS } from './rooms-drawing';
-import { expectCulled, expectRoomsCullingMatch, judgeLitRooms, makeLitRooms } from './rooms-lighting';
+import { expectCulled, expectRoomsCullingMatch, judgeLitRooms, makeLitRooms, ROOMS_DOOR_ACTION } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
 import { consoleErrors, refusedObjects } from './console-errors';
@@ -789,7 +789,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const rooms = await drawRooms(page, cmd, query, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)));
   console.log(`rooms ${variant} editor: draw → visible ${rooms.timings.drawToVisible.toFixed(1)} ms; wall drag ${rooms.timings.drag.regenerations} regenerations, input → drawn ${rooms.timings.drag.median.toFixed(1)} / ${rooms.timings.drag.worst.toFixed(1)} ms, a chunk ${rooms.timings.drag.madeMedian.toFixed(2)} ms median, other objects made again ${rooms.timings.drag.others}`);
   expect(rooms.timings.drag.others).toBe(0);
-  await makeLitRooms(cmd, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)));
+  await makeLitRooms(cmd, trimId, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)), (name, source, entityId) => publishScript(be!, name, source, entityId));
   const building = await drawBuilding(page, cmd, query, trimId, (name, source, entityId) => publishScript(be!, name, source, entityId));
   const plans = await makeFloorPlans(page, cmd, query, async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)), (name, source, entityId) => publishScript(be!, name, source, entityId));
   console.log(`floor plans ${variant} editor: ${plans.editor.props} props, ${plans.editor.moved} moved by the new seed, the pinned one kept ${plans.editor.pinnedKept}`);
@@ -801,7 +801,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     model: async (bytes, id) => void (await publishBytes(be!, bytes, 'model', id)),
     script: (name, source, entityId) => publishScript(be!, name, source, entityId),
   });
-  await cmd('setInput', { input: { actions: [...PLANS_ACTIONS, decalSetup.action] } });
+  await cmd('setInput', { input: { actions: [...PLANS_ACTIONS, decalSetup.action, ROOMS_DOOR_ACTION] } });
   const sceneView = page.locator('canvas.tl-viewport');
   await frameDecals(page, sceneView, decalSetup.focusId);
   // A click on empty sky (the terrain tile under the selection, its ray missing the ground) deselects at once: a picking

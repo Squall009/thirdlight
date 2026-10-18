@@ -10,15 +10,15 @@
  *  - Occlusion culling's frame on WebGPU (two passes, the depth pyramid
  *    between them) draws the export's picture bit for bit as with culling
  *    off, through the post stack with ambient occlusion, the plain MSAA frame
- *    and a render scale, and at poses along a moving camera; a fence's `_OCC`
- *    stand-in goes into the pyramid only (no colour, no shadow, no ambient
- *    occlusion, glass behind it still drawn); the pyramid read back keeps its
+ *    and a render scale, and at poses along a moving camera (the project's
+ *    occlusion culling on); a fence's `_OCC` stand-in goes into the pyramid
+ *    only (no colour, no shadow, no ambient occlusion); the pyramid read back keeps its
  *    rule level over level, and its debug view draws. The batches' and an
  *    instance set's copies (painted ones among them) hidden behind the boxes
  *    are culled on the GPU, as are a model drawn alone behind a wall (culled
  *    whole) and the terrain's nodes behind a ridge, and the picture stays
- *    the same. On WebGL 2 the occlusion queries (pinned: auto culls nothing
- *    there) hide the model behind the wall and draw the same pictures with
+ *    the same. On WebGL 2 the occlusion queries (the setting's on there)
+ *    hide the model behind the wall and draw the same pictures with
  *    culling on and off, through the post stack (the stand-in in the queries'
  *    depth only), in the plain frame and at poses along the moving camera.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
@@ -100,10 +100,11 @@ async function relay(path: string, body: unknown = {}): Promise<{ status: number
 const BOXES = 121;
 
 /**
- * A fence 3 m wide and 2 m tall: two 0.2 m posts are what it draws, and its `_OCC` stand-in is the panel between
- * them, inside the posts' bounds (36 triangles in all, about 3 KB; no LODs: it is a test piece, not game art).
+ * A fence 3 m wide and 2 m tall: two 0.2 m posts and a 0.12 m panel between them are what it draws, and its `_OCC`
+ * stand-in is a slab inside the panel (the import check rejects one over an opening: the panel is the surface it
+ * stands for; 48 triangles in all, about 3 KB; no LODs: it is a test piece, not game art).
  */
-const FENCE: PieceSpec = { name: 'fence', lods: [], parts: [{ size: [0.2, 2, 0.2], at: [0, 0, 0] }, { size: [0.2, 2, 0.2], at: [2.8, 0, 0] }], occ: { size: [2.6, 1.8, 0.1], at: [0.2, 0.1, 0] } };
+const FENCE: PieceSpec = { name: 'fence', lods: [], parts: [{ size: [0.2, 2, 0.2], at: [0, 0, 0] }, { size: [0.2, 2, 0.2], at: [2.8, 0, 0] }, { size: [2.6, 1.8, 0.12], at: [0.2, 0.1, 0] }], occ: { size: [2.6, 1.8, 0.1], at: [0.2, 0.1, 0] } };
 
 /** While `flyCam` is held the camera flies forward and to the left, a little each step (its own transform, so it starts where it stands). */
 const FLY_CAMERA = [
@@ -310,8 +311,7 @@ type OcclusionView = { view: { culling: boolean; culled: boolean; pyramid: boole
 const occlusionView = async (page: Page): Promise<OcclusionView> => JSON.parse((await attr(page, 'data-occlusion-view')) || '{}') as OcclusionView;
 
 /**
- * Occlusion culling in the Scene view, on both renderers (WebGL 2 with its queries pinned by the editor page's
- * `?occlusion=queries`, which its auto leaves off): a wall put between the view and a dense block (2,352
+ * Occlusion culling in the Scene view with the project's culling on, on both renderers (WebGL 2 on its queries): a wall put between the view and a dense block (2,352
  * triangles, worth a test) hides the block, and the View menu's culled draws show its box; selected, the block
  * is kept (outlined, never culled); the Inspector's Occluder off makes the wall hide nothing; an edit mode on the
  * block (vertex paint, with the rest shown as context) never culls it; and the view draws the same picture
@@ -319,12 +319,16 @@ const occlusionView = async (page: Page): Promise<OcclusionView> => JSON.parse((
  */
 async function sceneViewOcclusion(page: Page): Promise<void> {
   const view = page.locator('canvas.tl-viewport');
+  // Culling on (the setting's auto culls nothing): the depth pyramid on WebGPU, the queries on WebGL 2.
+  await command('setSettings', { settings: { occlusion_culling: 2 } });
   const piece = { name: 'dense', lods: [[1, 1, 1]] as [number, number, number][], colors: [[0.2, 0.4, 0.9]] as [number, number, number][], segments: 14 };
   await publishBytes(be, new Uint8Array(multiPieceGlb([piece], { centred: true })), 'model', 'dense-block', 'Dense block');
   // Along a ray a little right of the view's middle: the block at 1 m above the ground, the wall half way, facing the
   // view (placed again for the view after a reload, which starts from its own pose).
   const wall = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'occluding wall', transform: { position: [0, 0, 0] }, box: { size: [4, 4, 0.3], material: { color: '#c8c0b0' } } }))['createdId']);
   const block = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'model', name: 'dense hidden', transform: { position: [0, 0, 0] }, model: { asset: { assetId: 'dense-block' }, piece: 'dense' } }))['createdId']);
+  // A panel beside the wall at the block's depth, which the hidden block's shadow falls on.
+  const panel = String((await command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'shadow panel', transform: { position: [0, 0, 0] }, box: { size: [3, 4, 0.2], material: { color: '#d0d0d0' } } }))['createdId']);
   const placeForView = async (): Promise<void> => {
     const cam = await viewCamera(page);
     const q = new Quat(cam.rotation);
@@ -333,8 +337,39 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
     const dir = norm([fwd[0]! + right[0]! * 0.25, fwd[1]! + right[1]! * 0.25, fwd[2]! + right[2]! * 0.25]);
     const tBlock = Math.min(30, Math.max(6, dir[1]! < -0.05 ? (cam.position[1]! - 1) / -dir[1]! : 10));
     const at = (t: number): number[] => cam.position.map((p, i) => p + dir[i]! * t);
+    const foot = at(tBlock);
     await command('setTransform', { entityId: wall, transform: { position: at(tBlock * 0.55), rotation: cam.rotation, scale: [1, 1, 1] } });
-    await command('setTransform', { entityId: block, transform: { position: at(tBlock), rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    await command('setTransform', { entityId: block, transform: { position: foot, rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    // The sun from the view's right, nearly level, so the block's shadow falls left along its own depth (never
+    // across the wall, which stands nearer) onto a panel 6 m left of it: past the wall's left edge as the view
+    // sees it (the wall's half, 2 m at 0.55 of the way, covers 3.6 m at the block's depth). The panel turns half
+    // way between the view and the sun, so both see its face.
+    const flat = norm([fwd[0]!, 0, fwd[2]!]);
+    const side = norm([right[0]!, 0, right[2]!]);
+    const centre = [foot[0]! - side[0]! * 6, foot[1]! + 0.5, foot[2]! - side[2]! * 6];
+    const facing = norm([side[0]! - flat[0]!, 0, side[2]! - flat[2]!]);
+    const yaw = Math.atan2(facing[0]!, facing[2]!);
+    await command('setTransform', { entityId: panel, transform: { position: centre, rotation: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)], scale: [1, 1, 1] } });
+    const sun = norm([-side[0]!, -0.15, -side[2]!]);
+    // (After a reload the view stands where it stood: the same sun is no change.)
+    const lit = await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: 'light-0001' } });
+    const now = (lit['entity'] as { components: { light?: { direction?: number[] } } }).components.light?.direction ?? [];
+    if (now.some((v, i) => Math.abs(v - sun[i]!) > 1e-9) || now.length !== 3) await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: sun, castShadow: true } });
+  };
+  /**
+   * The block the view culls still casts into it (shadow maps draw every caster): with its casting turned off the
+   * picture changes (its shadow goes), with culling on; then it casts again.
+   */
+  const hiddenCasterShadow = async (label: string): Promise<void> => {
+    const casting = await settledShot(view, `${label}-casting`, 500);
+    expect((await occlusionView(page)).culled, `${label}: the block is culled while its shadow is drawn`).toBeGreaterThan(0);
+    await command('setComponent', { entityId: block, component: 'model', value: { asset: { assetId: 'dense-block' }, piece: 'dense', castShadow: false } });
+    const none = await settledShot(view, `${label}-not-casting`, 500);
+    const d = diff(casting, none, STRICT);
+    console.log(`[rendering] ${label}: the culled block casting against not: ${show(d, STRICT)}`);
+    expect(d.worst, `${label}: the culled block's shadow is in the picture`).toBeGreaterThan(40);
+    expect(d.mean, `${label}: the culled block's shadow is in the picture`).toBeGreaterThan(0);
+    await command('setComponent', { entityId: block, component: 'model', value: { asset: { assetId: 'dense-block' }, piece: 'dense', castShadow: true } });
   };
   const row = (id: string): Locator => page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`);
   const culledShown = async (path: string, boxes: number, message: string): Promise<void> => {
@@ -358,7 +393,7 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
   const backends = backendOf('auto') === 'webgpu' ? (['webgpu', 'webgl2'] as const) : (['webgl2'] as const);
   for (const [k, backend] of backends.entries()) {
     if (backend === 'webgl2') {
-      await page.goto(`${editorUrlFor(be.editorUrl, 'webgl2').replace('#', '&occlusion=queries#')}`);
+      await page.goto(editorUrlFor(be.editorUrl, 'webgl2'));
       await expect(page.locator('.tl-statusbar')).toContainText('connected');
       await expectRendererBackend(view, 'webgl2');
     } else await expectRendererBackend(view, 'auto');
@@ -423,6 +458,7 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
     // The picture with culling on (the block culled, the boxes off) and off: the same.
     await menu(page, 'View', 'Show culled draws: on');
     await expect.poll(async () => (await occlusionView(page)).boxes).toBeNull();
+    await hiddenCasterShadow(`scene-view-${backend}`);
     await onOff(`scene-view-${backend}`);
   }
 }
@@ -481,13 +517,11 @@ test('the export draws the box field instanced and looks the same as without ins
   // The sun casts shadows: the instanced boxes cast and receive them like single ones.
   // The sun shines from behind the camera (+Z), on the box faces the camera sees.
   await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, -0.6], castShadow: true } });
-  // Two large fences whose own surfaces are two posts and whose `_OCC` stand-in is the panel between them: one past
-  // the field, seen through the gaps between the boxes (a panel drawn in colour would fill them), one behind the
-  // camera with the sun behind it (a panel that cast would shade the whole field the camera sees).
+  // Two large fences with an `_OCC` stand-in inside their panel: one past the field, seen through the gaps between
+  // the boxes, one behind the camera with the sun behind it (a stand-in that cast would shade the field further).
   await publishBytes(be, new Uint8Array(multiPieceGlb([FENCE])), 'model', 'fence', 'Fence');
   const fence = (id: string, z: number) => ({ id, name: id, components: { transform: { position: [-15, 0, z], rotation: [0, 0, 0, 1], scale: [10, 10, 10] }, model: { asset: { assetId: 'fence' } } } });
-  // A glass pane behind the far fence's stand-in: drawn after the opaque surfaces, it must see the depth without the
-  // stand-in (a stand-in in the scene's depth would hide it, and ambient occlusion would darken the fence's gap).
+  // A glass pane behind the far fence: drawn after the opaque surfaces, a transparent draw no path culls.
   await command('setMaterial', { material: { materialId: 'mat-glass', name: 'Glass', shader: 'standard', params: { color: '#60a0e0', alphaMode: 'blend', opacity: 0.5 }, textures: {} } });
   const glass = { id: 'glass', name: 'glass', components: { transform: { position: [0, 6, -17], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [12, 8, 0.2], material: { color: '#60a0e0' } }, materials: { '*': 'mat-glass' } } };
   await command('pasteEntities', { sceneId: 'scene-main', entities: [fence('fence-far', -14), fence('fence-back', 14), glass] });
@@ -499,6 +533,8 @@ test('the export draws the box field instanced and looks the same as without ins
   await paintedCopies();
   await wholeDraws();
   await ridgeGround();
+  // Occlusion culling on (the setting's auto culls nothing): the depth pyramid on WebGPU, the queries on WebGL 2.
+  await command('setSettings', { settings: { occlusion_culling: 2 } });
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   // The same field with a third of it below a parent: a second export.
@@ -639,12 +675,12 @@ test('the export draws the box field instanced and looks the same as without ins
     }
     await first.game.close();
 
-    // WebGL 2's occlusion queries on boxes (pinned: auto culls nothing there, their answers come frames late). The same
+    // WebGL 2's occlusion queries on boxes (the setting's on: their answers come frames late). The same
     // pictures with culling on and off: through the post stack with ambient occlusion (the fence's stand-in drawn into
     // the queries' depth only, the glass behind it still drawn), the plain frame (through the scene pass with culling
     // on, straight to the canvas with it off), and at poses along the flown camera; the frames a draw stayed hidden
     // after its box showed are counted (the lateness, logged).
-    const gl = await openGame(`${site.url}?renderer=webgl2&occlusion=queries`);
+    const gl = await openGame(`${site.url}?renderer=webgl2`);
     const glOcc = await onAndOff(gl.game, gl.canvas, 'webgl2', undefined, 'queries');
     const [glPath, , glTested, glCulled, glStandins] = glOcc.on.occlusion!.split('|');
     expect(glPath, 'WebGL 2 culls with occlusion queries').toBe('queries');
@@ -663,7 +699,7 @@ test('the export draws the box field instanced and looks the same as without ins
     console.log(`[rendering] webgl2 queries: ${JSON.stringify(queries)}`);
     expect(queries.ageFrames, 'answers came').toBeGreaterThan(0);
     await gl.game.close();
-    const glPlain = await openGame(`${site.url}?renderer=webgl2&occlusion=queries&ao=off`);
+    const glPlain = await openGame(`${site.url}?renderer=webgl2&ao=off`);
     await onAndOff(glPlain.game, glPlain.canvas, 'webgl2-ao=off', undefined, 'queries');
     await glPlain.game.close();
 

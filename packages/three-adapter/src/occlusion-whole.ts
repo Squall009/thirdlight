@@ -27,11 +27,12 @@
  * indirect draw has one range.
  */
 import * as THREE from 'three';
-import { occludeeClassOf, occludeeScreenShare, OCCLUSION_MIN_COPIES_TRIANGLES, type OccludeeKind } from '@thirdlight/runtime';
+import { occludeeClassOf, occludeeScreenShare, OCCLUSION_MIN_TRIANGLES, type OccludeeKind } from '@thirdlight/runtime';
 
 import type { Occludee } from './occludees';
 import type { InstanceOcclusion, WholeRow } from './occlusion-instances';
 import { mergedViewDrawOf } from './static-merge';
+import { vertexReachOf } from './vertex-reach';
 import { occlusionMayTest } from './view-hidden';
 
 /** The kinds tested whole here (instanced copies and terrain nodes are tested one by one; what is blended hides nothing and stays last). */
@@ -97,10 +98,11 @@ const _view = new TestView();
  * Whether a draw culled whole is worth a test in `view` (its camera's), and
  * what it is tested by: its range as the view draws it (returned; null: not
  * worth a test, or out of view), its world box written into `corners`
- * (min xyz, max xyz; a merged cell's over its members in view). Worth a test:
- * one range, at least `OCCLUSION_MIN_COPIES_TRIANGLES`, in the frustum, and
- * not so large on screen that it is never hidden whole (the runtime's
- * `occludeeClassOf`). Both culling paths ask this, the depth pyramid's and
+ * (min xyz, max xyz; a merged cell's over its members in view), grown by how
+ * far its vertices may move (vertex-reach.ts). Worth a test: vertices with a
+ * known reach, one range, at least `OCCLUSION_MIN_TRIANGLES`, in the
+ * frustum, and not so large on screen that it is never hidden whole (the
+ * runtime's `occludeeClassOf`). Both culling paths ask this, the depth pyramid's and
  * the occlusion queries'.
  */
 export function wholeTestOf(o: Occludee, camera: THREE.Camera, view: TestView, corners: Float64Array): { count: number; first: number } | null {
@@ -108,7 +110,10 @@ export function wholeTestOf(o: Occludee, camera: THREE.Camera, view: TestView, c
   const range = viewRangeOf(m, camera);
   // Enough triangles to win back its test: asked first, it is the cheapest.
   const triangles = range === null ? 0 : Math.floor(range.count / 3);
-  if (range === null || triangles < OCCLUSION_MIN_COPIES_TRIANGLES) return null;
+  if (range === null || triangles < OCCLUSION_MIN_TRIANGLES) return null;
+  // Asked now, not when it was listed: a material compiled again in place may have gained a vertex offset.
+  const reach = vertexReachOf(m);
+  if (reach === null) return null;
   const merged = o.kind === 'merged' ? mergedViewDrawOf(m, camera) : null;
   if (merged !== null) {
     corners.set(merged.box);
@@ -125,6 +130,13 @@ export function wholeTestOf(o: Occludee, camera: THREE.Camera, view: TestView, c
     corners[3] = _box.max.x;
     corners[4] = _box.max.y;
     corners[5] = _box.max.z;
+  }
+  if (reach > 0) {
+    for (let a = 0; a < 3; a += 1) {
+      corners[a] = corners[a]! - reach;
+      corners[a + 3] = corners[a + 3]! + reach;
+    }
+    _sphere.radius += reach;
   }
   if (!(_sphere.radius >= 0) || !view.frustum.intersectsSphere(_sphere)) return null;
   const distance = _sphere.center.distanceTo(view.eye);

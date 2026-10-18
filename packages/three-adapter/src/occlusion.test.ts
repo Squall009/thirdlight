@@ -14,6 +14,8 @@ import { OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyram
 import { createQualityControl } from './quality-control';
 import { createRenderControl } from './render-control';
 import { LodTuning } from './lod-switch';
+import { liftedForSecondPass } from './occlusion-passes';
+import { declareVertexReach, vertexReachOf } from './vertex-reach';
 import { HIDDEN_BY_OCCLUSION, HIDDEN_BY_ROOM, hiddenFromView, hideFromView } from './view-hidden';
 
 const box = (size = 1, transparent = false): THREE.Mesh => new THREE.Mesh(new THREE.BoxGeometry(size, size, size), new THREE.MeshBasicMaterial({ transparent }));
@@ -89,22 +91,79 @@ function culler(setting: { value: OcclusionCulling }, renderer: { value: 'webgpu
   return { scene, c, marks, changes: () => changes };
 }
 
+describe('what moves its vertices past its bounds', () => {
+  it('is no occludee unless it says how far (wind does); its bounds grow by that reach', () => {
+    const plain = box(2);
+    expect(vertexReachOf(plain)).toBe(0);
+    const skinned = new THREE.SkinnedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    const morphed = box();
+    morphed.geometry.morphAttributes['position'] = [morphed.geometry.getAttribute('position').clone()];
+    const offset = box();
+    (offset.material as unknown as { positionNode: unknown }).positionNode = {};
+    const windy = box(2);
+    (windy.material as unknown as { positionNode: unknown }).positionNode = {};
+    let wind = 0.25;
+    declareVertexReach(windy.material as THREE.Material, () => wind);
+    expect([skinned, morphed, offset].map(vertexReachOf)).toEqual([null, null, null]);
+    expect([skinned, morphed, offset, windy].map(occludeeKindOf)).toEqual([null, null, null, 'single']);
+    // A terrain page bounds its own heights: marked, it stays one.
+    const page = box();
+    (page.material as unknown as { positionNode: unknown }).positionNode = {};
+    markOccludee(page, 'terrain');
+    expect(occludeeKindOf(page)).toBe('terrain');
+    // The wind's reach now grows the bounds; stronger wind, larger bounds.
+    const r = new OccludeeRegistry();
+    r.sync([windy]);
+    expect(occludeeWorldBounds(r.get(windy)!, new THREE.Box3()).max.toArray()).toEqual([1.25, 1.25, 1.25]);
+    wind = 1;
+    expect(occludeeWorldBounds(r.get(windy)!, new THREE.Box3()).min.toArray()).toEqual([-2, -2, -2]);
+    // A clone carries no declared reach: never culled.
+    const clone = new THREE.Mesh(windy.geometry, (windy.material as THREE.Material).clone());
+    (clone.material as unknown as { positionNode: unknown }).positionNode = {};
+    expect(occludeeKindOf(clone)).toBeNull();
+  });
+});
+
+describe('the two-pass frame', () => {
+  it('hides only childless first-pass draws while the second render walks the scene: a child (glass, a light) under one is still found', () => {
+    const solid = box();
+    const withGlass = box();
+    withGlass.add(box(0.5, true));
+    const withLight = box();
+    withLight.add(new THREE.PointLight());
+    const r = new OccludeeRegistry();
+    r.sync([solid, withGlass, withLight, box(1, true)]);
+    const lifted = [...r.values()].map((o) => liftedForSecondPass(o, false, false));
+    expect(lifted).toEqual([true, false, false, false]);
+    // Drawn by the second pass too, or moved to it: never hidden from it.
+    expect(liftedForSecondPass(r.get(solid)!, true, false)).toBe(false);
+    expect(liftedForSecondPass(r.get(solid)!, false, true)).toBe(false);
+  });
+});
+
 describe('occlusion culler', () => {
   it('culls on the setting\'s path for the renderer; the page flag pins one; off keeps no occludees', () => {
-    const setting = { value: 'auto' as OcclusionCulling };
+    const setting = { value: 'on' as OcclusionCulling };
     const renderer = { value: null as 'webgpu' | 'webgl2' | null };
     const h = culler(setting, renderer);
     h.scene.add(box(), box(), new THREE.AmbientLight());
     h.c.update();
-    expect(h.c.diagnostics()).toMatchObject({ setting: 'auto', path: 'off', occludees: 0 });
+    expect(h.c.diagnostics()).toMatchObject({ setting: 'on', path: 'off', occludees: 0 });
     renderer.value = 'webgpu';
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ path: 'hiz', source: 'setting', occludees: 2, tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null });
     expect(h.marks[h.marks.length - 1]).toBe('hiz|2|0|0|0');
-    // WebGL 2's queries answer frames late: auto culls nothing there, the queries are a pin.
+    // On WebGL 2, on takes the occlusion queries.
     renderer.value = 'webgl2';
     h.c.update();
+    expect(h.c.path()).toBe('queries');
+    // Auto (a project that does not set it) culls nothing on either renderer for now.
+    setting.value = 'auto';
+    h.c.update();
     expect(h.c.path()).toBe('off');
+    renderer.value = 'webgpu';
+    h.c.update();
+    expect(h.c.diagnostics()).toMatchObject({ setting: 'auto', path: 'off', occludees: 0 });
     setting.value = 'off';
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ setting: 'off', path: 'off', occludees: 0 });
@@ -115,12 +174,12 @@ describe('occlusion culler', () => {
     expect(occlusionFromUrl('?occlusion=pyramid')).toBe('hiz');
     expect(occlusionFromUrl('?occlusion=pyramid:4')).toBe('hiz');
     expect([occlusionPyramidFromUrl('?occlusion=pyramid'), occlusionPyramidFromUrl('?occlusion=pyramid:4'), occlusionPyramidFromUrl('?occlusion=hiz'), occlusionPyramidFromUrl('?occlusion=pyramid:x')]).toEqual([0, 4, null, null]);
-    const pinned = culler({ value: 'auto' }, { value: 'webgpu' }, 'off');
+    const pinned = culler({ value: 'on' }, { value: 'webgpu' }, 'off');
     expect(pinned.c.diagnostics()).toMatchObject({ path: 'off', source: 'page', pinned: 'off' });
   });
 
   it('the scene\'s switch: tools read the path and pin one; what the old path hid is shown at once, other reasons stay', () => {
-    const h = culler({ value: 'auto' }, { value: 'webgpu' });
+    const h = culler({ value: 'on' }, { value: 'webgpu' });
     const a = box();
     const b = box();
     h.scene.add(a, b);
@@ -151,7 +210,7 @@ describe('occlusion culler', () => {
   });
 
   it('a quality level turns it off over the project\'s setting, and the level above takes the project\'s again', () => {
-    const renderControl = createRenderControl({ occlusionCulling: 'auto' });
+    const renderControl = createRenderControl({ occlusionCulling: 'on' });
     const q = createQualityControl(
       { renderControl, lodTuning: new LodTuning(), setLightLimits: () => false, reselectLights: () => undefined, setPixelRatioCap: () => undefined, environment: () => null, changed: () => undefined },
       { project: { quality: 'low', qualityLevels: [{ id: 'low', occlusionCulling: 'off' }, { id: 'high' }] } },
@@ -160,7 +219,7 @@ describe('occlusion culler', () => {
     expect(renderControl.diagnostics().occlusionCulling).toBe('off');
     expect(h.c.path()).toBe('off');
     q.choose('high');
-    expect(renderControl.occlusionCulling()).toBe('auto');
+    expect(renderControl.occlusionCulling()).toBe('on');
     expect(h.c.path()).toBe('hiz');
     renderControl.set({ occlusionCulling: 'off' }, 'project');
     expect(h.c.path()).toBe('off');

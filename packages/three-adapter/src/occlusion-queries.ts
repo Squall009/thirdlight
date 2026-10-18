@@ -41,14 +41,16 @@
  * answer is about.
  */
 import * as THREE from 'three';
-import { occludeeClassOf, occlusionCameraCut, occlusionQueryMargin, OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
+import { occludeeClassOf, occludeeScreenShare, occlusionCameraCut, occlusionQueryMargin } from '@thirdlight/runtime';
 
 import type { InstanceViewDraw } from './attribute-instancing';
-import { drawTrianglesOf, type Occludee } from './occludees';
+import { drawTrianglesOf, OCCLUDEE_KIND_KEY, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY } from './occluders';
+import { copiesInViewWorthCulling } from './occlusion-instances-rule';
 import type { ScenePasses } from './occlusion-passes';
 import { hiddenByAnswers, queryAnswered, queryAsked, queryDue, queryForget, QueryRecord } from './occlusion-queries-rule';
 import { TestView, wholeTestOf, culledWhole } from './occlusion-whole';
+import { vertexReachOf } from './vertex-reach';
 import { VIEW_CULL_KEY } from './view-cull';
 import { HIDDEN_BY_OCCLUSION, hideFromView, occlusionMayTest } from './view-hidden';
 
@@ -77,7 +79,7 @@ interface Entry {
   readonly proxy: THREE.Mesh;
   stamp: number;
   /** An instanced draw's box over its copies in view, and the version of the copies it was made from. */
-  copies: { version: number; count: number; box: Float64Array } | null;
+  copies: { version: number; count: number; reach: number; box: Float64Array } | null;
 }
 
 /** A query drawn and not answered yet. */
@@ -115,6 +117,7 @@ const _view = new TestView();
 const _corners = new Float64Array(6);
 const _forward = new THREE.Vector3();
 const _box = new THREE.Box3();
+const _sphere = new THREE.Sphere();
 const _size = new THREE.Vector3();
 const _centre = new THREE.Vector3();
 
@@ -393,33 +396,39 @@ export class QueryOcclusion implements ScenePasses {
     // Hidden by the frustum's owner, a cut-away, the rooms or isolation: not asked. Hidden by occlusion only: still asked.
     if (!occlusionMayTest(m, camera)) return null;
     let copies: InstanceViewDraw | null = null;
+    let reach = 0;
     if (o.kind === 'instanced') {
       copies = (m.userData[VIEW_CULL_KEY] as { mesh?: unknown; viewDraw?: () => InstanceViewDraw | null } | undefined)?.viewDraw?.() ?? null;
-      if (copies === null || copies.count * drawTrianglesOf(m.geometry) < OCCLUSION_MIN_COPIES_TRIANGLES) return null;
-    } else if (!culledWhole(o.kind) && o.kind !== 'transparent') return null;
+      if (copies === null || !copiesInViewWorthCulling(copies.count, drawTrianglesOf(m.geometry))) return null;
+      // Wind moves the copies past their spheres; vertices moved with no known bound: never asked.
+      const r = m.userData[OCCLUDEE_KIND_KEY] === 'terrain' ? 0 : vertexReachOf(m);
+      if (r === null) return null;
+      reach = r;
+      // What is blended is never asked (as on the depth pyramid path: it hides nothing and stays last).
+    } else if (!culledWhole(o.kind)) return null;
     else if (wholeTestOf(o, camera, _view, _corners) === null) return null;
     let e = this.entries.get(m);
     if (e === undefined) {
       e = this.make(m);
       this.entries.set(m, e);
     }
-    if (copies !== null && !this.copiesBox(e, copies, m.geometry)) return null;
+    if (copies !== null && !this.copiesBox(e, copies, m.geometry, reach)) return null;
     e.stamp = this.frame;
     return e;
   }
 
-  /** An instanced draw's box over its copies in view (made again when they changed), in `_corners`; false when not worth a query. */
-  private copiesBox(e: Entry, copies: InstanceViewDraw, geometry: THREE.BufferGeometry): boolean {
+  /** An instanced draw's box over its copies in view, grown by `reach` (made again when they changed), in `_corners`; false when not worth a query. */
+  private copiesBox(e: Entry, copies: InstanceViewDraw, geometry: THREE.BufferGeometry, reach: number): boolean {
     let c = e.copies;
-    if (c === null || c.version !== copies.version || c.count !== copies.count) {
-      c ??= { version: 0, count: 0, box: new Float64Array(6) };
+    if (c === null || c.version !== copies.version || c.count !== copies.count || c.reach !== reach) {
+      c ??= { version: 0, count: 0, reach: 0, box: new Float64Array(6) };
       const b = c.box;
       b.fill(Number.POSITIVE_INFINITY, 0, 3);
       b.fill(Number.NEGATIVE_INFINITY, 3, 6);
       const s = copies.spheres;
       for (let at = 0; at < copies.count; at += 1) {
         const k = copies.order[at]! * 4;
-        const rad = s[k + 3]!;
+        const rad = s[k + 3]! + reach;
         if (!(rad >= 0)) continue;
         for (let a = 0; a < 3; a += 1) {
           b[a] = Math.min(b[a]!, s[k + a]! - rad);
@@ -428,6 +437,7 @@ export class QueryOcclusion implements ScenePasses {
       }
       c.version = copies.version;
       c.count = copies.count;
+      c.reach = reach;
       e.copies = c;
     }
     _corners.set(c.box);
@@ -436,10 +446,10 @@ export class QueryOcclusion implements ScenePasses {
     _box.max.set(_corners[3]!, _corners[4]!, _corners[5]!);
     if (!_view.frustum.intersectsBox(_box)) return false;
     // Tested as one draw: not when it covers so much of the screen that it is never hidden whole (the runtime's rule).
-    const sphere = _box.getBoundingSphere(new THREE.Sphere());
-    const share = _view.tanHalf > 0 ? sphere.radius / (Math.max(1e-6, sphere.center.distanceTo(_view.eye)) * _view.tanHalf) : Number.POSITIVE_INFINITY;
+    const sphere = _box.getBoundingSphere(_sphere);
+    const share = _view.tanHalf > 0 ? occludeeScreenShare(sphere.radius, sphere.center.distanceTo(_view.eye), _view.tanHalf) : Number.POSITIVE_INFINITY;
     const triangles = copies.count * drawTrianglesOf(geometry);
-    return occludeeClassOf({ kind: 'single', triangles, items: 1, screenShare: sphere.center.distanceTo(_view.eye) > sphere.radius ? share : Number.POSITIVE_INFINITY }) === 'whole';
+    return occludeeClassOf({ kind: 'single', triangles, items: 1, screenShare: share }) === 'whole';
   }
 
   private make(mesh: THREE.Mesh): Entry {

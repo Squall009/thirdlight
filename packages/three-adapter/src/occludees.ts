@@ -10,7 +10,9 @@
  * (`markOccludee`): block chunks, architecture chunks, terrain pages.
  *
  * Never occludees: lights, points, lines and sprites, a model's `_OCC`
- * stand-ins (occluders.ts: they hide, they are never hidden), what a host
+ * stand-ins (occluders.ts: they hide, they are never hidden), a draw whose
+ * vertices move past its bounds with no bound known (vertex-reach.ts:
+ * skinned, morphed, a vertex offset; wind declares its reach), what a host
  * draws for itself (`markHostDrawing`: an editor's overlays), and what three
  * is told never to cull (`frustumCulled = false`: the sky, full-screen
  * passes) unless an owner marked it (terrain pages pick their own nodes and
@@ -30,6 +32,7 @@ import { occludeeScreenShare, OCCLUDEE_KINDS, OCCLUDER_ROLES, type OccludeeFacts
 
 import { isOccluderStandin, NOT_OCCLUDER_KEY, OCCLUDER_EARLY_RENDER_ORDER, occluderRoleOfDraw } from './occluders';
 import { mergedMembersOf } from './static-merge';
+import { vertexReachOf } from './vertex-reach';
 
 /** `object.userData[OCCLUDEE_KIND_KEY]`: the kind an owner gave its draw (else it is told from its type). */
 export const OCCLUDEE_KIND_KEY = '__tlOccludeeKind';
@@ -73,6 +76,8 @@ export function occludeeKindOf(o: THREE.Object3D): OccludeeKind | null {
   const m = o as THREE.Mesh;
   if (m.isMesh !== true || isOccluderStandin(m) || inHostDrawing(m)) return null;
   const marked = o.userData[OCCLUDEE_KIND_KEY] as OccludeeKind | undefined;
+  // Its bounds would not hold what it draws (terrain pages bound their own heights).
+  if (marked !== 'terrain' && vertexReachOf(m) === null) return null;
   if (materialsOf(m).some((x) => x.transparent)) return 'transparent';
   if (marked !== undefined) return marked;
   if (o.frustumCulled === false) return null;
@@ -214,9 +219,10 @@ function localBox(o: Occludee): THREE.Box3 {
   return g.boundingBox!;
 }
 
-/** An occludee's bounds in the world now (empty: it draws nothing). */
+/** An occludee's bounds in the world now, grown by how far its vertices may move (empty: it draws nothing). */
 export function occludeeWorldBounds(o: Occludee, out: THREE.Box3): THREE.Box3 {
-  return out.copy(localBox(o)).applyMatrix4(o.object.matrixWorld);
+  out.copy(localBox(o)).applyMatrix4(o.object.matrixWorld);
+  return o.kind === 'terrain' || out.isEmpty() ? out : out.expandByScalar(vertexReachOf(o.object) ?? 0);
 }
 
 /**

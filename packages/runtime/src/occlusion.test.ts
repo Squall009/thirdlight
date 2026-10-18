@@ -4,10 +4,12 @@ import { engineStatsOf, ENGINE_STATS_NONE } from './engine-stats';
 import { occludeeClassOf, occludeeScreenShare, occluderRoleOf, type OccluderFacts, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
 
 describe('occlusion culling rules', () => {
-  it('auto takes the depth pyramid on WebGPU and nothing on WebGL 2 (its queries are a pin); off and an unknown renderer draw everything', () => {
-    expect(occlusionPathOf('auto', 'webgpu')).toEqual({ path: 'hiz', source: 'setting' });
+  it('on takes the depth pyramid on WebGPU and the queries on WebGL 2; auto culls nothing for now; off and an unknown renderer draw everything', () => {
+    expect(occlusionPathOf('on', 'webgpu')).toEqual({ path: 'hiz', source: 'setting' });
+    expect(occlusionPathOf('on', 'webgl2')).toEqual({ path: 'queries', source: 'setting' });
+    expect(occlusionPathOf('on', null).path).toBe('off');
+    expect(occlusionPathOf('auto', 'webgpu')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('auto', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
-    expect(occlusionPathOf('auto', null).path).toBe('off');
     expect(occlusionPathOf('off', 'webgpu').path).toBe('off');
   });
 
@@ -33,16 +35,17 @@ describe('occlusion culling rules', () => {
     expect(occludeeClassOf({ kind: 'single', triangles: OCCLUSION_MIN_TRIANGLES, ...at })).toBe('whole');
     expect(occludeeClassOf({ kind: 'single', triangles: OCCLUSION_MIN_TRIANGLES - 1, ...at })).toBe('never');
     // Many small copies add up: their draw is worth testing, copy by copy.
-    expect(occludeeClassOf({ kind: 'instanced', triangles: 12, items: 100, screenShare: 0.1 })).toBe('items');
+    expect(occludeeClassOf({ kind: 'instanced', triangles: 12, items: 200, screenShare: 0.1 })).toBe('items');
+    expect(occludeeClassOf({ kind: 'instanced', triangles: 12, items: 100, screenShare: 0.1 })).toBe('never');
     expect(occludeeClassOf({ kind: 'terrain', triangles: 128, items: 40, screenShare: Number.POSITIVE_INFINITY })).toBe('items');
     // An instanced draw of one copy is a draw like any other.
-    expect(occludeeClassOf({ kind: 'instanced', triangles: 500, items: 1, screenShare: 0.1 })).toBe('whole');
+    expect(occludeeClassOf({ kind: 'instanced', triangles: 2500, items: 1, screenShare: 0.1 })).toBe('whole');
     // Too large on screen (or around the eye) to be hidden whole.
     expect(occludeeClassOf({ kind: 'blocks', triangles: 5000, items: 1, screenShare: OCCLUSION_MAX_SCREEN_SHARE + 0.01 })).toBe('never');
     expect(occludeeClassOf({ kind: 'merged', triangles: 5000, items: 30, screenShare: Number.POSITIVE_INFINITY })).toBe('never');
     // Transparent draws hide nothing but can be hidden.
-    expect(occludeeClassOf({ kind: 'transparent', triangles: 200, ...at })).toBe('whole');
-    expect(occludeeClassOf({ kind: 'single', triangles: 500, items: 1, screenShare: Number.NaN })).toBe('never');
+    expect(occludeeClassOf({ kind: 'transparent', triangles: 2500, ...at })).toBe('whole');
+    expect(occludeeClassOf({ kind: 'single', triangles: 2500, items: 1, screenShare: Number.NaN })).toBe('never');
   });
 
   it('occluders: level geometry first, opaque solid surfaces, stand-ins; never what is see-through, cut out, thin or opted out', () => {

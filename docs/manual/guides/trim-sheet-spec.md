@@ -265,15 +265,20 @@ space**, so the same model restyles when the sheet is swapped.
 ## Occluder stand-ins (`_OCC`)
 
 [Occlusion culling](../features/occlusion.md) leaves out what solid
-surfaces hide. A piece whose own surfaces are not solid (a hedge, a fence, a
-lattice wall, a window with glass) hides nothing, unless you give it a
+surfaces hide. A piece whose own surfaces are not solid (a hedge of leaf
+cards, a window with glass) hides nothing, unless you give it a
 `<piece>_OCC` node beside its `_LOD<n>` and `_COL` nodes:
 
 - **A few boxes or slabs inside the piece**: the stand-in counts as solid
   wherever it covers, so keep it inside what really blocks the view. A
   hedge's stand-in is a box a little smaller than the hedge, not its outline.
-- **Inside the LOD0 bounds**: a stand-in with a vertex more than 1 mm
-  outside them is ignored and named in Problems (`model_occluder_ignored`).
+  What is seen through the hedge's gaps or the glass where the stand-in is
+  disappears: give one only where nobody looks through.
+- **Inside the LOD0 surfaces**: a stand-in with a vertex more than 1 mm
+  outside the LOD0 bounds, or one over a place the LOD0 triangles do not
+  cover (an arch's opening, the gap between a fence's posts) or in front of
+  them, seen along the axes, is ignored and named in Problems
+  (`model_occluder_ignored`). A fence of posts and an open lattice get none.
 - **Never drawn** in colour or shadows, and not part of the piece's bounds,
   colliders, vertex paint or generated levels; no material or UVs needed.
 - **Only where it pays**: large pieces that stand between areas. A solid

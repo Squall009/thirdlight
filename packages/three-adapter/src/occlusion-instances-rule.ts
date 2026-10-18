@@ -3,9 +3,10 @@
  * rules `occlusion-instances.ts` runs in compute and the CPU references the
  * tests hold them to.
  *
- * Every culled draw has a range of copies in shared pools (its drawn
- * buffer's order: what the view sees first, nearest first). A frame tests
- * its first `n` copies (those in the frustum) in two steps:
+ * Every culled draw has a range of copies in shared pools, each copy at its
+ * slot, and its drawn order (the slot at each place: what the view sees
+ * first, nearest first). A frame tests its first `n` places (the copies in
+ * the frustum) in two steps:
  *
  * 1. Before the first pass: the copies that were visible last frame, in
  *    their order, make the first pass's list (only for a draw the first pass
@@ -17,31 +18,41 @@
  * So every copy visible in the finished frame is drawn once: drawn in the
  * first pass, or else not hidden by the first pass's depth (which is only
  * ever farther than the finished frame's) and drawn in the second. A list
- * keeps the copies' order and names them by their place in the draw's range;
- * the vertex stage reads the copy's 16 floats from there as written, so its
- * paint slot (the matrix's fourth row) travels with it unchanged.
+ * keeps the copies' order and names them by their place in the draw's order;
+ * the vertex stage reads the slot at that place and the copy's 16 floats at
+ * that slot as written, so its paint slot (the matrix's fourth row) travels
+ * with it unchanged.
  *
  * Depth is compared as the pyramid stores it (standard and logarithmic
  * depth: larger is farther; reversed Z: smaller), with a margin that only
  * ever keeps a copy.
  */
-import { occludeeClassOf, OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
+import { occludeeClassOf, OCCLUSION_MIN_TRIANGLES } from '@thirdlight/runtime';
 
+import { INSTANCE_MATRIX_FLOATS } from './attribute-instancing';
 import { fartherDepth, type PyramidLayout } from './occlusion-pyramid-rule';
 
 /**
  * Whether an instanced draw is worth culling copy by copy: opaque, worth a
  * test by the runtime's rule, and drawing at least
- * `OCCLUSION_MIN_COPIES_TRIANGLES` with every copy it holds. A draw of one
+ * `OCCLUSION_MIN_TRIANGLES` with every copy it holds. A draw of one
  * copy (copies drawn per room often are) is tested as its one copy; the
  * runtime calls it a whole draw, which no other path culls.
  */
 export function copiesWorthCulling(triangles: number, copies: number, transparent: boolean): boolean {
-  return !transparent && occludeeClassOf({ kind: 'instanced', triangles, items: copies, screenShare: 0 }) !== 'never' && triangles * copies >= OCCLUSION_MIN_COPIES_TRIANGLES;
+  return !transparent && occludeeClassOf({ kind: 'instanced', triangles, items: copies, screenShare: 0 }) !== 'never';
 }
 
-/** Floats a copy's matrix takes in the pools (column-major, as drawn). */
-export const COPY_FLOATS = 16;
+/**
+ * Whether an instanced draw's copies in view this frame are worth its test: they draw at least
+ * `OCCLUSION_MIN_TRIANGLES` together (else it is drawn whole that frame). Both paths ask it.
+ */
+export function copiesInViewWorthCulling(copiesInView: number, triangles: number): boolean {
+  return copiesInView * triangles >= OCCLUSION_MIN_TRIANGLES;
+}
+
+/** Floats a copy's matrix takes in the pools (column-major, as drawn: the drawn buffer's own layout). */
+export const COPY_FLOATS = INSTANCE_MATRIX_FLOATS;
 
 /**
  * Where a copy tested as a box keeps it in its 16 floats (terrain nodes, which use the first eight, and draws
@@ -161,9 +172,13 @@ export function secondPassList(s: CopyStep, seen: (place: number) => boolean): n
   return out;
 }
 
-/** The 16 floats the vertex stage reads for list entry `i` of a draw whose range starts at `base` (as written: the paint slot rides in float 3). */
-export function listedCopy(pool: Float32Array, base: number, list: readonly number[], i: number): Float32Array {
-  const at = (base + list[i]!) * COPY_FLOATS;
+/**
+ * The 16 floats the vertex stage reads for list entry `i` of a draw whose range starts at `base`: the slot its
+ * order (`slots`, by place, the pools' own) holds at the listed place, and the copy there as written (the paint
+ * slot rides in float 3).
+ */
+export function listedCopy(pool: Float32Array, slots: ArrayLike<number>, base: number, list: readonly number[], i: number): Float32Array {
+  const at = (base + slots[base + list[i]!]!) * COPY_FLOATS;
   return pool.slice(at, at + COPY_FLOATS);
 }
 

@@ -43,20 +43,21 @@ export function ambientOcclusionSettingValue(kind: AmbientOcclusionKind): number
 }
 
 /**
- * Occlusion culling: what solid things in front hide is not drawn. `auto`
- * culls on the path the renderer has (a depth pyramid on WebGPU; nothing on
- * WebGL 2, whose occlusion queries answer frames late); `off` draws
- * everything in view. Culling draws the
- * same picture as without it, so `auto` is also what a project that does not
- * set it gets: an existing game keeps its look.
+ * Occlusion culling: what solid things in front hide is not drawn. `on`
+ * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
+ * queries on boxes on WebGL 2); `auto` (and a project that does not set it)
+ * culls nothing on either renderer for now: the depth pyramid's two-pass frame
+ * costs an open view more than it saves at the sizes measured, and the
+ * queries answer frames late; `off` draws everything in view. Culling draws
+ * the same picture as without it, so `on` changes cost, never the look.
  */
-export const OCCLUSION_CULLING_MODES = ['off', 'auto'] as const;
+export const OCCLUSION_CULLING_MODES = ['off', 'auto', 'on'] as const;
 export type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
 /** The `occlusion_culling` setting's values, in `OCCLUSION_CULLING_MODES` order. */
-export const OCCLUSION_CULLING_SETTING_VALUES = [0, 1] as const;
+export const OCCLUSION_CULLING_SETTING_VALUES = [0, 1, 2] as const;
 export const OCCLUSION_CULLING_DEFAULT: OcclusionCulling = 'auto';
 
-/** An occlusion culling mode from a setting value (0/1) or a name ('off'/'auto'); undefined when it is neither. */
+/** An occlusion culling mode from a setting value (0/1/2) or a name ('off'/'auto'/'on'); undefined when it is neither. */
 export function occlusionCullingOf(v: unknown): OcclusionCulling | undefined {
   if (typeof v === 'number') {
     const i = (OCCLUSION_CULLING_SETTING_VALUES as readonly number[]).indexOf(v);

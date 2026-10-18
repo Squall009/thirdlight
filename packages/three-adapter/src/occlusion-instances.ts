@@ -13,10 +13,11 @@
  * - The CPU still decides what is in a draw: levels of detail, density
  *   thinning and the frustum (`view-cull.ts` puts the copies in view first,
  *   nearest first). The compute only leaves copies out of the first `n`.
- * - Every culled draw has a range in shared pools: its drawn copies'
- *   matrices (copied from its drawn buffer as written, paint slot and all),
- *   world spheres and slots, written when its drawn buffer changes; the
- *   visibility kept per slot and the two passes' lists live on the GPU only.
+ * - Every culled draw has a range in shared pools: its copies' matrices (as
+ *   drawn, paint slot and all) and world spheres by slot, written only when a
+ *   copy changes, and its drawn order (the slot at each place), the only part
+ *   a moving view writes each frame (4 bytes a copy in view); the visibility
+ *   kept per slot and the two passes' lists (places) live on the GPU only.
  * - One dispatch before the first pass writes every draw's first list (the
  *   copies visible last frame, for draws the first pass draws); one after
  *   the pyramid tests the copies and writes the second lists. A workgroup per
@@ -35,14 +36,14 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { IndirectStorageBufferAttribute, ReadbackBuffer, StorageBufferAttribute, type WebGPURenderer } from 'three/webgpu';
-import { OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
 
-import { CULLABLE_COPIES_KEY, CULLED_COPIES_KEY, INSTANCE_CULLER_KEY, type CullableCopies, type CulledCopies, type InstanceCullerHost, type InstanceViewDraw } from './attribute-instancing';
+import { CULLABLE_COPIES_KEY, CULLED_COPIES_KEY, culledCopiesSupported, INSTANCE_CULLER_KEY, type CullableCopies, type CulledCopies, type InstanceCullerHost, type InstanceViewDraw } from './attribute-instancing';
 import { releaseStorage } from './dispose';
 import type { N } from './effects-tsl';
 import { drawTrianglesOf, OCCLUDEE_KIND_KEY } from './occludees';
-import { COPY_BOX_FLOAT, COPY_FLOATS, copiesWorthCulling, HIDDEN_DEPTH_MARGIN, HIDDEN_NEAR_MARGIN_M, HIDDEN_NEAR_MARGIN_SHARE, RangeAllocator } from './occlusion-instances-rule';
+import { COPY_BOX_FLOAT, COPY_FLOATS, copiesInViewWorthCulling, copiesWorthCulling, HIDDEN_DEPTH_MARGIN, HIDDEN_NEAR_MARGIN_M, HIDDEN_NEAR_MARGIN_SHARE, RangeAllocator } from './occlusion-instances-rule';
 import { depthOfViewZNode, type DepthPyramid } from './occlusion-pyramid';
+import { vertexReachOf } from './vertex-reach';
 import { VIEW_CULL_KEY } from './view-cull';
 import { occlusionMayTest } from './view-hidden';
 
@@ -100,11 +101,14 @@ interface Draw extends CulledCopies {
   readonly triangles: number;
   base: number;
   list: number;
-  /** The drawn buffer's version copied into the pools (NaN: none yet). */
+  /** The drawn buffer's version (its order) copied into the pools, and its slots' version (NaN: none yet). */
   copied: number;
+  copiedSlots: number;
   fresh: boolean;
   /** Its copies are tested as their boxes. */
   readonly box: boolean;
+  /** How far its vertices may move past each copy's sphere (vertex-reach.ts), as its spheres were written with. */
+  reach: number;
   /** Its row in this frame's table (-1: not culled this frame), whether the first pass draws it, and the copies tested. */
   row: number;
   firstPass: boolean;
@@ -211,6 +215,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
     /** The pass drawing now (1, 2; 0: neither) and whether the first pass draws `object`. */
     private readonly passes: { readonly drawing: 0 | 1 | 2; firstPass(object: THREE.Object3D): boolean },
   ) {
+    // A three without the observer hook the culled draws' refresh wraps: nothing is culled on the GPU (every draw
+    // drawn as without culling), reported in the diagnostics' error.
+    if (!culledCopiesSupported()) this.failed = 'three has no NodeMaterial.setupObserver to refresh culled draws by';
     this.pools = this.makePools(this.alloc.size, null);
     this.rows = 64;
     this.table = this.makeTable();
@@ -283,7 +290,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     const items = handle.capacity;
     const triangles = drawTrianglesOf(mesh.geometry);
-    const worth = copiesWorthCulling(triangles, items, materials.some((m) => m.transparent));
+    // Vertices moved with no known bound (a graph's vertex offset, a billboard): never culled (terrain pages bound their own).
+    const bounded = mesh.userData[OCCLUDEE_KIND_KEY] === 'terrain' || vertexReachOf(mesh) !== null;
+    const worth = bounded && copiesWorthCulling(triangles, items, materials.some((m) => m.transparent));
     if (!worth) {
       this.passed.set(handle, mesh.material);
       return;
@@ -294,9 +303,11 @@ export class InstanceOcclusion implements InstanceCullerHost {
       cap: items,
       triangles,
       box: handle.boxes === true,
+      reach: 0,
       base: -1,
       list: 0,
       copied: Number.NaN,
+      copiedSlots: Number.NaN,
       fresh: true,
       row: -1,
       firstPass: false,
@@ -304,6 +315,9 @@ export class InstanceOcclusion implements InstanceCullerHost {
       seen: this.stamp,
       get matrices() {
         return self.pools.matrices;
+      },
+      get slots() {
+        return self.pools.slots;
       },
       get lists() {
         return self.pools.lists;
@@ -347,9 +361,17 @@ export class InstanceOcclusion implements InstanceCullerHost {
       if (camera === null || !occlusionMayTest(m, camera)) continue;
       const vd = d.handle.viewDraw();
       // Too few triangles in view to win back the draw's second encode and upkeep: drawn whole this frame.
-      if (vd === null || vd.count * d.triangles < OCCLUSION_MIN_COPIES_TRIANGLES) continue;
+      if (vd === null || !copiesInViewWorthCulling(vd.count, d.triangles)) continue;
+      // How far wind moves its copies now (asked each frame: the wind changes); no known bound: drawn whole.
+      const reach = d.box ? 0 : vertexReachOf(m);
+      if (reach === null) continue;
+      if (reach !== d.reach) {
+        d.reach = reach;
+        d.copied = Number.NaN;
+        d.copiedSlots = Number.NaN;
+      }
       if (d.base < 0) this.place(d);
-      if (d.copied !== vd.version) this.copy(d, vd);
+      this.copy(d, vd);
       d.n = vd.count;
       d.firstPass = this.passes.firstPass(m);
       d.row = this.frameRows.length;
@@ -530,6 +552,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
     d.base = this.alloc.alloc(d.cap);
     d.fresh = true;
     d.copied = Number.NaN;
+    d.copiedSlots = Number.NaN;
     if (this.alloc.size !== before) this.grow();
   }
 
@@ -566,25 +589,47 @@ export class InstanceOcclusion implements InstanceCullerHost {
     };
   }
 
-  /** The draw's first `n` drawn copies into its range: their matrices as written, world spheres and slots. */
+  /**
+   * The draw's copies into its range, each at its slot: where the draw keeps its copies by slot, all of them only
+   * when one changed and else just the order of the first `n` (the slot at each place); otherwise its first `n`
+   * drawn copies (matrices as written, world spheres) whenever its drawn buffer changes.
+   */
   private copy(d: Draw, vd: InstanceViewDraw): void {
-    const { drawn, order, spheres, count: n } = vd;
+    const { drawn, order, spheres, count: n, slots: bySlot } = vd;
     const p = this.pools;
     const m = p.matrices.array as Float32Array;
     const s = p.spheres.array as Float32Array;
     const sl = p.slots.array as Uint32Array;
-    m.set(drawn.subarray(0, n * COPY_FLOATS), d.base * COPY_FLOATS);
+    if (bySlot !== undefined) {
+      if (d.copiedSlots !== bySlot.version) {
+        const k = Math.min(bySlot.count, d.cap);
+        bySlot.write(m, d.base);
+        s.set(spheres.subarray(0, k * 4), d.base * 4);
+        if (d.reach > 0) for (let i = 0; i < k; i += 1) s[(d.base + i) * 4 + 3] = s[(d.base + i) * 4 + 3]! + d.reach;
+        this.dirty.matrices.add(d.base * COPY_FLOATS, (d.base + k) * COPY_FLOATS);
+        this.dirty.spheres.add(d.base * 4, (d.base + k) * 4);
+        d.copiedSlots = bySlot.version;
+      }
+      if (d.copied !== vd.version) {
+        sl.set(order.subarray(0, n), d.base);
+        this.dirty.slots.add(d.base, d.base + n);
+        d.copied = vd.version;
+      }
+      return;
+    }
+    if (d.copied === vd.version) return;
     for (let at = 0; at < n; at += 1) {
       const slot = order[at]!;
-      const to = (d.base + at) * 4;
-      s[to] = spheres[slot * 4]!;
-      s[to + 1] = spheres[slot * 4 + 1]!;
-      s[to + 2] = spheres[slot * 4 + 2]!;
-      s[to + 3] = spheres[slot * 4 + 3]!;
+      const to = d.base + slot;
+      m.set(drawn.subarray(at * COPY_FLOATS, (at + 1) * COPY_FLOATS), to * COPY_FLOATS);
+      s[to * 4] = spheres[slot * 4]!;
+      s[to * 4 + 1] = spheres[slot * 4 + 1]!;
+      s[to * 4 + 2] = spheres[slot * 4 + 2]!;
+      s[to * 4 + 3] = spheres[slot * 4 + 3]! + d.reach;
       sl[d.base + at] = slot;
+      this.dirty.matrices.add(to * COPY_FLOATS, (to + 1) * COPY_FLOATS);
+      this.dirty.spheres.add(to * 4, (to + 1) * 4);
     }
-    this.dirty.matrices.add(d.base * COPY_FLOATS, (d.base + n) * COPY_FLOATS);
-    this.dirty.spheres.add(d.base * 4, (d.base + n) * 4);
     this.dirty.slots.add(d.base, d.base + n);
     d.copied = vd.version;
   }
@@ -700,12 +745,12 @@ export class InstanceOcclusion implements InstanceCullerHost {
               const now = TSL.bool(true).toVar();
               if (boxes) {
                 TSL.If(boxed, () => {
-                  const v = base.add(place).mul(COPY_FLOATS / 4).add(COPY_BOX_FLOAT / 4);
+                  const v = base.add(slot).mul(COPY_FLOATS / 4).add(COPY_BOX_FLOAT / 4);
                   now.assign(bounds!.box(copies.element(v).xyz, copies.element(v.add(1)).xyz));
                 }).Else(() => {
-                  now.assign(bounds!.sphere(spheres.element(base.add(place))));
+                  now.assign(bounds!.sphere(spheres.element(base.add(slot))));
                 });
-              } else now.assign(bounds!.sphere(spheres.element(base.add(place))));
+              } else now.assign(bounds!.sphere(spheres.element(base.add(slot))));
               visible.element(base.add(slot)).assign(TSL.select(now, TSL.uint(1), TSL.uint(0)));
               flag.assign(TSL.select(now.and(was.not()), TSL.uint(1), TSL.uint(0)));
               // A draw tested whole is never drawn indirect by the first pass: its answer is kept there for the read-back.

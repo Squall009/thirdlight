@@ -41,7 +41,8 @@ expected to need it).
   measured on this host's Iris Xe at 1080p uncapped and records its numbers;
   a miss is a follow-up note, never a reason to drop an item.
 - *Proposed, default chosen, owner to confirm:*
-  - **On by default for every project.** The setting is additive: absent
+  - **On by default for every project** (superseded by the review fixes,
+    §7: `auto` and absent cull nothing, `2` turns culling on). The setting is additive: absent
     means `auto`, and `auto` draws the same pixels as before (that is the
     rule this phase proves), so "absent = the old behaviour" holds for what
     a player sees. A project or a quality level may turn it off.
@@ -263,6 +264,7 @@ editor change has a Playwright test against a real backend.
 | 33.10 | **Editor.** The Scene view culls through the same path as Play (one realization). Selected objects, and anything a gizmo or outline draws, are never culled. View menu: "Occlusion culling" on/off, and an overlay that shows what is culled (tinted boxes) and the pyramid. Inspector: the object's `occluder`, the model's import `occluder`. **Done when** an editor e2e (an existing Scene view file) toggles it, sees the overlay, sees a selected object behind a wall stay drawn, on both renderers. |
 | 33.11 | **Export, settings and documentation.** The export ships the setting and the culling (no editor code); `docs/deployment.md` gets the settings, the switch and the `_OCC` rule (the manual of phase 31 picks them up); the best practice for games: where walls and `_OCC` pay, where they do not. **Done when** an exported class page reports `data-tl-occlusion` with culled draws on both renderers. |
 | 33.12 | **Acceptance.** 33.1's classes after the phase, split in §6 by switches (`occlusion=off`, `portals=off`, each path); the village baseline check unchanged or better. One generated level in Play and the export, on both renderers, extending `level-acceptance.e2e.ts`: pixels with culling on and off at three poses and along a short scripted path; a hidden caster's shadow still in view; a door opening shows its room. **Done when** the phase's done-when holds and the full gate is green. |
+| 33.13 | **Review fixes.** The independent review's Medium findings and the cheap Lows (§7); `auto` culls nothing, `2` turns culling on (D282). |
 
 ## 5. Soft performance targets
 
@@ -305,6 +307,8 @@ animating hidden characters.
 | 33.10 | Done 2026-10-18: the Scene view culls through Play's culler (the project's `occlusion_culling`, the renderer's path; `?occlusion=` and `?portals=off` reach the Scene view and Play); a new View menu: Occlusion culling on/off (this view only), Show culled draws (magenta boxes round draws culled whole or hidden by queries; the view keeps drawing meanwhile), Depth pyramid; the selection's subtree and an edit mode's objects are never culled (a batch or merged cell holding one is drawn whole, untested; nothing regroups), the view's own drawing is no occludee (`markHostDrawing`); Inspector Occluder (box/model) and the asset inspector's model `occluder`. rendering.e2e's Scene view test (WebGPU, then WebGL 2 with the queries pinned): a dense block behind a wall culled and boxed, selected → outlined and drawn, the wall's Occluder off → drawn, vertex-paint mode with Context → never culled, culling on vs off bit-identical (worst 0) on both; +6.4 s (6.7 → 13.1 s, one editor reload). vitest: kept draws, host drawing, the overlay's edges, the menu switches. viewport.ts split first (effect preview, 1,990 → 1,897; now 1,942). The decal atlas flake fixed (§7). Fast gate: e2e green (D201 once, passed on rerun); its village perf check missed (WebGPU p50 7.9–8.2 ms, limit 6.16) with HEAD `b2950862` as slow: interleaved A/B, 4 rounds in both orders, main thread 7.96 (after) / 7.93 (before) ms, p50 7.1–8.2 / 7.0–8.1 ms, the second run of each pair the slower: host state (D199), baseline kept. |
 | 33.11 | Done 2026-10-18: the manual's `features/occlusion.md` (when culling pays and where walls and `_OCC` stand-ins do not, the setting and the quality-level override, WebGPU `hiz` on and WebGL 2 queries off and why, `_OCC` with its import check and the model's `occluder`, an object's `occluder: false`, the View menu, the URL switches, the diagnostics), linked from the manual's and the features' indexes, editor, assets and both performance pages; a `_OCC` section and checklist note in the trim sheet spec (the kit editor's checks list no `_OCC` check: none exists); `occlusion_culling` in the MCP `setSettings` docs (values from `OCCLUSION_CULLING_SETTING_VALUES`); reference regenerated; deployment.md untouched (server-only); the skill names no node suffixes or render settings, unchanged. Export: bundle-scan.test.ts builds the real export page with `occlusion_culling: 0` and checks the manifest's setting reads off, the page links both paths' modules and no editor, backend, MCP, workspace, commands or protocol code (every export also runs `checkBundleGraphM3`); `data-tl-occlusion` with culled draws on both renderers was already covered by rendering.e2e's export (WebGPU auto, WebGL 2 pinned). No drawing change. Fast gate: build, lint, vitest, e2e (rendering.e2e) green; its village perf check missed twice (WebGPU p50 6.3, then 7.1 ms, limit 6.16; the plain three.js page slowed with it, 6.3 → 6.5 ms) while the export page bundle is byte-identical to HEAD's (sha256 compared with and without the change): host state (D199), baseline kept. |
 | 33.12 | Done 2026-10-18: after numbers below (classes split by `occlusion=off`, `portals=off`, WebGPU `hiz` and WebGL 2 `auto` and pinned `queries`; the harness's `--switches` now also run at each view). Village A/B against `60bd1f69` (interleaved `village --gate`, load 3–4, fast host state): WebGPU p50 5.2–5.6 → 6.0–6.3 ms, HEAD with `occlusion=off` 5.6/5.7: a real cost of the hiz path, half from 33.4 and half from 33.5 (33.6 adds none), not host drift (D282); WebGL 2 4.6–4.9 both. One generated level (terrain with scatter and cover, block walls with a live door, generated rooms with a closed door piece, an `_OCC` hedge hiding a dense pillar) through the editor's Play button and File → Export game, both renderers, export at 1920 × 1080: 36 of 36 culling on/off comparisons bit-identical (four poses, a door opened by a script with the portals on and off, three stops after flights), the opened door's room drawn in the first shot after the key; the Scene view's culled boxes and depth pyramid looked at; the hidden pillar's shadow is not told apart by eye (it falls inside the hedge's own), only bit-identical. Not done: `level-acceptance.e2e.ts` not extended (no added e2e time; the driver covered it), the 2048-triangle floor not re-measured on denser content. Fixed: the culled boxes were never drawn on WebGL 2 (counted only; rendering.e2e now checks their pixels); a read-back finishing after Play stopped threw. §5 below: p95 −25 % missed everywhere (−2 to −8 %), half the oracle's hidden items culled in the landscape and world views (64–81 %), not in the village and area streets (45 %, 47 %); open view and draws missed (D282, D285); GPU numbers unverified (D283); D284 for the overlay. Screenshots in `~/.cache/thirdlight-phase33/acceptance/`. |
+| 33.13 | Done 2026-10-18: review fixes (§7): `occlusion_culling` 0 off / 1 auto (culls nothing on either renderer) / 2 on (hiz on WebGPU, queries on WebGL 2), a level's `off`/`auto`/`on`; displaced vertices never culled unless they declare a reach (wind does); pass 2 hides only childless draws; slot-ordered pools (60 s landscape flight, culling on: 1705 → 1250 KiB uploaded a frame, main thread 7.10 → 7.11 ms, off 6.07 / 6.23: unchanged, D282); `_OCC` coverage check along the axes; one 2048-triangle floor; the door (layered-material's rooms export pose: taken away with culling on, C seen, on = off to the pixel) and a culled caster's shadow (rendering.e2e's Scene view, both renderers) as regressions. Village A/B against `60bd1f69`, 3 rounds interleaved, WebGPU p50 base 5.6/5.6/5.6 against after 5.6/5.6/5.7 ms, WebGL 2 4.7/4.7/4.8 against 4.6/4.7/4.8 ms (load 2.9–4.9): equal, inside the gate's limits (6.16 / 4.84 ms) again. Fast gate (rendering, layered-material, engine-stats, project-settings) GREEN: 33 e2e passed (3.2 min), village perf WebGPU p50 5.6 ms (limit 6.16), WebGL 2 4.8 ms (limit 4.84); the first run failed the two new steps (a stale rooms count read, a shadow cast too low to be seen), fixed. D282 updated, D286–D288 logged. |
+| Phase gate | `full --both-renderers` at `7fc09308` (2026-10-18 06:37, 2 workers, before the review fixes): build, lint, vitest 731 files passed; e2e **390 passed** in 22.4 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak **7.0 GB, at the 7G cap** (no OOM). Logs `~/.cache/thirdlight-logs/gate-full-20261018-063740`. Not rerun after 33.13 (fast gates of the touched areas). |
 
 **33.1 before numbers** (HEAD `60bd1f69` plus the harness, Iris Xe, 1920 × 1080, DPR 1, uncapped; frame
 p50/p95/p99 ms; GPU = three's pass timestamps per frame, WebGPU only, waits included; main = main-thread
@@ -735,3 +739,86 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   file): the editor's Play button, script keys for poses, a flight and a door (`clearEdge`: a piece opened with
   `setEdgeOpen` keeps its look, so the room behind stays hidden by it), the View menu and File → Export game. The level
   has no animated water (a river's water mesh never settles for a strict picture comparison).
+- 2026-10-18 (review fixes, default chosen, owner to confirm): **`occlusion_culling` gains `2` = on, and `auto`
+  (and absent) culls nothing on either renderer** (D282, the review's recommendation). On is the depth pyramid on
+  WebGPU and the occlusion queries on WebGL 2; a quality level's `occlusionCulling` is `off | auto | on`. The
+  village baseline is not re-recorded. Interleaved `village --gate` against `60bd1f69` (3 rounds): WebGPU p50 base 5.6/5.6/5.6 against after 5.6/5.6/5.7 ms, WebGL 2 4.7/4.7/4.8 against 4.6/4.7/4.8 ms (load 2.9–4.9): equal, inside the gate's limits (6.16 / 4.84 ms) again.
+  Adaptive auto is its own follow-up with the review's entry criteria (D286).
+- 2026-10-18 (review fixes, default chosen, owner to confirm): **WebGL 2's occlusion queries stay, off by default**
+  (on with the setting's 2): the owner put them in the phase's scope, so their removal is the owner's call; the
+  reviewer's case is D287.
+- 2026-10-18 (review fixes, default chosen, owner to confirm): **the `_OCC` import check is stricter than the LOD0
+  bounds**: seen along each axis from both sides on a coarse grid (`OCCLUDER_COVERAGE_TEXELS` = 64 texels along the
+  piece's longest side), a stand-in may cover only where the piece's LOD0 triangles are (within a texel) and never
+  stand in front of them (`occluderCoverageBreaks`, project-model; the backend's Problems and the adapter's drop use
+  it). It rejects a box over an arch's opening, an L-shaped piece's notch, the gap between a fence's posts, a plant
+  of two crossed cards; it cannot see a texture's cut-outs or see-through materials, so a stand-in inside a hedge
+  of leaf cards or behind glass still passes and what shows through it is culled: the manual now says so plainly
+  (occlusion.md, assets.md, the trim sheet spec). Chosen over a convex-hull test (an arch's hull holds its
+  opening) and a voxel inside/outside test (needs a watertight piece; cards are not). rendering.e2e's fence gained
+  a panel in its LOD0 (posts and stand-in alone are now refused); its glass pane behind the fence no longer checks
+  the stand-in's depth there (the panel hides it): the pyramid-only stand-ins stay covered by the on/off pixel
+  equality at the fence.
+- 2026-10-18 (review fixes): what moves its vertices past its bounds with no known bound is no occludee and never
+  culled (`vertexReachOf`, vertex-reach.ts: skinned and morphed meshes, any position node without a declared
+  reach: a graph's vertex offset or displacement, impostor billboards); the foliage shader declares its wind's reach
+  from the wind now (strength + gust, bend, sag, flutter; its constants defined once), and both paths grow copies'
+  spheres, whole draws' boxes and query boxes by it, asked each frame (a material compiled again in place is caught
+  at the test). Terrain pages bound their own heights. The landscape flight still culls 5085 of 9222 tested.
+- 2026-10-18 (review fixes): the second render hides only first-pass draws without children while it walks the
+  scene (`liftedForSecondPass`): a glass, role-`none` or light child of an animated model's mesh is found again.
+  vitest only (no animated-model fixture in an e2e file; unverified by pixels).
+- 2026-10-18 (review fixes): **the pools keep copies by slot**: an instanced draw's matrices and spheres are written
+  only when a copy changes (`InstanceViewDraw.slots`), and a moving view uploads only its order (4 bytes a copy);
+  the vertex stage reads the slot at the listed place (the slots pool is bound beside the matrices; `instanceIndex`
+  keeps meaning the place). 60 s landscape flight, WebGPU, 60 Hz, culling on, before → after: buffer writes 148 →
+  124 a frame, 1705 → 1250 KiB a frame (off: 1174–1178 KiB), main thread 7.10 → 7.11 ms (off 6.07 / 6.23), 0
+  refreshes missed both: the upload was not where the flight's +0.9 ms main thread goes (D282: the second pass's
+  encode and the per-draw upkeep remain).
+- 2026-10-18 (review fixes): **one triangle floor**: `OCCLUSION_MIN_TRIANGLES` is 2048 (the 64 was dead on every
+  path; `OCCLUSION_MIN_COPIES_TRIANGLES` is gone), shared by `occludeeClassOf`, the copies' in-view check
+  (`copiesInViewWorthCulling`, both paths) and the whole draws'. The queries ask no transparent draw (as the
+  pyramid path) and use `occludeeScreenShare`. Leaving `hiz` frees the pyramid, pools and kernels (`dropFrame`). A
+  three without `NodeMaterial.setupObserver` turns GPU culling off with a diagnostics error instead of drawing with
+  stale pools. The editor's view keeps drawing while the queries path hides something. `INSTANCE_MATRIX_FLOATS`
+  is the drawn buffer's stride, defined once (`COPY_FLOATS` is it).
+- 2026-10-18 (review fixes, default chosen, owner to confirm): the hidden-caster regression is in rendering.e2e's
+  Scene view occlusion test, not the rooms pose: the layered-material rooms scene has no shadow-casting light (its
+  sun and lamp cast none) and one would move its lighting reads. There a culled block behind a wall, lit by a low sun
+  from the side, shadows a panel beside the wall; its `castShadow` off changes the picture (both renderers; the
+  shadow on the panel seen in the test's WebGPU shots). The door opening rides the rooms' export pose
+  as asked: a script takes the door piece away on a key with culling on; C is counted seen and the picture equals
+  culling off.
+- 2026-10-18: **the phase review** (an independent agent, static review of `60bd1f69..7fc09308`; 14 findings, no
+  High; full text `~/.cache/thirdlight-phase33/review.md`). Checked and fine: no file over 2,000 lines (adapter.ts
+  1,943, viewport.ts 1,941), no history comments or new `eslint-disable`, the export imports no editor/server/MCP
+  code, one culler for Play and the editor, shadows/probes/the static shadow draw every copy, MSAA/render
+  scale/dynamic resolution follow the scene pass's size, painted copies keep their paint slot, a camera cut costs
+  time not pixels, the read-back is safe after dispose, the colour-mask fix, one `_OCC` rule for backend and
+  adapter, every new private hook on the upgrade checklist. Findings and what was done:
+  - **M1** the second render's `visible = false` hid an animated mesh's glass, role-`none` and light children:
+    fixed (only childless draws are hidden; vitest).
+  - **M2** vertex displacement (wind, graph offsets, skinning, morphs) was in no bound: fixed (`vertexReachOf`:
+    no bound → never culled; wind declares its reach and grows the bounds; vitest).
+  - **M3** the flight's +0.82 ms main thread, blamed on re-uploading 84 bytes a copy: slot-ordered pools done
+    (uploads −27 % a frame), main thread unchanged (7.10 → 7.11 ms): the upload was not the cause; D282 updated.
+  - **M4** `_OCC` against "nothing visible is culled": the manual now says plainly that what shows through a
+    stand-in's gaps or glass disappears; the import check also rejects stand-ins over openings or in front of the
+    surfaces, seen along the axes (vitest; rendering.e2e's fence fixture adjusted).
+  - **M5** no regression for a door opening and a hidden caster's shadow: door added to layered-material's rooms
+    export pose; the shadow to rendering.e2e's Scene view occlusion test (the rooms scene has no shadow-casting
+    light).
+  - **D282 recommendation** taken: `auto` = off on both renderers, `2` = on; adaptive auto is D286. **WebGL 2
+    queries** kept (owner's scope), the removal case is D287.
+  - Lows fixed: L6 (no transparent queries, shared floor and screen share), L8 (one floor, 2048), L9 (pyramid and
+    pools freed off `hiz`), L10 (no observer hook → GPU culling off, reported), L12 (one stride constant), L13 (the
+    editor redraws while the queries hide). Left (D288): L7 kernel vs CPU twins, L8's dense re-measure, L9's
+    page-wide counters, L11 the no-post-stack profile, L14 the e2e budget.
+  - **Needs the owner's eyes:** D282 (culling off by default; on where measured), D287 (remove the WebGL 2
+    queries?), the `_OCC` semantics (what shows through a stand-in'd hedge or glass is culled), D253 (the full gate
+    at 26 min against 15), and the §7 defaults still to confirm (33.9 dropped, per-member merged cells dropped,
+    stand-ins drawn last and only into the pyramid, the View menu for the view only, editor Play passing
+    `?occlusion=`/`?portals=`). Unverified: a hidden caster's shadow by eye, frame-by-frame equality while the
+    camera moves on WebGPU (stops only), the GPU ms targets (D283), dynamic resolution's pixels, WebGL 2 `_OCC`
+    pixels, the overlay for copies (D284), M1's children by pixels.
+

@@ -136,11 +136,11 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(drs).toHaveValue('0');
   await drs.selectOption('1');
   await expect.poll(async () => (await settings())['dynamic_resolution']).toBe(1);
-  // Occlusion culling: absent is auto (it draws the same picture); a project may turn it off.
+  // Occlusion culling: absent is auto (it culls nothing for now); a project may turn it on.
   const occ = quality.getByLabel('settings occlusion_culling', { exact: true });
   await expect(occ).toHaveValue('1');
-  await occ.selectOption('0');
-  await expect.poll(async () => (await settings())['occlusion_culling']).toBe(0);
+  await occ.selectOption('2');
+  await expect.poll(async () => (await settings())['occlusion_culling']).toBe(2);
 
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');

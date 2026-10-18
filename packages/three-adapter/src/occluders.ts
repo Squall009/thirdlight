@@ -27,9 +27,9 @@
  *   paths read (`occluderRoleOfDraw`).
  */
 import * as THREE from 'three';
-import { MODEL_OCC_RE, modelOccluderUse, occluderPointsOutside, occluderRoleOf, type ModelOccluderMode, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
+import { MODEL_OCC_RE, modelOccluderUse, occluderCoverageBreaks, occluderPointsOutside, occluderRoleOf, type ModelOccluderMode, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
 
-import { pieceBaseName, pieceBounds } from './pieces';
+import { pieceBaseName, pieceBounds, pieceLod0Meshes } from './pieces';
 import { HIDDEN_BEFORE_OCCLUSION, hiddenFromView } from './view-hidden';
 
 /** `mesh.userData[OCCLUDER_STANDIN_KEY]`: the mesh is a model's `_OCC` stand-in (depth only, the view only). */
@@ -153,6 +153,35 @@ function pointsUnder(root: THREE.Object3D, node: THREE.Object3D): number[] {
   return out;
 }
 
+/** The triangles of `meshes` in `root`'s space (nine floats each; their draw ranges and groups aside: every triangle). */
+function trianglesOf(root: THREE.Object3D, meshes: readonly THREE.Mesh[]): number[] {
+  const inverseRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const m = new THREE.Matrix4();
+  const v = new THREE.Vector3();
+  const out: number[] = [];
+  for (const mesh of meshes) {
+    const pos = mesh.geometry?.getAttribute('position');
+    if (pos === undefined) continue;
+    m.multiplyMatrices(inverseRoot, mesh.matrixWorld);
+    const index = mesh.geometry.index;
+    const n = index !== null ? index.count : pos.count;
+    for (let k = 0; k + 2 < n; k += 3) {
+      for (let c = 0; c < 3; c += 1) {
+        v.fromBufferAttribute(pos, index !== null ? index.getX(k + c) : k + c).applyMatrix4(m);
+        out.push(v.x, v.y, v.z);
+      }
+    }
+  }
+  return out;
+}
+
+/** The meshes under `node`. */
+function meshesUnder(node: THREE.Object3D): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  node.traverse((o) => void ((o as THREE.Mesh).isMesh === true && out.push(o as THREE.Mesh)));
+  return out;
+}
+
 /** What {@link applyModelOccluders} did. */
 export interface ModelOccluders {
   /** Stand-in meshes kept. */
@@ -163,7 +192,8 @@ export interface ModelOccluders {
 
 /**
  * A model instance's `_OCC` nodes become stand-ins (or are dropped: outside
- * their piece's LOD0 bounds, or the model's `occluder` is `none`), and its
+ * their piece's LOD0 bounds or where its LOD0 surfaces are not, seen along
+ * the axes, the project-model's checks; or the model's `occluder` is `none`), and its
  * surfaces are marked when they do not count (`occ` and `none`, or `auto`
  * for a piece with a stand-in). Run on a fresh instance before its LOD groups are made, while
  * the file's node names are as exported.
@@ -184,21 +214,32 @@ export function applyModelOccluders(root: THREE.Object3D, mode: ModelOccluderMod
   const kept = new Map<string, THREE.Mesh[]>();
   if (nodes.length > 0) {
     root.updateMatrixWorld(true);
-    const boxes = new Map<string, THREE.Box3>();
-    const boundsOf = (piece: string): THREE.Box3 => {
-      let b = boxes.get(piece);
-      if (b === undefined) {
-        b = pieceBounds(root, piece);
+    const pieces = new Map<string, { box: THREE.Box3; tris: number[] | null; key: string | null }>();
+    const pieceOfNode = (piece: string): { box: THREE.Box3; tris: number[] | null; key: string | null } => {
+      let p = pieces.get(piece);
+      if (p === undefined) {
+        let key: string | null = piece;
+        let box = pieceBounds(root, piece);
         // A node whose name matches no drawn piece stands in for the whole file.
-        if (b.isEmpty()) b = pieceBounds(root, null);
-        boxes.set(piece, b);
+        if (box.isEmpty()) {
+          key = null;
+          box = pieceBounds(root, null);
+        }
+        pieces.set(piece, (p = { box, tris: null, key }));
       }
-      return b;
+      return p;
     };
     for (const node of nodes) {
       const piece = pieceOf(root, node);
-      const box = boundsOf(piece);
-      const inside = mode !== 'none' && !box.isEmpty() && occluderPointsOutside(pointsUnder(root, node), { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] }) === 0;
+      const own = pieceOfNode(piece);
+      const box = own.box;
+      const bounds = { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] } as const;
+      let inside = mode !== 'none' && !box.isEmpty() && occluderPointsOutside(pointsUnder(root, node), bounds) === 0;
+      if (inside) {
+        own.tris ??= trianglesOf(root, pieceLod0Meshes(root, own.key));
+        const breaks = occluderCoverageBreaks(own.tris, trianglesOf(root, meshesUnder(node)), bounds);
+        inside = breaks.uncovered === 0 && breaks.nearer === 0;
+      }
       if (!inside) {
         node.parent?.remove(node);
         dropped += 1;

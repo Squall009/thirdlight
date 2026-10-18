@@ -37,6 +37,9 @@ export const INSTANCE_MATRIX_ATTRIBUTE = 'tlInstanceMatrix';
  * the painted draw's vertex layout, and so its program, is its own.
  */
 export const PAINT_SLOT_ATTRIBUTE = 'tlPaintSlot';
+/** Floats an instance takes in a drawn buffer: its column-major matrix (the paint slot and marks ride in its fourth row). */
+export const INSTANCE_MATRIX_FLOATS = 16;
+
 /** Where in an instance's 16 floats its paint slot rides. */
 const PAINT_SLOT_FLOAT = 3;
 
@@ -74,8 +77,12 @@ export const CULLED_COPIES_KEY = '__tlCulledCopies';
 
 /** What the vertex stage of a culled draw reads (set per draw, right before it, by the culler's {@link InstanceIndirect}). */
 export interface CulledCopies {
-  /** Every culled draw's copies (four vec4 columns each, as drawn) and the frame's compacted lists. */
+  /**
+   * Every culled draw's copies (four vec4 columns each, as drawn) by slot, each draw's drawn order (the slot at
+   * each place) and the frame's compacted lists (places).
+   */
   readonly matrices: StorageBufferAttribute;
+  readonly slots: StorageBufferAttribute;
   readonly lists: StorageBufferAttribute;
   /** The draw's first copy in `matrices`, and its capacity (the length of each of its two lists). */
   readonly base: number;
@@ -91,12 +98,15 @@ export interface CulledCopies {
 /** Bound where a draw has no pools (never read: its list is 0). */
 const NO_MATRICES = new StorageBufferAttribute(new Float32Array(4), 4);
 const NO_LISTS = new StorageBufferAttribute(new Uint32Array(4), 1);
+const NO_SLOTS = new StorageBufferAttribute(new Uint32Array(4), 1);
 const culledMatrices = storage(NO_MATRICES, 'vec4', 1).toReadOnly();
+const culledSlots = storage(NO_SLOTS, 'uint', 1).toReadOnly();
 const culledLists = storage(NO_LISTS, 'uint', 1).toReadOnly();
 /** The drawn object's list (+1; 0: none), and on the way the pools its build binds. */
 const culledList = uniform(0, 'uint').onObjectUpdate(({ object }) => {
   const c = object?.userData[CULLED_COPIES_KEY] as CulledCopies | undefined;
   culledMatrices.value = c?.matrices ?? NO_MATRICES;
+  culledSlots.value = c?.slots ?? NO_SLOTS;
   culledLists.value = c?.lists ?? NO_LISTS;
   return c?.list ?? 0;
 });
@@ -120,7 +130,10 @@ export function culledCopyVec4(name: string, i: number): ReturnType<typeof attri
   return Fn((builder: NodeBuilder) => {
     const own = attribute<'vec4'>(name, 'vec4');
     if (!buildReadsCulledCopies(builder)) return own;
-    const fromPool = culledMatrices.element((culledBase as unknown as U).add(culledPlace()).mul(4).add(i));
+    // The pools hold copies by slot (written only when one changes); the draw's order says which slot a place holds.
+    const base = culledBase as unknown as U;
+    const slot = culledSlots.element(base.add(culledPlace())) as unknown as U;
+    const fromPool = culledMatrices.element(base.add(slot).mul(4).add(i));
     return (culledList as unknown as U).greaterThan(0).select(fromPool, own);
   })() as unknown as ReturnType<typeof attribute<'vec4'>>;
 }
@@ -160,7 +173,7 @@ const applyColumns = Fn((builder: NodeBuilder) => {
 }, 'void');
 
 /** What a culled draw's vertex stage last read, per render object (each camera's draw has its own). */
-const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; lists: unknown }>();
+const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; slots: unknown; lists: unknown }>();
 
 /** A full refresh whenever what the render object's culled draw reads changed since its last draw, else three's own answer. */
 function refreshOnCulledChange(base: (renderObject: { object: THREE.Object3D }, frame: unknown) => number): (renderObject: { object: THREE.Object3D }, frame: unknown) => number {
@@ -171,16 +184,25 @@ function refreshOnCulledChange(base: (renderObject: { object: THREE.Object3D }, 
     const base0 = c?.base ?? 0;
     const cap = c?.cap ?? 0;
     const matrices = c?.matrices ?? NO_MATRICES;
+    const slots = c?.slots ?? NO_SLOTS;
     const lists = c?.lists ?? NO_LISTS;
     const was = culledSeen.get(renderObject);
-    if (was !== undefined && was.list === list && was.base === base0 && was.cap === cap && was.matrices === matrices && was.lists === lists) return refresh;
-    if (was === undefined) culledSeen.set(renderObject, { list, base: base0, cap, matrices, lists });
-    else Object.assign(was, { list, base: base0, cap, matrices, lists });
+    if (was !== undefined && was.list === list && was.base === base0 && was.cap === cap && was.matrices === matrices && was.slots === slots && was.lists === lists) return refresh;
+    if (was === undefined) culledSeen.set(renderObject, { list, base: base0, cap, matrices, slots, lists });
+    else Object.assign(was, { list, base: base0, cap, matrices, slots, lists });
     return RenderObjectRefreshType.FULL;
   };
 }
 
 let installed = false;
+/** Whether three's `setupObserver` was there to wrap: without the refresh, culled draws could keep pools that were replaced. */
+let culledRefreshInstalled = false;
+
+/** Whether a draw's copies may be culled on the GPU here (the refresh its vertex stage needs is installed). */
+export function culledCopiesSupported(): boolean {
+  installAttributeInstancing();
+  return culledRefreshInstalled;
+}
 
 /**
  * Teach every node material to draw instance-matrix columns (idempotent).
@@ -203,6 +225,7 @@ export function installAttributeInstancing(): void {
   // culled draw's vertex stage reads (its list, its range, the pools, which may be made anew) is not among them.
   const observe = proto.setupObserver;
   if (typeof observe === 'function') {
+    culledRefreshInstalled = true;
     proto.setupObserver = function setupObserverOfCulled(this: unknown, builder: NodeBuilder): unknown {
       const observer = observe.call(this, builder) as { needsRefresh?: (renderObject: { object: THREE.Object3D }, frame: unknown) => number } | null;
       if (observer !== null && typeof observer === 'object' && typeof observer.needsRefresh === 'function' && buildReadsCulledCopies(builder)) observer.needsRefresh = refreshOnCulledChange(observer.needsRefresh.bind(observer));
@@ -265,6 +288,13 @@ export interface InstanceViewDraw {
   readonly drawn: Float32Array;
   readonly order: Uint32Array;
   readonly spheres: Float32Array;
+  /**
+   * The copies by slot, where the draw has them: its first `count` slots' 16 floats as drawn (`write` puts them
+   * at copy `at` of `target`) and their spheres. `version` changes when a slot's copy or sphere does, not when
+   * the view only puts them in another order (a moving camera), so a culler keeps them by slot and takes only
+   * the order each frame. Absent: only the drawn places are known (they are copied as drawn).
+   */
+  readonly slots?: { readonly version: number; readonly count: number; write(target: Float32Array, at: number): void };
 }
 
 /** How a draw culled on the GPU is drawn by one pass (the culler's; occlusion-instances.ts). */
@@ -415,12 +445,12 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   if (source.index !== null) geometry.setIndex(source.index);
   for (const g of source.groups) geometry.addGroup(g.start, g.count, g.materialIndex);
   geometry.setDrawRange(source.drawRange.start, source.drawRange.count);
-  const array = options.matrices !== undefined && options.matrices.length >= capacity * 16 ? options.matrices : new Float32Array(capacity * 16);
+  const array = options.matrices !== undefined && options.matrices.length >= capacity * INSTANCE_MATRIX_FLOATS ? options.matrices : new Float32Array(capacity * INSTANCE_MATRIX_FLOATS);
   // What the GPU reads: the same matrices, those the view sees first (`array` keeps its slots for writers).
-  const drawn = new Float32Array(capacity * 16);
+  const drawn = new Float32Array(capacity * INSTANCE_MATRIX_FLOATS);
   // Static usage: three's WebGPURenderer uploads a dynamic-usage buffer on every draw whatever its version
   // (a scene of many instance sets: a hundred buffers a frame); this one is uploaded when `markChanged` bumps it.
-  const buffer = new THREE.InstancedInterleavedBuffer(drawn, 16, 1);
+  const buffer = new THREE.InstancedInterleavedBuffer(drawn, INSTANCE_MATRIX_FLOATS, 1);
   const columns = COLUMNS.map((name, i) => {
     const column = new THREE.InterleavedBufferAttribute(buffer, 4, i * 4);
     geometry.setAttribute(name, column);
@@ -461,8 +491,10 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   const order = new Uint32Array(capacity);
   const depths = new Float32Array(capacity);
   let spheresStale = true;
-  /** Bumped whenever the drawn buffer is written (a culler on the GPU copies it again). */
+  /** Bumped whenever the drawn buffer is written (a culler on the GPU takes the order again). */
   let version = 0;
+  /** Bumped whenever a slot's matrix, paint slot or sphere changes (a culler on the GPU copies the slots again). */
+  let slotsVersion = 0;
   /** Drawn at least once (its render objects exist: a new program needs the material's version bumped). */
   let drawnOnce = false;
   /**
@@ -479,7 +511,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       return;
     }
     const src = source.boundingSphere!;
-    sphere.center.copy(src.center).applyMatrix4(tmpMatrix.fromArray(array, slot * 16));
+    sphere.center.copy(src.center).applyMatrix4(tmpMatrix.fromArray(array, slot * INSTANCE_MATRIX_FLOATS));
     sphere.radius = bounds.radius + sphere.center.distanceTo(bounds.center);
   };
   /**
@@ -500,22 +532,22 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     const len = wroteAll ? drawnCount : includedCount;
     // Sixteen floats a copy by hand: a view of each slot would be an allocation per copy per cull.
     for (let at = 0; at < len; at += 1) {
-      const from = order[at]! * 16;
-      const to = at * 16;
-      for (let k = 0; k < 16; k += 1) drawn[to + k] = array[from + k]!;
+      const from = order[at]! * INSTANCE_MATRIX_FLOATS;
+      const to = at * INSTANCE_MATRIX_FLOATS;
+      for (let k = 0; k < INSTANCE_MATRIX_FLOATS; k += 1) drawn[to + k] = array[from + k]!;
     }
     // Each instance's paint slot travels with it in the order.
-    if (paintSlots !== null) for (let at = 0; at < len; at += 1) drawn[at * 16 + PAINT_SLOT_FLOAT] = paintSlots[order[at]!]!;
+    if (paintSlots !== null) for (let at = 0; at < len; at += 1) drawn[at * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[order[at]!]!;
     // Only what was written goes to the GPU (a large group's view moves every frame).
-    buffer.addUpdateRange(0, len * 16);
+    buffer.addUpdateRange(0, len * INSTANCE_MATRIX_FLOATS);
     buffer.needsUpdate = true;
     version += 1;
   };
   const copySlotOrder = (): void => {
     if (filter === undefined) {
-      drawn.set(array.subarray(0, drawnCount * 16));
-      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) drawn[i * 16 + PAINT_SLOT_FLOAT] = paintSlots[i]!;
-      buffer.addUpdateRange(0, drawnCount * 16);
+      drawn.set(array.subarray(0, drawnCount * INSTANCE_MATRIX_FLOATS));
+      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) drawn[i * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[i]!;
+      buffer.addUpdateRange(0, drawnCount * INSTANCE_MATRIX_FLOATS);
       buffer.needsUpdate = true;
       version += 1;
       includedCount = drawnCount;
@@ -553,7 +585,16 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     handle.indirect?.draw(geometry, view);
   };
   const marker = new THREE.InterleavedBufferAttribute(buffer, 1, CULLED_MARKER_FLOAT);
-  const viewDrawn = { version: 0, count: 0, drawn, order, spheres };
+  const bySlot = {
+    version: 0,
+    count: 0,
+    write(target: Float32Array, at: number): void {
+      target.set(array.subarray(0, drawnCount * INSTANCE_MATRIX_FLOATS), at * INSTANCE_MATRIX_FLOATS);
+      // Each slot's paint slot rides in its copy as it does in the drawn buffer.
+      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) target[(at + i) * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[i]!;
+    },
+  };
+  const viewDrawn = { version: 0, count: 0, drawn, order, spheres, slots: bySlot };
   /**
    * A draw holding nothing in the frame's passes leaves three's walks (as a merged cell with nothing to draw
    * does): three sets up every visible object of a pass even when it draws no instance, and an instance set
@@ -622,7 +663,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
         const sy = src.center.y;
         const sz = src.center.z;
         for (let i = 0; i < n; i += 1) {
-          const o = i * 16;
+          const o = i * INSTANCE_MATRIX_FLOATS;
           const lx = array[o]! * sx + array[o + 4]! * sy + array[o + 8]! * sz + array[o + 12]!;
           const ly = array[o + 1]! * sx + array[o + 5]! * sy + array[o + 9]! * sz + array[o + 13]!;
           const lz = array[o + 2]! * sx + array[o + 6]! * sy + array[o + 10]! * sz + array[o + 14]!;
@@ -631,6 +672,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
           spheres[i * 4 + 2] = w[2]! * lx + w[6]! * ly + w[10]! * lz + w[14]!;
           spheres[i * 4 + 3] = src.radius * maxScaleOf(array, o) * ws;
         }
+        slotsVersion += 1;
         // Each block of slots' sphere: around its instances' centres, grown by the largest of their radii.
         for (let b = 0; b * CULL_BLOCK < n; b += 1) {
           let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity, r = 0;
@@ -709,6 +751,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       const n = Math.max(0, Math.min(capacity, handle.count));
       geometry.instanceCount = n;
       drawnCount = n;
+      slotsVersion += 1;
       // Matrices or the count changed: drawn in slot order (all of them) until the view culls them again.
       copySlotOrder();
       culledFor = null;
@@ -730,13 +773,15 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       else bounds.getBoundingBox(geometry.boundingBox!);
     },
     getMatrixAt(i, out) {
-      return out.fromArray(array, i * 16);
+      return out.fromArray(array, i * INSTANCE_MATRIX_FLOATS);
     },
     viewDraw() {
       if (culledFor === null || culledStamp !== culledFor.stamp) return null;
       // One object, refreshed: asked for every draw every frame.
       viewDrawn.version = version;
       viewDrawn.count = inView;
+      bySlot.version = slotsVersion;
+      bySlot.count = drawnCount;
       return viewDrawn;
     },
     indirect: null,
@@ -783,7 +828,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       for (let i = 0; i < n; i += 1) {
         // Only what is drawn is picked (a copy at another level, or thinned out, is not here).
         if (filter !== undefined && !filter.includes(i)) continue;
-        probe.matrixWorld = world.multiplyMatrices(mesh.matrixWorld, tmpMatrix.fromArray(array, i * 16));
+        probe.matrixWorld = world.multiplyMatrices(mesh.matrixWorld, tmpMatrix.fromArray(array, i * INSTANCE_MATRIX_FLOATS));
         probe.raycast(raycaster, hits);
         if (hits.length > 0) turn.getNormalMatrix(tmpMatrix);
         for (const h of hits) {

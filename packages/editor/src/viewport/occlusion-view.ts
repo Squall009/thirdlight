@@ -40,6 +40,8 @@ export class SceneViewOcclusion {
   private state: OcclusionViewState = OCCLUSION_VIEW_DEFAULT;
   private keptKey = '';
   private mark = '';
+  /** The queries path hid something at the last frame (its answers come frames later: the view draws until they do). */
+  private queriesHiding = false;
 
   constructor(
     private readonly adapter: () => SceneAdapter,
@@ -76,14 +78,19 @@ export class SceneViewOcclusion {
     sw.keep(ids);
   }
 
-  /** Whether the view keeps drawing (the culled boxes follow the GPU's answers). */
+  /**
+   * Whether the view keeps drawing: the culled boxes follow the GPU's answers, and on the queries path a draw
+   * hidden stays hidden until an answer that sees it comes, frames after the frame that asked (an occluder
+   * deleted in an idle view would otherwise leave what it hid out until the next change).
+   */
   get animating(): boolean {
-    return this.state.culling && this.state.culled;
+    return this.state.culling && (this.state.culled || this.queriesHiding);
   }
 
   /** After a frame: the switches and what the culler did, on the canvas (`data-occlusion-view`; tests read it). */
   afterFrame(): void {
     const d: OcclusionDiagnostics | undefined = this.adapter().occlusion?.().diagnostics();
+    this.queriesHiding = d?.path === 'queries' && (d.queries?.hidden ?? 0) > 0;
     const m = JSON.stringify({ view: this.state, path: d?.path ?? 'off', kept: d?.kept ?? 0, tested: d?.tested ?? 0, culled: d?.culled ?? 0, boxes: d?.culledBoxes ?? null, whole: d?.instances?.whole ?? null, terrain: d?.instances?.terrain ?? null, queries: d?.queries === null || d?.queries === undefined ? null : { candidates: d.queries.candidates, hidden: d.queries.hidden, asked: d.queries.asked, answered: d.queries.answered, lost: d.queries.lost, cuts: d.queries.cuts } });
     if (m === this.mark) return;
     this.mark = m;

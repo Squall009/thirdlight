@@ -51,20 +51,24 @@ describe('the compaction of a draw\'s copies over two passes', () => {
     expect(secondPassList(late, (p) => p !== 3)).toEqual([0, 1, 2, 4, 5]);
   });
 
-  it('the vertex stage reads a listed copy\'s 16 floats as written: the paint slot in the fourth row rides along', () => {
+  it('the vertex stage reads a listed copy\'s 16 floats by its slot, as written: the paint slot in the fourth row rides along', () => {
     const base = 7;
     const pool = new Float32Array((base + 4) * 16);
-    for (let p = 0; p < 4; p += 1) {
-      const m = new THREE.Matrix4().makeTranslation(p, 2 * p, 3 * p).elements;
-      pool.set(m, (base + p) * 16);
+    for (let slot = 0; slot < 4; slot += 1) {
+      const m = new THREE.Matrix4().makeTranslation(slot, 2 * slot, 3 * slot).elements;
+      pool.set(m, (base + slot) * 16);
       // 1 + the copy's paint slot (0: unpainted), as the drawn buffer carries it.
-      pool[(base + p) * 16 + 3] = p === 2 ? 5 : 0;
+      pool[(base + slot) * 16 + 3] = slot === 1 ? 5 : 0;
     }
+    // The view's order this frame: place 0 holds slot 3, place 1 slot 0, place 2 slot 1 (a moving view writes only this).
+    const slots = new Uint32Array(base + 4);
+    slots.set([3, 0, 1, 2], base);
     const list = [2, 0];
-    const read = listedCopy(pool, base, list, 0);
-    expect([...read]).toEqual([...pool.subarray((base + 2) * 16, (base + 3) * 16)]);
+    const read = listedCopy(pool, slots, base, list, 0);
+    expect([...read]).toEqual([...pool.subarray((base + 1) * 16, (base + 2) * 16)]);
     expect(read[3]).toBe(5);
-    expect(read[12]).toBe(2);
+    expect(read[12]).toBe(1);
+    expect(listedCopy(pool, slots, base, list, 1)[12]).toBe(3);
   });
 });
 

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import { modelColliderShape, modelPieceName, modelRenderPrimitives, readModelGeometry } from './model-collision';
-import { modelOccluderChecks, modelOccluderProblem, modelOccluderReport, modelOccluderUse, OCCLUDER_INSIDE_TOLERANCE_M, occluderPointsOutside, validateModelOccluderField } from './model-occluders';
+import { modelOccluderChecks, modelOccluderProblem, modelOccluderReport, modelOccluderUse, OCCLUDER_COVERAGE_TEXELS, OCCLUDER_INSIDE_TOLERANCE_M, occluderCoverageBreaks, occluderPointsOutside, validateModelOccluderField } from './model-occluders';
 import { paintableMeshes } from './vertex-paint';
 
 /** A GLB from a JSON document and one binary buffer. */
@@ -87,9 +87,9 @@ describe('occluder stand-ins in a model file', () => {
     if (!read.ok) throw new Error(read.message);
     const checks = modelOccluderChecks(read.geometry);
     expect(checks).toEqual([
-      { piece: 'hedge', node: 'hedge_OCC', vertices: 8, outside: 0, noBounds: false },
+      { piece: 'hedge', node: 'hedge_OCC', vertices: 8, outside: 0, uncovered: 0, nearer: 0, noBounds: false },
       // 0.4 + 0.8 = 1.2 m: the top four corners stand 0.2 m above the wall.
-      { piece: 'wall', node: 'wall_OCC', vertices: 8, outside: 4, noBounds: false },
+      { piece: 'wall', node: 'wall_OCC', vertices: 8, outside: 4, uncovered: 0, nearer: 0, noBounds: false },
     ]);
     expect(modelOccluderProblem(checks[0]!)).toBeNull();
     expect(modelOccluderProblem(checks[1]!)).toContain('wall_OCC: 4 of 8 vertices outside the LOD0 bounds of "wall"');
@@ -103,6 +103,45 @@ describe('occluder stand-ins in a model file', () => {
     const t = OCCLUDER_INSIDE_TOLERANCE_M;
     expect(occluderPointsOutside([0, 0, 0, 1, 1, 1, 1 + t * 0.5, 0.5, -t * 0.5], box)).toBe(0);
     expect(occluderPointsOutside([1 + t * 2, 0.5, 0.5, 0.5, Number.NaN, 0.5], box)).toBe(2);
+  });
+
+  it('rejects a stand-in over an opening or in front of the surfaces, seen along the axes; passes one inside', () => {
+    // An arch 3 m wide and 3 m high, 0.4 m deep: two 0.5 m legs and a 1 m lintel (a 2 × 2 m opening under it).
+    const arch = [...cuboid([0, 0, -0.2], [0.5, 3, 0.2]), ...cuboid([2.5, 0, -0.2], [3, 3, 0.2]), ...cuboid([0.5, 2, -0.2], [2.5, 3, 0.2])];
+    const box = { min: [0, 0, -0.2], max: [3, 3, 0.2] } as const;
+    // A slab over the whole arch has its every vertex inside the bounds, but covers the opening.
+    const slab = cuboid([0.05, 0.05, -0.1], [2.95, 2.95, 0.1]);
+    expect(occluderPointsOutside(slab, box)).toBe(0);
+    expect(occluderCoverageBreaks(arch, slab, box).uncovered).toBeGreaterThan(0);
+    // One slab inside each leg and one inside the lintel: they pass.
+    const inside = [...cuboid([0.1, 0.1, -0.1], [0.4, 2.9, 0.1]), ...cuboid([2.6, 0.1, -0.1], [2.9, 2.9, 0.1]), ...cuboid([0.6, 2.1, -0.1], [2.4, 2.9, 0.1])];
+    expect(occluderCoverageBreaks(arch, inside, box)).toEqual({ uncovered: 0, nearer: 0 });
+    // The same slab as the leg it stands in (faces on the leg's own faces: the exporter's rounding passes).
+    expect(occluderCoverageBreaks(arch, cuboid([0, 0, -0.2], [0.5, 3, 0.2]), box)).toEqual({ uncovered: 0, nearer: 0 });
+    // An L-shaped piece and a box over its notch.
+    const ell = [...cuboid([0, 0, 0], [2, 1, 1]), ...cuboid([0, 1, 0], [1, 2, 1])];
+    const ellBox = { min: [0, 0, 0], max: [2, 2, 1] } as const;
+    expect(occluderCoverageBreaks(ell, cuboid([0.05, 0.05, 0.05], [1.95, 1.95, 0.95]), ellBox).uncovered).toBeGreaterThan(0);
+    // A wall with a sloped top (a gable): a box up to the bounds' top stands in front of the slope, seen from above.
+    const gable = [...cuboid([0, 0, 0], [4, 2, 0.3]), ...prism([0, 2, 0], [4, 2, 0], [2, 3, 0], 0.3)];
+    const gableBox = { min: [0, 0, 0], max: [4, 3, 0.3] } as const;
+    const tall = cuboid([0.2, 0.1, 0.05], [3.8, 2.9, 0.25]);
+    expect(occluderPointsOutside(tall, gableBox)).toBe(0);
+    const broken = occluderCoverageBreaks(gable, tall, gableBox);
+    expect(broken.uncovered + broken.nearer).toBeGreaterThan(0);
+    expect(occluderCoverageBreaks(gable, cuboid([0.2, 0.1, 0.05], [3.8, 1.9, 0.25]), gableBox)).toEqual({ uncovered: 0, nearer: 0 });
+    // A hedge of leaf cards: a shell of quads (their cut-outs are a texture's, not geometry) holds a box inside it.
+    const hedgeBox = { min: [0, 0, 0], max: [2, 2, 2] } as const;
+    expect(occluderCoverageBreaks(cuboid([0, 0, 0], [2, 2, 2]), cuboid([0.2, 0.2, 0.2], [1.8, 1.8, 1.8]), hedgeBox)).toEqual({ uncovered: 0, nearer: 0 });
+    // A plant of two crossed cards is no hedge: from above its geometry is a cross, and a box inside covers the gaps.
+    const cross = [...quad([0, 0, 1], [2, 0, 1], [2, 2, 1], [0, 2, 1]), ...quad([1, 0, 0], [1, 0, 2], [1, 2, 2], [1, 2, 0])];
+    expect(occluderCoverageBreaks(cross, cuboid([0.5, 0.1, 0.5], [1.5, 1.9, 1.5]), hedgeBox).uncovered).toBeGreaterThan(0);
+    expect(OCCLUDER_COVERAGE_TEXELS).toBeGreaterThan(8);
+  });
+
+  it('reports a stand-in over an opening with its reason', () => {
+    expect(modelOccluderProblem({ piece: 'arch', node: 'arch_OCC', vertices: 8, outside: 0, uncovered: 12, nearer: 0, noBounds: false })).toContain('arch_OCC: it covers an opening of "arch"');
+    expect(modelOccluderProblem({ piece: '', node: 'x_OCC', vertices: 8, outside: 0, uncovered: 0, nearer: 3, noBounds: false })).toContain('stands out in front of the LOD0 surfaces of the model');
   });
 
   it('says what of a model counts as an occluder by its import setting', () => {
@@ -122,3 +161,21 @@ describe('occluder stand-ins in a model file', () => {
     expect(errors.map((e) => e.path)).toEqual(['/assets/0/occluder', '/assets/1/occluder']);
   });
 });
+
+/** A box's twelve triangles (nine floats each) from its min to its max corner. */
+function cuboid(lo: readonly number[], hi: readonly number[]): number[] {
+  const c = (i: number): number[] => [i & 1 ? hi[0]! : lo[0]!, i & 2 ? hi[1]! : lo[1]!, i & 4 ? hi[2]! : lo[2]!];
+  const faces = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]];
+  return faces.flatMap(([a, b, d, e]) => [...c(a!), ...c(b!), ...c(d!), ...c(a!), ...c(d!), ...c(e!)]);
+}
+
+/** A quad's two triangles. */
+function quad(a: number[], b: number[], c: number[], d: number[]): number[] {
+  return [...a, ...b, ...c, ...a, ...c, ...d];
+}
+
+/** A triangle (a, b, c) pushed `depth` along +z: its two caps and three sides. */
+function prism(a: number[], b: number[], c: number[], depth: number): number[] {
+  const z = (p: number[]): number[] => [p[0]!, p[1]!, p[2]! + depth];
+  return [...a, ...b, ...c, ...z(a), ...z(c), ...z(b), ...quad(a, b, z(b), z(a)), ...quad(b, c, z(c), z(b)), ...quad(c, a, z(a), z(c))];
+}

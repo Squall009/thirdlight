@@ -6,12 +6,15 @@
  * own depth, on the GPU (WebGPU only: it needs compute and indirect draws);
  * `queries` asks the GPU whether a draw's box has any visible pixel, an
  * answer that arrives a frame or more later (WebGL 2 only: WebGPU has the
- * pyramid, which answers in the same frame); `off` draws everything in view. The project's `occlusion_culling` (or its quality
- * level's) says auto or off; auto takes the depth pyramid on WebGPU and
- * culls nothing on WebGL 2: its queries' answers come two frames late at
- * 60 Hz and dozens of frames late on a frame-bound GPU, more than the one
- * frame a draw may come late from behind a wall. A page flag may pin a path
- * for a comparison (`queries` on WebGL 2).
+ * pyramid, which answers in the same frame); `off` draws everything in view.
+ * The project's `occlusion_culling` (or its quality level's) says off, auto
+ * or on: on takes the depth pyramid on WebGPU and the queries on WebGL 2;
+ * auto culls nothing on either for now. The pyramid's two-pass frame costs
+ * an open view more than it saves at the scene sizes measured, and the
+ * queries' answers come two frames late at 60 Hz and dozens of frames late
+ * on a frame-bound GPU, more than the one frame a draw may come late from
+ * behind a wall; a project that measures a gain turns it on. A page flag may
+ * pin a path for a comparison.
  *
  * Occludees are what can be culled: one draw (or one copy of an instanced
  * draw). Whether testing it pays is decided here, once, from what it is, how
@@ -54,8 +57,8 @@ export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionR
  */
 export function occlusionPathOf(setting: OcclusionCulling, renderer: OcclusionRenderer, pinned: OcclusionPath | null = null): OcclusionPathChoice {
   if (pinned !== null) return { path: occlusionPathAvailable(pinned, renderer) ? pinned : 'off', source: 'page' };
-  if (setting === 'off' || renderer === null) return { path: 'off', source: 'setting' };
-  return { path: renderer === 'webgpu' ? 'hiz' : 'off', source: 'setting' };
+  if (setting !== 'on' || renderer === null) return { path: 'off', source: 'setting' };
+  return { path: renderer === 'webgpu' ? 'hiz' : 'queries', source: 'setting' };
 }
 
 /** A path from a page flag's value (null: not a path). */
@@ -78,22 +81,17 @@ export type OccludeeKind = (typeof OCCLUDEE_KINDS)[number];
 const ITEM_KINDS: ReadonlySet<OccludeeKind> = new Set(['instanced', 'terrain']);
 
 /**
- * The fewest triangles a draw (all of its items together) must draw for a
- * test to pay: a WebGL 2 query draws a 12-triangle box in a draw call of its
- * own, so a draw below this costs about what its test does.
+ * The fewest triangles a draw must draw for a test to pay: all of its items
+ * together (an instanced draw's copies in view, or else it is drawn whole that
+ * frame), or a draw tested whole (a chunk, a merged cell, a model alone). A
+ * draw tested on the GPU is a row of its tests and an indirect draw kept up
+ * to date on the main thread; on WebGL 2 a query is a box drawn through three
+ * like a draw of its own. A draw of fewer triangles does not win either back:
+ * measured on the village class (Iris Xe), whose automatic batches of a few
+ * small props, and models alone, cost more culled than drawn (64 triangles,
+ * one box's worth, made the open village 0.1–0.3 ms slower on both paths).
  */
-export const OCCLUSION_MIN_TRIANGLES = 64;
-
-/**
- * The fewest triangles a draw culled on the GPU must draw in view: an
- * instanced draw's copies together (else it is drawn whole that frame), or a
- * draw culled whole (a chunk, a merged cell, a model alone). A culled draw is
- * a row of the GPU's tests and an indirect draw, kept up to date on the main
- * thread, which the GPU time a draw of fewer triangles saves does not win
- * back. Measured on the village class (Iris Xe), whose automatic batches of a
- * few small props, and models alone, cost more culled than drawn.
- */
-export const OCCLUSION_MIN_COPIES_TRIANGLES = 2048;
+export const OCCLUSION_MIN_TRIANGLES = 2048;
 
 /**
  * The largest share of the view's height a draw tested whole may cover (its

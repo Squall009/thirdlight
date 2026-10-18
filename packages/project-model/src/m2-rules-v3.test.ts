@@ -307,7 +307,7 @@ describe('gameplay settings resolution', () => {
       'ambient_occlusion',
       'render_scale',
       'dynamic_resolution',
-      // Occlusion culling (0 off, 1 auto; absent: auto).
+      // Occlusion culling (0 off, 1 auto, 2 on; absent: auto).
       'occlusion_culling',
       // The memory streamed world cells may take (MiB; absent: 768).
       'streaming_budget_mb',

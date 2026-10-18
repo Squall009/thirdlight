@@ -924,7 +924,7 @@ Fields:
 - Settings ambient occlusion (`api.settings.ambient_occlusion`): The kind of ambient occlusion where a look turns it on (0 off, 1 SSAO, 2 GTAO; absent: SSAO).
 - Settings render scale (`api.settings.render_scale`): The share of the screen's resolution Play and the export draw at (0.5–1; absent: 1).
 - Settings dynamic resolution (`api.settings.dynamic_resolution`): Whether the render scale drops while the GPU runs over budget (0 off, 1 on; absent: off).
-- Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto; absent: auto).
+- Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - Settings streaming budget mb (`api.settings.streaming_budget_mb`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - Settings architecture ship meshes (`api.settings.architecture_ship_meshes`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
 
@@ -1095,7 +1095,7 @@ Outputs:
 <a id="node-behavior--api-settings-occlusion-culling"></a>
 ### Settings occlusion culling (`api.settings.occlusion_culling`)
 
-Whether what solid objects hide is left out of the view (0 off, 1 auto; absent: auto).
+Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 
 Outputs:
 

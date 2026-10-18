@@ -21,7 +21,9 @@
  *   portals off the walls in front of it hide it from the depth's test.
  * - Culling together: the rooms' portals run first and occlusion culling
  *   tests only what they left drawn; with either on or off the picture is
- *   the same, to the pixel.
+ *   the same, to the pixel. A key (a script) then takes the door piece away
+ *   with culling on: C is seen through the doorway at once, and the picture
+ *   is the one with culling off.
  * - Furniture: kit copies of one grey cube model placed by an architecture
  *   object of their own (one chunk, one model): one in L just across the
  *   wall from the lamp, one far in R. Copies are drawn per room, so the L
@@ -35,6 +37,22 @@ import { expect, type Locator, type Page } from './pw';
 import { expectOcclusionShotsMatch, onOcclusionSwitch, pinPortals, settledShot } from './view-match';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+
+/** The key that takes the door piece between R and C away (the door script's action). */
+export const ROOMS_DOOR_KEY = 'KeyJ';
+export const ROOMS_DOOR_ACTION = { name: 'openRoomsDoor', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: ROOMS_DOOR_KEY }] } as const;
+
+/** Takes the door piece away (both cells of the doorway's foot line) when the key is pressed, on its layer. */
+const DOOR_SCRIPT = [
+  'export default {',
+  '  instantiate() { return { open: false }; },',
+  '  step(state, ctx) {',
+  "    if (ctx.phase !== 'intent' || state.open || !ctx.input.pressed('openRoomsDoor')) return;",
+  "    state.open = ctx.grid.clearEdge(ctx.entityId, 1, 1, 4, '-z') && ctx.grid.clearEdge(ctx.entityId, 1, 2, 4, '-z');",
+  "    ctx.log('info', `rooms door taken away: ${state.open}`);",
+  '  },',
+  '};',
+].join('\n');
 type V3 = readonly [number, number, number];
 
 /** The floor layer's min corner (world); the rooms object stands at the layer's place, so its frame is the layer's. */
@@ -72,8 +90,11 @@ const box = (x0: number, z0: number, x1: number, z1: number): number[][] => [
   [x0, 1, z1],
 ];
 
-/** Make the rooms, the door piece, the box in C, the lamp in R and the cubes (`publishModel` publishes a model asset). */
-export async function makeLitRooms(cmd: Cmd, trimId: string, publishModel: (bytes: Uint8Array, assetId: string) => Promise<void>): Promise<void> {
+/**
+ * Make the rooms, the door piece (and the script on its layer that takes it away on {@link ROOMS_DOOR_KEY}), the
+ * box in C, the lamp in R and the cubes (`publishModel` publishes a model asset, `script` a script on an object).
+ */
+export async function makeLitRooms(cmd: Cmd, trimId: string, publishModel: (bytes: Uint8Array, assetId: string) => Promise<void>, script: (name: string, source: string, entityId: string) => Promise<unknown>): Promise<void> {
   await publishModel(new Uint8Array(multiPieceGlb([{ name: 'cube', lods: [[CUBE, CUBE, CUBE]], colors: [[0.6, 0.6, 0.6]], vertexColor: [1, 1, 1, 1] }], { centred: true })), 'e2e-lit-cube');
   await publishModel(new Uint8Array(multiPieceGlb([{ name: 'dense', lods: [[DENSE, DENSE, DENSE]], colors: [[0.6, 0.6, 0.6]], vertexColor: [1, 1, 1, 1], segments: DENSE_SEGMENTS }], { centred: true })), 'e2e-lit-dense');
   // A kit copy at a foot (world), as the rooms object's element (its frame is the layer's).
@@ -87,6 +108,7 @@ export async function makeLitRooms(cmd: Cmd, trimId: string, publishModel: (byte
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [7, 4, 9] } } });
   // The floor's cells, and the closed door on the cell edges across the doorway's foot (the line z = 4, column x 1, rows 1–2).
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 7, 1, 9], cell: { block: 'e2e-lit-ground' } }, { kind: 'edges', at: [1, 1, 4, 1, 1, 2, 4, 1], edge: { block: 'e2e-lit-door' } }] });
+  await script('rooms-door', DOOR_SCRIPT, layer);
   const rooms = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lit rooms', transform: { position: [...LAYER_AT] } }))['createdId']);
   await cmd('setComponent', {
     entityId: rooms,
@@ -131,14 +153,15 @@ export function expectCulled(rooms: { rooms?: number; seen?: number; hidden?: nu
 /**
  * The rooms' portals and occlusion culling together draw the picture each
  * draws alone and the one with neither, at the page's still pose: occlusion
- * on (its setting's path, or WebGL 2's queries pinned where the setting's
- * culls nothing) and off, each
- * with the portals on and off (`game`'s scenes kept: `keepThreeScenes`).
- * Leaves both as the page had them.
+ * on (pinned to the renderer's path) and off, each with the portals on and
+ * off (`game`'s scenes kept: `keepThreeScenes`). Then the door between R and
+ * C is taken away with culling on: C is seen and the picture is the one with
+ * culling off. Leaves the switches as the page had them, the door gone.
  */
 export async function expectRoomsCullingMatch(game: Page, canvas: Locator, label: string): Promise<void> {
-  await onOcclusionSwitch(game, 'pin', null);
-  const path = (await onOcclusionSwitch<string>(game, 'path')) === 'off' ? 'queries' : null;
+  // Culling on the path the renderer has (the setting's auto culls nothing): the depth pyramid, else the queries.
+  await onOcclusionSwitch(game, 'pin', 'hiz');
+  const path = (await onOcclusionSwitch<string>(game, 'path')) === 'hiz' ? 'hiz' : 'queries';
   const shot = async (name: string): Promise<{ image: Awaited<ReturnType<typeof settledShot>>; occlusion: string | null }> => ({ image: await settledShot(canvas, `${label}-${name}`, 250), occlusion: await canvas.getAttribute('data-tl-occlusion') });
   // `data-tl-occlusion`: "<path>|<occludees>|<tested>|<culled>|…" (the GPU's counts read back about once a second).
   const culled = (m: string | null): number => Number((m ?? '').split('|')[3] ?? 0);
@@ -159,5 +182,22 @@ export async function expectRoomsCullingMatch(game: Page, canvas: Locator, label
   console.log(`[rooms] ${label}: portals on against off: ${show(d, STRICT)}`);
   expect(within(d, STRICT) && d.worst === 0, `${label}: the portals on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
   await pinPortals(game, true);
+  // The door taken away with culling on: C is seen (the rooms' mark counts it) and nothing in it is left out.
+  const rooms = async (): Promise<[number, number]> => String(await canvas.getAttribute('data-tl-rooms')).split(' ')[0]!.split('/').map(Number) as [number, number];
+  const seen = async (): Promise<number> => (await rooms())[0];
+  // (The portals back on: the mark counts the rooms seen again once a frame was drawn with them.)
+  await expect.poll(async () => { const [a, b] = await rooms(); return a < b; }, { timeout: 10_000 }).toBe(true);
+  const shut = await seen();
+  await onOcclusionSwitch(game, 'pin', path);
+  await canvas.focus();
+  await game.keyboard.down(ROOMS_DOOR_KEY);
+  await game.waitForTimeout(100);
+  await game.keyboard.up(ROOMS_DOOR_KEY);
+  await expect.poll(seen, { timeout: 10_000, message: `${label}: the open doorway shows C` }).toBeGreaterThan(shut);
+  const opened = await shot('door-open');
+  await onOcclusionSwitch(game, 'pin', 'off');
+  const openedOff = await shot('door-open-off');
+  console.log(`[rooms] ${label}: the door taken away, occlusion ${opened.occlusion}`);
+  expect(expectOcclusionShotsMatch(opened, openedOff, `${label} door open`).worst, `${label}: the open doorway with occlusion on and off, identical`).toBe(0);
   await onOcclusionSwitch(game, 'pin', null);
 }

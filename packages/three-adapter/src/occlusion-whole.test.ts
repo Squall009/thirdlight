@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OCCLUSION_MIN_COPIES_TRIANGLES } from '@thirdlight/runtime';
+import { OCCLUSION_MIN_TRIANGLES } from '@thirdlight/runtime';
 import { describe, expect, it } from 'vitest';
 
 import type { Occludee } from './occludees';
@@ -33,7 +33,7 @@ class FakeHost {
 }
 
 /** A sphere-ish mesh of about `triangles` triangles at `z` (in front of a camera at the origin looking down -z). */
-function meshAt(z: number, triangles = 2 * OCCLUSION_MIN_COPIES_TRIANGLES): THREE.Mesh {
+function meshAt(z: number, triangles = 2 * OCCLUSION_MIN_TRIANGLES): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9).fill(0).map((_, i) => (i % 3 === 0 ? i / 3 : 0)), 3));
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(triangles * 3), 1));
@@ -107,7 +107,7 @@ describe('draws culled whole', () => {
     const host = new FakeHost();
     const wholes = new WholeOcclusion(host as unknown as InstanceOcclusion);
     const behindCamera = meshAt(20);
-    const small = meshAt(-10, OCCLUSION_MIN_COPIES_TRIANGLES - 1);
+    const small = meshAt(-10, OCCLUSION_MIN_TRIANGLES - 1);
     const hidden = meshAt(-10);
     hidden.visible = false;
     const shown = meshAt(-10);

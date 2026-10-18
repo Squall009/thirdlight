@@ -79,6 +79,7 @@ import { OBJECT_FRAME_KEY } from './static-merge';
 import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
+import { declareVertexReach } from './vertex-reach';
 import { withPaint } from './vertex-paint-draw';
 import type { N as TslNode } from './effects-tsl';
 import type { ResourceManager } from '@thirdlight/runtime';
@@ -121,6 +122,15 @@ export interface DecalPageRefLike {
 
 /** The longest instance chain (the model's). */
 const MATERIAL_INSTANCE_DEPTH = MAX_MATERIAL_INSTANCE_DEPTH;
+
+/**
+ * The foliage shader's sway: metres a vertex bends by at full strength and bend, the share of that it sags, and
+ * metres it flutters along its normal. Its reach (how far a vertex may move, which occlusion culling's bounds take)
+ * is worked out from the same numbers.
+ */
+const FOLIAGE_BEND_M = 0.12;
+const FOLIAGE_SAG = 0.35;
+const FOLIAGE_FLUTTER_M = 0.015;
 
 /**
  * The adapter's copy of project-model `resolveMaterialInstances`
@@ -716,10 +726,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(g.turb))).mul(0.35);
         const strength = g.strength.add(g.gust.mul(gust)).mul(near);
         const dir = TSL.length(g.windDir).greaterThan(0).select(TSL.normalize(g.windDir), TSL.vec2(1, 0));
-        const bent = TSL.vec3(dir.x, 0, dir.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(0.12);
-        const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(0.35), 0));
+        const bent = TSL.vec3(dir.x, 0, dir.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(FOLIAGE_BEND_M);
+        const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(FOLIAGE_SAG), 0));
         const normalWorld = TSL.normalize(TSL.modelWorldMatrix.mul(TSL.vec4(TSL.normalLocal, 0)).xyz);
-        const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(0.015).mul(strength.add(near.mul(0.5)));
+        const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(FOLIAGE_FLUTTER_M).mul(strength.add(near.mul(0.5)));
         const offset = sagged.add(normalWorld.mul(flutterAmount));
         out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
       });
@@ -727,6 +737,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     })();
     const thin = TSL.varying(colour.a);
     nm.emissiveNode = TSL.materialEmissive.add(TSL.diffuseColor.rgb.mul(subsurface).mul(thin).mul(0.25));
+    // The most the sway above moves a vertex now (occlusion culling grows the draw's bounds by it): every factor at
+    // its largest (COLOR_0 at 1, the sway's sine at 1, a full gust, the wind near), the sag and the flutter added.
+    declareVertexReach(m, () => {
+      const wind = Math.max(0, nodeGlobals.strength.value as number) + Math.max(0, nodeGlobals.gust.value as number);
+      const sway = wind * Math.max(0, bend.value as number) * FOLIAGE_BEND_M * Math.hypot(1, FOLIAGE_SAG);
+      return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5);
+    });
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */

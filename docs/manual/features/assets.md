@@ -378,14 +378,17 @@ one copy of its texture on the GPU (the streamed texture's `copies` in
 
 A model's `<piece>_OCC` node is an **occluder stand-in**: a simple mesh that
 occlusion culling counts as solid where the model's own surfaces write no
-solid depth (a cut-out hedge, glass, a lattice) or are too detailed to be
-worth it. With culling on it is drawn into the view's depth only, after the
-opaque surfaces: never in colour, never into a shadow map, a probe or a
-bake, and never picked. Keep it inside the model's own surfaces: what it
-covers counts as hidden. A stand-in with a vertex outside its piece's LOD0
-bounds (more than 1 mm) is ignored and named in **Problems**
-(`model_occluder_ignored`), since it could hide what is seen beside the
-model. It is left out of the model's bounds, its colliders made from
+solid depth (a cut-out hedge, glass) or are too detailed to be worth it.
+With culling on it is drawn into the view's depth only, after the opaque
+surfaces: never in colour, never into a shadow map, a probe or a bake, and
+never picked. Keep it inside the model's own surfaces: what it covers counts
+as hidden, so what is seen through the hedge's gaps or the glass where it
+stands disappears. A stand-in with a vertex outside its piece's LOD0 bounds
+(more than 1 mm), or one that covers a place the piece's LOD0 triangles do
+not (an opening, a notch, the gap between posts) or stands in front of them,
+seen along the axes, is ignored and named in **Problems**
+(`model_occluder_ignored`), since it could hide what is seen beside or
+through the model. It is left out of the model's bounds, its colliders made from
 geometry, its vertex paint and its generated levels.
 
 - **Per model** (MCP `setAssetOptions {assetId, occluder: auto | occ | none}`,

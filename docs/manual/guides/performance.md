@@ -59,9 +59,11 @@ Use the same numbers for your own game unless you target something else.
   instance sets, shadows only near the camera, wind only near (the foliage
   policy in [Terrain](../features/terrain.md#foliage-best-practice-the-foliage-policy)),
   a shadowed-lamp budget for interiors.
-- **Let solid things hide the rest:** occlusion culling (on by default on
-  WebGPU) leaves out what walls, buildings and hills hide; give large
-  see-through pieces an `_OCC` stand-in. See
+- **Let solid things hide the rest:** occlusion culling (`occlusion_culling: 2`;
+  off by default for now, it costs an open view more than it saves in the scenes
+  measured) leaves out what walls, buildings and hills hide; turn it on where a
+  measurement shows a gain, and give large dense pieces nobody looks through an
+  `_OCC` stand-in. See
   [Occlusion culling](../features/occlusion.md).
 
 ## Measure a build

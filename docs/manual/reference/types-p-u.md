@@ -1,8 +1,18 @@
-# Types (PaintVec3 to UiEngineAction)
+# Types (PaintTarget to UiEngineAction)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-paint-target"></a>
+### PaintTarget
+
+Declared in `packages/project-model/src/block-grid.ts`.
+
+```ts
+/** What a paint dab paints: the tops' lattice, the walls' points (a layer with wall paint), or both. */
+type PaintTarget = 'tops' | 'walls' | 'both';
+```
 
 <a id="type-paint-vec3"></a>
 ### PaintVec3

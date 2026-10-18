@@ -38,7 +38,7 @@ import type * as THREE from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 
 import type { N } from './effects-tsl';
-import type { OccludeeRegistry } from './occludees';
+import type { Occludee, OccludeeRegistry } from './occludees';
 import { InstanceOcclusion } from './occlusion-instances';
 import { DepthPyramid } from './occlusion-pyramid';
 import { WholeOcclusion } from './occlusion-whole';
@@ -68,6 +68,16 @@ interface PassRenderer {
 function drawnAsTransparent(material: THREE.Material): boolean {
   const m = material as THREE.Material & { transmission?: number; transmissionNode?: { isNode?: boolean } | null; backdropNode?: { isNode?: boolean } | null };
   return m.transparent || (m.transmission ?? 0) > 0 || m.transmissionNode?.isNode === true || m.backdropNode?.isNode === true;
+}
+
+/**
+ * Whether the second render may hide `o` while three walks the scene for it: a draw the first pass drew whole
+ * (an occluder, not drawn by the second pass too nor moved to it) with nothing below it. Hiding hides a subtree:
+ * a child of an animated model's mesh (its glass, a part that hides nothing, a light) is the second pass's to
+ * draw or to light with, so a draw with children is walked.
+ */
+export function liftedForSecondPass(o: Occludee, bothPasses: boolean, second: boolean): boolean {
+  return o.role !== 'none' && o.object.visible && o.object.children.length === 0 && !bothPasses && !second;
 }
 
 export class TwoPassFrame implements ScenePasses {
@@ -147,7 +157,7 @@ export class TwoPassFrame implements ScenePasses {
       // three walks the scene, and shown again at its first draw (before anything it draws can render a shadow
       // map, which must see every caster).
       for (const o of this.registry.values()) {
-        if (o.role !== 'none' && o.object.visible && !this.instances.bothPasses(o.object) && !this.wholes.second(o.object)) {
+        if (liftedForSecondPass(o, this.instances.bothPasses(o.object), this.wholes.second(o.object))) {
           o.object.visible = false;
           this.lifted.push(o.object);
         }

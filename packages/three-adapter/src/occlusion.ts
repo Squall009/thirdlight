@@ -4,10 +4,10 @@
  * the perf harness and the occlusion oracle read.
  *
  * The path comes from the project's `occlusion_culling` (or its quality
- * level's, through the render control) and the renderer: auto culls with a
- * depth pyramid on WebGPU (`hiz`) and with nothing on WebGL 2, whose
- * occlusion queries (`queries`) answer frames late and are a pin; the
- * runtime's `occlusionPathOf` decides. The page flag
+ * level's, through the render control) and the renderer: on culls with a
+ * depth pyramid on WebGPU (`hiz`) and with occlusion queries on WebGL 2
+ * (`queries`, whose answers come frames late); auto culls nothing for now;
+ * the runtime's `occlusionPathOf` decides. The page flag
  * `?occlusion=off|queries|hiz` pins one for a comparison (the perf harness's
  * `--switches occlusion=off`), as does the scene's switch at run time.
  *
@@ -387,11 +387,11 @@ export class OcclusionCuller implements OcclusionSwitch {
     for (const o of this.deps.scene.children) if (hideFromView(o, HIDDEN_BY_OCCLUSION, false)) shown = true;
     // Off the pyramid path the stand-ins draw into the view's depth again (the queries' path) or not at all, and the
     // instanced draws draw every copy in view with the programs they had.
+    // Off the pyramid path its pyramid, pools and kernels are let go too (megabytes at 1080p; made again if it comes back).
     if (this.applied === 'hiz' && this.choice.path !== 'hiz') {
-      this.undressStandins();
       this.frame?.wholes.clear();
-      this.frame?.instances.detach(this.deps.scene);
       this.frame?.instances.clear();
+      this.dropFrame();
     }
     if (this.applied === 'queries' && this.choice.path !== 'queries') this.queries?.clear();
     this.applied = this.choice.path;

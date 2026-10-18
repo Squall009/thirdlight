@@ -14,17 +14,19 @@ describe('render settings', () => {
     expect(renderSettingsOf({ ambient_occlusion: 7, render_scale: 'x' })).toMatchObject({ ambientOcclusion: 'gtao', renderScale: 1 });
   });
 
-  it('occlusion culling: absent or unknown is auto (it draws the same picture), 0 turns it off; the setting round-trips', () => {
+  it('occlusion culling: absent or unknown is auto (culls nothing for now), 0 off, 2 on; the setting round-trips', () => {
     expect(renderSettingsOf({}).occlusionCulling).toBe('auto');
     expect(renderSettingsOf(NEW_PROJECT_SETTINGS).occlusionCulling).toBe('auto');
     expect(renderSettingsOf({ occlusion_culling: 0 }).occlusionCulling).toBe('off');
     expect(renderSettingsOf({ occlusion_culling: 1 }).occlusionCulling).toBe('auto');
+    expect(renderSettingsOf({ occlusion_culling: 2 }).occlusionCulling).toBe('on');
     expect(renderSettingsOf({ occlusion_culling: 5 }).occlusionCulling).toBe('auto');
-    for (const mode of ['off', 'auto'] as const) expect(occlusionCullingOf(occlusionCullingSettingValue(mode))).toBe(mode);
+    for (const mode of ['off', 'auto', 'on'] as const) expect(occlusionCullingOf(occlusionCullingSettingValue(mode))).toBe(mode);
     expect(occlusionCullingOf('auto')).toBe('auto');
     expect(occlusionCullingOf('hiz')).toBeUndefined();
     expect(resolveGameplaySettings({ settings: { occlusion_culling: 0 } }).ok).toBe(true);
-    expect(resolveGameplaySettings({ settings: { occlusion_culling: 2 } }).ok).toBe(false);
+    expect(resolveGameplaySettings({ settings: { occlusion_culling: 2 } }).ok).toBe(true);
+    expect(resolveGameplaySettings({ settings: { occlusion_culling: 3 } }).ok).toBe(false);
   });
 
   it("takes a player's choices by name", () => {

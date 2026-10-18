@@ -1,4 +1,4 @@
-# Types (DecalPageRef to PaintTarget)
+# Types (DecalPageRef to PaintInstancesArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1546,14 +1546,15 @@ Declared in `packages/project-model/src/render-settings.ts`.
 
 ```ts
 /**
- * Occlusion culling: what solid things in front hide is not drawn. `auto`
- * culls on the path the renderer has (a depth pyramid on WebGPU; nothing on
- * WebGL 2, whose occlusion queries answer frames late); `off` draws
- * everything in view. Culling draws the
- * same picture as without it, so `auto` is also what a project that does not
- * set it gets: an existing game keeps its look.
+ * Occlusion culling: what solid things in front hide is not drawn. `on`
+ * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
+ * queries on boxes on WebGL 2); `auto` (and a project that does not set it)
+ * culls nothing on either renderer for now: the depth pyramid's two-pass frame
+ * costs an open view more than it saves at the sizes measured, and the
+ * queries answer frames late; `off` draws everything in view. Culling draws
+ * the same picture as without it, so `on` changes cost, never the look.
  */
-const OCCLUSION_CULLING_MODES: readonly ["off", "auto"];
+const OCCLUSION_CULLING_MODES: readonly ["off", "auto", "on"];
 ```
 
 <a id="type-occlusion-culling"></a>
@@ -1625,14 +1626,4 @@ Declared in `packages/commands/src/instance-stroke-ops.ts`.
 interface PaintInstancesArgs extends InstanceStroke {
   entityId: string;
 }
-```
-
-<a id="type-paint-target"></a>
-### PaintTarget
-
-Declared in `packages/project-model/src/block-grid.ts`.
-
-```ts
-/** What a paint dab paints: the tops' lattice, the walls' points (a layer with wall paint), or both. */
-type PaintTarget = 'tops' | 'walls' | 'both';
 ```

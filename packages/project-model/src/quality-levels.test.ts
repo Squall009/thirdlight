@@ -84,7 +84,7 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', localLights: 17 }] })).toEqual(['/qualityLevels/0/localLights']);
     expect(paths({ qualityLevels: [{ id: 'a', renderScale: 0.25 }] })).toEqual(['/qualityLevels/0/renderScale']);
     expect(paths({ qualityLevels: [{ id: 'a', pixelRatio: 3 }] })).toEqual(['/qualityLevels/0/pixelRatio']);
-    expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'off' }, { id: 'b', occlusionCulling: 'auto' }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'off' }, { id: 'b', occlusionCulling: 'auto' }, { id: 'c', occlusionCulling: 'on' }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'hiz' }] })).toEqual(['/qualityLevels/0/occlusionCulling']);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');

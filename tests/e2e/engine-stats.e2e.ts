@@ -96,9 +96,8 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   expect(s.textureBudgetBytes).toBe(512 * 1024 * 1024);
   expect(s.quality).toBe('high');
   if (s.gpuMs !== null) expect(s.gpuMs.avg).toBeGreaterThan(0);
-  // Occlusion culling on the renderer's path (the project leaves the setting unset: auto, the depth pyramid on WebGPU and
-  // nothing on WebGL 2).
-  expect(s.occlusion.path).toBe(backendOf('auto') === 'webgpu' ? 'hiz' : 'off');
+  // Occlusion culling (the project leaves the setting unset: auto, which culls nothing on either renderer for now).
+  expect(s.occlusion.path).toBe('off');
   // $flow.stats in a UI document.
   const hud = frame.locator('[data-tl-ui-doc="hud"] [data-widget="fps"]');
   await expect(hud).toHaveText(/^fps \d+(\.\d+)? draws [1-9]\d* q high$/, { timeout: 10_000 });
@@ -110,7 +109,7 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   expect(d.frameTimes!.gpuMs === null ? 'not measured' : 'measured').toBe(s.gpuMs === null ? 'not measured' : 'measured');
   expect(d.renderer.environment).toMatchObject({ post: true, quality: 'high' });
   expect(d.renderer.occlusion).toMatchObject({ setting: 'auto', path: s.occlusion.path });
-  expect(d.renderer.occlusion!.occludees).toBeGreaterThan(0);
+  expect(d.renderer.occlusion!.occludees, 'off keeps no occludees').toBe(0);
   // The vignette is drawn in the grading pass.
   expect(d.renderer.environment!.passes).toEqual(expect.arrayContaining(['render', 'grading', 'output']));
   test.info().annotations.push({ type: 'stats', description: JSON.stringify({ fps: s.fps, frameMs: s.frameMs, cpuMs: s.cpuMs, gpuMs: s.gpuMs, passes: d.renderer.environment!.passes }) });

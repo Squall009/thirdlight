@@ -459,8 +459,19 @@ export function pieceBounds(root: THREE.Object3D, piece: string | null): THREE.B
   root.updateMatrixWorld(true);
   const inverseRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
   const box = new THREE.Box3();
-  const nodes = piece === null ? root.children : (modelPieces(root).find((p) => p.name === piece)?.nodes ?? []);
   const tmp = new THREE.Box3();
+  for (const mesh of pieceLod0Meshes(root, piece)) {
+    if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
+    tmp.copy(mesh.geometry.boundingBox!).applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverseRoot, mesh.matrixWorld));
+    box.union(tmp);
+  }
+  return box;
+}
+
+/** The meshes a piece draws at LOD0 (`piece` null: the whole file's), without its collision and occluder nodes or helper nodes' meshes. */
+export function pieceLod0Meshes(root: THREE.Object3D, piece: string | null): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  const nodes = piece === null ? root.children : (modelPieces(root).find((p) => p.name === piece)?.nodes ?? []);
   for (const n of nodes) {
     if (isCollisionNode(n) || isOccluderNode(n)) continue;
     n.traverse((o) => {
@@ -468,10 +479,8 @@ export function pieceBounds(root: THREE.Object3D, piece: string | null): THREE.B
       if (!mesh.isMesh || mesh.geometry === undefined || underHelperNode(o, root)) return;
       const lod = lodLevel(o.name);
       if (lod !== null && lod > 0) return;
-      if (mesh.geometry.boundingBox === null) mesh.geometry.computeBoundingBox();
-      tmp.copy(mesh.geometry.boundingBox!).applyMatrix4(new THREE.Matrix4().multiplyMatrices(inverseRoot, mesh.matrixWorld));
-      box.union(tmp);
+      out.push(mesh);
     });
   }
-  return box;
+  return out;
 }
