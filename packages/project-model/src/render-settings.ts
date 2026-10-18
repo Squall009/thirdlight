@@ -44,8 +44,9 @@ export function ambientOcclusionSettingValue(kind: AmbientOcclusionKind): number
 
 /**
  * Occlusion culling: what solid things in front hide is not drawn. `auto`
- * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
- * queries on WebGL 2); `off` draws everything in view. Culling draws the
+ * culls on the path the renderer has (a depth pyramid on WebGPU; nothing on
+ * WebGL 2, whose occlusion queries answer frames late); `off` draws
+ * everything in view. Culling draws the
  * same picture as without it, so `auto` is also what a project that does not
  * set it gets: an existing game keeps its look.
  */

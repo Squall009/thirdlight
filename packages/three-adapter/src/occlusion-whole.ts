@@ -70,11 +70,66 @@ interface Entry extends WholeRow {
   stamp: number;
 }
 
+/** A camera's frustum, eye and vertical half-angle, as the tests of one frame read them. */
+export class TestView {
+  readonly frustum = new THREE.Frustum();
+  readonly eye = new THREE.Vector3();
+  /** The tangent of the vertical half-angle over the zoom (0: not a perspective view: nothing is small on screen). */
+  tanHalf = 0;
+
+  set(camera: THREE.Camera): this {
+    this.frustum.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, (camera as THREE.Camera & { reversedDepth?: boolean }).reversedDepth === true);
+    this.eye.setFromMatrixPosition(camera.matrixWorld);
+    const p = camera as THREE.PerspectiveCamera;
+    this.tanHalf = p.isPerspectiveCamera === true ? Math.tan(THREE.MathUtils.degToRad(p.fov) / 2) / Math.max(1e-6, p.zoom) : 0;
+    return this;
+  }
+}
+
 const _sphere = new THREE.Sphere();
 const _box = new THREE.Box3();
 const _corners = new Float64Array(6);
-const _frustum = new THREE.Frustum();
 const _m = new THREE.Matrix4();
+const _view = new TestView();
+
+/**
+ * Whether a draw culled whole is worth a test in `view` (its camera's), and
+ * what it is tested by: its range as the view draws it (returned; null: not
+ * worth a test, or out of view), its world box written into `corners`
+ * (min xyz, max xyz; a merged cell's over its members in view). Worth a test:
+ * one range, at least `OCCLUSION_MIN_COPIES_TRIANGLES`, in the frustum, and
+ * not so large on screen that it is never hidden whole (the runtime's
+ * `occludeeClassOf`). Both culling paths ask this, the depth pyramid's and
+ * the occlusion queries'.
+ */
+export function wholeTestOf(o: Occludee, camera: THREE.Camera, view: TestView, corners: Float64Array): { count: number; first: number } | null {
+  const m = o.object;
+  const range = viewRangeOf(m, camera);
+  // Enough triangles to win back its test: asked first, it is the cheapest.
+  const triangles = range === null ? 0 : Math.floor(range.count / 3);
+  if (range === null || triangles < OCCLUSION_MIN_COPIES_TRIANGLES) return null;
+  const merged = o.kind === 'merged' ? mergedViewDrawOf(m, camera) : null;
+  if (merged !== null) {
+    corners.set(merged.box);
+    _sphere.set(_sphere.center.set(merged.sphere[0]!, merged.sphere[1]!, merged.sphere[2]!), merged.sphere[3]!);
+  } else {
+    const g = m.geometry;
+    if (g.boundingBox === null) g.computeBoundingBox();
+    _box.copy(g.boundingBox!).applyMatrix4(m.matrixWorld);
+    if (_box.isEmpty()) return null;
+    _box.getBoundingSphere(_sphere);
+    corners[0] = _box.min.x;
+    corners[1] = _box.min.y;
+    corners[2] = _box.min.z;
+    corners[3] = _box.max.x;
+    corners[4] = _box.max.y;
+    corners[5] = _box.max.z;
+  }
+  if (!(_sphere.radius >= 0) || !view.frustum.intersectsSphere(_sphere)) return null;
+  const distance = _sphere.center.distanceTo(view.eye);
+  const screenShare = view.tanHalf > 0 ? occludeeScreenShare(_sphere.radius, distance, view.tanHalf) : Number.POSITIVE_INFINITY;
+  return occludeeClassOf({ kind: o.kind, triangles, items: 1, screenShare }) === 'whole' ? range : null;
+}
 
 export class WholeOcclusion {
   private readonly entries = new Map<THREE.Mesh, Entry>();
@@ -95,39 +150,12 @@ export class WholeOcclusion {
     for (const e of this.entries.values()) e.row = -1;
     return (host) => {
       if (camera === null) return;
-      _frustum.setFromProjectionMatrix(_m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, (camera as THREE.Camera & { reversedDepth?: boolean }).reversedDepth === true);
-      const eye = _m.copy(camera.matrixWorld).elements;
-      const tanHalf = (camera as THREE.PerspectiveCamera).isPerspectiveCamera === true ? Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov) / 2) / Math.max(1e-6, (camera as THREE.PerspectiveCamera).zoom) : 0;
+      _view.set(camera);
       for (const o of occludees) {
         const m = o.object;
         if (!m.visible || !camera.layers.test(m.layers)) continue;
-        const range = viewRangeOf(m, camera);
-        // Enough triangles to win back its row and read-back on the GPU (the floor instanced copies use): asked first, it is the cheapest.
-        const triangles = range === null ? 0 : Math.floor(range.count / 3);
-        if (range === null || triangles < OCCLUSION_MIN_COPIES_TRIANGLES) continue;
-        // Its world box (a merged cell's: over its members in view) and the sphere round it.
-        const merged = o.kind === 'merged' ? mergedViewDrawOf(m, camera) : null;
-        if (merged !== null) {
-          _corners.set(merged.box);
-          _sphere.set(_sphere.center.set(merged.sphere[0]!, merged.sphere[1]!, merged.sphere[2]!), merged.sphere[3]!);
-        } else {
-          const g = m.geometry;
-          if (g.boundingBox === null) g.computeBoundingBox();
-          _box.copy(g.boundingBox!).applyMatrix4(m.matrixWorld);
-          if (_box.isEmpty()) continue;
-          _box.getBoundingSphere(_sphere);
-          _corners[0] = _box.min.x;
-          _corners[1] = _box.min.y;
-          _corners[2] = _box.min.z;
-          _corners[3] = _box.max.x;
-          _corners[4] = _box.max.y;
-          _corners[5] = _box.max.z;
-        }
-        if (!(_sphere.radius >= 0) || !_frustum.intersectsSphere(_sphere)) continue;
-        // Worth a test: enough triangles, and not so large on screen that it is never hidden whole (the runtime's rule).
-        const distance = Math.hypot(_sphere.center.x - eye[12]!, _sphere.center.y - eye[13]!, _sphere.center.z - eye[14]!);
-        const screenShare = tanHalf > 0 ? occludeeScreenShare(_sphere.radius, distance, tanHalf) : Number.POSITIVE_INFINITY;
-        if (occludeeClassOf({ kind: o.kind, triangles, items: 1, screenShare }) !== 'whole') continue;
+        const range = wholeTestOf(o, camera, _view, _corners);
+        if (range === null) continue;
         let e = this.entries.get(m);
         if (e === undefined) {
           e = this.make(m);

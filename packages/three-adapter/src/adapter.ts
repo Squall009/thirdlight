@@ -841,7 +841,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.() });
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.() });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1530,7 +1530,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         else renderer.render(scene, camera!);
       };
       if (job !== null) job.aside(render);
-      else render();
+      else {
+        render();
+        // The occlusion queries (WebGL 2) are drawn against the finished frame's depth.
+        occlusion.afterDraw();
+      }
     };
     try {
       try {

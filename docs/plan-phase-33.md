@@ -299,7 +299,7 @@ animating hidden characters.
 | 33.4 | Done 2026-10-17: on `hiz` the scene pass's render is drawn as two (`occlusion-passes.ts`: occluders and stand-ins, then role `none` opaques and transparents, no clear) with the depth pyramid between them (`occlusion-pyramid.ts`: two dispatches, 16 × 16 tiles in workgroup memory down to level 4, one workgroup for the rest; MSAA depth by its samples); frames on `hiz` always draw through the scene pass; `_OCC` stand-ins record into level 0 only (atomics from their fragments), never into the scene's depth; `?occlusion=pyramid[:level]` debug view; `gpuMs` and `pyramid` in the diagnostics. rendering.e2e's export: culling on vs off bit-identical (worst 0) with AO and glass behind a stand-in, plain MSAA, render scale 0.5 and three poses along a flown camera (a control with the stand-ins in the scene depth: mean 3.6, worst 137), pyramid read back (rule kept level over level), debug view drawn; vitest for the rule. Same hour, load 1.8–3.4, WebGPU on vs `occlusion=off`: village open p50 5.7/5.6 ms, main 6.42/6.21 (+0.21, §5 ≤ +0.2: at the limit); street p50 6.2, main 6.85; landscape open 10.4/10.4, main 10.56/10.51, valley 10.2; WebGL 2 unchanged (4.8/4.7). Pyramid GPU 0.31–0.44 ms (three's compute timestamps, §5 ≤ 0.4: at the limit), main 0.03–0.06 ms, second render 0.13–0.2 ms main; memory 2.76 MB at 1080p (+2.3 MB of stand-in records only in scenes with `_OCC`). Second pass's own GPU time not separable (unverified against ≤ 0.2 ms). Dynamic resolution not checked by pixels (it changes the same scene pass size the render scale does). |
 | 33.5 | Done 2026-10-17: instance-set chunks (scatter, ground cover, kit copies) and automatic batches culled copy by copy on the GPU (`occlusion-instances.ts`; rule and CPU reference in `occlusion-instances-rule.ts`): shared pools (matrices as drawn, paint slot included; world spheres; slots), a dispatch before pass 1 lists last frame's visible copies of occluder draws, one in the pyramid's compute pass tests the rest and lists the newly visible, a workgroup a draw (order kept), indirect draws per pass, the view only (shadows, probes, the static shadow draw every copy from their columns); a draw is culled only when its copies in view draw ≥ `OCCLUSION_MIN_COPIES_TRIANGLES` (2048). WebGPU, on vs `occlusion=off`, same hour, load 2–4: village open p50 5.7/5.6 and 6.1/5.7 ms, main 6.28/6.26 and 6.61/6.20 (two rounds; noise ±0.3), culled 197 of 418 tested (oracle 649 hidden); village street culled 446 (oracle 842 hidden: 53 %), p50 6.5, main 6.93; landscape open p50 10.4/10.4, main 10.47/10.48, scene pass GPU 4.39/9.56 ms, culled 9178 (oracle 15911: 58 %); landscape valley culled 6932 (oracle 10565: 66 %), scene pass 2.83 ms. Pyramid + culling compute 0.44–0.51 ms GPU on landscape (§5 ≤ 0.4 missed), ~0.3 on the village. Frames are main-thread bound here, so frame times barely move (§5's p95 −25 % unmet; "half of the oracle's hidden culled" met in the occluded views). rendering.e2e's export: a 945-copy painted scatter set and batches, 862 of 879 copies culled at the still pose, culling on vs off bit-identical there, along the flown path, with AO, MSAA and render scale; no GPU validation errors. Fast gate green (village p50 5.9 ms, limit 6.16). Terrain nodes (the row's part B) not done: left for 33.6. WebGL 2 unchanged (no marker, no variant). |
 | 33.6 | Done 2026-10-17: block and architecture chunks, merged cells (whole) and models alone culled whole on the GPU as rows of 33.5's table (`occlusion-whole.ts`; pass by the last read-back answer, `instanceCount` 0/1 in pass 2, tested as world boxes, ≥ `OCCLUSION_MIN_COPIES_TRIANGLES`), terrain nodes culled per node (`terrain-node-culling.ts`, boxes); fixed 33.5's rebuilt late kernel reading last frame's pyramid. WebGPU A/B against `00c4eef9`, same hour, load 1.1–3.6 (before the 2048 floor for whole draws): landscape valley triangles 287k → 43k, scene pass GPU 2.96 → 2.54 ms, main 10.16 → 10.05; area street 200k → 190k tris, main 7.33 → 7.36; village street main 7.20 → 6.79; village open on vs off unchanged; pyramid + culling compute on landscape 0.44–0.52 → 0.52–0.54 ms (§5 ≤ 0.4 still missed). Village gate check interleaved (9 rounds, load 2–4): before 6.0–6.1, after 6.0–6.3 ms p50, equal main thread; the fast gate's perf missed 6.2–6.3 ms three times, then passed at 6.1 (limit 6.16, host state: D199). rendering.e2e's export: 2 of 3 models culled whole, 2 of 10 terrain nodes culled, WebGPU on vs off bit-identical at the pose, along the path, with AO, MSAA and render scale. WebGL 2 unverified (unchanged path). |
-| 33.7 | |
+| 33.7 | Done 2026-10-18: occlusion queries on boxes (`occlusion-queries.ts`; bookkeeping in `occlusion-queries-rule.ts`, vitest): WebGL's own `ANY_SAMPLES_PASSED_CONSERVATIVE` queries round each box's draw, drawn after the frame into the scene pass's target after the `_OCC` stand-ins (which never reach the depth AO, fog and transparent draws read); a draw is hidden after two answers in a row (the newer ≤ 2 frames old) and shown at the first that sees it; boxes grow by a depth margin and the camera's motion; cuts forget every answer; what is asked is `wholeTestOf` (shared with the GPU path: `occludeeClassOf`, the 2048-triangle floor) and instanced draws by their copies in view, hidden whole. Answers come 2 frames late at 60 Hz and 20–60 frames late uncapped (nothing culled there); box-measured lateness along the flown camera 2 frames: **WebGL 2's auto culls nothing, `?occlusion=queries` pins the queries** (§7, owner to confirm). rendering.e2e's export on WebGL 2 (pinned): on vs off bit-identical at the still pose (AO, glass behind the stand-in, 3 models hidden), in the plain frame and at two poses along the flight. WebGL 2 uncapped, before (`c62483bd`: auto = the no-op queries path) → after (auto = off), load 1–3.5, p50 / main ms: village open 4.7/4.7, 6.18/6.07; street 5.1/4.9, 6.71/6.71; area open 2.6/2.6, 7.02/7.05; landscape open 4.2/4.0, 11.15/11.16; valley 3.2/3.2, 10.77/10.83 (equal). Queries pinned, uncapped: 1–29 boxes a frame, 0 culled, main +0–0.1 ms; capped at 60 (`frameRateCap`): village street 2 culled, 139k → 135k triangles, main 4.70 → 4.80. With a 64-triangle floor (an experiment, not kept): 66 of 112 hidden in the street, but +75 boxes a frame: draws 265 → 275, main +1.5 ms (load 5–7). The oracle still counts 78 % of the street's draws hidden: what WebGL 2 could save stays unclaimed. |
 | 33.8 | |
 | 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm). |
 | 33.10 | |
@@ -563,6 +563,42 @@ WebGL 2 p99 outliers (70–280 ms) are the loaded host's long frames, in both co
   from inside the pyramid's build, before the reduction, so it tested against
   last frame's pyramid (an empty one at the first frame: everything hidden in
   the second pass for one frame). It now runs right after the pyramid's pass.
+- 2026-10-18 (33.7, default chosen, owner to confirm): **WebGL 2 culls nothing by
+  default; its occlusion queries are a pin (`?occlusion=queries`).** §1's rule:
+  more than one frame of lateness on a moving camera turns WebGL 2 off. The
+  answers come 2 frames after their query at 60 Hz, and 20–60 frames after it
+  uncapped (Chrome queues frames ahead of the GPU), where the age bound (2
+  frames) then culls nothing; along rendering.e2e's flown camera a hidden draw
+  stayed hidden for 2 frames after its box showed (the box is larger than the
+  draw, so an upper bound). The cost is the other half: a box is a draw through
+  three (its render object, uniforms, bindings) and a hidden draw is asked every
+  frame (so it shows at its first answer that sees it), so hidden draws are
+  replaced by as many boxes: in the village street with a 64-triangle floor 66
+  draws hidden for 75 boxes, main thread +1.5 ms; with the 2048-triangle floor
+  the GPU path uses (kept, no new constant) 2 draws asked and culled, ±0.1 ms.
+  What would make it pay, for the owner to weigh: boxes drawn without three
+  (one program, a matrix uniform each), boxes over groups of draws, and only
+  vsync'd frames (players' browsers) trusting answers. The setting's `auto`
+  documents it; `occlusionPathOf('auto', 'webgl2')` is `off`.
+- 2026-10-18 (33.7): **the queries are WebGL's own, not three's `occlusionTest`.**
+  three makes and deletes a query per object a frame and answers per render
+  context only once every query of a render has its answer, as a set with no
+  frame to it: the two-in-a-row and age rules need each answer's query and frame.
+  The queries are pooled and begun and ended round `renderObject` in the
+  render-object function (the WebGL 2 backend draws inside that call); a box three
+  did not draw (its program still building: the draw-call count did not move)
+  loses its query, which breaks the run of answers.
+- 2026-10-18 (33.7): **the boxes are drawn after the frame**, into the scene pass's
+  target (frames on the queries path draw through the scene pass, as on `hiz`),
+  with the stand-ins drawn into its depth first: ambient occlusion, fog, depth of
+  field and transparent draws have read the depth by then, and the next frame
+  clears it. The render resolves nothing (`resolveColorBuffer` /
+  `resolveDepthBuffer` off). three's WebGL 2 `clear` sets the depth mask but not
+  the colour mask, so the boxes' colourless draws left the next frame's colour
+  uncleared (glass drawn over itself frame after frame, and the oracle's id
+  target never cleared: 0.7 M stray pixels): the colour mask is set back after
+  the boxes. The `queries` path is now WebGL 2 only
+  (`occlusionPathAvailable`): WebGPU's pyramid answers in the same frame.
 - 2026-10-17 (33.4): the pyramid is one float buffer, every level packed
   (`pyramidLayout`), reduced in two dispatches (one dispatch a level measured
   slower on the GPU and costs 11 encodes a frame at 1080p). A thread reads 2 × 2

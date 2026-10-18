@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { expect, test, type FrameLocator, type Page } from './pw';
 
 import { STARTER, publishScript, serveDir, startBackend, type E2EBackend } from './backend';
+import { backendOf } from './renderer-variants';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -95,8 +96,9 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   expect(s.textureBudgetBytes).toBe(512 * 1024 * 1024);
   expect(s.quality).toBe('high');
   if (s.gpuMs !== null) expect(s.gpuMs.avg).toBeGreaterThan(0);
-  // Occlusion culling on the renderer's path (the project leaves the setting unset: auto).
-  expect(['queries', 'hiz']).toContain(s.occlusion.path);
+  // Occlusion culling on the renderer's path (the project leaves the setting unset: auto, the depth pyramid on WebGPU and
+  // nothing on WebGL 2).
+  expect(s.occlusion.path).toBe(backendOf('auto') === 'webgpu' ? 'hiz' : 'off');
   // $flow.stats in a UI document.
   const hud = frame.locator('[data-tl-ui-doc="hud"] [data-widget="fps"]');
   await expect(hud).toHaveText(/^fps \d+(\.\d+)? draws [1-9]\d* q high$/, { timeout: 10_000 });

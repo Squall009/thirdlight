@@ -85,28 +85,38 @@ describe('occluder stand-ins', () => {
     const shadow = camera();
     let path: 'off' | 'auto' = 'off';
     let gpu: 'webgl2' | 'webgpu' = 'webgl2';
-    const culler = new OcclusionCuller({ scene, setting: () => path, renderer: () => gpu, pinned: null, view: { is: (c) => c === view } });
+    // A WebGL 2 renderer as far as the queries need one (they are never drawn here).
+    const webgl = { backend: { gl: { beginQuery: () => undefined } } };
+    const culler = new OcclusionCuller({ scene, setting: () => path, renderer: () => gpu, pinned: null, view: { is: (c) => c === view }, webgl: () => (gpu === 'webgl2' ? webgl : null) });
     const draws = (c: THREE.Camera): number => {
       occ.onBeforeRender(null as never, scene, c, occ.geometry, occ.material as THREE.Material, null as never);
       return occ.geometry.drawRange.count;
     };
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    // The queries' path: into the view's depth.
+    // WebGL 2's auto culls nothing: no stand-in.
     path = 'auto';
     culler.update();
+    expect([draws(view), draws(shadow)]).toEqual([0, 0]);
+    // The queries' path (pinned): only while the query render after the frame draws them, for the view.
+    culler.pin('queries');
+    culler.update();
+    expect([draws(view), draws(shadow)]).toEqual([0, 0]);
+    const queries = culler.scenePasses() as unknown as { drawing: boolean };
+    queries.drawing = true;
     expect([draws(view), draws(shadow)]).toEqual([Number.POSITIVE_INFINITY, 0]);
     culler.update();
     expect(culler.diagnostics().standins).toBe(1);
+    // An object that opts out draws no stand-in either.
+    applyObjectOccluder(root, { model: { occluder: false } });
+    expect(draws(view)).toBe(0);
+    applyObjectOccluder(root, { model: {} });
+    queries.drawing = false;
+    culler.pin(null);
     // The pyramid's path: only in its first pass and with its material (none here: no WebGPU renderer), never into the depth.
     gpu = 'webgpu';
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    gpu = 'webgl2';
-    culler.update();
-    // An object that opts out draws no stand-in either.
-    applyObjectOccluder(root, { model: { occluder: false } });
-    expect(draws(view)).toBe(0);
     culler.dispose();
     expect(draws(view)).toBe(0);
   });

@@ -101,9 +101,10 @@ describe('occlusion culler', () => {
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ path: 'hiz', source: 'setting', occludees: 2, tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null });
     expect(h.marks[h.marks.length - 1]).toBe('hiz|2|0|0|0');
+    // WebGL 2's queries answer frames late: auto culls nothing there, the queries are a pin.
     renderer.value = 'webgl2';
     h.c.update();
-    expect(h.c.path()).toBe('queries');
+    expect(h.c.path()).toBe('off');
     setting.value = 'off';
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ setting: 'off', path: 'off', occludees: 0 });

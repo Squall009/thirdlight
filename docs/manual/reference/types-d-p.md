@@ -1,4 +1,4 @@
-# Types (DecalPageRef to PaintVec3)
+# Types (DecalPageRef to PaintTarget)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1547,8 +1547,9 @@ Declared in `packages/project-model/src/render-settings.ts`.
 ```ts
 /**
  * Occlusion culling: what solid things in front hide is not drawn. `auto`
- * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
- * queries on WebGL 2); `off` draws everything in view. Culling draws the
+ * culls on the path the renderer has (a depth pyramid on WebGPU; nothing on
+ * WebGL 2, whose occlusion queries answer frames late); `off` draws
+ * everything in view. Culling draws the
  * same picture as without it, so `auto` is also what a project that does not
  * set it gets: an existing game keeps its look.
  */
@@ -1634,13 +1635,4 @@ Declared in `packages/project-model/src/block-grid.ts`.
 ```ts
 /** What a paint dab paints: the tops' lattice, the walls' points (a layer with wall paint), or both. */
 type PaintTarget = 'tops' | 'walls' | 'both';
-```
-
-<a id="type-paint-vec3"></a>
-### PaintVec3
-
-Declared in `packages/project-model/src/vertex-paint-stroke.ts`.
-
-```ts
-type PaintVec3 = [number, number, number];
 ```

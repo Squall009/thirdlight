@@ -4,16 +4,17 @@ import { engineStatsOf, ENGINE_STATS_NONE } from './engine-stats';
 import { occludeeClassOf, occludeeScreenShare, occluderRoleOf, type OccluderFacts, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
 
 describe('occlusion culling rules', () => {
-  it('auto takes the renderer\'s path (a depth pyramid on WebGPU, queries on WebGL 2); off and an unknown renderer draw everything', () => {
+  it('auto takes the depth pyramid on WebGPU and nothing on WebGL 2 (its queries are a pin); off and an unknown renderer draw everything', () => {
     expect(occlusionPathOf('auto', 'webgpu')).toEqual({ path: 'hiz', source: 'setting' });
-    expect(occlusionPathOf('auto', 'webgl2')).toEqual({ path: 'queries', source: 'setting' });
+    expect(occlusionPathOf('auto', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('auto', null).path).toBe('off');
     expect(occlusionPathOf('off', 'webgpu').path).toBe('off');
   });
 
   it('a page pin wins over the setting, and a path the renderer lacks draws with none', () => {
     expect(occlusionPathOf('off', 'webgpu', 'hiz')).toEqual({ path: 'hiz', source: 'page' });
-    expect(occlusionPathOf('auto', 'webgpu', 'queries')).toEqual({ path: 'queries', source: 'page' });
+    expect(occlusionPathOf('auto', 'webgl2', 'queries')).toEqual({ path: 'queries', source: 'page' });
+    expect(occlusionPathOf('auto', 'webgpu', 'queries')).toEqual({ path: 'off', source: 'page' });
     expect(occlusionPathOf('auto', 'webgpu', 'off')).toEqual({ path: 'off', source: 'page' });
     expect(occlusionPathOf('auto', 'webgl2', 'hiz')).toEqual({ path: 'off', source: 'page' });
     expect(occlusionPathFrom('queries')).toBe('queries');

@@ -5,10 +5,13 @@
  * Paths: `hiz` tests bounds against a depth pyramid built from the frame's
  * own depth, on the GPU (WebGPU only: it needs compute and indirect draws);
  * `queries` asks the GPU whether a draw's box has any visible pixel, an
- * answer that arrives a frame or more later (both renderers); `off` draws
- * everything in view. The project's `occlusion_culling` (or its quality
- * level's) says auto or off; auto takes the renderer's best path. A page flag
- * may pin a path for a comparison.
+ * answer that arrives a frame or more later (WebGL 2 only: WebGPU has the
+ * pyramid, which answers in the same frame); `off` draws everything in view. The project's `occlusion_culling` (or its quality
+ * level's) says auto or off; auto takes the depth pyramid on WebGPU and
+ * culls nothing on WebGL 2: its queries' answers come two frames late at
+ * 60 Hz and dozens of frames late on a frame-bound GPU, more than the one
+ * frame a draw may come late from behind a wall. A page flag may pin a path
+ * for a comparison (`queries` on WebGL 2).
  *
  * Occludees are what can be culled: one draw (or one copy of an instanced
  * draw). Whether testing it pays is decided here, once, from what it is, how
@@ -42,7 +45,7 @@ export interface OcclusionPathChoice {
 export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionRenderer): boolean {
   if (path === 'off') return true;
   if (renderer === null) return false;
-  return path === 'queries' || renderer === 'webgpu';
+  return path === 'queries' ? renderer === 'webgl2' : renderer === 'webgpu';
 }
 
 /**
@@ -52,7 +55,7 @@ export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionR
 export function occlusionPathOf(setting: OcclusionCulling, renderer: OcclusionRenderer, pinned: OcclusionPath | null = null): OcclusionPathChoice {
   if (pinned !== null) return { path: occlusionPathAvailable(pinned, renderer) ? pinned : 'off', source: 'page' };
   if (setting === 'off' || renderer === null) return { path: 'off', source: 'setting' };
-  return { path: renderer === 'webgpu' ? 'hiz' : 'queries', source: 'setting' };
+  return { path: renderer === 'webgpu' ? 'hiz' : 'off', source: 'setting' };
 }
 
 /** A path from a page flag's value (null: not a path). */
@@ -99,6 +102,55 @@ export const OCCLUSION_MIN_COPIES_TRIANGLES = 2048;
  * box; per-item draws are tested by their items, so this does not apply to them.
  */
 export const OCCLUSION_MAX_SCREEN_SHARE = 0.5;
+
+/**
+ * Occlusion queries (WebGL 2): a draw seen at its last answer is asked again
+ * at least every this many frames (its box's query is a draw of its own); a
+ * draw hidden, or hidden at its last answer, is asked every frame, so it is
+ * shown at its first answer that sees it.
+ */
+export const OCCLUSION_QUERY_SPREAD_FRAMES = 4;
+
+/**
+ * The oldest answer (in frames since its query was drawn) a draw is hidden
+ * by. An answer arrives a frame or more after its query; an older one is
+ * not trusted and the draw is drawn. The boxes queried grow by the camera's
+ * motion over this many frames and one more.
+ */
+export const OCCLUSION_QUERY_MAX_AGE_FRAMES = 2;
+
+/**
+ * How much a queried box grows past the draw's bounds: a fixed margin and a
+ * share of its distance from the eye, so its faces lie in front of the
+ * draw's own surfaces in the depth buffer (a box face on a wall's face would
+ * fail the depth test against the wall itself), however coarse the depth is
+ * far away.
+ */
+export const OCCLUSION_QUERY_MARGIN_M = 0.05;
+export const OCCLUSION_QUERY_MARGIN_SHARE = 0.01;
+
+/**
+ * A camera cut: the eye moved more than this many metres further in a frame
+ * than in the frame before (a teleport or a cut, not a steady flight, which
+ * the boxes' growth covers), or turned more than this many radians. The
+ * answers drawn from the old view are forgotten and everything is drawn.
+ */
+export const OCCLUSION_CUT_JUMP_M = 1;
+export const OCCLUSION_CUT_TURN_RAD = 0.35;
+
+/** How far a queried box grows (metres) at `distance` from the eye, while the eye moves `step` metres a frame. */
+export function occlusionQueryMargin(distance: number, step: number): number {
+  return OCCLUSION_QUERY_MARGIN_M + Math.max(0, distance) * OCCLUSION_QUERY_MARGIN_SHARE + Math.max(0, step) * (OCCLUSION_QUERY_MAX_AGE_FRAMES + 1);
+}
+
+/**
+ * Whether the view jumped between two frames: the eye moved `step` metres
+ * (`lastStep` in the frame before) and its forward direction turned by an
+ * angle whose cosine is `turnCos`.
+ */
+export function occlusionCameraCut(step: number, lastStep: number, turnCos: number): boolean {
+  return step > Math.max(0, lastStep) + OCCLUSION_CUT_JUMP_M || turnCos < Math.cos(OCCLUSION_CUT_TURN_RAD);
+}
 
 /** What decides whether an occludee is tested. */
 export interface OccludeeFacts {

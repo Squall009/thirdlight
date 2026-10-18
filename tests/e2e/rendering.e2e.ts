@@ -17,7 +17,10 @@
  *    instance set's copies (painted ones among them) hidden behind the boxes
  *    are culled on the GPU, as are a model drawn alone behind a wall (culled
  *    whole) and the terrain's nodes behind a ridge, and the picture stays
- *    the same.
+ *    the same. On WebGL 2 the occlusion queries (pinned: auto culls nothing
+ *    there) hide the model behind the wall and draw the same pictures with
+ *    culling on and off, through the post stack (the stand-in in the queries'
+ *    depth only), in the plain frame and at poses along the moving camera.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -410,12 +413,12 @@ test('the export draws the box field instanced and looks the same as without ins
       return f;
     };
     const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
-    /** The pose drawn with the setting's culling, then pinned off in the same page: the same picture (`label`). */
-    const onAndOff = async (game: Page, canvas: Locator, label: string, on?: { png: Buffer; draws: number; occlusion: string | null }) => {
+    /** The pose drawn with the setting's culling (or the path `path` pins), then pinned off in the same page: the same picture (`label`). */
+    const onAndOff = async (game: Page, canvas: Locator, label: string, on?: { png: Buffer; draws: number; occlusion: string | null }, path: string | null = null) => {
       const culled = on ?? (await shootGame(canvas, `${label}-on`));
       await onOcclusionSwitch(game, 'pin', 'off');
       const off = await shootGame(canvas, `${label}-off`);
-      await onOcclusionSwitch(game, 'pin', null);
+      await onOcclusionSwitch(game, 'pin', path);
       // Not only within the strict rule: drawing the frame in two passes changes no pixel.
       expect(expectOcclusionShotsMatch(shot(culled), shot(off), label).worst, `${label}: identical`).toBe(0);
       return { on: culled, off };
@@ -494,6 +497,34 @@ test('the export draws the box field instanced and looks the same as without ins
       await onAndOff(first.game, first.canvas, `export-path-${leg}`);
     }
     await first.game.close();
+
+    // WebGL 2's occlusion queries on boxes (pinned: auto culls nothing there, their answers come frames late). The same
+    // pictures with culling on and off: through the post stack with ambient occlusion (the fence's stand-in drawn into
+    // the queries' depth only, the glass behind it still drawn), the plain frame (through the scene pass with culling
+    // on, straight to the canvas with it off), and at poses along the flown camera; the frames a draw stayed hidden
+    // after its box showed are counted (the lateness, logged).
+    const gl = await openGame(`${site.url}?renderer=webgl2&occlusion=queries`);
+    const glOcc = await onAndOff(gl.game, gl.canvas, 'webgl2', undefined, 'queries');
+    const [glPath, , glTested, glCulled, glStandins] = glOcc.on.occlusion!.split('|');
+    expect(glPath, 'WebGL 2 culls with occlusion queries').toBe('queries');
+    expect(Number(glTested), 'boxes asked').toBeGreaterThan(0);
+    expect(Number(glCulled), 'the model behind the wall hidden').toBeGreaterThan(0);
+    expect(Number(glStandins), 'the stand-in drawn into the queries\' depth').toBeGreaterThan(0);
+    await gl.canvas.focus();
+    for (let leg = 1; leg <= 2; leg++) {
+      await gl.game.keyboard.down('KeyF');
+      await gl.game.waitForTimeout(400);
+      await gl.game.keyboard.up('KeyF');
+      await onAndOff(gl.game, gl.canvas, `webgl2-path-${leg}`, undefined, 'queries');
+    }
+    type Queries = { late: number; lateRunMax: number; ageFrames: number; lost: number; cuts: number };
+    const queries = (await onOcclusionSwitch<{ queries: Queries | null }>(gl.game, 'diagnostics')).queries!;
+    console.log(`[rendering] webgl2 queries: ${JSON.stringify(queries)}`);
+    expect(queries.ageFrames, 'answers came').toBeGreaterThan(0);
+    await gl.game.close();
+    const glPlain = await openGame(`${site.url}?renderer=webgl2&occlusion=queries&ao=off`);
+    await onAndOff(glPlain.game, glPlain.canvas, 'webgl2-ao=off', undefined, 'queries');
+    await glPlain.game.close();
 
     const single = await frameOf(`${site.url}?batching=off`, 'single');
     console.log(`[rendering] export draw calls: ${batched.draws} instanced, ${single.draws} one per object`);

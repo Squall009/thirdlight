@@ -1,8 +1,17 @@
-# Types (PaintVerticesArgs to UiIcon)
+# Types (PaintVec3 to UiEngineAction)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-paint-vec3"></a>
+### PaintVec3
+
+Declared in `packages/project-model/src/vertex-paint-stroke.ts`.
+
+```ts
+type PaintVec3 = [number, number, number];
+```
 
 <a id="type-paint-vertices-args"></a>
 ### PaintVerticesArgs
@@ -1602,18 +1611,4 @@ type UiEngineAction =
   // Load or unload the scene named by `scene` — `ctx.scenes.load` / `ctx.scenes.unload` for a button.
   | 'loadScene'
   | 'unloadScene';
-```
-
-<a id="type-ui-icon"></a>
-### UiIcon
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-/** An icon glyph for rich text (`[icon=name]`): a texture, or a part of it. */
-interface UiIcon {
-  asset: string;
-  /** [x, y, width, height] in image pixels (absent: the whole image). */
-  rect?: [number, number, number, number];
-}
 ```
