@@ -217,7 +217,7 @@ describe('M2 phase order', () => {
     expect(err).toMatchObject({ code: 'module_combination_unsupported' });
   });
 
-  it('controller set without a port ⇒ config_invalid physics_port; controller count ≠ 1 ⇒ controller_target; v1/v2 scene ⇒ snapshot_invalid', () => {
+  it('controller set without a port ⇒ config_invalid physics_port; no controller entity is a game without a player yet; v1/v2 scene ⇒ snapshot_invalid', () => {
     const controller = probeSpec({
       id: 'thirdlight.character:controller',
       phases: ['controller', 'transform'],
@@ -229,16 +229,18 @@ describe('M2 phase order', () => {
       reason: 'physics_port',
     });
 
+    // A player may arrive later with a scene: a controller module starts without one.
     const noController = v2Scene();
     noController.entities = (noController.entities as Array<{ id: string }>).filter((e) => e.id !== 'char-0001');
+    const withoutPlayer = probeSpec({ id: 'thirdlight.character:controller', phases: ['controller', 'transform'], owners: [], requiresPhysicsPort: true });
     expect(
-      instantiateError([controller.id], [controller], undefined, makeFakePort(), {
+      instantiateError([withoutPlayer.id], [withoutPlayer], undefined, makeFakePort(), {
         snapshotId: 'demo-0001@r4',
         projectId: 'demo-0001',
         revision: 4,
         scene: noController,
       }),
-    ).toMatchObject({ code: 'config_invalid', reason: 'controller_target' });
+    ).toBeNull();
 
     // A v1/v2 scene is not a playable snapshot at all.
     expect(

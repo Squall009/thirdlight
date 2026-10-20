@@ -245,16 +245,15 @@ describe('scene reload', () => {
     expect(g.errors()).toEqual([]);
   });
 
-  it('a scene holding a player that is not kept is not reloaded, nor an unknown one (the UI event logs why)', () => {
+  it('a scene holding a player that is not kept reloads with its player; an unknown one does not (the UI event logs why)', () => {
     const g = game({ playerKept: false });
     g.rt.queueUiEvent!({ kind: 'reload', doc: '', widget: '', name: '', value: 'scene-main' });
     g.rt.queueUiEvent!({ kind: 'reload', doc: '', widget: '', name: '', value: 'no-such-scene' });
     g.tick(3);
-    expect(g.errors().map((e) => e.message)).toEqual([
-      'reloadScene: scene "scene-main" holds the player "player-0001", which is not kept loaded (mark it Keep loaded to reload its scene)',
-      'reloadScene: unknown scene "no-such-scene"',
-    ]);
-    expect(g.log.made).toEqual(['director']);
+    expect(g.errors().map((e) => e.message)).toEqual(['reloadScene: unknown scene "no-such-scene"']);
+    // The scene came back: its script was made again and its player is there, where the scene puts it.
+    expect(g.log.made).toEqual(['director', 'director']);
+    expect(g.positionOf('player-0001')).toEqual([0, 1, 0]);
   });
 
   it('the deprecated run restarts work and write one problem per kind; a tool restart writes none', () => {

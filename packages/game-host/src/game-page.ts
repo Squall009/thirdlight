@@ -30,10 +30,10 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_2D_MODULE_ID, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
+import type { RapierPhysicsInitConfig, RapierPhysicsPort } from '@thirdlight/physics-rapier';
 import { architectureFromUrl, batchingFromUrl, decalsFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -44,11 +44,9 @@ import {
   withDialogueUiDocument,
   materialCatalogOf,
   modelBoundsFromAssetRows,
+  physics2DConfigOf,
   physics3DConfigOf,
-  playerCapsuleOf,
-  playerPhysicsOf,
   resolveSnapshotHierarchy,
-  colliderSpecs2D,
   type GameMode,
   type GameplaySettings,
   type PhysicsPort3D,
@@ -455,57 +453,6 @@ function pageAssetLoader(o: {
 }
 
 /**
- * The scene-derived Rapier init config (statics + the player controllers:
- * the first as the port's character, the others as its further characters)
- * with the resolved `gravity_y`.
- */
-function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
-  const statics: RapierStaticColliderSpec[] = [];
-  const players: { id: string; character: RapierPhysicsInitConfig['character']; controller: RapierPhysicsInitConfig['controller'] }[] = [];
-  // The shared rule (each where it is in the world, turned about Z with it; movers kinematic; one-way platforms).
-  statics.push(...(colliderSpecs2D(snapshot.scene.entities as never, snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : undefined) as RapierStaticColliderSpec[]));
-  for (const entity of snapshot.scene.entities) {
-    const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
-    const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
-    const position = transform?.position ?? [0, 0, 0];
-    if (components['controller'] === undefined) continue;
-    // Each player's own capsule, skin, ground snap and autostep (else the defaults).
-    const capsule = playerCapsuleOf(components['controller']);
-    const tuning = playerPhysicsOf(components['controller']);
-    players.push({
-      id: entity.id,
-      character: {
-        x: position[0] ?? 0,
-        y: position[1] ?? 0,
-        radius: capsule.radius,
-        halfHeight: capsule.halfHeight,
-        offset: { x: capsule.offset.x, y: capsule.offset.y },
-        parentId: (entity as { parentId?: string | null }).parentId ?? null,
-        rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
-        scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],
-      },
-      controller: {
-        offsetSkin: tuning.offsetSkin,
-        groundSnap: tuning.groundSnap,
-        maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
-        minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-        autostep: tuning.autostep,
-        ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
-      },
-    });
-  }
-  const first = players[0];
-  if (first === undefined) return null;
-  return {
-    character: first.character,
-    ...(players.length > 1 ? { characters: players.slice(1).map((p) => ({ ...p.character, id: p.id, controller: p.controller })) } : {}),
-    statics,
-    solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
-    controller: first.controller,
-  };
-}
-
-/**
  * A texture asset, decoded from the verified bytes: read (once, checked) when
  * a material, a model's extracted image, a bake, the sky or a spot cookie first
  * needs it (its row from the catalog); a streamed texture reads its head (the
@@ -694,11 +641,11 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   // The manifest's modules come from every scene of the project, not only the start scene.
   const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
   // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics
-  // unless another scene, a prefab or a script needs the 3D backend.
+  // unless another scene, a prefab or a script needs the backend (the world then starts without a player).
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null =
     physicsDimensionOf(settings) === 3
       ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], required: moduleIds.includes(PHYSICS_3D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) })
-      : physicsConfigFromSnapshot(snapshot, settings);
+      : (physics2DConfigOf(snapshot.scene.entities, settings, { required: moduleIds.includes(PHYSICS_2D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) }) as RapierPhysicsInitConfig | null);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
   let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });

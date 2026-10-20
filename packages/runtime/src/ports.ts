@@ -89,6 +89,12 @@ export interface PhysicsPort {
   removeStaticColliders?(entityIds: readonly string[]): void;
   /** Where the kinematic (mover) colliders are after this step's move. */
   setKinematicPositions?(poses: readonly { entityId: string; position: Vec2; rotationZ: number }[]): void;
+  /**
+   * Add a player character to the world while it runs (a scene brought a
+   * player controller), named by its object from then on. A world made
+   * without a character takes them too.
+   */
+  addCharacter?(spec: AddedCharacter2D): void;
   /** Ignore one-way colliders for the next `steps` steps (drop through), for a character (absent: the first). */
   dropThrough?(steps: number, characterId?: string): void;
   /** The nearest collider hit by a ray (the characters excluded). */
@@ -478,6 +484,30 @@ export interface RaycastHit3D {
   point?: PhysicsVec3;
 }
 
+/** The tuning of a player character's controller (skin, ground snap, slope angles, autostep), in both dimensions. */
+export interface CharacterControllerTuning {
+  offsetSkin: number;
+  groundSnap: number;
+  maxSlopeClimbRad: number;
+  minSlopeSlideRad: number;
+  autostep: boolean;
+  autostepHeight?: number;
+}
+
+/** A 2D-plane player character added while the world runs: its object, centre, capsule and tuning. */
+export interface AddedCharacter2D {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  halfHeight: number;
+  offset: Vec2;
+  controller: CharacterControllerTuning;
+}
+
+/** A 3D player character added while the world runs (the init config's further character, its tuning given). */
+export type AddedCharacter3D = NonNullable<PhysicsInitConfig3D['characters']>[number];
+
 /**
  * What a 3D port is created from (built by the hosts from the
  * snapshot and settings — game-host `physics3DConfigOf`). `dimension: 3`
@@ -497,7 +527,7 @@ export interface PhysicsInitConfig3D {
   /** The project's step rate and gravity along Y (−Y is down). */
   solver: { hz: number; gravityY: number };
   /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
-  controller: { offsetSkin: number; groundSnap: number; maxSlopeClimbRad: number; minSlopeSlideRad: number; autostep: boolean; autostepHeight?: number };
+  controller: CharacterControllerTuning;
   /**
    * The project's named collision layers, in order (bit 1 + index;
    * bit 0 is "default"). Absent: only "default".
@@ -507,6 +537,7 @@ export interface PhysicsInitConfig3D {
    * The scene has no controller entity — the world holds colliders
    * for queries (picking, rays, overlaps) and movers, but no character capsule
    * (`character` is then a placeholder the port ignores; its step moves nothing).
+   * Characters added later (`addCharacter`) sweep as further characters.
    */
   noCharacter?: true;
   /**
@@ -550,6 +581,8 @@ export interface PhysicsPort3D {
   placeCharacter?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   /** Rebuild the world from the colliders it holds now, the characters at `origins` (see the 2D port's). */
   restartWorld?(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
+  /** Add a player character while the world runs (see the 2D port's), named by its object from then on. */
+  addCharacter?(spec: AddedCharacter3D): void;
   dispose(): void;
 }
 

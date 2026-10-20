@@ -145,8 +145,9 @@ way, and to check the flow in a play-test (the
   add `resume`, or set the screen's **While shown** to *Scripts run*.
 - **Counters and `ctx.save` survive a reload.** Reset what your game keeps
   itself.
-- **The player cannot leave with its scene unless it is not kept.** Keep the
-  player in a start scene and keep it loaded.
+- **A player goes with its scene unless it is kept.** Mark it **Keep loaded**
+  to take it across scene loads; a player that comes back with its scene
+  stands where the scene puts it.
 
 Related: [game modes](game-modes.md), [saves](saves.md),
 [UI documents](ui-documents.md).

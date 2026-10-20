@@ -290,9 +290,10 @@ describe('accepted scheduler fixture (fixtures/m2/contracts/runtime/catchup.json
       if (c.outcome === 'ok' || c.caseId === 'O4-camera-claim') {
         expect(res.ok, `${c.caseId} expected ok`).toBe(true);
         if (res.ok) res.runtime.dispose();
-      } else if (c.caseId === 'O7b-controller-count-two') {
+      } else if (c.caseId === 'O7b-controller-count-two' || c.caseId === 'O7-controller-count') {
         // Two controllers are a game the runtime runs (local co-op: they share the view, the
-        // controller module drives both); the recorded refusal predates several controllers.
+        // controller module drives both), and so is none (a later scene brings the player);
+        // the recorded refusals predate both.
         expect(res.ok, `${c.caseId} expected ok`).toBe(true);
         if (res.ok) res.runtime.dispose();
       } else {
@@ -693,22 +694,22 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
       expect(resMissing.error.reason).toBe(missing.expect.reason);
     }
 
-    const target = expectCase('controller_target');
+    // The recorded controller_target refusal predates games that start without a player
+    // (a later scene brings one): a controller module with no controller entity instantiates.
+    expectCase('controller_target');
+    const noPlayer: SimulationModuleSpec = { ...controller, create: () => ({ transformOwners: [], step() {} }) };
     const regTarget = createSimulationRegistry();
-    registerSimulationModule(regTarget, controller.id, controller);
+    registerSimulationModule(regTarget, noPlayer.id, noPlayer);
     const resTarget = instantiateRuntime({
       snapshot: snapshot(v2Scene(0)),
       registry: regTarget,
-      modules: [controller.id],
+      modules: [noPlayer.id],
       driver: { kind: 'manual' },
       clock: () => 0,
       physics: fakePort(),
     });
-    expect(resTarget.ok).toBe(false);
-    if (!resTarget.ok) {
-      expect(resTarget.error.code).toBe(target.expect.code);
-      expect(resTarget.error.reason).toBe(target.expect.reason);
-    }
+    expect(resTarget.ok).toBe(true);
+    if (resTarget.ok) resTarget.runtime.dispose();
 
   });
 

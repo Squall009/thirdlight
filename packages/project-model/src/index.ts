@@ -370,6 +370,7 @@ export {
   BEHAVIOR_PACKAGE_MODULES,
   ENGINE_MODULES,
   ENGINE_MODULE_IDS,
+  PHYSICS_2D_MODULE_ID,
   PHYSICS_3D_MODULE_ID,
   resolveRequiredModules,
   type EngineModule,

@@ -25,7 +25,7 @@
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
-import type { CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
+import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
 
@@ -90,6 +90,7 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
   restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
+  addCharacter(spec: AddedCharacter3D): void;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -305,6 +306,12 @@ function controllerProblem3D(cc: PhysicsInitConfig3D['controller'], label: strin
   return null;
 }
 
+/** A further character's problem (its id new among `taken`, its capsule and tuning), or null. */
+function furtherProblem3D(c: AddedCharacter3D, label: string, taken: { has(id: string): boolean }): ConfigProblem3D | null {
+  if (typeof c !== 'object' || c === null || typeof c.id !== 'string' || c.id.length === 0 || taken.has(c.id)) return { reason: 'invalid_config', message: `${label}.id must be a non-empty string, once` };
+  return characterProblem3D(c, label) ?? (c.controller !== undefined ? controllerProblem3D(c.controller, `${label}.controller`) : null);
+}
+
 /** Validate the whole init config before any WASM or world work (nothing is silently defaulted). */
 function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
   if (typeof config !== 'object' || config === null) return { reason: 'invalid_config', message: 'physics init config must be an object' };
@@ -328,10 +335,9 @@ function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
     for (let i = 0; i < config.characters.length; i += 1) {
       const c = config.characters[i]!;
       const label = `characters[${i}]`;
-      if (typeof c !== 'object' || c === null || typeof c.id !== 'string' || c.id.length === 0 || ids.has(c.id)) return { reason: 'invalid_config', message: `${label}.id must be a non-empty string, once` };
-      ids.add(c.id);
-      const problem = characterProblem3D(c, label) ?? (c.controller !== undefined ? controllerProblem3D(c.controller, `${label}.controller`) : null);
+      const problem = furtherProblem3D(c, label, ids);
       if (problem !== null) return problem;
+      ids.add(c.id);
     }
   }
   const seen = new Set<string>();
@@ -658,7 +664,7 @@ function wholeSpec(kept: StaticColliderSpec3D, colliders: readonly RAPIER.Collid
   return heavyShape(shape) ? { ...kept, shape: fill(shape, colliders[0]!) } : kept;
 }
 
-function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: ReadonlyMap<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
+function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
   /**
@@ -670,14 +676,22 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   let deferred = config.buildAtRunStart === true;
   const noCharacter = config.noCharacter === true;
   /** Every character, the init config's first, then the further ones in their order (the step sweeps them in this order). */
-  const chars: readonly CharacterBody3D[] = noCharacter ? [] : [primary, ...further.values()];
-  const characterHandles = new Set([primary, ...further.values()].map((b) => b.collider.handle));
+  let chars: readonly CharacterBody3D[] = [];
+  const characterHandles = new Set<number>();
   /**
    * With several characters, the predicate that leaves the other characters
    * out of a sweep or a query (each already leaves its own character out);
    * with one, none (the queries are exactly as they were).
    */
-  const othersOut: ((c: RAPIER.Collider) => boolean) | undefined = characterHandles.size > 1 ? (c) => !characterHandles.has(c.handle) : undefined;
+  let othersOut: ((c: RAPIER.Collider) => boolean) | undefined;
+  /** The character list after one was added or the world was rebuilt (a world without a character sweeps only the added ones). */
+  const listCharacters = (): void => {
+    chars = noCharacter ? [...further.values()] : [primary, ...further.values()];
+    characterHandles.clear();
+    for (const b of [primary, ...further.values()]) characterHandles.add(b.collider.handle);
+    othersOut = characterHandles.size > 1 ? (c) => !characterHandles.has(c.handle) : undefined;
+  };
+  listCharacters();
   /** A query filter as Rapier's groups and predicate. */
   const groupsOf = (filter: PhysicsQueryFilter3D | undefined): number | undefined => (filter?.layers !== undefined ? queryGroups(bits, filter.layers) : undefined);
   const predicateOf = (filter: PhysicsQueryFilter3D | undefined): ((c: RAPIER.Collider) => boolean) | undefined => {
@@ -891,6 +905,11 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     kinematicPoses = [];
     world.step();
     steps += 1;
+    return restingResult();
+  }
+
+  /** The placeholder character's result in a world without one (it never moves). */
+  function restingResult(): CharacterMoveResult3D {
     const zero = { x: 0, y: 0, z: 0 };
     const p = primary.position;
     return { requested: zero, applied: { ...zero }, position: { x: p.x, y: p.y, z: p.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
@@ -1131,7 +1150,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       collidersOf.clear();
       for (const [id, list] of nextColliders) collidersOf.set(id, list);
       for (const [id, kept] of nextKept) staticSpecs.set(id, kept);
-      characterHandles.clear();
       all.forEach((b, i) => {
         b.collider = capsules[i]!.collider;
         b.controller = capsules[i]!.controller;
@@ -1140,8 +1158,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         b.retainedSupport = { x: 0, y: 1, z: 0 };
         b.stepping = null;
         b.last = undefined;
-        characterHandles.add(b.collider.handle);
       });
+      listCharacters();
       if (noCharacter) primary.collider.setEnabled(false);
     } catch (e) {
       if (world !== next) next.free();
@@ -1167,7 +1185,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     step(): CharacterMoveResult3D {
       assertLive('step');
       ensureBuilt();
-      if (noCharacter) return stepWithoutCharacter();
+      if (chars.length === 0) return stepWithoutCharacter();
       // Every character's sweep (the first, then the further ones); the movers move after them
       // (the runtime already added a carrying platform's motion to each request).
       const swept = chars.map((b) => sweep(b));
@@ -1178,6 +1196,10 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         b.position = s.next;
         b.grounded = s.grounded;
         b.last = { ...s.result, groundEntityId: s.grounded ? groundUnder(b, s.next) : null };
+      }
+      if (noCharacter) {
+        primary.staged = null;
+        return restingResult();
       }
       return primary.last!;
     },
@@ -1325,6 +1347,15 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       kinematicAt.clear();
       kinematicMoved = 0;
       stilled.length = 0;
+    },
+
+    addCharacter(spec: AddedCharacter3D): void {
+      assertLive('addCharacter');
+      const problem = furtherProblem3D(spec, 'addCharacter', { has: (id) => further.has(id) });
+      if (problem !== null) throw new Error(problem.message);
+      // Made in the world as it is now (a rebuild makes it again with the others).
+      further.set(spec.id, makeCharacterBody3D(world, spec, spec.controller ?? config.controller));
+      listCharacters();
     },
 
     diagnostics(): Rapier3DDiagnostics {

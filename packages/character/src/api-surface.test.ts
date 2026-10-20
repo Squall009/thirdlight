@@ -72,7 +72,8 @@ describe('module behaviour through the contracted StepContext only', () => {
       action: { stepIndex: 12, actions: { move: { v: moveX, p: 'none' } } },
       settings,
       physics,
-      state: {},
+      // The test's player is in the game (a controller whose object is not does not move).
+      state: { curr: new Map([['char-0001', TRANSFORM.transform]]) },
       intents: {
         stepIndex: 12,
         move: intents.move ?? null,
@@ -95,16 +96,25 @@ describe('module behaviour through the contracted StepContext only', () => {
     expect(module.transformOwners).toEqual(['char-0001']);
   });
 
-  it('refuses a snapshot without a controller target (defensive; the runtime validates first)', () => {
-    expect(() =>
-      characterControllerSpec.create(
-        snapshotWith([
-          { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
-          { id: 'char-0001', components: { ...TRANSFORM } },
-        ]),
-        { fixedStepHz: 120, settings, sceneVersion: 4 },
-      ),
-    ).toThrow(/requires a components\.controller entity \(found 0\)/);
+  it('starts without a player and adds one that arrives with a scene (its owners then name it)', () => {
+    const staged: string[] = [];
+    const physics: PhysicsStepClient = { stageCharacterMove: (id) => staged.push(id), characterResult: () => undefined };
+    const module = characterControllerSpec.create(
+      snapshotWith([
+        { id: 'cam-0001', components: { ...TRANSFORM, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } },
+        { id: 'char-0001', components: { ...TRANSFORM } },
+      ]),
+      { fixedStepHz: 120, settings, sceneVersion: 4 },
+    ) as { transformOwners: readonly string[]; step: (p: 'controller' | 'transform', c: StepContext) => void; sceneLoaded: (e: readonly unknown[]) => void };
+    expect(module.transformOwners).toEqual([]);
+    module.step('controller', makeContext(physics, 'controller', 1));
+    expect(staged).toEqual([]);
+    const before = module.transformOwners;
+    module.sceneLoaded([{ id: 'char-0001', components: { ...TRANSFORM, controller: {} } }]);
+    expect(module.transformOwners).toEqual(['char-0001']);
+    expect(module.transformOwners).not.toBe(before);
+    module.step('controller', makeContext(physics, 'controller', 1));
+    expect(staged).toEqual(['char-0001']);
   });
 
   it('drives every player controller with its own actions and intents, and resets the one placed', () => {

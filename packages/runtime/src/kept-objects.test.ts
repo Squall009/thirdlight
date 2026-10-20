@@ -160,11 +160,12 @@ describe('kept objects', () => {
     h.rt.dispose();
   });
 
-  it('a scene holding a player that is not kept does not unload', () => {
+  it('a scene holding a player that is not kept unloads, and the player goes with it', () => {
     const h = harness({ playerKept: false });
-    const r = h.rt.requestScene!('unload', 'scene-title');
-    expect(r.ok).toBe(false);
-    expect(!r.ok && r.error.message).toContain('not kept loaded');
+    expect(h.ids()).toContain('player-000001');
+    expect(h.rt.requestScene!('unload', 'scene-title').ok).toBe(true);
+    h.tick();
+    expect(h.ids()).not.toContain('player-000001');
     h.rt.dispose();
   });
 

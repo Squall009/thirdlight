@@ -123,6 +123,10 @@ export {
   type PhysicsHit,
   type PhysicsQueryFilter,
   type PhysicsQueryFilter3D,
+  // A player character added while the world runs.
+  type AddedCharacter2D,
+  type AddedCharacter3D,
+  type CharacterControllerTuning,
 } from './ports';
 export { DuplicateMoveError, PhaseViolationError } from './guard';
 export {
@@ -240,7 +244,7 @@ export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags 
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext } from './scene-set';
+export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, modelBoundsFromAssetRows, physics2DConfigOf, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext, type PhysicsInitConfig2D } from './scene-set';
 // The tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';

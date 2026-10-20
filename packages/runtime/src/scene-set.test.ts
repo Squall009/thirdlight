@@ -223,12 +223,9 @@ describe('runtime scene set', () => {
     expect(seen.rocks).toEqual([]);
   });
 
-  it('refuses bad requests and keeps the start scene holding a player that is not kept loaded', () => {
+  it('refuses bad requests; a scene holding a player that is not kept may unload (the player goes with it)', () => {
     const h = harness();
-    const pinned = h.rt.requestScene!('unload', 'scene-main');
-    expect(pinned.ok).toBe(false);
-    expect(!pinned.ok && pinned.error.code).toBe('scene_invalid');
-    expect(!pinned.ok && pinned.error.message).toContain('holds the player "player-0001", which is not kept loaded');
+    expect(h.rt.requestScene!('unload', 'scene-main').ok).toBe(true);
     const unknown = h.rt.requestScene!('load', 'scene-nope');
     expect(!unknown.ok && unknown.error.message).toContain('unknown scene');
     // A failed fetch leaves the scene unloaded and says why in diagnostics.
@@ -245,7 +242,7 @@ describe('runtime scene set', () => {
     expect(rock?.position).toEqual([42, 11, 0]);
   });
 
-  it('a later-loaded scene may hold every light kind, and its lights leave with it; a player controller stays refused', () => {
+  it('a later-loaded scene may hold every light kind, and its lights leave with it; a new player needs a port that adds characters', () => {
     const h = harness();
     const lights = [
       { id: 'light-sun', components: { transform: at(0, 0), light: { type: 'directional', color: '#ff0000', intensity: 1, direction: [0, -1, 0] } } },
@@ -273,12 +270,12 @@ describe('runtime scene set', () => {
     expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
     h.tick();
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
-    // The player's body is made when the game starts: a later scene cannot bring a second one.
+    // A later scene may bring a player; this port cannot add its character, so the load is refused and the game goes on.
     expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
     h.serveWith([{ id: 'player-two', components: { transform: at(0, 0), controller: {} } }]);
     h.tick();
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('unloaded');
-    expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('"player-two" is a player controller'))).toBe(true);
+    expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('"player-two" is a player controller and the physics port cannot add a character'))).toBe(true);
   });
 
   it('a paused game still applies scene loads and unloads (no step runs)', () => {

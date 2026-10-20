@@ -33,7 +33,8 @@ import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2
 import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { colliderRotationZ, colliderShape3DOf, shapeAabb3 } from './collider-specs';
-import { capsuleHalfTotal } from './scene-set';
+import { capsuleHalfTotal, playerCapsuleOf } from './scene-set';
+import { controllerCapsuleOffsetZ, controllerTuningOf } from '@thirdlight/project-model';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
 import { advancePath, Primitives, reversePath, type PathState } from './primitives';
 
@@ -171,6 +172,12 @@ export interface BlocksCharacter {
   readonly skin: number;
   /** 3D: its capsule centre offset along Z. */
   readonly offsetZ: number;
+}
+
+/** A player controller's object as the blocks test it: its own capsule (its controller's, else the default), skin and capsule depth offset. */
+export function blocksCharacterOf(entity: EntityV3, threeD: boolean): BlocksCharacter {
+  const controller = (entity.components as { controller?: unknown }).controller;
+  return { id: entity.id, capsule: playerCapsuleOf(controller), skin: controllerTuningOf(controller).skin, offsetZ: threeD ? controllerCapsuleOffsetZ(controller) : 0 };
 }
 
 export interface BlocksHost {
@@ -326,7 +333,7 @@ export class GameplayBlocks {
   private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
   /** Each player character's capsule box (its own capsule and skin), in controller order. */
-  private readonly chars: readonly CharacterBoxSpec[];
+  private readonly chars: CharacterBoxSpec[];
   /** The generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
   readonly primitives: Primitives;
 
@@ -334,7 +341,7 @@ export class GameplayBlocks {
     private readonly host: BlocksHost,
     entities: readonly EntityV3[],
   ) {
-    this.chars = host.characters.map((c) => ({ id: c.id, ox: c.capsule.offset.x, oy: c.capsule.offset.y, oz: host.physics3d !== undefined ? c.offsetZ : 0, hw: c.capsule.radius, hh: capsuleHalfTotal(c.capsule), pushSkin: c.skin + PUSH_MARGIN }));
+    this.chars = host.characters.map((c) => this.boxSpecOf(c));
     const blocks = this;
     this.primitives = new Primitives({
       hz: host.hz,
@@ -362,6 +369,15 @@ export class GameplayBlocks {
     const t = this.host.curr.get(c.id);
     if (t === undefined) return null;
     return { id: c.id, centre: [t.position[0] + c.ox, t.position[1] + c.oy, t.position[2] + c.oz], half: [c.hw, c.hh, c.hw] };
+  }
+
+  private boxSpecOf(c: BlocksCharacter): CharacterBoxSpec {
+    return { id: c.id, ox: c.capsule.offset.x, oy: c.capsule.offset.y, oz: this.host.physics3d !== undefined ? c.offsetZ : 0, hw: c.capsule.radius, hh: capsuleHalfTotal(c.capsule), pushSkin: c.skin + PUSH_MARGIN };
+  }
+
+  /** A player character that arrived while the game runs (the blocks test it from now on, after the others). */
+  addCharacter(c: BlocksCharacter): void {
+    this.chars.push(this.boxSpecOf(c));
   }
 
   /** Every player character's capsule box (those in the game, in controller order). */

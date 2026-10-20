@@ -50,7 +50,7 @@ export function projectRuleError(errors: readonly ModelErrorV3[]): CommandError 
     details: errors.slice(0, 10),
     detailCount: errors.length,
     message: `the resulting project fails a rule across scenes: ${first?.message ?? 'unknown'}`,
-    hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera and the player)',
+    hint: 'fix the request (ids are unique across scenes)',
   };
 }
 

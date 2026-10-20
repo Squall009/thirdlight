@@ -43,6 +43,7 @@ import type {
   PhysicsInitFailure,
   PhysicsPortInitResult,
   RapierCharacterSpec,
+  RapierFurtherCharacterSpec,
   RapierControllerConfig,
   RapierPhysicsDiagnostics,
   RapierPhysicsInitConfig,
@@ -151,6 +152,12 @@ function controllerProblem(cc: RapierControllerConfig, label: string): ConfigPro
   return null;
 }
 
+/** A further character's problem (its id new among `taken`, its capsule and tuning), or null. */
+function furtherProblem(c: RapierFurtherCharacterSpec, label: string, taken: { has(id: string): boolean }): ConfigProblem | null {
+  if (typeof c !== 'object' || c === null || typeof c.id !== 'string' || c.id.length === 0 || taken.has(c.id)) return { reason: 'invalid_config', message: `${label}.id must be a non-empty string, once` };
+  return characterProblem(c, label) ?? (c.controller !== undefined ? controllerProblem(c.controller, `${label}.controller`) : null);
+}
+
 /**
  * Validate the whole init config before any WASM/world work. Nothing is
  * silently defaulted: `hz` is one of the project step rates (60/120/240),
@@ -181,13 +188,13 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
     const ids = new Set<string>();
     for (let i = 0; i < config.characters.length; i += 1) {
       const c = config.characters[i]!;
-      const label = `characters[${i}]`;
-      if (typeof c !== 'object' || c === null || typeof c.id !== 'string' || c.id.length === 0 || ids.has(c.id)) return { reason: 'invalid_config', message: `${label}.id must be a non-empty string, once` };
-      ids.add(c.id);
-      const problem = characterProblem(c, label) ?? (c.controller !== undefined ? controllerProblem(c.controller, `${label}.controller`) : null);
+      const problem = furtherProblem(c, `characters[${i}]`, ids);
       if (problem !== null) return problem;
+      ids.add(c.id);
     }
   }
+  if (config.noCharacter !== undefined && config.noCharacter !== true) return { reason: 'invalid_config', message: 'noCharacter must be true or absent' };
+  if (config.noCharacter === true && config.characters !== undefined) return { reason: 'invalid_config', message: 'characters must be absent in a world without a character' };
   if (!Array.isArray(config.statics)) {
     return { reason: 'invalid_config', message: 'statics must be an array of static collider specs' };
   }
@@ -443,7 +450,7 @@ function newWorld(config: RapierPhysicsInitConfig): RAPIER.World {
 function createAdapter(
   initialWorld: RAPIER.World,
   primary: CharacterBody,
-  further: ReadonlyMap<string, CharacterBody>,
+  further: Map<string, CharacterBody>,
   config: RapierPhysicsInitConfig,
   staticSpecs: Map<string, RapierStaticColliderSpec>,
   staticBodies: Map<string, RAPIER.RigidBody>,
@@ -462,16 +469,17 @@ function createAdapter(
   const oneWayList: ColliderInfo[] = [];
   const kinematicList: ColliderInfo[] = [];
   const stilled: RAPIER.RigidBody[] = [];
+  const noCharacter = config.noCharacter === true;
   /** Every character, the init config's first, then the further ones in their order (the step sweeps them in this order). */
-  const bodies: readonly CharacterBody[] = [primary, ...further.values()];
-  const characterHandles = new Set(bodies.map((b) => b.collider.handle));
+  let bodies: readonly CharacterBody[] = [];
+  const characterHandles = new Set<number>();
   const isCharacter = (collider: RAPIER.Collider): boolean => characterHandles.has(collider.handle);
   /**
    * With several characters, the predicate that leaves the other characters
    * out of a sweep or a query (each query already leaves its own character
    * out); with one, none (the queries are exactly as they were).
    */
-  const othersOut: ((collider: RAPIER.Collider) => boolean) | undefined = bodies.length > 1 ? (collider) => !characterHandles.has(collider.handle) : undefined;
+  let othersOut: ((collider: RAPIER.Collider) => boolean) | undefined;
   // The one-way predicate of the current sweep (one function; the sweep's feet, rising flag and drop-through in these).
   let sweepFeet = 0;
   let sweepRising = false;
@@ -519,7 +527,19 @@ function createAdapter(
   // point belongs to B, and B's own contact speaks for it. Rapier's grounding
   // is refused only when an internal contact is found and no real one is, so
   // a level without shared faces moves exactly as before.
-  const edgeCapsules = new Map<CharacterBody, RAPIER.Capsule>(bodies.map((b) => [b, new RAPIER.Capsule(b.cap.halfHeight, b.cap.radius)]));
+  const edgeCapsules = new Map<CharacterBody, RAPIER.Capsule>();
+  /** The character list after one was added or the world was rebuilt (a world without a character sweeps only the added ones). */
+  const listCharacters = (): void => {
+    const all = [primary, ...further.values()];
+    bodies = noCharacter ? [...further.values()] : all;
+    characterHandles.clear();
+    for (const b of all) {
+      characterHandles.add(b.collider.handle);
+      if (!edgeCapsules.has(b)) edgeCapsules.set(b, new RAPIER.Capsule(b.cap.halfHeight, b.cap.radius));
+    }
+    othersOut = characterHandles.size > 1 ? (collider) => !characterHandles.has(collider.handle) : undefined;
+  };
+  listCharacters();
   const groundPredictionOf = (b: CharacterBody): number => b.tuning.offsetSkin + b.tuning.groundSnap + INTERNAL_EDGE_PREDICTION_SLACK;
   const edgeCandidates: RAPIER.Collider[] = [];
   const solidStatic = (collider: RAPIER.Collider): boolean => {
@@ -1048,6 +1068,12 @@ function createAdapter(
         b.grounded = s.grounded;
         b.last = { ...s.result, groundEntityId: s.grounded ? groundUnder(b, s.next) : null };
       }
+      if (noCharacter) {
+        // The placeholder character never moves (no capsule in the world sees it).
+        primary.staged = null;
+        const zero = { x: 0, y: 0 };
+        return { requested: zero, applied: { ...zero }, position: { ...primary.position }, grounded: false, supportNormal: { x: 0, y: 1 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
+      }
       return primary.last!;
     },
 
@@ -1227,17 +1253,17 @@ function createAdapter(
           nextBodies.set(id, added.body);
           for (const c of added.colliders) nextInfo.set(c.handle, infoOf(spec, added));
         }
-        const capsules = bodies.map((b) => makeCapsule(next, b.cap, b.position, b.tuning));
+        const all = [primary, ...further.values()];
+        const capsules = all.map((b) => makeCapsule(next, b.cap, b.position, b.tuning));
         // Nothing failed: the new world replaces the old one.
-        for (const b of bodies) world.removeCharacterController(b.controller);
+        for (const b of all) world.removeCharacterController(b.controller);
         world.free();
         world = next;
         staticBodies.clear();
         for (const [id, body] of nextBodies) staticBodies.set(id, body);
         colliderInfo.clear();
         for (const [handle, info] of nextInfo) colliderInfo.set(handle, info);
-        characterHandles.clear();
-        bodies.forEach((b, i) => {
+        all.forEach((b, i) => {
           b.collider = capsules[i]!.collider;
           b.controller = capsules[i]!.controller;
           b.staged = null;
@@ -1245,8 +1271,9 @@ function createAdapter(
           b.retainedSupport = { x: 0, y: 1 };
           b.dropSteps = 0;
           b.last = undefined;
-          characterHandles.add(b.collider.handle);
         });
+        listCharacters();
+        if (noCharacter) primary.collider.setEnabled(false);
       } catch (e) {
         if (world !== next) next.free();
         throw e;
@@ -1259,6 +1286,13 @@ function createAdapter(
       stilled.length = 0;
       // One pipeline update: the first sweep and every query see every collider.
       world.step();
+    },
+    addCharacter(spec: RapierFurtherCharacterSpec): void {
+      assertLive('addCharacter');
+      const problem = furtherProblem(spec, 'addCharacter', { has: (id) => further.has(id) });
+      if (problem !== null) throw new Error(problem.message);
+      further.set(spec.id, makeCharacterBody(world, spec, spec.controller ?? config.controller));
+      listCharacters();
     },
     dispose(): void {
       if (disposed) return;
@@ -1322,6 +1356,8 @@ export async function createPhysicsPort(
     }
     // The first character, then each further one (several player controllers), each with its own tuning.
     const primary = makeCharacterBody(world, config.character, config.controller);
+    // A world without a character keeps its placeholder capsule disabled (no contacts, no query sees it).
+    if (config.noCharacter === true) primary.collider.setEnabled(false);
     const further = new Map<string, CharacterBody>();
     for (const c of config.characters ?? []) further.set(c.id, makeCharacterBody(world, c, c.controller ?? config.controller));
     return { ok: true, port: createAdapter(world, primary, further, config, staticSpecs, staticBodies, colliderInfo) };

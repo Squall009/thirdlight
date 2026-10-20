@@ -37,20 +37,21 @@ export interface EngineModule {
   spec?: string;
 }
 
-/** The 3D physics backend's module id: a host whose manifest names it injects a 3D physics port. */
+/** The physics backends' module ids: a host whose manifest names one injects that port. */
+export const PHYSICS_2D_MODULE_ID = 'thirdlight.physics-rapier:2d';
 export const PHYSICS_3D_MODULE_ID = 'thirdlight.physics-rapier:3d';
 
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
-  { id: 'thirdlight.physics-rapier:2d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
+  { id: PHYSICS_2D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // The 3D backend (a project whose physics_dimension is 3).
   { id: PHYSICS_3D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // The 3D kinematic character controller (a runtime built-in, like the demo module).
   { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'] },
   // Listed in dependency order (a module after the modules it needs): a
   // composition registers the selected specs in this order.
-  { id: 'thirdlight.character:controller', package: '@thirdlight/character', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'characterControllerSpec' },
+  { id: 'thirdlight.character:controller', package: '@thirdlight/character', kind: 'simulation', requires: [PHYSICS_2D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'], spec: 'characterControllerSpec' },
   { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
@@ -68,7 +69,7 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
  */
 export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   '@thirdlight/runtime': [],
-  '@thirdlight/physics-rapier': ['thirdlight.physics-rapier:2d'],
+  '@thirdlight/physics-rapier': [PHYSICS_2D_MODULE_ID],
   '@thirdlight/input': ['thirdlight.input:keyboard-gamepad'],
   '@thirdlight/three-adapter': ['thirdlight.three-adapter:gltf-loader'],
 });
@@ -147,7 +148,7 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
         continue;
       }
       // A 3D project's physics is the 3D backend.
-      for (const id of ids) want(threeD && id === 'thirdlight.physics-rapier:2d' ? PHYSICS_3D_MODULE_ID : id, `behavior:${b.behaviorId}`);
+      for (const id of ids) want(threeD && id === PHYSICS_2D_MODULE_ID ? PHYSICS_3D_MODULE_ID : id, `behavior:${b.behaviorId}`);
     }
   }
   for (const id of input.declared ?? []) want(id, 'declared');

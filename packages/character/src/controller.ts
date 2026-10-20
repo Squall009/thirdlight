@@ -514,19 +514,14 @@ function climbStep(state: ControllerState, charId: string, moveX: number, climbY
 /**
  * The `components.controller` entity ids of a v2 snapshot, in its order —
  * every player controller (several share a view in local co-op; the first
- * is the one a call naming none means).
+ * is the one a call naming none means; none: a game without a player yet).
  */
 export function findControllerEntities(snapshot: RuntimeSnapshot): string[] {
-  const ids = snapshot.scene.entities
-    .filter((entity) => (entity.components as { controller?: unknown }).controller !== undefined)
-    .map((entity) => entity.id);
-  if (ids.length === 0) {
-    // The runtime validates `controller_target` before `create`; this is the
-    // defensive path so a direct caller cannot build a controller of nothing.
-    throw new Error('thirdlight.character:controller requires a components.controller entity (found 0)');
-  }
-  return ids;
+  return snapshot.scene.entities.filter((entity) => (entity.components as { controller?: unknown }).controller !== undefined).map((entity) => entity.id);
 }
+
+/** An entity of the scene (a player controller's object). */
+type SceneEntity = RuntimeSnapshot['scene']['entities'][number];
 
 /** A controller's channels when nothing was asked of it this step. */
 const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
@@ -540,12 +535,14 @@ interface Controlled {
   readonly movement: ControllerMovementTuning;
 }
 
-/** Build a controller module instance (one for every player controller of the snapshot). */
+/**
+ * Build a controller module instance (one for every player controller of the
+ * snapshot; a player that arrives with a scene is added after them).
+ */
 export function createControllerModule(
   snapshot: RuntimeSnapshot,
   cfg: ModuleConfig,
 ): SimulationPhaseModule {
-  const ids = findControllerEntities(snapshot);
   if (cfg.fixedStepHz <= 0 || !Number.isFinite(cfg.fixedStepHz)) {
     throw new Error('thirdlight.character:controller requires a positive fixedStepHz');
   }
@@ -553,25 +550,27 @@ export function createControllerModule(
   const cosMaxSlopeClimb = Math.cos((cfg.settings.max_slope_climb_deg * Math.PI) / 180);
   const cosMinSlopeSlide = Math.cos((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
   const tanMinSlopeSlide = Math.tan((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
-  const controlled: Controlled[] = ids.map((charId) => {
-    const entity = snapshot.scene.entities.find((e) => e.id === charId);
-    const transform = entity?.components.transform;
+  const controlledOf = (entity: SceneEntity): Controlled => {
+    const transform = entity.components.transform;
     if (!transform) {
-      throw new Error(`thirdlight.character:controller entity "${charId}" has no transform component`);
+      throw new Error(`thirdlight.character:controller entity "${entity.id}" has no transform component`);
     }
-    const controller = (entity?.components as { controller?: unknown } | undefined)?.controller;
+    const controller = (entity.components as { controller?: unknown }).controller;
     // Each player's tuning (its controller data, else the defaults) and the input actions it reads.
     const tuning = controllerStepTuning(controller, cfg.fixedStepHz);
     return {
-      id: charId,
+      id: entity.id,
       state: createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps),
       tuning,
       names: controllerActionNames(controller),
       // Climbing and walls.
       movement: controllerMovementTuning(controller),
     };
-  });
+  };
+  const controlled: Controlled[] = findControllerEntities(snapshot).map((id) => controlledOf(snapshot.scene.entities.find((e) => e.id === id)!));
   const byId = new Map(controlled.map((c) => [c.id, c]));
+  // A new list when a player arrives: the runtime checks the new owners.
+  let owners: readonly string[] = controlled.map((c) => c.id);
 
   /**
    * Zero every window and velocity the step-indexed state can carry, so
@@ -599,7 +598,20 @@ export function createControllerModule(
   };
 
   return {
-    transformOwners: ids,
+    get transformOwners() {
+      return owners;
+    },
+    sceneLoaded(entities: readonly SceneEntity[]): void {
+      let added = false;
+      for (const e of entities) {
+        if ((e.components as { controller?: unknown }).controller === undefined || byId.has(e.id)) continue;
+        const c = controlledOf(e);
+        controlled.push(c);
+        byId.set(c.id, c);
+        added = true;
+      }
+      if (added) owners = controlled.map((c) => c.id);
+    },
     /**
      * The reset hook (a character was placed: a restart, an arrival, a
      * respawn). A placement names its controller and starts it from rest
@@ -623,8 +635,8 @@ export function createControllerModule(
     step(phase, ctx): void {
       if (phase === 'controller') {
         controlled.forEach((c, i) => {
-          // A further controller whose object is not in the game (its scene is not loaded) does not move.
-          if (i > 0 && !ctx.state.curr.has(c.id)) return;
+          // A controller whose object is not in the game (its scene is not loaded) does not move.
+          if (!ctx.state.curr.has(c.id)) return;
           const intents: ControllerIntents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[c.id] ?? NO_INTENTS);
           // Effective input: a committed intent for a channel
           // replaces the sampled channel for this phase only (`ctx.action`

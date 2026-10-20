@@ -133,6 +133,12 @@ export interface RapierPhysicsInitConfig {
   statics: readonly RapierStaticColliderSpec[];
   solver: RapierSolverConfig;
   controller: RapierControllerConfig;
+  /**
+   * The world has no player yet: `character` is a placeholder the port
+   * ignores (disabled, never swept); characters added while it runs
+   * (`addCharacter`) sweep as further characters.
+   */
+  noCharacter?: true;
 }
 
 /**
@@ -164,6 +170,8 @@ export interface RapierPhysicsPort extends PhysicsResetPort {
   dropThrough(steps: number, characterId?: string): void;
   /** Rebuild the world from the colliders it holds now, in one fixed order, the characters at `origins` (a run starts on it). */
   restartWorld(origins?: readonly { characterId?: string; position: Vec2 }[]): void;
+  /** Add a player character while the world runs (a scene brought a player controller). */
+  addCharacter(spec: RapierFurtherCharacterSpec): void;
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }

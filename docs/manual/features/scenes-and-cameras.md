@@ -67,9 +67,9 @@ input and its own state.
 - **Observation.** `tl_game_observe` (and the export's
   `window.__thirdlightObserve`) add `players` [{id, x, y, z}] when there are
   several; `player` stays the first one's.
-- A player's physics body is made when the game starts, so a scene loaded
-  later or a spawned copy cannot bring one (the `player_scene` warning):
-  put every player in a start scene and keep it loaded.
+- A player may be in any scene: it arrives with its scene, where it stands
+  there, and joins the others after them. It leaves with its scene unless
+  it is kept loaded, and comes back where the scene puts it.
 
 **Upgrade (schemaVersion 7, on open).** A project's scene `camera` entity
 becomes a fixed virtual camera at the lowest priority, where it was placed
@@ -151,9 +151,9 @@ unique across the whole project. One command edits one scene.
     `onDisable`/`onDestroy`, `onEnable` again), its sounds stop. Kept
     objects (their scripts too), `ctx.save`, the counters and the other
     scenes stay as they are; a kept player arrives at the scene's listed
-    spawn as on a load. An unloaded scene loads; a scene being loaded is
-    left to arrive. Like `unload`, it is refused for a scene holding a
-    player that is not kept loaded. A UI button does the same with the
+    spawn as on a load, and its other players come back where it puts them.
+    An unloaded scene loads; a scene being loaded is left to arrive. A UI
+    button does the same with the
     engine action `{do: "engine", action: "reloadScene", scene?}` (absent
     scene: the active one); `{do: "engine", action: "loadScene", scene}` and
     `{do: "engine", action: "unloadScene", scene}` are `load` and `unload`

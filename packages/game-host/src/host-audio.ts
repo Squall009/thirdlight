@@ -64,7 +64,7 @@ export function createHostAudio(config: HostAudioConfig): HostAudio {
   const spatialAt = at();
   const listenerAt = at();
   /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
-  let characterId: string | null | undefined;
+  let characterId: string | null = null;
 
   /** The loaded audio sources (recomputed when the scene set changes). */
   let sourcesRevision = -1;
@@ -113,6 +113,8 @@ export function createHostAudio(config: HostAudioConfig): HostAudio {
       const loaded = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
       // A spawned copy's audio source plays too.
       const entities = [...loaded, ...((set?.spawned ?? []) as unknown as typeof loaded)];
+      // The character the sources are heard from: the first player in the game (one may arrive with a later scene).
+      characterId = [...config.snapshot.scene.entities, ...loaded].find((e) => ((e.components ?? {}) as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
       sources = [];
       for (const e of entities) {
         const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number; distanceModel?: AudioSpatialLike['distanceModel']; refDistance?: number; rolloff?: number } }).audioSource;
@@ -123,7 +125,6 @@ export function createHostAudio(config: HostAudioConfig): HostAudio {
     }
     if (sources.length === 0 && liveLoops.size === 0) return;
     // Only the character and the sources are read (no per-frame copy of every transform).
-    characterId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
     const player = characterId !== null && config.readTransform(rt, characterId, playerAt) ? playerAt : undefined;
     const seen = new Set<string>();
     // A switched-off object's audio source is silent (it plays again when switched on).

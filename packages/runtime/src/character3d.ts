@@ -27,6 +27,7 @@ import { actionAxis, actionPhase } from './actions';
 
 import type { ControllerIntents } from './intents';
 import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
+import type { EntityV3 } from '@thirdlight/project-model';
 import type { ModuleConfig, RuntimeSnapshot, SimulationModuleSpec, SimulationPhaseModule, StepContext } from './types';
 
 /** The module id (project-model's engine module table names it too). */
@@ -84,10 +85,9 @@ function yawOf(q: readonly number[]): number {
   return 2 * Math.atan2(y, w);
 }
 
-/** Every player controller of the snapshot, in its order (several share a view in local co-op). */
-function findControllers(snapshot: RuntimeSnapshot): { id: string; controller: unknown; rotation: readonly number[] }[] {
-  const found = snapshot.scene.entities.filter((e) => (e.components as { controller?: unknown }).controller !== undefined);
-  if (found.length === 0) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a components.controller entity (found 0)`);
+/** Every player controller among entities, in their order (several share a view in local co-op; none: a game without a player yet). */
+function findControllers(entities: readonly EntityV3[]): { id: string; controller: unknown; rotation: readonly number[] }[] {
+  const found = entities.filter((e) => (e.components as { controller?: unknown }).controller !== undefined);
   return found.map((e) => {
     const t = e.components.transform;
     if (t === undefined) throw new Error(`${CHARACTER_3D_MODULE_ID} entity "${e.id}" has no transform component`);
@@ -102,17 +102,28 @@ const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
  * Build a 3D character controller instance: one controller per player
  * controller of the snapshot, each with its own state, tuning and input
  * actions; a further controller reads its intents under `intents.controllers`.
+ * A player that arrives with a scene is added after them.
  */
 export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule & { character3DStatus(id?: string): Character3DStatus | null } {
   if (cfg.physicsDimension !== 3) throw new Error(`${CHARACTER_3D_MODULE_ID} runs in a 3D project (physics_dimension 3)`);
   if (!(cfg.fixedStepHz > 0) || !Number.isFinite(cfg.fixedStepHz)) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a positive fixedStepHz`);
-  const all = findControllers(snapshot).map((found) => createOne(found, cfg));
+  const all = findControllers(snapshot.scene.entities).map((found) => createOne(found, cfg));
+  // A new list when a player arrives: the runtime checks the new owners.
+  let owners: readonly string[] = all.map((one) => one.id);
   return {
-    transformOwners: all.map((one) => one.id),
+    get transformOwners() {
+      return owners;
+    },
+    sceneLoaded(entities): void {
+      const arrived = findControllers(entities).filter((found) => !all.some((one) => one.id === found.id));
+      if (arrived.length === 0) return;
+      for (const found of arrived) all.push(createOne(found, cfg));
+      owners = all.map((one) => one.id);
+    },
     step(phase, ctx): void {
       all.forEach((one, i) => {
-        // A further controller whose object is not in the game (its scene is not loaded) does not move.
-        if (i > 0 && !ctx.state.curr.has(one.id)) return;
+        // A controller whose object is not in the game (its scene is not loaded) does not move.
+        if (!ctx.state.curr.has(one.id)) return;
         const intents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[one.id] ?? NO_INTENTS);
         if (phase === 'controller') one.controllerStep(ctx, intents);
         else if (phase === 'transform') one.transformStep(ctx);

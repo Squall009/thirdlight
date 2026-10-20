@@ -8,7 +8,7 @@ import { character3DSettingsOf, controllerCapsuleOf, fixedStepHzOf, controllerCa
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderSpecs2D, colliderSpecs3D, type ColliderContext } from './collider-specs';
-import type { PhysicsInitConfig3D, StaticColliderSpec, Vec2 } from './ports';
+import type { AddedCharacter2D, AddedCharacter3D, CharacterControllerTuning, PhysicsInitConfig3D, StaticColliderSpec, Vec2 } from './ports';
 
 export { colliderRotationZ, colliderShape3DOf, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, staticColliderOf, staticColliderOf3D, worldTransformsOf, type ColliderContext } from './collider-specs';
 import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
@@ -86,66 +86,146 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
  */
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
-  settings: { gravity_y: number; max_slope_climb_deg: number; min_slope_slide_deg: number; fixed_step_hz?: number },
+  settings: CharacterSettings & { gravity_y: number; fixed_step_hz?: number },
   options: { layers?: readonly string[]; modelColliders?: ModelColliderTable; required?: boolean } = {},
 ): PhysicsInitConfig3D | null {
   const statics = colliderSpecs3D(entities as readonly { id: string; parentId?: string | null; components?: unknown }[], options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
   // Every player controller: the first is the port's character, the others its further characters.
-  const players: { id: string; character: PhysicsInitConfig3D['character']; controller: unknown }[] = [];
-  for (const e of entities) {
-    const c = (e.components ?? {}) as Record<string, unknown>;
-    if (c['controller'] === undefined) continue;
-    const t = c['transform'] as { position?: readonly number[] } | undefined;
-    const p = t?.position ?? [0, 0, 0];
-    const capsule = playerCapsuleOf(c['controller']);
-    players.push({
-      id: e.id,
-      controller: c['controller'],
-      character: {
-        position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
-        radius: capsule.radius,
-        halfHeight: capsule.halfHeight,
-        offset: { x: capsule.offset.x, y: capsule.offset.y, z: controllerCapsuleOffsetZ(c['controller']) },
-      },
-    });
-  }
-  let character: PhysicsInitConfig3D['character'] | null = players[0]?.character ?? null;
-  const controller: unknown = players[0]?.controller;
-  const noCharacter = character === null;
+  const players = entities.filter((e) => (e.components as Record<string, unknown> | undefined)?.['controller'] !== undefined).map((e) => character3DOf(e, settings));
+  const first = players[0];
   // Nothing to simulate or query: no physics. The required modules come from every scene, so when they
-  // name the 3D backend an empty world is made anyway (a later scene's colliders are added to it).
+  // name the 3D backend an empty world is made anyway (a later scene's colliders and players are added to it).
   // A block layer's chunks become colliders at run time, so it needs a world too.
-  if (options.required !== true && character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
-  if (character === null) {
-    // A placeholder the port ignores (the default capsule at the origin).
-    const capsule = playerCapsuleOf(undefined);
-    character = { position: { x: 0, y: 0, z: 0 }, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: 0, y: 0, z: 0 } };
-  }
-  // A 3D character's settings — its step-up height (0: off) is
-  // the port's autostep, its ground snap at least that height, its slope limit
-  // (else the project's) the steepest climb.
-  const tuningOf = (controller: unknown): PhysicsInitConfig3D['controller'] => {
-    const c3 = character3DPhysicsOf(controller, settings.max_slope_climb_deg);
-    return {
+  if (options.required !== true && first === undefined && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
+  // Without a player the character is a placeholder the port ignores (the default capsule at the origin).
+  const placeholder = first ?? { ...character3DOf({ id: '', components: { transform: { position: [0, 0, 0] } } }, settings), offset: { x: 0, y: 0, z: 0 } };
+  return {
+    dimension: 3,
+    character: { position: placeholder.position, radius: placeholder.radius, halfHeight: placeholder.halfHeight, offset: placeholder.offset },
+    ...(players.length > 1 ? { characters: players.slice(1) } : {}),
+    statics,
+    ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
+    ...(first === undefined ? { noCharacter: true as const } : {}),
+    solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
+    controller: placeholder.controller,
+    // A runtime starts every run with a rebuilt world: the statics are built then, once.
+    buildAtRunStart: true,
+  };
+}
+
+/** The project settings a player character's physics reads. */
+export interface CharacterSettings {
+  max_slope_climb_deg: number;
+  min_slope_slide_deg: number;
+}
+
+/**
+ * A player controller's 3D character for the port — its origin, its capsule
+ * (the offset's z included) and its tuning: its step-up height (0: off) is
+ * the port's autostep, its ground snap at least that height, its slope limit
+ * (else the project's) the steepest climb. The one builder for a world's
+ * players at creation and a player added while it runs.
+ */
+export function character3DOf(entity: { id: string; components?: unknown }, settings: CharacterSettings): AddedCharacter3D & { controller: CharacterControllerTuning } {
+  const c = (entity.components ?? {}) as Record<string, unknown>;
+  const p = (c['transform'] as { position?: readonly number[] } | undefined)?.position ?? [0, 0, 0];
+  const capsule = playerCapsuleOf(c['controller']);
+  const c3 = character3DPhysicsOf(c['controller'], settings.max_slope_climb_deg);
+  return {
+    id: entity.id,
+    position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
+    radius: capsule.radius,
+    halfHeight: capsule.halfHeight,
+    offset: { x: capsule.offset.x, y: capsule.offset.y, z: controllerCapsuleOffsetZ(c['controller']) },
+    controller: {
       offsetSkin: c3.skin,
       groundSnap: c3.groundSnap,
       maxSlopeClimbRad: (c3.slopeLimit * Math.PI) / 180,
       minSlopeSlideRad: (Math.min(settings.min_slope_slide_deg, c3.slopeLimit) * Math.PI) / 180,
       autostep: c3.stepHeight > 0,
       ...(c3.stepHeight > 0 ? { autostepHeight: c3.stepHeight } : {}),
-    };
+    },
   };
+}
+
+/** A 2D-plane player character with the authored transform the port checks (parented, scaled or tilted ones are refused). */
+export interface Character2D extends AddedCharacter2D {
+  parentId: string | null;
+  rotation: [number, number, number, number];
+  scale: [number, number, number];
+}
+
+/**
+ * A player controller's 2D-plane character for the port — its centre, its
+ * capsule, skin, ground snap and autostep (else the defaults) and the
+ * project's slope angles. The one builder for a world's players at creation
+ * and a player added while it runs.
+ */
+export function character2DOf(entity: { id: string; parentId?: string | null; components?: unknown }, settings: CharacterSettings): Character2D {
+  const c = (entity.components ?? {}) as Record<string, unknown>;
+  const transform = c['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
+  const position = transform?.position ?? [0, 0, 0];
+  const capsule = playerCapsuleOf(c['controller']);
+  const tuning = playerPhysicsOf(c['controller']);
   return {
-    dimension: 3,
-    character,
-    ...(players.length > 1 ? { characters: players.slice(1).map((p) => ({ ...p.character, id: p.id, controller: tuningOf(p.controller) })) } : {}),
+    id: entity.id,
+    x: position[0] ?? 0,
+    y: position[1] ?? 0,
+    radius: capsule.radius,
+    halfHeight: capsule.halfHeight,
+    offset: { x: capsule.offset.x, y: capsule.offset.y },
+    parentId: entity.parentId ?? null,
+    rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
+    scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],
+    controller: {
+      offsetSkin: tuning.offsetSkin,
+      groundSnap: tuning.groundSnap,
+      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
+      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
+      autostep: tuning.autostep,
+      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
+    },
+  };
+}
+
+/** What a 2D-plane port is created from (the physics-rapier init config's shape). */
+export interface PhysicsInitConfig2D {
+  character: Omit<Character2D, 'id' | 'controller'>;
+  characters?: readonly Character2D[];
+  statics: StaticColliderSpec[];
+  solver: { hz: number; gravityY: number };
+  controller: CharacterControllerTuning;
+  noCharacter?: true;
+}
+
+/**
+ * The 2D-plane init config of a scene's (resolved) entities — its static
+ * colliders (each where it is in the world, turned about Z with it; movers
+ * kinematic; one-way platforms) and the player controllers (the first as the
+ * port's character, the others as its further characters), with the
+ * project's step rate and gravity. Null without a player, unless
+ * `options.required`: the project's modules name the 2D backend (a scene
+ * loaded later, a prefab or a script brings a player), and the world then
+ * starts without a character.
+ */
+export function physics2DConfigOf(
+  entities: readonly EntityV3[],
+  settings: CharacterSettings & { gravity_y: number; fixed_step_hz?: number },
+  options: { modelColliders?: ModelColliderTable; required?: boolean } = {},
+): PhysicsInitConfig2D | null {
+  const statics = colliderSpecs2D(entities, options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
+  const players = entities.filter((e) => (e.components as unknown as Record<string, unknown>)['controller'] !== undefined).map((e) => character2DOf(e, settings));
+  const first = players[0];
+  if (first === undefined && options.required !== true) return null;
+  const placeholder = first ?? character2DOf({ id: '', components: { transform: { position: [0, 0, 0] } } }, settings);
+  const { x, y, radius, halfHeight, offset, parentId, rotation, scale, controller } = placeholder;
+  return {
+    character: { x, y, radius, halfHeight, offset, parentId, rotation, scale },
+    ...(players.length > 1 ? { characters: players.slice(1) } : {}),
     statics,
-    ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
-    ...(noCharacter ? { noCharacter: true as const } : {}),
     solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
-    controller: tuningOf(controller),
-    // A runtime starts every run with a rebuilt world: the statics are built then, once.
-    buildAtRunStart: true,
+    controller,
+    ...(first === undefined ? { noCharacter: true as const } : {}),
   };
 }
 

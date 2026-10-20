@@ -325,13 +325,32 @@ function normalizedDegrees(d: number): number {
  * controller order (the first is index 0). A respawn or a script's placement
  * names its controller; a scene transition's arrival, a listed scene's spawn
  * (each kept controller) and a run restart place them all; a save keeps the
- * first under `character` and the others under `characters`.
+ * first under `character` and the others under `characters`. A controller
+ * that arrives while a loaded save waits for its scenes is placed by it too.
  */
 export class ControllerPlacements {
-  private readonly list: readonly { readonly id: string; readonly placement: CharacterPlacement }[];
+  private readonly list: { readonly id: string; readonly placement: CharacterPlacement }[];
+  /** A loaded save while a scene it waits for is still loading (a player arriving with one is placed by it). */
+  private waitingSave: WorldSave | null = null;
 
-  constructor(ids: readonly string[], make: (id: string) => CharacterPlacement) {
+  constructor(
+    ids: readonly string[],
+    private readonly make: (id: string) => CharacterPlacement,
+    private readonly sceneLoading: (sceneId: string) => boolean,
+  ) {
     this.list = ids.map((id) => ({ id, placement: make(id) }));
+  }
+
+  /** A player controller that arrived while the game runs. */
+  add(id: string): void {
+    const placement = this.make(id);
+    this.list.push({ id, placement });
+    if (this.waitingSave !== null) placement.restoreFrom(this.waitingSave, this.savedOf(this.waitingSave, this.list.length - 1, id));
+  }
+
+  /** A controller's character in a save: the first's is `character`, the others' are under `characters`. */
+  private savedOf(world: WorldSave, index: number, id: string): SavedCharacter | null {
+    return index === 0 ? world.character : (world.characters?.[id] ?? null);
   }
 
   /** A controller's placement (undefined: not a controller). */
@@ -346,7 +365,9 @@ export class ControllerPlacements {
 
   /** At a step boundary, every controller's waiting arrival and save placement. Returns false after a fail-stop. */
   atBoundary(ordinal: number): boolean {
-    return this.list.every((x) => x.placement.atBoundary(ordinal));
+    if (!this.list.every((x) => x.placement.atBoundary(ordinal))) return false;
+    if (this.waitingSave !== null && !this.waitingSave.scenes.some((sceneId) => this.sceneLoading(sceneId))) this.waitingSave = null;
+    return true;
   }
 
   /** On the 2D plane every waiting respawn places its controller at the boundary. Returns false after a fail-stop. */
@@ -369,10 +390,12 @@ export class ControllerPlacements {
   }
 
   restartRun(): void {
+    this.waitingSave = null;
     for (const x of this.list) x.placement.restartRun();
   }
 
   startSetRestored(): void {
+    this.waitingSave = null;
     for (const x of this.list) x.placement.startSetRestored();
   }
 
@@ -392,7 +415,8 @@ export class ControllerPlacements {
 
   /** A loaded save: the first controller from `character`, the others from `characters` (absent: they stay). */
   restoreFrom(world: WorldSave): void {
-    this.list.forEach((x, i) => x.placement.restoreFrom(world, i === 0 ? world.character : (world.characters?.[x.id] ?? null)));
+    this.waitingSave = world;
+    this.list.forEach((x, i) => x.placement.restoreFrom(world, this.savedOf(world, i, x.id)));
   }
 
   /** The controllers in a save: the first as `character`, the others as `characters` (absent with one). */

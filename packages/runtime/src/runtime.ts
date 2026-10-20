@@ -33,8 +33,6 @@ import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   ENGINE_TIMING_DEFAULTS,
-  controllerTuningOf,
-  controllerCapsuleOffsetZ,
   type EntityV3,
   type PrefabDefinition,
   type RuntimeUiDocumentRow,
@@ -43,7 +41,6 @@ import {
   UI_DEPRECATED_ENGINE_ACTIONS,
 } from '@thirdlight/project-model';
 import {
-  actionPhase,
   neutralFrame,
   validateActionFrame,
   InputFrameError,
@@ -63,7 +60,7 @@ import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
-import { offsetEntities, playerCapsuleOf, type LiveTagIndex } from './scene-set';
+import { offsetEntities, type LiveTagIndex } from './scene-set';
 import { ColliderSystem } from './collider-system';
 import {
   BehaviorIntentError,
@@ -97,7 +94,8 @@ import type { ClimbQuery } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
+import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
+import { arrivalProblem, playersArrive } from './arriving-players';
 import { createGameControl } from './game-control';
 import { SpawnScenes } from './spawn-scenes';
 import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
@@ -765,7 +763,7 @@ export class RuntimeInstance implements Runtime {
     const loopHost = { running: () => this.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
     this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
     this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
-    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id));
+    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.sceneStatus.get(sceneId) === 'loading');
     this.order = args.order;
     this.entities = args.entities;
     this.entityCount = args.order.length;
@@ -795,10 +793,6 @@ export class RuntimeInstance implements Runtime {
     this.sceneControlHost = {
       hasCatalog: () => this.sceneRows !== null,
       status: (sceneId) => this.sceneStatus.get(sceneId),
-      unkeptPlayerIn: (sceneId) => {
-        const ids = this.batches.get(sceneId)?.ids;
-        return this.controllers.ids.find((player) => ids?.has(player) === true && !this.kept.has(player)) ?? null;
-      },
       loaded: () => [...this.batches.keys()],
       loadingView: () => this.sceneLoadingView(),
       activeScene: () => this.environment.activeScene(),
@@ -911,11 +905,7 @@ export class RuntimeInstance implements Runtime {
         hz: this.hz,
         physics: this.physics,
         curr: this.curr,
-        // Each character's own capsule (its controller's, else the default), its skin (a pushing mover keeps it) and capsule depth offset.
-        characters: this.controllers.ids.map((id) => {
-          const controller = args.initialEntities.find((e) => e.id === id)?.components.controller;
-          return { id, capsule: playerCapsuleOf(controller), skin: controllerTuningOf(controller).skin, offsetZ: args.physics3d !== undefined ? controllerCapsuleOffsetZ(controller) : 0 };
-        }),
+        characters: args.initialEntities.filter((e) => this.controllers.has(e.id)).map((e) => blocksCharacterOf(e, args.physics3d !== undefined)),
         // Gravity bodies fall under the project's gravity, capped at its fall speed.
         gravityY: this.settings.gravity_y,
         maxFallSpeed: this.settings.max_fall_speed,
@@ -2003,7 +1993,7 @@ export class RuntimeInstance implements Runtime {
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
     this.placement.beginStep();
-    action = this.dropThrough(action);
+    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true, this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
@@ -2467,24 +2457,6 @@ export class RuntimeInstance implements Runtime {
       },
       placed: (id) => rt.blocks?.placed(id),
     }, ids, entities);
-  }
-
-  /**
-   * On the 2D plane, a player controller whose jump is pressed with down
-   * held while it stands on a one-way platform drops through it (its jump
-   * reads as released this step). Down is its climb action's (else the
-   * `navigate` action's) y below −0.5.
-   */
-  private dropThrough(action: ActionFrame): ActionFrame {
-    let out = action;
-    for (const id of this.controllers.ids) {
-      const a = this.controllers.actionsOf(id)!;
-      if (actionPhase(action, a.jump) !== 'pressed' || (action.actions?.[a.climb ?? 'navigate']?.y ?? 0) >= -0.5) continue;
-      if (this.blocks?.isOneWay(this.controllers.groundEntityId(id)) !== true) continue;
-      this.physics?.dropThrough?.(this.timing.dropThroughSteps, this.controllers.portId(id));
-      out = { ...out, actions: { ...out.actions, [a.jump]: { v: 0, p: 'none' } } };
-    }
-    return out;
   }
 
   /** A player controller's placement view of the runtime (placements go through the ports here, where a failure fail-stops). */
@@ -2964,7 +2936,7 @@ export class RuntimeInstance implements Runtime {
    * entity, colliders without a capable port) is refused: logged, left
    * unloaded, the run continues. Returns `false` only after a fail-stop.
    */
-  private addBatch(sceneId: string, all: readonly EntityV3[], start: boolean, prepared = false): boolean {
+  private addBatch(sceneId: string, all: readonly EntityV3[], start: boolean, prepared = false, placeReturning = !start): boolean {
     const refuse = (why: string): boolean => {
       this.setSceneStatus(sceneId, 'unloaded');
       this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.stepIndex, reason: 'refused' });
@@ -2974,11 +2946,9 @@ export class RuntimeInstance implements Runtime {
     const { entities, skipped } = this.kept.arriving(all, (id) => this.entities.has(id));
     for (const e of entities) {
       if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
-      // The player's body is made when the game starts: a scene loaded later cannot bring one.
-      if (!start && (e.components as unknown as Record<string, unknown>)['controller'] !== undefined) {
-        return refuse(`entity "${e.id}" is a player controller: the game makes its player when it starts (put it in a start scene and keep it loaded)`);
-      }
     }
+    const players = arrivalProblem(entities, this.controllers, this.physics3d ?? this.physics);
+    if (players !== null) return refuse(players);
     // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
     const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
     const added = this.colliders.add(frozen, `scene "${sceneId}"`);
@@ -3006,7 +2976,7 @@ export class RuntimeInstance implements Runtime {
     this.setSceneStatus(sceneId, 'loaded');
     this.sceneRevision += 1;
     if (!start) this.placement.arriveAtListedSpawn(sceneId);
-    return this.notifyLoaded(frozen);
+    return this.playersArrive(frozen, placeReturning) && this.notifyLoaded(frozen);
   }
 
   /** Why a script cannot switch an object's keep flag now (null: it can). */
@@ -3076,6 +3046,17 @@ export class RuntimeInstance implements Runtime {
     this.sockets.add(frozen);
     // Children of a switched-off object arrive switched off.
     this.entityAccess.added();
+  }
+
+  /** The player controllers among attached entities (`playersArrive`). Returns false after a fail-stop. */
+  private playersArrive(frozen: readonly EntityV3[], placeReturning: boolean): boolean {
+    try {
+      playersArrive(frozen, { controllers: this.controllers, placement: this.placement, blocks: this.blocks, threeD: this.physics3d !== undefined, transform: (id) => this.curr.get(id) }, placeReturning);
+    } catch (e) {
+      this.failStopFromError(e, this.stepIndex);
+      return false;
+    }
+    return true;
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -3248,7 +3229,6 @@ export class RuntimeInstance implements Runtime {
   private reloadBatch(sceneId: string): boolean {
     const batch = this.batches.get(sceneId);
     if (batch === undefined) return true;
-    // Checked again at the boundary: a script may have let the player go since the request.
     const problem = this.sceneOpProblem('reload', sceneId);
     if (problem !== null) {
       this.recordError({ code: 'scene_invalid', message: clipMessage(`scene "${sceneId}" was not reloaded: ${problem}`), stepIndex: this.stepIndex, reason: 'reload' });
@@ -3256,7 +3236,8 @@ export class RuntimeInstance implements Runtime {
     }
     this.removeSpawnedIds(this.spawnScenes.copiesOf(sceneId, (id) => this.kept.has(id)));
     this.removeBatch(sceneId, true);
-    if (!this.addBatch(sceneId, batch.entities, batch.start, true)) return false;
+    // Its players come back where it puts them.
+    if (!this.addBatch(sceneId, batch.entities, batch.start, true, true)) return false;
     if (batch.start) this.placement.arriveAtListedSpawn(sceneId);
     return true;
   }

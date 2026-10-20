@@ -1678,7 +1678,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
     const snap = config.snapshot;
     const d = runtime.getDiagnostics();
-    const controllers = snap.scene.entities.filter((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined).map((e) => e.id);
+    // The start set's players, then those that arrived with later scenes, in load order (the runtime's order).
+    const controllers = [...new Set([snap.scene.entities, ...(runtime.sceneSet?.().batches.map((b) => b.entities) ?? [])].flat().filter((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined).map((e) => e.id))];
     const st = controllers.length > 0 ? runtime.getInterpolatedState() : null;
     const placed = controllers.flatMap((id) => {
       const t = st !== null && st.ok ? st.state.transforms.find((x) => x.id === id) : undefined;

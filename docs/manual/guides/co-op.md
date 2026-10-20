@@ -49,9 +49,9 @@ the API to check both players' moves in a play-test.
 
 ## Pitfalls
 
-- **Every player must be in a start scene.** A player's body is made when
-  the game starts; a player in a scene loaded later (or a spawned copy)
-  gets none and Play warns (`player_scene`).
+- **A player may join later.** A player in a scene loaded later arrives
+  with it and comes after the start scenes' players; the first player is
+  the first that arrived.
 - **Players pass through each other** and are never hit by raycasts or
   overlap queries.
 - **Triggers, switches and collectibles react to any player**; their

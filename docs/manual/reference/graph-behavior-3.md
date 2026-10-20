@@ -112,7 +112,7 @@ Fields:
 
 - Load scene (`api.scenes.load`): Request a load; it completes at a later step boundary. Loading or loaded ⇒ no-op.
 - Unload scene (`api.scenes.unload`): Request an unload at the next step boundary. Unloaded ⇒ no-op.
-- Reload scene (`api.scenes.reload`): Request a reload at the next step boundary: the scene's objects return as authored (where it was loaded), the copies its objects spawned go, its scripts start over (as at a run restart), its sounds stop. Kept objects, `ctx.save`, the counters and the other scenes stay as they are. An unloaded scene loads; a loading one ⇒ no-op. Refused for a scene holding a player that is not kept loaded.
+- Reload scene (`api.scenes.reload`): Request a reload at the next step boundary: the scene's objects return as authored (where it was loaded), the copies its objects spawned go, its scripts start over (as at a run restart), its sounds stop. Kept objects, `ctx.save`, the counters and the other scenes stay as they are; its players come back where it puts them. An unloaded scene loads; a loading one ⇒ no-op.
 - Scene status (`api.scenes.status`): Where a scene is in its load cycle.
 - Loaded scenes (`api.scenes.loaded`): The loaded scene ids, in load order.
 - Loading scenes (`api.scenes.loading`): The scenes being loaded (asked for, not yet in), in request order.
@@ -168,7 +168,7 @@ Fields:
 <a id="node-behavior--api-scenes-reload"></a>
 ### Reload scene (`api.scenes.reload`)
 
-Request a reload at the next step boundary: the scene's objects return as authored (where it was loaded), the copies its objects spawned go, its scripts start over (as at a run restart), its sounds stop. Kept objects, `ctx.save`, the counters and the other scenes stay as they are. An unloaded scene loads; a loading one ⇒ no-op. Refused for a scene holding a player that is not kept loaded.
+Request a reload at the next step boundary: the scene's objects return as authored (where it was loaded), the copies its objects spawned go, its scripts start over (as at a run restart), its sounds stop. Kept objects, `ctx.save`, the counters and the other scenes stay as they are; its players come back where it puts them. An unloaded scene loads; a loading one ⇒ no-op.
 
 Inputs:
 

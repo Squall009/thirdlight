@@ -102,10 +102,6 @@ export function instantiateRuntime(
 
   // M2 module-set validation — before any instance is
   // created and before any port method is called.
-  const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
-  const controllerIds = scene.entities
-    .filter((e) => (e.components as { controller?: unknown }).controller !== undefined)
-    .map((e) => e.id);
   if (isM2) {
     const selectedIds = new Set(selected.map((s) => s.id));
     for (const spec of selected) {
@@ -120,16 +116,6 @@ export function instantiateRuntime(
           };
         }
       }
-    }
-    if (controllerSpecs.length > 0 && controllerIds.length === 0) {
-      return {
-        ok: false,
-        error: fail(
-          'config_invalid',
-          'a controller module requires a components.controller entity (found 0)',
-          { reason: 'controller_target', path: '/modules' },
-        ),
-      };
     }
     const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
     // A 3D port serves a module that needs physics too (the 3D character controller).

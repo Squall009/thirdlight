@@ -43,8 +43,6 @@ export interface SceneRequestHost {
   hasCatalog(): boolean;
   /** A scene's place in its load cycle (undefined: no such scene). */
   status(sceneId: string): SceneStatus | undefined;
-  /** The player a loaded scene holds when it is not kept loaded (null: none). */
-  unkeptPlayerIn(sceneId: string): string | null;
   /** The loaded scene ids, in load order. */
   loaded(): readonly string[];
   loadingView(): SceneLoadingView;
@@ -75,11 +73,6 @@ export function sceneRequestProblem(host: SceneRequestHost, op: 'load' | 'unload
     }
     if (o.fade !== undefined && !(typeof o.fade === 'number' && Number.isFinite(o.fade) && o.fade >= 0 && o.fade <= MAX_TRANSITION_FADE)) return `load option "fade" must be seconds (0–${MAX_TRANSITION_FADE})`;
     if (o.fadeColor !== undefined && !(typeof o.fadeColor === 'string' && FADE_COLOR_RE.test(o.fadeColor))) return 'load option "fadeColor" must be "#rrggbb" (lower case)';
-  }
-  if (op === 'unload' || op === 'reload') {
-    // The player's body is made once, when the game starts: it can leave its scene only as a kept object.
-    const player = host.unkeptPlayerIn(sceneId);
-    if (player !== null) return `scene "${sceneId}" holds the player "${player}", which is not kept loaded (mark it Keep loaded to ${op} its scene)`;
   }
   return null;
 }

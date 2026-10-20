@@ -16,7 +16,9 @@
  * the capsule lands on the `_COL` hull, the trigger fires in 3D and the
  * mover carries it. A separate object gets "Collider: Sphere" from the
  * Inspector's add menu (a 3D preset) and its radius is dragged in the Scene
- * view (snapped, one command).
+ * view (snapped, one command). First, before the start scene has anything
+ * physical, Play runs without a player and a second scene loaded through the
+ * game control brings one, which lands on that scene's block.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -164,17 +166,24 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await projectWindow(page);
 
-  // The start scene has nothing physical yet while another scene's collider needs the 3D backend
-  // (the required modules come from every scene): Play still gets a physics world and runs.
+  // The start scene has no player and nothing physical yet; another scene holds a block and a player
+  // standing over it (the required modules come from every scene). Play runs without a player, and
+  // loading that scene brings the player, which lands on the block's top (y 2 + half its 1.8 m height).
   await cmd('createScene', { name: 'Level 2', sceneId: 'level-2' });
-  await cmd('createEntity', { sceneId: 'level-2', parentId: null, kind: 'group', name: 'Wall', transform: { position: [0, 1, 0] }, components: { collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } } });
+  await cmd('createEntity', { sceneId: 'level-2', parentId: null, kind: 'group', name: 'Block', transform: { position: [0, 1, 0] }, components: { collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } } });
+  const late = String((await cmd('createEntity', { sceneId: 'level-2', parentId: null, kind: 'group', name: 'Late player', transform: { position: [0, 4, 0] } }))['createdId']);
+  await cmd('setComponent', { entityId: late, component: 'controller', value: {} });
   const bareStarted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const bare = String(((await (await bareStarted).json()) as { playSessionId: string }).playSessionId);
-  await expect.poll(async () => {
+  const observeBare = async (): Promise<Observation | string> => {
     const r = await relay(`${bare}/observe`, {});
-    return r.status === 200 ? (r.json as unknown as Observation).state : `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`;
-  }, { timeout: 30_000 }).toBe('running');
+    return r.status === 200 ? (r.json as unknown as Observation) : `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`;
+  };
+  await expect.poll(async () => { const o = await observeBare(); return typeof o === 'string' ? o : o.state; }, { timeout: 30_000 }).toBe('running');
+  expect(((await observeBare()) as Observation).player).toBeUndefined();
+  expect((await relay(`${bare}/control`, { command: 'loadScene', sceneId: 'level-2' })).status).toBe(200);
+  await expect.poll(async () => { const o = await observeBare(); return typeof o === 'string' ? null : (o.player?.y ?? null); }, { timeout: 30_000 }).toBeCloseTo(2.9, 1);
   await page.getByTitle('Stop the play preview').click();
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
 

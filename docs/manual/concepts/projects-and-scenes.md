@@ -45,7 +45,8 @@ Object ids are unique across the whole project, so an object in one scene
 may refer to an object in another.
 
 - **Start scenes.** The game starts with the scenes in the start set, loaded
-  together. The player object must be in a start scene. In the Hierarchy,
+  together. A game needs no player at its start: a player in a scene
+  loaded later arrives with that scene. In the Hierarchy,
   **★** puts a scene in the start set or takes it out; the header shows
   START.
 - **Loading more.** While the game runs, a script loads and unloads scenes
