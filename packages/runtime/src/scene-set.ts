@@ -79,13 +79,15 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
  * (`noCharacter`: its colliders answer queries and carry movers — a scene
  * picked with the pointer need not have a player); it was null before, so a
  * 3D scene without a player had no physics at all. Null with neither a
- * controller nor a collider. The world is made for a runtime
- * (`buildAtRunStart`).
+ * controller nor a collider, unless `options.required`: the project's
+ * modules name the 3D backend (a scene loaded later, a prefab or a script
+ * needs it), so the host must inject a port even for an empty start scene.
+ * The world is made for a runtime (`buildAtRunStart`).
  */
 export function physics3DConfigOf(
   entities: readonly { id: string; components?: unknown }[],
   settings: { gravity_y: number; max_slope_climb_deg: number; min_slope_slide_deg: number; fixed_step_hz?: number },
-  options: { layers?: readonly string[]; modelColliders?: ModelColliderTable } = {},
+  options: { layers?: readonly string[]; modelColliders?: ModelColliderTable; required?: boolean } = {},
 ): PhysicsInitConfig3D | null {
   const statics = colliderSpecs3D(entities as readonly { id: string; parentId?: string | null; components?: unknown }[], options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
   // Every player controller: the first is the port's character, the others its further characters.
@@ -110,9 +112,10 @@ export function physics3DConfigOf(
   let character: PhysicsInitConfig3D['character'] | null = players[0]?.character ?? null;
   const controller: unknown = players[0]?.controller;
   const noCharacter = character === null;
-  // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
+  // Nothing to simulate or query: no physics. The required modules come from every scene, so when they
+  // name the 3D backend an empty world is made anyway (a later scene's colliders are added to it).
   // A block layer's chunks become colliders at run time, so it needs a world too.
-  if (character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
+  if (options.required !== true && character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
   if (character === null) {
     // A placeholder the port ignores (the default capsule at the origin).
     const capsule = playerCapsuleOf(undefined);

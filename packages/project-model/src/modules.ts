@@ -37,14 +37,17 @@ export interface EngineModule {
   spec?: string;
 }
 
+/** The 3D physics backend's module id: a host whose manifest names it injects a 3D physics port. */
+export const PHYSICS_3D_MODULE_ID = 'thirdlight.physics-rapier:3d';
+
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
   { id: 'thirdlight.physics-rapier:2d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // The 3D backend (a project whose physics_dimension is 3).
-  { id: 'thirdlight.physics-rapier:3d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
+  { id: PHYSICS_3D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // The 3D kinematic character controller (a runtime built-in, like the demo module).
-  { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: ['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad'] },
+  { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'] },
   // Listed in dependency order (a module after the modules it needs): a
   // composition registers the selected specs in this order.
   { id: 'thirdlight.character:controller', package: '@thirdlight/character', kind: 'simulation', requires: ['thirdlight.physics-rapier:2d', 'thirdlight.input:keyboard-gamepad'], spec: 'characterControllerSpec' },
@@ -81,8 +84,8 @@ export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: stri
   // A glTF model needs the loader port.
   model: Object.freeze({ plane2d: 'thirdlight.three-adapter:gltf-loader', world3d: 'thirdlight.three-adapter:gltf-loader' }),
   // In 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
-  collider: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
-  blockLayer: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
+  collider: Object.freeze({ plane2d: null, world3d: PHYSICS_3D_MODULE_ID }),
+  blockLayer: Object.freeze({ plane2d: null, world3d: PHYSICS_3D_MODULE_ID }),
 });
 
 /**
@@ -144,7 +147,7 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
         continue;
       }
       // A 3D project's physics is the 3D backend.
-      for (const id of ids) want(threeD && id === 'thirdlight.physics-rapier:2d' ? 'thirdlight.physics-rapier:3d' : id, `behavior:${b.behaviorId}`);
+      for (const id of ids) want(threeD && id === 'thirdlight.physics-rapier:2d' ? PHYSICS_3D_MODULE_ID : id, `behavior:${b.behaviorId}`);
     }
   }
   for (const id of input.declared ?? []) want(id, 'declared');

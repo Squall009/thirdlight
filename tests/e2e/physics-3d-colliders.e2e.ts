@@ -163,6 +163,21 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await projectWindow(page);
+
+  // The start scene has nothing physical yet while another scene's collider needs the 3D backend
+  // (the required modules come from every scene): Play still gets a physics world and runs.
+  await cmd('createScene', { name: 'Level 2', sceneId: 'level-2' });
+  await cmd('createEntity', { sceneId: 'level-2', parentId: null, kind: 'group', name: 'Wall', transform: { position: [0, 1, 0] }, components: { collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } } });
+  const bareStarted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const bare = String(((await (await bareStarted).json()) as { playSessionId: string }).playSessionId);
+  await expect.poll(async () => {
+    const r = await relay(`${bare}/observe`, {});
+    return r.status === 200 ? (r.json as unknown as Observation).state : `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`;
+  }, { timeout: 30_000 }).toBe('running');
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
+
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

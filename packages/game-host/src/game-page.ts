@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort, RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
@@ -691,8 +691,14 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     },
     onResize: (id, texture, bytes) => resources.resize('texture', id, texture, bytes),
   });
-  // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics.
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) }) : physicsConfigFromSnapshot(snapshot, settings);
+  // The manifest's modules come from every scene of the project, not only the start scene.
+  const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
+  // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics
+  // unless another scene, a prefab or a script needs the 3D backend.
+  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null =
+    physicsDimensionOf(settings) === 3
+      ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], required: moduleIds.includes(PHYSICS_3D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) })
+      : physicsConfigFromSnapshot(snapshot, settings);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
   let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });
@@ -712,7 +718,6 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   try {
     const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
     const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
-    const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
     const startVariables = o.start?.variables;
 
     // The simulation runs in a worker unless the page (?threads=off), the project (sim_thread)

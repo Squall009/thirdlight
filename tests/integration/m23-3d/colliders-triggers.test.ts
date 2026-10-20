@@ -191,3 +191,32 @@ describe('a script drives a collider through intents (3D)', () => {
     }
   }, 120_000);
 });
+
+describe('a start scene with nothing physical in a project that needs the 3D backend', () => {
+  // The manifest's modules come from every scene: another scene's block layer names the 3D backend
+  // while the start scene has only a camera, so the host must still be given a port.
+  const MODULES = ['thirdlight.physics-rapier:3d'];
+  const bare = (): Any[] => [CAM, { id: 'note-0001', components: { transform: T([0, 0, 0]) } }];
+
+  it('without the requirement the scene has no world, and the host refuses the 3D module it then lacks', async () => {
+    expect(physics3DConfigOf(bare(), SETTINGS)).toBeNull();
+    const scene = sceneOf(bare(), 'd3e');
+    await expect(run('single', scene, 4, { modules: MODULES })).rejects.toThrow(/host_module_unresolved/);
+  });
+
+  it('with the requirement an empty world starts and steps, in the page and in the worker', async () => {
+    const physics = physics3DConfigOf(bare(), SETTINGS, { required: true });
+    expect(physics).toMatchObject({ dimension: 3, noCharacter: true, statics: [] });
+    const scene = { snapshot: sceneOf(bare(), 'd3e').snapshot, physics };
+    const a = await run('single', scene, 60, { modules: MODULES });
+    const w = await run('worker', scene, 60, { modules: MODULES });
+    try {
+      expect(a.digests.length).toBeGreaterThanOrEqual(60);
+      const n = Math.min(a.digests.length, w.digests.length);
+      expect(w.digests.slice(0, n)).toEqual(a.digests.slice(0, n));
+    } finally {
+      await a.h.dispose();
+      await w.h.dispose();
+    }
+  }, 60_000);
+});
