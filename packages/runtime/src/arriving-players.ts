@@ -37,9 +37,9 @@ export function arrivalProblem(entities: readonly EntityV3[], controllers: Playe
 
 /**
  * The player controllers among attached entities. `placeReturning`: one
- * that is a player already is placed where its object now is (a start
- * scene's reload keeps its own rules, so it passes false). Throws a port
- * failure.
+ * that is a player already is placed where its object now is (a run
+ * restart passes false: it starts every body where its object is itself).
+ * Throws a port failure.
  */
 export function playersArrive(entities: readonly EntityV3[], host: ArrivingPlayersHost, placeReturning: boolean): void {
   for (const e of entities) {
