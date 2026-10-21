@@ -26,8 +26,8 @@ is answered by it.
   but any number of objects can be subjects at once, up to the GPU-side array
   size (§2).
 - **Only above the subject.** A pixel fades only if it is closer to the camera
-  than the subject AND above the subject's feet plus a margin. Floors and
-  ground under and around a subject never fade.
+  than the subject AND higher than half the subject's height above its feet.
+  Floors, ground and anything low around a subject never fade.
 - **Multi-floor levels work.** A character on the stairs fades the floor above
   them, but never the floor they stand on or the floors below. Both are
   acceptance cases.
