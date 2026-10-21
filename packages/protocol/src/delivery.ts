@@ -19,7 +19,11 @@ import type { SessionError } from './errors';
 
 // ---- constants ---------------------------
 
-/** Absolute locator lifetime from play start; never extended by reads. */
+/**
+ * The least locator lifetime from play start. While its play runs the
+ * locator follows the play's own expiry (the play's activity pushes both
+ * forward), so a long play-test can still fetch a scene; reads never extend it.
+ */
 export const PLAY_CONTENT_TTL_SECONDS = 900;
 /** In-flight-read grace after a terminal play state. */
 export const PLAY_CONTENT_GRACE_SECONDS = 60;

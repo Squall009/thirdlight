@@ -187,7 +187,7 @@ export function createBackend(
   );
 
   // The immutable play-content artifact store.
-  const playContent = new PlayContentStore({ now: nowMs });
+  const playContent = new PlayContentStore({ now: nowMs, ttlMs: timeouts.playContentTtlSeconds * 1000, graceMs: timeouts.playContentGraceSeconds * 1000 });
 
   const plays = new PlayManager({
     sendToOwner: (ownerSessionId, payload) => {
@@ -216,6 +216,8 @@ export function createBackend(
     presentTimeoutMs: () => timeouts.presentTimeoutSeconds * 1000,
     inputRelayTimeoutMs: () => 10_000,
     onTerminal: (playSessionId) => playContent.markTerminal(playSessionId),
+    // Play content lasts as long as its play (a long play-test still loads scenes).
+    onRenewed: (playSessionId, expiresAt) => playContent.renew(playSessionId, expiresAt),
     // A play that ended before it was presented is a project problem saying why
     // (a Stop is the user's own choice; a preview failure is recorded where it is reported).
     onEnded: (rec) => {

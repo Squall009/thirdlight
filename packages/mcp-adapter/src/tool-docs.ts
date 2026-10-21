@@ -18,6 +18,7 @@ import {
   INPUT_RELAY_MAX_FRAMES,
   INPUT_RELAY_MAX_STEPS,
   INSTANCE_BUFFER_INLINE_MAX,
+  PLAY_CONTENT_GRACE_SECONDS,
   PLAY_START_VARIABLES_MAX,
   PLAY_START_VARIABLE_MAX_CHARS,
   RELAY_MAX_UI_EDGES,
@@ -576,7 +577,9 @@ export const TOOL_DETAILS = {
     'Start a play session for the project from the current revision. Requires a connected editor ' +
     'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
     'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
-    'playSessionId + the frozen snapshotId/revision on success. Test/debug starts (the editor\'s "Play from..." sends the same): ' +
+    'playSessionId + the frozen snapshotId/revision on success. expiresAt is when the play ends unless something uses it (the inactivity limit, 30 minutes: an observe, input, screenshot or diagnostics ' +
+    `call pushes it forward); playContent.expiresAt is the same time and moves with it, so the game can load scenes for as long as the play runs, and for ${PLAY_CONTENT_GRACE_SECONDS} s after it stops. ` +
+    'Test/debug starts (the editor\'s "Play from..." sends the same): ' +
     'sceneId - start there (the scene loads with the start scenes and the character starts at its first player spawn); ' +
     `variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= ${PLAY_START_VARIABLES_MAX} keys, <= ${PLAY_START_VARIABLE_MAX_CHARS} characters each); ` +
     'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world?: {scenes, activeSpawn, listedScene, character: {position, velocity, facing?} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the game back at the saved scenes and where the character stood when the game keeps it: world in the save schema sections, or the deprecated default without legacyWorld: false; a document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +

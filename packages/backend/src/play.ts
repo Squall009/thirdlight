@@ -212,6 +212,8 @@ export interface PlayHooks {
   inputRelayTimeoutMs: () => number;
   /** A play became terminal (drives the locator grace window). */
   onTerminal?: (playSessionId: string) => void;
+  /** A play's activity pushed its expiry to `expiresAt` (its play content follows it). */
+  onRenewed?: (playSessionId: string, expiresAt: number) => void;
   /** A play ended (its record carries the reason, the detail and whether it was presented). */
   onEnded?: (rec: PlayRecord) => void;
   nowMs: () => number;
@@ -401,6 +403,7 @@ export class PlayManager {
     rec.expiresAt = nowMs + this.hooks.ttlMs();
     if (rec.ttlTimer !== undefined) clearTimeout(rec.ttlTimer);
     rec.ttlTimer = setTimeout(() => this.ttlFired(rec), this.hooks.ttlMs());
+    this.hooks.onRenewed?.(rec.playSessionId, rec.expiresAt);
   }
 
   /**

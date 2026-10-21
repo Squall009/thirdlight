@@ -82,6 +82,10 @@ and listen.
   still ends with `state: "failed"` (and a play-test with
   `playtest_game_failed`) when the engine itself fails, such as the
   physics, or a script's `prepare` or `instantiate` at the start.
+- **A long test keeps its play alive by using it.** A play ends after 30
+  minutes with no observe, input or other call ([how long a play
+  lives](../features/play-tools.md#how-long-a-play-lives)); while it lives,
+  a scene loaded again late in the test is still served.
 - **`ctx.log` lines are listed among the run's `errors`** (code
   `behavior_log`); look at `code` before you treat one as a failure.
 - **Copies are one row.** The same error from 16 copies of an object, or

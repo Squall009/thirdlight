@@ -161,7 +161,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   ): { error: SessionError; status: number } | null => {
     const status = playContent.status(set);
     if (status !== 'expired') return null;
-    const expiresAt = new Date(set.terminalAtMs !== null ? set.terminalAtMs + 60_000 : set.expiresAtMs).toISOString();
+    const expiresAt = new Date(playContent.deadline(set)).toISOString();
     return {
       error: sessionError('play_locator_expired', 'unavailable', 'this play-content locator has expired; start a new play', { expiresAt }),
       status: 503,

@@ -10,9 +10,10 @@
  *
  * - `buildPlayContent` wraps the shared closure and appends `game.js`.
  * - `PlayContentStore` holds one immutable artifact set per play start and
- *   serves reads only through the exact locator route set; a set is unreachable
- *   after `PLAY_CONTENT_TTL` (or `PLAY_CONTENT_GRACE` after a terminal play),
- *   and the contentId is a redacted secret-equivalent.
+ *   serves reads only through the exact locator route set; a set is readable
+ *   while its play runs (at least `PLAY_CONTENT_TTL`, renewed with the play's
+ *   own expiry) and `PLAY_CONTENT_GRACE` after the play ended, and the
+ *   contentId is a redacted secret-equivalent.
  * - `captureRuntimeContentManifest` is a compatibility adapter over
  *   `project-model`'s pure `captureManifest` (one assembler, no second copy).
  *
@@ -82,7 +83,8 @@ export interface PlayContentSet {
   /** The page needs the Basis transcoder (a shipped KTX2 texture, or a model that uses it). */
   readonly needsBasis: boolean;
   readonly issuedAtMs: number;
-  readonly expiresAtMs: number;
+  /** Until when it is readable while its play runs: `PLAY_CONTENT_TTL` from publish at least, then its play's own expiry. */
+  expiresAtMs: number;
   terminalAtMs: number | null;
 }
 
@@ -282,19 +284,29 @@ export class PlayContentStore {
     if (set !== undefined && set.terminalAtMs === null) set.terminalAtMs = this.now();
   }
 
+  /**
+   * The play's activity pushed its expiry to `untilMs`: its content stays
+   * readable that long too (never shortened; a terminal play's grace stands).
+   */
+  renew(playSessionId: string, untilMs: number): void {
+    const set = this.forPlay(playSessionId);
+    if (set !== undefined && set.terminalAtMs === null && untilMs > set.expiresAtMs) set.expiresAtMs = untilMs;
+  }
+
+  /** The time a set stops being readable (as `status` says): its expiry, or the end of the grace after its play ended. */
+  deadline(set: PlayContentSet): number {
+    return set.terminalAtMs !== null ? set.terminalAtMs + this.graceMs : set.expiresAtMs;
+  }
+
   /** `live` (TTL running), `grace` (terminal grace), `expired`. */
   status(set: PlayContentSet, nowMs = this.now()): PlayContentStatus {
-    if (set.terminalAtMs !== null) {
-      return nowMs <= set.terminalAtMs + this.graceMs ? 'grace' : 'expired';
-    }
-    return nowMs <= set.expiresAtMs ? 'live' : 'expired';
+    if (nowMs > this.deadline(set)) return 'expired';
+    return set.terminalAtMs !== null ? 'grace' : 'live';
   }
 
   /** `Cache-Control: private, max-age=<remaining>, immutable` remaining seconds. */
   remainingMaxAge(set: PlayContentSet, nowMs = this.now()): number {
-    const deadline =
-      set.terminalAtMs !== null ? Math.min(set.expiresAtMs, set.terminalAtMs + this.graceMs) : set.expiresAtMs;
-    return Math.max(0, Math.floor((deadline - nowMs) / 1000));
+    return Math.max(0, Math.floor((this.deadline(set) - nowMs) / 1000));
   }
 
   /** Resolve one locator path within a set (declared paths only). */
@@ -328,9 +340,7 @@ export class PlayContentStore {
   prune(nowMs = this.now()): number {
     let dropped = 0;
     for (const [id, set] of this.sets) {
-      const deadline =
-        set.terminalAtMs !== null ? Math.min(set.expiresAtMs, set.terminalAtMs + this.graceMs) : set.expiresAtMs;
-      if (deadline + this.ttlMs <= nowMs) {
+      if (this.deadline(set) + this.ttlMs <= nowMs) {
         this.sets.delete(id);
         if (this.byPlay.get(set.playSessionId) === id) this.byPlay.delete(set.playSessionId);
         this.release(id, set);

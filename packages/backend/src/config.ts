@@ -4,7 +4,7 @@
  * timeouts seam (the default constants stand in production).
  */
 import { parseCidrList } from './trusted';
-import { sessionError } from '@thirdlight/protocol';
+import { PLAY_CONTENT_GRACE_SECONDS, PLAY_CONTENT_TTL_SECONDS, sessionError } from '@thirdlight/protocol';
 import type { SessionError } from '@thirdlight/protocol';
 
 /** The session timeouts (normative) — the production defaults. */
@@ -13,6 +13,8 @@ export const DEFAULT_TIMEOUTS = {
   silentDropSeconds: 60,
   presentTimeoutSeconds: 15,
   inactivityTtlSeconds: 30 * 60,
+  playContentTtlSeconds: PLAY_CONTENT_TTL_SECONDS,
+  playContentGraceSeconds: PLAY_CONTENT_GRACE_SECONDS,
   relayTimeoutSeconds: 10,
   stopAckTimeoutSeconds: 5,
   protocolErrorWindowSeconds: 60,

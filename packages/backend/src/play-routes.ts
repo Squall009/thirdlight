@@ -442,6 +442,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     buildTimings['total'] = Math.round(performance.now() - tStart);
     const rec = plays.add(playSessionId, projectId, session.sessionId, snapshot, parsedReq.request.demo, builtCore.buildId, now);
+    // The content is readable as long as the play runs (its answer's expiresAt is the play's).
+    playContent.renew(playSessionId, rec.expiresAt);
     rec.buildTimings = buildTimings;
     if (playSourceMaps !== undefined && playSourceMaps.size > 0) rec.sourceMaps = playSourceMaps;
     session.playSessionId = playSessionId;

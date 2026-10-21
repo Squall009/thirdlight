@@ -147,6 +147,16 @@ example after a backend restart) stays a plain `play_not_found`. The
 backend keeps the last 64 ended plays for an hour (their end, not their
 scene); an older one answers a plain `play_not_found` too.
 
+## How long a play lives
+
+A play ends by itself after 30 minutes in which nothing used it (`ended`
+reason `expired`). Anything that reads or drives it (`tl_game_observe`,
+`tl_game_control`, `tl_input_exercise`, `tl_screenshot`, `tl_diagnostics`)
+pushes that limit forward: `tl_play_start` answers its `expiresAt`. The
+play's content (its scenes, scripts and files, `playContent.expiresAt`)
+stays readable for as long as the play lives, so a long play-test can still
+load a scene it unloaded, and for a minute after the play ends.
+
 ## Where a Play's start time went
 
 `tl_diagnostics` on a play
