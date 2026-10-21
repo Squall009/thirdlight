@@ -102,6 +102,9 @@ async function main(): Promise<void> {
       saveNamespace: `thirdlight:${String(manifest.projectId ?? 'game')}`,
       // The debug console only when the project turns debug_console on (absent/0: a release game has none).
       debugConsole: (manifest.settings as unknown as Record<string, unknown>)['debug_console'] === 1,
+      // A running game's problems go to the console (an export has no Problems list): a script its own
+      // error switched off is an error, the rest (a deprecated call, a busy voice) warnings.
+      onProblem: (code, message) => (code.startsWith('script_error') ? console.error : console.warn)(`[thirdlight] ${message}`),
       onModelsFailed: (code) => hud(`export error: the model prepare hard-failed (${code}); the game continues without the failed model`, true),
     });
     const host = game.host;

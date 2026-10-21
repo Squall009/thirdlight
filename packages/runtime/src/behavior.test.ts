@@ -496,33 +496,70 @@ describe('bounded logs', () => {
 });
 
 describe('step failures and the frozen prepare object', () => {
-  it('fail-stops on a module throw with behavior_step_failed and refuses to resume', () => {
+  it('a throwing step switches off only that instance: listed once, its hooks stop, everything else steps on', () => {
+    const seen: string[] = [];
+    const disposed: string[] = [];
+    let thrown = false;
+    const art = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { entityId: string; stepIndex: number; phase: string; lifecycle: { restart(): void } };
+      seen.push(`${c.entityId}@${c.stepIndex}:${c.phase}`);
+      if (c.entityId === 'box-0001' && c.stepIndex === 10 && c.phase === 'intent' && !thrown) {
+        thrown = true;
+        throw new Error('boom at ten');
+      }
+      // The other instance restarts the run later: a new run makes the switched-off instance again.
+      if (c.entityId === 'box-0002' && c.stepIndex === 20 && c.phase === 'intent') c.lifecycle.restart();
+    }, { ownedTransforms: ['box-0001'], instantiate: (_p, inst) => ({ id: (inst as { entityId: string }).entityId }), dispose: (_p, st) => disposed.push((st as { id: string }).id) });
+    const h = boot([art], sceneWithBehaviors([
+      { entityId: 'box-0001', behaviorId: 'behavior-0001' },
+      { entityId: 'box-0002', behaviorId: 'behavior-0001' },
+    ]));
+    h.boot();
+    for (let i = 1; i <= 6; i += 1) h.tick(i * DT);
+    const d = h.diag();
+    expect(d.state).toBe('running');
+    expect(d.failed).toBe(false);
+    expect(d.errorCount).toBe(1);
+    expect(d.errors).toHaveLength(1);
+    expect(d.errors[0]).toMatchObject({ code: 'module_error', reason: 'behavior_step_failed', moduleId: 'thirdlight.behavior:behavior-0001', phase: 'intent', stepIndex: 10, entityId: 'box-0001' });
+    expect(d.errors[0]!.message).toMatch(/step threw: boom at ten; script "behavior-0001" is switched off on "box-0001"/);
+    // Its transform phase of step 10 and every later hook were skipped; the other instance stepped on.
+    const one = seen.filter((x) => x.startsWith('box-0001@'));
+    expect(one.at(-1)).toBe('box-0001@10:intent');
+    expect(seen.filter((x) => x.startsWith('box-0002@')).at(-1)).toBe('box-0002@17:transform');
+    expect(disposed).toEqual(['box-0001']);
+    // One Problems line for the script.
+    expect(h.rt.takeProblems?.()).toEqual([{ code: 'script_error_behavior_0001', message: expect.stringContaining('boom at ten') }]);
+    // A run restart makes it again (dispose is not run twice) and it steps in the new run.
+    for (let i = 7; i <= 10; i += 1) h.tick(i * DT);
+    expect(seen.filter((x) => x.startsWith('box-0001@')).length).toBeGreaterThan(one.length);
+    expect(disposed).toEqual(['box-0001', 'box-0002']);
+    expect(h.diag().errorCount).toBe(1);
+  });
+
+  it('a script error carries where in the compiled script it was thrown', () => {
+    const file = `behaviors/${'d'.repeat(64)}.js`;
     const art = artifact('behavior-0001', () => {
-      throw new Error('boom');
+      const e = new Error('framed');
+      e.stack = `Error: framed\n    at step (http://127.0.0.1/play/${file}:7:3)\n    at run (engine.js:1:1)`;
+      throw e;
     });
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
-    const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.failed).toBe(true);
-    expect(d.errors[0]?.code).toBe('module_error');
-    expect(d.errors[0]?.reason).toBe('behavior_step_failed');
-    expect(d.failedModuleId).toBe('thirdlight.behavior:behavior-0001');
-    expect(d.failedPhase).toBe('intent');
-    const started = h.rt.start();
-    expect(started.ok).toBe(false);
-    if (!started.ok) expect(started.error.code).toBe('runtime_failed');
-    expect(h.rt.getInterpolatedState().ok).toBe(true);
+    const e = h.diag().errors[0];
+    expect(e?.at).toEqual({ file, line: 7, column: 3 });
+    expect(e?.frames).toEqual([{ file, line: 7, column: 3 }]);
   });
 
-  it('fail-stops on a thenable step return with behavior_step_async', () => {
+  it('lists a thenable step return as behavior_step_async (and switches the instance off)', () => {
     const art = artifact('behavior-0001', () => Promise.resolve());
     const h = boot([art], sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]));
     h.boot();
     expect(h.diag().errors[0]?.reason).toBe('behavior_step_async');
+    expect(h.diag().state).toBe('running');
   });
 
-  it('fail-stops when a step mutates the frozen prepare() result with behavior_state_shared', () => {
+  it('lists a step that mutates the frozen prepare() result as behavior_state_shared', () => {
     const art = artifact('behavior-0001', (s) => {
       (s as { prepared: { shared: number } }).prepared.shared = 1;
     }, { prepare: () => ({ shared: 0 }), instantiate: (prepared) => ({ prepared }) });
@@ -697,16 +734,20 @@ describe('callbacks on the behavior spec', () => {
     expect(() => createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: namespaceArtifact({ step: () => undefined, onMessage: 3 }) })).toThrow(/onMessage must be a function/);
   });
 
-  it('fail-stops on a throwing callback (the callback named) and on a callback returning a value', () => {
+  it('a throwing callback (named) or one returning a value switches its instance off; its step never runs', () => {
+    const steps: string[] = [];
     const h = boot(
-      [namespaceArtifact({ step: () => undefined, onEnable: () => { throw new Error('boom'); } })],
-      sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]),
+      [namespaceArtifact({ step: (_s: unknown, ctx: { entityId: string }) => { steps.push(ctx.entityId); }, onEnable: (_s: unknown, ctx: { entityId: string }) => { if (ctx.entityId === 'box-0001') throw new Error('boom'); } })],
+      sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }, { entityId: 'box-0002', behaviorId: 'behavior-0001' }]),
     );
     h.boot();
     const d = h.diag();
-    expect(d.state).toBe('failed');
-    expect(d.errors[0]?.reason).toBe('behavior_step_failed');
+    expect(d.state).toBe('running');
+    expect(d.errors).toHaveLength(1);
+    expect(d.errors[0]).toMatchObject({ reason: 'behavior_step_failed', entityId: 'box-0001', stepIndex: 0 });
     expect(d.errors[0]?.message).toMatch(/onEnable threw: boom/);
+    expect(steps.includes('box-0001')).toBe(false);
+    expect(steps.filter((x) => x === 'box-0002').length).toBeGreaterThan(10);
 
     const h2 = boot(
       [namespaceArtifact({ step: () => undefined, onEnable: () => 1 })],

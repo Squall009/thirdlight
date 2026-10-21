@@ -7,6 +7,7 @@
  * log-safe (no secrets/paths).
  */
 import type { ModelErrorV2 } from '@thirdlight/project-model';
+import type { DiagnosticErrorEntry, ScriptStop } from './types';
 
 /** The stable runtime error code set (normative). */
 export const ERROR_CODES = [
@@ -89,4 +90,22 @@ export const MESSAGE_LIMIT = 256;
 export function clipMessage(message: string): string {
   if (message.length <= MESSAGE_LIMIT) return message;
   return `${message.slice(0, MESSAGE_LIMIT - 1)}…`;
+}
+/**
+ * A script instance its own error switched off, as the runtime reports it:
+ * one error-ring entry (with the object and the compiled frames the Play
+ * backend maps to the source line) and one Problems line per script.
+ */
+export function scriptStopReport(moduleId: string, stop: ScriptStop): { entry: DiagnosticErrorEntry; code: string; message: string } {
+  const message = clipMessage(`${stop.message}; script "${stop.behaviorId}" is switched off on "${stop.entityId}" for the rest of the run`);
+  const entry: DiagnosticErrorEntry = { code: stop.code, reason: stop.reason, message, stepIndex: stop.stepIndex, moduleId, phase: stop.phase, entityId: stop.entityId };
+  if (stop.detail !== undefined) entry.detail = stop.detail;
+  if (stop.nodeId !== undefined) entry.nodeId = stop.nodeId;
+  if (stop.frames !== undefined && stop.frames.length > 0) {
+    entry.at = stop.frames[0];
+    entry.frames = stop.frames;
+  }
+  // A Problems kind is a lowercase code of at most 64 characters.
+  const code = `script_error_${stop.behaviorId.replace(/[^a-z0-9_]/g, '_')}`.slice(0, 64);
+  return { entry, code, message: `${message} (step ${stop.stepIndex}, ${stop.hook})` };
 }

@@ -176,6 +176,7 @@ export function instantiateRuntime(
     settings: resolvedSettings,
     sceneVersion,
     behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
+    scriptStopped: (stop) => logSink.stopped?.(specId, stop),
     tags: liveTags,
     // A 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),

@@ -311,15 +311,16 @@ describe('rich visual scripts: the graph and the equivalent TypeScript', () => {
 describe('bounds: script errors naming the node', () => {
   const failure = async (graph: GraphData, env?: Parameters<typeof compileGraph>[1]): Promise<Any> => {
     const L = await level(await compileGraph(graph, env));
+    const scriptError = (): Any => L.rt.getDiagnostics().diagnostics.errors.find((e: Any) => e.code !== 'behavior_log');
     // Scripts also run in the settle step before the game starts: it may fail there already.
     L.tick();
-    if (L.rt.getDiagnostics().diagnostics.failed !== true) {
+    if (scriptError() === undefined) {
       L.replay();
       for (let i = 0; i < 3; i++) L.tick();
     }
-    const d = L.rt.getDiagnostics().diagnostics;
-    expect(d.failed).toBe(true);
-    return d.errors[d.errors.length - 1];
+    // The error switches that script off; the game runs on.
+    expect(L.rt.getDiagnostics().diagnostics.failed).toBe(false);
+    return scriptError();
   };
 
   it('a runaway While', async () => {

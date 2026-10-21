@@ -7,8 +7,9 @@
  * the declaration-materialized property values and the action/state views to
  * the behavior, and enforces the per-instance parts of the intent/log bounds.
  * The runtime owns the per-step `IntentSet`, cross-module writer conflicts and
- * the fail-stop; this host owns instance identity, the prepared object and the
- * per-instance log ring.
+ * the fail-stop; this host owns instance identity, the prepared object, the
+ * per-instance log ring, and switching off an instance whose own code threw
+ * (`behavior-hooks.ts`), so a script error never stops the run.
  *
  * Trust boundary (no UI string or document may claim otherwise):
  *
@@ -31,7 +32,7 @@ import type { BehaviorGrid } from './grid';
 import type { BehaviorScatter } from './scatter-copies';
 import type { BehaviorSplines } from './splines';
 import type { BehaviorSurface } from './surface';
-import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
+import type { BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
 import type { BehaviorAssets } from './asset-handles';
@@ -45,11 +46,13 @@ import type { ActionFrame, InputPress, PointerSample } from './actions';
 import { checkRebindOptions, glyphOfAction, isActionName, isBindingProfile, type InputActionStatus, type InputDeviceKind, type InputDeviceStatus, type InputGlyph, type InputRebindEvent, type InputRebindOptions, type InputRebindTarget, type InputStatusView } from './input-status';
 import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
-import { InstanceRandom, RandomCallError, randomSeedOf } from './random';
+import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, FrozenPreparedError, messageOf, withFrames } from './behavior-errors';
+import { createHookRunner, type BehaviorInstance } from './behavior-hooks';
+import { InstanceRandom, randomSeedOf } from './random';
 import { DebugCallError } from './debug-commands';
 import { LiveTagIndex } from './scene-set';
 import { worldTransformOf } from './world-transform';
-import { InstanceTimers, TimerCallError } from './timers';
+import { InstanceTimers } from './timers';
 import {
   BEHAVIOR_LOG_CODE,
   BEHAVIOR_LOG_LEVELS,
@@ -465,102 +468,6 @@ export function behaviorModuleId(behaviorId: string): string {
   return `${BEHAVIOR_MODULE_PREFIX}${behaviorId}`;
 }
 
-/**
- * A behavior-host failure. Behavior-host failures are `config_invalid`
- * (prepare/instantiate), `module_error` (step/frozen-state) or
- * `transform_owner_forbidden` (ownership) with the contract's exact reasons.
- */
-export class BehaviorHostError extends Error {
-  readonly code: 'config_invalid' | 'module_error' | 'transform_owner_forbidden';
-  readonly reason: string;
-  readonly detail?: string;
-  /** The visual-script node that was running (see `graphNodeIdOf`). */
-  nodeId?: string;
-  /** Where in the project's compiled modules the error came from (see `compiledFramesOf`). */
-  frames?: CompiledFrame[];
-  constructor(
-    code: BehaviorHostError['code'],
-    reason: string,
-    message: string,
-    detail?: string,
-  ) {
-    super(clipMessage(message));
-    this.name = 'BehaviorHostError';
-    this.code = code;
-    this.reason = reason;
-    if (detail !== undefined) this.detail = detail;
-  }
-}
-
-// A node inside a function is `fn:<functionId>/<nodeId>` or `lib:<graphId>/<nodeId>`.
-const GRAPH_NODE_ID_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
-const GRAPH_DETAIL_RE = /^[a-z_]{1,32}$/;
-
-/**
- * The visual-script node an error came from. Code generated from
- * a behavior graph tags every error thrown while a node runs with the node's
- * id (`nodeId`); the runtime copies it into the script error (diagnostics,
- * Play) so the failure points at the node. Any other error has none.
- */
-export function graphNodeIdOf(e: unknown): string | undefined {
-  if (typeof e !== 'object' || e === null) return undefined;
-  const id = (e as { nodeId?: unknown }).nodeId;
-  return typeof id === 'string' && GRAPH_NODE_ID_RE.test(id) ? id : undefined;
-}
-
-/** One position in a project's compiled script module (`behaviors/<digest>.js` or `libraries/<digest>.js`). */
-export interface CompiledFrame {
-  file: string;
-  /** 1-based. */
-  line: number;
-  /** 1-based. */
-  column: number;
-}
-
-const COMPILED_FRAME_RE = /((?:behaviors|libraries)\/[0-9a-f]{64}\.js):(\d+):(\d+)/g;
-
-/**
- * The project-module positions in an error's stack, innermost
- * first (at most `max`; engine frames skipped). The browsers' stack formats
- * all end a frame with `<url>:<line>:<column>`, and a compiled script is
- * always loaded from a digest-named file, so only those frames match. The
- * Play backend maps them to the source files with the build's source maps.
- * Never part of the simulation state (diagnostics only).
- */
-export function compiledFramesOf(e: unknown, max = 4): CompiledFrame[] {
-  if (typeof e !== 'object' || e === null) return [];
-  const carried = (e as { frames?: unknown }).frames;
-  if (Array.isArray(carried)) return (carried as CompiledFrame[]).slice(0, max);
-  let stack: unknown;
-  try {
-    stack = (e as { stack?: unknown }).stack;
-  } catch {
-    return [];
-  }
-  if (typeof stack !== 'string') return [];
-  const out: CompiledFrame[] = [];
-  for (const m of stack.matchAll(COMPILED_FRAME_RE)) {
-    out.push({ file: m[1] as string, line: Number(m[2]), column: Number(m[3]) });
-    if (out.length >= max) break;
-  }
-  return out;
-}
-
-/** A host error that keeps the script frames of the error it wraps. */
-function withFrames(err: BehaviorHostError, cause: unknown): BehaviorHostError {
-  const frames = compiledFramesOf(cause);
-  if (frames.length > 0) err.frames = frames;
-  return err;
-}
-
-/** A write to the frozen `prepare` result (`behavior_state_shared`). */
-class FrozenPreparedError extends Error {
-  constructor(message: string) {
-    super(clipMessage(message));
-    this.name = 'FrozenPreparedError';
-  }
-}
-
 const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 const PROPERTY_TYPES: readonly PropertyType[] = [
   'number',
@@ -576,12 +483,6 @@ const MODULE_BEHAVIOR_ID_RE = /^[a-z0-9_-]+$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function isThenable(v: unknown): boolean {
-  return (
-    (typeof v === 'object' && v !== null) || typeof v === 'function'
-  ) && typeof (v as { then?: unknown }).then === 'function';
 }
 
 /** `ctx.log` message clipping (256 chars, ellipsis). */
@@ -743,49 +644,6 @@ function validateDeclaration(declaration: unknown): PropertyDeclaration {
   return declaration as unknown as PropertyDeclaration;
 }
 
-/** One behavior instance (one entity carrying `components.behavior`). */
-interface BehaviorInstance {
-  entityId: string;
-  properties: BehaviorProperties;
-  state: unknown;
-  /** Retained log entries (last `logsRetainedPerInstance`), oldest first. */
-  logs: { level: BehaviorLogLevel; message: string }[];
-  /** The step index the per-step counters below belong to. */
-  counterStep: number;
-  /** Accepted `ctx.log` calls in `counterStep`. */
-  stepLogs: number;
-  /** Committed intents in `counterStep`. */
-  stepIntents: number;
-  /**
-   * Committed channels per entity (a bit mask tagged with its step,
-   * `(counterStep + 1) * 64 + mask`, so nothing is cleared per step):
-   * position x/y/z = 1/2/4, rotation 8, scale 16.
-   */
-  committed: Map<string, number>;
-  /** Committed non-entity channels (`control_move`, `control_jump`, `respawn`): the tagged step. */
-  committedKinds: Map<string, number>;
-  /** `ctx.timers` of this instance. */
-  timers: InstanceTimers;
-  /** This step's `ctx.events` (built once per step, shared by its phases). */
-  events: readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[] | null;
-  /** The step `events` belongs to. */
-  eventsStep: number;
-  /**
-   * This instance's `ctx` per phase, made once for the runtime's
-   * (reused) step context `src` and read live (step, frame, intents, events).
-   */
-  contexts: Map<SimulationPhase, { src: StepContext; ctx: BehaviorContext }>;
-  /** `ctx.log` and `ctx.messages` of this instance (made once). */
-  log: ((level: BehaviorLogLevel, message: string) => void) | null;
-  messages: { src: StepContext; view: BehaviorMessages } | null;
-  /** `ctx.random` of this instance (made on first use). */
-  random: InstanceRandom | null;
-  /** `ctx.entity` of this instance (it writes as this script on its object). */
-  entity: { src: StepContext; fn: (ref: string | null) => BehaviorEntityHandle | null } | null;
-  /** `onEnable` was the last lifecycle callback it got (its object is on, as far as the script knows). */
-  enabled: boolean;
-}
-
 /**
  * Build the `SimulationModuleSpec` for one compiled artifact. Register it with
  * `registerSimulationModule` and select its ID in `instantiateRuntime.modules`
@@ -906,7 +764,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null, enabled: false };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null, enabled: false, off: false, disposed: false };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -1213,106 +1071,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         return instance.messages.view;
       };
 
-      /** A script error thrown by `step` or a callback (`what`), as the host's failure. */
-      const scriptFailure = (e: unknown, what: string): Error => {
-        if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
-          return e;
-        }
-        // A visual script's error keeps the node it came from.
-        // And every error where in the compiled script it was thrown.
-        const withNode = (err: BehaviorHostError): BehaviorHostError => {
-          const nodeId = graphNodeIdOf(e);
-          if (nodeId !== undefined) err.nodeId = nodeId;
-          const frames = compiledFramesOf(e);
-          if (frames.length > 0) err.frames = frames;
-          return err;
-        };
-        if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError || e instanceof EntityAccessError) {
-          return withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
-        }
-        if (e instanceof FrozenPreparedError) {
-          return withNode(new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`));
-        }
-        const detail = graphNodeIdOf(e) !== undefined ? (e as { detail?: unknown }).detail : undefined;
-        return withNode(new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" ${what} threw: ${messageOf(e)}`, typeof detail === 'string' && GRAPH_DETAIL_RE.test(detail) ? detail : undefined));
-      };
-      const resultFailure = (result: unknown, what: string): BehaviorHostError =>
-        isThenable(result)
-          ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a thenable (${what} must be synchronous)`)
-          : new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a value (${what} must return undefined)`);
-
-      const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
-        beginInstanceStep(instance, ctx.stepIndex);
-        if (!hasStep) return;
-        const behaviorCtx = contextFor(instance, phase, ctx);
-        let result: unknown;
-        try {
-          result = spec.step!(instance.state, behaviorCtx);
-        } catch (e) {
-          throw scriptFailure(e, 'step');
-        }
-        if (result !== undefined) throw resultFailure(result, 'step');
-      };
-
-      /** Run one callback of an instance (in the intent phase; `event` for the event callbacks). */
-      const callback = (instance: BehaviorInstance, name: BehaviorCallbackName, src: StepContext, event?: unknown): void => {
-        const fn = spec[name];
-        if (typeof fn !== 'function') return;
-        beginInstanceStep(instance, src.stepIndex);
-        const behaviorCtx = contextFor(instance, 'intent', src);
-        let result: unknown;
-        try {
-          result = event === undefined ? (fn as (s: unknown, c: unknown) => unknown).call(spec, instance.state, behaviorCtx) : (fn as (s: unknown, e: unknown, c: unknown) => unknown).call(spec, instance.state, event, behaviorCtx);
-        } catch (e) {
-          throw scriptFailure(e, name);
-        }
-        if (result !== undefined) throw resultFailure(result, name);
-      };
-      /** The object's switched-on state changed since the script last heard: onEnable / onDisable. */
-      const lifecycle = (instance: BehaviorInstance, src: StepContext): void => {
-        const on = src.inactiveEntities?.has(instance.entityId) !== true;
-        if (on === instance.enabled) return;
-        instance.enabled = on;
-        callback(instance, on ? 'onEnable' : 'onDisable', src);
-      };
-      /** The event callbacks of one ticking instance, in their fixed order. */
-      const dispatchEvents = (instance: BehaviorInstance, src: StepContext): void => {
-        if (triggerCallbacks) {
-          const list = src.triggerEvents;
-          if (list !== undefined) for (let i = 0; i < list.length; i += 1) {
-            const t = list[i]!;
-            if (ownsTrigger(instance, t.trigger)) callback(instance, t.type === 'enter' ? 'onTriggerEnter' : 'onTriggerExit', src, t);
-          }
-        }
-        if (spec.onContact !== undefined) {
-          const list = src.primitiveEvents;
-          if (list !== undefined) for (let i = 0; i < list.length; i += 1) {
-            const e = list[i]!;
-            if ((e.type === 'contact' || e.type === 'separate') && ownsTrigger(instance, e.entity)) callback(instance, 'onContact', src, e);
-          }
-        }
-        if (spec.onMessage !== undefined) {
-          const list = src.messages?.all?.(instance.entityId);
-          if (list !== undefined) for (let i = 0; i < list.length; i += 1) callback(instance, 'onMessage', src, list[i]);
-        }
-        if (spec.onUiEvent !== undefined) {
-          const list = src.ui?.events();
-          if (list !== undefined) for (let i = 0; i < list.length; i += 1) callback(instance, 'onUiEvent', src, list[i]);
-        }
-        if (spec.onAnimatorEvent !== undefined) {
-          const list = src.animatorEvents;
-          if (list !== undefined) for (let i = 0; i < list.length; i += 1) if (ownsTrigger(instance, list[i]!.entityId)) callback(instance, 'onAnimatorEvent', src, list[i]);
-        }
-      };
+      const { stepBehavior, callback, lifecycle, dispatchEvents, disposeInstance } = createHookRunner({ behaviorId, spec, prepared: readonlyResult, triggerCallbacks, beginInstanceStep, contextFor, ownsTrigger, cfg });
       /** The instances whose objects left the game since the last intent phase (onDisable, onDestroy, then dispose). */
       const leaving: BehaviorInstance[] = [];
-      const disposeInstance = (instance: BehaviorInstance): void => {
-        try {
-          spec.dispose?.(readonlyResult, instance.state);
-        } catch (e) {
-          cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
-        }
-      };
+
 
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
@@ -1342,16 +1104,15 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             instance.random?.reset();
             instance.events = null;
             instance.eventsStep = -1;
-            try {
-              spec.dispose?.(readonlyResult, instance.state);
-            } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
-            }
+            disposeInstance(instance);
             try {
               instance.state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId: instance.entityId, properties: instance.properties, tags }));
             } catch (e) {
               throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${instance.entityId}") threw: ${messageOf(e)}`);
             }
+            // A new run: an instance a script error switched off runs again.
+            instance.off = false;
+            instance.disposed = false;
           }
         },
         step(phase: SimulationPhase, ctx: StepContext): void {
@@ -1441,13 +1202,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (disposed) return;
           disposed = true;
           for (const instance of leaving.splice(0)) disposeInstance(instance);
-          for (const instance of instances) {
-            try {
-              spec.dispose?.(readonlyResult, instance.state);
-            } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
-            }
-          }
+          for (const instance of instances) disposeInstance(instance);
           instances.length = 0;
         },
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number } {
@@ -1502,21 +1257,6 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       return module;
     },
   };
-}
-
-/**
- * The per-instance intent cap marker. The runtime maps it to
- * `module_error`/`behavior_intent_limit`/`per_instance`; it is thrown before
- * `ctx.emit` so no over-limit intent is ever committed.
- */
-export class BehaviorHostIntentLimit extends Error {
-  readonly code = 'module_error';
-  readonly reason = 'behavior_intent_limit';
-  readonly detail = 'per_instance';
-  constructor(entityId: string) {
-    super(clipMessage(`behavior instance "${entityId}" exceeded the per-instance intent bound`));
-    this.name = 'BehaviorHostIntentLimit';
-  }
 }
 
 const NO_EVENTS: readonly never[] = Object.freeze([]);
@@ -1638,7 +1378,7 @@ export const BEHAVIOR_CALLBACKS = ['onEnable', 'onDisable', 'onDestroy', 'onTrig
 export type BehaviorCallbackName = (typeof BEHAVIOR_CALLBACKS)[number];
 
 /** The authored `export default` program as loaded (unchecked). */
-interface LoadedBehaviorSpec extends Partial<Record<BehaviorCallbackName, (...args: unknown[]) => unknown>> {
+export interface LoadedBehaviorSpec extends Partial<Record<BehaviorCallbackName, (...args: unknown[]) => unknown>> {
   prepare?(cfg: unknown): unknown;
   instantiate?(prepared: unknown, inst: unknown): unknown;
   step?(state: unknown, ctx: unknown): unknown;
@@ -1651,23 +1391,6 @@ function orderOf(snapshot: RuntimeSnapshot, entityId: string): number {
   return i < 0 ? Number.MAX_SAFE_INTEGER : i;
 }
 
-function messageOf(e: unknown): string {
-  // Duck-typed: an artifact executed in another realm (the Node `vm` test host)
-  // throws an Error that is not `instanceof` this realm's Error.
-  if (typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string') {
-    const m = (e as { message: string }).message;
-    if (m !== '') return clipMessage(m);
-  }
-  if (e instanceof Error) return clipMessage(e.message !== '' ? e.message : 'Error');
-  try {
-    const s = JSON.stringify(e);
-    if (typeof s === 'string' && s.length > 0) return clipMessage(s);
-  } catch {
-    /* non-serializable */
-  }
-  return clipMessage(String(e));
-}
-
 /** One recorded behavior log entry as the runtime ring stores it. */
 export interface BehaviorLogEntry {
   code: typeof BEHAVIOR_LOG_CODE;
@@ -1677,6 +1400,7 @@ export interface BehaviorLogEntry {
 }
 
 export type { BehaviorIntent, IntentSet };
+export { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, graphNodeIdOf, type CompiledFrame } from './behavior-errors';
 
 /**
  * `ctx.input` — the step's input actions by name. Without named

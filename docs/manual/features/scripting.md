@@ -127,7 +127,8 @@ running game over the game-observe relay; the editor runs no game code).
   Each script instance (each object carrying the script) has its own
   timers, at most 64 running; a new run (start, replay, the next level)
   clears them. A bad name (1–64 letters, digits, `_ . : -`) or length
-  (0–3600 s) or a 65th timer stops the game with the script error.
+  (0–3600 s) or a 65th timer is a script error: that script instance is
+  switched off for the rest of the run.
 - `ctx.events` also lists `{ type: "enter" | "exit", trigger: id, stepIndex }`
   when the player entered or left a trigger the script owns, in the step
   after (like signals). A script owns the triggers on its own object, on
@@ -346,7 +347,7 @@ and Assets error nodes.
   A `transform` intent may carry the same `quaternion` or `facing`/`up`
   after its `position` to move and turn in one intent. One rotation form per
   intent (angles, quaternion or facing); an all-zero vector or an `up`
-  parallel to `facing` stops the game with the script error. These fields
+  parallel to `facing` is refused (`ctx.emit` returns `false`). These fields
   are for code scripts; the Pose object and Move object nodes do not take
   them.
 

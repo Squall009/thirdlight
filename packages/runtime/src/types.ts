@@ -18,7 +18,7 @@ import { type DebugCommandState, type DecalRequest, type EffectRequest } from '.
 import { type SceneLoadingView, type SceneLoadOptions, type SceneLoadRequest, type SceneSetView } from './types-scene';
 export type { RuntimeSnapshotEntity, RuntimeScene, RuntimeSnapshot, RuntimeEventCue, ModelBounds, RuntimeSceneRow, ListedScene, SceneStatus, SceneLoadOptions, SceneActivateOptions, SceneTransitionView, SceneLoadingView, BehaviorSceneControl, BehaviorWorldView, WorldTransformOptions, BehaviorRandomStream, BehaviorRandom, LoadedSceneBatch, SceneSetView, SceneLoadRequest, GameplaySettings } from './types-scene';
 export { SIMULATION_PHASE_ORDER } from './types-simulation';
-export type { InstantiateConfig, TransformState, SimEntityData, SimState, ModuleConfig, Character3DQueries, SimulationModule, SimulationPhase, PlayerCapsule, ModuleResetContext, SimulationPhaseModule, StepContext, ClimbQuery, BehaviorShell, SimulationModuleSpec, SimulationRegistry } from './types-simulation';
+export type { InstantiateConfig, TransformState, SimEntityData, SimState, ModuleConfig, ScriptStop, Character3DQueries, SimulationModule, SimulationPhase, PlayerCapsule, ModuleResetContext, SimulationPhaseModule, StepContext, ClimbQuery, BehaviorShell, SimulationModuleSpec, SimulationRegistry } from './types-simulation';
 export type { BehaviorMessage, BehaviorMessages, BehaviorMessageControl, TriggerEventRecord, HealthEventRecord, ContactEventRecord, PatrolEventRecord, CollectEventRecord, PrimitiveEventRecord, BehaviorTimers, BehaviorSpawnControl, BehaviorSave, DebugCommandArgType, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandArgs, DebugCommandState, BehaviorDebug, AudioFinishedEvent, AudioPlayOptions, AudioStingerOptions, AudioMusicOptions, AudioMusicState, BehaviorAudio, EffectRequest, BehaviorEffects, DecalRequest, BehaviorDecals } from './types-behavior';
 export type { CameraBlendOptions, BehaviorCameraState, BehaviorUiEvent, BehaviorUiView, BehaviorStats, BehaviorStatsOcclusion, BehaviorStatsTime, BehaviorDisplay, EnvironmentChangeOptions, BehaviorEnvironment, BehaviorUi, DialogueVariableValue, BehaviorDialogueEvent, BehaviorDialogueState, BehaviorDialogueHistoryEntry, BehaviorDialogue, BehaviorModeEvent, BehaviorModeTransition, BehaviorModes, BehaviorLifecycle, BehaviorTimelineEvent, BehaviorTimeline, BehaviorCamera, BehaviorSockets, BehaviorSignals, BehaviorGameState, BehaviorHealth, BehaviorPatrol, BehaviorHitbox, BehaviorCollectible, BehaviorCharacter, BehaviorLookValue, BehaviorLook, BehaviorAnimatorHandle, BehaviorAnimatorControl, AnimatorEventRecord, BehaviorTagQuery } from './types-behavior-world';
 export { registryBrand as SIM_REGISTRY_BRAND };
@@ -306,6 +306,8 @@ export interface DiagnosticErrorEntry {
   detail?: string;
   /** The visual-script node the error came from (graph behaviors only). */
   nodeId?: string;
+  /** The object whose script instance threw (a script error that switched that instance off). */
+  entityId?: string;
   /**
    * Where in the project's compiled scripts (`behaviors/<digest>.js`,
    * `libraries/<digest>.js`; 1-based line and column) a log was called or an

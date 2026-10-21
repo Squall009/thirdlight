@@ -282,11 +282,11 @@ describe('ctx.random in the runtime', () => {
     expect(run({ random_seed: 0 }).log).toEqual(first);
   });
 
-  it('a bad ctx.random call is a script error (fail-stop with its reason)', () => {
+  it('a bad ctx.random call is a script error (listed with its reason; the run goes on)', () => {
     const h = harness({ bad: { step: (ctx) => void (ctx.stepIndex === 5 && ctx.random.stream('no spaces')) } }, [carrier('box-0001', 'bad')]);
     h.tick(10);
     const d = h.diag();
-    expect(d.state).toBe('failed');
+    expect(d.state).toBe('running');
     expect(d.errors[0]?.reason).toBe('behavior_random_invalid');
   });
 });
@@ -347,7 +347,7 @@ describe('ctx.world transforms: local to the parent, or in world space', () => {
   it('an unknown space is a script error', () => {
     const h = harness({ bad: { step: (ctx) => void (ctx.stepIndex === 5 && ctx.world.transform('box-0001', { space: 'screen' as never })) } }, [carrier('box-0001', 'bad')]);
     h.tick(10);
-    expect(h.diag().state).toBe('failed');
+    expect(h.diag().state).toBe('running');
     expect(h.diag().errors[0]?.reason).toBe('behavior_query_invalid');
   });
 });
@@ -399,7 +399,7 @@ describe('ctx.world queries by name and component', () => {
   it('a query with a non-text argument is a script error', () => {
     const h = harness({ bad: { step: (ctx) => void (ctx.stepIndex === 5 && ctx.world.findAll(3 as never)) } }, [carrier('box-0001', 'bad')]);
     h.tick(10);
-    expect(h.diag().state).toBe('failed');
+    expect(h.diag().state).toBe('running');
     expect(h.diag().errors[0]?.reason).toBe('behavior_query_invalid');
   });
 });

@@ -265,10 +265,10 @@ describe('timers: ctx.timers in the runtime', () => {
     expect(h.diag().state).toBe('running');
   });
 
-  it('a bad timer call is a script error (fail-stop with its reason)', () => {
+  it('a bad timer call is a script error (listed with its reason; the run goes on)', () => {
     const h = harness({ bad: (ctx) => void (ctx.stepIndex === 20 && ctx.timers.after('x', -1)) }, [{ id: 'box-bad', components: { transform: at(5, -5), box: BOX, behavior: { behaviorId: 'bad', values: {} } } }]);
-    expect(() => h.tick(25)).toThrow();
-    expect(h.diag().state).toBe('failed');
+    h.tick(25);
+    expect(h.diag().state).toBe('running');
     expect(h.diag().errors.some((e) => e.reason === 'behavior_timer_invalid')).toBe(true);
   });
 });

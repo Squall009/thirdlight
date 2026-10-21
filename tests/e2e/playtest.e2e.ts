@@ -17,8 +17,9 @@
  * is split into exercises that hold the game in between); the start's
  * variables apply at every start: each run's restart and a game shell's New
  * game; the driver's runs agree too; the two walks of one run, each from
- * rest, cover the same distance; a script that throws makes the observation
- * say `failed` with its error, and a play-test end on it.
+ * rest, cover the same distance; a script that throws is switched off while
+ * the game runs on, listed once with its source line and in the Problems, and
+ * a play-test finishes with it among the run's errors.
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -118,6 +119,7 @@ interface Run {
   result?: { steps: number; dx: number };
   trace?: { exercises: number; digest: string };
   log?: string[];
+  errors?: Record<string, unknown>[];
   errorCount: number;
   errors: unknown[];
 }
@@ -298,25 +300,32 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     expect(overlapping.isError).toBe(true);
     expect(JSON.stringify(overlapping.body)).toContain('playtest_invalid');
 
-    // A script that throws stops the run: tl_game_observe says failed and names the error; a play-test ends on it.
+    // A script that throws is switched off and the game runs on: tl_game_observe keeps stepping, tl_diagnostics
+    // lists the error once with its object and source line, the project's Problems name the script, and a
+    // play-test finishes with the error among its run's errors.
     const tool = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
       const res = (await mcp.callTool({ name, arguments: args })) as { content: Array<{ type: string; text: string }> };
       return JSON.parse(res.content[0]!.text) as Record<string, unknown>;
     };
     const started = await tool('tl_play_start', { demo: false, variables: { boom: 30 } });
     const playSessionId = String(started['playSessionId']);
-    await expect.poll(async () => (await tool('tl_game_observe', { playSessionId }))['state'], { timeout: 60_000 }).toBe('failed');
-    const failedObs = await tool('tl_game_observe', { playSessionId });
-    expect(failedObs['error'], JSON.stringify(failedObs).slice(0, 1500)).toMatchObject({ message: expect.stringContaining('boom: the probe threw') });
-    // It stays failed: no more steps.
-    const step = Number(failedObs['stepIndex']);
-    await new Promise((r) => setTimeout(r, 500));
-    expect((await tool('tl_game_observe', { playSessionId }))['stepIndex']).toBe(step);
+    const scriptErrors = async (): Promise<Record<string, unknown>[]> => {
+      const d = (await tool('tl_diagnostics', { playSessionId })) as { diagnostics?: { runtime?: { errors?: Record<string, unknown>[] } } };
+      return (d.diagnostics?.runtime?.errors ?? []).filter((e) => e['code'] !== 'behavior_log');
+    };
+    await expect.poll(async () => (await scriptErrors()).length, { timeout: 60_000 }).toBe(1);
+    const [thrown] = await scriptErrors();
+    expect(thrown, JSON.stringify(thrown)).toMatchObject({ reason: 'behavior_step_failed', entityId: STARTER.playerId, message: expect.stringContaining('boom: the probe threw'), source: { behaviorId: 'behavior-playtest-probe', path: 'src/index.ts', line: 6 } });
+    const obs = await tool('tl_game_observe', { playSessionId });
+    expect(obs['state'], JSON.stringify(obs).slice(0, 1500)).toBe('running');
+    const step = Number(obs['stepIndex']);
+    await expect.poll(async () => Number((await tool('tl_game_observe', { playSessionId }))['stepIndex']), { timeout: 10_000 }).toBeGreaterThan(step + 30);
+    expect(await scriptErrors()).toHaveLength(1);
+    await expect.poll(async () => ((await tool('tl_diagnostics', {})) as { problems?: { code: string }[] }).problems?.map((p) => p.code) ?? [], { timeout: 10_000 }).toContain('script_error_behavior_playtest_probe');
     await tool('tl_play_stop', { playSessionId });
-    // It fails in the start or in the run (whichever the play-test's restart comes after): the test ends on the error.
     const boom = await call({ frames: [walk(0, 90)], variables: { boom: 60 }, threads: 'worker', runs: 1 });
-    expect(boom.isError).toBe(true);
-    expect(boom.body.error, JSON.stringify(boom.body).slice(0, 1500)).toMatchObject({ code: 'playtest_game_failed', message: expect.stringContaining('boom: the probe threw') });
+    expect(boom.isError, JSON.stringify(boom.body).slice(0, 1500)).toBe(false);
+    expect(boom.body.runs[0]!.errors?.filter((e) => e['code'] !== 'behavior_log'), JSON.stringify(boom.body).slice(0, 1500)).toEqual([expect.objectContaining({ entityId: STARTER.playerId, message: expect.stringContaining('boom: the probe threw') })]);
   } finally {
     await mcp.close();
   }

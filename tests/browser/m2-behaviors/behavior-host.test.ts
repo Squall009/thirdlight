@@ -312,21 +312,21 @@ describe('Node host executes the real compiled artifact (node:vm)', () => {
 });
 
 describe('failure modes in the Node host', () => {
-  it('fail-stops a throwing behavior with bounded diagnostics and refuses to resume', async () => {
+  it('a throwing behavior is listed once with bounded diagnostics and switched off; the run goes on', async () => {
     const throwing = await compileHosted(
       'behavior-0201',
       "export default { step() { throw new Error('hostile-throw'); } };\n",
     );
     const scene = sceneFor([{ entityId: 'box-0001', behaviorId: 'behavior-0201', speed: 3.5 }]);
     const run = runBehavior([throwing], scene, 'box-0001', 5);
-    expect(run.diagnostics.state).toBe('failed');
-    expect(run.diagnostics.failed).toBe(true);
+    expect(run.diagnostics.state).toBe('running');
+    expect(run.diagnostics.failed).toBe(false);
     expect(run.diagnostics.errors).toHaveLength(1);
     expect(run.diagnostics.errors[0]?.code).toBe('module_error');
     expect(run.diagnostics.errors[0]?.reason).toBe('behavior_step_failed');
-    expect(run.diagnostics.failedModuleId).toBe('thirdlight.behavior:behavior-0201');
+    expect(run.diagnostics.errors[0]?.moduleId).toBe('thirdlight.behavior:behavior-0201');
+    expect(run.diagnostics.errors[0]?.entityId).toBe('box-0001');
     expect((run.diagnostics.errors[0]?.message ?? '').length).toBeLessThanOrEqual(256);
-    console.log(`P34_FAILSTOP ${JSON.stringify(run.diagnostics.errors[0])}`);
   });
 
   it('refuses an invalid intent (value out of range): emit answers false, one log line, the run goes on', async () => {

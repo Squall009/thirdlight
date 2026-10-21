@@ -272,17 +272,17 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(h.transforms().get('spawn-3')![0]).toBeCloseTo(10, 6); // `once`: it stops at its last point
   });
 
-  it('refuses authored entities and unknown prefabs (a script error fail-stops like ctx.scenes)', () => {
+  it('refuses authored entities and unknown prefabs (a script error that switches the calling script off)', () => {
     const a = harness((ctx) => {
       if (ctx.stepIndex === 20) ctx.destroy('box-spawner');
     });
-    expect(() => a.tick(25)).toThrow();
-    expect(a.diag().state).toBe('failed');
+    a.tick(25);
+    expect(a.diag().state).toBe('running');
     expect(a.diag().errors.some((e) => e.reason === 'behavior_destroy_refused' && e.message.includes('setVisible'))).toBe(true);
     const b = harness((ctx) => {
       if (ctx.stepIndex === 20) ctx.spawn('nope', { position: [0, 0] });
     });
-    expect(() => b.tick(25)).toThrow();
+    b.tick(25);
     expect(b.diag().errors.some((e) => e.reason === 'behavior_spawn_invalid' && e.message.includes('crate'))).toBe(true);
   });
 

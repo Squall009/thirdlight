@@ -47,8 +47,8 @@ ctx.debug?.command('giveItem', {
 The call also returns this step's calls (a list of argument objects) for a
 script that prefers to loop over them. Every script instance that declares
 the command receives each call, in the `intent` phase. The first declaration
-fixes the arguments (a second one with other arguments stops the game with
-the script error); at most 32 commands per game. A command runs **inside the
+fixes the arguments (a second one with other arguments is refused: it gets
+no calls, and a log line says why); at most 32 commands per game. A command runs **inside the
 simulation step as part of that step's input** (the input frame carries it),
 so it is deterministic and a recording that carries it replays it exactly;
 `tl_game_observe` lists `debugCommands {registered, applied [{stepIndex,

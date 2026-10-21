@@ -63,6 +63,17 @@ In each step every script runs, in phases: first `intent`, then
 - **Next step.** Most requests take effect at the next step boundary: a
   spawned prefab copy appears, a scene loads or unloads, a destroyed copy
   goes. Signals and messages are seen one step after they are sent.
+- **A script error stops only that script.** When a script's `step` or one
+  of its callbacks throws (or returns a value or a promise), that script on
+  that object is switched off for the rest of the run: its later hooks,
+  in this step and after, don't run, and its `dispose` runs once. What it
+  did before the throw (intents, sounds, messages, spawns) stands. Every
+  other script, the same script on other objects, and the physics keep
+  stepping. The error is listed once, with the script, the object, the step
+  and the source line: in Play's diagnostics (`runtime.errors`), in the
+  console, and as one Problems line per script; an exported game prints
+  it to the browser console. A restart of the run starts the script again.
+  An error in `prepare` or `instantiate` still stops the game from starting.
 
 ## Determinism and replays
 

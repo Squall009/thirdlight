@@ -51,7 +51,7 @@ import {
   type PointerSample,
 } from './actions';
 
-import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
+import { clipMessage, scriptStopReport, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
@@ -90,7 +90,7 @@ import type { ControllerIntents } from './intents';
 import { emptyControllerChannels, emptyMutableIntents, resetMutableIntents, type MutableControllerChannels, type MutableIntentSet } from './mutable-intents';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
 import { type EnvironmentBlendView } from './environment-blend';
-import type { ClimbQuery } from './types';
+import type { ClimbQuery, ScriptStop } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
@@ -191,6 +191,7 @@ const DIALOGUE_FRAME_INPUTS = 8;
 
 export interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
+  stopped?: (moduleId: string, stop: ScriptStop) => void;
 }
 
 export interface ModuleEntry {
@@ -777,6 +778,7 @@ export class RuntimeInstance implements Runtime {
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.recordBehaviorLog(moduleId, level, message, at);
+    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop); this.recordError(r.entry); this.problem(r.code, r.message); };
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
@@ -4044,10 +4046,6 @@ export class RuntimeInstance implements Runtime {
   }
 
   /**
-   * The property values every behavior instance on `entityId`
-   * reads (public and private) — read-only, for the Play debug view.
-   */
-  /**
    * Play debugging: what the running behavior instances expose
    * for a debugger (their module's optional `debug(state)`; a visual script
    * built for Play returns its trace, wire values and variables), for one
@@ -4064,6 +4062,7 @@ export class RuntimeInstance implements Runtime {
     return out;
   }
 
+  /** The property values every behavior instance on `entityId` reads (public and private), read-only, for the Play debug view. */
   behaviorProperties(entityId: string): BehaviorPropertyView[] {
     const out: BehaviorPropertyView[] = [];
     for (const entry of this.entries) {

@@ -6,6 +6,7 @@
 import type { EntityV3, Quat, Vec3 } from '@thirdlight/project-model';
 import type { ActionFrame, ActionSource } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
+import type { ErrorCode } from './errors';
 import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 import { type BehaviorSceneControl, type GameplaySettings, type RuntimeSnapshot } from './types-scene';
 import { type AnimatorEventRecord, type BehaviorAnimatorControl, type BehaviorCamera, type BehaviorCharacter, type BehaviorCollectible, type BehaviorDialogue, type BehaviorEnvironment, type BehaviorGameState, type BehaviorHealth, type BehaviorHitbox, type BehaviorLifecycle, type BehaviorLook, type BehaviorModes, type BehaviorPatrol, type BehaviorSignals, type BehaviorSockets, type BehaviorTagQuery, type BehaviorTimeline, type BehaviorUi, type BehaviorStats, type BehaviorDisplay } from './types-behavior-world';
@@ -105,6 +106,8 @@ export interface ModuleConfig {
    */
   /** `at` is where in the project's compiled script the log was called (when found). */
   behaviorLog?: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void;
+  /** A script instance its own error switched off (the runtime lists it; the run goes on without that instance). */
+  scriptStopped?: (stop: ScriptStop) => void;
   /** The runtime's live tag index (follows scene loads/unloads). */
   tags?: BehaviorTagQuery;
   /** 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
@@ -115,6 +118,26 @@ export interface ModuleConfig {
    * capsule at an origin) — not part of the scripts' context.
    */
   character3D?: Character3DQueries;
+}
+
+/** One script instance switched off because a hook of it threw (or returned a value or a promise). */
+export interface ScriptStop {
+  behaviorId: string;
+  /** The object the instance runs on. */
+  entityId: string;
+  /** The hook that failed: `step` or a callback name. */
+  hook: string;
+  phase: SimulationPhase;
+  stepIndex: number;
+  code: ErrorCode;
+  /** The contract reason (`behavior_step_failed`, `behavior_step_async`, `behavior_state_shared`, …). */
+  reason: string;
+  message: string;
+  detail?: string;
+  /** The visual-script node that was running. */
+  nodeId?: string;
+  /** Where in the compiled script it was thrown, innermost first. */
+  frames?: { file: string; line: number; column: number }[];
 }
 
 /** The 3D world queries the character controller uses to find a ledge and room on top of it. */

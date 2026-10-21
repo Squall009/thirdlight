@@ -74,10 +74,14 @@ and listen.
   input: wall-clock time, `Math.random` instead of `ctx.random`, or state a
   script keeps outside its `state`. The `mismatches` say at which step the
   digests first differ; observe more fields there.
-- **A script that throws stops the run.** `tl_game_observe` then says
-  `state: "failed"` with the `error` that stopped it, and a play-test ends
-  with `playtest_game_failed`. `tl_diagnostics`' `runtime.errors` shows
-  the error with its source line.
+- **A script that throws is switched off; the game runs on.** That script
+  on that object stops for the rest of the run (the rest of the game keeps
+  stepping). `tl_diagnostics`' `runtime.errors` lists the error once, with
+  its object (`entityId`), step and source line; the project's Problems
+  name the script; a play-test's run lists it among its `errors`. A run
+  still ends with `state: "failed"` (and a play-test with
+  `playtest_game_failed`) when the engine itself fails, such as the
+  physics, or a script's `prepare` or `instantiate` at the start.
 - **`ctx.log` lines are listed among the run's `errors`** (code
   `behavior_log`); look at `code` before you treat one as a failure.
 

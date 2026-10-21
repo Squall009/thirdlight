@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { GraphData } from '@thirdlight/project-model';
 
-import { compileGraph, compileTs, level, node, trace, wire } from './harness';
+import { compileGraph, compileTs, level, node, trace, wire, type Any } from './harness';
 
 /**
  * On start: add `amount` items, emit "go". On step: a sequence of (1) count
@@ -130,9 +130,10 @@ describe('visual scripts in the running game', () => {
     });
     const L = await level(compiled);
     const line = L.tick();
-    expect(JSON.parse(line)[3]).toBe(true);
+    // The script is switched off; the game runs on.
+    expect(JSON.parse(line)[3]).toBe(false);
     const d = L.rt.getDiagnostics().diagnostics;
-    const err = d.errors[d.errors.length - 1];
+    const err = d.errors.find((e: Any) => e.code !== 'behavior_log');
     expect(err).toMatchObject({ code: 'module_error', reason: 'behavior_step_failed', nodeId: 'runaway', detail: 'iteration_cap' });
     expect(err.message).toContain('10000 iterations');
   });
