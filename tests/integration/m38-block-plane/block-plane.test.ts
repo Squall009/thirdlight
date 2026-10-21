@@ -17,7 +17,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { BlockGrid, applyBlockEdits } from '@thirdlight/project-model';
+import { physics2DConfigOf, sceneEntitiesFromDocument } from '@thirdlight/runtime';
 
+import { modulesOf } from '../../game-modules';
 import { behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 
 type Any = any;
@@ -193,5 +195,94 @@ describe('a block layer is the ground of a 2D project', () => {
     const fell = dug.log.find((r) => r[0] > 500 && r[2] - FEET < 0)!;
     expect(fell[1]).toBeGreaterThan(14.5);
     expect(fell[1]).toBeLessThan(17.5);
+  }, 180_000);
+});
+
+describe('a block layer arriving with a later scene, its player with it', () => {
+  // The start scene holds no player, collider or layer (a title, a script);
+  // the script loads the level, whose player stands over a block ground.
+  const director = `
+export default {
+  instantiate() { return {}; },
+  step(s, ctx) {
+    if (ctx.phase !== 'intent') return;
+    if (ctx.stepIndex === 10) ctx.scenes.load('scene-level');
+    if (ctx.stepIndex % 10 !== 0) return;
+    const t = ctx.world.transform('player-0001');
+    const r = (v) => Math.round(v * 1e4) / 1e4;
+    const surface = t === undefined ? null : ctx.grid.surface('${L}', [t.position[0], t.position[1], 0]);
+    const log = ctx.save.get('log') ?? [];
+    log.push([ctx.stepIndex, t === undefined ? null : r(t.position[0]), t === undefined ? null : r(t.position[1]), surface === null ? null : r(surface.height)]);
+    ctx.save.set('log', log);
+  },
+};
+`;
+  async function late(mode: Mode, steps: number): Promise<{ log: Any[]; digests: string[]; errors: Any[] }> {
+    const main: Any[] = [
+      { id: 'cam-main', components: { transform: T([0, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
+      { id: 'director', components: { transform: T([0, 0, 0]), behavior: { behaviorId: 'director', values: {} } } },
+    ];
+    const level: Any[] = [
+      // Its own controller climbs the quarter-metre steps (an arriving player brings its tuning with it).
+      { id: 'player-0001', components: { transform: T([2.5, 3, 0]), controller: { autostep: true, autostepHeight: 0.3 } } },
+      { id: L, components: { transform: T([0, 0, -1]), blockLayer: LAYER } },
+    ];
+    const doc = { schemaVersion: 4, sceneId: 'scene-level', revision: 1, entities: level, blocks: [cells(false)] };
+    const loaded = sceneEntitiesFromDocument(doc, 'scene-level');
+    if (!loaded.ok) throw new Error(loaded.message);
+    const h = await startHarness(mode, {
+      snapshot: {
+        snapshotId: 'bpl@r1',
+        projectId: 'bpl',
+        revision: 1,
+        scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
+        scenes: [
+          { sceneId: 'scene-main', start: true, entityIds: main.map((e) => e.id) },
+          { sceneId: 'scene-level', start: false },
+        ],
+        blockTypes: TYPES,
+      },
+      storage: true,
+      settings: SETTINGS,
+      // The build's rule: the modules come from every scene, so the level's player names the 2D backend.
+      modules: modulesOf({ scene: { entities: [...main, ...level] } } as Any, SETTINGS),
+      physics: physics2DConfigOf(main, SETTINGS, { required: true }),
+      replay: Array.from({ length: steps + 100 }, (_, s) => ({ stepIndex: s, moveX: s >= 200 ? 1 : 0, moveY: 0, jump: 'none' })),
+      digestSteps: true,
+      loadScene: async () => loaded.entities,
+      behaviors: [behaviorModule('director', director)],
+    });
+    try {
+      let now = 10;
+      while (h.digests.length < steps) {
+        now += DT;
+        await h.tick(now);
+      }
+      const d = (h.rt as Any).getDiagnostics();
+      const all: Any[] = d.ok ? d.diagnostics.errors : [d];
+      return { log: ((await h.storage()) as Any).log ?? [], digests: h.digests.slice(0, steps), errors: all.filter((e) => e.code !== 'behavior_log') };
+    } finally {
+      await h.dispose();
+    }
+  }
+
+  it('the player lands on the blocks, walks up the stairs and falls into the pit; page and worker agree', async () => {
+    const steps = 900;
+    const a = await late('single', steps);
+    expect(a.errors).toEqual([]);
+    const at = (s: number) => rowOf(a.log, s);
+    expect(at(0)[1]).toBeNull();
+    // Landed on the ground (top 1) where the level put it; the surface query agrees.
+    expect(at(150)[1]).toBeCloseTo(2.5, 3);
+    expect(at(150)[2]).toBeCloseTo(1 + FEET, 2);
+    expect(at(150)[3]).toBeCloseTo(1, 4);
+    // Walking right over the stairs onto the step at 1.5, later into the pit.
+    const on = a.log.filter((r) => r[0] > 200 && r[1] >= 7.5 && r[1] <= 9.5);
+    expect(on.length).toBeGreaterThan(3);
+    for (const r of on) expect(r[2] - FEET).toBeCloseTo(1.5, 1);
+    expect(a.log[a.log.length - 1][2]).toBeLessThan(1);
+    const w = await late('worker', steps);
+    expect(w.errors).toEqual([]);
+    expect(w.digests).toEqual(a.digests);
   }, 180_000);
 });
