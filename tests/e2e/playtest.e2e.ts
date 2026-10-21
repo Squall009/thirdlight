@@ -19,7 +19,8 @@
  * game; the driver's runs agree too; the two walks of one run, each from
  * rest, cover the same distance; a script that throws is switched off while
  * the game runs on, listed once with its source line and in the Problems, and
- * a play-test finishes with it among the run's errors.
+ * a play-test finishes with it among the run's errors; tl_diagnostics and
+ * tl_game_observe answer only the sections asked for.
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -28,6 +29,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { GAME_OBSERVATION_HEADER, GAME_OBSERVATION_SECTIONS } from '@thirdlight/protocol';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test } from './pw';
 
@@ -321,6 +323,19 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     const step = Number(obs['stepIndex']);
     await expect.poll(async () => Number((await tool('tl_game_observe', { playSessionId }))['stepIndex']), { timeout: 10_000 }).toBeGreaterThan(step + 30);
     expect(await scriptErrors()).toHaveLength(1);
+    // Only the asked parts: the errors and logs alone; the observation's header and the player. Every part of a whole
+    // observation is a section name; an unknown name is refused with the valid ones.
+    const only = (await tool('tl_diagnostics', { playSessionId, sections: ['runtime'] })) as { diagnostics?: { runtime?: { errors?: unknown[] } } };
+    expect(Object.keys(only.diagnostics ?? {})).toEqual(['runtime']);
+    expect(only.diagnostics!.runtime!.errors!.length).toBeGreaterThan(0);
+    const part = await tool('tl_game_observe', { playSessionId, sections: ['player', 'scenes'] });
+    expect(Object.keys(part).filter((k) => !(GAME_OBSERVATION_HEADER as readonly string[]).includes(k)).sort()).toEqual(['player', 'scenes']);
+    expect(part['state']).toBe('running');
+    expect(Object.keys(obs).filter((k) => !([...GAME_OBSERVATION_HEADER, ...GAME_OBSERVATION_SECTIONS] as string[]).includes(k))).toEqual([]);
+    const refused = (await mcp.callTool({ name: 'tl_game_observe', arguments: { playSessionId, sections: ['playre'] } })) as { isError?: boolean; content: Array<{ text: string }> };
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toContain('unknown section \\"playre\\"');
+    expect(refused.content[0]!.text).toContain('pausePanel');
     await expect.poll(async () => ((await tool('tl_diagnostics', {})) as { problems?: { code: string }[] }).problems?.map((p) => p.code) ?? [], { timeout: 10_000 }).toContain('script_error_behavior_playtest_probe');
     await tool('tl_play_stop', { playSessionId });
     const boom = await call({ frames: [walk(0, 90)], variables: { boom: 60 }, threads: 'worker', runs: 1 });

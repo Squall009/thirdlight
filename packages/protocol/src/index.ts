@@ -37,7 +37,10 @@ export {
 } from './ids';
 
 // Play diagnostics: one bound, and the trim that keeps a long run's report inside it.
-export { PLAY_DIAGNOSTICS_MAX_BYTES, fitPlayDiagnostics, playDiagnosticsBytes, type PlayDiagnosticsTrim } from './diagnostics-bound';
+export { GAME_OBSERVATION_HEADER, PLAY_DIAGNOSTICS_MAX_BYTES, fitGameObservation, fitPlayDiagnostics, playDiagnosticsBytes, type PlayDiagnosticsTrim } from './diagnostics-bound';
+// The parts of a Play answer a tool can ask for alone.
+export { GAME_OBSERVATION_SECTIONS, PLAY_DIAGNOSTICS_SECTIONS, pickPlaySections, playSectionsProblem } from './play-sections';
+export { parseDiagnosticsRequest, type DiagnosticsRequest } from './play-sections';
 export { PLAY_PROBLEM_CODE_RE, PLAY_PROBLEM_KINDS_MAX, PLAY_PROBLEM_MESSAGE_MAX, playProblemProblem } from './play-problems';
 
 // Session-layer error model.

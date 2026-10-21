@@ -113,6 +113,7 @@ export type V3MutationOp =
   | 'revokeBehaviorTrust';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3, SignalDebugCommandName } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
+import { GAME_OBSERVATION_SECTIONS, sectionsField } from './play-sections';
 import { sessionError, type SessionError } from './errors';
 import { isPlaySessionId, isProjectId, isRelayId } from './ids';
 import {
@@ -704,23 +705,28 @@ export interface GameObserveRequest {
   timeoutMs: number;
   /** Also read the property values of this entity's running scripts (`behaviors`). */
   entityId?: string;
+  /** Only these parts besides the header (`GAME_OBSERVATION_SECTIONS`; all of them when absent). */
+  sections?: string[];
 }
 
 /**
- * Parse the observation request body `{ timeoutMs?, entityId? }`
+ * Parse the observation request body `{ timeoutMs?, entityId?, sections? }`
  * (250–15 000, default 5 000; `entityId` adds the entity's
  * script property values, public and private, read-only).
  */
 export function parseGameObserveRequest(value: unknown): { ok: true; request: GameObserveRequest } | { ok: false; error: SessionError } {
-  const shape = checkShape(value ?? {}, '', new Map([['timeoutMs', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`], ['entityId', 'an entity id (optional)']]), []);
+  const shape = checkShape(value ?? {}, '', new Map([['timeoutMs', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`], ['entityId', 'an entity id (optional)'], ['sections', 'a list of section names (optional)']]), []);
   if (!shape.ok) return { ok: false, error: shape.error };
+  const parts = sectionsField(shape.value, GAME_OBSERVATION_SECTIONS, (s) => ({ ok: true, request: s }));
+  if (!parts.ok) return parts;
+  const sections = parts.request;
   let entityId: string | undefined;
   if (shape.value.entityId !== undefined) {
     const e = checkField(shape.value, 'entityId', '', 'an entity id', (v) => (typeof v === 'string' && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v) ? null : { problem: 'entityId must be an entity id', kind: 'value' }));
     if (!e.ok) return { ok: false, error: e.error };
     entityId = e.value as string;
   }
-  const withEntity = (r: GameObserveRequest): GameObserveRequest => (entityId !== undefined ? { ...r, entityId } : r);
+  const withEntity = (r: GameObserveRequest): GameObserveRequest => ({ ...r, ...(entityId !== undefined ? { entityId } : {}), ...(sections !== undefined ? { sections } : {}) });
   if (shape.value.timeoutMs === undefined) return { ok: true, request: withEntity({ timeoutMs: GAME_OBSERVE_TIMEOUT_DEFAULT_MS }) };
   const t = checkField(shape.value, 'timeoutMs', '', `integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`, (v) => {
     if (typeof v !== 'number' || !Number.isInteger(v)) return { problem: 'timeoutMs must be an integer', kind: 'type' };

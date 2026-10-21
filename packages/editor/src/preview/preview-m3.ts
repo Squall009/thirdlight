@@ -45,7 +45,7 @@ import { Bridge } from './bridge';
 import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screenshot-answer';
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
-import { fitPlayDiagnostics, type GameControlCommand } from '@thirdlight/protocol';
+import { fitGameObservation, fitPlayDiagnostics, GAME_OBSERVATION_HEADER, pickPlaySections, type GameControlCommand } from '@thirdlight/protocol';
 
 /** Three's Draco and Basis decoders on the preview origin. */
 const PREVIEW_DECODER_BASE = '/decoders/';
@@ -441,7 +441,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.diagnostics.request', (m) => {
-    const body = m as { relayId: string };
+    const body = m as { relayId: string; sections?: readonly string[] };
     const h = handle;
     if (h === null) {
       bridge.sendDiagnosticsResult(playId, body.relayId, notReady);
@@ -456,9 +456,9 @@ export function bootstrapPreviewM3(): void {
       const ad = h.adapter?.diagnostics();
       bridge.sendDiagnosticsResult(playId, body.relayId, {
         ok: true,
-        // A long run's report is trimmed to the relay's bound (the play log's oldest entries first, then
-        // other lists), with a note of what was dropped, rather than refused whole.
-        diagnostics: fitPlayDiagnostics({
+        // Only the asked parts; a big report is trimmed to the relay's bound (copies folded, other lists
+        // and log lines before errors), with a note of what was dropped, rather than refused whole.
+        diagnostics: fitPlayDiagnostics(pickPlaySections({
           runtime: rd.ok ? rd.diagnostics : { error: rd.error.code },
           renderer: ad === undefined ? null : ad.ok ? ad.diagnostics : { error: ad.error.code },
           buildId: h.identity.buildId,
@@ -483,7 +483,7 @@ export function bootstrapPreviewM3(): void {
           frameTimes: h.host.frameStats?.() ?? null,
           // Where the project saves go, whether the browser keeps them under disk pressure (asked at the first save), usage and quota.
           saves: savesStorageOf(h.host.projectSaves ?? null),
-        }),
+        }, body.sections)),
       });
     });
   });
@@ -569,11 +569,12 @@ export function bootstrapPreviewM3(): void {
   };
 
   bridge.on('tl.game.observe', (m) => {
-    const body = m as { relayId: string; entityId?: string };
+    const body = m as { relayId: string; entityId?: string; sections?: readonly string[] };
     const h = handle;
     void (h === null ? Promise.resolve(null) : observation(h, body.entityId)).then((o) => {
       if (o === null) bridge.sendGameResult('observe', playId, body.relayId, { ok: false, error: { code: 'game_unavailable', message: 'this play has nothing to observe yet' } });
-      else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: o });
+      // Only the asked parts; a big scene's observation is trimmed to its bound with a note, rather than refused.
+      else bridge.sendGameResult('observe', playId, body.relayId, { ok: true, result: fitGameObservation(pickPlaySections(o, body.sections, GAME_OBSERVATION_HEADER)) });
     });
   });
 

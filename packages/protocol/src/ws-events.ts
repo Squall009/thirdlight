@@ -213,8 +213,9 @@ export function makeScreenshotRequest(relayId: string, maxWidth?: number, answer
   return emit(obj);
 }
 
-export function makeDiagnosticsRequest(relayId: string): string {
-  return emit({ type: 'play.diagnostics.request', relayId });
+export function makeDiagnosticsRequest(relayId: string, sections?: readonly string[]): string {
+  // Only the asked parts (the page picks them before it trims the answer to its bound).
+  return emit({ type: 'play.diagnostics.request', relayId, ...(sections !== undefined ? { sections: [...sections] } : {}) });
 }
 
 /**
@@ -267,8 +268,8 @@ export function makeGameControlRequest(relayId: string, command: string, expecte
 }
 
 /** Game observation request forwarded to the owner editor. */
-export function makeGameObserveRequest(relayId: string, timeoutMs: number, entityId?: string): string {
-  return emit({ type: 'game.observe.request', relayId, timeoutMs, ...(entityId !== undefined ? { entityId } : {}) });
+export function makeGameObserveRequest(relayId: string, timeoutMs: number, entityId?: string, sections?: readonly string[]): string {
+  return emit({ type: 'game.observe.request', relayId, timeoutMs, ...(entityId !== undefined ? { entityId } : {}), ...(sections !== undefined ? { sections: [...sections] } : {}) });
 }
 
 export function makeErrorEvent(

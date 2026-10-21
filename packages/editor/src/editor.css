@@ -1109,6 +1109,7 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-console__level { text-transform: uppercase; font-weight: 600; min-width: 40px; }
 .tl-console__step { opacity: 0.7; }
 .tl-console__message { flex: 1 1 auto; white-space: pre-wrap; }
+.tl-console__count { font-weight: 600; padding: 0 4px; border-radius: 6px; background: var(--surface-2); }
 .tl-console__where { background: none; border: none; color: var(--accent, #7ab8ff); cursor: pointer; padding: 0; font-size: 11px; font-family: monospace; }
 .tl-console__where:hover { text-decoration: underline; }
 .tl-console__compiled { font-family: monospace; opacity: 0.7; }

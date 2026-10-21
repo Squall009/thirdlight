@@ -66,11 +66,13 @@ export function usePlaySession(
         return;
       }
       const psid = playInfo.playSessionId;
+      // Only the asked parts, when a tool named them (the backend checked the names).
+      const sections = Array.isArray(req.sections) ? (req.sections as unknown[]).filter((x): x is string => typeof x === 'string') : undefined;
       if (type === 'screenshot.request') b.requestScreenshot(psid, String(req.relayId), typeof req.maxWidth === 'number' ? req.maxWidth : undefined, typeof req.answerWithinMs === 'number' ? req.answerWithinMs : undefined, req.ui === false ? false : undefined);
-      else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId));
+      else if (type === 'play.diagnostics.request') b.requestDiagnostics(psid, String(req.relayId), sections);
       else if (type === 'input.request') b.requestInput(psid, String(req.requestId), req.frames as never, req.restart === true, req.hold === true);
       else if (type === 'game.control.request') b.requestGameControl(psid, String(req.relayId), String(req.command), typeof req.sceneId === 'string' ? req.sceneId : undefined, typeof req.name === 'string' ? { name: req.name, args: (req.args ?? {}) as Record<string, unknown> } : undefined, typeof req.answerWithinMs === 'number' ? req.answerWithinMs : undefined, typeof req.level === 'string' ? req.level : undefined);
-      else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId), typeof req.entityId === 'string' ? req.entityId : undefined);
+      else if (type === 'game.observe.request') b.requestGameObserve(psid, String(req.relayId), typeof req.entityId === 'string' ? req.entityId : undefined, sections);
     };
   }, [clientRef, playInfo]);
 

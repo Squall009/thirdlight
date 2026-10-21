@@ -17,7 +17,8 @@
     "./arch-style-rows": "./src/arch-style-rows.ts",
     "./kits": "./src/kits.ts",
     "./kit-checks": "./src/kit-checks.ts",
-    "./model-occluders": "./src/model-occluders.ts"
+    "./model-occluders": "./src/model-occluders.ts",
+    "./repeated-rows": "./src/repeated-rows.ts"
   },
   "sideEffects": false
 }

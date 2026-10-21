@@ -8,7 +8,7 @@
  * `ActionSource`, `createRecordedActionSource`, `SimulationPhase`,
  * `StepContext`, `GameplaySettings`, `PhysicsPort`, `PhysicsStepClient`).
  */
-import type { EntityV3, Quat, Vec3 } from '@thirdlight/project-model';
+import type { EntityV3, Quat, RepeatedRowFields, Vec3 } from '@thirdlight/project-model';
 
 import type { ActionFrame, ActionSource, DebugCommandCall } from './actions';
 import type { ErrorCode, RuntimeError } from './errors';
@@ -293,7 +293,8 @@ export interface CameraInfo {
 }
 
 /** One bounded diagnostic error entry. */
-export interface DiagnosticErrorEntry {
+/** Copies of one entry (the same error on many objects, the same line every step) are one entry with a `count`, `firstStep` and `entityIds`. */
+export interface DiagnosticErrorEntry extends RepeatedRowFields {
   /** `behavior_log` is a diagnostics-only entry code; `entity_write` (a refused or conflicting component write). */
   code: ErrorCode | 'behavior_log' | 'entity_write';
   message: string;

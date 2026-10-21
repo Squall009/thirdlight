@@ -2,7 +2,7 @@
  * Registry and module-isolation tests: duplicate-registration refusal, name
  * syntax, unknown / duplicate module selection, the BUILTIN_MODULES contents, the
  * module_error no-op rollback (no partial module application), the
- * bounded 32-entry error ring with cumulative errorCount, and module
+ * bounded error ring (copies folded) with cumulative errorCount, and module
  * `dispose?` on runtime disposal.
  */
 import { describe, expect, it } from 'vitest';
@@ -209,7 +209,7 @@ describe('module step isolation', () => {
     rt.dispose();
   });
 
-  it('the error ring keeps the last 32 entries; errorCount is cumulative (33 recorded failures ⇒ 32 kept, 33 counted)', () => {
+  it('errorCount is cumulative; the same failure 33 times is one ring entry with a count of 33', () => {
     const rt = makeRuntime(['thirdlight.test:thrower'], [throwerSpec]);
     const diag = () => {
       const d = rt.getDiagnostics();
@@ -228,12 +228,10 @@ describe('module step isolation', () => {
     }
     const d = diag();
     expect(d.errorCount).toBe(33);
-    expect(d.errors.length).toBe(32);
+    expect(d.errors.length).toBe(1);
+    expect(d.errors[0]).toMatchObject({ code: 'module_error', count: 33, firstStep: 1, stepIndex: 1 });
+    expect(d.errors[0]!.message.length).toBeLessThanOrEqual(256);
     expect(d.stepIndex).toBe(0);
-    for (const e of d.errors) {
-      expect(e.code).toBe('module_error');
-      expect(e.message.length).toBeLessThanOrEqual(256);
-    }
     rt.dispose();
   });
 

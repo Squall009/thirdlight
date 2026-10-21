@@ -4,7 +4,8 @@
  * 1. Refused script calls and a long run's log: a script on the starter
  *    template commits an intent the runtime refuses and adds to a counter
  *    whose name a save could not keep, every step. The run goes on (the
- *    calls answer false), and the Console shows each refusal once. Then a
+ *    calls answer false), and the Console shows each refusal once and a
+ *    line logged every step as one row with its count. Then a
  *    debug command starts a flood of long log lines: the diagnostics still
  *    arrive (trimmed to the relay's bound, oldest entries first, with the
  *    count of what was left out), and the Console says how many it lost.
@@ -83,6 +84,7 @@ const REFUSER = [
   "    ctx.game.add('ticks', 1);",
   "    if (ctx.emit({ kind: 'control_move', value: 42 }) === false) ctx.game.add('refused_emit', 1);",
   "    if (ctx.game.add('bad-name', 1) === false) ctx.game.add('refused_add', 1);",
+  "    ctx.log('info', 'tick');",
   "    for (const _ of ctx.debug.command('flood')) state.flood = true;",
   "    if (state.flood) for (let i = 0; i < 4; i += 1) ctx.log('info', 'flood ' + ctx.stepIndex + ' ' + i + ' ' + '\\u2014'.repeat(240));",
   '  },',
@@ -116,6 +118,11 @@ test('refused script calls answer false and are logged once; a long run\'s diagn
   await expect(emitLine).toHaveCount(1, { timeout: 30_000 });
   await expect(addLine).toHaveCount(1);
   await expect(emitLine.getByLabel('source location')).toHaveText(/^refuser · src\/index\.ts:6:\d+$/);
+  // The same line every step is one row with a count and its steps.
+  const tickLine = consolePanel.locator('li[data-level="info"]').filter({ hasText: /tick/ });
+  await expect(tickLine).toHaveCount(1);
+  await expect(tickLine.getByTestId('console-count')).toHaveText(/^×\d{2,}$/);
+  await expect(tickLine.locator('.tl-console__step')).toHaveText(/^steps \d+–\d+$/);
 
   // A flood of long lines: the diagnostics come back trimmed (oldest first), with the count of what went.
   const flood = await api(`play/${psid}/control`, { command: 'debugCommand', name: 'flood' });

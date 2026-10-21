@@ -84,6 +84,23 @@ and listen.
   physics, or a script's `prepare` or `instantiate` at the start.
 - **`ctx.log` lines are listed among the run's `errors`** (code
   `behavior_log`); look at `code` before you treat one as a failure.
+- **Copies are one row.** The same error from 16 copies of an object, or
+  the same line logged every step, is one row with `count`, `firstStep`
+  (`stepIndex` is the newest) and the first few objects in `entityIds`; the
+  Console shows it as `×16`. The play log keeps 32 rows, and log lines
+  never take more than half of them while errors need the room.
+- **A big scene's answer is trimmed, never refused.** `tl_diagnostics` and
+  `tl_game_observe` fit 16 KiB. Over it, copies are folded first, then the
+  other lists lose their oldest rows (longest first), then `runtime.errors`
+  its oldest log lines, then whole parts go (largest first); errors go
+  last, and an observation's header (ids, step, `state`, `error`) never.
+  The answer's `trimmed` note says what went, by path, with counts
+  (`lists`, `omitted`, `merged`, `logEntries`, `errorEntries`).
+- **Ask for only what you need** with `sections`: `tl_diagnostics
+  {playSessionId, sections: ["runtime"]}` (the errors and logs), or
+  `tl_game_observe {playSessionId, sections: ["player", "mode", "scenes"]}`
+  (the header always comes too). An unknown name is refused with the list
+  of valid ones.
 
 Related: [title, new game, restart and scene changes](game-flow.md),
 [input and rebinding](input.md), [export](export.md).

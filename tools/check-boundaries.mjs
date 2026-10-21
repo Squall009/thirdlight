@@ -203,8 +203,9 @@ export const NODE_SIDE_ALLOWED = {
     external: [],
     node: [],
     typesOnly: { 'project-model': true, commands: true },
-    // The model's limits (plain constants) are defined once in project-model.
-    valueSubpaths: { 'project-model': ['limits'] },
+    // The model's limits (plain constants) are defined once in project-model; so is the
+    // folded diagnostics row the runtime's error ring and the Play answers' bound share (pure functions).
+    valueSubpaths: { 'project-model': ['limits', 'repeated-rows'] },
   },
   // "… project-model (types only — the snapshot document)".
   backend: {

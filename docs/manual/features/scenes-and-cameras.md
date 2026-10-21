@@ -199,9 +199,10 @@ unique across the whole project. One command edits one scene.
     refusal is one Console line. `ctx.game.add` refuses (false, one line) a
     counter name a save cannot keep (a letter or _, then up to 31 letters,
     digits or _); a save holding such a name still loads the rest.
-  - Play diagnostics (the Console, `tl_diagnostics`) fit 16 KiB: a long
-    run's report drops its oldest log entries first and says how many
-    (`trimmed.logEntries`). `physicsPenetrationCorrectedCount` counts steps
+  - Play diagnostics (the Console, `tl_diagnostics`) fit 16 KiB: a big
+    report folds copies of one row (`×16`), then drops the oldest rows of
+    other lists, then the oldest log lines, and its errors last, and says
+    what went (`trimmed`). See [playtesting](../guides/playtesting.md). `physicsPenetrationCorrectedCount` counts steps
     the 3D character began inside a collider; `physicsDeepestOverlap` names
     the deepest one's entity pair.
   - Camera bounds are optional (Gameplay → Camera → "Keep the camera

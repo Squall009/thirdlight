@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, relayAnswerWithinMs, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
+import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseDiagnosticsRequest, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, relayAnswerWithinMs, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import type { MissingPlayFile } from '@thirdlight/project-model';
 import { type BackendConfig } from './config';
@@ -557,6 +557,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     let maxWidth: number | undefined;
     let ui: boolean | undefined;
+    let sections: string[] | undefined;
     if (kind === 'screenshot') {
       const parsedReq = parseScreenshotRequest(strict.value);
       if (!parsedReq.ok) {
@@ -566,11 +567,12 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       maxWidth = parsedReq.request.maxWidth;
       ui = parsedReq.request.ui;
     } else {
-      const noArgs = parseAdminNoArgsBody(strict.value);
-      if (!noArgs.ok) {
-        sendError(res, noArgs.error);
+      const parsedReq = parseDiagnosticsRequest(strict.value);
+      if (!parsedReq.ok) {
+        sendError(res, parsedReq.error);
         return;
       }
+      sections = parsedReq.request.sections;
     }
     // Preconditions, in order: exists → presented → owner WS
     // connected.
@@ -587,7 +589,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const relayId = newRelayId();
     const payload =
-      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth, relayAnswerWithinMs(relayTimeoutMs()), ui) : makeDiagnosticsRequest(relayId);
+      kind === 'screenshot' ? makeScreenshotRequest(relayId, maxWidth, relayAnswerWithinMs(relayTimeoutMs()), ui) : makeDiagnosticsRequest(relayId, sections);
     const outcome: RelayOutcome = await plays.relay(rec.playSessionId, kind, relayId, payload);
     sessions.record(owner, kind, relayId, rec.revision, nowMs(), outcome.ok ? 'ok' : (outcome.ok ? undefined : outcome.code));
     if (outcome.ok && outcome.kind === 'screenshot') {
@@ -889,7 +891,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     if (found === null) return;
     const { rec, owner } = found;
     const relayId = `relay-${hex(16)}`;
-    const payload = makeGameObserveRequest(relayId, parsedReq.request.timeoutMs, parsedReq.request.entityId);
+    const payload = makeGameObserveRequest(relayId, parsedReq.request.timeoutMs, parsedReq.request.entityId, parsedReq.request.sections);
     const outcome: GameRelayOutcome = await plays.relayGame(rec.playSessionId, 'observe', relayId, payload, parsedReq.request.timeoutMs);
     if (outcome.ok) {
       sessions.record(owner, 'play', relayId, rec.revision, nowMs(), 'game_observe');

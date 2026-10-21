@@ -28,6 +28,8 @@ import {
   GAME_CONTROL_COMMANDS,
   GAME_OBSERVE_TIMEOUT_MAX_MS,
   GAME_OBSERVE_TIMEOUT_MIN_MS,
+  GAME_OBSERVATION_SECTIONS,
+  PLAY_DIAGNOSTICS_SECTIONS,
   INPUT_RELAY_MAX_BODY_BYTES,
   INPUT_RELAY_MAX_FRAMES,
   INPUT_RELAY_MAX_STEPS,
@@ -359,6 +361,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         playSessionId: { type: 'string' },
         timeoutMs: { type: 'integer', minimum: GAME_OBSERVE_TIMEOUT_MIN_MS, maximum: GAME_OBSERVE_TIMEOUT_MAX_MS },
+        sections: { type: 'array', minItems: 1, maxItems: GAME_OBSERVATION_SECTIONS.length, items: { type: 'string' }, description: `only these parts besides the header (ok, ids, step, state, error, inputMode, sound): ${GAME_OBSERVATION_SECTIONS.join(', ')}; an unknown name is refused with the valid ones` },
         entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`, and with an animator its pose as `animator` {state, clips [{assetId, clip, time (s), weight}], layers?, look? {yaw, pitch (degrees), bones}} and its model\'s bones as drawn as `renderedBones` {name: {position, rotation}}' },
       },
       required: ['playSessionId'],
@@ -403,7 +406,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description: toolDescription('tl_diagnostics'),
     inputSchema: {
       type: 'object',
-      properties: { playSessionId: { type: 'string' } },
+      properties: {
+        playSessionId: { type: 'string' },
+        sections: { type: 'array', minItems: 1, maxItems: PLAY_DIAGNOSTICS_SECTIONS.length, items: { type: 'string' }, description: `with playSessionId: only these parts: ${PLAY_DIAGNOSTICS_SECTIONS.join(', ')} (runtime holds errors and logs); an unknown name is refused with the valid ones` },
+      },
       additionalProperties: false,
     },
   },
@@ -727,6 +733,7 @@ async function playStop(ctx: McpContext, a: Record<string, unknown>): Promise<Ca
 
 async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (a.playSessionId === undefined) {
+    if (a.sections !== undefined) return toolError('sections picks parts of a play\'s diagnostics: give playSessionId too');
     const problems = await ctx.client.problems(ctx.projectId);
     if (!isObj(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
     const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
@@ -735,7 +742,8 @@ async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise
     return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}), ...(problems.body.missingFiles !== undefined ? { missingFiles: problems.body.missingFiles } : {}) });
   }
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
-  const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId);
+  // The backend checks the section names (an unknown one is refused with the valid ones).
+  const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId, a.sections !== undefined ? { sections: a.sections } : {});
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
@@ -1174,6 +1182,7 @@ async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise
     if (typeof a.entityId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a.entityId)) return toolError('entityId must be an entity id');
     body.entityId = a.entityId;
   }
+  if (a.sections !== undefined) body.sections = a.sections;
   const res = await ctx.client.gameObserve(ctx.projectId, a.playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }

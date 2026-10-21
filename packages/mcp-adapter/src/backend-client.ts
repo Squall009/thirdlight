@@ -175,9 +175,9 @@ export class BackendClient {
     });
   }
 
-  /** POST fetch bounded runtime diagnostics from the play session's connected preview. */
-  diagnostics(projectId: string, playSessionId: string): Promise<BackendResponse> {
-    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/diagnostics`, {});
+  /** POST fetch bounded runtime diagnostics from the play session's connected preview (body: `{ sections? }`). */
+  diagnostics(projectId: string, playSessionId: string, body: Record<string, unknown> = {}): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/diagnostics`, body);
   }
 
   /**
@@ -198,7 +198,7 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/control`, body);
   }
 
-  /** POST the bounded game observation relay (body: `{ timeoutMs? }`). */
+  /** POST the bounded game observation relay (body: `{ timeoutMs?, entityId?, sections? }`). */
   gameObserve(projectId: string, playSessionId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/observe`, body);
   }

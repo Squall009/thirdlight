@@ -24,6 +24,9 @@ export interface ConsoleEntry {
   reason?: string;
   message: string;
   stepIndex?: number;
+  /** Copies of one entry folded into one (the same error on many objects, the same line every step): how many, and the first one's step. */
+  count?: number;
+  firstStep?: number;
   moduleId?: string;
   /** The compiled position (`behaviors/<digest>.js:line:column`), when the runtime found one. */
   at?: { file: string; line: number; column: number };
@@ -59,6 +62,8 @@ export function consoleEntriesOf(diagnostics: unknown): ConsoleEntry[] {
     const entry: ConsoleEntry = { code: e['code'], message: e['message'] };
     if (typeof e['reason'] === 'string') entry.reason = e['reason'];
     if (typeof e['stepIndex'] === 'number') entry.stepIndex = e['stepIndex'];
+    if (typeof e['count'] === 'number' && e['count'] > 1) entry.count = e['count'];
+    if (typeof e['firstStep'] === 'number') entry.firstStep = e['firstStep'];
     if (typeof e['moduleId'] === 'string') entry.moduleId = e['moduleId'];
     const at = e['at'] as ConsoleEntry['at'] | undefined;
     if (at !== undefined && typeof at?.file === 'string') entry.at = at;

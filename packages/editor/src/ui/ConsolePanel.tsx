@@ -100,8 +100,9 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
             return (
               <li key={`${i}-${e.stepIndex ?? ''}-${e.code}`} className={`tl-console__entry tl-console__entry--${level}`} data-level={level} data-code={e.code}>
                 <span className="tl-console__level">{level}</span>
-                {e.stepIndex !== undefined && <span className="tl-console__step">step {e.stepIndex}</span>}
+                {e.stepIndex !== undefined && <span className="tl-console__step">{e.count !== undefined && e.firstStep !== undefined ? `steps ${e.firstStep}–${e.stepIndex}` : `step ${e.stepIndex}`}</span>}
                 <span className="tl-console__message">{e.message}</span>
+                {e.count !== undefined && <span className="tl-console__count" data-testid="console-count" title="the same entry this many times">×{e.count}</span>}
                 {e.source !== undefined ? where(e.source, 'source location') : e.at !== undefined ? <span className="tl-console__compiled" title="a compiled position without a source map">{describeCompiled(e.at)}</span> : null}
                 {e.sources !== undefined && e.sources.length > 1 && (
                   <ul className="tl-console__frames" aria-label="script frames">

@@ -25,8 +25,9 @@ import {
 } from './delivery';
 import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX, SCREENSHOT_MAX_WIDTH_MIN } from './http';
 import { PLAY_DIAGNOSTICS_MAX_BYTES, playDiagnosticsBytes } from './diagnostics-bound';
+import { GAME_OBSERVATION_SECTIONS, PLAY_DIAGNOSTICS_SECTIONS, playSectionsProblem } from './play-sections';
 import { playProblemProblem } from './play-problems';
-import { debugCommandCallProblem, GAME_CONTROL_COMMANDS, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
+import { debugCommandCallProblem, GAME_CONTROL_COMMANDS, GAME_OBSERVATION_MAX_BYTES, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -230,10 +231,12 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return answerWithinProblem(m['answerWithinMs']) ?? { ok: true };
     }
     case 'tl.diagnostics.request': {
-      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId']);
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'sections']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
+      const sections = m['sections'] === undefined ? null : playSectionsProblem(m['sections'], PLAY_DIAGNOSTICS_SECTIONS);
+      if (sections !== null) return { ok: false, reason: sections, path: '/sections' };
       return { ok: true };
     }
     case 'tl.game.control':
@@ -246,7 +249,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       const replay = m['command'] === 'replay';
       // A quality change carries its level.
       const qualityCommand = m['command'] === 'setQuality';
-      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : []), ...(replay ? ['answerWithinMs'] : []), ...(qualityCommand ? ['level'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
+      const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : []), ...(replay ? ['answerWithinMs'] : []), ...(qualityCommand ? ['level'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId', 'sections'];
       const bad = rejectUnknown(m, fields);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
@@ -259,6 +262,10 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       }
       if (type === 'tl.game.observe' && m['entityId'] !== undefined && (typeof m['entityId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['entityId']))) {
         return { ok: false, reason: 'entityId must be an entity id', path: '/entityId' };
+      }
+      if (type === 'tl.game.observe' && m['sections'] !== undefined) {
+        const sections = playSectionsProblem(m['sections'], GAME_OBSERVATION_SECTIONS);
+        if (sections !== null) return { ok: false, reason: sections, path: '/sections' };
       }
       if (sceneCommand && (typeof m['sceneId'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(m['sceneId']))) {
         return { ok: false, reason: 'sceneId must be a scene id', path: '/sceneId' };
@@ -427,7 +434,8 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
       if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
       if (m['ok'] && !isPlainObject(m['result'])) return { ok: false, reason: 'result required when ok', path: '/result' };
-      if (JSON.stringify(m['result'] ?? null).length > 16_384) return { ok: false, reason: 'result exceeds the 16 KiB bound', path: '/result' };
+      // The page trims an observation to fit it (fitGameObservation); this is the wire's own check.
+      if (playDiagnosticsBytes(m['result'] ?? null) > GAME_OBSERVATION_MAX_BYTES) return { ok: false, reason: `result exceeds the ${GAME_OBSERVATION_MAX_BYTES}-byte bound`, path: '/result' };
       return { ok: true };
     }
     case 'tl.debug.result': {

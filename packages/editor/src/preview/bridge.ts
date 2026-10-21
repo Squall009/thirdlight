@@ -212,10 +212,10 @@ export class Bridge {
   }
 
   /** Request a game observation (editor side). */
-  requestGameObserve(playSessionId: string, relayId: string, entityId?: string): void {
+  requestGameObserve(playSessionId: string, relayId: string, entityId?: string, sections?: readonly string[]): void {
     if (this.direction !== 'editor') throw new Error('requestGameObserve is editor-side only');
-    // `entityId` adds that entity's script property values.
-    this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId, ...(entityId !== undefined ? { entityId } : {}) });
+    // `entityId` adds that entity's script property values; `sections` keeps only those parts (besides the header).
+    this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId, ...(entityId !== undefined ? { entityId } : {}), ...(sections !== undefined ? { sections: [...sections] } : {}) });
   }
 
   /** Reply to a game control/observe request (preview side). */
@@ -255,9 +255,9 @@ export class Bridge {
   }
 
   /** Request diagnostics (editor side). */
-  requestDiagnostics(playSessionId: string, relayId: string): void {
+  requestDiagnostics(playSessionId: string, relayId: string, sections?: readonly string[]): void {
     if (this.direction !== 'editor') throw new Error('requestDiagnostics is editor-side only');
-    this.postLocal({ v: 2, type: 'tl.diagnostics.request', playSessionId, relayId });
+    this.postLocal({ v: 2, type: 'tl.diagnostics.request', playSessionId, relayId, ...(sections !== undefined ? { sections: [...sections] } : {}) });
   }
 
   /** Ask the preview to stop (editor side). */

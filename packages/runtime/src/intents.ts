@@ -305,8 +305,8 @@ export type BehaviorLogLevel = 'info' | 'warn' | 'error';
 
 export const BEHAVIOR_LOG_LEVELS: readonly BehaviorLogLevel[] = ['info', 'warn', 'error'];
 
-/** A bounded intent/log diagnostic entry the runtime ring records. */
-export const BEHAVIOR_LOG_CODE = 'behavior_log';
+/** A bounded intent/log diagnostic entry the runtime ring records (the code is shared with the Play answers' bound). */
+export { BEHAVIOR_LOG_CODE } from '@thirdlight/project-model';
 
 /**
  * An intent rejection. The `reason`/`detail` pair is the contract's rejection

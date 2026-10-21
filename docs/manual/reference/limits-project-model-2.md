@@ -109,6 +109,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-render-scale-min"></a>`RENDER_SCALE_MIN` | `0.5` | The render scale's range. Below half the resolution FSR 1 can no longer rebuild edges (AMD's lowest preset, "performance", is 0.5); 1 is the screen's own resolution (the render pixel ratio's cap still applies). |
 | <a id="limit-render-settings-default"></a>`RENDER_SETTINGS_DEFAULT` | `{"ambientOcclusion":"gtao","renderScale":1,"dynamicResolution":false,"occlusionCulling":"auto"}` |  |
 
+<a id="limits-project-model--repeated-rows"></a>
+## `repeated-rows.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-repeated-row-entity-ids-max"></a>`REPEATED_ROW_ENTITY_IDS_MAX` | `4` | The objects a folded row names (the count says how many copies there were). |
+
 <a id="limits-project-model--save-schema"></a>
 ## `save-schema.ts`
 

@@ -27,6 +27,7 @@ import { rideOnFrame } from './frame-queues';
 import { PresentationRequests } from './presentation-requests';
 import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
+import { ErrorRing } from './error-ring';
 import { projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
 
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
@@ -184,8 +185,6 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
     dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
   };
 }
-/** The error ring keeps the last 32 entries (a display ring, not a record). */
-const MAX_ERROR_ENTRIES = 32;
 /** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
 
@@ -420,7 +419,7 @@ export class RuntimeInstance implements Runtime {
   private failedModuleId?: string;
   private failedPhase?: SimulationPhase;
   private failedStepIndex?: number;
-  private errorRing: DiagnosticErrorEntry[] = [];
+  private readonly errorRing = new ErrorRing();
   /** The visual-script node of the error being fail-stopped (consumed by `failStop`). */
   private failNodeId: string | undefined = undefined;
   /** The failing error's compiled script frames (consumed by the fail-stop entry). */
@@ -4041,7 +4040,6 @@ export class RuntimeInstance implements Runtime {
 
   private recordError(entry: DiagnosticErrorEntry): void {
     this.errorRing.push(entry);
-    if (this.errorRing.length > MAX_ERROR_ENTRIES) this.errorRing.shift();
     this.errorCount += 1;
   }
 
@@ -4094,7 +4092,7 @@ export class RuntimeInstance implements Runtime {
       modules: [...this.modules],
       clock: this.clockLabel,
       clockWarningCount: this.frameClock.clockWarningCount,
-      errors: [...this.errorRing],
+      errors: this.errorRing.entries(),
       errorCount: this.errorCount,
     };
     if (!this.isM2) return base;
