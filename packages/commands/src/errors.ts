@@ -532,6 +532,8 @@ export function prefabCameraCaptureForbidden(
 export function prefabNestedForbidden(
   sourceEntityId: string,
   prefabInstanceIds: readonly string[],
+  /** Set when the instances are further copies of the prefab being updated. */
+  samePrefabId?: string,
 ): CommandError {
   return {
     code: 'prefab_nested_forbidden',
@@ -539,7 +541,9 @@ export function prefabNestedForbidden(
     sourceEntityId,
     prefabInstanceIds,
     message:
-      'the selected subtree contains a prefab instance (components.prefab); M2 definitions cannot contain prefab instances',
+      samePrefabId !== undefined
+        ? `the selected copy holds another copy of prefab "${samePrefabId}" (${prefabInstanceIds.join(', ')}); a prefab cannot contain itself: apply that copy on its own, or move it out first`
+        : 'the selected subtree contains a prefab instance (components.prefab); M2 definitions cannot contain prefab instances',
   };
 }
 

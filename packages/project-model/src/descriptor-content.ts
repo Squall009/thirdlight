@@ -717,6 +717,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       str('displayName', 'Name', 'Shown in the prefab list.', { ...NAME, required: true, readOnly: true }),
       int('createdRevision', 'Created at', 'The project revision it was captured at.', { required: true, min: 0, readOnly: true }),
       int('updatedRevision', 'Updated at', 'The revision updatePrefab last replaced its contents at.', { min: 0, readOnly: true }),
+      int('nextLocalNumber', 'Next part number', 'The least number a new part\'s local id takes; a dropped part\'s id is never given to another part.', { min: 1, readOnly: true }),
       int('entityCount', 'Objects', 'How many objects it holds (derived).', { required: true, min: 1, max: MAX_PREFAB_ENTITIES, readOnly: true }),
       int('depth', 'Depth', 'Hierarchy depth (derived).', { required: true, min: 1, readOnly: true }),
       list('entities', 'Objects', `1–${MAX_PREFAB_ENTITIES} objects, parents first.`, obj('*', 'Prefab object', 'One object of the prefab.', [

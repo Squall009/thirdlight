@@ -5,7 +5,7 @@
  */
 import { useCallback, useMemo, useState, type MutableRefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
-import { collectOverrides, newPrefabDraft, overrideDraftKey, planCreatePrefab, planInstantiatePrefab, type CaptureEntityView } from '../../session/prefab-authoring';
+import { collectOverrides, copyRootOf, newPrefabDraft, overrideDraftKey, planCreatePrefab, planInstantiatePrefab, type CaptureEntityView } from '../../session/prefab-authoring';
 import { deriveOverrideTargets } from '../../session/property-controls';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 import { refusal, type ClientRef, type SetNotice, type UiError } from './commands';
@@ -94,16 +94,14 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
    */
   const applyToPrefab = useCallback(async (entityId: string) => {
     const c = clientRef.current;
-    const from = c?.projection.getEntity(entityId);
-    const prefabId = from?.prefab?.prefabId;
-    if (!c || from === undefined || prefabId === undefined) return;
-    // The copy's root: the topmost object above that came from the same prefab.
-    let root = from;
-    for (let depth = 0; root.parentId !== null && depth < 64; depth++) {
-      const parent = c.projection.getEntity(root.parentId);
-      if (parent?.prefab?.prefabId !== prefabId) break;
-      root = parent;
-    }
+    const prefabId = c?.projection.getEntity(entityId)?.prefab?.prefabId;
+    if (!c || prefabId === undefined) return;
+    // The definition names the root part that marks where a copy starts.
+    await c.catalog.ensurePrefabs([prefabId]);
+    const rootLocalId = c.prefabs.getDefinition(prefabId)?.entities[0]?.localId;
+    if (rootLocalId === undefined) return setNotice(`Apply to prefab: prefab “${prefabId}” could not be read.`);
+    const root = copyRootOf(entityId, (id) => c.projection.getEntity(id), rootLocalId);
+    if (root === undefined) return;
     let failure: UiError | null = null;
     const ok = await runTypedCommand('updatePrefab', { prefabId, fromEntity: root.id }, (e) => (failure = e));
     const name = c.prefabs.getDefinition(prefabId)?.displayName ?? prefabId;

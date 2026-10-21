@@ -35,8 +35,10 @@ import {
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
   PREFAB_V4_COMPONENTS,
+  ENTITY_ID_MAX,
   canonicalPrefabs,
   effectiveEntityFlags,
+  entityIdAt,
   nextFreeEntityIdOf,
 } from '@thirdlight/project-model';
 
@@ -207,18 +209,46 @@ function entityRefKeys(catalog: ContentCatalog): Map<string, string[]> {
   return refKeys;
 }
 
+/** The number of a `<prefix>-N` id, or undefined for an id without one. */
+function localNumber(id: string): number | undefined {
+  const m = /-(\d+)$/.exec(id);
+  if (m === null) return undefined;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? n : undefined;
+}
+
+/**
+ * The least number a new part's local id may take: past every numbered id
+ * the definition holds, and never below the number it recorded, so ids its
+ * earlier versions held and dropped are never handed out again.
+ */
+function nextLocalNumberOf(definition: PrefabDefinition): number {
+  let next = definition.nextLocalNumber ?? 1;
+  for (const e of definition.entities) {
+    const n = localNumber(e.localId);
+    if (n !== undefined && n >= next) next = n + 1;
+  }
+  return next;
+}
+
 /**
  * The local ids an update gives the captured objects, so a copy's
  * provenance, instantiate overrides and script references to the prefab's
- * parts keep naming the same parts: an object copied from this prefab keeps
- * the local id it was copied from, the root keeps the old root's, any other
- * object is named by its scene id (a fresh one if that is taken).
+ * parts keep naming the same parts: the root keeps the old root's (so the
+ * root's local id never changes and always marks a copy's root), an object
+ * copied from this prefab keeps the local id it was copied from, an object
+ * whose scene id names a part the prefab holds is that part again (it was
+ * captured by its scene id), any other object is a new part. A new part is
+ * named by its scene id only when that id's number is past every id the
+ * definition ever held; otherwise it gets a fresh `<prefix>-N` from that
+ * number on. A dropped part's id therefore never names a different part,
+ * which copies placed earlier still name.
  */
 function updateLocalIds(
   closure: readonly EntityV3[],
   prefabId: string,
   previous: PrefabDefinition,
-): { ok: true; localOf: Map<string, string> } | { ok: false; prefix: string } {
+): { ok: true; localOf: Map<string, string>; nextLocalNumber: number } | { ok: false; prefix: string } {
   const localOf = new Map<string, string>();
   const taken = new Set<string>();
   const claim = (id: string, local: string): void => {
@@ -226,26 +256,28 @@ function updateLocalIds(
     localOf.set(id, local);
     taken.add(local);
   };
-  const copiedFrom = (e: EntityV3): string | undefined =>
-    e.components.prefab?.prefabId === prefabId ? e.components.prefab.localId : undefined;
   const root = closure[0] as EntityV3;
-  claim(root.id, copiedFrom(root) ?? (previous.entities[0] as PrefabEntity).localId);
+  claim(root.id, (previous.entities[0] as PrefabEntity).localId);
   for (const e of closure) {
-    const from = copiedFrom(e);
-    if (from !== undefined) claim(e.id, from);
+    if (e.components.prefab?.prefabId === prefabId) claim(e.id, e.components.prefab.localId);
   }
+  let next = nextLocalNumberOf(previous);
+  const held = new Set(previous.entities.map((p) => p.localId));
   for (const e of closure) {
     if (localOf.has(e.id)) continue;
-    if (!taken.has(e.id)) {
+    const own = localNumber(e.id);
+    if (!taken.has(e.id) && (held.has(e.id) || (own !== undefined && own >= next))) {
       claim(e.id, e.id);
+      if (own !== undefined && own >= next) next = own + 1;
       continue;
     }
     const prefix = idPrefix(e.components as unknown as PrefabComponentsV2);
-    const fresh = nextFreeEntityId(taken, prefix);
-    if (fresh === undefined) return { ok: false, prefix };
-    claim(e.id, fresh);
+    while (next <= ENTITY_ID_MAX && taken.has(entityIdAt(prefix, next))) next += 1;
+    if (next > ENTITY_ID_MAX) return { ok: false, prefix };
+    claim(e.id, entityIdAt(prefix, next));
+    next += 1;
   }
-  return { ok: true, localOf };
+  return { ok: true, localOf, nextLocalNumber: next };
 }
 
 /**
@@ -261,7 +293,7 @@ function capturePrefabEntities(
   prefabId: string,
   sourceEntityId: string,
   previous?: PrefabDefinition,
-): { ok: true; entities: PrefabEntity[]; depth: number } | { ok: false; error: CommandError } {
+): { ok: true; entities: PrefabEntity[]; depth: number; nextLocalNumber?: number } | { ok: false; error: CommandError } {
   const scene = input.scene;
   const indexById = new Map(scene.entities.map((e) => [e.id, e]));
   if (!indexById.has(sourceEntityId)) return { ok: false, error: entityNotFound(sourceEntityId) };
@@ -283,6 +315,17 @@ function capturePrefabEntities(
     .map((e) => e.id);
   if (prefabInstanceIds.length > 0) {
     return { ok: false, error: prefabNestedForbidden(sourceEntityId, prefabInstanceIds) };
+  }
+  if (previous !== undefined) {
+    // Another copy of the same prefab below the source (its root names the
+    // prefab's root part, which never changes) would be captured as more
+    // parts of one copy: the prefab would come to hold itself.
+    const rootLocal = (previous.entities[0] as PrefabEntity).localId;
+    const otherCopies = closure
+      .slice(1)
+      .filter((e) => e.components.prefab?.prefabId === prefabId && e.components.prefab.localId === rootLocal)
+      .map((e) => e.id);
+    if (otherCopies.length > 0) return { ok: false, error: prefabNestedForbidden(sourceEntityId, otherCopies, prefabId) };
   }
   const external = findExternalReference(closure, closureSet, catalog);
   if (external !== null) {
@@ -309,10 +352,12 @@ function capturePrefabEntities(
     return { ok: false, error: limitsExceeded('prefab_entities', closure.length, MAX_PREFAB_ENTITIES) };
   }
   let localOf = new Map(closureIds.map((id) => [id, id]));
+  let nextLocalNumber: number | undefined;
   if (previous !== undefined) {
     const named = updateLocalIds(closure, prefabId, previous);
     if (!named.ok) return { ok: false, error: idExhaustion(named.prefix) };
     localOf = named.localOf;
+    nextLocalNumber = named.nextLocalNumber;
   }
   const refKeys = entityRefKeys(catalog);
   // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
@@ -353,7 +398,7 @@ function capturePrefabEntities(
   if (depth > MAX_PREFAB_DEPTH) {
     return { ok: false, error: limitsExceeded('prefab_depth', depth, MAX_PREFAB_DEPTH) };
   }
-  return { ok: true, entities, depth };
+  return { ok: true, entities, depth, ...(nextLocalNumber !== undefined ? { nextLocalNumber } : {}) };
 }
 
 function displayNameError(displayName: string): CommandError {
@@ -446,10 +491,12 @@ export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOut
     depth: captured.depth,
     entities: captured.entities,
   };
-  // The same contents again are no change (the revision alone would make one).
-  const { updatedRevision: _was, ...unrevised } = previous;
+  // The same contents again are no change (the revision and the part
+  // counter alone would make one).
+  const { updatedRevision: _was, nextLocalNumber: _counted, ...unrevised } = previous;
   const same = JSON.stringify(canonicalPrefabs([replaced])) === JSON.stringify(canonicalPrefabs([unrevised]));
-  const definition: PrefabDefinition = same ? previous : { ...replaced, updatedRevision: input.revision };
+  const nextLocalNumber = captured.nextLocalNumber ?? nextLocalNumberOf(previous);
+  const definition: PrefabDefinition = same ? previous : { ...replaced, updatedRevision: input.revision, nextLocalNumber };
   const bytes = canonicalBytes(definition);
   if (bytes > MAX_PREFAB_BYTES) {
     return { ok: false, error: limitsExceeded('prefab_bytes', bytes, MAX_PREFAB_BYTES) };
@@ -478,7 +525,9 @@ export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOut
       scene: gate.scene,
       content: gate.content,
       change,
-      inverse: { kind: 'updatePrefab', prefabId: args.prefabId, restore: deepClone(previous) },
+      // The undo puts the old contents back but keeps the part counter: copies
+      // placed meanwhile name the new parts, whose ids stay spent.
+      inverse: { kind: 'updatePrefab', prefabId: args.prefabId, restore: canonicalPrefabs([{ ...previous, nextLocalNumber }])[0] as PrefabDefinition },
     },
   };
 }

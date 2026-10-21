@@ -39,7 +39,7 @@ import {
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
 
-const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'updatedRevision', 'entityCount', 'depth', 'entities']);
+const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'updatedRevision', 'nextLocalNumber', 'entityCount', 'depth', 'entities']);
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'tags', 'components']);
 
 // ---- prefabs ----------------------------------------------------
@@ -254,6 +254,10 @@ export function validatePrefabDefinition(d: unknown, path: string, errors: Model
   if (updated !== undefined && (typeof updated !== 'number' || !Number.isInteger(updated) || updated < 0 || updated > Number.MAX_SAFE_INTEGER)) {
     errors.push(withFound({ code: 'number_out_of_range', path: `${path}/updatedRevision`, message: 'updatedRevision must be an integer in [0, 2^53-1]', expected: 'integer in [0, 2^53-1]' }, updated));
   }
+  const nextLocal = d['nextLocalNumber'];
+  if (nextLocal !== undefined && (typeof nextLocal !== 'number' || !Number.isInteger(nextLocal) || nextLocal < 1 || nextLocal > Number.MAX_SAFE_INTEGER)) {
+    errors.push(withFound({ code: 'number_out_of_range', path: `${path}/nextLocalNumber`, message: 'nextLocalNumber must be an integer in [1, 2^53-1]', expected: 'integer in [1, 2^53-1]' }, nextLocal));
+  }
 
   const entities = d['entities'];
   if (entities === undefined) errors.push(fieldMissing(`${path}/entities`, 'entities'));
@@ -354,6 +358,7 @@ export function canonicalPrefab(d: PrefabDefinition): PrefabDefinition {
     displayName: d.displayName,
     createdRevision: d.createdRevision,
     ...(d.updatedRevision !== undefined ? { updatedRevision: d.updatedRevision } : {}),
+    ...(d.nextLocalNumber !== undefined ? { nextLocalNumber: d.nextLocalNumber } : {}),
     entityCount: d.entityCount,
     depth: d.depth,
     entities: d.entities.map(canonicalPrefabEntity),

@@ -238,26 +238,10 @@ function toDeclarationView(b: BehaviorRecord): BehaviorDeclarationView {
   };
 }
 
+/**
+ * A deep copy of the whole definition: it is what copies are placed from, so
+ * every field of it (tags, the gameplay components, the part counter) stays.
+ */
 function cloneDefinition(d: PrefabDefinition): PrefabDefinition {
-  return {
-    prefabId: d.prefabId,
-    displayName: d.displayName,
-    createdRevision: d.createdRevision,
-    ...(d.updatedRevision !== undefined ? { updatedRevision: d.updatedRevision } : {}),
-    entityCount: d.entityCount,
-    depth: d.depth,
-    entities: d.entities.map((e) => ({
-      localId: e.localId,
-      ...(e.name !== undefined ? { name: e.name } : {}),
-      ...(e.parentLocalId !== undefined ? { parentLocalId: e.parentLocalId } : {}),
-      components: {
-        transform: e.components.transform,
-        ...(e.components.model !== undefined ? { model: e.components.model } : {}),
-        ...(e.components.box !== undefined ? { box: e.components.box } : {}),
-        ...(e.components.behavior !== undefined
-          ? { behavior: { behaviorId: e.components.behavior.behaviorId, values: { ...e.components.behavior.values } } }
-          : {}),
-      },
-    })),
-  };
+  return structuredClone(d);
 }

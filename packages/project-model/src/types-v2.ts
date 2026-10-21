@@ -491,6 +491,13 @@ export interface PrefabDefinition {
   createdRevision: number;
   /** The project revision its contents were last replaced at (`updatePrefab`); absent: never replaced. */
   updatedRevision?: number;
+  /**
+   * The least number a new part's local id may take (`<prefix>-N`): every
+   * numbered local id the definition ever held is below it, so a part an
+   * update drops never has its id given to a different part (copies placed
+   * earlier still name it). Written by `updatePrefab`; absent: never updated.
+   */
+  nextLocalNumber?: number;
   entityCount: number;
   depth: number;
   entities: PrefabEntity[];

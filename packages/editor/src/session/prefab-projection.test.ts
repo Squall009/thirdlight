@@ -59,6 +59,21 @@ describe('prefab/declaration projection hydration', () => {
     p.getDefinition('prefab-0001')!.displayName = 'mutated';
     expect(input.displayName).toBe('Kit');
   });
+
+  it('keeps every field of a definition: part tags, gameplay components, the part counter', () => {
+    const base = definition('prefab-0001');
+    const full: PrefabDefinition = {
+      ...base,
+      updatedRevision: 9,
+      nextLocalNumber: 4,
+      entities: [{ ...base.entities[0]!, tags: 5, components: { ...base.entities[0]!.components, collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } } }],
+    };
+    const p = new PrefabProjection();
+    p.hydrate([full], []);
+    expect(p.getDefinition('prefab-0001')).toEqual(full);
+    p.applyChange({ type: 'updatePrefab', prefabId: 'prefab-0001', previous: base, next: full });
+    expect(p.getDefinition('prefab-0001')).toEqual(full);
+  });
 });
 
 describe('definitions/declarations converge from applied changes', () => {

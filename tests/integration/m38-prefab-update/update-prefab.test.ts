@@ -106,7 +106,8 @@ describe('updatePrefab', () => {
     // Undo puts the old contents back; redo the new ones.
     const undone = ok(env, 'undo', {});
     expect(undone.change).toMatchObject({ type: 'updatePrefab', prefabId: 'crate' });
-    expect(definition(env, 'crate')).toEqual(before);
+    // The part counter stays where the update left it (the ids it handed out stay spent).
+    expect(definition(env, 'crate')).toEqual({ ...before, nextLocalNumber: after.nextLocalNumber });
     ok(env, 'redo', {});
     expect(definition(env, 'crate')).toEqual(after);
 
@@ -149,6 +150,51 @@ describe('updatePrefab', () => {
       expect(spawned[0].components.behavior.values.target).toBe(spawned[2].id);
     } finally {
       await h.dispose();
+      env.svc.dispose();
+    }
+  });
+
+  it('refuses a copy holding another copy of the same prefab, and never gives a dropped part\'s id to a new part', () => {
+    const env = makeBuildEnv('m38-prefab-update-ids');
+    try {
+      const root = ok(env, 'createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Crate' }).createdId as string;
+      const lid = ok(env, 'createEntity', { kind: 'box', name: 'Lid', parentId: root }).createdId as string;
+      const knob = ok(env, 'createEntity', { kind: 'box', name: 'Knob', parentId: root }).createdId as string;
+      ok(env, 'createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: root });
+      const mapOf = (r: Any): Map<string, string> => new Map((r.change.mapping as { localId: string; entityId: string }[]).map((m) => [m.localId, m.entityId]));
+
+      // Copy A, and copy B placed under A's lid.
+      const a = mapOf(ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate' }));
+      const b = mapOf(ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate', parentId: a.get(lid) }));
+      // Applying A (or A's lid) would capture B as more parts of A: the prefab would hold itself.
+      for (const from of [a.get(root), a.get(lid)]) {
+        const nested = command(env, 'updatePrefab', { prefabId: 'crate', fromEntity: from }) as Any;
+        expect(nested.ok).toBe(false);
+        expect(nested.error).toMatchObject({ code: 'prefab_nested_forbidden', prefabInstanceIds: [b.get(root)] });
+        expect(nested.error.message).toContain('another copy of prefab "crate"');
+      }
+
+      // B on its own applies; without its knob, the knob part is dropped.
+      ok(env, 'deleteEntity', { entityId: b.get(knob) });
+      ok(env, 'updatePrefab', { prefabId: 'crate', fromEntity: b.get(root) });
+      const dropped = definition(env, 'crate');
+      expect(dropped.entities.map((e: Any) => e.localId)).toEqual([root, lid]);
+      expect(dropped.nextLocalNumber).toBeGreaterThan(Number(/-(\d+)$/.exec(knob)![1]));
+
+      // A new part whose scene id another part already has gets a fresh id, never the dropped knob's
+      // (copy A still names its knob by that id): the original lid moved into a new copy C.
+      const c = mapOf(ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate' }));
+      ok(env, 'moveEntities', { entityIds: [lid], parentId: c.get(root) });
+      ok(env, 'updatePrefab', { prefabId: 'crate', fromEntity: c.get(root) });
+      const grown = definition(env, 'crate');
+      const fresh = grown.entities.map((e: Any) => e.localId)[2] as string;
+      expect(grown.entities.map((e: Any) => [e.localId, e.parentLocalId ?? null, e.name])).toEqual([[root, null, 'Crate'], [lid, root, 'Lid'], [fresh, root, 'Lid']]);
+      expect([root, lid, knob]).not.toContain(fresh);
+      expect(grown.nextLocalNumber).toBeGreaterThan(dropped.nextLocalNumber);
+      // Undo puts the two-part contents back and keeps the counter.
+      ok(env, 'undo', {});
+      expect(definition(env, 'crate')).toEqual({ ...dropped, nextLocalNumber: grown.nextLocalNumber });
+    } finally {
       env.svc.dispose();
     }
   });

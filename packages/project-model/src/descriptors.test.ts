@@ -940,7 +940,7 @@ function runAllProbes(): void {
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
   // The project save schema.
   probe('saveSchema', contentErrors, contentDoc({ saveSchema: { version: 3, slots: 5, migrations: [{ from: 1, name: 'v1to2' }], sections: ['grid', 'storage'], legacyWorld: false, thumbnail: { width: 160, height: 90, format: 'webp', quality: 0.8 }, settings: [{ key: 'hints', type: 'bool', default: true }] } }), '/saveSchema', block('saveSchema'), 'saveSchema:');
-  const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, updatedRevision: 2, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, tags: 5, components: { transform: T } }] };
+  const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, updatedRevision: 2, nextLocalNumber: 3, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, tags: 5, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
   // The resources' addresses and labels.
   probe('loadable', contentErrors, contentDoc({ prefabs: [prefabDef], loadable: [{ kind: 'prefab', id: 'pre-a', address: 'props/crate', labels: ['props'] }] }), '/loadable', block('loadable'), 'loadable:');
@@ -1041,8 +1041,8 @@ describe('descriptor registry', () => {
     // the trim sheet's rows at their real height, about 0.3 KB; kits and the kit a layer or architecture names, about 2.6 KB;
     // occlusion culling, the setting and a quality level's field, about 0.6 KB; occluders — the object flag and a model's import setting, about 1 KB;
     // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB; a block layer's 2D play plane
-    // and a block type's one-way flag, about 0.6 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(333_900);
+    // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(334_200);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

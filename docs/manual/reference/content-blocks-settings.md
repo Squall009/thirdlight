@@ -115,6 +115,7 @@ Captured object groups placed as independent copies.
 | `prefabs[].displayName` | string, name, 1–128 chars |  |  | **Name.** Shown in the prefab list. (required; written by a tool; format name) |
 | `prefabs[].createdRevision` | int |  | ≥ 0, step 1 | **Created at.** The project revision it was captured at. (required; written by a tool) |
 | `prefabs[].updatedRevision` | int |  | ≥ 0, step 1 | **Updated at.** The revision updatePrefab last replaced its contents at. (written by a tool) |
+| `prefabs[].nextLocalNumber` | int |  | ≥ 1, step 1 | **Next part number.** The least number a new part's local id takes; a dropped part's id is never given to another part. (written by a tool) |
 | `prefabs[].entityCount` | int |  | 1 – 1024, step 1 | **Objects.** How many objects it holds (derived). (required; written by a tool) |
 | `prefabs[].depth` | int |  | ≥ 1, step 1 | **Depth.** Hierarchy depth (derived). (required; written by a tool) |
 | `prefabs[].entities` | list of objects, 1–1024 items |  |  | **Objects.** 1–1024 objects, parents first. (required; written by a tool) |

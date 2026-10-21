@@ -512,6 +512,38 @@ export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ com
   return { ok: true, command: { op: 'instantiatePrefab', args } };
 }
 
+// ---- apply a copy back to its prefab --------------------------------------------
+
+/** What finding a copy's root reads of a scene object. */
+export interface CopyRootView {
+  id: string;
+  parentId: string | null;
+  prefab?: { prefabId: string; localId: string } | null;
+}
+
+/**
+ * The object "Apply to prefab" captures for the copy `entityId` is part of:
+ * the nearest object at or above it that is a copy's root (its provenance
+ * names the prefab's root part, `rootLocalId`, which an update never
+ * renames), climbing only through objects copied from the same prefab. A
+ * copy placed under another copy of the same prefab is a copy of its own,
+ * never more parts of the outer one. With no root on the way (it was deleted,
+ * or the part was moved out of its copy) the topmost object of the climb is
+ * taken. Undefined when `entityId` is not a copy.
+ */
+export function copyRootOf<T extends CopyRootView>(entityId: string, getEntity: (id: string) => T | undefined, rootLocalId: string): T | undefined {
+  let at = getEntity(entityId);
+  const prefabId = at?.prefab?.prefabId;
+  if (at === undefined || prefabId === undefined) return undefined;
+  // A scene is at most MAX_SCENE_DEPTH deep; the bound only guards a broken projection.
+  for (let depth = 1; depth < MAX_SCENE_DEPTH && at.prefab?.localId !== rootLocalId && at.parentId !== null; depth += 1) {
+    const parent: T | undefined = getEntity(at.parentId);
+    if (parent?.prefab?.prefabId !== prefabId) break;
+    at = parent;
+  }
+  return at;
+}
+
 // ---- initial-override draft collection ----------------------------------------
 
 /** The draft-map key for one `(localId, key)` override control. */

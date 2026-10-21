@@ -12,6 +12,7 @@ import type { PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-
 import {
   captureClosure,
   collectOverrides,
+  copyRootOf,
   MAX_PREFAB_ENTITIES,
   entityRefLinks,
   makePrefabId,
@@ -358,5 +359,32 @@ describe('capture drafts', () => {
   it('falls back to a safe display name for an empty/nameless selection', () => {
     expect(newPrefabDraft(null, []).displayName).toBe('Prefab');
     expect(newPrefabDraft({ id: 'group-1', name: '   ' }, []).displayName).toBe('Prefab');
+  });
+});
+
+describe('Apply to prefab captures the copy the object is part of', () => {
+  // Copy A of "crate" (root part "r", part "lid"); copy B of "crate" placed under A's lid; an unrelated parent above A.
+  const scene: CaptureEntityView[] = [
+    { id: 'group-1', parentId: null, prefab: null, behavior: null },
+    { id: 'a-root', parentId: 'group-1', prefab: { prefabId: 'crate', localId: 'r' }, behavior: null },
+    { id: 'a-lid', parentId: 'a-root', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
+    { id: 'b-root', parentId: 'a-lid', prefab: { prefabId: 'crate', localId: 'r' }, behavior: null },
+    { id: 'b-lid', parentId: 'b-root', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
+    { id: 'loose-lid', parentId: 'group-1', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
+  ];
+  const byId = new Map(scene.map((e) => [e.id, e]));
+  const root = (id: string): string | undefined => copyRootOf(id, (x) => byId.get(x), 'r')?.id;
+
+  it('stops at the nearest copy root, never climbing into an outer copy of the same prefab', () => {
+    expect(root('b-lid')).toBe('b-root');
+    expect(root('b-root')).toBe('b-root');
+    expect(root('a-lid')).toBe('a-root');
+    expect(root('a-root')).toBe('a-root');
+  });
+
+  it('takes the part itself when its copy root is gone, and nothing for an object that is no copy', () => {
+    expect(root('loose-lid')).toBe('loose-lid');
+    expect(root('group-1')).toBeUndefined();
+    expect(root('missing')).toBeUndefined();
   });
 });
