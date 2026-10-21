@@ -49,6 +49,8 @@ export interface TrimCheckView {
   height: number;
   sizeMatches: boolean;
   transcoded: boolean;
+  /** False: an ETC1S KTX2 whose padding differs, which its blocks alone can do: not judged (no problems listed). */
+  paddingRead: boolean;
   problems: TrimPaddingProblem[];
 }
 import { type CommandResult, type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';

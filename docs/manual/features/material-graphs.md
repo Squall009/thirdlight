@@ -270,8 +270,11 @@ and textures and the **Trim sheet** table:
   become the sheet's **decal cells**, listed under the table; anything else
   is left out and named), **Check padding** compares the albedo's padding pixels with each
   row's edge on the backend (a PNG as imported, a KTX2's lossless original,
-  else the KTX2 transcoded with a looser tolerance) and says which row and
-  side differ. A table the model refuses is not saved; warnings (no or thin
+  else a UASTC KTX2 transcoded with a looser tolerance) and says which row and
+  side differ. An ETC1S KTX2 (the Texture Designer's albedo) is too lossy
+  for that: its 4 × 4 blocks move a row's edge and its gutter apart by as
+  much as a real fault, so gutters that differ there are reported as not
+  judged (gutters that still repeat pass); check the sheet's PNG export. A table the model refuses is not saved; warnings (no or thin
   padding, a shallow safe mip level, a size that is not a power of two,
   missing starter slots) are listed under it.
 

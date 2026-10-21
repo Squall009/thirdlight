@@ -172,7 +172,7 @@ export function createKitChecker(deps: { service: WorkspaceService; encoder: Tex
       } else if (options.image && albedo !== null) {
         const img = await readTrimSheetImage(deps, projectId, albedo);
         if (img.ok) {
-          report = trimSpecChecks(sheet.trim, { rgba: img.rgba, width: img.width, height: img.height, tolerance: img.transcoded ? TRIM_CHECK_TOLERANCE_TRANSCODED : TRIM_CHECK_TOLERANCE });
+          report = trimSpecChecks(sheet.trim, { rgba: img.rgba, width: img.width, height: img.height, tolerance: img.transcoded ? TRIM_CHECK_TOLERANCE_TRANSCODED : TRIM_CHECK_TOLERANCE, lossy: img.lossy });
           if (key !== '') sheets.set(materialId, { key, report });
           imageRead = true;
         } else imageError = img.message;

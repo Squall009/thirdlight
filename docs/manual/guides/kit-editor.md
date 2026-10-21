@@ -82,7 +82,8 @@ the rows as a table (slot, field or trim, height, pixels), and the spec's
 sheet checklist: size and texel density, gutters, the standard slots at
 their pixel bounds, rows on the 16 px grid, rows reading cleanly to mip
 level 4, gutters repeating their rows, no seam at the u wrap (nor the v
-wrap of a field), a real height in the albedo's alpha. The pixels are read
+wrap of a field), a real height in the albedo's alpha (an ETC1S KTX2's differing
+gutters are not judged, see [Check padding](../features/material-graphs.md)). The pixels are read
 when the kit is first opened and on **Check all**. **Trim sheet spec** (or
 **Open the spec**) shows the spec page itself.
 

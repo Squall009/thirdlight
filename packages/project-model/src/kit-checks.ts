@@ -293,6 +293,8 @@ export interface SheetImage {
   width: number;
   height: number;
   tolerance: number;
+  /** The pixels are an ETC1S KTX2's: gutters that differ are not judged (its blocks move them as much as a fault would). */
+  lossy?: boolean;
 }
 
 /** One row of the checker's table: where it is and the worst state of its checks. */
@@ -374,9 +376,13 @@ function imageChecks(sheet: TrimSheet, img: SheetImage, flag: (c: KitCheck) => v
     flag({ id: 'pixels', state: 'err', title: `The image is ${img.width} × ${img.height}`, detail: `The row table says ${sheet.size[0]} × ${sheet.size[1]}: every row lands in the wrong place.` });
     return;
   }
-  const padding = trimPaddingProblems(img.rgba, img.width, img.height, sheet, img.tolerance);
+  let padding = trimPaddingProblems(img.rgba, img.width, img.height, sheet, img.tolerance);
+  if (img.lossy === true && padding.length > 0) {
+    const worst = Math.max(...padding.map((p) => p.difference));
+    flag({ id: 'gutter', state: 'info', title: 'Gutters not judged from this image', detail: `The albedo is an ETC1S KTX2: its gutters differ from their rows by up to ${worst} (of 255), but its blocks move the pixels where a row meets its gutter as much as a real fault would. Check the sheet's PNG export, or use a UASTC KTX2.` });
+    padding = [];
+  } else if (padding.length === 0) flag({ id: 'gutter', state: 'ok', title: 'Gutters repeat their rows', detail: 'Fields continue their wrap, trims repeat their edge.' });
   for (const p of padding) flag({ id: `gutter:${p.slot}:${p.side}`, state: 'warn', row: p.slot, title: `${p.slot}: gutter ${p.side} does not repeat the row`, detail: `Pixel row ${p.y} differs by ${p.difference} (of 255): mips mix the neighbour in. ${sheet.rows.find((r) => r.slot === p.slot)?.tileV === true ? 'Continue the wrap' : 'Repeat the edge row'} into the gutter.` });
-  if (padding.length === 0) flag({ id: 'gutter', state: 'ok', title: 'Gutters repeat their rows', detail: 'Fields continue their wrap, trims repeat their edge.' });
   let flat: string[] = [];
   let seams = 0;
   for (const r of sheet.rows) {

@@ -116,5 +116,11 @@ describe('trim spec checks', () => {
     expect(r.checks.find((c) => c.id === 'height')!.title).toBe('No height in A on crown');
     expect(r.rows.find((x) => x.slot === 'crown')!.state).toBe('warn');
     expect(r.rows.find((x) => x.slot === 'upper_wall')!.state).toBe('ok');
+    // An ETC1S KTX2's pixels: the stale gutter is not judged a fault, the check says why; clean gutters still pass.
+    const lossy = trimSpecChecks(SHEET, { rgba: img, width: 2048, height: 2048, tolerance: 8, lossy: true });
+    expect(byId(lossy.checks)).toMatchObject({ gutter: 'info', 'seam-u:crown': 'warn', height: 'warn' });
+    expect(lossy.checks.some((c) => c.id.startsWith('gutter:'))).toBe(false);
+    expect(lossy.checks.find((c) => c.id === 'gutter')!.detail).toMatch(/differ from their rows by up to \d+ \(of 255\)/);
+    expect(byId(trimSpecChecks(SHEET, { rgba: sheetImage(SHEET), width: 2048, height: 2048, tolerance: 8, lossy: true }).checks)).toMatchObject({ gutter: 'ok' });
   });
 });

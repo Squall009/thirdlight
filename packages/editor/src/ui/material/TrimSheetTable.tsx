@@ -114,6 +114,7 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
       return;
     }
     if (!r.sizeMatches) setChecked(`The albedo is ${r.width} × ${r.height}, the table says ${sheet.size[0]} × ${sheet.size[1]}: set the size to the image's.`);
+    else if (!r.paddingRead) setChecked(`Padding not judged: the albedo is an ETC1S KTX2, whose blocks move the pixels at a row's edge as much as a real fault. Check the sheet's PNG export, or use a UASTC KTX2.`);
     else if (r.problems.length === 0) setChecked(`Padding OK: every row's padding repeats its edge (${r.width} × ${r.height}${r.transcoded ? ', read from the KTX2' : ''}).`);
     else setChecked(r.problems.map((p) => `“${p.slot}”: the padding ${p.side} differs from the row by up to ${p.difference} (pixel row ${p.y})`).join('; '));
   };
