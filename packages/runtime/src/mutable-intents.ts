@@ -16,11 +16,13 @@ export interface MutableControllerChannels {
   characterPlace: { x: number; y: number; z: number } | null;
   characterEnabled: boolean | null;
   characterWriters: Map<string, string>;
+  /** The character director holds or walks it this step: the player's input (its climb input too) does not reach it. */
+  inputHeld: boolean;
 }
 
 /** A further controller's empty channels. */
 export function emptyControllerChannels(): MutableControllerChannels {
-  return { move: null, jump: null, moveWriter: null, jumpWriter: null, moveY: null, characterMove: null, characterPlace: null, characterEnabled: null, characterWriters: new Map() };
+  return { move: null, jump: null, moveWriter: null, jumpWriter: null, moveY: null, characterMove: null, characterPlace: null, characterEnabled: null, characterWriters: new Map(), inputHeld: false };
 }
 
 /**
@@ -69,6 +71,7 @@ export function emptyMutableIntents(stepIndex: number): MutableIntentSet {
     characterPlace: null,
     characterEnabled: null,
     characterWriters: new Map(),
+    inputHeld: false,
     further: new Map(),
   };
 }
@@ -86,6 +89,7 @@ export function resetMutableIntents(s: MutableIntentSet, stepIndex: number): voi
   s.characterMove = null;
   s.characterPlace = null;
   s.characterEnabled = null;
+  s.inputHeld = false;
   if (s.characterWriters.size > 0) s.characterWriters.clear();
   if (s.further.size > 0) s.further.clear();
 }

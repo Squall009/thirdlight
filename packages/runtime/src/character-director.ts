@@ -18,9 +18,19 @@
  * `ctx.character` and the timeline's character track both go through this
  * one path. Every value comes from the simulation (the step's transforms,
  * the controllers' tuning), so page, worker and replays agree.
+ *
+ * What a cutscene leaves behind when it ends is decided in `release` alone:
+ * its holds end however it ends; a stop also switches each character it
+ * switched off or on back to what it was before (so a stopped cutscene
+ * never leaves the player parked), and stops its walks where they are; a
+ * finish or a skip leaves its last keys' state. A run restart forgets
+ * everything (`reset`; the controllers start switched on again), and a
+ * loaded save ends every walk, placement and turn (`saveLoaded`), since it
+ * puts the characters where it says.
  */
 import { character3DSettingsOf, controllerTuningOf, type EntityV3 } from '@thirdlight/project-model';
 
+import { actionAxis, type ActionFrame } from './actions';
 import { CHARACTER_IMPULSE_MAX } from './character-placement';
 import { quantizeIntentMove, validateIntentShape, validateIntentValue } from './intents';
 import type { MutableControllerChannels } from './mutable-intents';
@@ -52,6 +62,10 @@ export interface CharacterDirectorHost {
   settings(): GameplaySettings;
   /** The controller a call names (absent or empty: the first); undefined: not a player controller. */
   resolve(id: string | undefined): string | undefined;
+  /** Whether a scene is loading or asked for in this step (it may bring a player character the game has not seen yet). */
+  loading(): boolean;
+  /** The move action a controller reads (undefined: not a controller). */
+  moveAction(id: string): string | undefined;
   /** An object's transform this step. */
   transform(id: string): TransformState | undefined;
   /** A controller's document (its tuning). */
@@ -77,10 +91,11 @@ export interface TimelineCharacterPort {
   walk(id: string, position: readonly number[], options: { run?: boolean; facing?: number }, owner: string): boolean;
   /** Turn it (degrees about +Y): at its controller's turn speed, or at once. */
   turn(id: string, facing: number, instant: boolean): boolean;
-  setEnabled(id: string, enabled: boolean): boolean;
+  /** Switch its controller off or on (`owner`'s stop switches it back to what it was). */
+  setEnabled(id: string, enabled: boolean, owner: string): boolean;
   /** The player's input does not move it while `owner` holds it. */
   hold(id: string, owner: string): void;
-  /** `owner`'s holds end; its walks carry on (finished), land on their marks (skipped) or stop (stopped). */
+  /** `owner`'s holds end; its walks carry on (finished), land on their marks (skipped) or stop (stopped, which also switches its characters back). */
   release(owner: string, how: CharacterReleaseKind): void;
 }
 
@@ -118,6 +133,12 @@ export class CharacterDirector {
   private readonly directed = new Map<string, Directed>();
   private serial = 0;
   private readonly ended = new Map<number, CharacterWalkState>();
+  /** Each controller's switch as last applied through its channel (absent: on, as a controller starts). */
+  private readonly switchedOn = new Map<string, boolean>();
+  /** Per owner (a playing cutscene), each character's switch before the owner first switched it. */
+  private readonly switchedBefore = new Map<string, Map<string, boolean>>();
+  /** Placements a 2D transform key could not make, already logged. */
+  private readonly unplaced = new Set<string>();
 
   constructor(private readonly host: CharacterDirectorHost) {}
 
@@ -183,8 +204,19 @@ export class CharacterDirector {
     return true;
   }
 
-  setEnabled(id: string, enabled: boolean): void {
-    this.of(id).enabled = enabled;
+  setEnabled(id: string, enabled: boolean, owner?: string): void {
+    const d = this.of(id);
+    if (owner !== undefined) {
+      let before = this.switchedBefore.get(owner);
+      if (before === undefined) this.switchedBefore.set(owner, (before = new Map()));
+      if (!before.has(id)) before.set(id, d.enabled ?? this.switchedOn.get(id) ?? true);
+    }
+    d.enabled = enabled;
+  }
+
+  /** A script's `character_enable` of this step (the switch a later cutscene stop goes back to). */
+  noteEnabled(id: string | undefined, enabled: boolean): void {
+    if (id !== undefined) this.switchedOn.set(id, enabled);
   }
 
   stop(id: string): boolean {
@@ -204,46 +236,80 @@ export class CharacterDirector {
     this.of(id).holds.add(owner);
   }
 
+  /**
+   * A cutscene (`owner`) ends: the one rule for what it leaves behind. Its
+   * holds end. Finished: its walks carry on to their marks. Skipped: they
+   * land there, facing a turn asked after the walk began, else the walk's
+   * own facing. Stopped: they stop where they are, and each character it
+   * switched off or on is switched back to what it was before its first
+   * switch, unless another cutscene still playing has switched it since
+   * (that one's end decides).
+   */
   release(owner: string, how: CharacterReleaseKind): void {
     for (const d of this.directed.values()) {
       d.holds.delete(owner);
       const w = d.walk;
       if (w === null || w.owner !== owner || how === 'finished') continue;
       if (how === 'skipped') {
-        // A skip lands the walk on its mark, facing as it would have.
+        const turned = d.facing !== null ? (d.facing.yaw * 180) / Math.PI : null;
         this.endWalk(d, 'arrived');
         d.place = w.target;
-        d.placeFacing = w.facing ?? d.placeFacing;
+        d.placeFacing = turned ?? w.facing ?? d.placeFacing;
         d.facing = null;
       } else this.endWalk(d, 'stopped');
     }
+    const before = this.switchedBefore.get(owner);
+    if (before === undefined) return;
+    this.switchedBefore.delete(owner);
+    if (how !== 'stopped') return;
+    for (const [id, was] of before) {
+      if (![...this.switchedBefore.values()].some((m) => m.has(id))) this.setEnabled(id, was);
+    }
   }
 
-  /** A new run: nothing is asked of any character, walk handles count from 1 again. */
+  /** A new run: nothing is asked of any character, walk handles count from 1 again (the controllers start switched on). */
   reset(): void {
     this.directed.clear();
     this.ended.clear();
+    this.switchedOn.clear();
+    this.switchedBefore.clear();
+    this.unplaced.clear();
     this.serial = 0;
+  }
+
+  /**
+   * A save was loaded: it places the characters, so no walk, placement or
+   * turn asked before carries on from where it put them. Holds, switches
+   * and what a stop switches back stay with the cutscenes still playing.
+   */
+  saveLoaded(): void {
+    for (const [id, d] of this.directed) {
+      this.endWalk(d, 'stopped');
+      d.place = null;
+      d.placeFacing = null;
+      d.facing = null;
+      if (d.holds.size === 0 && d.enabled === null) this.directed.delete(id);
+    }
   }
 
   // ---- the step ----------------------------------------------------------------------
 
-  /** After the intent phase: each directed character's channels of this step (`held`: a game mode holds physics). */
-  afterIntentPhase(held: boolean): void {
+  /** After the intent phase: each directed character's channels of this step (`held`: a game mode holds physics; `action`: the step's input). */
+  afterIntentPhase(held: boolean, action: ActionFrame): void {
     if (this.directed.size === 0) return;
     let changed = false;
     for (const [id, d] of this.directed) {
       const t = this.host.transform(id);
-      if (t === undefined) {
-        // Its scene is not loaded: nothing waits for it.
-        this.endWalk(d, 'stopped');
-        this.directed.delete(id);
+      if (t === undefined || this.host.resolve(id) !== id) {
+        this.absent(id, d);
         continue;
       }
       const c = this.host.channels(id);
-      if (d.enabled !== null) {
+      // A held step runs no controller: the switch waits for one that does.
+      if (d.enabled !== null && !held) {
         c.characterEnabled = d.enabled;
         c.characterWriters.set('character_enable', CHARACTER_DIRECTOR_ID);
+        this.switchedOn.set(id, d.enabled);
         d.enabled = null;
         changed = true;
       }
@@ -258,10 +324,30 @@ export class CharacterDirector {
       if (d.walk !== null) this.walkStep(id, d, t, c, held);
       else if (d.holds.size > 0) this.input(c, 0, 0, false);
       if (d.walk !== null || d.holds.size > 0) changed = true;
-      if (d.facing !== null) this.turnStep(id, d, t);
-      if (d.walk === null && d.holds.size === 0 && d.facing === null) this.directed.delete(id);
+      if (d.facing !== null) this.turnStep(id, d, t, c, action);
+      if (d.walk === null && d.holds.size === 0 && d.facing === null && d.enabled === null) this.directed.delete(id);
     }
     if (changed) this.host.intentsChanged();
+  }
+
+  /**
+   * A directed character not in the game this step. While a scene loads
+   * (it may bring the character: a cutscene played in the step its scene
+   * was asked for) everything asked waits for it, and so does a character
+   * a cutscene holds whose scene went out (until it comes back or the
+   * cutscene ends). Otherwise its walk and turn end; a switch or placement
+   * asked of a player controller still waits for it to come back; an object
+   * that never became a player character is dropped with a log line.
+   */
+  private absent(id: string, d: Directed): void {
+    const controller = this.host.resolve(id) === id;
+    if (this.host.loading() || (controller && d.holds.size > 0)) return;
+    this.endWalk(d, 'stopped');
+    d.facing = null;
+    if (!controller) {
+      this.directed.delete(id);
+      this.host.warn(`"${id}" is not a player character (an object with a Character controller); what a cutscene asked of it is dropped`);
+    } else if (d.enabled === null && d.place === null) this.directed.delete(id);
   }
 
   /** One step of a walk: arrived, blocked, or the controller's input toward the mark. */
@@ -299,6 +385,8 @@ export class CharacterDirector {
 
   /** The controller's input of this step: a world direction (3D) or the move axis (2D); no jump. */
   private input(c: MutableControllerChannels, x: number, z: number, run: boolean): void {
+    // The climb input too: a held or walking character does not take hold of a ladder.
+    c.inputHeld = true;
     if (this.host.is3D()) {
       c.characterMove = { x, z, run };
       c.characterWriters.set('character_move', CHARACTER_DIRECTOR_ID);
@@ -314,10 +402,17 @@ export class CharacterDirector {
    * A turn's step: at the controller's turn speed in 3D (at once when asked).
    * On the 2D plane its face-movement models turn at once, and again each
    * step until it stands still: they follow the way it moves, and it may
-   * still be slowing down.
+   * still be slowing down. Once nothing holds it and no walk drives it, a
+   * turn ends as soon as the player (or a script's move) moves it: the
+   * player's input has the last word then (an instant turn still happens).
    */
-  private turnStep(id: string, d: Directed, t: TransformState): void {
+  private turnStep(id: string, d: Directed, t: TransformState, c: MutableControllerChannels, action: ActionFrame): void {
     const f = d.facing!;
+    if (d.holds.size === 0 && d.walk === null && this.moved(id, c, action)) {
+      if (f.instant) this.host.turn(id, f.yaw);
+      d.facing = null;
+      return;
+    }
     if (!this.host.is3D()) {
       this.host.turn(id, f.yaw);
       if (f.at !== undefined && Math.abs(t.position[0] - f.at) < 1e-4) d.facing = null;
@@ -330,6 +425,18 @@ export class CharacterDirector {
     const yaw = Math.abs(delta) <= rate ? f.yaw : wrap(from + Math.sign(delta) * rate);
     this.host.turn(id, yaw);
     if (yaw === f.yaw) d.facing = null;
+  }
+
+  /** Whether the step's input or a script's move intent moves a character. */
+  private moved(id: string, c: MutableControllerChannels, action: ActionFrame): boolean {
+    const name = this.host.moveAction(id);
+    if (name !== undefined) {
+      const [x, y] = actionAxis(action, name);
+      if (x !== 0 || y !== 0) return true;
+    }
+    if (c.moveWriter !== CHARACTER_DIRECTOR_ID && ((c.move ?? 0) !== 0 || (c.moveY ?? 0) !== 0)) return true;
+    const m = c.characterMove;
+    return m !== null && c.characterWriters.get('character_move') !== CHARACTER_DIRECTOR_ID && (m.x !== 0 || m.z !== 0);
   }
 
   /** A controller's walk and run speeds, deceleration (m/s, m/s²) and turn speed (rad/s). */
@@ -387,12 +494,13 @@ export class CharacterDirector {
 
   /** The timeline's character track. */
   readonly timelinePort: TimelineCharacterPort = Object.freeze({
-    has: (id: string): boolean => this.host.resolve(id) === id && id !== '',
+    // An object not in the game yet may come with a scene that is loading (the director waits for it).
+    has: (id: string): boolean => id !== '' && (this.host.resolve(id) === id || (this.host.transform(id) === undefined && this.host.loading())),
     place: (id: string, position: readonly number[], facing: number | undefined): boolean => this.place(id, position, facing),
     walk: (id: string, position: readonly number[], options: { run?: boolean; facing?: number }, owner: string): boolean => this.walkTo(id, position, options, owner) > 0,
     turn: (id: string, facing: number, instant: boolean): boolean => this.turn(id, facing, instant),
-    setEnabled: (id: string, enabled: boolean): boolean => {
-      this.setEnabled(id, enabled);
+    setEnabled: (id: string, enabled: boolean, owner: string): boolean => {
+      this.setEnabled(id, enabled, owner);
       return true;
     },
     hold: (id: string, owner: string): void => this.hold(id, owner),
@@ -409,7 +517,10 @@ export class CharacterDirector {
     if (this.host.resolve(id) !== id) return false;
     if (pose.rotation !== undefined) this.turn(id, (yawOf(pose.rotation) * 180) / Math.PI, true);
     if (this.host.is3D()) return false;
-    if (pose.position !== undefined) this.place(id, [pose.position[0], pose.position[1], pose.position[2] ?? 0], undefined);
+    if (pose.position !== undefined && !this.place(id, [pose.position[0], pose.position[1], pose.position[2] ?? 0], undefined) && !this.unplaced.has(id)) {
+      this.unplaced.add(id);
+      this.host.warn(`a timeline's position key cannot place "${id}": a 2D character needs a physics world that places it`);
+    }
     return true;
   }
 }

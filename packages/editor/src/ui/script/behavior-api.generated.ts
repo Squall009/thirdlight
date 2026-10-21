@@ -3834,6 +3834,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was)."
     },
     {
+      "name": "inputHeld",
+      "kind": "property",
+      "detail": "boolean | undefined",
+      "optional": true,
+      "doc": "True when a cutscene holds the character or a walk drives it this step: the player's input, its climb input included, does not reach it (absent: not held)."
+    },
+    {
       "name": "controllers",
       "kind": "property",
       "detail": "Readonly<Record<string, ControllerIntents>> | undefined",

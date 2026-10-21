@@ -403,6 +403,8 @@ export interface IntentSet {
   readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
   /** The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was). */
   readonly characterYaw?: number;
+  /** True when a cutscene holds the character or a walk drives it this step: the player's input, its climb input included, does not reach it (absent: not held). */
+  readonly inputHeld?: boolean;
   /**
    * The further player controllers' channels this step, by their object's id
    * (present only when an intent, an impulse or a placement named one; the

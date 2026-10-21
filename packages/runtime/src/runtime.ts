@@ -644,7 +644,7 @@ export class RuntimeInstance implements Runtime {
     is3D: () => this.physics3d !== undefined, hz: () => this.hz, settings: () => this.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.curr.get(id), entityDocument: (id) => this.entityDocument(id),
     channels: (id) => this.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
     canPlace: () => this.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
-    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:character', 'warn', message),
+    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:character', 'warn', message), loading: () => [...this.sceneStatus.values()].includes('loading') || this.stepSceneOps.some((op) => op.op === 'load' || op.op === 'reload'), moveAction: (id) => this.controllers.actionsOf(id)?.move,
   });
   /** Per-object look overrides (`ctx.look`; the renderer applies them). */
   private readonly lookControl = Object.freeze({
@@ -1978,7 +1978,7 @@ export class RuntimeInstance implements Runtime {
     try {
       this.runPhase('intent', action);
       // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
-      this.director.afterIntentPhase(held);
+      this.director.afterIntentPhase(held, action);
       this.placement.afterIntentPhase(ordinal);
       if (!held) {
         this.runPhase('controller', action);
@@ -2400,6 +2400,7 @@ export class RuntimeInstance implements Runtime {
     this.activeSpawn = world.activeSpawn;
     this.listedScene = world.listedScene >= 0 ? world.listedScene : null;
     this.placement.restoreFrom(world);
+    this.director.saveLoaded();
   }
 
   /** The player controllers, the physics phase's view of the runtime. */
@@ -2415,9 +2416,7 @@ export class RuntimeInstance implements Runtime {
       carry2D: (id) => rt.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
       carry3D: (id) => rt.blocks?.carryDelta3(id) ?? [0, 0, 0],
       flushCollision: () => rt.grid.flushCollision(rt.physics3d, rt.physics),
-      countStep: () => {
-        rt.physicsSteps += 1;
-      },
+      countStep: () => void (rt.physicsSteps += 1),
       status3D: (id) => {
         for (const entry of rt.entries) {
           const probe = entry.instance as { character3DStatus?: (id?: string) => { enabled: boolean; climbing: boolean; yaw: number } | null };
@@ -3527,11 +3526,12 @@ export class RuntimeInstance implements Runtime {
   }
 
   /** A controller's impulse and placement yaw this step, as intent fields (present only when set). */
-  private controllerExtras(id: string | undefined): { impulse?: { x: number; y: number; z: number }; characterYaw?: number } {
+  private controllerExtras(id: string | undefined): { impulse?: { x: number; y: number; z: number }; characterYaw?: number; inputHeld?: boolean } {
     if (id === undefined) return {};
     const i = this.controllers.impulseOf(id);
     const yaw = this.placement.of(id)?.stepFacing ?? null;
-    return { ...(i !== null ? { impulse: Object.freeze({ x: i[0], y: i[1], z: i[2] }) } : {}), ...(yaw !== null ? { characterYaw: yaw } : {}) };
+    const held = (id === this.controllers.first ? this.intents : this.intents.further.get(id))?.inputHeld === true;
+    return { ...(i !== null ? { impulse: Object.freeze({ x: i[0], y: i[1], z: i[2] }) } : {}), ...(yaw !== null ? { characterYaw: yaw } : {}), ...(held ? { inputHeld: true } : {}) };
   }
 
   /** The further player controllers' channels this step (`IntentSet.controllers`; absent when none was named). */
@@ -3621,7 +3621,7 @@ export class RuntimeInstance implements Runtime {
         c.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
         if (player !== undefined) this.placement.of(player)?.placeFacing(intent.facing);
       }
-      else c.characterEnabled = intent.enabled;
+      else this.director.noteEnabled(player, (c.characterEnabled = intent.enabled));
       return;
     }
     if (intent.kind === 'respawn') {

@@ -33,8 +33,10 @@ nothing), so one timeline serves any actors.
   **facing** (degrees about +Y, 0 faces +Z, 90 faces +X: where it faces once
   placed or arrived, or a turn now; on the 2D plane its face-movement models
   turn), **enabled** off / on (its controller: no input, no gravity). While
-  the track plays the player's input does not move the character, from the
-  play's start to its end (the track's **input** box lets it). At the end a
+  the track plays the player's input (its climb input too) does not move
+  the character, from the play's start to its end (the track's **input**
+  box lets it). A turn on arrival gives way to the player's input once
+  nothing holds the character. At the end a
   walk still under way carries on to its mark (the input stays held until
   it arrives); a walk that gets no closer for a second is blocked and ends
   there (a log line). A key reaches the character in the step after it
@@ -92,7 +94,11 @@ and SFX are not played, the sounds it started stop), the remaining activation
 keys, the remaining signals (unless a key says drop), the remaining character
 keys (a walk becomes a placement on its mark, a walk under way lands there,
 turns are at once); waits pass, pending dialogue does not run; markers after
-the skip point are not reported. A stop leaves a character where it is.
+the skip point are not reported. A stop leaves a character where it is,
+gives it the player's input back and switches it on or off as it was before
+the track first switched it (unless another timeline still playing has
+switched it since). A timeline played on a character whose scene is still
+loading waits for it; a loaded save ends every walk.
 
 **Determinism.** Timelines run in the simulation step (after the scripts,
 before the camera brain): time counts in fixed steps, a wait key reads the

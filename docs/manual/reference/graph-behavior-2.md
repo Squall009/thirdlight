@@ -596,6 +596,7 @@ Outputs:
 - Intents character enabled (`api.intents.characterEnabled`): The committed `character_enable` value, or null.
 - Intents impulse (`api.intents.impulse`): The velocity (m/s) scripts' `ctx.character.impulse` calls add at this controller phase (summed; absent: none).
 - Intents character yaw (`api.intents.characterYaw`): The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was).
+- Intents input held (`api.intents.inputHeld`): True when a cutscene holds the character or a walk drives it this step: the player's input, its climb input included, does not reach it (absent: not held).
 - Intents controllers (`api.intents.controllers`): The further player controllers' channels this step, by their object's id (present only when an intent, an impulse or a placement named one; the fields above are the first controller's). Read them with `controllerIntents`.
 - Control move (`api.emit.control_move`): `−1 ≤ value ≤ 1`, quantized at commit. Runs only in the intent phase.
 - Control jump (`api.emit.control_jump`): One `JumpPhase` value. Runs only in the intent phase.
@@ -728,6 +729,16 @@ The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's y
 Outputs:
 
 - `value` (number)
+- `found` (boolean)
+
+<a id="node-behavior--api-intents-input-held"></a>
+### Intents input held (`api.intents.inputHeld`)
+
+True when a cutscene holds the character or a walk drives it this step: the player's input, its climb input included, does not reach it (absent: not held).
+
+Outputs:
+
+- `value` (boolean)
 - `found` (boolean)
 
 <a id="node-behavior--api-intents-controllers"></a>
@@ -1546,12 +1557,3 @@ Fields:
 |---|---|---|---|---|
 | `mask` | mask | number | `0` | -1000000000 – 1000000000 |
 | `match` | match | enum | `"any"` | `any`, `all` |
-
-<a id="graph-behavior--world"></a>
-## World
-
-- Transform of (`api.world.transform`): The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
-- World transform of (`api.world.worldTransform`): The entity's world transform this step so far: its transform composed up its parents, where it is drawn. Under a parent scaled unevenly and turned, the scale is the length of each world axis. `undefined` when it is not loaded. An empty entity means this object.
-- Find object by name (`api.world.find`): The first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`. Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.
-- Find objects by name (`api.world.findAll`): Every loaded entity whose name is exactly `name` (case-sensitive), in load order (spawned copies included).
-- Find objects with component (`api.world.withComponent`): Every loaded entity carrying a component of this kind (as stored on the entity, e.g. `'collider'`, `'light'`, `'behavior'`), in load order (spawned copies included).

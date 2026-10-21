@@ -333,7 +333,9 @@ function moveOf(frame: ActionFrame, name: string): number {
  * axis) when the controller names one, else the move action's y; a script's
  * `control_move` intent gives its y instead.
  */
-function climbInput(action: ActionFrame, intents: { readonly move: number | null; readonly moveY?: number | null }, move: string, climbAction: string | null): number {
+function climbInput(action: ActionFrame, intents: { readonly move: number | null; readonly moveY?: number | null; readonly inputHeld?: boolean }, move: string, climbAction: string | null): number {
+  // A cutscene's hold (or a walk) keeps the player's climb input from the character too.
+  if (intents.inputHeld === true) return 0;
   if (intents.move !== null && climbAction === null) return intents.moveY ?? 0;
   const a = action.actions?.[climbAction ?? move];
   if (a === undefined) return 0;

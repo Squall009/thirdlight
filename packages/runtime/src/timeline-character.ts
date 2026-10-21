@@ -8,7 +8,8 @@
  * end the cutscene owns it. At the end its walks still under way carry on to
  * their marks; a skip lands them there (each walk key still to come is a
  * placement, the way a transform track jumps to its end); a stop leaves the
- * character where it is.
+ * character where it is, switched on or off as it was before the track
+ * switched it (the director's `release` is the one rule).
  *
  * The editor's scrub preview shows the track as poses: a place key puts it
  * there, a walk slides it from where it was to the mark until the next key
@@ -44,7 +45,7 @@ export function releaseCharacters(port: TimelineCharacterPort | undefined, owner
  */
 export function fireCharacterKey(port: TimelineCharacterPort | undefined, id: string, k: TimelineKey, skipping: boolean, owner: string): string | null {
   if (port === undefined || !port.has(id)) return `"${id}" is not a player character (an object with a Character controller)`;
-  if (k.enabled !== undefined) port.setEnabled(id, k.enabled);
+  if (k.enabled !== undefined) port.setEnabled(id, k.enabled, owner);
   const mode = TIMELINE_CHARACTER_MODES.find((m) => m === k.mode);
   if (mode !== undefined && k.position !== undefined) {
     const ok = mode === 'place' || skipping ? port.place(id, k.position, k.facing) : port.walk(id, k.position, { ...(k.run === true ? { run: true } : {}), ...(k.facing !== undefined ? { facing: k.facing } : {}) }, owner);

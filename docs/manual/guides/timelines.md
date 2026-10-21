@@ -172,7 +172,8 @@ has come.
   where it is, with a log line (`walkState` says `blocked`); a walk still
   under way when the timeline ends carries on to its mark.
 - **Skip lands walks on their marks; stop leaves the character where it
-  is.**
+  is,** gives the player's input back and switches the character back on
+  (or off) as it was before the track switched it.
 - **On the 2D plane** a walk goes along x (the mark's y is where the ground
   is), `run` changes nothing (the 2D controller has one speed), and a
   facing turns the character's face-movement models (90 right, −90 left).

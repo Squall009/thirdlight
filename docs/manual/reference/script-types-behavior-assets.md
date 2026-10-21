@@ -880,6 +880,7 @@ export interface ControllerIntents {
   readonly characterEnabled?: boolean | null;
   readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
   readonly characterYaw?: number;
+  readonly inputHeld?: boolean;
 }
 ```
 

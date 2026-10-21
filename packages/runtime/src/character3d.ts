@@ -239,6 +239,8 @@ function createOne(
 
   /** The climb input — the climb action's value (or y), else the move action's y (a script's control_move: its y). */
   const climbInputOf = (ctx: StepContext, intents: ControllerIntents): number => {
+    // A cutscene's hold (or a walk) keeps the player's climb input from the character too.
+    if (intents.inputHeld === true) return 0;
     if (M.climbAction === null) return intents.move !== null ? (intents.moveY ?? 0) : actionAxis(ctx.action, names.move)[1];
     const a = ctx.action.actions?.[M.climbAction];
     return a === undefined ? 0 : (a.y ?? a.v);

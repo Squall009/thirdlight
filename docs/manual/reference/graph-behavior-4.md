@@ -1,8 +1,55 @@
-# Graph: Visual script (part 4, from Walk character to (`api.character.walkTo`))
+# Graph: Visual script (part 4, from Character impulse (`api.character.impulse`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-character-impulse"></a>
+### Character impulse (`api.character.impulse`)
+
+Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `velocity` (vector)
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `velocity` | velocity | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `entityId` | player | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-character-place"></a>
+### Place character at (`api.character.place`)
+
+Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `position` (vector)
+- `facing` (number)
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `entityId` | player | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-character-walk-to"></a>
 ### Walk character to (`api.character.walkTo`)
@@ -1353,76 +1400,3 @@ Fields:
 |---|---|---|---|---|
 | `layer` | layer | string | `""` | ≤ 256 chars |
 | `regionId` | region | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-in-region"></a>
-### In region (`api.grid.inRegion`)
-
-Whether a cell lies in a named region.
-
-Inputs:
-
-- `layer` (string)
-- `regionId` "region" (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `regionId` | region | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-grid-set-cutaway"></a>
-### Set cut-away (`api.grid.setCutaway`)
-
-Force a cut-away zone of a layer hidden (true) or shown (false) whatever the subject does, or give it back to the subject (null). A zone is a region the layer's cutaway lists, or "#<row>" for one of its height planes. Drawing only (it fades like any cut-away). False when refused (an unknown layer or zone).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `zone` (string)
-- `cut` (boolean)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `zone` | zone | string | `""` | ≤ 256 chars |
-| `cut` | cut | boolean | `false` |  |
-
-<a id="node-behavior--api-grid-set-cutaway-subject"></a>
-### Set cut-away subject (`api.grid.setCutawaySubject`)
-
-The object whose position decides the layers' cut-aways (what is cut while it stands under or inside it), or null for the camera's target (the default). False when the id is not a string.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `targetId` "target" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `targetId` | target | string | `""` | ≤ 256 chars |

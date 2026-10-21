@@ -1,8 +1,17 @@
-# Graph: Visual script (part 3, from Transform of (`api.world.transform`))
+# Graph: Visual script (part 3, from World)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--world"></a>
+## World
+
+- Transform of (`api.world.transform`): The entity's transform this step so far, local to its parent (as the Inspector shows it; a root object's is its world transform), or `undefined` when it is not loaded. `{space: 'world'}` reads the world transform instead (as `worldTransform`). An empty entity means this object.
+- World transform of (`api.world.worldTransform`): The entity's world transform this step so far: its transform composed up its parents, where it is drawn. Under a parent scaled unevenly and turned, the scale is the length of each world axis. `undefined` when it is not loaded. An empty entity means this object.
+- Find object by name (`api.world.find`): The first loaded entity whose name is exactly `name` (case-sensitive), or `undefined`. Entities are searched in load order: the start scene in document order, then later scenes and spawned copies as they arrived.
+- Find objects by name (`api.world.findAll`): Every loaded entity whose name is exactly `name` (case-sensitive), in load order (spawned copies included).
+- Find objects with component (`api.world.withComponent`): Every loaded entity carrying a component of this kind (as stored on the entity, e.g. `'collider'`, `'light'`, `'behavior'`), in load order (spawned copies included).
 
 <a id="node-behavior--api-world-transform"></a>
 ### Transform of (`api.world.transform`)
@@ -1437,50 +1446,3 @@ Fields:
 - Stop character walk (`api.character.stop`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
 - Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
 - Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
-
-<a id="node-behavior--api-character-impulse"></a>
-### Character impulse (`api.character.impulse`)
-
-Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `velocity` (vector)
-- `entityId` "player" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `velocity` | velocity | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `entityId` | player | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-character-place"></a>
-### Place character at (`api.character.place`)
-
-Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `position` (vector)
-- `facing` (number)
-- `entityId` "player" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `entityId` | player | string | `""` | ≤ 256 chars |

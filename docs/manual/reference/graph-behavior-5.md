@@ -1,8 +1,81 @@
-# Graph: Visual script (part 5, from Set cut-away point (`api.grid.setCutawayPoint`))
+# Graph: Visual script (part 5, from In region (`api.grid.inRegion`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-in-region"></a>
+### In region (`api.grid.inRegion`)
+
+Whether a cell lies in a named region.
+
+Inputs:
+
+- `layer` (string)
+- `regionId` "region" (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `regionId` | region | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-grid-set-cutaway"></a>
+### Set cut-away (`api.grid.setCutaway`)
+
+Force a cut-away zone of a layer hidden (true) or shown (false) whatever the subject does, or give it back to the subject (null). A zone is a region the layer's cutaway lists, or "#<row>" for one of its height planes. Drawing only (it fades like any cut-away). False when refused (an unknown layer or zone).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `layer` (string)
+- `zone` (string)
+- `cut` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `zone` | zone | string | `""` | ≤ 256 chars |
+| `cut` | cut | boolean | `false` |  |
+
+<a id="node-behavior--api-grid-set-cutaway-subject"></a>
+### Set cut-away subject (`api.grid.setCutawaySubject`)
+
+The object whose position decides the layers' cut-aways (what is cut while it stands under or inside it), or null for the camera's target (the default). False when the id is not a string.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `targetId` "target" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `targetId` | target | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-grid-set-cutaway-point"></a>
 ### Set cut-away point (`api.grid.setCutawayPoint`)
@@ -1477,64 +1550,6 @@ Outputs:
 
 - `then` "" (exec): one wire
 - `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-assets-state"></a>
-### Assets state (`api.assets.state`)
-
-A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
-
-Inputs:
-
-- `handle` (number)
-
-Outputs:
-
-- `value` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-assets-ready"></a>
-### Assets ready (`api.assets.ready`)
-
-True once a handle's assets are loaded.
-
-Inputs:
-
-- `handle` (number)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-assets-error"></a>
-### Assets error (`api.assets.error`)
-
-Why a failed handle failed ('' otherwise).
-
-Inputs:
-
-- `handle` (number)
-
-Outputs:
-
-- `value` (string)
 
 Fields:
 

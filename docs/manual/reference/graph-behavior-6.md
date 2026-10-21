@@ -1,8 +1,66 @@
-# Graph: Visual script (part 6, from UI)
+# Graph: Visual script (part 6, from Assets state (`api.assets.state`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-assets-state"></a>
+### Assets state (`api.assets.state`)
+
+A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-assets-ready"></a>
+### Assets ready (`api.assets.ready`)
+
+True once a handle's assets are loaded.
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-assets-error"></a>
+### Assets error (`api.assets.error`)
+
+Why a failed handle failed ('' otherwise).
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (string)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
 
 <a id="graph-behavior--ui"></a>
 ## UI
