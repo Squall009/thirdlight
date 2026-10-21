@@ -127,8 +127,17 @@ export interface BlockLayerComponent {
   bounds: { min: [number, number, number]; max: [number, number, number] };
   /** A layer of metadata-only cells (deploy zones, no-walk areas, trigger ids): no blocks, no geometry (absent: false; stored only when true). */
   metadataOnly?: boolean;
-  /** The blocks' collision shapes are colliders in a 3D project (absent: true; stored only when false). */
+  /**
+   * The blocks' collision shapes are colliders (absent: true; stored only
+   * when false): in a 3D project as they are, on the 2D plane cut at the
+   * play plane (`planeZ`).
+   */
   collision?: boolean;
+  /**
+   * World z of the play plane a 2D-plane project cuts the blocks' collision
+   * shapes at (`block-plane-cut.ts`; absent: 0). A 3D project ignores it.
+   */
+  planeZ?: number;
   /** Casts the directional light's shadow (absent: true; stored only when false). */
   castShadow?: boolean;
   /** Shows shadows falling on it (absent: true; stored only when false). */
@@ -271,6 +280,12 @@ export interface BlockType {
   placement?: BlockPlacement;
   /** An edge piece blocks passage across its edge (absent: true; stored only when false). An open edge never does. */
   blocking?: boolean;
+  /**
+   * On the 2D plane, the character passes it from below and the sides and
+   * lands on it from above (a floating ledge; absent: solid; stored only
+   * when true). A 3D project ignores it.
+   */
+  oneWay?: boolean;
   /** Connection rules: the look follows the neighbours (straight, corner, T, cross, end, base, cap; `block-connect.ts`); absent: none. */
   connect?: BlockConnect;
   /** What it shows under each kit (kit name → the block type drawn instead, and the look; `block-kit.ts`); absent: none. */
@@ -360,6 +375,13 @@ export const BLOCK_CORNER_STEPS = 64;
  * Three rows covers 56° on half-height cells and 71° on cubes.
  */
 export const BLOCK_CORNER_MAX = 4;
+
+/**
+ * How far from the world origin a layer's 2D play plane may lie (metres):
+ * the layer coordinates' reach at the largest cells, so any plane through
+ * a layer can be named.
+ */
+export const BLOCK_PLANE_Z_MAX = BLOCK_LIMITS.coordinateXZ * BLOCK_LIMITS.cellSizeMax;
 
 /** The steepest and flattest `maxSlope` a layer may set (degrees). */
 export const BLOCK_MAX_SLOPE_RANGE = Object.freeze({ min: 1, max: 89 });
@@ -620,7 +642,8 @@ export function validateBlockTypes(value: unknown, path: string, errors: ModelEr
 
 export function validateBlockType(t: unknown, p: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) return err(errors, 'field_type', p, 'a block type is an object', t, 'object');
-  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'placement', 'blocking', 'connect', 'kits'], p, errors, 'block type');
+  onlyKeys(t, ['blockId', 'name', 'variants', 'shape', 'boxes', 'solid', 'footprint', 'rotations', 'metadata', 'materials', 'uv', 'live', 'oneWay', 'placement', 'blocking', 'connect', 'kits'], p, errors, 'block type');
+  if (t['oneWay'] !== undefined && typeof t['oneWay'] !== 'boolean') err(errors, 'field_type', `${p}/oneWay`, 'oneWay is a boolean', t['oneWay'], 'boolean');
   validateBlockTypeKits(t['kits'], `${p}/kits`, errors);
   validateBlockPlacement(t, p, errors);
   validateBlockConnect(t['connect'], `${p}/connect`, errors, t['placement'] === 'edge');
@@ -694,6 +717,7 @@ export function canonicalBlockType(t: BlockType): BlockType {
   }
   if (t.uv === 'world') out.uv = 'world';
   if (t.live === true) out.live = true;
+  if (t.oneWay === true) out.oneWay = true;
   if (t.placement === 'edge') out.placement = 'edge';
   if (t.placement === 'edge' && t.blocking === false) out.blocking = false;
   const connect = canonicalBlockConnect(t.connect);
@@ -864,7 +888,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'planeZ', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -895,6 +919,8 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
     }
   }
   for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'wallPaint']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
+  const pz = v['planeZ'];
+  if (pz !== undefined && (!finite(pz) || Math.abs(pz) > BLOCK_PLANE_Z_MAX)) err(errors, 'field_value', `${path}/planeZ`, `planeZ is metres within ±${BLOCK_PLANE_Z_MAX}`, pz);
   const ms = v['maxSlope'];
   if (ms !== undefined && (!finite(ms) || ms < BLOCK_MAX_SLOPE_RANGE.min || ms > BLOCK_MAX_SLOPE_RANGE.max)) err(errors, 'field_value', `${path}/maxSlope`, `maxSlope is degrees in ${BLOCK_MAX_SLOPE_RANGE.min}-${BLOCK_MAX_SLOPE_RANGE.max}`, ms);
   const sa = v['smoothAngle'];
@@ -920,6 +946,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     bounds: { min: [c.bounds.min[0], c.bounds.min[1], c.bounds.min[2]], max: [c.bounds.max[0], c.bounds.max[1], c.bounds.max[2]] },
     ...(c.metadataOnly === true ? { metadataOnly: true as const } : {}),
     ...(c.collision === false ? { collision: false as const } : {}),
+    ...(c.planeZ !== undefined && c.planeZ !== 0 ? { planeZ: canonNum(c.planeZ) } : {}),
     ...(c.castShadow === false ? { castShadow: false as const } : {}),
     ...(c.receiveShadow === false ? { receiveShadow: false as const } : {}),
     ...(c.maxSlope !== undefined ? { maxSlope: canonNum(c.maxSlope) } : {}),

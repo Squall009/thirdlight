@@ -1,7 +1,8 @@
 /**
  * Block layers in the running game — the cells of every
  * loaded layer, their colliders on the 3D physics port (one triangle mesh per
- * chunk, rebuilt when cells change), the script API `ctx.grid`, the change
+ * chunk, rebuilt when cells change) or, on the 2D plane, cut at the play
+ * plane (`grid-plane-colliders.ts`), the script API `ctx.grid`, the change
  * events scripts observe, the runtime diff for saves and the chunk changes
  * the renderer re-meshes.
  *
@@ -80,7 +81,8 @@ import {
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
-import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
+import type { PhysicsPort, PhysicsPort3D, StaticColliderSpec3D } from './ports';
+import { flushPlaneColliders, gridColliderId } from './grid-plane-colliders';
 import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
@@ -586,10 +588,7 @@ interface Layer {
 
 const freezeVec = (x: number, y: number, z: number): GridVec3 => Object.freeze({ x, y, z });
 
-/** The id of one chunk collider piece on the physics port. */
-export function gridColliderId(entityId: string, ck: string, piece: number): string {
-  return `${entityId}#blocks:${ck}:${piece}`;
-}
+export { gridColliderId };
 
 export class RuntimeGrid {
   private readonly types: Map<string, BlockType>;
@@ -615,6 +614,8 @@ export class RuntimeGrid {
   private readonly materialIds: ReadonlySet<string> | null;
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
+  /** The 2D plane's one-way block colliders (a character drops through them). */
+  private readonly planeOneWay = new Set<string>();
   private renderDirty = new Map<string, Set<string>>();
   /** Per streamed terrain, the tiles its collision ring wanted when the page was last told (joined), and the looks then. */
   private ringSent = new Map<string, string>();
@@ -799,6 +800,7 @@ export class RuntimeGrid {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
       for (const list of layer.colliders.values()) colliders.push(...list);
+      for (const c of colliders) this.planeOneWay.delete(c);
       this.layerMap.delete(id);
       this.live?.removeLayer(id);
       this.collisionDirty.delete(id);
@@ -1120,8 +1122,8 @@ export class RuntimeGrid {
     }
   }
 
-  /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add). */
-  flushCollision(port: PhysicsPort3D | undefined): void {
+  /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add); without a 3D port, the 2D port's. */
+  flushCollision(port: PhysicsPort3D | undefined, port2D?: PhysicsPort): void {
     if (this.collide) this.terrain.flush(port);
     this.scatter.flush(this.collide ? port : undefined);
     this.splines.flush(this.collide ? port : undefined);
@@ -1129,6 +1131,7 @@ export class RuntimeGrid {
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();
+    if (port === undefined && port2D !== undefined) return flushPlaneColliders(dirty, (id) => this.layerMap.get(id), this.types, (id, ck) => this.stream.has(id, 'collision', ck), this.planeOneWay, port2D);
     if (port === undefined || !this.collide) return;
     const remove: string[] = [];
     const add: StaticColliderSpec3D[] = [];
@@ -1163,6 +1166,11 @@ export class RuntimeGrid {
     }
     if (remove.length > 0) port.removeStaticColliders?.(remove);
     if (add.length > 0) port.addStaticColliders?.(add);
+  }
+
+  /** Whether a collider is one of the 2D plane's one-way blocks. */
+  isOneWayCollider(colliderId: string | null): boolean {
+    return colliderId !== null && this.planeOneWay.has(colliderId);
   }
 
   /** The chunks to re-mesh since the last call, with their cells now. */

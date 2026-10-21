@@ -10,7 +10,7 @@
  * - **Shape**: the collision shape (full, half, ramp, stairs, custom boxes
  *   edited as numbers, none), whether it fills its cell, its footprint;
  * - **Turns** it may take, **Placement** (in the cell or on its edge,
- *   blocking passage, a live prefab), **Connections** (the types it joins,
+ *   blocking passage, one-way on the 2D plane, a live prefab), **Connections** (the types it joins,
  *   the look of each piece), **Themes** (what it shows under each theme),
  *   **Metadata** (its cells' default values) and **Material**.
  *
@@ -313,6 +313,14 @@ function TurnsAndPlacement({ s, t }: { s: BlockSetup; t: BlockType }): JSX.Eleme
             const next = { ...t };
             if (on) delete next.blocking;
             else next.blocking = false;
+            save(next);
+          }} />
+        )}
+        {t.placement !== 'edge' && (
+          <Toggle label="One-way on the 2D plane" aria="block one-way" on={t.oneWay === true} hint="In a 2D-plane project the player jumps up through it and lands on top (a floating ledge); down + jump drops through. A 3D project ignores it." onChange={(on) => {
+            const next = { ...t };
+            if (on) next.oneWay = true;
+            else delete next.oneWay;
             save(next);
           }} />
         )}

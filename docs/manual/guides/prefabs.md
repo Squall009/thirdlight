@@ -86,7 +86,7 @@ always a script's job.
   prefab's contents: new copies and every `ctx.spawn("barrel")` from the
   next Play use them, while copies already placed keep what they have.
 - **A prefab never holds the player controller, cameras, lights or spawn
-  points.** The exact list: [content.prefabs](../reference/content-blocks-scenes.md#content-prefabs).
+  points.** The exact list: [content.prefabs](../reference/content-blocks-settings.md#content-prefabs).
 - **Spawned copies are the game's, not the project's.** They are gone when
   the run restarts, and a save keeps them only when its schema has the
   `spawned` section. `ctx.destroy` removes spawned copies only.

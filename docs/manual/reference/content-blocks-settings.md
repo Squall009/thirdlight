@@ -1,8 +1,53 @@
-# Content documents (scenes to lighting)
+# Content documents (settings to lighting)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The project's content blocks and their fields. Paths with `[]` are list items and `{}` map values.
+
+<a id="content-settings"></a>
+## settings — Gameplay settings
+
+Gravity, run speed, jump, slopes, and the engine settings (step rate, sound voices, music fade, animation blend).
+
+- In every project: yes
+- Written by: [`setSettings`](ops-detail.md#op-setSettings)
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `gravity_y` | number | `-19.62` | -100 – -1, step 0.1, m/s² | **Gravity.** gravity_y (m/s^2). |
+| `run_speed` | number | `4` | > 0, ≤ 50, step 0.1, m/s | **Run speed.** run_speed (m/s). |
+| `jump_velocity` | number | `7` | 0 – 50, step 0.1, m/s | **Jump velocity.** jump_velocity (m/s). |
+| `max_fall_speed` | number | `-30` | ≥ -100, < 0, step 0.1, m/s | **Max fall speed.** max_fall_speed (m/s). |
+| `max_slope_climb_deg` | number | `45` | 0 – 89.9, step 0.1, deg | **Max slope climb.** max_slope_climb_deg (degrees). |
+| `min_slope_slide_deg` | number | `30` | 0 – 89.9, step 0.1, deg | **Min slope slide.** min_slope_slide_deg (degrees). |
+| `fixed_step_hz` | int (one of 60, 120, 240) | `120` | step 1, Hz | **Fixed step.** Simulation steps per second (60, 120 or 240). Timings in seconds keep their length; replays are recorded at one rate. |
+| `audio_voices` | int | `8` | 1 – 32, step 1, voices | **Sound voices.** How many sound effects play at once (a new one is dropped while all are busy; at most 32). |
+| `music_fade_s` | number | `1` | 0 – 10, step 0.1, s | **Music fade.** Seconds a music change crossfades (0: cut). |
+| `animation_crossfade_s` | number | `0.2` | 0 – 2, step 0.1, s | **Animation blend.** Seconds a model blends between its idle, run and airborne animations (animator transitions set their own). |
+| `render_backend` | int (one of 1 = Auto (WebGPU, else WebGL 2), 2 = WebGPU, 3 = WebGL 2) | `1` | step 1 | **Renderer.** Which backend draws the game and the Scene view: WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. WebGPU needs https or localhost. A page URL flag ?renderer=auto\|webgpu\|webgl2 overrides it. |
+| `physics_dimension` | int (one of 2 = 2D plane, 3 = 3D) | `2` | step 1 | **Physics.** The simulation's dimension: a 2D plane (movement and collision in X and Y, colliders rotate about Z) or full 3D (colliders with depth and any rotation). A 3D project needs every box collider to have a depth. |
+| `sim_thread` | int (one of 1 = Worker (off the main thread), 2 = Main thread) | `1` | step 1 | **Simulation thread.** Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page's main thread. Results are identical. A page URL flag ?threads=off\|on overrides it. |
+| `debug_console` | int (one of 0 = Off, 1 = On) | `0` | step 1 | **Debug console in export.** Whether an exported game has the debug console (the ` key: the project's debug commands). Play always has it. Leave it off for a release build. |
+| `random_seed` | int | `0` | 0 – 4294967295, step 1 | **Random seed.** The seed of the scripts' random numbers (ctx.random) and of animators' random start times: the same seed gives the same numbers in every run, replay and export; change it to get a different, still repeatable, sequence (0 to 4294967295). |
+| `depth_buffer` | int (one of 1 = Standard, 2 = Logarithmic (far vistas), 3 = Reversed Z (far vistas)) | `1` | step 1 | **Depth precision.** How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard). |
+| `instance_chunk_m` | number | `32` | 1 – 4096, step 0.1, m | **Instance chunk size.** Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own. |
+| `audio_spatial` | int (one of 0 = Automatic (2D: by distance to the player, 3D: panned), 1 = By distance to the player (X), 2 = Panned (listener on the camera)) | `0` | step 1 | **Audio sources.** How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source's distance model). Script sounds with a position are always panned. |
+| `texture_budget_mb` | int | `512` | 1 – 65536, step 1, MiB | **Texture budget.** GPU memory (MiB) for textures in Play and the export. Streamed textures (large KTX2 textures; per texture in its import settings) load the detail their size on screen needs inside it; when it is full, the least-needed detail is dropped first. |
+| `camera_fov_deg` | number | `60` | 1 – 179, step 0.1, deg | **Field of view.** The vertical field of view of every camera that does not set its own (and of the view while no camera is live). |
+| `camera_near_m` | number | `0.1` | 0.001 – 100000, step 0.1, m | **Near plane.** Nothing closer than this is drawn, for every camera that does not set its own near plane. |
+| `camera_far_m` | number | `100` | 0.01 – 10000000, step 0.1, m | **Far plane.** Nothing farther than this is drawn, for every camera that does not set its own far plane (beyond the near plane). |
+| `import_extract_textures` | int (one of 0 = New models, 1 = Every model (older imports too)) | `0` | step 1 | **Extract model textures.** Which models have the images inside their files taken out into compressed (KTX2) texture assets they share: new imports only, or every model — older imports are then extracted where their GLB file is, and Problems lists any model still holding images. |
+| `block_chunk_storage` | int (one of 0 = JSON text, 1 = Binary) | `0` | step 1 | **Block chunk files.** Block-layer cells as JSON text (a diff shows each column) or compressed binary (smaller, faster). A change rewrites every chunk file; both open. |
+| `stats_overlay` | int (one of 0 = Off, 1 = Shown (F3 hides it), 2 = Hidden until F3) | `0` | step 1 | **Stats overlay.** A small box over the game with fps, frame, CPU and GPU times (average and worst), draw calls, triangles, texture memory against the budget, geometry, objects and the quality level, in Play and the export. F3 shows and hides it when on. Scripts read the same numbers in ctx.stats, UI documents in $flow.stats. |
+| `frame_rate_cap` | int (one of 0 = None (the display's rate), 30 = 30 fps, 60 = 60 fps, 120 = 120 fps) | `0` | step 1 | **Frame-rate cap.** The most frames per second Play and the export draw (none: the display's rate). Game time is unaffected: the simulation keeps its fixed step. A player's settings field bound to frameRateCap, the UI action setSetting frameRateCap and scripts (ctx.display.setFrameRateCap) change it while the game runs; a page URL flag ?frameRateCap=30\|60\|120\|none overrides it. |
+| `lod_bias` | number | `1` | 0.25 – 4, step 0.1, × | **LOD bias.** Scales where every model switches to its coarser levels and stops being drawn: 2 keeps each level twice as far, 0.5 switches at half the distance (cheaper). Each model sets its own switch points in its import settings. |
+| `lod_hysteresis` | number | `0.1` | 0 – 0.5, step 0.1 | **LOD hysteresis.** A model switches back to its finer level only this share of the switch distance closer than where it switched, so one standing at a switch point does not flicker. |
+| `ambient_occlusion` | int (one of 0 = Off, 1 = SSAO (fast, half resolution), 2 = GTAO (quality)) | `2` | step 1 | **Ambient occlusion.** The kind of ambient occlusion drawn where a scene's look turns it on (Post → Ambient occlusion). It darkens only the indirect light (ambient, sky and probe light, and per-vertex local light) in creases and corners, never the sun or per-pixel lamps. SSAO is the fast one new projects start with; GTAO is darker and more exact, at about twice the cost, and what a project draws when it does not set this. A player's settings field bound to ambientOcclusion overrides it. |
+| `render_scale` | number | `1` | 0.5 – 1, step 0.1, × | **Render scale.** The share of the screen's resolution Play and the export draw the 3D view at (0.5–1), upscaled to the screen with AMD FSR 1 (edge-adaptive upscaling and sharpening). 0.75 draws about half the pixels. The Scene view always draws at full resolution. A player's settings field bound to renderScale overrides it. |
+| `dynamic_resolution` | int (one of 0 = Off, 1 = On) | `0` | step 1 | **Dynamic resolution.** Lowers the render scale (down to 0.5) while the GPU takes longer than a frame (the frame-rate cap, else 60 fps) and raises it again, up to the render scale, when it has room. It changes slowly and waits longer after a change that did not hold, so it does not flicker. A player's settings field bound to dynamicResolution overrides it. |
+| `occlusion_culling` | int (one of 0 = Off, 1 = Auto, 2 = On) | `1` | step 1 | **Occlusion culling.** Leaves out of the view what walls, hills and other solid objects hide (the picture stays the same). On: a depth pyramid on WebGPU, occlusion queries on WebGL 2 (frames late). Auto (unset) culls nothing for now: it cost open views more than it saved; turn it on where you measure a gain. Shadows always draw everything. A quality level may set its own; ?occlusion=off\|queries\|hiz pins a path. |
+| `streaming_budget_mb` | int | `768` | 1 – 65536, step 1, MiB | **Streaming budget.** Memory (MiB) the streamed terrain tiles and block chunks (those with Streaming rings) may take in Play and the export: tiles and chunks kept past their rings are let go first when it is full. Rings that alone need more are reported as a problem, never cut. |
+| `architecture_ship_meshes` | int (one of 0 = Generate at load, 1 = Ship generated meshes) | `0` | step 1 | **Generated architecture.** Exports ship generated architecture as its parameters and the game generates the meshes when a scene loads (small, fast on a worker), or also ship the meshes the same generator made (larger download, nothing to generate). |
 
 <a id="content-scenes"></a>
 ## scenes — Scenes

@@ -22,7 +22,7 @@ each object's tags (its folders' tags included), so scripts find placed and
 spawned copies with `ctx.tags`. What
 it never holds: the player controller and level wiring such as cameras,
 lights and spawn points. The exact list of components a prefab may hold is
-in [prefabs in the reference](../reference/content-blocks-scenes.md#content-prefabs).
+in [prefabs in the reference](../reference/content-blocks-settings.md#content-prefabs).
 
 ## In the editor
 

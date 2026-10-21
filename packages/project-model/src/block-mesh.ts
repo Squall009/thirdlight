@@ -1214,6 +1214,29 @@ function collisionSourceOf(t: BlockType, fm: [number, number, number]): BlockMes
   return s;
 }
 
+/**
+ * The looks the collision meshes are made of: each block type's collision
+ * shape, a full single-cell shape hiding its neighbours' faces, open doors
+ * left out. `include` keeps only some block types (the others are empty
+ * space): the 2D plane cuts its one-way blocks apart from the solid ones.
+ * `closed`: no block hides a face it touches for being solid (that rule
+ * keeps the touching face of a sloped or half block, but drops the solid's
+ * own face toward it); only faces two neighbours share exactly go, both of
+ * them, so the mesh bounds the blocks' union on every side, as a cut needs.
+ */
+export function collisionLooks(include?: (t: BlockType) => boolean, closed = false): BlockLookResolver {
+  return {
+    source: (t, _v, fm) => {
+      if (include !== undefined && !include(t)) return null;
+      const s = collisionSourceOf(t, fm);
+      return s === null ? null : { key: 'c', source: s };
+    },
+    solid: (t) => !closed && (include === undefined || include(t)) && t.shape === 'full' && (t.footprint === undefined || (t.footprint[0] === 1 && t.footprint[1] === 1 && t.footprint[2] === 1)),
+    // An open door lets the player through.
+    edge: (t, e) => (include === undefined || include(t)) && edgeCollides(t, e),
+  };
+}
+
 /** A 3D port triangle mesh (flat lists, layer-local metres). */
 export interface CollisionMeshPiece {
   vertices: number[];
@@ -1230,15 +1253,7 @@ export const COLLISION_PIECE_LIMITS = Object.freeze({ vertices: COLLIDER_3D_LIMI
  * into pieces within the port's mesh limits. Empty: nothing to collide with.
  */
 export function collisionMeshChunk(grid: BlockGridReader, cx: number, cz: number, types: ReadonlyMap<string, BlockType>): CollisionMeshPiece[] {
-  const parts = meshBlockChunk(grid, cx, cz, types, {
-    source: (t, _v, fm) => {
-      const s = collisionSourceOf(t, fm);
-      return s === null ? null : { key: 'c', source: s };
-    },
-    solid: (t) => t.shape === 'full' && (t.footprint === undefined || (t.footprint[0] === 1 && t.footprint[1] === 1 && t.footprint[2] === 1)),
-    // An open door lets the player through.
-    edge: (t, e) => edgeCollides(t, e),
-  });
+  const parts = meshBlockChunk(grid, cx, cz, types, collisionLooks());
   // Merge vertices (1e-4 m grid) and collect the triangles.
   const tris: number[] = [];
   const verts: number[] = [];

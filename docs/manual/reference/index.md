@@ -21,8 +21,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Content documents](content.md) | Content blocks |
 | [Content documents (environment to input)](content-blocks-environment.md) | environment — Environment, input — Input |
 | [Content documents (materials to animators)](content-blocks-materials.md) | materials — Materials, animators — Animator controllers |
-| [Content documents (effects to settings)](content-blocks-effects.md) | 23 sections |
-| [Content documents (scenes to lighting)](content-blocks-scenes.md) | scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
+| [Content documents (effects to saveSchema)](content-blocks-effects.md) | 22 sections |
+| [Content documents (settings to lighting)](content-blocks-settings.md) | settings — Gameplay settings, scenes — Scenes, startScenes — Start scenes, assets — Assets, prefabs — Prefabs, behaviors — Behaviors, behaviorTrust — Script trust, lighting — Baked lighting |
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
@@ -70,7 +70,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
-| [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 21 sections |
-| [MCP tools (part 3, from tl_command: Timelines)](mcp-tools-3.md) | 18 sections |
+| [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 20 sections |
+| [MCP tools (part 3, from tl_command: Game modes and behavior groups)](mcp-tools-3.md) | 19 sections |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

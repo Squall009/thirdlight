@@ -103,6 +103,7 @@ budget.
 | 38.6 | Done 2026-10-21: `updatePrefab {prefabId, fromEntity, displayName?}` (one command path: commands, workspace, protocol op and change lists, MCP docs; undo/redo swap the whole definition) replaces a prefab's contents through the capture `createPrefab` uses (`capturePrefabEntities`), keeps its id, `createdRevision` and name, sets a new optional `updatedRevision`; parts copied from it keep their local ids (the root keeps the old root's), entity references inside are remapped; placed and spawned copies are untouched; the same contents again is `no_change`. Editor: a copy's Inspector "Apply to prefab". Vitest: `tests/integration/m38-prefab-update` (real workspace on disk: refusals, undo/redo, the untouched copy; the play content built from the project; a script's `ctx.spawn('crate')` in the real host spawns the new parts). `delete-content.e2e.ts` gained the Apply step: 4.8 s → 4.8 s. Fast gate: build, lint, vitest 738 files, e2e 31/31 green, village perf in its limits (WebGL 2 p50 4.7 ms). The button's look is unverified (asserted by role and result only). |
 | 38.7 | Done 2026-10-21: a play's activity (presented, observe, control, input, screenshot, diagnostics: the same that pushes its 30 min inactivity expiry) renews its play content to the play's own expiry (`PlayManager` `onRenewed` → `PlayContentStore.renew`, never shortened); `PLAY_CONTENT_TTL_SECONDS` (900) stays the least lifetime, a stopped or expired play's content is readable `PLAY_CONTENT_GRACE_SECONDS` (60) more; one `deadline(set)` serves status, cache max-age, prune and the expired error (which had its own 60 s literal). `tl_play_start`'s `playContent.expiresAt` now equals the play's `expiresAt` and moves with it (MCP docs, `features/play-tools.md`, `guides/playtesting.md`). Content TTL and grace joined the backend's test-only timeouts (defaults are the protocol's constants). Vitest `backend/play-content-lifetime.test.ts` over real HTTP (1 s content TTL, 1 s grace, 3 s play inactivity): a scene served 1.5 s in, then 503 `play_locator_expired` a grace after a stop and after an inactivity end; fails without the renew. No e2e change. Fast gate (`playtest.e2e.ts`): build, lint, vitest 739 files, e2e 32/32 green, village perf in its limits (WebGL 2 p50 4.7 ms). |
 | 38.8 | Done 2026-10-21: the scene list move is deprecated with phase 28's mechanism (one `takeProblems` line per kind per Play): the `nextScene` UI engine action (`deprecated_next_scene`, in `UI_DEPRECATED_ENGINE_ACTIONS`, so the editor marks it; the host now names the move's cause on the `scene` UI event, a new game's move writes no nextScene line) and `ctx.shell.nextScene / sceneIndex / sceneCount` (`deprecated_shell_scene_list`; `@deprecated` in the typings, the 38.3 check and the editor see it; graph nodes "… (deprecated)"); both keep working. `ctx.shell` moved to `runtime/scene-list.ts` (runtime.ts 4,140 → 4,124). Manual: game-flow concept and guide (next level with `ctx.scenes.load(next, {unload})` + `setActive` once loaded, type-checked with the 38.3 checker), gameplay, game-shell, projects-and-scenes, scripting, migration notes, deployment; reference regenerated. Vitest `runtime/scene-list.test.ts` (both paths move and write their line once), `game-host/shell.test.ts` (the cause). No engine templates or dogfood projects used the list. E2E unchanged (they still drive `nextScene` / `ctx.shell`): `shell-scenes.e2e.ts` 5.7 → 5.9 s, `entity-access.e2e.ts` 4.5 → 4.5 s. Fast gate: build, lint, vitest 740 files, e2e 32/32 green, village perf in its limits (WebGL 2 p50 4.7 ms, WebGPU 5.7 ms). |
+| 38.9 | Done 2026-10-21: on the 2D plane each chunk's collision shapes (the 3D ones, `collisionLooks`) are cut at the layer's new `planeZ` (default 0) into convex pieces (`project-model/block-plane-cut.ts`: nonzero slab fill, runs merged: flat ground one box per chunk, a 1:2 slope one piece, stairs a box per step, x-line edge pieces thin walls, z-line ones none), one compound per chunk plus a collider per one-way piece (new block type `oneWay` on the port's one-way and drop-through), rebuilt at the 3D flush points and before the 2D sweep (`runtime/grid-plane-colliders.ts`; grid.ts 1,825 → 1,833, runtime.ts 4,124 → 4,124). Vitest: the cut's unit checks; `tests/integration/m38-block-plane` (Sprout's case on real Rapier 2D, page and worker: stands, up through a one-way ledge and drops back, stairs, the slope, a chunk edge, the pit; `ctx.grid.surface` within 1 cm of the feet, 8 cm on the slope; the filled pit's next Play walks over it; a script's dig drops it). Perf: a 512 × 64 × 2-cell layer cuts in 10 ms (289 solid + 69 one-way pieces), first build with Rapier 30 ms, a chunk rebuild 0.2 ms (max 0.9). Editor: block type toggle "One-way on the 2D plane" (`block-layers.e2e.ts` step: 15.8 → 15.7 s), *Play plane z* in the Inspector (descriptor). Fast gate: build, lint, vitest 742 files, e2e 31/31 green, village perf in its limits (WebGL 2 p50 4.7 ms). The toggle's look and a 2D block level in a browser Play are unverified. |
 
 ## 5. Decision log
 
@@ -244,3 +245,31 @@ budget.
   `ctx.scenes.setActive` (a load that unloads the active scene hands it
   over; TL-REQ-29 declined); the manual says so. Default chosen, owner to
   confirm.
+- 2026-10-21 (38.9): on the 2D plane a layer's collision is the 3D
+  collision shapes (`collisionLooks`, the same per-type shapes, sloped
+  corners, footprints and edge pieces) cut at the plane, not per-shape
+  profiles: each crossing triangle gives a segment, slabs between segment
+  ends are filled by the nonzero rule (downward faces enter, upward faces
+  leave, never below zero), and spans whose top and bottom run on are
+  merged. The pieces are convex polygons (a chunk's solid pieces one
+  compound collider, each one-way piece its own collider, since the port
+  lands a character by a one-way collider's own top), not polylines: the 2D
+  world's overlap and inside-ray queries and its internal-edge rule (pieces
+  sharing a side are its "tiles in a row") need solids, and a character on
+  a polyline seam snags where that rule cannot see. The cut meshes the
+  shapes without the "solid neighbour hides my face" rule (it keeps a slope's
+  touching face but drops the solid's, which leaves the union open); only
+  faces two neighbours share exactly go. Pieces are split to stay within the
+  collider extent (64 m). Default chosen, owner to confirm.
+- 2026-10-21 (38.9): the plane is a layer setting `planeZ` (world z,
+  default 0, stored only when not 0); the cut takes the cell row holding it
+  as `ctx.grid.surface` does (floor), so on a row boundary the row in front
+  (+z) collides; a plane within 0.1 mm of a boundary is on it. Edge pieces
+  on a z line (running along the plane) never collide on the 2D plane; on
+  an x line they are thin walls. One-way is a block type flag `oneWay`
+  (cells; a 3D project ignores it, as it does `planeZ`), on the port's
+  existing one-way colliders, so down + jump drops through. Only the chunk
+  row holding the plane (and the one behind when a footprint reaches over)
+  is cut, and only the cells that can reach the plane are meshed. Terrain,
+  scatter, splines and architecture still collide in 3D only. Default
+  chosen, owner to confirm.

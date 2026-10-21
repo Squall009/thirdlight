@@ -582,7 +582,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1, kitId: 'town' }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, planeZ: 1.5, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1, kitId: 'town' }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -908,7 +908,7 @@ function runAllProbes(): void {
   // Block types, cell fields and stamps.
   probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2 }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0, 90], metadata: { walkable: true }, materials: { '*': 'mat-a' }, uv: 'world' }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
-  probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true, oneWay: true }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[3]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'fence', name: 'Fence', variants: [{ color: '#886644' }], shape: 'half', placement: 'edge', blocking: false, rotations: [0, 180] }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[4]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', connect: { with: ['gate'], pieces: { single: { variant: 0, rot: 90 }, end: { variant: 1, rot: 90 }, straight: { variant: 1, rot: 90 }, corner: { variant: 1, rot: 180 }, t: { variant: 1, rot: 90 }, cross: { variant: 1, rot: 90 }, base: { variant: 0, rot: 180 }, cap: { variant: 1, rot: 270 } } } }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[5]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', kits: { burnt: { block: 'wall-burnt', variant: 1, variants: [0, 1] } } }], '', block('blockTypes'), 'blockTypes:');
@@ -1040,8 +1040,9 @@ describe('descriptor registry', () => {
     // vertex paint — the component and an instance set's paint — about 2 KB; object icons by type and their counts, about 1.2 KB;
     // the trim sheet's rows at their real height, about 0.3 KB; kits and the kit a layer or architecture names, about 2.6 KB;
     // occlusion culling, the setting and a quality level's field, about 0.6 KB; occluders — the object flag and a model's import setting, about 1 KB;
-    // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(333_200);
+    // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB; a block layer's 2D play plane
+    // and a block type's one-way flag, about 0.6 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(333_900);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

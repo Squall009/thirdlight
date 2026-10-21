@@ -11,7 +11,7 @@ import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
 import { WALK_METRES_RANGE } from './block-walk-settings';
 import { streamingField } from './world-streaming-descriptor';
 import { decalLayersField } from './decal-descriptor';
-import { BLOCK_LIMITS, BLOCK_MAX_SLOPE_RANGE, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
+import { BLOCK_LIMITS, BLOCK_MAX_SLOPE_RANGE, BLOCK_PLANE_Z_MAX, BLOCK_SMOOTH_ANGLE_RANGE, BLOCK_TOP_SUBDIVISIONS } from './block-layers';
 import type { BoolFieldDescriptor, ComponentDescriptor, EntityRefFieldDescriptor, FieldDescriptor, IntFieldDescriptor, JsonFieldDescriptor, NumberFieldDescriptor, ObjectFieldDescriptor, VecFieldDescriptor } from './descriptors';
 
 type Opts<T extends FieldDescriptor> = Omit<T, 'type' | 'key' | 'label' | 'tooltip'>;
@@ -34,7 +34,8 @@ export const blockLayer: ComponentDescriptor = {
     vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]). Cells are square from above: x and z are one value, only the height y differs.', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'], same: [0, 2] }),
     json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). Change it in the block editor: Regions, Layer size.', { required: true }),
     bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
-    bool('collision', 'Collision', "The blocks' collision shapes are colliders (3D projects).", { default: true }),
+    bool('collision', 'Collision', "The blocks' collision shapes are colliders: as they are in a 3D project, cut at the play plane on the 2D plane.", { default: true }),
+    num('planeZ', 'Play plane z', "2D-plane projects: the world z where the blocks' collision shapes are cut into the 2D world's colliders (the cells holding it collide; on a cell boundary, the cells in front of it, toward +z). A 3D project ignores it.", { min: -BLOCK_PLANE_Z_MAX, max: BLOCK_PLANE_Z_MAX, step: 0.05, unit: 'm', default: 0 }),
     bool('castShadow', 'Cast shadows', "The blocks cast the directional light's shadow.", { default: true }),
     bool('receiveShadow', 'Receive shadows', 'Shadows fall on the blocks.', { default: true }),
     num('maxSlope', 'Max slope', "The steepest part of the layer's surface that counts as ground: characters do not walk up steeper slopes whatever their own limit, and surface queries call steeper ground not walkable (absent: each character's own limit; queries use the project's max_slope_climb_deg).", {

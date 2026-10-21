@@ -1058,6 +1058,7 @@ export {
   BLOCK_CORNER_MAX,
   BLOCK_LAYER_FIELDS,
   BLOCK_MAX_SLOPE_RANGE,
+  BLOCK_PLANE_Z_MAX,
   BLOCK_SMOOTH_ANGLE_RANGE,
   BLOCK_TOP_SUBDIVISIONS,
   validateBlockCell,
@@ -1124,6 +1125,7 @@ export {
   WORLD_UV_PERIOD_METRES,
   blockTopOptions,
   chunkOfCell,
+  collisionLooks,
   collisionMeshChunk,
   meshBlockChunk,
   shapeSource,
@@ -1133,6 +1135,7 @@ export {
   type ChunkMeshPart,
   type CollisionMeshPiece,
 } from './block-mesh';
+export { planeCollisionChunk, planeCutChunkRows, planeCutRow, type PlaneCutChunk, type PlaneCutPiece } from './block-plane-cut';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 // The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, BRUSH_HARDNESS_DEFAULT, BRUSH_MASK_LIMITS, BRUSH_STROKE_KEYS, PAINT_BRUSH_LIMITS, StrokeCoverage, brushFalloff, brushHalfRadius, brushMask, brushStrokeError, brushStrokeOptions, paintBrushError, paintPoint, strokeAmount, strokeCoverage, type BrushFalloff, type BrushMask, type BrushStrokeOptions, type DabStroke, type PaintBrush, type PaintLayout } from './paint-brush';

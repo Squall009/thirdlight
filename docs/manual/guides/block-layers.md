@@ -134,6 +134,13 @@ hand.
 - **A walkable level needs a 3D project.** On the 2D plane the player
   moves along X only and the camera looks from the side: start from the
   3D starter (see *Before you start*).
+- **A side-view level's ground can be blocks.** In a 2D project the layer
+  collides where it crosses the play plane (z = 0, or the layer's *Play
+  plane z*): paint the ground, slopes and steps across it, and turn on a
+  block type's *One-way on the 2D plane* for ledges the player jumps up
+  through. A cell you edit collides that way from the next Play (a
+  script's `ctx.grid.set` at once). See
+  [Blocks: Collision](../features/blocks.md).
 - **Lasting state of a live block goes in its cell's metadata.** A live
   block's objects are made again when their chunk reloads.
 

@@ -83,8 +83,8 @@ export interface PlayerControllersHost {
   /** The motion of what a controller stands on this step (and a mover's push). */
   carry2D(id: string): Vec2;
   carry3D(id: string): readonly [number, number, number];
-  /** Cells written this step collide in this step's sweep. */
-  flushCollision3D(port: PhysicsPort3D): void;
+  /** Cells written this step collide in this step's sweep (the block layers' colliders on the port in use). */
+  flushCollision(): void;
   /** One more physics step ran. */
   countStep(): void;
   /** A controller's 3D module status (on, climbing, its yaw), or null. */
@@ -302,6 +302,7 @@ export class PlayerControllers {
     }
     const port = this.host.physics;
     if (!port) return;
+    this.host.flushCollision();
     const curr = this.host.curr();
     const before = this.ids.map((id) => {
       const t = curr.get(id);
@@ -346,7 +347,7 @@ export class PlayerControllers {
    */
   runPhysics3D(port: PhysicsPort3D): void {
     // Cells written this step collide in this step's sweep.
-    this.host.flushCollision3D(port);
+    this.host.flushCollision();
     const curr = this.host.curr();
     const dt = 1 / this.host.hz;
     const plan = this.ids.map((id) => {

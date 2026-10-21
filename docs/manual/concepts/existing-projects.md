@@ -22,7 +22,7 @@ these settings in its `content.json`:
 
 To take an improvement in an older project, set the setting yourself
 (**File → Project Settings…**). Each setting's tooltip and the
-[settings in the reference](../reference/content-blocks-effects.md#content-settings)
+[settings in the reference](../reference/content-blocks-settings.md#content-settings)
 say what an unset value means.
 
 ## Opening an older project

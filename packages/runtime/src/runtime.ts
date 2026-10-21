@@ -807,7 +807,7 @@ export class RuntimeInstance implements Runtime {
       refused: (message) => this.recordError({ code: 'spawn_refused', message: clipMessage(message), stepIndex: this.stepIndex }),
     });
     this.spawnControl = this.spawnRequests.control();
-    // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
+    // The start scenes' block layers; their chunks collide (on the 2D plane, cut at the layer's play plane).
     this.grid = new RuntimeGrid(
       args.blockTypes,
       args.cellFields,
@@ -821,7 +821,7 @@ export class RuntimeInstance implements Runtime {
       (id) => this.sceneOfEntity(id),
     );
     this.grid.addLayers(args.initialEntities);
-    this.grid.flushCollision(args.physics3d);
+    this.grid.flushCollision(args.physics3d, args.physics);
     // The start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
@@ -1010,7 +1010,7 @@ export class RuntimeInstance implements Runtime {
   /** Terrain tiles and scatter blobs decoded on the page (by digest): their colliders are built now (between steps). */
   addTerrainTiles(tiles: readonly TerrainSimData[]): void {
     this.grid.addTerrainData(tiles);
-    this.grid.flushCollision(this.physics3d);
+    this.grid.flushCollision(this.physics3d, this.physics);
   }
 
   /** The cells changed since the run started (tests, saves). */
@@ -1896,7 +1896,7 @@ export class RuntimeInstance implements Runtime {
     // Attached entities follow their nodes (posed by the animators just stepped).
     this.stepSockets(null);
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.physics3d);
+    this.grid.flushCollision(this.physics3d, this.physics);
     if (!this.syncLiveBlocks()) return false;
     return true;
   }
@@ -1961,7 +1961,7 @@ export class RuntimeInstance implements Runtime {
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
     this.placement.beginStep();
-    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true, this.timing.dropThroughSteps);
+    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || this.grid.isOneWayCollider(id), this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
@@ -2028,7 +2028,7 @@ export class RuntimeInstance implements Runtime {
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.physics3d);
+    this.grid.flushCollision(this.physics3d, this.physics);
     if (!this.syncLiveBlocks()) return false;
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
@@ -2265,7 +2265,7 @@ export class RuntimeInstance implements Runtime {
     this.entityAccess.reset();
     // The live blocks start over as fresh objects at the next boundary.
     this.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.spawnedEntities.has(id))));
-    this.grid.flushCollision(this.physics3d);
+    this.grid.flushCollision(this.physics3d, this.physics);
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
     this.dialogue.resetRun();
@@ -2414,7 +2414,7 @@ export class RuntimeInstance implements Runtime {
       currentPhase: () => rt.currentPhase,
       carry2D: (id) => rt.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
       carry3D: (id) => rt.blocks?.carryDelta3(id) ?? [0, 0, 0],
-      flushCollision3D: (port) => rt.grid.flushCollision(port),
+      flushCollision: () => rt.grid.flushCollision(rt.physics3d, rt.physics),
       countStep: () => {
         rt.physicsSteps += 1;
       },
@@ -2937,7 +2937,7 @@ export class RuntimeInstance implements Runtime {
     // The scene's block layers and their colliders (at this step boundary).
     if (this.grid.addLayers(frozen).length > 0) {
       try {
-        this.grid.flushCollision(this.physics3d);
+        this.grid.flushCollision(this.physics3d, this.physics);
       } catch (e) {
         this.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
         return false;
@@ -3111,9 +3111,9 @@ export class RuntimeInstance implements Runtime {
     // Unloaded block layers take their chunk colliders and their live blocks' objects along.
     const gridColliders = this.grid.removeLayers(ids);
     this.removeSpawnedIds(new Set(this.grid.takeGoneLive().filter((id) => this.spawnedEntities.has(id))));
-    if (gridColliders.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
+    if (gridColliders.length > 0 && typeof (this.physics3d ?? this.physics)?.removeStaticColliders === 'function') {
       try {
-        this.physics3d.removeStaticColliders(gridColliders);
+        (this.physics3d ?? this.physics)?.removeStaticColliders?.(gridColliders);
       } catch (e) {
         this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
       }

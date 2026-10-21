@@ -170,7 +170,7 @@ export function kitRegionsMissing(c: Pick<BlockLayerComponent, 'kits'>, regions:
 
 /** Whether a swap changes what collides (another shape, boxes or solidity): only then does a kit change rebuild colliders. */
 export function kitSwapCollides(from: BlockType, to: BlockType): boolean {
-  return from.shape !== to.shape || JSON.stringify(from.boxes ?? null) !== JSON.stringify(to.boxes ?? null) || (from.solid ?? null) !== (to.solid ?? null) || (from.blocking ?? true) !== (to.blocking ?? true);
+  return from.shape !== to.shape || JSON.stringify(from.boxes ?? null) !== JSON.stringify(to.boxes ?? null) || (from.solid ?? null) !== (to.solid ?? null) || (from.blocking ?? true) !== (to.blocking ?? true) || (from.oneWay === true) !== (to.oneWay === true);
 }
 
 /** A layer's kits as a key: equal lists (in their stored form), equal keys. */

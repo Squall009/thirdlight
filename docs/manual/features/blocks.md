@@ -104,9 +104,30 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   without a seam; another repeat (7 m, 0.7 m, or an old layered material's
   cell-unit repeat on cells whose width does not divide 720 m) shows a seam
   every 720 m, where the period changes. Heights are not wrapped.
-- **Collision** (3D projects): one triangle-mesh collider per chunk built from
-  the collision shapes, rebuilt when cells change, before the step's physics
-  sweep. A 2D-plane project draws layers but they do not collide.
+- **Collision**: in a 3D project, one triangle-mesh collider per chunk built
+  from the collision shapes, rebuilt when cells change, before the step's
+  physics sweep.
+  - **On the 2D plane** the same collision shapes are cut at the layer's
+    **play plane** (`planeZ`, world z, default 0; Inspector: *Play plane z*)
+    into 2D colliders, rebuilt with the chunk at the same points. Every shape
+    cuts by its profile: a run of full cells is one box per chunk, sloped
+    corners, ramps and half blocks their slope or step, stairs a box per
+    step, an edge piece on an x line (across the plane) a thin wall. Edge
+    pieces on a z line run along the plane and do not collide there.
+  - The cut takes the cell row holding the plane, as `ctx.grid.surface`
+    reads it: on a row boundary, the row in front (+z). So a layer whose
+    origin z is −1 with one-cell-deep rows collides with its row 1 at
+    z = 0.
+  - A block type's **One-way** flag (block type editor: *One-way on the 2D
+    plane*) makes its cells floating ledges: the player jumps up through
+    them and lands on top, and down + jump drops through. A 3D project
+    ignores it and the play plane.
+  - Each chunk's solid pieces are one compound collider; each one-way piece
+    is its own (it lands the player by its own top). Measured on a
+    512 × 64 × 2-cell layer (hills, pits, slopes, stairs, ledges): the cut
+    takes about 10 ms for the whole layer (289 solid and 69 one-way pieces),
+    the first build through Rapier 30 ms, and a cell write's chunk rebuild
+    0.2 ms (at most 0.9 ms).
 - **Scripts** (`ctx.grid`): `layers`, `get`, `set`, `clear`, `columnTop`,
   `worldToCell`, `cellToWorld`, `meta`, `setMeta`, `pick` (a ray → cell and
   entered face; a deterministic walk over cells, independent of physics),

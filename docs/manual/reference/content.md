@@ -35,11 +35,11 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`collisionLayers`](content-blocks-effects.md#content-collisionLayers) | Collision layers | `setCollisionLayers` |
 | [`lightLayers`](content-blocks-effects.md#content-lightLayers) | Light layers | `setLightLayers` |
 | [`saveSchema`](content-blocks-effects.md#content-saveSchema) | Project saves | `setSaveSchema` |
-| [`settings`](content-blocks-effects.md#content-settings) | Gameplay settings | `setSettings` |
-| [`scenes`](content-blocks-scenes.md#content-scenes) | Scenes | `createScene`, `renameScene`, `deleteScene` |
-| [`startScenes`](content-blocks-scenes.md#content-startScenes) | Start scenes | `setStartScenes` |
-| [`assets`](content-blocks-scenes.md#content-assets) | Assets | `publishAsset`, `setAssetOptions`, `deleteAsset`, `importAssets`, `setLabels`, `setAddress` |
-| [`prefabs`](content-blocks-scenes.md#content-prefabs) | Prefabs | `createPrefab`, `updatePrefab`, `instantiatePrefab`, `deletePrefab` |
-| [`behaviors`](content-blocks-scenes.md#content-behaviors) | Behaviors | `publishBehavior`, `deleteBehavior` |
-| [`behaviorTrust`](content-blocks-scenes.md#content-behaviorTrust) | Script trust | `acknowledgeBehaviorTrust`, `revokeBehaviorTrust` |
-| [`lighting`](content-blocks-scenes.md#content-lighting) | Baked lighting | `setLighting` |
+| [`settings`](content-blocks-settings.md#content-settings) | Gameplay settings | `setSettings` |
+| [`scenes`](content-blocks-settings.md#content-scenes) | Scenes | `createScene`, `renameScene`, `deleteScene` |
+| [`startScenes`](content-blocks-settings.md#content-startScenes) | Start scenes | `setStartScenes` |
+| [`assets`](content-blocks-settings.md#content-assets) | Assets | `publishAsset`, `setAssetOptions`, `deleteAsset`, `importAssets`, `setLabels`, `setAddress` |
+| [`prefabs`](content-blocks-settings.md#content-prefabs) | Prefabs | `createPrefab`, `updatePrefab`, `instantiatePrefab`, `deletePrefab` |
+| [`behaviors`](content-blocks-settings.md#content-behaviors) | Behaviors | `publishBehavior`, `deleteBehavior` |
+| [`behaviorTrust`](content-blocks-settings.md#content-behaviorTrust) | Script trust | `acknowledgeBehaviorTrust`, `revokeBehaviorTrust` |
+| [`lighting`](content-blocks-settings.md#content-lighting) | Baked lighting | `setLighting` |

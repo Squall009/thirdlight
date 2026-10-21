@@ -38,6 +38,6 @@ give each collider a Half depth first.) A few gameplay blocks are 2D-plane only
 the project's dimension.
 
 The setting's exact values are in
-[the settings in the reference](../reference/content-blocks-effects.md#content-settings);
+[the settings in the reference](../reference/content-blocks-settings.md#content-settings);
 collider shapes in [Collider](../reference/components-physics.md#component-collider)
 and the character in [Player controller](../reference/components-physics.md#component-controller).
