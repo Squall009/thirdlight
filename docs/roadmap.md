@@ -75,6 +75,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 34 | `docs/plan-phase-34.md` | Level editors (owner, 2026-10-12): an icon per object type, a full-screen edit mode on the live Scene view showing only the edited object, one brush kit for every brush, noise-masked paint, a layer palette, the terrain editor; runs before 33 |
 | 35 | `docs/plan-phase-35.md` | One layered surface material for terrain, blocks, walls and props (trim and tiling layers, wetness), material types that declare what they read, height in albedo alpha, the vertex paint editor, the decal editor and atlas |
 | 36 | `docs/plan-phase-36.md` | The block editor, kits as one item with a kit editor and an engine Basic Kit, the trim sheet spec with real-height trims, a 3D starter template |
+| 38 | `docs/plan-phase-38.md` | Requests from Sprout, Skyforge Tactics and Temporal, third batch (owner, 2026-10-21): scripts that fail alone, type-checked publish, Play tools that keep errors, a character timeline track, prefab updates, 2D block collision; `ctx.scenes.load`/`unload` the one way to change levels |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
