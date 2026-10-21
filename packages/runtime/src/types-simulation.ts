@@ -127,8 +127,10 @@ export interface ScriptStop {
   entityId: string;
   /** The hook that failed: `step` or a callback name. */
   hook: string;
-  phase: SimulationPhase;
-  stepIndex: number;
+  /** Absent for `instantiate` (it runs outside the phases). */
+  phase?: SimulationPhase;
+  /** Absent when the hook ran outside a step (the runtime's current step then). */
+  stepIndex?: number;
   code: ErrorCode;
   /** The contract reason (`behavior_step_failed`, `behavior_step_async`, `behavior_state_shared`, …). */
   reason: string;

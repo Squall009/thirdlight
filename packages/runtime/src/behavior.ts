@@ -754,17 +754,24 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           }
         }
       };
-      const instantiateFor = (entityId: string, stored: Record<string, unknown>): BehaviorInstance => {
+      const instantiateError = (entityId: string, e: unknown): BehaviorHostError =>
+        withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
+      /** Make one instance; `late` (an object that arrived after the run's start): a throwing instantiate leaves it switched off. */
+      const instantiateFor = (entityId: string, stored: Record<string, unknown>, late = false): BehaviorInstance => {
         const materialized = materializeBehaviorValues(declaration, stored);
         if (!materialized.ok) throw materialized.error;
         const properties = Object.freeze({ ...materialized.values });
         let state: unknown;
+        let failure: BehaviorHostError | null = null;
         try {
           state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId, properties, tags }));
         } catch (e) {
-          throw withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
+          failure = instantiateError(entityId, e);
+          if (!late) throw failure;
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null, enabled: false, off: false, disposed: false };
+        const instance: BehaviorInstance = { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null, enabled: false, off: false, disposed: false };
+        if (failure !== null) instantiateFailed(instance, failure);
+        return instance;
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -1071,7 +1078,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         return instance.messages.view;
       };
 
-      const { stepBehavior, callback, lifecycle, dispatchEvents, disposeInstance } = createHookRunner({ behaviorId, spec, prepared: readonlyResult, triggerCallbacks, beginInstanceStep, contextFor, ownsTrigger, cfg });
+      const { stepBehavior, callback, lifecycle, dispatchEvents, disposeInstance, instantiateFailed } = createHookRunner({ behaviorId, spec, prepared: readonlyResult, triggerCallbacks, beginInstanceStep, contextFor, ownsTrigger, cfg });
       /** The instances whose objects left the game since the last intent phase (onDisable, onDestroy, then dispose). */
       const leaving: BehaviorInstance[] = [];
 
@@ -1105,14 +1112,15 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             instance.events = null;
             instance.eventsStep = -1;
             disposeInstance(instance);
+            // A new run: an instance a script error switched off runs again (unless instantiate throws again).
+            instance.off = false;
+            instance.disposed = false;
             try {
               instance.state = spec.instantiate?.(readonlyResult, Object.freeze({ entityId: instance.entityId, properties: instance.properties, tags }));
             } catch (e) {
-              throw new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${instance.entityId}") threw: ${messageOf(e)}`);
+              instance.state = undefined;
+              instantiateFailed(instance, instantiateError(instance.entityId, e));
             }
-            // A new run: an instance a script error switched off runs again.
-            instance.off = false;
-            instance.disposed = false;
           }
         },
         step(phase: SimulationPhase, ctx: StepContext): void {
@@ -1175,7 +1183,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           for (const e of entities) {
             if (!added.has(e.id)) continue;
             const values = (e.components as { behavior?: { values?: Record<string, unknown> } }).behavior?.values ?? {};
-            instances.push(instantiateFor(e.id, values));
+            instances.push(instantiateFor(e.id, values, true));
           }
         },
         sceneUnloaded(ids, how): void {

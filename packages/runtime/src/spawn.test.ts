@@ -312,6 +312,29 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(h.diag().state).toBe('running');
   }, 60_000);
 
+  it('a copy whose script instantiate throws still spawns; that instance is switched off and listed once', () => {
+    const calls: string[] = [];
+    const grumpy = createBehaviorModuleSpec({
+      declaration: DECL,
+      artifact: { behaviorId: 'grumpy', sourceDigest: 'a'.repeat(64), manifestDigest: 'b'.repeat(64), outputDigest: 'c'.repeat(64), ownedTransforms: [], requiredModules: [], enginePins: [], namespace: { default: { instantiate: () => { throw new Error('grumpy cannot start'); }, step: () => void calls.push('step grumpy') } } } as never,
+    });
+    const prefab = { prefabId: 'grump', displayName: 'Grump', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0020', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#884444' } }, behavior: { behaviorId: 'grumpy', values: {} } } }] };
+    let id: string | null = null;
+    const h = harness((ctx) => {
+      if (ctx.stepIndex === 20) id = ctx.spawn('grump', { position: [2, 2] });
+    }, { specs: [grumpy], prefabs: [prefab] });
+    h.tick(25);
+    expect(id).not.toBeNull();
+    expect(h.diag().state).toBe('running');
+    expect(h.spawned()).toEqual([id]);
+    const errors = h.diag().errors.filter((e) => e.code !== 'behavior_log') as { reason?: string; entityId?: string; message: string }[];
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ reason: 'behavior_instantiate_failed', entityId: id });
+    expect(errors[0]!.message).toContain('grumpy cannot start');
+    expect(calls).toEqual([]);
+    expect(h.rt.takeProblems?.().map((p) => p.code)).toContain('script_error_grumpy');
+  });
+
   it('a new run removes every spawned entity (ids are never reused); the same inputs give the same game', () => {
     const record = (): { h: ReturnType<typeof harness>; ids: string[] } => {
       const ids: string[] = [];

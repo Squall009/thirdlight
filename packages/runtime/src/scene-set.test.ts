@@ -100,7 +100,7 @@ function snapshot(exitAt: [number, number]): unknown {
   };
 }
 
-function artifact(behaviorId: string, step: (state: unknown, ctx: never) => void, calls: string[]): BehaviorArtifact {
+function artifact(behaviorId: string, step: (state: unknown, ctx: never) => void, calls: string[], instantiateThrows = false): BehaviorArtifact {
   return {
     behaviorId,
     sourceDigest: 'a'.repeat(64),
@@ -113,6 +113,7 @@ function artifact(behaviorId: string, step: (state: unknown, ctx: never) => void
       default: {
         instantiate: (_p: unknown, inst: { entityId: string }) => {
           calls.push(`instantiate ${behaviorId} ${inst.entityId}`);
+          if (instantiateThrows) throw new Error(`${behaviorId} cannot start`);
           return {};
         },
         step,
@@ -130,14 +131,14 @@ interface ScriptCtx {
   emit(intent: unknown): void;
 }
 
-function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) => void } = {}) {
+function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) => void; rockThrows?: boolean } = {}) {
   const log: PortLog = { added: [], removed: [], placed: [] };
   const calls: string[] = [];
   const loader = createBehaviorModuleSpec({
     declaration: DECL,
     artifact: artifact('loader', (_s, ctx) => opts.loader?.(ctx as unknown as ScriptCtx), calls),
   });
-  const rock = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('rock', () => {}, calls) });
+  const rock = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('rock', () => void calls.push('step rock'), calls, opts.rockThrows === true) });
   const specs = [loader, rock];
   const registry = createSimulationRegistry();
   for (const s of specs) registerSimulationModule(registry, s.id, s);
@@ -180,6 +181,28 @@ function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) =>
 }
 
 describe('runtime scene set', () => {
+  it('a scene loaded mid-run whose script instantiate throws still loads; that instance is switched off and listed once', () => {
+    const h = harness({ rockThrows: true });
+    expect(h.rt.requestScene!('load', 'scene-cave').ok).toBe(true);
+    h.serve();
+    h.tick(5);
+    const d = h.rt.getDiagnostics() as { diagnostics: { state: string; errors: { code: string; reason?: string; entityId?: string; moduleId?: string; message: string }[] } };
+    expect(d.diagnostics.state).toBe('running');
+    expect(h.rt.sceneSet!().status['scene-cave']).toBe('loaded');
+    expect(h.ids()).toEqual(expect.arrayContaining(['box-floor', 'box-rock', 'spawn-cave']));
+    expect(h.log.added).toEqual(['box-floor']);
+    const errors = d.diagnostics.errors.filter((e) => e.code !== 'behavior_log');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ reason: 'behavior_instantiate_failed', entityId: 'box-rock', moduleId: 'thirdlight.behavior:rock' });
+    expect(errors[0]!.message).toContain('rock cannot start');
+    expect(h.calls).not.toContain('step rock');
+    expect(h.rt.takeProblems?.().map((p) => p.code)).toEqual(['script_error_rock']);
+    // Unloaded: nothing to dispose (it never had a state).
+    expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
+    h.tick();
+    expect(h.calls).not.toContain('dispose rock');
+  });
+
   it('starts with the start scenes and loads a scene a script asks for, with its colliders, behaviors and tags', () => {
     let want = false;
     const seen: { rocks?: readonly string[]; status?: string } = {};

@@ -73,7 +73,10 @@ In each step every script runs, in phases: first `intent`, then
   and the source line: in Play's diagnostics (`runtime.errors`), in the
   console, and as one Problems line per script; an exported game prints
   it to the browser console. A restart of the run starts the script again.
-  An error in `prepare` or `instantiate` still stops the game from starting.
+  An error in `prepare`, or in `instantiate` at the game's start, still
+  stops the game from starting; an `instantiate` that throws later (an
+  object in a scene loaded mid-run, a spawned copy, a restart) only leaves
+  that script switched off on that object, and the load or spawn completes.
 
 ## Determinism and replays
 

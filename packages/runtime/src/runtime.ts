@@ -778,7 +778,7 @@ export class RuntimeInstance implements Runtime {
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.recordBehaviorLog(moduleId, level, message, at);
-    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop); this.recordError(r.entry); this.problem(r.code, r.message); };
+    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop, this.stepIndex); this.recordError(r.entry); this.problem(r.code, r.message); };
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;

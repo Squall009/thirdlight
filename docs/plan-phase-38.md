@@ -96,7 +96,7 @@ budget.
 |---|---|
 | 38.0 | Done 2026-10-21: three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 is out; the pinned 0.20.0 stays, since nothing in this phase needs it (a minor release would be its own item). |
 | 38.1 | Done 2026-10-21: D151 (the block layer counts hidden-set changes and owns the joined set; runtime.ts 4,154 → 4,146 lines), prefab objects keep their tags into placed and spawned copies (`ctx.tags` finds them until destroyed), E21 (imports matched in code only). New vitest checks in runtime, commands, project-model, behavior-build; no e2e change. Fast gate e2e 36/36 green; its village perf check missed twice (WebGPU p50 7.7 / 7.6 ms); interleaved A/B against `8315f041`, 3 rounds: A 7.7 / 7.7 / 7.9 ms, B 7.5 / 7.6 / 6.9 ms (plain three.js page 6.3–7.0 ms): host state (D290). |
-| 38.2 | Done 2026-10-21: a throwing hook (step, any callback; an async step or a returned value) switches off that one instance at the throw, its `dispose` runs once; one `runtime.errors` entry with `entityId`, step, phase and frames, one Problems line per script (`script_error_<id>`), the export prints it to the console; a run restart switches it on again. Hook code moved to `behavior-hooks.ts`, errors to `behavior-errors.ts` (behavior.ts 1,945 → 1,669; runtime.ts 4,146 → 4,145). Vitest: runtime unit checks, `tests/integration/m38-script-errors` (page and worker, real 3D physics, a step and an `onMessage` throw); 9 tests that asserted the old halt rewritten. `playtest.e2e.ts` MCP step rewritten (the game runs on; source line; Problems; play-test run errors): 28.3 s (last full gate) → 15.7 s. Fast gate: build, lint, vitest 734 files, e2e 33/33 green; village perf missed twice (WebGPU p50 7.6 / 6.8 ms); A/B against `8315f041`, 3 rounds: A 7.7 / 7.5 / 7.9 ms, B 7.9 / 7.9 / 7.7 ms: host state (D290). |
+| 38.2 | Done 2026-10-21: a throwing hook (step, any callback; an async step or a returned value) switches off that one instance at the throw, its `dispose` runs once; one `runtime.errors` entry with `entityId`, step, phase and frames, one Problems line per script (`script_error_<id>`), the export prints it to the console; a run restart switches it on again; an `instantiate` that throws after the start (a loaded scene, a spawned copy, a restart) switches that instance off and the load or spawn completes. Hook code moved to `behavior-hooks.ts`, errors to `behavior-errors.ts` (behavior.ts 1,945 → 1,677; runtime.ts 4,146 → 4,145). Vitest: runtime unit checks (spawned copy and loaded scene with a throwing `instantiate` included), `tests/integration/m38-script-errors` (page and worker, real 3D physics, a step and an `onMessage` throw); 9 tests that asserted the old halt rewritten. `playtest.e2e.ts` MCP step rewritten (the game runs on; source line; Problems; play-test run errors): 28.3 s (last full gate) → 15.7 s. Fast gate: build, lint, vitest 734 files, e2e 33/33 green; village perf missed twice (WebGPU p50 7.6 / 6.8 ms); A/B against `8315f041`, 3 rounds: A 7.7 / 7.5 / 7.9 ms, B 7.9 / 7.9 / 7.7 ms: host state (D290); the follow-up's fast gate green again but for the same miss (7.7 ms), within the same hour as that A/B. |
 
 ## 5. Decision log
 
@@ -125,10 +125,12 @@ budget.
   before an exception. The switch-off point is the throw, which the fixed
   step order makes the same in every replay. Default chosen, owner to
   confirm.
-- 2026-10-21 (38.2): `instantiate` stays a run failure wherever it runs (a
-  spawned copy or a loaded scene too, not only at the start), as the item
-  says; a run restart makes a switched-off instance again. Every Play
-  problem of an exported game now goes to the browser console (script
+- 2026-10-21 (38.2): only the run's first start fails on an `instantiate`
+  that throws (the start scenes' objects). One that throws later (an object
+  in a scene loaded mid-run, a spawned copy, a run restart) leaves that
+  instance switched off with nothing to dispose, is reported the same way,
+  and the load or spawn completes; a later restart tries it again. Every
+  Play problem of an exported game now goes to the browser console (script
   errors as errors, the rest as warnings). Default chosen, owner to confirm.
 - 2026-10-21 (38.2): `features/debugging.md` and `features/scripting.md`
   said a debug command declared twice and a zero `facing` "stop the game";

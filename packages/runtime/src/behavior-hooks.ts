@@ -13,7 +13,10 @@
  * before it threw (intents committed through `ctx.emit`, sounds, messages,
  * spawns) stands, as in any engine where an exception ends a method early.
  * A run restart makes the instance again from `instantiate` and switches it
- * back on.
+ * back on. Only the run's first start fails on an `instantiate` that throws;
+ * an object that arrives later (a loaded scene, a spawned copy) or a restart
+ * gets its instance switched off the same way, and the load or spawn
+ * completes.
  */
 import type { BehaviorEntityHandle } from './entity-access';
 import { EntityAccessError } from './entity-access';
@@ -98,6 +101,11 @@ export interface HookRunner {
   dispatchEvents(instance: BehaviorInstance, src: StepContext): void;
   /** Run the instance's `dispose` once (a throw is a log line: the object is leaving anyway). */
   disposeInstance(instance: BehaviorInstance): void;
+  /**
+   * `instantiate` threw for an object that arrived after the run's start (a loaded scene, a spawned copy)
+   * or at a run restart: that instance stays switched off, the error is reported, and the run goes on.
+   */
+  instantiateFailed(instance: BehaviorInstance, failure: Error): void;
 }
 
 export function createHookRunner(input: HookRunnerInput): HookRunner {
@@ -142,17 +150,16 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
     }
   };
 
-  /** Switch the instance off at its failing hook, report it once, and let it clean up. */
-  const switchOff = (instance: BehaviorInstance, failure: Error, hook: string, phase: SimulationPhase, stepIndex: number): void => {
-    instance.off = true;
+  /** Report a switched-off instance once (the runtime fills in the step when the hook ran outside one). */
+  const report = (instance: BehaviorInstance, failure: Error, hook: string, phase?: SimulationPhase, stepIndex?: number): void => {
     const f = failure as Error & { code?: unknown; reason?: unknown; detail?: unknown; nodeId?: unknown; frames?: unknown };
     const frames = compiledFramesOf(f);
     const stop = {
       behaviorId,
       entityId: instance.entityId,
       hook,
-      phase,
-      stepIndex,
+      ...(phase !== undefined ? { phase } : {}),
+      ...(stepIndex !== undefined ? { stepIndex } : {}),
       code: (typeof f.code === 'string' ? f.code : 'module_error') as ErrorCode,
       reason: typeof f.reason === 'string' ? f.reason : 'behavior_step_failed',
       message: messageOf(f),
@@ -162,7 +169,18 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
     };
     if (cfg.scriptStopped !== undefined) cfg.scriptStopped(stop);
     else cfg.behaviorLog?.('error', `${stop.message} (switched off on "${instance.entityId}")`, frames[0]);
+  };
+  /** Switch the instance off at its failing hook, report it once, and let it clean up. */
+  const switchOff = (instance: BehaviorInstance, failure: Error, hook: string, phase: SimulationPhase, stepIndex: number): void => {
+    instance.off = true;
+    report(instance, failure, hook, phase, stepIndex);
     disposeInstance(instance);
+  };
+  /** An instance made after the run's start whose `instantiate` threw: it is switched off (with no state to dispose). */
+  const instantiateFailed = (instance: BehaviorInstance, failure: Error): void => {
+    instance.off = true;
+    instance.disposed = true;
+    report(instance, failure, 'instantiate');
   };
 
   const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
@@ -232,5 +250,5 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
     }
   };
 
-  return { stepBehavior, callback, lifecycle, dispatchEvents, disposeInstance };
+  return { stepBehavior, callback, lifecycle, dispatchEvents, disposeInstance, instantiateFailed };
 }
