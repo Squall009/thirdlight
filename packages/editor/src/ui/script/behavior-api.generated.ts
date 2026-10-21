@@ -667,7 +667,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "BehaviorSceneControl | undefined",
       "type": "BehaviorSceneControl",
       "optional": true,
-      "doc": "Load and switch scenes (projects with a scene catalog)."
+      "doc": "Load, unload and reload scenes, the way a game changes levels; `setActive` picks whose look shows (projects with a scene catalog)."
     },
     {
       "name": "input",
@@ -767,7 +767,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "BehaviorCharacter | undefined",
       "type": "BehaviorCharacter",
       "optional": true,
-      "doc": "The character — give it an impulse."
+      "doc": "The player characters — push, place, walk, turn and switch them off and on."
     },
     {
       "name": "look",
@@ -993,7 +993,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "BehaviorShell | undefined",
       "type": "BehaviorShell",
       "optional": true,
-      "doc": "The game shell's scene list — move to the next entry (the shell's nextScene action)."
+      "doc": "Deprecated: the game shell's scene list — move to the next entry (the shell's nextScene action)."
     }
   ],
   "BehaviorDebug": [

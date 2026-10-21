@@ -268,8 +268,9 @@ prefab.
 - Engine limits: 64 spawns per step and 16,384 spawned objects alive (one
   scene's entity capacity); past
   them `ctx.spawn` returns `null` and the runtime diagnostics record one
-  `spawn_refused` line. An unknown prefab or bad options stop the game with
-  the script error, like a bad `ctx.scenes` call.
+  `spawn_refused` line. An unknown prefab or bad options throw a script
+  error, like a bad `ctx.scenes` call: that script on that object is
+  switched off, the game goes on.
 - A new run (start, replay, the next level) removes every spawned object.
   Scripts keep running before the run starts, so spawn once the game is
   playing (or spawn again when your object is gone). A save keeps spawned
@@ -408,3 +409,10 @@ same way, from the same cells and tiles, so they agree.
   compiled position (`at`, `frames`) also has `source` (and `sources`)
   `{behaviorId | libraryId, path, line, column}`. Exports carry no source
   maps or sources; an exported game's errors keep their compiled positions.
+- The same row many times (an error from many copies of an object, a line
+  logged every step) is one row with its count (`×16`) and step range; see
+  [Diagnostics and observations that fit](play-tools.md#diagnostics-and-observations-that-fit).
+- A script error switches off only the script that threw, on that object;
+  the game runs on, so check the Console (or Problems) even when the game
+  looks right. See
+  [Scripts and the step model](../concepts/scripts-and-the-step-model.md).

@@ -35,9 +35,14 @@ nothing), so one timeline serves any actors.
   turn), **enabled** off / on (its controller: no input, no gravity). While
   the track plays the player's input does not move the character, from the
   play's start to its end (the track's **input** box lets it). At the end a
-  walk still under way carries on to its mark; a walk that gets no closer
-  for a second is blocked and ends there (a log line). Scripts do the same
-  with [`ctx.character`](gameplay.md).
+  walk still under way carries on to its mark (the input stays held until
+  it arrives); a walk that gets no closer for a second is blocked and ends
+  there (a log line). A key reaches the character in the step after it
+  fires (keys fire at the end of a step), and then has the last word over
+  a script's own move of that character in that step. On the 2D plane a
+  walk goes along x (the mark's y is where the ground is) and **run**
+  changes nothing (the 2D controller has one speed). Scripts do the same
+  with [`ctx.character`](gameplay.md#scene-transitions-impulses-facing-camera-tracking-looks-and-event-sounds).
 - **Animator** — set a parameter, fire a trigger, or go to a state (with a
   crossfade) on the target's animator.
 - **Audio** — music change (crossfade; no asset: silence), give the music back,

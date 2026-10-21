@@ -128,6 +128,11 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     takes about 10 ms for the whole layer (289 solid and 69 one-way pieces),
     the first build through Rapier 30 ms, and a cell write's chunk rebuild
     0.2 ms (at most 0.9 ms).
+  - A layer in a scene loaded later collides from the step its scene is in,
+    and a player arriving with that scene stands on it. The player keeps
+    its own controller settings: to walk up steps lower than a jump (stairs
+    of quarter-cell steps), turn on its controller's **Autostep** with a
+    height over the step.
 - **Scripts** (`ctx.grid`): `layers`, `get`, `set`, `clear`, `columnTop`,
   `worldToCell`, `cellToWorld`, `meta`, `setMeta`, `pick` (a ray → cell and
   entered face; a deterministic walk over cells, independent of physics),

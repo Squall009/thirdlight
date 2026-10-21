@@ -96,8 +96,10 @@ order, what an item is worth - is this project's code.
   compiles to the same kind of script.
 - Publishing: a new script needs its record first (`op.publishBehavior`,
   mode `declaration-create`); then `tl_script_publish` with `check: true`
-  (diagnostics with file and line, nothing written), then publish with
-  `expectedRevision`. A new source answers
+  (diagnostics with file and line, nothing written; it also type-checks
+  against the script API typings, so a wrong member or option name is
+  caught here: fix every diagnostic), then publish with
+  `expectedRevision` (publishing does not type-check). A new source answers
   `behavior_trust_unacknowledged`: acknowledge its `sourceDigest` once
   (`op.acknowledgeBehaviorTrust`) and publish again. Then attach the
   script to an object. Play runs only the published script.
@@ -111,9 +113,14 @@ order, what an item is worth - is this project's code.
 The engine has no "new game", "restart" or "quit to title". Build them:
 
 - A **director** script on a kept object (Keep loaded) runs the flow:
-  scenes load, unload and reload with `ctx.scenes`; a level restart is a
-  scene reload plus what the game resets itself; the player is placed with
-  `ctx.lifecycle` respawn or a scene list spawn.
+  scenes load, unload and reload with `ctx.scenes` - the one way to change
+  levels, in the game's own level order - and `ctx.scenes` `setActive` picks
+  whose look (sky, fog, post) shows; a level restart is a scene reload
+  plus what the game resets itself; the player is placed with
+  `ctx.lifecycle` respawn or a scene list spawn. Moving along the shell's
+  scene list (`ctx.shell`, the `nextScene` action) is deprecated.
+- Cutscenes are timelines (`guides/timelines`); a Character track or
+  `ctx.character` `walkTo` walks a player character with its own controller.
 - Show a title and menus as a game mode or a UI document, not with the
   shell's title screen actions (those restart the whole run and are
   deprecated).
@@ -142,8 +149,13 @@ must agree). `guides/playtesting`, `features/play-tools`.
   per-object state in the script's `state`. Runs that disagree name the
   first differing step.
 - **Errors.** Read `tl_diagnostics` after every play: a script that throws
-  stops the run; observe then says `state: "failed"` with the error, and
-  `tl_playtest` ends with `playtest_game_failed`.
+  is switched off on its object while the game runs on, so a run that
+  looks fine may have one off (`runtime.errors`, Problems, a play-test
+  run's `errors`). Only an engine failure (or a script's `prepare` /
+  start `instantiate`) fails the run (`state: "failed"`,
+  `playtest_game_failed`). Big answers are trimmed, never refused (the
+  `trimmed` note says what went; errors go last); ask for only what you
+  need with `sections`.
 - **A test bot is game code**: a driver module in this repository, run
   from the command line runner (`features/play-tools#headless-play-tests`).
 - **Observed, not claimed.** A screenshot shows pixels, not feel; a

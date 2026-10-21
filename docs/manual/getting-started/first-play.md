@@ -20,7 +20,8 @@ more). A project changes them in **File → Project Settings… → Input**.
 While Play runs:
 
 - The **Console** tab shows what the game logs, and script errors at their
-  source lines.
+  source lines. A script that throws is switched off on its object; the
+  rest of the game keeps running.
 - The **Problems** tab lists what the start checks found (for example a
   scene with no live camera).
 - Changes you make in the editor do not reach the running game. Stop and

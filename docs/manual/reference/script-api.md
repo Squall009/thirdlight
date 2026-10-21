@@ -44,7 +44,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.physics` | property | `PhysicsStepClient` | [`PhysicsStepClient`](script-types-behavior-context.md#script-type-physics-step-client) | Physics queries for this step. |
 | `ctx.tags` | property | `BehaviorTagQuery` | [`BehaviorTagQuery`](script-types-behavior-context.md#script-type-behavior-tag-query) | Find entities by tag. |
 | `ctx.world` | property | `BehaviorWorldView` | [`BehaviorWorldView`](script-types-behavior-context.md#script-type-behavior-world-view) | Read-only positions of the loaded entities. |
-| `ctx.scenes?` | property | `BehaviorSceneControl \| undefined` | [`BehaviorSceneControl`](script-types-behavior-context.md#script-type-behavior-scene-control) | Load and switch scenes (projects with a scene catalog). |
+| `ctx.scenes?` | property | `BehaviorSceneControl \| undefined` | [`BehaviorSceneControl`](script-types-behavior-context.md#script-type-behavior-scene-control) | Load, unload and reload scenes, the way a game changes levels; `setActive` picks whose look shows (projects with a scene catalog). |
 | `ctx.input` | property | `BehaviorInputView` | [`BehaviorInputView`](script-types-behavior-context.md#script-type-behavior-input-view) | The step's input actions by name. |
 | `ctx.animator?` | method | `(entityId: string): BehaviorAnimatorHandle \| null` | [`BehaviorAnimatorHandle`](script-types-behavior-context.md#script-type-behavior-animator-handle) | An entity's animator (`ctx.animator(id)?.set('speed', 1)`), or null when it has none. |
 | `ctx.events?` | property | `readonly (AnimatorEventRecord \| TriggerEventRecord \| PrimitiveEventRecord)[] \| undefined` |  | Last step's clip events, the enter/exit events of the triggers this instance owns, and the health, collect, patrol and contact events of the objects it owns (its own, those below it, and those its object properties name). |
@@ -57,7 +57,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.patrol?` | property | `BehaviorPatrol \| undefined` | [`BehaviorPatrol`](script-types-behavior-patrol.md#script-type-behavior-patrol) | Patrollers — which way they walk, stop them, turn them around. |
 | `ctx.hitbox?` | property | `BehaviorHitbox \| undefined` | [`BehaviorHitbox`](script-types-behavior-patrol.md#script-type-behavior-hitbox) | Hitboxes — switch them off and on, what they touch. |
 | `ctx.collectible?` | property | `BehaviorCollectible \| undefined` | [`BehaviorCollectible`](script-types-behavior-patrol.md#script-type-behavior-collectible) | Collectibles — collected or not, bring one back. |
-| `ctx.character?` | property | `BehaviorCharacter \| undefined` | [`BehaviorCharacter`](script-types-behavior-patrol.md#script-type-behavior-character) | The character — give it an impulse. |
+| `ctx.character?` | property | `BehaviorCharacter \| undefined` | [`BehaviorCharacter`](script-types-behavior-patrol.md#script-type-behavior-character) | The player characters — push, place, walk, turn and switch them off and on. |
 | `ctx.look?` | property | `BehaviorLook \| undefined` | [`BehaviorLook`](script-types-behavior-patrol.md#script-type-behavior-look) | Per-object look overrides — a glow or a tint, set and cleared. |
 | `ctx.audio?` | property | `BehaviorAudio \| undefined` | [`BehaviorAudio`](script-types-behavior-patrol.md#script-type-behavior-audio) | Play sounds (presentation only, never part of the simulation). |
 | `ctx.effects?` | property | `BehaviorEffects \| undefined` | [`BehaviorEffects`](script-types-behavior-patrol.md#script-type-behavior-effects) | Play visual effects (presentation only, never part of the simulation). |
@@ -86,7 +86,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.timeline?` | property | `BehaviorTimeline \| undefined` | [`BehaviorTimeline`](script-types-behavior-assets.md#script-type-behavior-timeline) | Timelines — play, pause, skip, seek and stop project timelines; their events and markers. |
 | `ctx.environment?` | property | `BehaviorEnvironment \| undefined` | [`BehaviorEnvironment`](script-types-behavior-assets.md#script-type-behavior-environment) | The environment presets — switch or blend sky, fog, lights, exposure and grading at run time. |
 | `ctx.entity?` | method | `(entityId: string \| null): BehaviorEntityHandle \| null` | [`BehaviorEntityHandle`](script-types-behavior-assets.md#script-type-behavior-entity-handle) | One loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) — read any component (`get`: the step-start state of its script-readable fields) and write the fields marked writable (`set`: applied at the end of the step). |
-| `ctx.shell?` | property | `BehaviorShell \| undefined` | [`BehaviorShell`](script-types-behavior-assets.md#script-type-behavior-shell) | The game shell's scene list — move to the next entry (the shell's nextScene action). |
+| `ctx.shell?` | property | `BehaviorShell \| undefined` | [`BehaviorShell`](script-types-behavior-assets.md#script-type-behavior-shell) | Deprecated: the game shell's scene list — move to the next entry (the shell's nextScene action). |
 
 <a id="ctx-docs"></a>
 ## Context members in full
@@ -113,7 +113,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 
 <a id="ctx-world"></a>**`ctx.world`** — Read-only positions of the loaded entities.
 
-<a id="ctx-scenes"></a>**`ctx.scenes`** — Load and switch scenes (projects with a scene catalog).
+<a id="ctx-scenes"></a>**`ctx.scenes`** — Load, unload and reload scenes, the way a game changes levels; `setActive` picks whose look shows (projects with a scene catalog).
 
 <a id="ctx-input"></a>**`ctx.input`** — The step's input actions by name.
 
@@ -142,7 +142,7 @@ those its object properties name).
 
 <a id="ctx-collectible"></a>**`ctx.collectible`** — Collectibles — collected or not, bring one back.
 
-<a id="ctx-character"></a>**`ctx.character`** — The character — give it an impulse.
+<a id="ctx-character"></a>**`ctx.character`** — The player characters — push, place, walk, turn and switch them off and on.
 
 <a id="ctx-look"></a>**`ctx.look`** — Per-object look overrides — a glow or a tint, set and cleared.
 
@@ -216,7 +216,7 @@ dialogue variables, the backlog and the events of lines, choices and signals.
 read any component (`get`: the step-start state of its script-readable fields) and write the fields
 marked writable (`set`: applied at the end of the step). Null for no id or an object that is not loaded.
 
-<a id="ctx-shell"></a>**`ctx.shell`** — The game shell's scene list — move to the next entry (the shell's nextScene action).
+<a id="ctx-shell"></a>**`ctx.shell`** — Deprecated: the game shell's scene list — move to the next entry (the shell's nextScene action).
 
 <a id="script-behavior-prepare-config"></a>
 ## `BehaviorPrepareConfig`

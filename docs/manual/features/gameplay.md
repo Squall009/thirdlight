@@ -144,8 +144,13 @@ These work in both dimensions.
   closer for a second) or stopped; `ctx.character.stop(entityId?)` ends the
   walk; `ctx.character.turn(facing, entityId?)` turns it (degrees about +Y);
   `ctx.character.setEnabled(false | true, entityId?)` switches its controller
-  off and on. The timeline's Character track goes the same way
-  ([Timelines](timelines.md)).
+  off and on. A call in the intent phase applies right after that phase,
+  in the same step, and has the last word over a script's own move of that
+  character; a new walk, a placement or `stop` ends the walk under way, as
+  does the end of the character's scene (`stopped`). A blocked walk ends
+  where it is with a log line: place the character or walk it round.
+  On the 2D plane a walk goes along x and `run` changes nothing. The
+  timeline's Character track goes the same way ([Timelines](timelines.md)).
 - **Facing**: Face movement **Face velocity** turns a model toward its
   motion in any direction (3D too; **Yaw offset** for a model authored facing
   another way; at the top of the hierarchy it follows its own motion). A

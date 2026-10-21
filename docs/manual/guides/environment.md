@@ -67,7 +67,8 @@ scenes or projects, or to generate presets (a day cycle's steps).
   back whole with your change.
 - **Only the active scene's look shows.** Play from another scene still
   shows the first start scene's look, so put the look on the start scene
-  or make the scene active from the game.
+  or make the scene active from the game (`ctx.scenes.setActive`; a load
+  that unloads the active scene makes its own scene active).
 - **A preset's light colour does not change baked surfaces.** Give night
   presets a `lightmap` multiplier.
 - **Some settings cannot blend** (tone mapping, anti-aliasing, AO, depth of

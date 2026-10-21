@@ -13,7 +13,7 @@ slots to objects, so one timeline serves any actors. Tracks can cut
 cameras, move objects, drive animators, play music and sounds, run
 dialogue, start effects, show or hide objects, fire signals, fade, draw
 letterbox bars, wait for input, change materials, switch game modes and
-environment presets.
+environment presets, and walk, place and turn player characters.
 
 ## In the editor
 
@@ -67,6 +67,81 @@ environment presets.
    the list is empty, the fade and bars are cleared, and the play log has
    your `intro finished` line.
 
+## A cutscene that walks a character
+
+**Goal:** in the 3D starter, when the game starts the player walks to a
+mark away from the camera with its own controller (its speed, collisions
+and walk animation), turns round to face the camera, and the player gets
+control back. Every field: [Timelines: Character](../features/timelines.md#timelines-sequencer).
+
+In the editor:
+
+1. Create a timeline `Arrival` (3 s, **Play when a run starts**, **Skip
+   action** `jump`) with a slot `hero` whose default object is the
+   *Player*.
+2. **New track type** *character*, **Add track**, target `hero`.
+3. Playhead at 0 s, **Add key at playhead**: a **place** key where the
+   player stands (the key takes its place; **Capture the character's
+   place** takes it again after you move the player).
+4. Playhead at 0.2 s, **Add key at playhead**, **Key mode** *walk*, **Key
+   position** `4, 0.91, -6`, **facing** `0` (degrees about +Y: 0 faces +Z,
+   toward the starter's camera, once it arrives).
+5. Scrub the ruler: the Scene view slides the player to the mark. Play
+   walks it at its own speed; the preview does not.
+
+Through the API, the same timeline
+([`setTimeline`](../reference/ops-detail.md#op-setTimeline); `model-000001`
+is the 3D starter's player, read yours with `tl_inspect`):
+
+```json
+{"timeline": {"timelineId": "arrival", "name": "Arrival", "duration": 3, "skipAction": "jump", "playOnStart": true,
+  "slots": [{"name": "hero", "entity": "model-000001"}],
+  "tracks": [
+    {"trackId": "walk-in", "type": "character", "target": "hero",
+     "keys": [{"time": 0, "mode": "place", "position": [0, 0.91, 0], "facing": 180},
+              {"time": 0.2, "mode": "walk", "position": [4, 0.91, -6], "facing": 0}]}]}}
+```
+
+Play it and observe `player` with `tl_game_observe`: the player walks,
+stops within 0.1 m of the mark and turns. The player's own input does not
+move it from the timeline's start to its end, and on until a walk still
+under way has arrived (the track's **input** box, `playerInput: true`, lets
+the player move it meanwhile). A
+key `{"time": 1, "enabled": false}` switches the controller off (no input,
+no gravity) and `{"enabled": true}` on again.
+
+From a script, the same walk without a timeline: a director that sends the
+player to a door and loads the next level once it is there.
+[`ctx.character`](../reference/script-api.md#ctx-character) takes the
+player's object last and defaults to the first player:
+
+```ts
+import type { BehaviorContext } from '@thirdlight/runtime';
+
+const DOOR: [number, number, number] = [4, 0.91, -6];
+
+interface State { walk: number }
+
+export default {
+  instantiate(): State {
+    return { walk: 0 };
+  },
+  step(state: State, ctx: BehaviorContext): void {
+    if (ctx.phase !== 'intent') return;
+    if (state.walk === 0) {
+      if (ctx.signals.on('door-open')) state.walk = ctx.character.walkTo(DOOR, { facing: 0 });
+      return;
+    }
+    const walk = ctx.character.walkState(state.walk);
+    if (walk === 'walking') return;
+    // Blocked (something stood in the way for a second): put it on the mark.
+    if (walk === 'blocked') ctx.character.place(DOOR, 0);
+    state.walk = 0;
+    if (walk === 'arrived' || walk === 'blocked') ctx.scenes.load('level-2', { unload: ['level-1'] });
+  },
+};
+```
+
 ## Which to use
 
 Author timelines in the editor: the ruler, scrubbing and the Scene view
@@ -86,6 +161,21 @@ has come.
 - **Fade and letterbox clear at the end** unless the track has **hold**.
 - **Signals are seen one step later** (`ctx.signals.on`).
 - **8 timelines play at once**; a ninth `play` returns 0.
+- **A character key reaches the character one step later.** Keys fire at
+  the end of a step, so the character places, walks or turns in the next
+  step. A cutscene's or script's walk has the last word over a script's
+  own move of that character in the same step.
+- **Walk a character with a Character track, not a Transform track.** A
+  transform key teleports the body every step; a walk uses the
+  controller, so the character collides, climbs slopes and animates.
+- **A walk can be blocked.** One that gets no closer for a second ends
+  where it is, with a log line (`walkState` says `blocked`); a walk still
+  under way when the timeline ends carries on to its mark.
+- **Skip lands walks on their marks; stop leaves the character where it
+  is.**
+- **On the 2D plane** a walk goes along x (the mark's y is where the ground
+  is), `run` changes nothing (the 2D controller has one speed), and a
+  facing turns the character's face-movement models (90 right, −90 left).
 
 Related: [cameras](cameras.md), [dialogue](dialogue.md),
 [game modes](game-modes.md).

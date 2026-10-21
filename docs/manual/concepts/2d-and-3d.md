@@ -19,7 +19,11 @@ The project setting **Physics** (`physics_dimension`, in
   top-down games.
 
 A 2D game is a constrained case of the same engine: the same objects,
-components, scripts, cameras, UI and export.
+components, scripts, cameras, UI and export. Block layers are level
+geometry in both: on the 2D plane a layer collides where it crosses the
+play plane (its ground, slopes, stairs and one-way ledges; see
+[Blocks: Collision](../features/blocks.md#block-layers)). Terrain, scatter,
+splines and generated architecture collide in 3D only.
 
 ## Starting in 3D
 

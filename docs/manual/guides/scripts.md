@@ -68,8 +68,14 @@ MCP's `tl_script_publish` sends to it, and so can any HTTP client.
    the script API typings: a type error answers `compiled: false` with
    `code: "behavior_type_error"` (each diagnostic's `reason` is the
    TypeScript error, e.g. `ts2353` for an unknown option field); a clean
-   one answers `typeChecked: true`. Publishing does not type-check, so a
-   project whose scripts have type errors still opens and plays.
+   one answers `typeChecked: true`. The type check is TypeScript's
+   `strict` without implicit-`any` and null checks: an unannotated
+   `step(state, ctx)` is fine (`ctx` is typed as the step context), and
+   `ctx.camera` needs no `?.`. It covers the script's files and the
+   libraries it imports (an error in a library names it). Not
+   type-checked: visual scripts (their code is generated) and a library's
+   own check in its tab. Publishing does not type-check, so a project
+   whose scripts have type errors still opens and plays.
 4. Publish it: the same with `"displayName": "Scorer"` and
    `"expectedRevision"` instead of `check` (`ownedTransforms: ["@self"]`
    when it moves its own object). While the source's digest is not

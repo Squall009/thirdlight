@@ -29,6 +29,11 @@ the exact fields and ops are in `tl_docs`.
   more scripts on child objects or kept helper objects.
 - **Unpublished code does not run.** Play runs the published script, and a
   running Play keeps the code it started with.
+- **Only `check` type-checks.** A publish goes through with type errors;
+  run `tl_script_publish {check: true}` first (`guides/scripts`).
+- **A script that throws is switched off, quietly.** The game runs on
+  without it; its error is in `tl_diagnostics` (`runtime.errors`) and
+  Problems, not in the game's `state`.
 - **Object and asset references start as `null`**, never `""`; a property
   default must be a literal.
 - **Library variables are shared** by every script importing the library;
@@ -49,6 +54,10 @@ the exact fields and ops are in `tl_docs`.
 - **The shell's title screen and its new game / quit to title actions
   restart the whole run** (deprecated). Show your own title mode or
   document.
+- **Change levels with `ctx.scenes` `load` / `unload`**, not the shell's
+  scene list (`ctx.shell`, `nextScene`: deprecated). A start scene that
+  stays loaded stays the active look until `ctx.scenes` `setActive` names the
+  level (`guides/game-flow`).
 - **Under a paused shell screen nothing steps.** A button's UI event
   reaches scripts only once the game runs: add `resume` after it.
 - **A scene reload does not move a kept player** and leaves a menu open;
@@ -68,6 +77,9 @@ the exact fields and ops are in `tl_docs`.
 
 ## Play-testing
 
+- **A big answer is trimmed, not refused**: read its `trimmed` note, and
+  ask `tl_diagnostics` / `tl_game_observe` for `sections`. Repeated rows
+  come as one with a `count`.
 - **A test frame's action needs `p`** (none, pressed or released); a value
   alone does nothing. Frames count from the run's first step and must
   ascend.
@@ -81,11 +93,31 @@ the exact fields and ops are in `tl_docs`.
   physics, follow camera, Basic Kit block ground, terrain, sky) instead of
   switching a 2D one.
 
+## Cutscenes and characters
+
+- **Walk a character with a Character track** (or `ctx.character` `walkTo`),
+  not a Transform track: a transform key teleports the body; a walk uses
+  its controller, collisions and animation (`guides/timelines`).
+- **A character key acts one step after it fires**, and the track holds
+  the player's input while it plays (its `playerInput` lets it through).
+- **A walk can be blocked**: `walkState` says `blocked` after a second
+  without getting closer; place the character or walk it round.
+- **On the 2D plane** a walk goes along x and `run` changes nothing.
+
+## 2D block levels
+
+- **Block layers collide on the 2D plane** where they cross the play plane
+  (z = 0 or the layer's `planeZ`); a block type's `oneWay` makes ledges.
+  Terrain, scatter and splines do not collide there (`guides/block-layers`).
+- **A player arriving with a later scene keeps its own controller
+  settings**: give it Autostep to walk up low steps.
+
 ## Look, cameras and lighting
 
 - **Keep one enabled camera in a start scene**; priority decides which
   camera is live, not order (`guides/cameras`).
-- **Only the active scene's look shows** in Play (`guides/environment`).
+- **Only the active scene's look shows** in Play; `ctx.scenes` `setActive`
+  picks it (`guides/environment`).
 - **Probe baking needs WebGPU**; a baked light gives moving objects only
   its bounce; changing an image sky after a bake makes probes stale
   (`guides/lighting`).

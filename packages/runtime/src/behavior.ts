@@ -180,7 +180,7 @@ export interface BehaviorContext {
   readonly tags: BehaviorTagQuery;
   /** Read-only positions of the loaded entities. */
   readonly world: BehaviorWorldView;
-  /** Load and switch scenes (projects with a scene catalog). */
+  /** Load, unload and reload scenes, the way a game changes levels; `setActive` picks whose look shows (projects with a scene catalog). */
   readonly scenes?: BehaviorSceneControl;
   /** The step's input actions by name. */
   readonly input: BehaviorInputView;
@@ -214,7 +214,7 @@ export interface BehaviorContext {
   readonly hitbox?: BehaviorHitbox;
   /** Collectibles — collected or not, bring one back. */
   readonly collectible?: BehaviorCollectible;
-  /** The character — give it an impulse. */
+  /** The player characters — push, place, walk, turn and switch them off and on. */
   readonly character?: BehaviorCharacter;
   /** Per-object look overrides — a glow or a tint, set and cleared. */
   readonly look?: BehaviorLook;
@@ -335,7 +335,7 @@ export interface BehaviorContext {
    */
   readonly entity?: (entityId: string | null) => BehaviorEntityHandle | null;
   /**
-   * The game shell's scene list — move to the next entry (the shell's nextScene action).
+   * Deprecated: the game shell's scene list — move to the next entry (the shell's nextScene action).
    * @deprecated Change levels with `ctx.scenes.load` / `unload`; `ctx.scenes.setActive` picks the look.
    */
   readonly shell?: BehaviorShell;

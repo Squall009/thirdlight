@@ -69,8 +69,8 @@ warning"; a click opens the script's Graph tab at the node).
   list — one exec output per case, up to 32, plus default; an empty case
   never matches), **Select**
   (a or b). A script may run at most 10 000 loop iterations per step (all
-  loops, functions included) — more stops the play with a script error
-  naming the loop node.
+  loops, functions included) — more is a script error naming the loop
+  node, which switches that script off on that object (the game goes on).
 - **Data:** coloured wires carry numbers, true/false, text, vectors (x, y,
   z), lists and maps (a number or true/false feeds a text input as text,
   true/false feeds a number as 1/0, a number feeds a vector as (n, n, n), a

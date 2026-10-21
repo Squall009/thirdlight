@@ -131,9 +131,9 @@ hand.
   with **Collision** on is pulled in under the cut roof (the roof still
   collides), so you look at the walls: turn the camera's Collision off, or
   keep its distance short enough to stay inside.
-- **A walkable level needs a 3D project.** On the 2D plane the player
-  moves along X only and the camera looks from the side: start from the
-  3D starter (see *Before you start*).
+- **A level you walk around in needs a 3D project.** On the 2D plane the
+  player moves along X only and the camera looks from the side: start from
+  the 3D starter (see *Before you start*).
 - **A side-view level's ground can be blocks.** In a 2D project the layer
   collides where it crosses the play plane (z = 0, or the layer's *Play
   plane z*): paint the ground, slopes and steps across it, and turn on a

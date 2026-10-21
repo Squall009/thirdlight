@@ -164,7 +164,9 @@ The "Script: <behavior>" tab edits a behavior's TypeScript source.
   the field is `time`) is listed like a compile error, with the fields the
   option type has. `step(state, ctx)` needs no annotations: `ctx` is
   typed as the step context. The type check is strict except for
-  implicit `any` and null checks.
+  implicit `any` and null checks. Visual scripts and a library's own tab
+  are not type-checked (a script that imports the library reports the
+  library's type errors, naming it).
 - **Publish**: compiles again (without the type check, so a type error
   never stops a publish) and publishes the source through the ordinary
   source route — one `publishBehavior` command, one undo step. A source

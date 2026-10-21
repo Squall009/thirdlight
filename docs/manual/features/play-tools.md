@@ -78,12 +78,45 @@ problems (`withProblems: true` for the broken ones only).
 ## A run that failed
 
 `tl_game_observe`'s `state` is `running`, `paused` (the engine pause, a
-menu, a game mode) or `failed`: an error stopped the run (a script threw, a
-physics or module failure). A failed run takes no more steps, not even a
-replay; start a new play. Its observation adds `error` `{code, message}`
-(and, when known, `stepIndex` and `moduleId`), the error that stopped it; `tl_diagnostics`
+menu, a game mode) or `failed`: an engine error stopped the run (a physics
+or module failure, or a script's `prepare` or `instantiate` at the game's
+start). A failed run takes no more steps, not even a replay; start a new
+play. Its observation adds `error` `{code, message}` (and, when known,
+`stepIndex` and `moduleId`), the error that stopped it; `tl_diagnostics`
 `runtime.errors` has the same entry with its source line. A play-test whose
 game fails ends with `playtest_game_failed` and that error.
+
+A script that throws does not fail the run: that script on that object is
+switched off, everything else keeps stepping and `state` stays `running`
+([what stops and what does not](../concepts/scripts-and-the-step-model.md)).
+Its error is one `runtime.errors` entry (with `entityId`, the step and the
+source line), one Problems line for the script, and in a play-test the
+run's `errors`. Read `tl_diagnostics` after every play: a game that "runs"
+may have a script switched off.
+
+## Diagnostics and observations that fit
+
+`tl_diagnostics` with a play id and `tl_game_observe` answer at most
+16 KiB, and they never drop an error to fit:
+
+- **Copies are one row.** Rows that differ only in the step and the object
+  (the same error from 16 copies of an object, a log line written every
+  step) fold into one with `count`, `firstStep` (`stepIndex` is the newest)
+  and the first four objects in `entityIds`. The Console shows it as `×16`
+  with the step range. The play log keeps 32 rows; log lines never hold
+  more than half of them while errors need the room.
+- **Trimmed, never refused.** Over the bound, copies fold first; then the
+  other lists lose their oldest rows (the longest list first); then
+  `runtime.errors` its oldest log lines; then whole parts go (largest
+  first); errors go last. An observation's header (ids, step, `state`,
+  `error`, `inputMode`, `sound`) is never cut. The answer's `trimmed` note
+  says what went, by path, with counts (`logEntries`, `errorEntries`,
+  `lists`, `omitted`, `merged`).
+- **`sections`** asks for only the parts you need, chosen before the trim:
+  `tl_diagnostics {playSessionId, sections: ["runtime"]}` (the errors and
+  log lines live in `runtime`), `tl_game_observe {playSessionId, sections:
+  ["player", "scenes"]}` (the header always comes too). An unknown name is
+  refused with the list of valid ones.
 
 ## Headless play-tests
 

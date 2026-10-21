@@ -31,7 +31,9 @@ of a wall as a strip of its slot's row.
    **Equal rows** splits the sheet again; **Import layout.json** reads a
    Texture Designer trim export's table (rows at their real height on);
    **Check padding** compares the
-   albedo's padding with each row's edge and names the row that differs.
+   albedo's padding with each row's edge and names the row that differs
+   (an ETC1S KTX2 albedo is too lossy to judge: differing gutters say "not
+   judged"; check the sheet's PNG export).
 4. Put the sheet on generated architecture: a preset's **Trim sheet**, or
    the architecture object's **Materials** slot `architecture`. On block
    faces: a block type's **Material** in the block editor's block type

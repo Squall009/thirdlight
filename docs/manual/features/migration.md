@@ -143,3 +143,36 @@ first save or load in a Play writes one Problems line
 Saves written before load in both cases: a game without `world` ignores a
 save's world. The default changes (no `world` unless listed) once no game
 relies on it.
+
+### What else behaves differently for an existing game
+
+No upgrade step and no Problems line; worth a look after updating the
+engine:
+
+- **A script that throws no longer stops the game.** Only that script on
+  that object is switched off; the rest keeps running. A play-test that
+  expected `playtest_game_failed` from a script error now finds the error
+  in its run's `errors` and `runtime.errors` instead
+  ([Scripts and the step model](../concepts/scripts-and-the-step-model.md)).
+- **A script check type-checks.** `tl_script_publish {check: true}` and the
+  editor's check refuse a source with a type error
+  (`behavior_type_error`); publishing and Play do not, so the project still
+  opens and runs ([the script guide](../guides/scripts.md#through-the-api)).
+- **Play diagnostics fold copies and trim instead of refusing.** Repeated
+  rows come as one with `count`; an answer over 16 KiB carries `trimmed`
+  ([Play tools](play-tools.md#diagnostics-and-observations-that-fit)).
+- **Block layers collide on the 2D plane.** A 2D project's layer now
+  collides where it crosses the play plane. A layer meant as scenery only
+  can move its *Play plane z* to a z it does not reach
+  ([Blocks](blocks.md#block-layers)).
+- **An unpainted wall with material rules** that name only tops is the
+  material's second layer, as [Blocks](blocks.md#block-layers) says,
+  instead of the first.
+- **3D movers push a player sideways** when they move into it (they used
+  to stop against it).
+- **A transform key on a 2D player character** places it (before: a
+  warning and nothing), and a rotation key on a player character turns its
+  controller too. Walk characters with the Character track
+  ([Timelines](timelines.md)).
+- **Prefab copies keep their objects' tags**, so `ctx.tags` finds placed
+  and spawned copies.
