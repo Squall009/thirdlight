@@ -3,7 +3,8 @@
  * full cells (merged across a chunk), a 1:2 slope of sloped corners as one
  * piece, stairs a box per step, a thin wall for an edge piece across the
  * plane and none for one along it, one-way blocks apart, the half-open row
- * on a cell boundary, and a cell edit changing the cut.
+ * on a cell boundary, a cell edit changing the cut, and overlapping shapes
+ * whose faces cross cut to their exact union.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -15,7 +16,7 @@ import { planeCollisionChunk, planeCutChunkRows, planeCutRow, type PlaneCutPiece
 const LAYER: BlockLayerComponent = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [40, 8, 4] } };
 const T = (blockId: string, shape: BlockType['shape'], extra: Partial<BlockType> = {}): BlockType => ({ blockId, name: blockId, variants: [{ color: '#888888' }], shape, ...extra });
 const TYPES = new Map(
-  [T('stone', 'full'), T('stairs', 'stairs'), T('ramp', 'ramp'), T('ledge', 'full', { oneWay: true }), T('wall', 'full', { placement: 'edge' }), T('slab', 'half'), T('wide', 'full', { footprint: [1, 1, 2] })].map((t) => [t.blockId, t]),
+  [T('stone', 'full'), T('stairs', 'stairs'), T('ramp', 'ramp'), T('ledge', 'full', { oneWay: true }), T('wall', 'full', { placement: 'edge' }), T('slab', 'half'), T('wide', 'full', { footprint: [1, 1, 2] }), T('rampwall', 'ramp', { placement: 'edge' })].map((t) => [t.blockId, t]),
 );
 
 function grid(edits: BlockEdit[]): BlockGrid {
@@ -133,5 +134,37 @@ describe('the 2D plane cut of a block layer', () => {
     const deep = grid([{ kind: 'fill', box: [2, 0, 0, 3, 1, 1], cell: { block: 'wide' } }]);
     expect(planeCutChunkRows(1, TYPES)).toEqual([0, 0]);
     expect(boxes(planeCollisionChunk(deep, 0, 0, TYPES, 1.5, 1).solid)).toEqual([[2, 0, 3, 1, 4]]);
+  });
+
+  it('cuts shapes whose faces cross inside a slab to their exact union', () => {
+    // A ramp rising toward +x in cell x 8 and, on its x line, an edge ramp falling toward +x across its thickness:
+    // the edge piece's top crosses the ramp's just right of x 8, inside the slab from x 8 to the edge's far side.
+    const ground: BlockEdit = { kind: 'fill', box: [0, 0, 1, 16, 1, 2], cell: { block: 'stone' } };
+    const ramp: BlockEdit = { kind: 'fill', box: [8, 1, 1, 9, 2, 2], cell: { block: 'ramp', rot: 90 } };
+    const edge = { kind: 'edges', at: [8, 1, 1, 0], edge: { block: 'rampwall', rot: 180 } } as BlockEdit;
+    const cut = (edits: BlockEdit[]): PlaneCutPiece[] => planeCollisionChunk(grid(edits), 0, 0, TYPES, 1.5, 1).solid;
+    const both = cut([ground, ramp, edge]);
+    const apart = [...cut([ground, ramp]), ...cut([ground, edge])];
+    expect(both.every(convex)).toBe(true);
+    // Inside a convex counter-clockwise piece by more than a hair: the comparison skips points on any boundary.
+    const depth = (p: PlaneCutPiece, x: number, y: number): number =>
+      Math.min(
+        ...p.vertices.map((a, i) => {
+          const b = p.vertices[(i + 1) % p.vertices.length]!;
+          const ex = b[0] - a[0];
+          const ey = b[1] - a[1];
+          return (ex * (y - p.y - a[1]) - ey * (x - p.x - a[0])) / Math.hypot(ex, ey);
+        }),
+      );
+    const inside = (ps: readonly PlaneCutPiece[], x: number, y: number): number => Math.max(...ps.map((p) => depth(p, x, y)));
+    const wrong: [number, number][] = [];
+    for (let x = 7.9; x <= 8.1; x += 0.0025) {
+      for (let y = 0.5; y <= 2.1; y += 0.0025) {
+        const a = inside(both, x, y);
+        const b = inside(apart, x, y);
+        if (Math.abs(a) > 1e-3 && Math.abs(b) > 1e-3 && a > 0 !== b > 0) wrong.push([x, y]);
+      }
+    }
+    expect(wrong.length, JSON.stringify(wrong.slice(0, 3))).toBe(0);
   });
 });

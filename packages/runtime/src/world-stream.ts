@@ -93,6 +93,8 @@ interface StreamedObject {
   readonly keys: (() => Iterable<string>) | null;
   readonly collision: RingState;
   readonly live: RingState | null;
+  /** A layer's height (metres, bottom and top): every chunk's column spans it. Null: a terrain. */
+  readonly column: readonly [number, number] | null;
 }
 
 const ringState = (ring: StreamRing): RingState => ({ ring, members: new Set(), pending: [], fresh: true });
@@ -119,6 +121,8 @@ export class SimWorldStream {
   private lastRecheckStep = -1;
   private changes: StreamRingChange[] = [];
   private spawnsLeft = STREAM_LIVE_SPAWNS_PER_STEP;
+  /** Played on the 2D plane (`playOnPlane`). */
+  private onPlane = false;
 
   /** `sources` gives the committed state's sources at a step boundary. */
   constructor(private readonly sourcesNow: (() => number[][]) | null) {}
@@ -133,7 +137,7 @@ export class SimWorldStream {
     const rings = resolveStreamingRings(c.streaming);
     if (rings === null || this.objects.has(entityId)) return;
     const keys = c.tiles.map((t) => `${t.x},${t.z}`);
-    this.objects.set(entityId, { entityId, kind: 'terrain', origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], unit: terrainTileSize(c), cost: c.tileSamples * c.tileSamples, rings, keys: collide ? () => keys : () => [], collision: ringState(rings.collision), live: null });
+    this.objects.set(entityId, { entityId, kind: 'terrain', origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], unit: terrainTileSize(c), cost: c.tileSamples * c.tileSamples, rings, keys: collide ? () => keys : () => [], collision: ringState(rings.collision), live: null, column: null });
     this.lookedFrom = null;
   }
 
@@ -141,12 +145,26 @@ export class SimWorldStream {
   addLayer(entityId: string, c: BlockLayerComponent, origin: readonly number[], chunks: () => Iterable<string>): void {
     const rings = resolveStreamingRings(c.streaming);
     if (rings === null || this.objects.has(entityId)) return;
-    this.objects.set(entityId, { entityId, kind: 'blocks', origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], unit: CHUNK_SIZE * c.cellSize[0], cost: STREAM_CHUNK_COST, rings, keys: chunks, collision: ringState(rings.collision), live: ringState(rings.live) });
+    const oy = origin[1] ?? 0;
+    const column = [oy + c.bounds.min[1] * c.cellSize[1], oy + c.bounds.max[1] * c.cellSize[1]] as const;
+    this.objects.set(entityId, { entityId, kind: 'blocks', origin: [origin[0] ?? 0, oy, origin[2] ?? 0], unit: CHUNK_SIZE * c.cellSize[0], cost: STREAM_CHUNK_COST, rings, keys: chunks, collision: ringState(rings.collision), live: ringState(rings.live), column });
     this.lookedFrom = null;
   }
 
   remove(entityId: string): void {
     this.objects.delete(entityId);
+  }
+
+  /**
+   * The game is played on the 2D plane: a layer's rings are measured on the
+   * plane (x and y, to a chunk's column), whatever a source's z (a side
+   * view's camera stands off the plane), and a move up or down looks at them
+   * again. Terrain stays measured across the ground (it collides in 3D only).
+   */
+  playOnPlane(): void {
+    if (this.onPlane) return;
+    this.onPlane = true;
+    this.lookedFrom = null;
   }
 
   /**
@@ -275,6 +293,7 @@ export class SimWorldStream {
       const a = was[i]!;
       const b = this.sources[i]!;
       if (Math.hypot(a[0]! - b[0]!, a[2]! - b[2]!) >= STREAM_RECHECK_METRES) return true;
+      if (this.onPlane && Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!) >= STREAM_RECHECK_METRES) return true;
     }
     return false;
   }
@@ -286,7 +305,9 @@ export class SimWorldStream {
     const x0 = o.origin[0] + x * o.unit;
     const z0 = o.origin[2] + z * o.unit;
     let d = Infinity;
-    for (const p of from) d = Math.min(d, squareDistance(x0, z0, x0 + o.unit, z0 + o.unit, p[0]!, p[2]!));
+    const column = this.onPlane ? o.column : null;
+    if (column !== null) for (const p of from) d = Math.min(d, squareDistance(x0, column[0], x0 + o.unit, column[1], p[0]!, p[1]!));
+    else for (const p of from) d = Math.min(d, squareDistance(x0, z0, x0 + o.unit, z0 + o.unit, p[0]!, p[2]!));
     return d;
   }
 

@@ -8,9 +8,13 @@
  * The cut: each collision triangle crossing the plane gives a segment in
  * (x, y). Seen along a vertical line, a segment of a downward-facing
  * triangle enters the solid and one of an upward-facing triangle leaves it.
- * Splitting x at every segment end gives slabs no segment ends inside; in
- * each slab, the segments sorted by height and counted (nonzero rule, never
- * below zero) give the solid's spans as trapezoids with vertical sides.
+ * Splitting x at every segment end, and where two segments cross, gives
+ * slabs no segment ends or crosses inside; in each slab, the segments sorted
+ * by height and counted (nonzero rule, never below zero) give the solid's
+ * spans as trapezoids with vertical sides. Segments do cross: shapes may
+ * overlap (an edge piece reaches half its thickness into the cells either
+ * side of its line, a kit's collision mesh past its cell), and the cut meshes
+ * every shape whole, so a face of one runs through the other.
  * Trapezoids of neighbouring slabs whose top and bottom run on as one line
  * are merged, so a flat run of ground is one box per chunk, a slope over
  * several cells one piece, a staircase a box per step.
@@ -34,7 +38,7 @@
  */
 import { CHUNK_SIZE, rotatedFootprint, type BlockType } from './block-layers';
 import type { BlockGridReader } from './block-grid';
-import { collisionLooks, meshBlockChunk, type ChunkMeshPart } from './block-mesh';
+import { MESH_WELD, collisionLooks, meshBlockChunk, type ChunkMeshPart } from './block-mesh';
 import { MAX_COLLIDER_EXTENT, MIN_POLYGON_AREA } from './collider-shapes';
 
 /** One convex piece: its centre (layer-local metres) and its corners counter-clockwise around it. */
@@ -50,8 +54,6 @@ export interface PlaneCutChunk {
   oneWay: PlaneCutPiece[];
 }
 
-/** Positions are welded on the 3D collision mesh's 0.1 mm grid. */
-const WELD = 1e4;
 /** Two heights or slopes closer than this (metres) are one. */
 const SAME = 1e-4;
 /** The widest and tallest a piece is made (metres): every corner stays within the 2D port's collider extent of its centre. */
@@ -63,8 +65,8 @@ export function planeCutRow(cellDepth: number, originZ: number, planeZ: number):
   // The row in front on a boundary: snap a plane within a weld step of one onto it.
   const k = localZ / cellDepth;
   const near = Math.round(k);
-  const row = Math.abs(k - near) * cellDepth < 1 / WELD ? near : Math.floor(k);
-  return { localZ: Math.abs(k - near) * cellDepth < 1 / WELD ? near * cellDepth : localZ, row };
+  const row = Math.abs(k - near) * cellDepth < 1 / MESH_WELD ? near : Math.floor(k);
+  return { localZ: Math.abs(k - near) * cellDepth < 1 / MESH_WELD ? near * cellDepth : localZ, row };
 }
 
 /** The most cells a block type's footprint reaches along z, turned any way (1: every block stays in its cell). */
@@ -109,7 +111,7 @@ interface Segment {
 
 /** The segments the plane z = `zc` cuts from the parts' triangles (x0 < x1; vertical ones dropped: they bound slabs only). */
 function cutSegments(parts: readonly ChunkMeshPart[], zc: number, out: Segment[]): void {
-  const q = (v: number): number => Math.round(v * WELD) / WELD;
+  const q = (v: number): number => Math.round(v * MESH_WELD) / MESH_WELD;
   const px = [0, 0, 0];
   const py = [0, 0, 0];
   const pz = [0, 0, 0];
@@ -126,7 +128,7 @@ function cutSegments(parts: readonly ChunkMeshPart[], zc: number, out: Segment[]
         py[k] = P[v + 1]!;
         pz[k] = P[v + 2]!;
         // A point within a weld step of the plane counts as behind it (the half-open row).
-        side[k] = pz[k]! - zc > 1 / WELD;
+        side[k] = pz[k]! - zc > 1 / MESH_WELD;
         if (side[k]) front += 1;
       }
       if (front === 0 || front === 3) continue;
@@ -169,19 +171,40 @@ const lineAt = (xa: number, ya: number, xb: number, yb: number, x: number): numb
 /** The solid spans of the segments, merged along x where top and bottom run straight on. */
 function spans(segs: readonly Segment[]): Trapezoid[] {
   const xs = [...new Set(segs.flatMap((s) => [s.x0, s.x1]))].sort((a, b) => a - b);
+  const byStart = [...segs].sort((a, b) => a.x0 - b.x0);
+  let next0 = 0;
+  // The segments reaching across the current slab (those starting at or before it, not yet ended).
+  let live: Segment[] = [];
   const done: Trapezoid[] = [];
   let open: Trapezoid[] = [];
   const active: { s: Segment; ya: number; yb: number; ym: number }[] = [];
   for (let i = 0; i + 1 < xs.length; i++) {
     const xa = xs[i]!;
-    const xb = xs[i + 1]!;
+    let xb = xs[i + 1]!;
+    while (next0 < byStart.length && byStart[next0]!.x0 <= xa) live.push(byStart[next0++]!);
+    live = live.filter((s) => s.x1 > xa);
     active.length = 0;
-    for (const s of segs) {
-      if (s.x0 > xa || s.x1 < xb) continue;
-      const ya = lineAt(s.x0, s.y0, s.x1, s.y1, xa);
-      const yb = lineAt(s.x0, s.y0, s.x1, s.y1, xb);
-      active.push({ s, ya, yb, ym: (ya + yb) / 2 });
+    for (const s of live) active.push({ s, ya: lineAt(s.x0, s.y0, s.x1, s.y1, xa), yb: lineAt(s.x0, s.y0, s.x1, s.y1, xb), ym: 0 });
+    // Two segments crossing inside the slab: it ends at the first crossing (the rest is the next slab).
+    active.sort((a, b) => a.ya - b.ya || a.yb - b.yb);
+    let cross = xb;
+    for (let j = 1; j < active.length; j++) {
+      if (active[j]!.yb - active[j - 1]!.yb >= -SAME) continue;
+      for (let k = 0; k < active.length; k++) {
+        for (let l = k + 1; l < active.length; l++) {
+          const da = active[l]!.ya - active[k]!.ya;
+          const db = active[l]!.yb - active[k]!.yb;
+          if ((da > SAME && db < -SAME) || (da < -SAME && db > SAME)) cross = Math.min(cross, xa + ((xb - xa) * da) / (da - db));
+        }
+      }
+      break;
     }
+    if (cross < xb && cross > xa) {
+      xs.splice(i + 1, 0, cross);
+      xb = cross;
+      for (const a of active) a.yb = lineAt(a.s.x0, a.s.y0, a.s.x1, a.s.y1, xb);
+    }
+    for (const a of active) a.ym = (a.ya + a.yb) / 2;
     // Upward through the slab; on a tie an entering face first, so solids touching there count as one.
     active.sort((a, b) => a.ym - b.ym || b.s.w - a.s.w);
     const here: Trapezoid[] = [];

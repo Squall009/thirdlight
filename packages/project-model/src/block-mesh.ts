@@ -28,6 +28,9 @@ import { cutWallPolygon, type CutVertex } from './block-wall-cut';
 import { wallPaintSteps, type WallSteps } from './block-wall-paint';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
 
+/** Steps per metre of the grid mesh positions are welded on (0.1 mm): points closer than a step are one point. */
+export const MESH_WELD = 1e4;
+
 /** Indexed triangles in the block-local frame; `groups` split the index list by material. */
 export interface BlockMeshSource {
   positions: Float32Array;
@@ -215,7 +218,7 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
         side[t] = s;
         const [u, v] = [0, 1, 2].filter((x) => x !== axis) as [number, number];
         const pts = points[s]!;
-        pts.push(Math.round(positions[a * 3 + u]! * 1e4), Math.round(positions[a * 3 + v]! * 1e4), Math.round(positions[b * 3 + u]! * 1e4), Math.round(positions[b * 3 + v]! * 1e4), Math.round(positions[c * 3 + u]! * 1e4), Math.round(positions[c * 3 + v]! * 1e4));
+        pts.push(Math.round(positions[a * 3 + u]! * MESH_WELD), Math.round(positions[a * 3 + v]! * MESH_WELD), Math.round(positions[b * 3 + u]! * MESH_WELD), Math.round(positions[b * 3 + v]! * MESH_WELD), Math.round(positions[c * 3 + u]! * MESH_WELD), Math.round(positions[c * 3 + v]! * MESH_WELD));
         const e1u = positions[b * 3 + u]! - positions[a * 3 + u]!;
         const e1v = positions[b * 3 + v]! - positions[a * 3 + v]!;
         const e2u = positions[c * 3 + u]! - positions[a * 3 + u]!;
@@ -732,9 +735,9 @@ class WeldTable {
   private count = 0;
 
   at(px: number, py: number, pz: number): WeldPoint {
-    const x = Math.round(px * 1e4);
-    const y = Math.round(py * 1e4);
-    const z = Math.round(pz * 1e4);
+    const x = Math.round(px * MESH_WELD);
+    const y = Math.round(py * MESH_WELD);
+    const z = Math.round(pz * MESH_WELD);
     const h = mix(x, y, z);
     const first = this.buckets.get(h);
     for (let w = first ?? null; w !== null; w = w.next) if (w.x === x && w.y === y && w.z === z) return w;
@@ -989,9 +992,9 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
         for (const c of piece) {
           // Pieces of one cell's walls share vertices where they meet: the same place (0.1 mm, from the cell's origin) on
           // the same plane, which faces of one projection share only when they are one plane (and in one row repeat).
-          const along = Math.round((c[across]! - (across === 0 ? ox : oz)) * 1e4);
-          const plane = Math.round((c[2 - across]! - (across === 0 ? oz : ox)) * 1e4) * 131072 + band;
-          const key = (proj * 2_097_152 + along + 1_048_576) * 2_097_152 + Math.round((c[1] - oy) * 1e4) + 1_048_576;
+          const along = Math.round((c[across]! - (across === 0 ? ox : oz)) * MESH_WELD);
+          const plane = Math.round((c[2 - across]! - (across === 0 ? oz : ox)) * MESH_WELD) * 131072 + band;
+          const key = (proj * 2_097_152 + along + 1_048_576) * 2_097_152 + Math.round((c[1] - oy) * MESH_WELD) + 1_048_576;
           let list = cutRemap.get(key);
           let out = -1;
           if (list !== undefined) for (let q = 0; q < list.length && out < 0; q += 2) if (list[q] === plane) out = list[q + 1]!;
@@ -1259,7 +1262,7 @@ export function collisionMeshChunk(grid: BlockGridReader, cx: number, cz: number
   const verts: number[] = [];
   const at = new Map<string, number>();
   const vid = (x: number, y: number, z: number): number => {
-    const k = `${Math.round(x * 1e4)},${Math.round(y * 1e4)},${Math.round(z * 1e4)}`;
+    const k = `${Math.round(x * MESH_WELD)},${Math.round(y * MESH_WELD)},${Math.round(z * MESH_WELD)}`;
     let i = at.get(k);
     if (i === undefined) {
       i = verts.length / 3;

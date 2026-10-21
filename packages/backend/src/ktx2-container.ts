@@ -111,15 +111,15 @@ export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
   };
 }
 
-/**
- * The key/value data's entries (key → value bytes, a string value's
- * terminating NUL included as stored). A malformed entry ends the list.
- */
 /** Whether a container holds ETC1S blocks (BasisLZ): lossy enough that single pixels move by tens of levels. */
 export function isEtc1sKtx2(c: Pick<Ktx2Container, 'supercompression'>): boolean {
   return c.supercompression === SUPERCOMPRESSION_BASISLZ;
 }
 
+/**
+ * The key/value data's entries (key → value bytes, a string value's
+ * terminating NUL included as stored). A malformed entry ends the list.
+ */
 export function ktx2KeyValues(kvd: Uint8Array): Map<string, Uint8Array> {
   const out = new Map<string, Uint8Array>();
   const dv = new DataView(kvd.buffer, kvd.byteOffset, kvd.byteLength);

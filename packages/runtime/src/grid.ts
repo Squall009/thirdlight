@@ -82,7 +82,7 @@ import {
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort, PhysicsPort3D, StaticColliderSpec3D } from './ports';
-import { flushPlaneColliders, gridColliderId } from './grid-plane-colliders';
+import { flushChunkColliders, flushPlaneColliders, gridColliderId } from './grid-plane-colliders';
 import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
@@ -1124,6 +1124,8 @@ export class RuntimeGrid {
 
   /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add); without a 3D port, the 2D port's. */
   flushCollision(port: PhysicsPort3D | undefined, port2D?: PhysicsPort): void {
+    // The first flush (at the load, before any step looks at the rings) tells the streaming which plane the game is on.
+    if (port === undefined && port2D !== undefined) this.stream.playOnPlane();
     if (this.collide) this.terrain.flush(port);
     this.scatter.flush(this.collide ? port : undefined);
     this.splines.flush(this.collide ? port : undefined);
@@ -1133,39 +1135,16 @@ export class RuntimeGrid {
     this.collisionDirty = new Map();
     if (port === undefined && port2D !== undefined) return flushPlaneColliders(dirty, (id) => this.layerMap.get(id), this.types, (id, ck) => this.stream.has(id, 'collision', ck), this.planeOneWay, port2D);
     if (port === undefined || !this.collide) return;
-    const remove: string[] = [];
-    const add: StaticColliderSpec3D[] = [];
-    for (const [entityId, keys] of [...dirty.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-      const layer = this.layerMap.get(entityId);
-      if (layer === undefined || layer.component.collision === false || layer.component.metadataOnly === true) continue;
-      for (const ck of [...keys].sort()) {
-        const old = layer.colliders.get(ck);
-        if (old !== undefined) remove.push(...old);
-        // A streamed layer's chunk outside its collision ring has none.
-        if (!this.stream.has(entityId, 'collision', ck)) {
-          layer.colliders.delete(ck);
-          continue;
-        }
-        const [cx, cz] = ck.split(',').map(Number) as [number, number];
-        const pieces = collisionMeshChunk(layer.shown, cx, cz, this.types);
-        const ids: string[] = [];
-        pieces.forEach((p, i) => {
-          const id = gridColliderId(entityId, ck, i);
-          ids.push(id);
-          add.push({
-            entityId: id,
-            shape: { type: 'mesh', vertices: p.vertices, indices: p.indices },
-            position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z },
-            rotation: { x: 0, y: 0, z: 0, w: 1 },
-            ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),
-          });
-        });
-        if (ids.length > 0) layer.colliders.set(ck, ids);
-        else layer.colliders.delete(ck);
-      }
-    }
-    if (remove.length > 0) port.removeStaticColliders?.(remove);
-    if (add.length > 0) port.addStaticColliders?.(add);
+    flushChunkColliders(dirty, (id) => this.layerMap.get(id), (id, ck) => this.stream.has(id, 'collision', ck), (entityId, ck, layer): StaticColliderSpec3D[] => {
+      const [cx, cz] = ck.split(',').map(Number) as [number, number];
+      return collisionMeshChunk(layer.shown, cx, cz, this.types).map((p, i) => ({
+        entityId: gridColliderId(entityId, ck, i),
+        shape: { type: 'mesh', vertices: p.vertices, indices: p.indices },
+        position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),
+      }));
+    }, port);
   }
 
   /** Whether a collider is one of the 2D plane's one-way blocks. */
