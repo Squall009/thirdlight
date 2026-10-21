@@ -43,7 +43,7 @@ between 39 and 40.
   are flaky-test "watch" rows.
 - **The defect list has no status column.** About 106 rows look open (1 H,
   23 M, 82 L by a text heuristic).
-- **74 defaults are logged "owner to confirm"**; 4 were ever confirmed. 24
+- **About 209 defaults are open "owner to confirm"** (74 decision-log entries; split per decision, plus audit questions: `~/.cache/thirdlight-owner-review/decisions-2026-10-21.md`); 4 were ever confirmed. 24
   phases are marked "owner look pending".
 - **Logic kept in two places:**
   - 19 parity-test files guard pairs (editor vs runtime, CPU vs GPU, graph vs
