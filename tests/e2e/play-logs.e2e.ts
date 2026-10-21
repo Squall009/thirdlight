@@ -4,8 +4,9 @@
  * 1. Refused script calls and a long run's log: a script on the starter
  *    template commits an intent the runtime refuses and adds to a counter
  *    whose name a save could not keep, every step. The run goes on (the
- *    calls answer false), and the Console shows each refusal once and a
- *    line logged every step as one row with its count. Then a
+ *    calls answer false), and the Console shows each refusal once, a
+ *    line logged every step as one row with its count, and the same throw
+ *    on two copies of a script as one error row naming both objects. Then a
  *    debug command starts a flood of long log lines: the diagnostics still
  *    arrive (trimmed to the relay's bound, oldest entries first, with the
  *    count of what was left out), and the Console says how many it lost.
@@ -92,6 +93,9 @@ const REFUSER = [
   '',
 ].join('\n');
 
+/** Throws once, on every copy at the same step: one folded Console row naming its objects. */
+const THROWER = ['export default {', '  step(_s: any, ctx: any) {', "    if (ctx.phase === 'intent' && ctx.stepIndex === 60) throw new Error('every copy throws');", '  },', '};', ''].join('\n');
+
 // Both plays run in one editor: the second starts once the first has stopped and its script's object is gone.
 test('refused script calls answer false and are logged once; a long run\'s diagnostics are trimmed, not refused; a project dialogue document gets the runner\'s focus', async ({ page }) => {
   test.setTimeout(300_000);
@@ -99,6 +103,12 @@ test('refused script calls answer false and are logged once; a long run\'s diagn
   const holder = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Refuser' }))['createdId']);
   await publishScript('refuser', REFUSER);
   await cmd('setBehaviorProperties', { entityId: holder, behaviorId: 'refuser', values: {} });
+  await publishScript('thrower', THROWER);
+  const throwers: string[] = [];
+  for (const name of ['Thrower A', 'Thrower B']) {
+    throwers.push(String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name }))['createdId']));
+    await cmd('setBehaviorProperties', { entityId: throwers.at(-1)!, behaviorId: 'thrower', values: {} });
+  }
   const psid = await play(page);
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`)).json as Obs;
@@ -123,6 +133,12 @@ test('refused script calls answer false and are logged once; a long run\'s diagn
   await expect(tickLine).toHaveCount(1);
   await expect(tickLine.getByTestId('console-count')).toHaveText(/^×\d{2,}$/);
   await expect(tickLine.locator('.tl-console__step')).toHaveText(/^steps \d+–\d+$/);
+  // The same throw on both copies of a script is one error row with its count and both objects.
+  const thrownLine = consolePanel.locator('li[data-level="error"]').filter({ hasText: 'every copy throws' });
+  await expect(thrownLine).toHaveCount(1);
+  await expect(thrownLine.getByTestId('console-count')).toHaveText('×2');
+  await expect(thrownLine.locator('.tl-console__step')).toHaveText('step 60');
+  await expect(thrownLine.getByLabel('objects')).toHaveText(`on ${throwers.join(', ')}`);
 
   // A flood of long lines: the diagnostics come back trimmed (oldest first), with the count of what went.
   const flood = await api(`play/${psid}/control`, { command: 'debugCommand', name: 'flood' });
@@ -145,9 +161,13 @@ test('refused script calls answer false and are logged once; a long run\'s diagn
   await expect(consolePanel.locator('li[data-level="info"]').filter({ hasText: /^.*flood \d+ \d/ }).first()).toBeVisible();
   await page.getByTitle('Stop the play preview').click().catch(() => undefined);
   await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0, { timeout: 30_000 });
+  // The Console keeps the last Play's entries and says so (checked again below, once a read the stop cut short is back).
+  await expect(consolePanel.locator('.tl-panel__title')).toContainText('from the last Play');
 
   // The same editor, the refuser gone: a project dialogue document of its own id gets the runner's focus.
   await cmd('deleteEntity', { entityId: holder });
+  for (const id of throwers) await cmd('deleteEntity', { entityId: id });
+  await expect(consolePanel.locator('.tl-panel__title')).not.toContainText('failed');
   await test.step('a project dialogue document of its own id gets the runner\'s focus: the first option at a choice (Enter picks it), the box after', () => dialogueFocus(page));
 });
 

@@ -97,7 +97,10 @@ export function clipMessage(message: string): string {
  * backend maps to the source line) and one Problems line per script.
  */
 export function scriptStopReport(moduleId: string, stop: ScriptStop, stepIndex: number): { entry: DiagnosticErrorEntry; code: string; message: string } {
-  const message = clipMessage(`${stop.message}; script "${stop.behaviorId}" is switched off on "${stop.entityId}" for the rest of the run`);
+  // The entry names its object in `entityId`, not in the text, so the same error on many copies folds into one
+  // row (`repeated-rows`); the Problems line, one per script, names the object it happened on first.
+  const message = clipMessage(`${stop.message}; script "${stop.behaviorId}" is switched off on its object for the rest of the run`);
+  const onObject = clipMessage(`${stop.message}; script "${stop.behaviorId}" is switched off on "${stop.entityId}" for the rest of the run`);
   const step = stop.stepIndex ?? stepIndex;
   const entry: DiagnosticErrorEntry = { code: stop.code, reason: stop.reason, message, stepIndex: step, moduleId, entityId: stop.entityId };
   if (stop.phase !== undefined) entry.phase = stop.phase;
@@ -109,5 +112,5 @@ export function scriptStopReport(moduleId: string, stop: ScriptStop, stepIndex: 
   }
   // A Problems kind is a lowercase code of at most 64 characters.
   const code = `script_error_${stop.behaviorId.replace(/[^a-z0-9_]/g, '_')}`.slice(0, 64);
-  return { entry, code, message: `${message} (step ${step}, ${stop.hook})` };
+  return { entry, code, message: `${onObject} (step ${step}, ${stop.hook})` };
 }

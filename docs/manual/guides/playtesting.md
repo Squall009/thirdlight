@@ -91,7 +91,7 @@ and listen.
 - **Copies are one row.** The same error from 16 copies of an object, or
   the same line logged every step, is one row with `count`, `firstStep`
   (`stepIndex` is the newest) and the first few objects in `entityIds`; the
-  Console shows it as `×16`. The play log keeps 32 rows, and log lines
+  Console shows it as `×16` with the objects. The play log keeps 32 rows, and log lines
   never take more than half of them while errors need the room.
 - **A big scene's answer is trimmed, never refused.** `tl_diagnostics` and
   `tl_game_observe` fit 16 KiB. Over it, copies are folded first, then the

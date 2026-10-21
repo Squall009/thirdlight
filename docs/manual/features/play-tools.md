@@ -103,7 +103,8 @@ may have a script switched off.
   (the same error from 16 copies of an object, a log line written every
   step) fold into one with `count`, `firstStep` (`stepIndex` is the newest)
   and the first four objects in `entityIds`. The Console shows it as `×16`
-  with the step range. The play log keeps 32 rows; log lines never hold
+  with the step range and the objects (a script error's text leaves its
+  object out, so the copies fold; `entityId` names it). The play log keeps 32 rows; log lines never hold
   more than half of them while errors need the room.
 - **Trimmed, never refused.** Over the bound, copies fold first; then the
   other lists lose their oldest rows (the longest list first); then

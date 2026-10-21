@@ -51,7 +51,8 @@ export interface TimelineDocumentProps {
   /** The project's game mode ids (mode keys). */
   modes: readonly string[];
   error: string | null;
-  onSave: (timeline: TimelineAsset) => Promise<boolean>;
+  /** `base`: the stored timeline the edit was made on, so an edit sent while an earlier one is under way keeps it. */
+  onSave: (timeline: TimelineAsset, base: TimelineAsset | null) => Promise<boolean>;
   onPreview: (preview: TimelinePreviewValue | null) => void;
 }
 
@@ -199,7 +200,7 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
 
   const save = async (next: TimelineAsset): Promise<boolean> => {
     setLocalError(null);
-    const ok = await props.onSave(next);
+    const ok = await props.onSave(next, stored);
     return ok;
   };
   const withTrack = (trackId: string, f: (t: TimelineTrack) => TimelineTrack): TimelineAsset => ({ ...tl, tracks: tl.tracks.map((t) => (t.trackId === trackId ? f(t) : t)) });

@@ -21,7 +21,8 @@
  *   (one revision) and Edit → Undo puts it back. A character track on the
  *   player is added and keyed from the panel: its first key places the
  *   player where it stands, the key inspector makes it a walk to a mark,
- *   and the scrub preview slides the player there.
+ *   and the scrub preview slides the player there. A field typed and a box
+ *   ticked straight after it both stay.
  *
  * What it sounds like is owner look pending.
  */
@@ -413,4 +414,14 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
   await expect.poll(characterKeys).toEqual([{ target: 'hero' }, { time: 1.5, mode: 'walk', position: [2, 0.91, 1], facing: 0 }]);
   // With no key before it, the walk shows the hero on its mark from 1.5 s on.
   await expect.poll(async () => (await preview())?.transforms[hero]?.[0] ?? -1).toBeCloseTo(2, 1);
+
+  // A field typed and a box ticked straight after it: the tick's save goes out while the field's is under way, and both stay.
+  await page.getByLabel('Timeline duration').fill('5');
+  await page.getByLabel('Timeline plays on start').click();
+  const header = async (): Promise<unknown[]> => {
+    const g = await query('queryGameConfig');
+    const tl = ((g['timelines'] ?? (g['game'] as Record<string, unknown> | undefined)?.['timelines']) as { timelineId: string; duration: number; playOnStart?: boolean }[]).find((t) => t.timelineId === 'slide')!;
+    return [tl.duration, tl.playOnStart];
+  };
+  await expect.poll(header).toEqual([5, true]);
 });

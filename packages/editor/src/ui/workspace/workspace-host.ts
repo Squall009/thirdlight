@@ -220,7 +220,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       actions: (inputConfig ?? inputDefaults).actions.map((a) => a.name),
       animators,
       error: timelineError,
-      onSave: (timeline) => timelineCommand('setTimeline', { timeline }),
+      onSave: (timeline, base) => timelineCommand('setTimeline', { timeline }, base),
       onPreview: onTimelinePreview,
       modes: modes.map((m) => m.modeId),
     },

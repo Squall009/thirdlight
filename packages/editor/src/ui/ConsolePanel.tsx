@@ -14,6 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 
+import { REPEATED_ROW_ENTITY_IDS_MAX } from '@thirdlight/protocol';
+
 import { consoleEntriesOf, describeCompiled, describeLocation, type ConsoleEntry, type SourceLocation } from '../session/source-location';
 
 interface Props {
@@ -44,12 +46,16 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
   // Older entries a long run's report left out to fit the relay's bound (the page says how many).
   const [dropped, setDropped] = useState(0);
   const busy = useRef(false);
+  // A read still under way when its Play stops answers for a session that is gone: its failure is not news.
+  const current = useRef(playSessionId);
+  current.current = playSessionId;
 
   const refresh = useCallback(async (): Promise<void> => {
     if (playSessionId === null || busy.current) return;
     busy.current = true;
     try {
       const r = await fetchDiagnostics(playSessionId);
+      if (current.current !== playSessionId) return;
       if (r.ok) {
         setEntries(consoleEntriesOf(r.diagnostics));
         setDropped(droppedLogEntries(r.diagnostics));
@@ -62,7 +68,10 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
   }, [playSessionId, fetchDiagnostics]);
 
   useEffect(() => {
-    if (playSessionId === null) return;
+    if (playSessionId === null) {
+      setStatus('');
+      return;
+    }
     void refresh();
     const t = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(t);
@@ -100,8 +109,14 @@ export function ConsolePanel({ playSessionId, fetchDiagnostics, onOpenSource }: 
             return (
               <li key={`${i}-${e.stepIndex ?? ''}-${e.code}`} className={`tl-console__entry tl-console__entry--${level}`} data-level={level} data-code={e.code}>
                 <span className="tl-console__level">{level}</span>
-                {e.stepIndex !== undefined && <span className="tl-console__step">{e.count !== undefined && e.firstStep !== undefined ? `steps ${e.firstStep}–${e.stepIndex}` : `step ${e.stepIndex}`}</span>}
+                {e.stepIndex !== undefined && <span className="tl-console__step">{e.count !== undefined && e.firstStep !== undefined && e.firstStep !== e.stepIndex ? `steps ${e.firstStep}–${e.stepIndex}` : `step ${e.stepIndex}`}</span>}
                 <span className="tl-console__message">{e.message}</span>
+                {e.entityIds !== undefined && (
+                  <span className="tl-console__objects" aria-label="objects" title="the objects it happened on">
+                    on {e.entityIds.join(', ')}
+                    {e.entityIds.length >= REPEATED_ROW_ENTITY_IDS_MAX && (e.count ?? 1) > e.entityIds.length ? ', …' : ''}
+                  </span>
+                )}
                 {e.count !== undefined && <span className="tl-console__count" data-testid="console-count" title="the same entry this many times">×{e.count}</span>}
                 {e.source !== undefined ? where(e.source, 'source location') : e.at !== undefined ? <span className="tl-console__compiled" title="a compiled position without a source map">{describeCompiled(e.at)}</span> : null}
                 {e.sources !== undefined && e.sources.length > 1 && (

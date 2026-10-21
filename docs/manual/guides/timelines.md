@@ -84,7 +84,7 @@ In the editor:
    player stands (the key takes its place; **Capture the character's
    place** takes it again after you move the player).
 4. Playhead at 0.2 s, **Add key at playhead**, **Key mode** *walk*, **Key
-   position** `4, 0.91, -6`, **facing** `0` (degrees about +Y: 0 faces +Z,
+   position** `-4, 0.91, -6`, **facing** `0` (degrees about +Y: 0 faces +Z,
    toward the starter's camera, once it arrives).
 5. Scrub the ruler: the Scene view slides the player to the mark. Play
    walks it at its own speed; the preview does not.
@@ -99,7 +99,7 @@ is the 3D starter's player, read yours with `tl_inspect`):
   "tracks": [
     {"trackId": "walk-in", "type": "character", "target": "hero",
      "keys": [{"time": 0, "mode": "place", "position": [0, 0.91, 0], "facing": 180},
-              {"time": 0.2, "mode": "walk", "position": [4, 0.91, -6], "facing": 0}]}]}}
+              {"time": 0.2, "mode": "walk", "position": [-4, 0.91, -6], "facing": 0}]}]}}
 ```
 
 Play it and observe `player` with `tl_game_observe`: the player walks,
@@ -118,7 +118,7 @@ player's object last and defaults to the first player:
 ```ts
 import type { BehaviorContext } from '@thirdlight/runtime';
 
-const DOOR: [number, number, number] = [4, 0.91, -6];
+const DOOR: [number, number, number] = [-4, 0.91, -6];
 
 interface State { walk: number }
 

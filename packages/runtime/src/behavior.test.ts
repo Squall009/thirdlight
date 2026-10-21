@@ -522,7 +522,7 @@ describe('step failures and the frozen prepare object', () => {
     expect(d.errorCount).toBe(1);
     expect(d.errors).toHaveLength(1);
     expect(d.errors[0]).toMatchObject({ code: 'module_error', reason: 'behavior_step_failed', moduleId: 'thirdlight.behavior:behavior-0001', phase: 'intent', stepIndex: 10, entityId: 'box-0001' });
-    expect(d.errors[0]!.message).toMatch(/step threw: boom at ten; script "behavior-0001" is switched off on "box-0001"/);
+    expect(d.errors[0]!.message).toMatch(/step threw: boom at ten; script "behavior-0001" is switched off on its object/);
     // Its transform phase of step 10 and every later hook were skipped; the other instance stepped on.
     const one = seen.filter((x) => x.startsWith('box-0001@'));
     expect(one.at(-1)).toBe('box-0001@10:intent');
@@ -535,6 +535,26 @@ describe('step failures and the frozen prepare object', () => {
     expect(seen.filter((x) => x.startsWith('box-0001@')).length).toBeGreaterThan(one.length);
     expect(disposed).toEqual(['box-0001', 'box-0002']);
     expect(h.diag().errorCount).toBe(1);
+  });
+
+  it('the same throw on several copies of a script is one folded row with the objects; Problems names the first object', () => {
+    const art = artifact('behavior-0001', (_s, ctx) => {
+      const c = ctx as { stepIndex: number; phase: string };
+      if (c.stepIndex === 10 && c.phase === 'intent') throw new Error('every copy');
+    });
+    const h = boot([art], sceneWithBehaviors([
+      { entityId: 'box-0001', behaviorId: 'behavior-0001' },
+      { entityId: 'box-0002', behaviorId: 'behavior-0001' },
+      { entityId: 'box-0003', behaviorId: 'behavior-0001' },
+    ]));
+    h.boot();
+    for (let i = 1; i <= 6; i += 1) h.tick(i * DT);
+    const d = h.diag();
+    expect(d.state).toBe('running');
+    expect(d.errors).toHaveLength(1);
+    expect(d.errors[0]).toMatchObject({ count: 3, entityIds: ['box-0001', 'box-0002', 'box-0003'], stepIndex: 10 });
+    expect(d.errors[0]!.message).not.toContain('box-000');
+    expect(h.rt.takeProblems?.()).toEqual([{ code: 'script_error_behavior_0001', message: expect.stringContaining('switched off on "box-0001"') }]);
   });
 
   it('a script error carries where in the compiled script it was thrown', () => {

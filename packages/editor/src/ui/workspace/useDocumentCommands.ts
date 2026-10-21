@@ -8,7 +8,7 @@
  */
 import { useCallback, useRef, useState, type Dispatch } from 'react';
 import { mergeDocumentEdit } from '../../session/own-commands';
-import type { EnvironmentConfig, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import type { EnvironmentConfig, MaterialDef, SceneEnvironment, TimelineAsset } from '@thirdlight/project-model';
 import type { TimelinePreviewValue } from '../timeline/TimelineDocument';
 import type { GraphOp } from '../../graph/model';
 import type { WorkspaceAction } from '../../session/editor-window';
@@ -54,11 +54,14 @@ export function useDocumentCommands(deps: DocumentCommandsDeps) {
     setEffectError(err);
     return err === null;
   }, [clientRef]);
-  // Timeline commands (one undo step each; a key drag is one setTimeline).
-  const timelineCommand = useCallback(async (op: 'setTimeline' | 'deleteTimeline', args: Record<string, unknown>): Promise<boolean> => {
+  // Timeline commands (one undo step each; a key drag is one setTimeline). A save made on `base` is re-applied onto
+  // the timeline as stored at send time, as materials are: a field edited and a box ticked right after both stay.
+  const timelineCommand = useCallback(async (op: 'setTimeline' | 'deleteTimeline', args: Record<string, unknown>, base?: TimelineAsset | null): Promise<boolean> => {
     const c = clientRef.current;
     if (!c) return false;
-    const err = refusal(await c.command(op, args, c.projection.revision));
+    const next = args['timeline'] as TimelineAsset | undefined;
+    const build = base === undefined || next === undefined ? args : () => ({ ...args, timeline: mergeDocumentEdit(base, next, c.getTimelines().find((t) => t.timelineId === next.timelineId) ?? null) ?? next });
+    const err = refusal(await c.command(op, build, c.projection.revision));
     setTimelineError(err);
     return err === null;
   }, [clientRef]);
