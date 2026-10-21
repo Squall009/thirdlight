@@ -1,6 +1,6 @@
 # Phase 38 — Requests from Sprout, Skyforge Tactics and Temporal, third batch
 
-Status: planned 2026-10-21.
+Status: in progress (started 2026-10-21).
 
 Goal: close the engine gaps the three game projects reported after phase 28,
 as generic capabilities. Most of the work is about scripts that fail
@@ -94,7 +94,7 @@ budget.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 38.0 | Done 2026-10-21: three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 is out; the pinned 0.20.0 stays, since nothing in this phase needs it (a minor release would be its own item). |
 
 ## 5. Decision log
 
