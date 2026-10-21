@@ -9,7 +9,8 @@
  * a range with a smooth fade outside it, so rules blend instead of cutting
  * hard edges. Rules apply in order like a layer stack: a rule's share
  * (`strength` × every condition) takes that much of every layer so far and
- * gives it to its own layer; where no rule applies the surface is layer 0.
+ * gives it to its own layer; where no rule applies the surface is its base
+ * layer (layer 0; a block wall with paint of its own, layer 1).
  *
  * Both sources describe a point the same way ({@link SurfacePoint}): world
  * metres, the slope in degrees, the cavity measured by the source (terrain
@@ -325,14 +326,17 @@ export class SurfaceRuleSet {
   /**
    * The layers at a point: `layers[i]` holds `weights[i]` for i below the
    * count returned (bytes summing to 255, strongest first, equal ones by
-   * lower layer, no zeros); entries past it are left as they were.
+   * lower layer, no zeros); entries past it are left as they were. `base`
+   * is the layer the surface is where no rule applies: 0 for ground; a
+   * block wall's own unpainted layer is 1, so rules made for tops leave a
+   * wall as it is without them.
    */
-  evaluate(p: SurfacePoint, layers: number[], weights: number[]): number {
+  evaluate(p: SurfacePoint, layers: number[], weights: number[], base = 0): number {
     const w = this.w;
     const active = this.active;
     for (let a = 0; a < this.activeCount; a++) w[active[a]!] = 0;
-    w[0] = 1;
-    active[0] = 0;
+    w[base] = 1;
+    active[0] = base;
     this.activeCount = 1;
     this.cavityCount = 0;
     this.point = p;
@@ -366,7 +370,7 @@ export class SurfaceRuleSet {
       n += 1;
     }
     if (n === 0) {
-      layers[0] = 0;
+      layers[0] = base;
       weights[0] = 255;
       return 1;
     }

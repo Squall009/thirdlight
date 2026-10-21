@@ -223,6 +223,28 @@ describe('block rules', () => {
     });
   }
 
+  it('rules on tops only leave an unpainted wall on its own layer 1 (the second); the top wraps over the lip', () => {
+    const l = layer(true, [{ layer: 2, blocks: ['brick'], face: 'top' }, { layer: 3, height: { max: 11.5 }, face: 'top' }]);
+    const g = grid(l);
+    // Columns built by surface edits (whole heights and a sloped one) on top of the ground.
+    edit(g, { kind: 'surface', columns: [9, 4, 4, 4, 4, 4, 10, 4, 3, 3.5, 4, 3.5] });
+    const vs = colours(g, l);
+    const walls = vs.filter((v) => Math.abs(v.n[1]!) < 0.1);
+    expect(walls.length).toBeGreaterThan(40);
+    // One wall step (0.5 m) below a run's top the wall is its own: layer 1; at the lip it is the top's rule.
+    const inside = (v: { p: number[] }): boolean => v.p[0]! > 3.99 && v.p[0]! < 11.01 && v.p[2]! > 3.99 && v.p[2]! < 8.01;
+    const tall = walls.filter((v) => inside(v) && v.p[1]! < 2.51);
+    expect(tall.length).toBeGreaterThan(20);
+    for (const v of tall) expect(v.w, JSON.stringify(v)).toEqual([0, 255, 0, 0]);
+    // At the lip the unpainted top (layer 0) wraps over and fades to the wall's own layer one step down.
+    const lip = walls.filter((v) => inside(v) && Math.abs(v.p[1]! - 4) < 1e-4 && v.p[0]! < 8.01);
+    expect(lip.length).toBeGreaterThan(3);
+    for (const v of lip) expect(v.w, JSON.stringify(v)).toEqual([255, 0, 0, 0]);
+    // A rule for walls still paints them.
+    const l2 = layer(true, [{ layer: 3, face: 'wall' }]);
+    for (const v of colours(grid(l2), l2).filter((v) => Math.abs(v.n[1]!) < 0.1)) expect(v.w).toEqual([0, 0, 0, 255]);
+  });
+
   it('hand paint stays over the rules; the paint\'s unpainted share shows them', () => {
     const l = layer(false, [{ layer: 3, slope: { min: 45 } }]);
     const g = grid(l);

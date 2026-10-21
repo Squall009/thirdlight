@@ -293,7 +293,10 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
 - **Paint and wetness**: a layer's ground carries a paint of four
   material layers and a wetness per lattice vertex, stored with each chunk
   (`paint` edits: a round brush with radius, strength, falloff smooth /
-  linear / constant and a channel — layer 1–4 or wetness — or `erase`). A
+  linear / constant and a channel — a material layer or wetness — or
+  `erase`). Material layers are numbered from 0 in data and scripts (`channel`
+  0–3, a rule's `layer`) and named 1–4 in the editor: editor layer 1 is
+  `layer: 0`, the first, top-most layer of the material. A
   painted layer's chunks carry it as vertex colours (COLOR_0 = the four
   layer weights, COLOR_1.r = wetness), so any graph material can read it; the
   **height-blended layers (painted terrain)** material template does: four
@@ -309,8 +312,11 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   about 0.5 m apart on the exposed wall faces (per cell side `round(cell
   width / 0.5)` steps across, per row `round(row height / 0.5)` up, 1–16
   each), stored sparsely with the chunk (`wallPaint`, 9 bytes a painted
-  point, in JSON and binary chunk files). An unpainted wall shows material
-  layer 2, an unpainted top layer 1; the top's paint wraps over the lip onto
+  point, in JSON and binary chunk files). An unpainted wall shows the
+  material's second layer (`layer: 1`, editor layer 2; a cliff's rock under
+  a grass top, as terrain tools default to), an unpainted top its first
+  (`layer: 0`); material rules that only name tops leave the walls on their
+  second layer. The top's paint wraps over the lip onto
   the wall's top row of points and fades to the wall's own one row of
   points down; wall faces are drawn cut at the points (more vertices: the
   paint shows between cell corners). `paint` edits take `target: "walls"`
@@ -507,9 +513,11 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   the terrain's rule list (see [Terrain: material rules](terrain.md#terrain)), for layers 0-3, plus **block types**
   and **cell metadata** conditions; evaluated at every vertex when a chunk is
   meshed (in the mesh workers) — walls and steep tops by their own slope,
-  top or wall by the face's box-mapping side. Hand paint stays over them: a
-  top's layer-0 share and a wall point's layer-1 share (the unpainted
-  defaults) show the rules, so painting another layer covers them and
+  top or wall by the face's box-mapping side (`layer` counts from 0: `{layer:
+  1, face: 'wall'}` is the second layer on walls). Where no rule applies a
+  top is layer 0 and, with **Wall paint**, a wall layer 1. Hand paint stays
+  over them: a top's layer-0 share and a wall point's layer-1 share (the
+  unpainted defaults) show the rules, so painting another layer covers them and
   erasing gives them back (painting layer 0 itself by hand also shows the
   rules there). Changing the rules or moving the layer re-meshes it in the
   workers like a kit swap. Measured: +16 ms a chunk of paint work in the
@@ -588,7 +596,7 @@ stroke or button is one undo step, and MCP can do the same.
   Height raises or, with Ctrl, lowers the ground with sloped tops, Smooth
   evens it out, Flatten levels it to the height where the drag starts; a
   drag is one undo step), Paint (the block editor's Paint mode, 25.21: a round
-  brush painting material layer 1–4 or wetness with Radius, Strength and
+  brush painting material layer 1–4 (`channel` 0–3) or wetness with Radius, Strength and
   Falloff, **On** the tops, the walls (a layer with Wall paint) or both;
   Ctrl or "Lower / remove" erases; a drag is one undo step), Pick (the eyedropper takes a
   cell's block, rotation and look), Replace all (every block of the clicked

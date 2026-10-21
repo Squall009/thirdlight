@@ -21,7 +21,8 @@
  * is a surface point — its world position, the slope and box-mapping side of
  * its normal, the cell of its first triangle, and for tops the cavity from
  * the layer's tops around it — and the rules' layers fill the paint's
- * unpainted share: a top's layer 0, a wall point's layer 1. Hand paint stays
+ * unpainted share: a top's layer 0, a wall point's layer 1, each share over
+ * its own base (where no rule applies a wall stays layer 1). Hand paint stays
  * over the rules; erasing it gives the ground back to them.
  */
 import { blockTypeSlopes, rotatedFootprint, type BlockCell, type BlockType, type CellMetaValue } from './block-layers';
@@ -200,13 +201,20 @@ function applyRules(grid: BlockGridReader, types: ReadonlyMap<string, BlockType>
       if (c?.block !== undefined) point.block = c.block;
       else delete point.block;
     }
-    const k = rules.evaluate(point, layers, weights);
-    rule.fill(0);
-    for (let j = 0; j < k; j++) if (layers[j]! < 4) rule[layers[j]!] = rule[layers[j]!]! + weights[j]! / 255;
     const s0 = share0[i]!;
     const s1 = share1[i]!;
-    const share = s0 + s1;
-    for (let ch = 0; ch < 4; ch++) mixed[ch] = out.weights[i * 4 + ch]! - (ch === 0 ? s0 : ch === 1 ? s1 : 0) + share * rule[ch]!;
+    // Each share takes the rules over its own base: a top's (and the lip's wrapped top paint) layer 0, a wall point's
+    // layer 1, so a wall no rule reaches keeps its unpainted layer instead of turning into the tops' base.
+    rule.fill(0);
+    if (s0 > 0) {
+      const k = rules.evaluate(point, layers, weights, 0);
+      for (let j = 0; j < k; j++) if (layers[j]! < 4) rule[layers[j]!] = rule[layers[j]!]! + (s0 * weights[j]!) / 255;
+    }
+    if (s1 > 0) {
+      const k = rules.evaluate(point, layers, weights, 1);
+      for (let j = 0; j < k; j++) if (layers[j]! < 4) rule[layers[j]!] = rule[layers[j]!]! + (s1 * weights[j]!) / 255;
+    }
+    for (let ch = 0; ch < 4; ch++) mixed[ch] = out.weights[i * 4 + ch]! - (ch === 0 ? s0 : ch === 1 ? s1 : 0) + rule[ch]!;
     // Bytes summing to 255: rounded, the remainder to the largest.
     let sum = 0;
     let big = 0;
