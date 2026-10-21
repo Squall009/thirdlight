@@ -231,11 +231,12 @@ starts `after("close", 4)`, which shows it again.
   face-movement models, 90 right and −90 left) turns it as it is placed;
   without it it keeps facing as it was. `character_enable` works on the 2D
   plane too.
-- `ctx.shell.nextScene()` moves to the next entry of the shell's scene list
-  (the same move as the shell's Next scene action); `sceneIndex()` and
-  `sceneCount()` read the list.
-- Visual scripts have the same as nodes: **Get component**, **Set
-  component** (category Entity) and **Next scene** (Shell).
+- Visual scripts have the same as nodes: **Get component** and **Set
+  component** (category Entity).
+- `ctx.shell` (`nextScene()`, `sceneIndex()`, `sceneCount()`; the Shell
+  nodes) is deprecated: change levels with `ctx.scenes.load` / `unload` and
+  pick the look with `ctx.scenes.setActive` (see
+  [Migration notes](migration.md#moving-along-the-shells-scene-list-deprecated)).
 
 ## Spawning prefabs from scripts
 

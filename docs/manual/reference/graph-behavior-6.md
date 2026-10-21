@@ -1335,14 +1335,14 @@ Fields:
 <a id="graph-behavior--shell"></a>
 ## Shell
 
-- Next scene (`api.shell.nextScene`): Move to the next entry of the shell's scene list at the next step boundary — the same move as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry. Calling it again in the same step asks for the same move.
-- Scene list entry (`api.shell.sceneIndex`): The scene list entry the run is at (-1: none).
-- Scene list length (`api.shell.sceneCount`): How many entries the shell's scene list has (0: the project has none).
+- Next scene (deprecated) (`api.shell.nextScene`): Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second call in the same step asks for the same move.
+- Scene list entry (deprecated) (`api.shell.sceneIndex`): Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it.
+- Scene list length (deprecated) (`api.shell.sceneCount`): Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
 
 <a id="node-behavior--api-shell-next-scene"></a>
-### Next scene (`api.shell.nextScene`)
+### Next scene (deprecated) (`api.shell.nextScene`)
 
-Move to the next entry of the shell's scene list at the next step boundary — the same move as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry. Calling it again in the same step asks for the same move.
+Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second call in the same step asks for the same move.
 
 Inputs:
 
@@ -1354,18 +1354,18 @@ Outputs:
 - `value` (boolean)
 
 <a id="node-behavior--api-shell-scene-index"></a>
-### Scene list entry (`api.shell.sceneIndex`)
+### Scene list entry (deprecated) (`api.shell.sceneIndex`)
 
-The scene list entry the run is at (-1: none).
+Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it.
 
 Outputs:
 
 - `value` (number)
 
 <a id="node-behavior--api-shell-scene-count"></a>
-### Scene list length (`api.shell.sceneCount`)
+### Scene list length (deprecated) (`api.shell.sceneCount`)
 
-How many entries the shell's scene list has (0: the project has none).
+Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
 
 Outputs:
 

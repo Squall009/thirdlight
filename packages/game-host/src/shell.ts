@@ -8,7 +8,7 @@
  * The shell changes the game only through the host's seams: the engine pause
  * (no steps while a menu is open; a screen may instead hold physics and the
  * grouped scripts while the other scripts run), a scene reload, the deprecated run restart
- * and a move along the scene list (UI events on the next input frame, so
+ * and the deprecated move along the scene list (UI events on the next input frame, so
  * replays hold), and project saves
  * (a save made by the simulation, a slot loaded by the save service).
  * It knows no game rules.
@@ -59,8 +59,11 @@ export interface ShellDeps {
   readonly restart: (cause: 'restartLevel' | 'newGame' | 'quitToTitle') => void;
   /** A scene operation of the scene API (a UI event on the next input frame): reload (absent: the active scene), load, unload. */
   readonly sceneOp: (op: 'reload' | 'load' | 'unload', sceneId: string | undefined) => void;
-  /** Move to an entry of the scene list (a scene UI event on the next input frame). */
-  readonly goToScene: (index: number) => void;
+  /**
+   * Move to an entry of the scene list (a scene UI event on the next input frame), named by the action that asked
+   * (the runtime writes the deprecated nextScene's Problems line).
+   */
+  readonly goToScene: (index: number, cause: 'nextScene' | 'newGame') => void;
   /** The scene list entry the run is at (-1: none). */
   readonly listedScene: () => number;
   /** Project saves (null: the project declares no save schema). */
@@ -232,7 +235,7 @@ export function createShellController(deps: ShellDeps): ShellController {
   };
   const newGame = (): void => {
     deps.restart('newGame');
-    if (list.length > 0) deps.goToScene(0);
+    if (list.length > 0) deps.goToScene(0, 'newGame');
     note = '';
     play();
   };
@@ -319,12 +322,13 @@ export function createShellController(deps: ShellDeps): ShellController {
           toTitle();
           return;
         case 'nextScene': {
+          // Deprecated (a game loads its levels with the scene API); it keeps working.
           const next = deps.listedScene() + 1;
           if (next >= list.length) {
             deps.log('the scene list has no next scene');
             return;
           }
-          deps.goToScene(next);
+          deps.goToScene(next, 'nextScene');
           if (screen !== 'playing') play();
           return;
         }

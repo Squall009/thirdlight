@@ -18,15 +18,17 @@ panel, with **Resume** only.
   values with bindings: named counters, an object's health, input prompts
   made from your input actions, and any value a script publishes with
   [`ctx.ui`](../reference/script-api.md#ctx-ui).
-- **Scene list**: your scenes in order, each with the spawn the player
-  starts at and an optional fade. A **Next scene** button moves on to the
-  next.
+- **Scene list**: your scenes in order, each with the spawn a kept player
+  arrives at when that scene loads, and an optional fade. Your game changes
+  levels itself with `ctx.scenes.load` / `unload` (see
+  [game flow](game-flow.md#the-next-level-built-by-your-game)); the
+  **Next scene** action that moves along the list is deprecated.
 - **Pause allowed**, and a small debug status line.
 
 Buttons in the shell's documents use **engine actions**: resume (from the
 title it starts play), continue (the newest save), back, open a screen,
-save or load a slot, change a setting, rebind, next scene, load, unload or
-reload a scene. Anything else is a UI event your scripts answer.
+save or load a slot, change a setting, rebind, load, unload or reload a
+scene (and the deprecated next scene). Anything else is a UI event your scripts answer.
 
 ## Where to edit it
 

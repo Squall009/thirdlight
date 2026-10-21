@@ -37,9 +37,7 @@ import {
   type EntityV3,
   type PrefabDefinition,
   type RuntimeUiDocumentRow,
-  type UiEngineAction,
   MAX_TRANSITION_FADE,
-  UI_DEPRECATED_ENGINE_ACTIONS,
 } from '@thirdlight/project-model';
 import {
   neutralFrame,
@@ -99,6 +97,7 @@ import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitio
 import { arrivalProblem, playersArrive } from './arriving-players';
 import { createGameControl } from './game-control';
 import { SpawnScenes } from './spawn-scenes';
+import { createShellControl, deprecatedEngineActionLine } from './scene-list';
 import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
@@ -827,7 +826,7 @@ export class RuntimeInstance implements Runtime {
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
     this.entityAccess = this.buildEntityAccess();
-    this.shellControl = this.buildShellControl();
+    this.shellControl = createShellControl({ listedIndex: () => rt.listedSceneIndex(), count: () => rt.sceneList.length, goTo: (i) => void (rt.pendingListedScene = i), problem: (code, message) => rt.problem(code, message) });
     this.materials.addEntities(args.initialEntities);
     // The environment preset blend (before the saves, whose sections read it).
     // The first start scene is the active one (its look is the base look).
@@ -1327,26 +1326,6 @@ export class RuntimeInstance implements Runtime {
     const entry = this.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
     const probe = entry?.instance as { behaviorValuesProblem?: (v: Readonly<Record<string, unknown>>) => string | null } | undefined;
     return typeof probe?.behaviorValuesProblem === 'function' ? probe.behaviorValuesProblem(values) : null;
-  }
-
-  /** `ctx.shell` — the shell's scene list (the same move as the shell's nextScene UI action). */
-  private buildShellControl(): import('./types').BehaviorShell {
-    const rt = this;
-    return Object.freeze({
-      nextScene(): boolean {
-        // From the entry the run is at (calling it twice in a step asks for the same move).
-        const next = rt.listedSceneIndex() + 1;
-        if (rt.sceneList.length === 0 || next >= rt.sceneList.length) return false;
-        rt.pendingListedScene = next;
-        return true;
-      },
-      sceneIndex(): number {
-        return rt.listedSceneIndex();
-      },
-      sceneCount(): number {
-        return rt.sceneList.length;
-      },
-    });
   }
 
   /** The run's named counters and the character's health. */
@@ -2665,13 +2644,18 @@ export class RuntimeInstance implements Runtime {
       if (e.kind === 'restart') {
         this.pendingRestart = true;
         // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
-        const deprecated = UI_DEPRECATED_ENGINE_ACTIONS[e.name as UiEngineAction];
-        if (deprecated !== undefined) this.problem(deprecated.code, `the ${e.name} engine action is deprecated and will be removed (it restarts the whole run); use ${deprecated.replacement} — see the migration notes`);
+        const line = deprecatedEngineActionLine(e.name);
+        if (line !== null) this.problem(line.code, line.message);
       } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.sceneOpFromUi(e.kind, e.value);
       else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
     }
-    // The scene list move comes after a restart of the same frame.
-    for (const e of events) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
+    // The scene list move comes after a restart of the same frame; the nextScene action's says it is deprecated (a new game's has its restart's line).
+    for (const e of events) {
+      if (e.kind !== 'scene' || typeof e.value !== 'number') continue;
+      this.pendingListedScene = e.value;
+      const line = deprecatedEngineActionLine(e.name);
+      if (line !== null) this.problem(line.code, line.message);
+    }
   }
 
   /**

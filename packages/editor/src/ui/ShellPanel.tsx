@@ -2,7 +2,7 @@
  * The Game shell panel — the menus around a game that plays as
  * a scene and its HUD, as the project's UI documents (`content.shell`): the
  * title, pause, settings, controls, save and load screens, the HUD documents
- * shown while playing, the scene list New game and Next scene walk, whether
+ * shown while playing, the scene list (each scene's player spawn), whether
  * the pause may open and a debug status line.
  *
  * The whole block is edited with the generic descriptor form (the `shell`

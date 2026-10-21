@@ -945,8 +945,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       },
       restart: (cause) => queueRestart(rt, cause),
       sceneOp: (op, sceneId) => queueSceneOp(rt, op, sceneId),
-      goToScene: (index) => {
-        const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: '', value: index });
+      goToScene: (index, cause) => {
+        const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: cause, value: index });
         if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);
       },
       listedScene: () => rt.listedSceneIndex?.() ?? -1,

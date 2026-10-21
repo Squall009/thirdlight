@@ -115,7 +115,7 @@ export interface RuntimeSnapshot {
   timelines?: readonly import('@thirdlight/project-model').TimelineAsset[];
   /** v4 only, optional: the event → cue table (`content.eventCues`); absent: no event sounds. */
   eventCues?: readonly RuntimeEventCue[];
-  /** Optional: the shell's ordered scene list (`content.shell.scenes`) the `scene` UI event walks. */
+  /** Optional: the shell's ordered scene list (`content.shell.scenes`): the spawns kept players arrive at, and the deprecated move the `scene` UI event and `ctx.shell` walk. */
   sceneList?: readonly ListedScene[];
 }
 

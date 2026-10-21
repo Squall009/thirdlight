@@ -342,7 +342,7 @@ export function StyleMapEditor(p: {
 // Actions
 // ---------------------------------------------------------------------------
 
-// + open (a game shell screen), nextScene (the shell's scene list), reloadScene (a scene as authored again), loadScene and unloadScene.
+// + open (a game shell screen), nextScene (the shell's scene list, deprecated), reloadScene (a scene as authored again), loadScene and unloadScene.
 const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'reloadScene', 'loadScene', 'unloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
 const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).

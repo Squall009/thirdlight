@@ -584,27 +584,33 @@ export interface BehaviorEntityHandle {
 
 ```ts
 /**
- * `ctx.shell` — the game shell's scene list (`content.shell`) from scripts.
+ * `ctx.shell` — the game shell's scene list (`content.shell`) from scripts. Deprecated: a game changes levels with
+ * `ctx.scenes.load` / `unload` and picks the look with `ctx.scenes.setActive`; every call writes one Problems line
+ * per Play.
  */
 export interface BehaviorShell {
   /**
-   * Move to the next entry of the shell's scene list at the next step boundary — the same move as the
-   * shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the
-   * entry's scene loads, the character arrives at its spawn). False when the list has no next entry.
-   * Calling it again in the same step asks for the same move.
-   * @graphNode Next scene
+   * Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step
+   * boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene,
+   * the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second
+   * call in the same step asks for the same move.
+   * @deprecated Use `ctx.scenes.load(next, {unload: [current]})` and `ctx.scenes.setActive(next)`.
+   * @graphNode Next scene (deprecated)
    */
   nextScene(): boolean;
   /**
-   * The scene list entry the run is at (-1: none).
+   * Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own
+   * moves change it.
+   * @deprecated Keep the game's own level order; `ctx.scenes.loaded()` and `ctx.scenes.active()` say where it is.
    * @graphPure
-   * @graphNode Scene list entry
+   * @graphNode Scene list entry (deprecated)
    */
   sceneIndex(): number;
   /**
-   * How many entries the shell's scene list has (0: the project has none).
+   * Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
+   * @deprecated Keep the game's own level order.
    * @graphPure
-   * @graphNode Scene list length
+   * @graphNode Scene list length (deprecated)
    */
   sceneCount(): number;
 }
@@ -1339,66 +1345,5 @@ export interface BehaviorLookValue {
   emissiveIntensity?: number;
   /** A colour ('#rrggbb') multiplied into the object's own colour. */
   tint?: string;
-}
-```
-
-<a id="script-type-audio-play-options"></a>
-## `AudioPlayOptions`
-
-```ts
-/** Options of `ctx.audio.play`. */
-export interface AudioPlayOptions {
-  /** 0–1 (1). */
-  volume?: number;
-  /** Loop until stopped (false). */
-  loop?: boolean;
-  /** Playback rate, 0.25–4 (1: as recorded; 2: an octave up and twice as fast). */
-  pitch?: number;
-  /** The bus (sfx). */
-  bus?: 'sfx' | 'music' | 'voice' | 'ui';
-  /** Seconds to fade in from silence (0). */
-  fadeIn?: number;
-  /** Positional: follow this entity (`position` is then an offset from it). */
-  entityId?: string;
-  /** Positional: world position in metres (or the offset from `entityId`). */
-  position?: readonly number[];
-  /** Positional: linear, inverse or exponential (linear). */
-  distanceModel?: 'linear' | 'inverse' | 'exponential';
-  /** Positional: full volume within this distance, m (2). */
-  refDistance?: number;
-  /** Positional: silent (linear) or no more fading (others) beyond this distance, m (30). */
-  maxDistance?: number;
-  /** Positional: how fast it fades (1). */
-  rolloff?: number;
-  /**
-   * How late it may still start, in ms (500): a sound whose file is not
-   * ready when it is played starts when it is, unless that is later than
-   * this; then it is dropped (the audio observation says which happened).
-   * 0: now or never. The simulation's timing never waits for it.
-   */
-  maxLateMs?: number;
-  /**
-   * What the sound belongs to (`object`): it stops when the script's object
-   * leaves the game (its scene unloads or reloads, a spawned copy is
-   * destroyed); `scene`: when the object's scene unloads or reloads (a
-   * spawned copy's: with the copy); `none`: it plays until stopped.
-   */
-  owner?: 'object' | 'scene' | 'none';
-  /** Seconds it fades out over when its owner stops it (0). */
-  fadeOut?: number;
-}
-```
-
-<a id="script-type-audio-finished-event"></a>
-## `AudioFinishedEvent`
-
-```ts
-/** A script sound's end (`ctx.audio.events()`), seen in the step after it happened. */
-export interface AudioFinishedEvent {
-  readonly kind: 'finished';
-  readonly handle: number;
-  readonly assetId: string;
-  /** `ended`: it played to its end; `stopped`: a script stopped it (after its fade). */
-  readonly reason: 'ended' | 'stopped';
 }
 ```

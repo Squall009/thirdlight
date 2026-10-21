@@ -1,8 +1,8 @@
 # Title, new game, restart and scene changes
 
 **Goal:** a title screen with **New game**, a level in its own scene, and
-a pause menu with **Restart level** and **Quit to title** — all built by
-your game, with no engine restart. Why the engine leaves this to you:
+a pause menu with **Restart level** and **Quit to title**, then a move to
+the next level, all built by your game, with no engine restart. Why the engine leaves this to you:
 [Game flow belongs to your game](../concepts/game-flow.md). Everything
 about scenes and kept objects:
 [Scenes and cameras](../features/scenes-and-cameras.md).
@@ -82,6 +82,42 @@ The pieces:
 7. **▶ play.** The title shows; Enter starts the level with the HUD; Esc
    opens the pause menu.
 
+## The next level
+
+Levels change only through `ctx.scenes`. Make a second level scene
+(`Level 2`, id `level-2`) with a **Player spawn**, and give the level's
+exit a trigger whose signal (or a results screen's button event) the
+director answers. Your game keeps the order itself. In the director, let
+`instantiate` return `{ arriving: '' }`, type `step`'s state as
+`{ arriving: string }`, and add:
+
+```ts
+const ORDER = ['level-1', 'level-2'];
+
+// in step(state, ctx), beside the other events:
+if (ctx.ui.event('next-level')) {
+  const current = ORDER.find((id) => ctx.scenes.status(id) === 'loaded');
+  const next = ORDER[ORDER.indexOf(current ?? '') + 1];
+  if (current !== undefined && next !== undefined) {
+    // The old level stays in view until the new one is in, then they swap in one step.
+    ctx.scenes.load(next, { unload: [current], fade: 0.5 });
+    state.arriving = next;
+  }
+}
+if (state.arriving !== '' && ctx.scenes.status(state.arriving) === 'loaded') {
+  // Main (with the kept player) stays loaded, so it stays the look: show the level's own.
+  ctx.scenes.setActive(state.arriving, { blend: 0.5 });
+  state.arriving = '';
+}
+```
+
+`setActive` takes a loaded scene only, so it waits for the load. Place the
+kept player there too with `ctx.lifecycle.respawn('<spawn id>')`, or list
+the level in **Game shell → Scene list** with its spawn: a kept player then
+arrives there whenever the level loads. The shell's **Next scene** action
+and `ctx.shell.nextScene()` are deprecated (one Problems line per Play); see the
+[migration notes](../features/migration.md#moving-along-the-shells-scene-list-deprecated).
+
 ## Through the API
 
 1. The level ([`createScene`](../reference/ops-detail.md#op-createScene)):
@@ -145,6 +181,10 @@ way, and to check the flow in a play-test (the
   add `resume`, or set the screen's **While shown** to *Scripts run*.
 - **Counters and `ctx.save` survive a reload.** Reset what your game keeps
   itself.
+- **A scene that stays loaded stays the look.** The first start scene is
+  the active scene; a level loaded beside it does not take over the sky,
+  fog and post-processing until `ctx.scenes.setActive(level)` (a load with
+  `unload` of the active scene does it by itself).
 - **A player goes with its scene unless it is kept.** Mark it **Keep loaded**
   to take it across scene loads; a player that comes back with its scene
   stands where the scene puts it.

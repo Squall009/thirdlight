@@ -2480,19 +2480,19 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "nextScene",
       "kind": "method",
       "detail": "(): boolean",
-      "doc": "Move to the next entry of the shell's scene list at the next step boundary — the same move as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at"
+      "doc": "Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene load"
     },
     {
       "name": "sceneIndex",
       "kind": "method",
       "detail": "(): number",
-      "doc": "The scene list entry the run is at (-1: none)."
+      "doc": "Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it."
     },
     {
       "name": "sceneCount",
       "kind": "method",
       "detail": "(): number",
-      "doc": "How many entries the shell's scene list has (0: the project has none)."
+      "doc": "Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none)."
     }
   ],
   "BehaviorSignals": [

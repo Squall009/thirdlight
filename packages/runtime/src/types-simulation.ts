@@ -377,27 +377,33 @@ export interface ClimbQuery {
 }
 
 /**
- * `ctx.shell` — the game shell's scene list (`content.shell`) from scripts.
+ * `ctx.shell` — the game shell's scene list (`content.shell`) from scripts. Deprecated: a game changes levels with
+ * `ctx.scenes.load` / `unload` and picks the look with `ctx.scenes.setActive`; every call writes one Problems line
+ * per Play.
  */
 export interface BehaviorShell {
   /**
-   * Move to the next entry of the shell's scene list at the next step boundary — the same move as the
-   * shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the
-   * entry's scene loads, the character arrives at its spawn). False when the list has no next entry.
-   * Calling it again in the same step asks for the same move.
-   * @graphNode Next scene
+   * Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step
+   * boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene,
+   * the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second
+   * call in the same step asks for the same move.
+   * @deprecated Use `ctx.scenes.load(next, {unload: [current]})` and `ctx.scenes.setActive(next)`.
+   * @graphNode Next scene (deprecated)
    */
   nextScene(): boolean;
   /**
-   * The scene list entry the run is at (-1: none).
+   * Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own
+   * moves change it.
+   * @deprecated Keep the game's own level order; `ctx.scenes.loaded()` and `ctx.scenes.active()` say where it is.
    * @graphPure
-   * @graphNode Scene list entry
+   * @graphNode Scene list entry (deprecated)
    */
   sceneIndex(): number;
   /**
-   * How many entries the shell's scene list has (0: the project has none).
+   * Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
+   * @deprecated Keep the game's own level order.
    * @graphPure
-   * @graphNode Scene list length
+   * @graphNode Scene list length (deprecated)
    */
   sceneCount(): number;
 }

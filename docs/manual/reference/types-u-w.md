@@ -28,7 +28,7 @@ type UiEngineAction =
   | 'rebind'
   | 'cancelRebind'
   | 'resetBindings'
-  // The game shell — open one of its screens (`screen`), move on to the next listed scene.
+  // The game shell — open one of its screens (`screen`); move on to the next listed scene (deprecated: the game loads its levels).
   | 'open'
   | 'nextScene'
   // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.

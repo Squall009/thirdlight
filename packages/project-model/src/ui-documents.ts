@@ -127,7 +127,7 @@ export type UiEngineAction =
   | 'rebind'
   | 'cancelRebind'
   | 'resetBindings'
-  // The game shell — open one of its screens (`screen`), move on to the next listed scene.
+  // The game shell — open one of its screens (`screen`); move on to the next listed scene (deprecated: the game loads its levels).
   | 'open'
   | 'nextScene'
   // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.
@@ -331,14 +331,16 @@ export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid
 export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene', 'reloadScene', 'loadScene', 'unloadScene'];
 /**
  * Engine actions that decide a game's flow — the engine does not know what a
- * level restart or a new game is. They keep working (a run restart) and each
- * use writes one Problems line per Play naming what replaces it; they are
- * removed once no game uses them.
+ * level restart, a new game or the next level is. They keep working (a run
+ * restart; nextScene a move along the shell's scene list, a second way to
+ * change levels beside the scene API) and each use writes one Problems line
+ * per Play naming what replaces it; they are removed once no game uses them.
  */
 export const UI_DEPRECATED_ENGINE_ACTIONS: Readonly<Partial<Record<UiEngineAction, { readonly code: string; readonly replacement: string }>>> = Object.freeze({
   restartLevel: Object.freeze({ code: 'deprecated_restart_level', replacement: 'the reloadScene engine action (or ctx.scenes.reload in a script), with the game resetting what it keeps itself' }),
   newGame: Object.freeze({ code: 'deprecated_new_game', replacement: 'a new game the game builds in a script: load its first scene, unload the others, reset the counters and ctx.save values it uses' }),
   quitToTitle: Object.freeze({ code: 'deprecated_quit_to_title', replacement: "the game's own title: the loadScene engine action (or ctx.scenes.load in a script) for its title scene and unloadScene (ctx.scenes.unload) for the scenes it leaves, shown with its own title screen" }),
+  nextScene: Object.freeze({ code: 'deprecated_next_scene', replacement: "the game's own level order: loadScene and unloadScene (ctx.scenes.load / unload), and ctx.scenes.setActive for the look" }),
 });
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];

@@ -51,8 +51,14 @@ may refer to an object in another.
   START.
 - **Loading more.** While the game runs, a script loads and unloads scenes
   with [`ctx.scenes`](../reference/script-api.md#ctx-scenes), and a trigger
-  can load one when the player walks in. Only the start scenes are read
-  before the first picture; the rest are fetched when they are loaded.
+  can load one when the player walks in. This is how a game changes levels
+  (the shell's scene list move is deprecated). Only the start scenes are
+  read before the first picture; the rest are fetched when they are loaded.
+- **The active scene's look.** Each scene has its own look (sky, fog,
+  post-processing); the active scene's is shown. It is the first start scene
+  until a load unloads it or the game calls `ctx.scenes.setActive`; a scene
+  that stays loaded (a start scene with a kept player) stays the look until
+  then. See [game flow](game-flow.md#the-tools).
 - **In the editor.** Each open scene is a header in the Hierarchy. Click a
   header to make it the active scene: new objects go there. **+ Scene**
   makes a new one. Which scenes are open is remembered by your browser, not

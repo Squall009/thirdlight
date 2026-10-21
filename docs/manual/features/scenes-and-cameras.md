@@ -228,7 +228,7 @@ its file, models, textures and instance buffers are read and parsed first,
 so the frame that shows it shows all of it. The scenes a game is likely to
 load next — the targets of the scene transitions in its loaded scenes and
 the shell's next listed scene — are read ahead in the background (at most
-four). A scene transition (a trigger's, a move along the shell's scene list,
+four). A scene transition (a trigger's, the deprecated move along the shell's scene list,
 or `ctx.scenes.load(id, {unload: [...]})`) keeps the scenes it unloads in
 view until its scene is in, then swaps them in one step, so the view never
 shows an empty world. Its optional `fade` (seconds, 0–5; `fadeColor`) fades

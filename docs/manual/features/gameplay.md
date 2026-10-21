@@ -190,19 +190,25 @@ project window: create ▾ → UI document):
   **Settings**, **Controls** (rebinding), **Save** and **Load**. Their buttons
   use engine actions: `resume` (from the title too: it starts play), `reloadScene`, `continue` (the newest save),
   `back`, `open` (a screen), `save` / `load` (slot 1–3, the project saves of
-  Project Settings → Saves), `setSetting`, `rebind`, `nextScene`,
+  Project Settings → Saves), `setSetting`, `rebind`,
   `loadScene` / `unloadScene` (a scene), and the deprecated `quitToTitle`
-  (see [Migration notes](migration.md#the-run-restart-and-the-engines-new-game-deprecated)).
+  (see [Migration notes](migration.md#the-run-restart-and-the-engines-new-game-deprecated))
+  and `nextScene` (see [the scene list move](migration.md#moving-along-the-shells-scene-list-deprecated)).
 - **HUD**: documents shown while the game plays. Bindings read
   `$flow.counters.<name>` (named counters: collectibles, scripts),
   `$flow.health.<objectId>.current|max`, `$flow.prompts` (made from the
   project's input actions, e.g. "A/D move x · E interact"), `$flow.shell`
   (screen, scene, `canContinue`, `saves.<n>.label`, `note`) and script values
   (`ctx.ui.set`).
-- **Scene list**: the game's scenes in order, each with the spawn it starts
-  at (a new game the game builds starts at the first; the deprecated `newGame`
-  action restarts the run there, see [Migration notes](migration.md#the-run-restart-and-the-engines-new-game-deprecated)); **Next scene** loads the next
-  and moves the character to its spawn.
+- **Scene list**: the game's scenes in order, each with the spawn a kept
+  player arrives at whenever that scene loads. The list does not change
+  levels: your game does, with
+  [`ctx.scenes.load` / `unload`](../reference/script-api.md#ctx-scenes)
+  (or the `loadScene` / `unloadScene` buttons), in its own order, and picks
+  whose look (sky, fog, post-processing) shows with `ctx.scenes.setActive`.
+  Moving along the list (the `nextScene` action, `ctx.shell.nextScene()`) and
+  the deprecated `newGame` still work, with one Problems line per Play; see
+  [Migration notes](migration.md#moving-along-the-shells-scene-list-deprecated).
 - **Pause allowed**, and a debug **Status line** (screen, scene, prompts).
 
 A save from the shell includes the named counters in the `components`

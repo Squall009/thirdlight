@@ -41,6 +41,8 @@ export's `warnings` or its refusal):
 - `deprecated_restart_level`, `deprecated_new_game`,
   `deprecated_quit_to_title`, `deprecated_lifecycle_restart`: the run
   restart, below;
+- `deprecated_next_scene`, `deprecated_shell_scene_list`: the move along
+  the shell's scene list, below;
 - `deprecated_save_world`: the always-on `world` in saves, below;
 - at the start of Play and the export (see [The view, cameras and kept
   objects](scenes-and-cameras.md#the-view-cameras-and-kept-objects)): `view_missing` (no camera live: the default pose is drawn),
@@ -90,6 +92,36 @@ music (`ctx.audio.stopAll`) and switches to the play mode
 (`ctx.modes.switch`). Quit to title is the same in reverse. A level restart is
 a `reloadScene` button (or `ctx.scenes.reload` from the director) plus
 whatever the game resets of its own.
+
+### Moving along the shell's scene list (deprecated)
+
+A game changes levels with the scene API: `ctx.scenes.load` / `unload` (the
+`loadScene` / `unloadScene` buttons), in its own order, and
+`ctx.scenes.setActive` for the scene whose look shows. The shell's scene
+list was a second way, with its own position that the scene API never
+moved. These keep working for now and are removed once no game uses them;
+each writes one Problems line per Play:
+
+- **`nextScene`** (UI engine action, `deprecated_next_scene`) moves to the
+  list's next entry: its scene loads, the previous listed scene unloads
+  unless it is a start scene, the character arrives at the entry's spawn.
+- **`ctx.shell.nextScene()`**, **`sceneIndex()`**, **`sceneCount()`** (and
+  their Shell nodes in visual scripts; `deprecated_shell_scene_list`): the
+  same move from a script, and the list's position and length.
+
+To move on, keep the level order in the game (a list in its director, or a
+`next_scene` property on each level's exit) and load the next level with
+`ctx.scenes.load(next, {unload: [current]})`. A scene that stays loaded,
+such as a start scene with a kept player, stays the active look until the
+game calls `ctx.scenes.setActive(next)` once the level is loaded; a load
+that unloads the active scene makes its own scene active. See
+[the next level](../concepts/game-flow.md#the-next-level-built-by-your-game).
+
+What stays (not deprecated): the scene list itself, each entry's spawn (a
+kept player arrives there whenever that scene loads, however it loads), its
+fade (used by the list move only), `$flow.shell.scene` for UI documents and
+`world.listedScene` in saves (both follow only the list's own moves), the
+read-ahead of the next listed scene, and the debug status line.
 
 ### The always-on `world` in saves (deprecated)
 

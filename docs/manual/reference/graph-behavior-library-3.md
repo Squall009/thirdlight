@@ -100,6 +100,6 @@ The Shared script function node catalogue: port types, then each category's node
 <a id="graph-behavior-library--shell"></a>
 ## Shell
 
-- [Next scene](graph-behavior-6.md#node-behavior--api-shell-next-scene) (`api.shell.nextScene`, as in `behavior`): Move to the next entry of the shell's scene list at the next step boundary — the same move as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry. Calling it again in the same step asks for the same move.
-- [Scene list entry](graph-behavior-6.md#node-behavior--api-shell-scene-index) (`api.shell.sceneIndex`, as in `behavior`): The scene list entry the run is at (-1: none).
-- [Scene list length](graph-behavior-6.md#node-behavior--api-shell-scene-count) (`api.shell.sceneCount`, as in `behavior`): How many entries the shell's scene list has (0: the project has none).
+- [Next scene (deprecated)](graph-behavior-6.md#node-behavior--api-shell-next-scene) (`api.shell.nextScene`, as in `behavior`): Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second call in the same step asks for the same move.
+- [Scene list entry (deprecated)](graph-behavior-6.md#node-behavior--api-shell-scene-index) (`api.shell.sceneIndex`, as in `behavior`): Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it.
+- [Scene list length (deprecated)](graph-behavior-6.md#node-behavior--api-shell-scene-count) (`api.shell.sceneCount`, as in `behavior`): Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).

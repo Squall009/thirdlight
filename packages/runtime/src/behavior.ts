@@ -334,7 +334,10 @@ export interface BehaviorContext {
    * @graphLabel entityId object
    */
   readonly entity?: (entityId: string | null) => BehaviorEntityHandle | null;
-  /** The game shell's scene list — move to the next entry (the shell's nextScene action). */
+  /**
+   * The game shell's scene list — move to the next entry (the shell's nextScene action).
+   * @deprecated Change levels with `ctx.scenes.load` / `unload`; `ctx.scenes.setActive` picks the look.
+   */
   readonly shell?: BehaviorShell;
 }
 

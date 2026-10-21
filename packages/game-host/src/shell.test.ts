@@ -23,8 +23,8 @@ function harness(shell: ShellConfigLike, over: Partial<ShellDeps> = {}) {
     setHold: (on) => (state.held = on),
     restart: (cause) => log.push(`restart ${cause}`),
     sceneOp: (op, sceneId) => log.push(`${op} ${sceneId ?? '(active)'}`),
-    goToScene: (i) => {
-      log.push(`scene ${i}`);
+    goToScene: (i, cause) => {
+      log.push(`scene ${i} ${cause}`);
       state.listed = i;
     },
     listedScene: () => state.listed,
@@ -76,9 +76,9 @@ describe('the game shell controller', () => {
     expect([ctl.screen, state.screen, state.paused, state.hud]).toEqual(['title', 'title', true, []]);
     ctl.engine({ do: 'engine', action: 'newGame' });
     expect([ctl.screen, state.screen, state.paused, state.hud]).toEqual(['playing', null, false, ['hud']]);
-    expect(log).toEqual(['restart newGame', 'scene 0']);
+    expect(log).toEqual(['restart newGame', 'scene 0 newGame']);
     ctl.engine({ do: 'engine', action: 'nextScene' });
-    expect(log.slice(-1)).toEqual(['scene 1']);
+    expect(log.slice(-1)).toEqual(['scene 1 nextScene']);
     ctl.engine({ do: 'engine', action: 'nextScene' });
     expect(log.slice(-1)).toEqual(['log the scene list has no next scene']);
     expect(ctl.values()['scene']).toEqual({ index: 1, id: 'b', count: 2, last: true });

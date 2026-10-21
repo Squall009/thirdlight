@@ -6,17 +6,19 @@
  *   before play, the pause screen (absent: the engine's pause panel), a
  *   settings screen, a controls (rebinding) screen and the save and load
  *   screens (project saves, `content.saveSchema`). A document's buttons use
- *   the engine UI actions: new game, continue, resume, back, open a screen,
- *   save or load a slot, set a volume, rebind an action, next scene.
+ *   the engine UI actions: continue, resume, back, open a screen, save or
+ *   load a slot, set a volume, rebind an action, load, unload or reload a
+ *   scene (and the deprecated new game, next scene, …).
  * - `hud`: UI documents shown while the game plays (hidden behind the menus).
  *   Their bindings read the scripts' view model (`ctx.ui.set`) and the host
  *   values under `$flow`: named counters (`$flow.counters.<name>`), objects'
  *   health (`$flow.health.<objectId>.current|max`) and the input prompts
  *   generated from the project's input actions (`$flow.prompts`).
- * - `scenes`: the game's scenes in order, each with the player spawn it
- *   starts at (the deprecated `newGame` action restarts the run at the first); the `nextScene`
- *   action moves on to the next one (loading it, unloading the previous
- *   listed scene unless it is a start scene).
+ * - `scenes`: the game's scenes in order, each with the player spawn a kept
+ *   player arrives at whenever the scene loads. Moving along the list (the
+ *   `nextScene` action, `ctx.shell`; the `newGame` action restarts the run
+ *   at the first) is deprecated: it is a second way to change levels beside
+ *   the scene API, which a game uses to load its levels in its own order.
  * - `pause`: whether the pause input opens the pause screen (absent: true).
  * - `status`: a small debug line with the shell's screen, the listed scene
  *   and the input prompts (absent: off).

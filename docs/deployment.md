@@ -239,6 +239,13 @@ Projects in an older layout are upgraded the first time they are opened
 (see [Projects](manual/features/projects.md#projects) and the
 [migration notes](manual/features/migration.md)).
 
+Deprecated engine features keep working and write one Problems line per Play
+naming their replacement; move a game off them before they are removed. The
+latest: the shell's scene list as a way to change levels (the `nextScene` UI
+action, `ctx.shell`); a game loads its levels with `ctx.scenes.load` /
+`unload` and picks the look with `ctx.scenes.setActive` (see
+[moving along the shell's scene list](manual/features/migration.md#moving-along-the-shells-scene-list-deprecated)).
+
 ## Verification
 
 ```sh

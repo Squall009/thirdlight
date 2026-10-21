@@ -34,8 +34,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 20 sections |
-| [Script API types (from `BehaviorAssets`)](script-types-behavior-assets.md) | 55 sections |
-| [Script API types (from `AudioMusicOptions`)](script-types-audio-music-options.md) | 81 sections |
+| [Script API types (from `BehaviorAssets`)](script-types-behavior-assets.md) | 53 sections |
+| [Script API types (from `AudioPlayOptions`)](script-types-audio-play-options.md) | 83 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
