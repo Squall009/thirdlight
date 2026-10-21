@@ -75,6 +75,7 @@ import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFold
 import {
   validateCreatePrefabArgs,
   validateInstantiatePrefabArgs,
+  validateUpdatePrefabArgs,
 } from './validate-prefab-args';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -86,6 +87,7 @@ import type {
   DeleteEntityArgs,
   EmptyArgs,
   InstantiatePrefabArgs,
+  UpdatePrefabArgs,
   MutationArgs,
   MutationOp,
   Origin,
@@ -196,6 +198,8 @@ export const MUTATION_OPS: readonly MutationOp[] = [
   // Asset and prefab deletion
   'deleteAsset',
   'deletePrefab',
+  // A prefab's contents replaced from an object
+  'updatePrefab',
   // A folder's files as assets
   'importAssets',
   // Resource and scene files the file check found
@@ -1361,6 +1365,7 @@ export type ValidatedOpArgs =
   | { op: 'importAssets'; args: ImportAssetsArgs }
   | { op: 'importResources'; args: ImportResourcesArgs }
   | { op: 'deletePrefab'; args: { prefabId: string } }
+  | { op: 'updatePrefab'; args: UpdatePrefabArgs }
   | { op: 'deleteBehavior'; args: { behaviorId: string } }
   | { op: 'revokeBehaviorTrust'; args: { sourceDigest: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } }
@@ -1858,6 +1863,11 @@ export function validateOpArgs(
       const r = validateCreatePrefabArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'createPrefab', args: r.args } };
+    }
+    case 'updatePrefab': {
+      const r = validateUpdatePrefabArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'updatePrefab', args: r.args } };
     }
     case 'instantiatePrefab': {
       const r = validateInstantiatePrefabArgs(args);

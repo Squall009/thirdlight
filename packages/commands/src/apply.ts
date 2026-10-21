@@ -45,7 +45,7 @@ import {
   applyUpdateEntity,
   type OpSuccess,
 } from './ops';
-import { applyCreatePrefab, applyInstantiatePrefab } from './prefab-ops';
+import { applyCreatePrefab, applyInstantiatePrefab, applyUpdatePrefab } from './prefab-ops';
 import { applyApplySurfacePreset } from './v3-ops';
 import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
@@ -689,6 +689,11 @@ export function applyMutation<S extends SceneDocument>(
         envelope.origin,
         r.op,
       );
+    }
+    case 'updatePrefab': {
+      const r = applyUpdatePrefab(input, va.validated.args);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, 'updatePrefab', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'instantiatePrefab': {
       const r = applyInstantiatePrefab(input, va.validated.args);

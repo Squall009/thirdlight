@@ -27,6 +27,7 @@ import type {
   CommandError,
   CreatePrefabArgs,
   InstantiatePrefabArgs,
+  UpdatePrefabArgs,
   PartialTransformArgs,
   PropertyOverride,
 } from './types';
@@ -113,6 +114,34 @@ export function validateCreatePrefabArgs(
       prefabId: args['prefabId'],
       displayName: args['displayName'],
       sourceEntityId: args['sourceEntityId'],
+    },
+  };
+}
+
+/** `updatePrefab` args. */
+export function validateUpdatePrefabArgs(
+  args: Record<string, unknown>,
+): PrefabArgsOk<UpdatePrefabArgs> | { ok: false; error: CommandError } {
+  const KNOWN = 'prefabId, fromEntity, displayName (optional)';
+  for (const key of Object.keys(args)) {
+    if (!['prefabId', 'fromEntity', 'displayName'].includes(key)) {
+      return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
+    }
+  }
+  for (const [key, what] of [['prefabId', 'prefab ID'], ['fromEntity', 'entity ID']] as const) {
+    if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+    if (typeof args[key] !== 'string') return { ok: false, error: fieldType(`/args/${key}`, args[key], `string (${what})`) };
+  }
+  const displayName = args['displayName'];
+  if (displayName !== undefined && typeof displayName !== 'string') {
+    return { ok: false, error: fieldType('/args/displayName', displayName, 'string') };
+  }
+  return {
+    ok: true,
+    args: {
+      prefabId: args['prefabId'] as string,
+      fromEntity: args['fromEntity'] as string,
+      ...(displayName !== undefined ? { displayName } : {}),
     },
   };
 }

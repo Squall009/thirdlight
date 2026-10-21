@@ -11,7 +11,8 @@
  *
  * "Copies, not links" is a property of this module:
  *
- *  - `createPrefab` adds a definition and touches no entity;
+ *  - `createPrefab` adds a definition and touches no entity; `updatePrefab`
+ *    replaces one, and touches no entity either;
  *  - `removePrefab` (the undo of a capture) removes the definition and still
  *    touches no entity — materialized copies are ordinary scene entities;
  *  - `publishBehavior` updates the declaration/record and leaves every stored
@@ -163,6 +164,11 @@ export class PrefabProjection {
         this.definitions.set(change.prefabId, cloneDefinition(change.definition));
         return true;
       }
+      case 'updatePrefab': {
+        // New contents under the same id; copies already placed are untouched.
+        this.definitions.set(change.prefabId, cloneDefinition(change.next));
+        return true;
+      }
       case 'removePrefab': {
         // The undo of a capture: the definition disappears; materialized copies
         // and their `components.prefab` provenance are untouched.
@@ -237,6 +243,7 @@ function cloneDefinition(d: PrefabDefinition): PrefabDefinition {
     prefabId: d.prefabId,
     displayName: d.displayName,
     createdRevision: d.createdRevision,
+    ...(d.updatedRevision !== undefined ? { updatedRevision: d.updatedRevision } : {}),
     entityCount: d.entityCount,
     depth: d.depth,
     entities: d.entities.map((e) => ({

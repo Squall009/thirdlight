@@ -489,6 +489,8 @@ export interface PrefabDefinition {
   prefabId: string;
   displayName: string;
   createdRevision: number;
+  /** The project revision its contents were last replaced at (`updatePrefab`); absent: never replaced. */
+  updatedRevision?: number;
   entityCount: number;
   depth: number;
   entities: PrefabEntity[];

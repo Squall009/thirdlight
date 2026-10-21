@@ -1,14 +1,14 @@
 /**
  * Prefab capture/instantiation planning.
  *
- * Prefab copies, never links: `createPrefab` captures one immutable definition
+ * Prefab copies, never links: `createPrefab` captures one definition
  * from a **selected subtree** and `instantiatePrefab` materializes independent
  * scene entities. This module only *plans* those typed commands and preflights
  * them against the projection so the UI can surface the contract's actionable
  * errors before a round trip; the workspace remains the sole executor and the
- * only authority. There is deliberately no `updatePrefab`, no variant, no
- * apply/revert and no propagation — definitions are immutable and a
- * definition change never rewrites a copy.
+ * only authority. `updatePrefab` replaces a definition's contents from a
+ * subtree (the Inspector's "Apply to prefab"); there is no variant, no
+ * revert and no propagation — a definition change never rewrites a copy.
  *
  * Normative rules implemented here:
  *

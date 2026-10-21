@@ -325,6 +325,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
       onGizmoMode={setGizmoMode}
       declarations={declarations}
       prefabDisplayName={(prefabId) => prefabSummaries.find((d) => d.prefabId === prefabId)?.displayName ?? prefabId}
+      onApplyToPrefab={(entityId) => void props.prefab.applyToPrefab(entityId)}
       propertyError={propertyError}
       componentError={componentError}
       onEditProperty={(entityId, key, raw) => void editProperty(entityId, key, raw)}

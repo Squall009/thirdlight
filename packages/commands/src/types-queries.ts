@@ -74,6 +74,8 @@ export interface PrefabSummary {
   prefabId: string;
   displayName: string;
   createdRevision: number;
+  /** Absent: its contents were never replaced. */
+  updatedRevision?: number;
   entityCount: number;
   depth: number;
 }

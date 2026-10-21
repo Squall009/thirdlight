@@ -6,6 +6,7 @@
  * refusal (`reference_in_use`) and the same deletion. Project Settings →
  * Script trust lists the acknowledged sources as the backend has them (read
  * at load) and revokes one, refused while a published script still uses it.
+ * A placed copy's Inspector applies the copy to its prefab (`updatePrefab`).
  * A `createEntities` batch over MCP is one revision and one undo, and the
  * editor shows its objects.
  */
@@ -16,7 +17,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test } from './pw';
 
 import { publishScript, publishWav, startBackend, STARTER, type E2EBackend } from './backend';
-import { projectWindow, chooseItem, closeEditor, closeProjectSettings, openProjectSettings, settingsWindow } from './ui';
+import { projectWindow, chooseItem, closeEditor, closeProjectSettings, inspector, openProjectSettings, settingsWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -53,7 +54,7 @@ async function command(op: string, args: Record<string, unknown>): Promise<{ isE
 const SPINNER = ['export default {', '  instantiate() { return {}; },', '  step() {},', '};'].join('\n');
 
 // One backend, MCP client and editor for every kind: the prefab and script parts use the ground, which the asset part leaves alone.
-test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it; prefabs: refused while a copy is placed, deleted after; scripts and script trust likewise; createEntities is one revision and one undo', async ({ page }) => {
+test('assets: the editor refuses a used one and deletes an unused one; MCP gets the same command and undoes it; prefabs: refused while a copy is placed, a copy applied to its prefab, deleted after; scripts and script trust likewise; createEntities is one revision and one undo', async ({ page }) => {
   await publishWav(be, 'cue-goal.wav', 'sfx-ping', 'ping');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -104,9 +105,24 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   expect(byMcp.isError).toBe(true);
   expect(JSON.stringify(byMcp.body)).toContain('reference_in_use');
 
-  // Delete the copy, then the prefab.
+  // Apply to prefab: the copy, made taller over MCP, becomes the prefab's contents from its Inspector (the same id, still
+  // in use); an MCP undo puts the old contents back.
   const rootId = String(((placed.body.result ?? placed.body) as { change?: { rootId?: string } }).change?.rootId ?? '');
   expect(rootId).not.toBe('');
+  const crateSize = async (): Promise<unknown> => {
+    const q = await call('tl_content_query', { target: 'prefabs', includeEntities: true });
+    const crate = (q.body.prefabs as { prefabId: string; entities: { components: { box?: { size?: number[] } } }[] }[]).find((p) => p.prefabId === 'crate');
+    return crate?.entities[0]?.components.box?.size;
+  };
+  const sizeBefore = await crateSize();
+  expect((await command('setComponent', { entityId: rootId, component: 'box', value: { size: [1, 4, 1] } })).isError).toBe(false);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${rootId}"]`).click();
+  await inspector(page).getByRole('button', { name: 'Apply to prefab' }).click();
+  await expect.poll(crateSize).toEqual([1, 4, 1]);
+  expect((await command('undo', {})).isError).toBe(false);
+  await expect.poll(crateSize).toEqual(sizeBefore);
+
+  // Delete the copy, then the prefab.
   expect((await command('deleteEntity', { entityId: rootId })).isError).toBe(false);
   await chooseItem(page, 'prefab', 'Crate');
   await page.getByRole('button', { name: 'delete prefab Crate' }).click();

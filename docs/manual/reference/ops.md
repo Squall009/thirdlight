@@ -150,3 +150,4 @@ interface MutationFailure {
 | [`setUiTheme`](ops-detail.md#op-setUiTheme) | { theme: UiTheme } | `uiThemes` |
 | [`undo`](ops-detail.md#op-undo) | EmptyArgs |  |
 | [`updateEntity`](ops-detail.md#op-updateEntity) | UpdateEntityArgs |  |
+| [`updatePrefab`](ops-detail.md#op-updatePrefab) | UpdatePrefabArgs | `prefabs` |

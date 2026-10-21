@@ -39,7 +39,7 @@ The project's content: one block per kind of document. Each block lists the ops 
 | [`scenes`](content-blocks-scenes.md#content-scenes) | Scenes | `createScene`, `renameScene`, `deleteScene` |
 | [`startScenes`](content-blocks-scenes.md#content-startScenes) | Start scenes | `setStartScenes` |
 | [`assets`](content-blocks-scenes.md#content-assets) | Assets | `publishAsset`, `setAssetOptions`, `deleteAsset`, `importAssets`, `setLabels`, `setAddress` |
-| [`prefabs`](content-blocks-scenes.md#content-prefabs) | Prefabs | `createPrefab`, `instantiatePrefab`, `deletePrefab` |
+| [`prefabs`](content-blocks-scenes.md#content-prefabs) | Prefabs | `createPrefab`, `updatePrefab`, `instantiatePrefab`, `deletePrefab` |
 | [`behaviors`](content-blocks-scenes.md#content-behaviors) | Behaviors | `publishBehavior`, `deleteBehavior` |
 | [`behaviorTrust`](content-blocks-scenes.md#content-behaviorTrust) | Script trust | `acknowledgeBehaviorTrust`, `revokeBehaviorTrust` |
 | [`lighting`](content-blocks-scenes.md#content-lighting) | Baked lighting | `setLighting` |

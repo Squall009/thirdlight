@@ -425,6 +425,7 @@ export function queryPrefabs(
       prefabId: d.prefabId,
       displayName: d.displayName,
       createdRevision: d.createdRevision,
+      ...(d.updatedRevision !== undefined ? { updatedRevision: d.updatedRevision } : {}),
       entityCount: d.entityCount,
       depth: d.depth,
     };

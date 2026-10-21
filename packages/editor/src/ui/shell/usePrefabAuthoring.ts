@@ -1,7 +1,7 @@
 /**
- * Prefab authoring: make a prefab from the selection, choose one in the
- * project window, place a copy with overridden declared properties, delete a
- * definition.
+ * Prefab authoring: make a prefab from the selection, apply a placed copy
+ * back to its prefab, choose one in the project window, place a copy with
+ * overridden declared properties, delete a definition.
  */
 import { useCallback, useMemo, useState, type MutableRefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
@@ -86,6 +86,31 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
     setNotice(`Prefab “${plan.command.args.displayName}” created from ${sel.name ?? sel.id}.`);
   }, [clientRef, runTypedCommand, selectedIdRef, setNotice]);
 
+  /**
+   * Inspector → Apply to prefab, on a placed copy: the copy (from its root
+   * down, as it is now) becomes the prefab's contents, under the same id.
+   * Other copies keep what they have; new copies and spawns use the new
+   * contents. One undo puts the old contents back.
+   */
+  const applyToPrefab = useCallback(async (entityId: string) => {
+    const c = clientRef.current;
+    const from = c?.projection.getEntity(entityId);
+    const prefabId = from?.prefab?.prefabId;
+    if (!c || from === undefined || prefabId === undefined) return;
+    // The copy's root: the topmost object above that came from the same prefab.
+    let root = from;
+    for (let depth = 0; root.parentId !== null && depth < 64; depth++) {
+      const parent = c.projection.getEntity(root.parentId);
+      if (parent?.prefab?.prefabId !== prefabId) break;
+      root = parent;
+    }
+    let failure: UiError | null = null;
+    const ok = await runTypedCommand('updatePrefab', { prefabId, fromEntity: root.id }, (e) => (failure = e));
+    const name = c.prefabs.getDefinition(prefabId)?.displayName ?? prefabId;
+    if (!ok) return setNotice(`Apply to prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
+    setNotice(`Prefab “${name}” updated from ${root.name ?? root.id}; copies already placed keep what they have.`);
+  }, [clientRef, runTypedCommand, setNotice]);
+
   const overrideTargets = useMemo(() => {
     const c = clientRef.current;
     if (!c || !selectedPrefabId) return [];
@@ -139,7 +164,7 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
 
   return {
     selectedPrefabId, setSelectedPrefabId, choosePrefab, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
-    deletePrefab, createPrefabFromSelection, overrideTargets, commitOverride, placeCopy,
+    deletePrefab, createPrefabFromSelection, applyToPrefab, overrideTargets, commitOverride, placeCopy,
   };
 }
 

@@ -45,6 +45,8 @@ interface Props {
   declarations: ReadonlyMap<string, PropertyDeclaration>;
   /** Display name of a definition, for the copy provenance label. */
   prefabDisplayName: (prefabId: string) => string;
+  /** Make the prefab's contents this copy (its root down), keeping the prefab's id. */
+  onApplyToPrefab?: (entityId: string) => void;
   /** The last property-command error (bounded), when one occurred. */
   propertyError: ControlErrorView | null;
   componentError: ControlErrorView | null;
@@ -219,7 +221,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   );
 }
 
-export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
+export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, onApplyToPrefab, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -289,6 +291,11 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
           {entity.prefab && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>
               Copy of {prefabDisplayName(entity.prefab.prefabId)} — copies are independent
+              {onApplyToPrefab !== undefined && (
+                <button type="button" className="tl-btn" title="Make the prefab's contents this copy (from its root down); copies already placed keep what they have, new copies and spawns use the new contents" onClick={() => onApplyToPrefab(entity.id)}>
+                  Apply to prefab
+                </button>
+              )}
             </div>
           )}
           {registry === null && <p className="tl-inspector__hint">Loading the component descriptions…</p>}

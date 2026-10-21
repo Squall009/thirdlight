@@ -516,6 +516,7 @@ function targetSceneV4(
     return { ok: true, sceneId: own ?? primarySceneIdV4(state) };
   }
   if (op === 'createPrefab') return { ok: true, sceneId: sceneOf(args['sourceEntityId']) ?? primarySceneIdV4(state) };
+  if (op === 'updatePrefab') return { ok: true, sceneId: sceneOf(args['fromEntity']) ?? primarySceneIdV4(state) };
   // A scene's look is that scene's edit.
   if (op === 'setEnvironment' && args['sceneId'] !== undefined) {
     const explicit = args['sceneId'];

@@ -787,6 +787,14 @@ export interface CreatePrefabChange {
   definition: PrefabDefinition;
 }
 
+/** `updatePrefab` change data (also its undo and redo): the whole definition before and after. */
+export interface UpdatePrefabChange {
+  type: 'updatePrefab';
+  prefabId: string;
+  previous: PrefabDefinition;
+  next: PrefabDefinition;
+}
+
 /** Undo of a `createPrefab` (never a forward operation). */
 export interface RemovePrefabChange {
   type: 'removePrefab';
@@ -913,6 +921,7 @@ export type ChangeData =
   | SetSettingsChange
   | AcknowledgeBehaviorTrustChange
   | CreatePrefabChange
+  | UpdatePrefabChange
   | RemovePrefabChange
   | RemoveAssetChange
   | InstantiatePrefabChange
@@ -967,6 +976,7 @@ export type ForwardChange =
   | SetSettingsChange
   | AcknowledgeBehaviorTrustChange
   | CreatePrefabChange
+  | UpdatePrefabChange
   | RemovePrefabChange
   | RemoveAssetChange
   | InstantiatePrefabChange
@@ -1088,6 +1098,13 @@ export interface RestorePrefabInverse {
   kind: 'restorePrefab';
   prefabId: string;
   definition: PrefabDefinition;
+}
+
+/** `updatePrefab` inverse: put the replaced definition back. */
+export interface UpdatePrefabInverse {
+  kind: 'updatePrefab';
+  prefabId: string;
+  restore: PrefabDefinition;
 }
 
 /** `createPrefab` inverse: remove the created definition. */
@@ -1232,6 +1249,7 @@ export type InverseSpec =
   | AcknowledgeBehaviorTrustInverse
   | RemovePrefabInverse
   | RestorePrefabInverse
+  | UpdatePrefabInverse
   | ImportAssetsInverse
   | SetLoadingInverse
   | ImportResourcesInverse
@@ -1616,6 +1634,16 @@ export interface CreatePrefabArgs {
   displayName: string;
   /** Existing entity ID in the current scene. */
   sourceEntityId: string;
+}
+
+/** `updatePrefab` args. */
+export interface UpdatePrefabArgs {
+  /** An existing prefab; its id stays. */
+  prefabId: string;
+  /** The object whose subtree becomes the prefab's contents. */
+  fromEntity: string;
+  /** A new name (absent: the prefab keeps its own). */
+  displayName?: string;
 }
 
 /** One declared-property override at instantiation. */

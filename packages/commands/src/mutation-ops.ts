@@ -107,6 +107,8 @@ export type V3MutationOp =
   // Remove an asset record / a prefab definition (refused while anything references it)
   | 'deleteAsset'
   | 'deletePrefab'
+  // Replace a prefab's contents from an object, keeping its id (one undo)
+  | 'updatePrefab'
   // Every supported file of a folder as assets, with labels (one undo)
   | 'importAssets'
   // Resource and scene files the file check found (one undo)

@@ -6,7 +6,7 @@ removed. What a prefab is: [Prefabs (concept)](../concepts/prefabs.md).
 Everything a spawned copy can do: [Spawning prefabs from scripts](../features/scripting.md#spawning-prefabs-from-scripts).
 
 A prefab is a saved group of objects. Placing it makes an independent copy;
-the prefab itself never changes after it is made.
+the prefab changes only when you apply objects to it.
 
 ## In the editor
 
@@ -80,9 +80,11 @@ always a script's job.
 
 ## Pitfalls
 
-- **A copy is not linked.** Editing the prefab is not possible, and editing
-  a copy changes only that copy. To change all of them, make a new prefab
-  and place it again.
+- **A copy is not linked.** Editing a copy changes only that copy. Its
+  Inspector's **Apply to prefab** (MCP: [`updatePrefab`](../reference/ops-detail.md#op-updatePrefab)
+  `{"prefabId": "barrel", "fromEntity": "<the copy>"}`) makes it the
+  prefab's contents: new copies and every `ctx.spawn("barrel")` from the
+  next Play use them, while copies already placed keep what they have.
 - **A prefab never holds the player controller, cameras, lights or spawn
   points.** The exact list: [content.prefabs](../reference/content-blocks-scenes.md#content-prefabs).
 - **Spawned copies are the game's, not the project's.** They are gone when

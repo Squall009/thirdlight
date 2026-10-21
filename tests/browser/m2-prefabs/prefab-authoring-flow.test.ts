@@ -287,7 +287,7 @@ describe('override editor derivation from the accepted declaration', () => {
   });
 });
 
-describe('no script evaluation and no apply/revert/variant/link affordance', () => {
+describe('no script evaluation and no revert/variant/link affordance', () => {
   const authoringFiles = [
     'packages/editor/src/session/property-controls.ts',
     'packages/editor/src/session/prefab-authoring.ts',
@@ -311,10 +311,11 @@ describe('no script evaluation and no apply/revert/variant/link affordance', () 
     }
   });
 
-  it('offers no apply/revert/variant/link control', () => {
+  // The one apply is a copy's "Apply to prefab" (updatePrefab: it replaces the definition, it rewrites no copy).
+  it('offers no revert/variant/link control, and no apply but "Apply to prefab"', () => {
     for (const rel of authoringFiles) {
-      const src = stripComments(readFileSync(join(REPO_ROOT, rel), 'utf8'));
-      expect(src.toLowerCase(), rel).not.toMatch(/\b(apply|revert|variant|unlink)\b/);
+      const src = stripComments(readFileSync(join(REPO_ROOT, rel), 'utf8')).toLowerCase().replace(/apply to prefab|applytoprefab/g, '');
+      expect(src, rel).not.toMatch(/\b(apply|revert|variant|unlink)\b/);
     }
   });
 });

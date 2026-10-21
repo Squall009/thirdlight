@@ -144,6 +144,9 @@ export const TOOL_DETAILS = {
     'Prefabs: ' +
     'instantiatePrefab (a prefab keeps the source\'s components that may sit on a prefab (the descriptors\' prefab flag: collider, surface, materials, animator, mover, trigger, switch, ' +
     'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider on any of its objects; never the player controller or scene wiring). ' +
+    'updatePrefab {prefabId, fromEntity, displayName?} replaces a prefab\'s contents with fromEntity\'s subtree (the same capture as createPrefab; it may be a ' +
+    'copy of that prefab, never of another) and keeps its id, so scripts that spawn it by name get the new contents; copies already placed or spawned keep ' +
+    'what they have (copies are independent); one undo puts the old contents back. ' +
     'Component fields, defaults, the GameObject menu\'s create entries (label, size, value) and icons: tl_content_query target="game" includeDescriptors. ' +
     'Generic primitives (both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
     'health {max, start?} on any object (scripts: ctx.health.get/damage/heal, damaged/healed/died events), patrol {mode: waypoints|edges, speed, ...}, ' +

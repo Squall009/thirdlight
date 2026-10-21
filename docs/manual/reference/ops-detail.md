@@ -1242,3 +1242,22 @@ interface UpdateEntityArgs {
   tags?: string[];
 }
 ```
+
+<a id="op-updatePrefab"></a>
+## updatePrefab
+
+Writes: [`content.prefabs`](content-blocks-scenes.md#content-prefabs).
+
+Arguments (`args`):
+
+```ts
+/** `updatePrefab` args. */
+interface UpdatePrefabArgs {
+  /** An existing prefab; its id stays. */
+  prefabId: string;
+  /** The object whose subtree becomes the prefab's contents. */
+  fromEntity: string;
+  /** A new name (absent: the prefab keeps its own). */
+  displayName?: string;
+}
+```

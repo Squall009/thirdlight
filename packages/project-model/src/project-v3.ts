@@ -372,20 +372,21 @@ function crossBlockChecks(
     });
   });
 
-  // Check 3: prefab provenance resolves to a definition + localId.
+  // Check 3: prefab provenance names an existing definition. Its localId is
+  // only where the copy came from: a copy is independent, so an update that
+  // drops that object from the prefab leaves the copy as it is.
   if (scenePart) ss.entities.forEach((e, i) => {
     const prov = e.components.prefab;
     if (!prov) return;
-    const def = prefabById.get(prov.prefabId);
-    if (!def || !def.entities.some((de) => de.localId === prov.localId)) {
+    if (!prefabById.has(prov.prefabId)) {
       errors.push(
         withFound(
           {
             code: 'prefab_reference_missing',
             path: `/entities/${i}/components/prefab`,
             document: 'scene',
-            message: 'prefab provenance does not resolve to a definition/localId',
-            expected: 'an existing prefabId and localId in content.prefabs',
+            message: 'prefab provenance does not resolve to a definition',
+            expected: 'an existing prefabId in content.prefabs',
           },
           prov,
         ),

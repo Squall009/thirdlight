@@ -1,8 +1,9 @@
 /**
- * Prefab mutation ops — `createPrefab` and `instantiatePrefab`.
+ * Prefab mutation ops — `createPrefab`, `updatePrefab` and `instantiatePrefab`.
  *
- * `createPrefab` captures a selected scene subtree into an immutable
- * `PrefabDefinition`; `instantiatePrefab` materializes
+ * `createPrefab` captures a selected scene subtree into a
+ * `PrefabDefinition`; `updatePrefab` replaces a definition's contents with
+ * another capture under the same id; `instantiatePrefab` materializes
  * independent copies in **one transaction** — a complete subtree, every
  * local entity/reference ID remapped exactly once, with the exact mapping
  * recorded in the durable result. Both ops run the mutation pipeline and
@@ -11,8 +12,8 @@
  *
  * Copy semantics are explicit: definitions are
  * materialized, never inherited; there is no live link, no propagation, no
- * variants and no structural overrides. `components.prefab` is informational
- * provenance written only here.
+ * variants and no structural overrides: a definition update never rewrites a
+ * copy. `components.prefab` is informational provenance written only here.
  */
 import { ID_RE } from '@thirdlight/project-model';
 
@@ -34,6 +35,7 @@ import {
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
   PREFAB_V4_COMPONENTS,
+  canonicalPrefabs,
   effectiveEntityFlags,
   nextFreeEntityIdOf,
 } from '@thirdlight/project-model';
@@ -59,6 +61,7 @@ import {
 import { contentOf, type OpInput } from './content-ops';
 import { checkOverrideValue, isPrivateProperty, type ValueContext } from './properties';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
+import type { CommandError } from './errors';
 import type {
   CreatePrefabArgs,
   CreatePrefabChange,
@@ -67,6 +70,8 @@ import type {
   InstantiatePrefabEntry,
   PartialTransformArgs,
   SceneDocument,
+  UpdatePrefabArgs,
+  UpdatePrefabChange,
 } from './types';
 const ID_EXPECTED = 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}';
 
@@ -167,14 +172,7 @@ function findExternalReference(
   closureSet: ReadonlySet<string>,
   catalog: ContentCatalog,
 ): { localId: string; key: string; entityId: string } | null {
-  const refKeys = new Map<string, string[]>();
-  for (const b of catalog.behaviors) {
-    refKeys.set(
-      b.behaviorId,
-      // A private property's stored value is inert (never read).
-      b.declaration.properties.filter((p) => p.type === 'entityRef' && !isPrivateProperty(p)).map((p) => p.key),
-    );
-  }
+  const refKeys = entityRefKeys(catalog);
   for (const e of closure) {
     const behavior = e.components.behavior;
     if (behavior === undefined) continue;
@@ -198,6 +196,175 @@ function cloneTransform(t: EntityV3['components']['transform']): Record<string, 
   };
 }
 
+// ---- the capture (createPrefab, updatePrefab) --------------------------------
+
+/** Declared `entityRef` keys per behavior (a private property's stored value is inert, never read). */
+function entityRefKeys(catalog: ContentCatalog): Map<string, string[]> {
+  const refKeys = new Map<string, string[]>();
+  for (const b of catalog.behaviors) {
+    refKeys.set(b.behaviorId, b.declaration.properties.filter((p) => p.type === 'entityRef' && !isPrivateProperty(p)).map((p) => p.key));
+  }
+  return refKeys;
+}
+
+/**
+ * The local ids an update gives the captured objects, so a copy's
+ * provenance, instantiate overrides and script references to the prefab's
+ * parts keep naming the same parts: an object copied from this prefab keeps
+ * the local id it was copied from, the root keeps the old root's, any other
+ * object is named by its scene id (a fresh one if that is taken).
+ */
+function updateLocalIds(
+  closure: readonly EntityV3[],
+  prefabId: string,
+  previous: PrefabDefinition,
+): { ok: true; localOf: Map<string, string> } | { ok: false; prefix: string } {
+  const localOf = new Map<string, string>();
+  const taken = new Set<string>();
+  const claim = (id: string, local: string): void => {
+    if (localOf.has(id) || taken.has(local)) return;
+    localOf.set(id, local);
+    taken.add(local);
+  };
+  const copiedFrom = (e: EntityV3): string | undefined =>
+    e.components.prefab?.prefabId === prefabId ? e.components.prefab.localId : undefined;
+  const root = closure[0] as EntityV3;
+  claim(root.id, copiedFrom(root) ?? (previous.entities[0] as PrefabEntity).localId);
+  for (const e of closure) {
+    const from = copiedFrom(e);
+    if (from !== undefined) claim(e.id, from);
+  }
+  for (const e of closure) {
+    if (localOf.has(e.id)) continue;
+    if (!taken.has(e.id)) {
+      claim(e.id, e.id);
+      continue;
+    }
+    const prefix = idPrefix(e.components as unknown as PrefabComponentsV2);
+    const fresh = nextFreeEntityId(taken, prefix);
+    if (fresh === undefined) return { ok: false, prefix };
+    claim(e.id, fresh);
+  }
+  return { ok: true, localOf };
+}
+
+/**
+ * Capture the subtree under `sourceEntityId` as prefab objects: the one
+ * capture `createPrefab` and `updatePrefab` share. `previous` is the
+ * definition an update replaces: objects copied from it may be captured
+ * (their provenance is where they came from; a definition never holds a
+ * copy, so a prefab can never contain itself) and keep their local ids.
+ */
+function capturePrefabEntities(
+  input: OpInput,
+  catalog: ContentCatalog,
+  prefabId: string,
+  sourceEntityId: string,
+  previous?: PrefabDefinition,
+): { ok: true; entities: PrefabEntity[]; depth: number } | { ok: false; error: CommandError } {
+  const scene = input.scene;
+  const indexById = new Map(scene.entities.map((e) => [e.id, e]));
+  if (!indexById.has(sourceEntityId)) return { ok: false, error: entityNotFound(sourceEntityId) };
+
+  // The subtree closure in scene document order (parent before child).
+  const closureIds = subtreeInDocumentOrder(scene, sourceEntityId);
+  if (closureIds === null) return { ok: false, error: entityNotFound(sourceEntityId) };
+  const closureSet = new Set(closureIds);
+  const closure = closureIds.map((id) => indexById.get(id) as EntityV3);
+
+  // Forbidden capture contents (camera, nested instance, external ref).
+  for (const e of closure) {
+    if (e.components.camera !== undefined) {
+      return { ok: false, error: prefabCameraCaptureForbidden(sourceEntityId, e.id) };
+    }
+  }
+  const prefabInstanceIds = closure
+    .filter((e) => e.components.prefab !== undefined && (previous === undefined || e.components.prefab.prefabId !== prefabId))
+    .map((e) => e.id);
+  if (prefabInstanceIds.length > 0) {
+    return { ok: false, error: prefabNestedForbidden(sourceEntityId, prefabInstanceIds) };
+  }
+  const external = findExternalReference(closure, closureSet, catalog);
+  if (external !== null) {
+    return {
+      ok: false,
+      error: prefabExternalReferenceForbidden(sourceEntityId, external.localId, external.key, external.entityId),
+    };
+  }
+  // A definition entity may carry transform/model/box/behavior only:
+  // collider/controller are not part of the base definition vocabulary and
+  // are rejected rather than silently dropped. A v4 definition
+  // also keeps the gameplay components (`PREFAB_V4_COMPONENTS`, a collider
+  // included) so a spawned or placed copy collides and plays like the source.
+  const v4 = scene.schemaVersion === 4;
+  for (const e of closure) {
+    for (const component of (v4 ? ['controller'] : ['collider', 'controller']) as readonly ('collider' | 'controller')[]) {
+      if ((e.components as unknown as Record<string, unknown>)[component] !== undefined) {
+        return { ok: false, error: prefabComponentForbidden(prefabId, e.id, component) };
+      }
+    }
+  }
+
+  if (closure.length > MAX_PREFAB_ENTITIES) {
+    return { ok: false, error: limitsExceeded('prefab_entities', closure.length, MAX_PREFAB_ENTITIES) };
+  }
+  let localOf = new Map(closureIds.map((id) => [id, id]));
+  if (previous !== undefined) {
+    const named = updateLocalIds(closure, prefabId, previous);
+    if (!named.ok) return { ok: false, error: idExhaustion(named.prefix) };
+    localOf = named.localOf;
+  }
+  const refKeys = entityRefKeys(catalog);
+  // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
+  const flags = effectiveEntityFlags(scene.entities);
+  const entities: PrefabEntity[] = closure.map((e) => {
+    const tags = flags.get(e.id)?.tags ?? 0;
+    const components: PrefabComponentsV2 = {
+      transform: cloneTransform(e.components.transform) as unknown as PrefabComponentsV2['transform'],
+    };
+    if (e.components.model !== undefined) components.model = deepClone(e.components.model);
+    if (e.components.box !== undefined) components.box = deepClone(e.components.box);
+    if (e.components.behavior !== undefined) {
+      const behavior = deepClone(e.components.behavior);
+      // References inside the subtree name local ids.
+      for (const key of refKeys.get(behavior.behaviorId) ?? []) {
+        const v = behavior.values[key];
+        if (typeof v === 'string' && localOf.has(v)) behavior.values[key] = localOf.get(v) as string;
+      }
+      components.behavior = behavior;
+    }
+    if (v4) {
+      const source = e.components as unknown as Record<string, unknown>;
+      for (const name of PREFAB_V4_COMPONENTS) {
+        if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
+      }
+    }
+    const parentLocalId =
+      e.parentId !== undefined && closureSet.has(e.parentId) ? localOf.get(e.parentId) : undefined;
+    return {
+      localId: localOf.get(e.id) as string,
+      ...(e.name !== undefined ? { name: e.name } : {}),
+      ...(parentLocalId !== undefined ? { parentLocalId } : {}),
+      ...(tags !== 0 ? { tags } : {}),
+      components,
+    };
+  });
+  const depth = prefabDepth(entities);
+  if (depth > MAX_PREFAB_DEPTH) {
+    return { ok: false, error: limitsExceeded('prefab_depth', depth, MAX_PREFAB_DEPTH) };
+  }
+  return { ok: true, entities, depth };
+}
+
+function displayNameError(displayName: string): CommandError {
+  return fieldValue(
+    '/args/displayName',
+    displayName,
+    'string, 1-128 chars, no control characters',
+    'displayName must be 1-128 characters without control characters',
+  );
+}
+
 // ---- createPrefab ----------------------------------------------------------
 
 export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOutcome {
@@ -211,123 +378,23 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
   if (catalog.prefabs.some((d) => d.prefabId === args.prefabId)) {
     return { ok: false, error: prefabIdDuplicate(args.prefabId) };
   }
-  // step 3: displayName shape.
-  if (!isValidName(args.displayName)) {
-    return {
-      ok: false,
-      error: fieldValue(
-        '/args/displayName',
-        args.displayName,
-        'string, 1-128 chars, no control characters',
-        'displayName must be 1-128 characters without control characters',
-      ),
-    };
-  }
-  // step 4: sourceEntityId resolves.
-  const indexById = new Map(scene.entities.map((e) => [e.id, e]));
-  const source = indexById.get(args.sourceEntityId) as EntityV3 | undefined;
-  if (source === undefined) return { ok: false, error: entityNotFound(args.sourceEntityId) };
-
-  // step 5: subtree closure in scene document order (parent before child).
-  const closureIds = subtreeInDocumentOrder(scene, args.sourceEntityId);
-  if (closureIds === null) return { ok: false, error: entityNotFound(args.sourceEntityId) };
-  const closureSet = new Set(closureIds);
-  const closure = closureIds.map((id) => indexById.get(id) as EntityV3);
-
-  // step 6: forbidden capture contents (camera, nested instance, external ref).
-  for (const e of closure) {
-    if (e.components.camera !== undefined) {
-      return {
-        ok: false,
-        error: prefabCameraCaptureForbidden(args.sourceEntityId, e.id),
-      };
-    }
-  }
-  const prefabInstanceIds = closure.filter((e) => e.components.prefab !== undefined).map((e) => e.id);
-  if (prefabInstanceIds.length > 0) {
-    return { ok: false, error: prefabNestedForbidden(args.sourceEntityId, prefabInstanceIds) };
-  }
-  const external = findExternalReference(closure, closureSet, catalog);
-  if (external !== null) {
-    return {
-      ok: false,
-      error: prefabExternalReferenceForbidden(
-        args.sourceEntityId,
-        external.localId,
-        external.key,
-        external.entityId,
-      ),
-    };
-  }
-  // A definition entity may carry transform/model/box/behavior only:
-  // collider/controller are not part of the base definition vocabulary and
-  // are rejected rather than silently dropped. A v4 definition
-  // also keeps the gameplay components (`PREFAB_V4_COMPONENTS`, a collider
-  // included) so a spawned or placed copy collides and plays like the source.
-  const v4 = scene.schemaVersion === 4;
-  for (const e of closure) {
-    for (const component of (v4 ? ['controller'] : ['collider', 'controller']) as readonly ('collider' | 'controller')[]) {
-      if ((e.components as unknown as Record<string, unknown>)[component] !== undefined) {
-        return {
-          ok: false,
-          error: prefabComponentForbidden(args.prefabId, e.id, component),
-        };
-      }
-    }
-  }
-
-  // step 7: bounds.
-  if (closure.length > MAX_PREFAB_ENTITIES) {
-    return {
-      ok: false,
-      error: limitsExceeded('prefab_entities', closure.length, MAX_PREFAB_ENTITIES),
-    };
-  }
-  // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
-  const flags = effectiveEntityFlags(scene.entities);
-  const entities: PrefabEntity[] = closure.map((e) => {
-    const tags = flags.get(e.id)?.tags ?? 0;
-    const components: PrefabComponentsV2 = {
-      transform: cloneTransform(e.components.transform) as unknown as PrefabComponentsV2['transform'],
-    };
-    if (e.components.model !== undefined) components.model = deepClone(e.components.model);
-    if (e.components.box !== undefined) components.box = deepClone(e.components.box);
-    if (e.components.behavior !== undefined) components.behavior = deepClone(e.components.behavior);
-    if (v4) {
-      const source = e.components as unknown as Record<string, unknown>;
-      for (const name of PREFAB_V4_COMPONENTS) {
-        if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
-      }
-    }
-    const parentLocalId =
-      e.parentId !== undefined && closureSet.has(e.parentId) ? e.parentId : undefined;
-    return {
-      localId: e.id,
-      ...(e.name !== undefined ? { name: e.name } : {}),
-      ...(parentLocalId !== undefined ? { parentLocalId } : {}),
-      ...(tags !== 0 ? { tags } : {}),
-      components,
-    };
-  });
-  const depth = prefabDepth(entities);
-  if (depth > MAX_PREFAB_DEPTH) {
-    return { ok: false, error: limitsExceeded('prefab_depth', depth, MAX_PREFAB_DEPTH) };
-  }
-  // step 8: the definition value.
+  if (!isValidName(args.displayName)) return { ok: false, error: displayNameError(args.displayName) };
+  const captured = capturePrefabEntities(input, catalog, args.prefabId, args.sourceEntityId);
+  if (!captured.ok) return captured;
   const definition: PrefabDefinition = {
     prefabId: args.prefabId,
     displayName: args.displayName,
     createdRevision: input.revision,
-    entityCount: entities.length,
-    depth,
-    entities,
+    entityCount: captured.entities.length,
+    depth: captured.depth,
+    entities: captured.entities,
   };
   const bytes = canonicalBytes(definition);
   if (bytes > MAX_PREFAB_BYTES) {
     return { ok: false, error: limitsExceeded('prefab_bytes', bytes, MAX_PREFAB_BYTES) };
   }
 
-  // step 9: resulting-state validation (three-block when a manifest is
+  // Resulting-state validation (three-block when a manifest is
   // available) + the uniform no-change check over scene AND content.
   const nextContent: ContentCatalog = { ...catalog, prefabs: [...catalog.prefabs, definition] };
   const gate = gateResultState(
@@ -351,6 +418,67 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
       content: gate.content,
       change,
       inverse: { kind: 'removePrefab', prefabId: args.prefabId },
+    },
+  };
+}
+
+// ---- updatePrefab ----------------------------------------------------------
+
+/**
+ * Replace a prefab's contents with the subtree under `fromEntity`, keeping
+ * its id (scripts that spawn it by name spawn the new contents) and its
+ * name unless one is given. Copies already placed or spawned are
+ * independent and keep what they have. One undo puts the old contents back.
+ */
+export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOutcome {
+  const catalog = contentOf(input.content);
+  const scene = input.scene;
+  const previous = catalog.prefabs.find((d) => d.prefabId === args.prefabId);
+  if (previous === undefined) return { ok: false, error: prefabNotFound(args.prefabId) };
+  if (args.displayName !== undefined && !isValidName(args.displayName)) return { ok: false, error: displayNameError(args.displayName) };
+  const captured = capturePrefabEntities(input, catalog, args.prefabId, args.fromEntity, previous);
+  if (!captured.ok) return captured;
+  const replaced: PrefabDefinition = {
+    prefabId: args.prefabId,
+    displayName: args.displayName ?? previous.displayName,
+    createdRevision: previous.createdRevision,
+    entityCount: captured.entities.length,
+    depth: captured.depth,
+    entities: captured.entities,
+  };
+  // The same contents again are no change (the revision alone would make one).
+  const { updatedRevision: _was, ...unrevised } = previous;
+  const same = JSON.stringify(canonicalPrefabs([replaced])) === JSON.stringify(canonicalPrefabs([unrevised]));
+  const definition: PrefabDefinition = same ? previous : { ...replaced, updatedRevision: input.revision };
+  const bytes = canonicalBytes(definition);
+  if (bytes > MAX_PREFAB_BYTES) {
+    return { ok: false, error: limitsExceeded('prefab_bytes', bytes, MAX_PREFAB_BYTES) };
+  }
+  const nextContent: ContentCatalog = {
+    ...catalog,
+    prefabs: catalog.prefabs.map((d) => (d.prefabId === args.prefabId ? definition : d)),
+  };
+  const gate = gateResultState(
+    { scene, content: catalog, manifest: input.manifest },
+    { ...scene, revision: scene.revision + 1 },
+    nextContent,
+  );
+  if (!gate.ok) return gate;
+  const canonical = (gate.content?.prefabs.find((d) => d.prefabId === args.prefabId) ??
+    definition) as PrefabDefinition;
+  const change: UpdatePrefabChange = {
+    type: 'updatePrefab',
+    prefabId: args.prefabId,
+    previous: deepClone(previous),
+    next: deepClone(canonical),
+  };
+  return {
+    ok: true,
+    op: {
+      scene: gate.scene,
+      content: gate.content,
+      change,
+      inverse: { kind: 'updatePrefab', prefabId: args.prefabId, restore: deepClone(previous) },
     },
   };
 }

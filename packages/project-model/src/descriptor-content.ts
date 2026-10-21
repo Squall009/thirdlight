@@ -711,10 +711,11 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     label: 'Prefabs',
     tooltip: 'Captured object groups placed as independent copies.',
     required: true,
-    value: list('prefabs', 'Prefabs', 'The project\'s prefabs (each its own file).', obj('*', 'Prefab', 'A captured definition (immutable).', [
+    value: list('prefabs', 'Prefabs', 'The project\'s prefabs (each its own file).', obj('*', 'Prefab', 'A captured definition (its contents replaced only by updatePrefab).', [
       str('prefabId', 'Id', 'The stable prefab id.', { ...ID, required: true, readOnly: true }),
       str('displayName', 'Name', 'Shown in the prefab list.', { ...NAME, required: true, readOnly: true }),
       int('createdRevision', 'Created at', 'The project revision it was captured at.', { required: true, min: 0, readOnly: true }),
+      int('updatedRevision', 'Updated at', 'The revision updatePrefab last replaced its contents at.', { min: 0, readOnly: true }),
       int('entityCount', 'Objects', 'How many objects it holds (derived).', { required: true, min: 1, max: MAX_PREFAB_ENTITIES, readOnly: true }),
       int('depth', 'Depth', 'Hierarchy depth (derived).', { required: true, min: 1, readOnly: true }),
       list('entities', 'Objects', `1–${MAX_PREFAB_ENTITIES} objects, parents first.`, obj('*', 'Prefab object', 'One object of the prefab.', [
@@ -725,7 +726,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         { type: 'components', key: 'components', label: 'Components', tooltip: 'The prefab component vocabulary.', required: true, readOnly: true, allowed: ['transform', 'model', 'box', 'behavior', ...PREFAB_V4_COMPONENTS] },
       ]), { required: true, minItems: 1, maxItems: MAX_PREFAB_ENTITIES, readOnly: true }),
     ]), { required: true }),
-    ops: ['createPrefab', 'instantiatePrefab', 'deletePrefab'],
+    ops: ['createPrefab', 'updatePrefab', 'instantiatePrefab', 'deletePrefab'],
   },
   {
     key: 'behaviors',

@@ -84,6 +84,7 @@ import type {
   HistoryState,
   InstantiatePrefabChange,
   RemovePrefabChange,
+  UpdatePrefabChange,
   RestoreSubtreeChange,
   SetTransformChange,
   EntityHeader,
@@ -443,6 +444,15 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (content.prefabs.some((d) => d.prefabId === inv.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextContent: ContentDocument = { ...content, prefabs: sortedPrefabs([...content.prefabs, deepClone(inv.definition)]) };
     const change: CreatePrefabChange = { type: 'createPrefab', prefabId: inv.prefabId, definition: deepClone(inv.definition) };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (inv.kind === 'updatePrefab') {
+    // Undo of an updatePrefab puts the replaced definition back.
+    const current = content.prefabs.find((d) => d.prefabId === inv.prefabId);
+    if (current === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.map((d) => (d.prefabId === inv.prefabId ? deepClone(inv.restore) : d)) };
+    const change: UpdatePrefabChange = { type: 'updatePrefab', prefabId: inv.prefabId, previous: deepClone(current), next: deepClone(inv.restore) };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
@@ -918,6 +928,14 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (!content.assets.some((a) => a.assetId === f.assetId)) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextContent: ContentDocument = { ...content, assets: content.assets.filter((a) => a.assetId !== f.assetId) };
     const change: ChangeData = { type: 'removeAsset', assetId: f.assetId, previous: deepClone(f.previous) };
+    return finish(state, bumped(scene), nextContent, change, entry.requestId);
+  }
+
+  if (f.type === 'updatePrefab') {
+    // Redo of an updatePrefab re-applies the recorded contents (never re-captures).
+    if (!content.prefabs.some((d) => d.prefabId === f.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.map((d) => (d.prefabId === f.prefabId ? deepClone(f.next) : d)) };
+    const change: UpdatePrefabChange = { type: 'updatePrefab', prefabId: f.prefabId, previous: deepClone(f.previous), next: deepClone(f.next) };
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 

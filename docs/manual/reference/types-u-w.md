@@ -317,6 +317,23 @@ interface UpdateEntityArgs {
 }
 ```
 
+<a id="type-update-prefab-args"></a>
+### UpdatePrefabArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** `updatePrefab` args. */
+interface UpdatePrefabArgs {
+  /** An existing prefab; its id stays. */
+  prefabId: string;
+  /** The object whose subtree becomes the prefab's contents. */
+  fromEntity: string;
+  /** A new name (absent: the prefab keeps its own). */
+  displayName?: string;
+}
+```
+
 <a id="type-v3-owned-component"></a>
 ### V3OwnedComponent
 

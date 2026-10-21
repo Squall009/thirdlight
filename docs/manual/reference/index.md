@@ -26,11 +26,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 81 sections |
+| [Command op arguments](ops-detail.md) | 82 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)](types-a-d.md) | 75 sections |
 | [Types (DecalPageRef to PaintInstancesArgs)](types-d-p.md) | 94 sections |
 | [Types (PaintTarget to UiEasing)](types-p-u.md) | 95 sections |
-| [Types (UiEngineAction to WindConfig)](types-u-w.md) | 20 sections |
+| [Types (UiEngineAction to WindConfig)](types-u-w.md) | 21 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
 | [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 20 sections |

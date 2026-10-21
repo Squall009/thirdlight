@@ -39,7 +39,7 @@ import {
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
 
-const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'entityCount', 'depth', 'entities']);
+const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'updatedRevision', 'entityCount', 'depth', 'entities']);
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'tags', 'components']);
 
 // ---- prefabs ----------------------------------------------------
@@ -250,6 +250,10 @@ export function validatePrefabDefinition(d: unknown, path: string, errors: Model
   else if (typeof created !== 'number' || !Number.isInteger(created) || created < 0 || created > Number.MAX_SAFE_INTEGER) {
     errors.push(withFound({ code: 'number_out_of_range', path: `${path}/createdRevision`, message: 'createdRevision must be an integer in [0, 2^53-1]', expected: 'integer in [0, 2^53-1]' }, created));
   }
+  const updated = d['updatedRevision'];
+  if (updated !== undefined && (typeof updated !== 'number' || !Number.isInteger(updated) || updated < 0 || updated > Number.MAX_SAFE_INTEGER)) {
+    errors.push(withFound({ code: 'number_out_of_range', path: `${path}/updatedRevision`, message: 'updatedRevision must be an integer in [0, 2^53-1]', expected: 'integer in [0, 2^53-1]' }, updated));
+  }
 
   const entities = d['entities'];
   if (entities === undefined) errors.push(fieldMissing(`${path}/entities`, 'entities'));
@@ -349,6 +353,7 @@ export function canonicalPrefab(d: PrefabDefinition): PrefabDefinition {
     prefabId: d.prefabId,
     displayName: d.displayName,
     createdRevision: d.createdRevision,
+    ...(d.updatedRevision !== undefined ? { updatedRevision: d.updatedRevision } : {}),
     entityCount: d.entityCount,
     depth: d.depth,
     entities: d.entities.map(canonicalPrefabEntity),

@@ -637,6 +637,7 @@ export class Projection {
       case 'setSettings':
       case 'acknowledgeBehaviorTrust':
       case 'createPrefab':
+      case 'updatePrefab':
       case 'removePrefab':
       // A deleted asset record; a folder's files imported (or, undone, forgotten).
       case 'removeAsset':

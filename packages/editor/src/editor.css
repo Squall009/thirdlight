@@ -326,6 +326,7 @@ button, input, select, textarea { font-family: inherit; }
 .tl-prefabs__target { margin-top: 8px; }
 
 .tl-inspector__copy { color: var(--warn); font-size: 11px; margin-bottom: 8px; }
+.tl-inspector__copy .tl-btn { margin-left: 6px; }
 .tl-inspector__section { margin-top: 12px; border-top: 1px solid var(--border); }
 
 .tl-props { padding: 6px 0; }
