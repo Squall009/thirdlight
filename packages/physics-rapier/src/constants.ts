@@ -65,6 +65,13 @@ export const ONE_WAY_LANDING_TOLERANCE = 0.06 as const;
 /** Ground-contact classification tolerance. */
 export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
 
+/**
+ * The 3D footprint probe's ball, as a share of the capsule's radius: a
+ * little narrower than the capsule, so what it touches at its side (a wall)
+ * is never taken for its ground while a rim under its edge still is.
+ */
+export const FOOTPRINT_BALL = 0.9 as const;
+
 /** Autostep is off by default (`controller.autostep` turns it on). */
 export const AUTOSTEP_DISABLED = false as const;
 

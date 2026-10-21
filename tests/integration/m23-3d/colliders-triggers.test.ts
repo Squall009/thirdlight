@@ -256,4 +256,47 @@ describe('a mover sliding into the player in 3D', () => {
     }
     expect(Math.max(...ends) - Math.min(...ends)).toBeLessThan(0.02);
   }, 120_000);
+
+  // A 2 m × 1 m × 2 m block slides 5 m along −x carrying two players (one in its middle, one on its rim with its centre
+  // 0.12 m past the edge) into a third standing in its way. The first player is swept first and stands on the block;
+  // the others are swept after it in the same step.
+  it('carries a player in its middle and one on its rim and pushes a third, whichever is swept first', async () => {
+    const ends: Record<string, number[][]> = {};
+    for (const mode of ['single', 'worker'] as const) {
+      const scene = sceneOf(
+        [
+          CAM,
+          { id: 'player-0001', components: { transform: T([3.3, 1.95, -0.4]), controller: {} } },
+          { id: 'player-0002', components: { transform: T([0, 0.95, 0]), controller: {} } },
+          { id: 'player-0003', components: { transform: T([2.7, 1.95, 1.12]), controller: {} } },
+          { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } } },
+          { id: 'block-0001', components: { transform: T([3, 0.5, 0]), collider: { shape: { type: 'box', hx: 1, hy: 0.5, hz: 1 } }, mover: { waypoints: [[-5, 0, 0]], speed: 2, mode: 'once' } } },
+        ],
+        'd3ride',
+      );
+      const a = await run(mode, scene, 420);
+      try {
+        expect(a.at('block-0001')[0]).toBeCloseTo(-2, 6);
+        const mid = a.at('player-0001');
+        const pushed = a.at('player-0002');
+        const rim = a.at('player-0003');
+        // Both riders moved with the block (no drag ahead, no stall behind), on its top.
+        expect(mid[0]).toBeCloseTo(-1.7, 1);
+        expect(mid[2]).toBeCloseTo(-0.4, 1);
+        expect(mid[1]).toBeGreaterThan(1.8);
+        // (The rim player settles about 0.1 m along in its first steps, before the block first carries it.)
+        expect(rim[0]).toBeGreaterThan(-2.35);
+        expect(rim[0]).toBeLessThan(-2.1);
+        expect(rim[2]).toBeCloseTo(1.12, 1);
+        expect(rim[1]).toBeGreaterThan(1.7);
+        // The one in its way is pushed ahead of its face (−3) by about the capsule's radius.
+        expect(pushed[0]).toBeLessThan(-3.28);
+        expect(pushed[0]).toBeGreaterThan(-3.45);
+        ends[mode] = [mid, pushed, rim];
+      } finally {
+        await a.h.dispose();
+      }
+    }
+    for (let i = 0; i < 3; i += 1) for (let k = 0; k < 3; k += 1) expect(Math.abs(ends['single']![i]![k]! - ends['worker']![i]![k]!)).toBeLessThan(1e-6);
+  }, 120_000);
 });

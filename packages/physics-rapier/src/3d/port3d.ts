@@ -27,7 +27,7 @@ import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
-import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
+import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
 export const PHYSICS_3D_IMPLEMENTATION = 'rapier3d-compat@0.20.0' as const;
@@ -715,7 +715,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   let kinematicPoses: readonly KinematicPose3D[] = [];
   const kinematicAt = new Map<string, PhysicsVec3>();
   let kinematicMoved = 0;
-  const stilled: RAPIER.RigidBody[] = [];
+  /** The bodies at rest for the current sweep, with the velocities they get back after it. */
+  const stilled: { body: RAPIER.RigidBody; linvel: PhysicsVec3; angvel: PhysicsVec3 }[] = [];
   const assertLive = (op: string): void => {
     if (disposed) throw new Error(`physics port is disposed (${op})`);
   };
@@ -730,9 +731,26 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
   const at = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y, z: p.z + b.shape.offset.z });
   const probeFrom = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y - (b.shape.halfHeight + b.shape.radius) + 0.05, z: p.z + b.shape.offset.z });
-  const groundUnder = (b: CharacterBody3D, p: PhysicsVec3): string | null => {
+  /**
+   * What the character stands on: under its centre, else under its
+   * footprint (a capsule on a rim, its centre past the edge, still rests on
+   * it). A ball a little narrower than the capsule, at its bottom sphere,
+   * is cast down the same 0.2 m as the centre ray, so a wall it touches at
+   * its side is never taken for its ground. The runtime's carry
+   * (`groundEntityId`) and the sweep's stilling of what it stands on read
+   * this one answer.
+   */
+  const supportUnder = (b: CharacterBody3D, p: PhysicsVec3): RAPIER.Collider | null => {
     const hit = world.castRay(new RAPIER.Ray(probeFrom(b, p), down), 0.2, true, undefined, undefined, b.collider, undefined, othersOut);
-    return hit === null ? null : (infoByHandle.get(hit.collider.handle)?.entityId ?? null);
+    if (hit !== null) return hit.collider;
+    const c = at(b, p);
+    const foot = new RAPIER.Ball(b.shape.radius * FOOTPRINT_BALL);
+    const from = { x: c.x, y: c.y - b.shape.halfHeight + 0.05, z: c.z };
+    return world.castShape(from, IDENTITY, down, foot, 0, 0.2 + b.shape.radius * (1 - FOOTPRINT_BALL), true, undefined, undefined, b.collider, undefined, othersOut)?.collider ?? null;
+  };
+  const groundUnder = (b: CharacterBody3D, p: PhysicsVec3): string | null => {
+    const collider = supportUnder(b, p);
+    return collider === null ? null : (infoByHandle.get(collider.handle)?.entityId ?? null);
   };
   /** The cosine of the steepest slope the character walks up on a collider: its own, or the collider's stricter one (a block layer's maxSlope). */
   const climbCosOf = (b: CharacterBody3D, collider: RAPIER.Collider | null | undefined): number => {
@@ -958,6 +976,9 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // velocity, as in 2D: with it at rest, Rapier's sweep of the runtime's push out of its way
     // stopped at the ground contact after about 1 % (measured on a standing character: the
     // mover passed through it), where its drag moves the character on ahead of it.
+    // What it stands on is what the carry moves it with (`supportUnder`, its footprint
+    // included). Each stilled body gets its velocity back after the sweep, so the next
+    // character's sweep sees the mover move as this one did.
     stilled.length = 0;
     let standsOn: number | null | undefined;
     for (const info of infoByHandle.values()) {
@@ -966,13 +987,14 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
       const v = body.linvel();
       if (Math.hypot(v.x, v.z) > Math.abs(v.y)) {
-        standsOn ??= world.castRay(new RAPIER.Ray(probeFrom(b, before), down), 0.2, true, undefined, undefined, characterCollider, undefined, othersOut)?.collider.handle ?? null;
+        standsOn ??= supportUnder(b, before)?.handle ?? null;
         if (standsOn === null || infoByHandle.get(standsOn)?.body !== body) continue;
       }
+      const w = body.angvel();
+      stilled.push({ body, linvel: { x: v.x, y: v.y, z: v.z }, angvel: { x: w.x, y: w.y, z: w.z } });
       body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);
       body.setLinvel({ x: 0, y: 0, z: 0 }, false);
       body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-      stilled.push(body);
     }
     if (midStep) {
       // On the riser's height: across only, without the snap (which would pull it back down the riser).
@@ -1026,8 +1048,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // that one body (walls and everything else still block it); the vertical result and the
     // grounding stay the first sweep's.
     if (!midStep && b.grounded && rawGrounded && groundOnly && Math.hypot(commanded.x, commanded.z) > 1e-9 && Math.hypot(swept.x, swept.z) < 1e-9) {
-      const hit = world.castRay(new RAPIER.Ray(probeFrom(b, before), down), 0.2, true, undefined, undefined, characterCollider, undefined, othersOut);
-      const supportHandle = hit !== null && infoByHandle.get(hit.collider.handle)?.kinematic === true ? hit.collider.handle : null;
+      const support = supportUnder(b, before);
+      const supportHandle = support !== null && infoByHandle.get(support.handle)?.kinematic === true ? support.handle : null;
       if (supportHandle !== null) {
         characterCollider.setTranslation(at(b, { x: before.x, y: before.y + swept.y, z: before.z }));
         controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, bothPredicates(othersOut, (c) => c.handle !== supportHandle));
@@ -1042,8 +1064,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // ground snap otherwise alternate it by about 0.1 mm every step (measured), so it never
     // comes to rest.
     if (!midStep && b.grounded && rawGrounded && across < 1e-12 && commanded.y <= 0 && Math.hypot(swept.x, swept.y, swept.z) < skin) {
-      const under = world.castRay(new RAPIER.Ray(probeFrom(b, before), down), 0.2, true, undefined, undefined, characterCollider, undefined, othersOut);
-      if (under !== null && infoByHandle.get(under.collider.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
+      const under = supportUnder(b, before);
+      if (under !== null && infoByHandle.get(under.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
     }
     // Stepping up. Rapier's own autostep missed risers above about 0.15 m with a
     // capsule (measured with rapier3d 0.20.0: a 0.2 m riser blocked a walking capsule of radius
@@ -1073,7 +1095,11 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         b.stepping = walkableFloorUnder(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }) ? null : { x: dx, z: dz, steps: 0 };
       }
     }
-    for (const body of stilled) body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
+    for (const s of stilled) {
+      s.body.setLinvel(s.linvel, false);
+      s.body.setAngvel(s.angvel, false);
+      s.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
+    }
     const movement = swept;
     const next = { x: before.x + movement.x, y: before.y + movement.y, z: before.z + movement.z };
     if (!isVec3(next)) throw new Error('the character controller produced a non-finite correction');

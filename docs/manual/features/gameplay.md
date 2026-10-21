@@ -24,7 +24,8 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box or polygon collider it carries the player standing on
-  it and pushes a player it moves into (a polygon by its exact shape); in 3D
+  it (in 3D also one standing on its edge, its centre past the rim) and
+  pushes every player it moves into (a polygon by its exact shape); in 3D
   any collider that can move (box, sphere, capsule, convex) does, by its
   bounding box. A mover rising beside or under the player
   (a gate opening, a pillar) pushes the player aside, never up: only a player
@@ -146,8 +147,10 @@ These work in both dimensions.
   `ctx.character.setEnabled(false | true, entityId?)` switches its controller
   off and on. A call in the intent phase applies right after that phase,
   in the same step, and has the last word over a script's own move of that
-  character; a new walk, a placement or `stop` ends the walk under way, as
-  does the end of the character's scene (`stopped`). A blocked walk ends
+  character; a new walk, a placement, `stop` or a loaded save ends the walk
+  under way, as does the end of the character's scene (`stopped`; a scene
+  still loading is waited for). A turn gives way to the player's input once
+  the walk has ended. A blocked walk ends
   where it is with a log line: place the character or walk it round.
   On the 2D plane a walk goes along x and `run` changes nothing. The
   timeline's Character track goes the same way ([Timelines](timelines.md)).
