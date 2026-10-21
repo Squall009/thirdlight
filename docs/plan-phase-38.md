@@ -107,6 +107,7 @@ budget.
 | 38.10 | Done 2026-10-21: (1) TL-REQ-32.1 was a bug: with wall paint and material rules, the rules filled a wall's unpainted share from layer 0, so rules naming only tops turned walls to the first layer; each share now takes the rules over its own base (top 0, wall 1); `features/blocks.md` says where layers count from 0 (`layer`, `channel`) and where they are named 1–4 (`a63d23e0`). (2) TL-REQ-32.2: the decode is right (UASTC of the same sheet passes, orientation checked); ETC1S's 4×4 blocks move a row's edge and gutter apart as much as a fault (padded sheet from the pinned encoder: up to 77 levels smooth, 186 noise; unpadded 38–78), so an ETC1S KTX2 without a lossless original passes when its gutters still repeat and otherwise says "not judged" instead of warning (`b47c17dd`). (3) Sprout Q2: 2D polygon movers push sideways and carry like boxes (real Rapier test); in 3D no mover pushed a standing player (box and convex alike: Rapier's sweep stopped the push at the ground contact) — fixed, a mover moving across keeps its velocity for the sweep unless stood on (`f2f9c92a`). (4) A 2D block layer and player arriving with a later scene already collide (new page+worker test, `3ad005f6`); no fix. (5) E86/D235: uncapped-only GPU-process back-pressure, not an engine defect (D235 has the trace); at vsync both renderers 16.8 ms max, nothing missed. Fast gates green (village WebGL 2 p50 4.7–4.8 ms); e2e files unchanged (`block-layers` 15.8 s, `layered-material` 57.5 s, `physics-3d-colliders` 14.5 s). The "not judged" text in the editor is unverified in a browser. |
 | 38.11 | Done 2026-10-21: manual made consistent for the phase: stale "a script error stops the game" lines fixed (play-tools' failed run, spawn errors, the visual-script loop cap, first Play, the agent skill); new play-tools section on folded rows, trimming order and `sections`; type check's strictness and skips (guides/scripts, editor); character track details (one step later, held input, blocked walks, skip/stop, 2D x-only and `run`) in timelines, gameplay and a new walk-a-character cutscene in guides/timelines (its script and timeline JSON checked with the 38.3 checker and the timeline validator in a scratch vitest, deleted); later-scene layers and arriving players' Autostep (blocks), 2D block ground (2d-and-3d, which-tool), ETC1S "not judged" (trim-sheets), setActive (environment), a migration list of behaviour changes; skill and traps updated; `ctx.character`/`ctx.scenes`/`ctx.shell` doc comments fixed, reference regenerated. Fast gate green (`script-editor.e2e.ts` 10.7 → 9.8 s; village WebGL 2 p50 4.7 ms). |
 | 38.12 | Acceptance in the browser done 2026-10-21 (the full gate and the review are the lead's): the real editor at 1920×1080 on the Iris Xe, both renderers, fresh projects; 30 screenshots looked at (`~/.cache/thirdlight-phase38/acceptance/INDEX.md`). Seen on WebGPU and WebGL 2: the guide's cutscene walk on the 3D starter (mid-walk, then on its mark turned to the camera), a 2D character track walking along x, a 2D block level (standing on the one-way ledge, on the 1:2 slope, falling into the pit), a script throwing on three copies while another keeps moving a box (one Console row ×3 with its objects). Seen on WebGPU: the one-way switch and *Play plane z*, Apply to prefab and its result, the script editor's `blendTime` type mark, ETC1S "not judged" in the trim table and the kit's Check all (a KTX2 imported twice through the Project window). Fixed: the guide's mark sat inside the starter's raised blocks (the walk ended blocked); a timeline field typed and a control used straight after lost one edit (`revision_conflict`; saves merge onto the stored timeline as materials do); three copies' throws were three rows (the error text named the object; it now says "its object", the Problems line keeps the name, the Console lists the objects and "step N" for one step); the Console said "relay failed" after a stop. E2E: `play-logs.e2e.ts` 11.0 → 11.1 s, `timeline.e2e.ts` editor 2.5 → 2.6 s, Play 10.9 → 10.5 s. Fast gate green (village WebGL 2 p50 4.6 ms, WebGPU 5.6 ms). Unverified: the 2D arrival's left/right facing by eye (the starter's model reads the same both ways), audio, the export. D291–D294 logged. Owner look pending. |
+| 38.13 | Part A (scripts, errors, type check) done 2026-10-21 (`1687cc81`, `472e9d10`): H1 an async hook is switched off once and its promise settled (no unhandled rejection), every `ctx` call made after its hook returned is refused (one log line per script), page = worker in `m38-script-errors`; M1/M2 one Problems line per different script error (kind `script_error_<id>_<hash>`, collision-free), cleared by a restart, at most 32 a run, the export console prints each; M3 a physics port throw in a `ctx` query fails the run (`physics_port_error`) even when caught (physics queries moved to `runtime/physics-queries.ts`: runtime.ts 4,124 → 3,988); M9 the type check on a worker: first check's event-loop stall 615 → 3 ms quiet, 1,852 → 16 ms under the gate (warm 6–40 ms either way); L6 one error-row builder, L7, L11, L12, L13 (trim note within its room), L14 (debugCommands cut gone; sections checked in the playtest e2e). E2E: `playtest.e2e.ts` 16.5 / 15.7 → 16.8 / 15.7 s, `play-logs.e2e.ts` 11.2 → 11.1 s, `script-editor.e2e.ts` 9.8 → 9.8 s. Fast gates green (one `rendering.e2e.ts` dynamic-resolution miss passed on rerun; village WebGL 2 p50 4.6–4.7 ms). Part B (director, movers, prefab apply, the 38.7 test, plane cut) is the next agent's. |
 | Phase gate | `full --both-renderers` at `51990a82` (2026-10-21 09:17, 2 workers): build, lint, vitest 742 files passed; e2e **389 passed, 1 failed** (project-settings, passed alone in 7.6 s → watch D295) in 21.9 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak 6.4 GB. Review: `~/.cache/thirdlight-phase38/review.md` (1 High, 10 Medium) → 38.13. |
 
 ## 5. Decision log
@@ -306,3 +307,46 @@ budget.
   many copies folds into one row as 38.4 intended; the one Problems line
   per script keeps the first object's name, and the Console lists a row's
   objects. Default chosen, owner to confirm.
+
+- 2026-10-21 (38.13): hooks are synchronous by contract (the typings
+  already said so), and `ctx` works only while a hook runs: every function
+  reachable from a script's `ctx` (its `emit` and `log`, every engine
+  control and the handles they return) is called through a facade that
+  throws when no hook is running, and the script's module logs the first
+  refusal. Guarding only `ctx.emit` would have left sounds, spawns, saves
+  and the rest acting at whatever step the JavaScript job queue drained in,
+  which differs between the page and the worker. An async hook is switched
+  off at its first call and listed once as async; its promise is settled
+  by the engine, so its later rejection is never an unhandled one and is
+  not reported (it lands at no fixed step). Reading a plain value
+  (`ctx.stepIndex`) is not refused. Measured cost: none in a micro
+  benchmark (2 ns raw and guarded); the village class within its limits.
+  Default chosen, owner to confirm.
+- 2026-10-21 (38.13): the 38.2 line "every Play problem of an exported
+  game goes to the console" was true only for a script's first error. Now
+  each *different* script error (different text, source position or
+  script; copies on many objects are one, as rows fold in the play log) is
+  one Problems line per run and one console error in an export; a run
+  restart reports again; past 32 different errors one line says the rest
+  are in the play log only. The backend still writes each kind once per
+  Play. The kind is `script_error_<script id as far as it fits>_<16 hex
+  of the exact id and the error>`, so `a-b` and `a_b` (or ids sharing their
+  first characters) no longer share a line. Default chosen, owner to
+  confirm.
+- 2026-10-21 (38.13): an engine failure inside a `ctx` call fails the run
+  as before 38.2: a physics port that throws in a query is a
+  `PhysicsPortFailure` (an `EngineFailure`, which records itself, so a
+  script that catches it cannot hide it). Other engine code that throws a
+  plain error inside a call (an argument check, or an engine bug) is still
+  reported as that script's error: the two cannot be told apart without
+  tagging each engine path, and argument errors must stay the script's.
+- 2026-10-21 (38.13): the script type check runs on a worker thread (the
+  KTX2 encoder's and the erosion's pattern), kept 60 s after its last
+  check; a check that has not answered within twice its checking bound
+  (building a program is not bounded inside the compiler) ends the worker
+  and answers timed out. From source (tests) it checks in process.
+- 2026-10-21 (38.13): a trimmed Play answer's note names at most the eight
+  paths that lost the most rows (fewer if it still does not fit its 512 B)
+  and counts the rest under "…", so a long note never costs an error; an
+  answer still over its bound after that (a kept part near the bound by
+  itself) keeps only what its plan never cuts.
