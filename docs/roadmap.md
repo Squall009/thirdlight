@@ -81,6 +81,14 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 40 | `docs/plan-phase-40.md` | Ground cover at scale and wind (owner, 2026-10-21): GPU-driven cover on any surface, global wind with zones, bending from subjects; a 1 km² meadow at 60 Hz on the Iris Xe |
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 
+Future (owner, 2026-10-21), not planned yet:
+- **Clustered (or tiled) forward lighting**, so scenes are no longer limited
+  to 16 local lights (D204). This is a phase of its own, after 41.
+- **The owner's own dogfood pass**: building a small game from the docs alone
+  (deferred from 31.8).
+- **A performance pass** that revisits occlusion culling on WebGPU (D282,
+  D286).
+
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
 

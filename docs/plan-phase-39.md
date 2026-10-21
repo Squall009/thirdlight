@@ -52,17 +52,18 @@ is answered by it.
   - a pixel's fade is the largest over the subjects of: the soft circle (a
     radius and softness as a fraction of the view height, scaled with distance
     so the circle covers the subject's body at any zoom) × [pixel view depth <
-    subject view depth − margin] × [pixel world height > feet + height
-    margin];
+    subject view depth − margin] × [pixel world height > feet + half the subject's height];
   - fade = min(that, max fade); the fade eases in and out over time per
     subject (the cut-away's `CUTAWAY_FADE_SECONDS` style; one constant).
 - **Array size.** Subjects are a fixed-size uniform array: a GPU constraint,
   not a content cap. It is defined once (default 4 per view). Asking for more
   keeps the nearest to the camera and logs one Problems line.
-- **2D projects.** In a side view, "above the feet" means nothing for props in
-  front of the player. The height test is a setting (`aboveFeet`), on by
-  default in 3D projects and off in 2D projects, where depth alone decides.
-  Default chosen, owner to confirm.
+- **The height rule is one rule everywhere** (owner, 2026-10-21). Nothing
+  below half the subject's height above its feet ever fades. For a character
+  that is half its controller's height; for other subjects, half their
+  bounds. Things on or near the floor stay solid on every storey, in a side
+  view and in 3D. The rule doesn't depend on the scene, a plane or the project
+  kind.
 - **Opt-out:** a `seeThrough` render flag on models, boxes, block layers (per
   layer), architecture, terrain and scatter rules, default true. It is a
   per-object uniform like `lightLayers`, so no program variants per object.
@@ -71,7 +72,7 @@ is answered by it.
 - **Shadows** are unaffected: a faded wall still casts its shadow.
 - **Control:**
   - project settings (Rendering → See-through): on/off, radius, softness, max
-    fade, depth margin, height margin, fade time, `aboveFeet`;
+    fade, depth margin, fade time;
   - script: `ctx.camera.setSeeThrough({enabled?, subjects?, radius?, …})` to
     change it at runtime (indoors, cutscenes); `subjects: null` goes back to
     the camera's target;
@@ -91,7 +92,7 @@ where possible). The editor surface is one step in an existing e2e file.
 | 39.1 | **One dither-fade module.** Move the cut-away's dither, variant cache and precompile into one shared module, and switch the cut-away to it. No visual change: the cut-away's existing e2e and screenshots must match. |
 | 39.2 | **The see-through mask** (§2) in every material kind, with per-view subject uniforms, the per-object opt-out, subjects excluded from their own fade, and batching keys. Every material that takes part gets the mask through the shared module at creation (precompiled), not a copy mesh: no extra draws. |
 | 39.3 | **Settings and API:** project settings, `ctx.camera.setSeeThrough`, the `seeThrough` flag in the Inspector for each object kind, typings, graph node, MCP docs. Additive on schema 7. |
-| 39.4 | **Correctness cases** (vitest on the mask maths + a browser check): a wall between camera and subject fades inside the circle only; a wall behind the subject never fades; the floor around the subject never fades; **multi-floor**: a character on the stairs between storeys fades the storey slab above them, not the one under them, and walking up flips which slab fades; two subjects in one view; a subject that is itself in front of another subject; a 2D project's foreground prop. |
+| 39.4 | **Correctness cases** (vitest on the mask maths + a browser check): a wall between camera and subject fades inside the circle only; a wall behind the subject never fades; the floor around the subject never fades; **multi-floor**: a character on the stairs between storeys fades the storey slab above them, not the one under them, and walking up flips which slab fades; two subjects in one view; a subject that is itself in front of another subject; a side-view foreground prop near the floor stays solid. |
 | 39.5 | **Editor:** a See-through preview toggle in the Scene view (with the selected object, or the camera target, as the subject), so level builders see the effect while editing. One step in an existing editor e2e. |
 | 39.6 | **Performance:** measure on the village and an interior class (a multi-storey building) on both renderers at 1080p on the Iris Xe. Target: ≤ 0.3 ms GPU frame time added with 4 subjects, no added draws, no added programs after warm-up. |
 | 39.7 | **The manual:** a see-through section in the camera and rendering pages, the cut-away page's "combine with see-through" note, and a how-to for interiors (follow camera + see-through + roof cut-away). |
@@ -118,3 +119,6 @@ where possible). The editor surface is one step in an existing e2e file.
 - 2026-10-21: Planned from Temporal G7. The owner chose dither with a maximum
   fade below 1, a subject list, fading only above the subject's feet,
   multi-floor correctness, and everything taking part by default.
+- 2026-10-21 (owner, decision session): the height rule is "nothing below half
+  the subject's height fades", the same everywhere. It replaces the "2D vs 3D
+  project" default (P39-1).

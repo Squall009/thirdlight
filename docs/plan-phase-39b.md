@@ -71,6 +71,7 @@ new e2e.
 | 39b.4 | **Split the editor's large units:** `EditorApp`, `Viewport`, `SessionClientCore`, `GraphEditor` and `attachBrowserInput`, each into per-area modules or hooks. `asset-pipeline/src/inspect.ts` is split per asset kind. |
 | 39b.5 | **A lean test gate.** Fix or delete each of the 22 watch tests: fixed if it guards something real, deleted with a note if it duplicates another test. Merge and prune e2e files that duplicate coverage (one backend per file; browser-free checks move to vitest). There is no fixed time budget (owner, 2026-10-21): the gate must not grow without need, and each phase records its time against the previous one (D253 closed). |
 | 39b.6 | **Apply the owner's decisions.** Every default from the decision list is marked confirmed or reversed in its plan. Reversals are implemented as items here (or moved to the phase that owns the area, if larger). The phases the owner has looked at are marked done without "owner look pending". |
+| 39b.6b | **Reversals from the decision session (owner, 2026-10-21):**<br>• **Trim sheets draw at their own colour.** A material's tint is a visible field, white by default; nothing inherits the generator's grey stand-in (`#9a968c`, P35-12, if the owner confirms).<br>• **An undo refused for a revision conflict is not resent** (D281): the user presses Ctrl+Z again.<br>• **JSON-shaped fields are editable in the Inspector** as structured fields (block-type Looks, Layer size and the rest; P31-3, D227).<br>• **`FLOOR_PLAN_COUNT_MAX` is removed** (no cap on rooms of a type per storey or copies of a prop per room; D218).<br>• **The 3D starter's character is game-ready:** a Blender character with LODs, `_COL` and a report (triangles per LOD, texture sizes, file size) replaces the 48-triangle placeholder (D272).<br>• **GPU effects cost no main thread per instance:** find why GPU-simulated systems cost main-thread time (one compute pass per effect instance: 15 fires gave 31 passes and 0.69 ms) and batch every instance of a system into one dispatch, so small systems no longer need to move to the CPU (P29-6); the `GPU_MIN_PARTICLES` rule is then re-measured and dropped if it no longer pays.<br>• **Async hooks / late `ctx`:** the Problems line carries the fix ("keep work for later in `state` and act on it in a later step"). |
 | 39b.7 | **The defect list gets a status column** (open / fixed `<commit>` / superseded / won't fix). Every row is classified; fixed and stale rows are closed with evidence; duplicates are merged. STATUS.md shows the open counts. |
 | 39b.8 | **Old formats out.** Drop types and upgrade code for project formats older than the oldest version a supported project can still be on (default: older than schema 6 — every template and game repo is at 7). An older project is refused with a clear message naming the last engine version that upgrades it. Default chosen, owner to confirm. |
 | 39b.9 | **Two-place logic shared where possible.** For each of the 19 parity pairs, either one implementation serves both sides (shared module) and the parity test goes, or the reason it can't (CPU reference for a GPU shader, for example) is written next to the pair. |
@@ -99,4 +100,10 @@ new e2e.
   folded into 40, and a batched owner decision session.
 - 2026-10-21 (owner, decision session): no fixed gate-time budget; the gate
   must just not grow without need (AGENTS.md updated). Occlusion culling
-  stays off; the WebGL 2 query path is removed (39b.10b).
+  stays off; the WebGL 2 query path is removed (39b.10b). Confirmed:
+  unpainted walls take layer 2, normals read glTF-style, AO darkens indirect
+  light only and old projects keep GTAO, 3D movers push, 2D block collision,
+  `ctx` only inside hooks, world UVs on kit pieces. Reversals: 39b.6b. Moved
+  elsewhere: streamed-out bodies (41), more than 16 local lights (a later
+  lighting phase), the owner's dogfood pass (a future goal). Answers in
+  `~/.cache/thirdlight-owner-review/answers-2026-10-21.md`.

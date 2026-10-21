@@ -112,6 +112,18 @@ first.
   - The default input maps and the audio panning default move to the scene's
     plane setting.
 
+### Bodies outside the loaded world (owner, 2026-10-21)
+
+Streaming loads collision only around the camera, its target and players.
+- A dynamic or kinematic body (an NPC, a prop, a future ragdoll) that is not
+  over loaded collision is **suspended**: no gravity, no movement and no
+  contacts. Its state is kept.
+- It resumes in the step its area's collision arrives.
+- This is one rule in the physics bridge, deterministic and the same on page
+  and worker.
+- Diagnostics count suspended bodies, and a script can read whether a body
+  is suspended.
+
 ### Telling game teams what to migrate (owner, 2026-10-21)
 
 Every upgrade on load writes a Problems line for each converted item, so a
@@ -147,6 +159,7 @@ with real Rapier on page and worker.
 | 41.2 | **2D shapes as 3D shapes**: box depth, polygon prisms (convex and concave), circle cylinders, one-way platforms and drop-through in the controller and contact filtering. |
 | 41.3 | **One character controller:** the platformer behaviour as a movement profile on the 3D controller, plane-aware. A parity suite against the 2D controller's recorded behaviour (jump apex, air time, run speed, slopes, stairs, wall moves, climb, one-way, movers) within stated tolerances. |
 | 41.4 | **One query, trigger, mover and door surface:** `ctx.physics` Vec3 with Vec2 conveniences, unified components, switches made generic, typings without dimension caveats. |
+| 41.4b | **Suspend bodies outside loaded collision** (above): one rule, tests with an NPC walking out of the rings and back, page and worker equal. |
 | 41.5 | **Scene default plane, editor and upgrade:** retire `physics_dimension`; scene plane setting; schema 8 upgrade of 2D projects (fixtures shaped like Sprout's); the Inspector without dimension filtering; gizmos locked to a scene's plane; templates updated (the 2D starter becomes a scene with a default plane). |
 | 41.6 | **Remove the 2D backend:** `rapier2d-compat`, the 2D port, the old 2D controller package, the 38.9 plane cut, dimension branches (target: none left outside the upgrade code); export ships one wasm; the licence list updated. |
 | 41.7 | **The pipe test (acceptance scene):** a 3D level where the player enters a pipe, the game locks player and level section to a plane (camera to a side view by script), plays a 2D stretch (one-way platforms, movers, a block-built floor), and leaves back into 3D. No frame over 16.7 ms at the 60 Hz cap during either switch. A how-to guide built from it. |
