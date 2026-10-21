@@ -19,7 +19,7 @@
 import { controllerActionsOf, controllerMovementOf } from '@thirdlight/project-model';
 
 import { actionPhase, type ActionFrame } from './actions';
-import { clipMessage } from './errors';
+import { clipMessage, EngineFailure } from './errors';
 import { DuplicateMoveError, PhaseViolationError } from './guard';
 import {
   validateCharacterMoveResult,
@@ -38,10 +38,10 @@ import { character2DOf, character3DOf, character3DPhysicsOf } from './scene-set'
 import type { GameplaySettings, SimulationPhase, TransformState } from './types';
 
 /** A `PhysicsPort` throw/validation failure (fail-stop `physics_port_error`). */
-export class PhysicsPortFailure extends Error {
+export class PhysicsPortFailure extends EngineFailure {
   readonly reason: string;
   constructor(reason: string, message: string) {
-    super(clipMessage(message));
+    super(message);
     this.name = 'PhysicsPortFailure';
     this.reason = reason;
   }

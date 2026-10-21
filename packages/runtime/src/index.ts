@@ -29,7 +29,7 @@
  * unmodified in the play-preview bundle, the export bundle, and the Node
  * test harness.
  */
-export { ERROR_CODES, type ErrorCode, type RuntimeError } from './errors';
+export { ERROR_CODES, SCRIPT_ERROR_PROBLEM, type ErrorCode, type RuntimeError } from './errors';
 export {
   JUMP_PHASES,
   MOVE_QUANTUM,

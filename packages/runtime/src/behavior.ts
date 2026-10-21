@@ -48,6 +48,7 @@ import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, FrozenPreparedError, messageOf, withFrames } from './behavior-errors';
 import { createHookRunner, type BehaviorInstance } from './behavior-hooks';
+import { createCtxGuard } from './ctx-guard';
 import { InstanceRandom, randomSeedOf } from './random';
 import { DebugCallError } from './debug-commands';
 import { LiveTagIndex } from './scene-set';
@@ -358,7 +359,9 @@ export interface BehaviorInstanceInfo {
 
 /**
  * A behavior module's `export default`: `step` and/or any of the callbacks;
- * every one must be synchronous and return nothing. State is
+ * every one must be synchronous and return nothing (an `async` one is
+ * switched off). `ctx` works only during the call: a call on it after an
+ * `await`, in a promise callback or a timer is refused. State is
  * per entity (from `instantiate`).
  *
  * Callbacks run inside the step's intent phase, before the instance's `step`,
@@ -848,6 +851,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         refusedSeen.add(text);
         cfg.behaviorLog?.('warn', text, compiledFramesOf(new Error(), 1)[0]);
       };
+      // ctx works only during a hook: a call from code that outlived it (after an await, in a timer) is refused.
+      let lateLogged = false;
+      const ctxGuard = createCtxGuard((path) => {
+        const text = `behavior "${behaviorId}": ${path} was called after its hook returned (after an await, in a promise or a timer): hooks must be synchronous, so the call is refused`;
+        if (!lateLogged) cfg.behaviorLog?.('warn', text);
+        lateLogged = true;
+        return new BehaviorHostError('module_error', 'behavior_ctx_late', text);
+      });
       const emitFor = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase) => (raw: unknown): boolean => {
         try {
           commitChecked(instance, ctx, phase, raw);
@@ -1064,6 +1075,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         fields['emit'] = { value: emitFor(instance, src, phase), enumerable: true };
         if (instance.log === null) instance.log = logFor(instance);
         fields['log'] = { value: instance.log, enumerable: true };
+        for (const key of Object.keys(fields)) {
+          const d = fields[key]!;
+          if (d.get !== undefined) d.get = ctxGuard.live(d.get, `ctx.${key}`);
+          else d.value = ctxGuard.guard(d.value, `ctx.${key}`);
+        }
         const ctx = Object.freeze(Object.defineProperties({}, fields)) as BehaviorContext;
         instance.contexts.set(phase, { src, ctx });
         return ctx;
@@ -1130,8 +1146,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
-          // The scripts of objects that left the game hear it first (one at a time: after a
-          // failure the rest are still disposed with the module).
+          // The scripts of objects that left the game hear it first. A script's throw only switches its
+          // instance off; an engine failure ends the run, and the ones not reached yet are disposed with the module.
           if (phase === 'intent') {
             while (leaving.length > 0) {
               const instance = leaving[0]!;

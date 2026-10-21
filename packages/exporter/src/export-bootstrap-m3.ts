@@ -27,7 +27,7 @@
 import { sha256HexAsync } from '@thirdlight/project-model';
 import { loadPhysics2D, openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
 import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game-page';
-import type { RuntimeSnapshot, SimulationModuleSpec } from '@thirdlight/runtime';
+import { SCRIPT_ERROR_PROBLEM, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 // The simulation module specs this manifest names (generated per export; nothing else is linked).
 import { moduleSpecs } from 'thirdlight:export-modules';
 
@@ -102,9 +102,9 @@ async function main(): Promise<void> {
       saveNamespace: `thirdlight:${String(manifest.projectId ?? 'game')}`,
       // The debug console only when the project turns debug_console on (absent/0: a release game has none).
       debugConsole: (manifest.settings as unknown as Record<string, unknown>)['debug_console'] === 1,
-      // A running game's problems go to the console (an export has no Problems list): a script its own
-      // error switched off is an error, the rest (a deprecated call, a busy voice) warnings.
-      onProblem: (code, message) => (code.startsWith('script_error') ? console.error : console.warn)(`[thirdlight] ${message}`),
+      // A running game's problems go to the console (an export has no Problems list): each different script
+      // error once per run (copies on many objects are one), as an error; the rest (a deprecated call, a busy voice) warnings.
+      onProblem: (code, message) => (code.startsWith(SCRIPT_ERROR_PROBLEM) ? console.error : console.warn)(`[thirdlight] ${message}`),
       onModelsFailed: (code) => hud(`export error: the model prepare hard-failed (${code}); the game continues without the failed model`, true),
     });
     const host = game.host;

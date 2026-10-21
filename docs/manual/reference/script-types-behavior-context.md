@@ -206,7 +206,9 @@ export interface BehaviorContext {
 ```ts
 /**
  * A behavior module's `export default`: `step` and/or any of the callbacks;
- * every one must be synchronous and return nothing. State is
+ * every one must be synchronous and return nothing (an `async` one is
+ * switched off). `ctx` works only during the call: a call on it after an
+ * `await`, in a promise callback or a timer is refused. State is
  * per entity (from `instantiate`).
  *
  * Callbacks run inside the step's intent phase, before the instance's `step`,

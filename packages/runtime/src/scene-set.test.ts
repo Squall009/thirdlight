@@ -196,7 +196,7 @@ describe('runtime scene set', () => {
     expect(errors[0]).toMatchObject({ reason: 'behavior_instantiate_failed', entityId: 'box-rock', moduleId: 'thirdlight.behavior:rock' });
     expect(errors[0]!.message).toContain('rock cannot start');
     expect(h.calls).not.toContain('step rock');
-    expect(h.rt.takeProblems?.().map((p) => p.code)).toEqual(['script_error_rock']);
+    expect(h.rt.takeProblems?.().map((p) => p.code)).toEqual([expect.stringMatching(/^script_error_rock_[0-9a-f]{16}$/)]);
     // Unloaded: nothing to dispose (it never had a state).
     expect(h.rt.requestScene!('unload', 'scene-cave').ok).toBe(true);
     h.tick();

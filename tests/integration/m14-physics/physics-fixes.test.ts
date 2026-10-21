@@ -180,7 +180,7 @@ describe('a character start inside a one-way platform', () => {
   });
 });
 
-describe('a mover sliding into the character pushes it sideways (Sprout question 2)', () => {
+describe('a mover sliding into the character pushes it sideways', () => {
   // A 1 m block on the floor slides 5 m left at 2 m/s into an idle player.
   // As a box centred on its entity, and as a polygon standing on its origin
   // (a model's collider, as a kit ledge piece carries it): the same push.

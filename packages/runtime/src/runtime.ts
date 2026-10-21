@@ -50,7 +50,7 @@ import {
   type PointerSample,
 } from './actions';
 
-import { clipMessage, scriptStopReport, type ErrorCode, type RuntimeError } from './errors';
+import { clipMessage, errorEntryOf, scriptStopReport, ScriptErrorLines, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
@@ -87,7 +87,7 @@ import { KeptObjects } from './kept';
 import { EnvironmentDirector } from './environment-director';
 import type { ControllerIntents } from './intents';
 import { emptyControllerChannels, emptyMutableIntents, resetMutableIntents, type MutableControllerChannels, type MutableIntentSet } from './mutable-intents';
-import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
+import { PhysicsQueries, type PhysicsQueryHost } from './physics-queries';
 import { type EnvironmentBlendView } from './environment-blend';
 import type { ClimbQuery, ScriptStop } from './types';
 import { SocketSystem } from './sockets';
@@ -108,18 +108,7 @@ import { CharacterPlacement, ControllerPlacements } from './character-placement'
 import { CharacterDirector } from './character-director';
 import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
-import {
-  type CharacterMoveResult,
-  type CharacterState3D,
-  type PhysicsPort,
-  type PhysicsPort3D,
-  type PhysicsHit,
-  type PhysicsQueryFilter3D,
-  type OverlapShape3D,
-  type PhysicsQuat,
-  type PhysicsStepClient,
-  type Vec2,
-} from './ports';
+import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
   type BehaviorMessage,
   type BehaviorSceneControl,
@@ -581,9 +570,18 @@ export class RuntimeInstance implements Runtime {
   private readonly saves: RuntimeSaves;
   /** The environment preset blend (`ctx.environment`; inert until a script uses it). */
   private readonly environment: EnvironmentDirector;
-  private raycastsThisStep = 0;
-  /** The 3D query budget ran out once (warned in the play log). */
-  private queryLimitWarned = false;
+  /** `ctx.physics` (and the engine modules' queries) with the step's query budget. */
+  private readonly queries: PhysicsQueries = new PhysicsQueries(((rt: RuntimeInstance): PhysicsQueryHost => ({
+    get physics() { return rt.physics; },
+    get physics3d() { return rt.physics3d; },
+    get controllers() { return rt.controllers; },
+    get views() { return rt.views; },
+    get grid() { return rt.grid; },
+    get tags() { return rt.queryTags; },
+    pointer: () => rt.heldPointer,
+    stepIndex: () => rt.stepIndex,
+    warn: (m) => rt.recordBehaviorLog('thirdlight.runtime:physics', 'warn', m),
+  }))(this));
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
       if (typeof name === 'string' && name.length > 0 && name.length <= MAX_SIGNAL_NAME) this.blocks?.emit(name);
@@ -695,6 +693,7 @@ export class RuntimeInstance implements Runtime {
   /** Problems for the author (one Problems line per kind and Play; the host drains them). */
   private problems: { code: string; message: string }[] = [];
   private readonly problemCodes = new Set<string>();
+  private readonly scriptErrorLines = new ScriptErrorLines();
   private readonly sceneControl: BehaviorSceneControl;
   private readonly sceneControlHost: SceneRequestHost;
   // ---- Spawned prefab copies ----
@@ -772,7 +771,7 @@ export class RuntimeInstance implements Runtime {
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.recordBehaviorLog(moduleId, level, message, at);
-    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop, this.stepIndex); this.recordError(r.entry); this.problem(r.code, r.message); };
+    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop, this.stepIndex); this.recordError(r.entry); const line = this.scriptErrorLines.take(r); if (line !== null) this.problems.push(line); };
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
@@ -1867,7 +1866,7 @@ export class RuntimeInstance implements Runtime {
         return false;
       }
       try {
-        this.raycastsThisStep = 0;
+        this.queries.beginStep();
         this.blocks?.beforeStep(stepOrdinal);
         this.controllers.runPhysics3D(this.physics3d);
         this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
@@ -1952,7 +1951,7 @@ export class RuntimeInstance implements Runtime {
     if (this.modes.active) action = this.modes.mask(action, this.controllers.actionNames);
     // Movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
-    this.raycastsThisStep = 0;
+    this.queries.beginStep();
     // The colliders scripts drive become kinematic bodies before they are first posed.
     if (this.physics3d !== undefined && this.colliders.needsSync && !this.syncColliders()) return false;
     // A game mode may hold physics (the controller, physics, movers and triggers stand still);
@@ -2269,6 +2268,7 @@ export class RuntimeInstance implements Runtime {
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
     this.dialogue.resetRun();
+    this.scriptErrorLines.clear();
     this.saves.reset();
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
@@ -3417,7 +3417,7 @@ export class RuntimeInstance implements Runtime {
         phase: { value: phase, enumerable: true },
         action: { get: () => rt.phaseAction, enumerable: true },
         settings: { value: this.settings, enumerable: true },
-        physics: { value: this.physicsClient, enumerable: true },
+        physics: { value: this.queries.client, enumerable: true },
         state: { value: state, enumerable: true },
         intents: { get: () => views.intents, enumerable: true },
         emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
@@ -3792,133 +3792,6 @@ export class RuntimeInstance implements Runtime {
     });
   }
 
-  private readonly physicsClient: PhysicsStepClient = {
-    stageCharacterMove: (entityId: string, delta: Vec2): void => this.controllers.stage(entityId, delta),
-    // In 3D the 3D result (its vectors carry z too); a call naming no controller means the first.
-    characterResult: (entityId?: string): CharacterMoveResult | undefined => {
-      const id = this.controllers.resolve(entityId);
-      return id !== undefined ? this.controllers.result(id) : undefined;
-    },
-    characterState: (entityId?: string): CharacterState3D | undefined => {
-      const id = this.controllers.resolve(entityId);
-      return id !== undefined ? this.controllers.characterState(id) : undefined;
-    },
-    // 3D: rays, overlaps and picks with filters; at most PHYSICS_QUERY_LIMIT a step.
-    raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
-      const o = queryVec3(origin, 'raycast3d origin');
-      const d = queryVec3(direction, 'raycast3d direction');
-      return this.castRay3D(o, d, queryDistance(maxDistance, 100, 'raycast3d'), filter);
-    },
-    overlapSphere: (center: readonly number[], radius: number, filter?: unknown): string[] =>
-      this.overlap3D({ type: 'sphere', radius: queryPositive(radius, 'overlapSphere radius') }, queryVec3(center, 'overlapSphere center'), undefined, filter),
-    overlapBox3d: (center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: unknown): string[] => {
-      const h = queryVec3(half, 'overlapBox3d half');
-      return this.overlap3D({ type: 'box', hx: queryPositive(h[0], 'overlapBox3d half x'), hy: queryPositive(h[1], 'overlapBox3d half y'), hz: queryPositive(h[2], 'overlapBox3d half z') }, queryVec3(center, 'overlapBox3d center'), queryQuat(rotation, 'overlapBox3d rotation'), filter);
-    },
-    overlapCapsule: (center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: unknown): string[] => {
-      const r = queryPositive(radius, 'overlapCapsule radius');
-      const h = queryPositive(height, 'overlapCapsule height');
-      return this.overlap3D({ type: 'capsule', radius: r, halfHeight: Math.max(0, h / 2 - r) }, queryVec3(center, 'overlapCapsule center'), queryQuat(rotation, 'overlapCapsule rotation'), filter);
-    },
-    pickAt: (x: number, y: number, maxDistance?: number, filter?: unknown) => {
-      if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) throw new Error('pickAt takes a screen point x, y (numbers, 0-1 from the top left)');
-      const ray = this.views.screenRay(x, y);
-      return this.castRay3D(ray.origin, ray.direction, queryDistance(maxDistance, 1000, 'pickAt'), filter);
-    },
-    pickAtPointer: (maxDistance?: number, filter?: unknown) => {
-      const max = queryDistance(maxDistance, 1000, 'pickAtPointer');
-      const p = this.heldPointer;
-      if (p === null || (p.over === false && p.locked !== true)) return null;
-      const ray = p.locked === true ? this.views.screenRay(0.5, 0.5) : this.views.screenRay(p.x, p.y);
-      return this.castRay3D(ray.origin, ray.direction, max, filter);
-    },
-    // At most PHYSICS_QUERY_LIMIT queries (rays and overlaps) per step for modules and scripts.
-    raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
-      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.raycast === undefined) return null;
-      this.raycastsThisStep += 1;
-      return this.physics.raycast(origin, direction, maxDistance);
-    },
-    overlapBox: (center: Vec2, half: Vec2): string[] => {
-      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.overlap === undefined || half === null || typeof half !== 'object') return [];
-      this.raycastsThisStep += 1;
-      return this.physics.overlap({ type: 'box', hx: Number(half.x), hy: Number(half.y) }, { x: Number(center?.x), y: Number(center?.y) });
-    },
-    overlapCircle: (center: Vec2, radius: number): string[] => {
-      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.overlap === undefined) return [];
-      this.raycastsThisStep += 1;
-      return this.physics.overlap({ type: 'circle', radius: Number(radius) }, { x: Number(center?.x), y: Number(center?.y) });
-    },
-  };
-
-  /** One query from the step's 3D budget (null past it — warned once — or without a 3D port). */
-  private takeQuery3D(): PhysicsPort3D | null {
-    const port = this.physics3d;
-    if (port === undefined) return null;
-    if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT) {
-      if (!this.queryLimitWarned) {
-        this.queryLimitWarned = true;
-        this.recordBehaviorLog('thirdlight.runtime:physics', 'warn', `more than ${PHYSICS_QUERY_LIMIT} physics queries in one step (step ${this.stepIndex}): the rest of the step's queries find nothing (warned once)`);
-      }
-      return null;
-    }
-    this.raycastsThisStep += 1;
-    return port;
-  }
-
-  /** A script's query filter as the port takes it (tags and exclusions become the accept test). */
-  private queryFilter3D(filter: unknown): PhysicsQueryFilter3D | undefined {
-    if (filter === undefined || filter === null) return undefined;
-    if (typeof filter !== 'object' || Array.isArray(filter)) throw new Error('a query filter is { tags?, layers?, exclude? }');
-    const f = filter as Record<string, unknown>;
-    for (const k of Object.keys(f)) if (k !== 'tags' && k !== 'layers' && k !== 'exclude') throw new Error(`unknown query filter field "${k.slice(0, 32)}" (tags, layers, exclude)`);
-    const names = (v: unknown, what: string): string[] | undefined => {
-      if (v === undefined) return undefined;
-      if (!Array.isArray(v) || v.length > 64 || !v.every((s) => typeof s === 'string')) throw new Error(`query filter ${what} is a list of up to 64 names`);
-      return v as string[];
-    };
-    const tags = names(f['tags'], 'tags');
-    const layers = names(f['layers'], 'layers');
-    const exclude = names(f['exclude'], 'exclude');
-    // Tag names resolve like ctx.tags.mask (an unknown name is a script error).
-    const tagIndex = this.queryTags;
-    const mask = tags === undefined ? undefined : tags.length === 0 ? 0 : tagIndex === null ? 0 : tagIndex.mask(...tags);
-    const skip = exclude === undefined || exclude.length === 0 ? null : new Set(exclude);
-    const accept =
-      mask === undefined && skip === null
-        ? undefined
-        : (colliderId: string): boolean => {
-            const id = colliderEntityOf(colliderId);
-            return (skip === null || !skip.has(id)) && (mask === undefined || (mask !== 0 && tagIndex !== null && tagIndex.has(id, mask)));
-          };
-    return { ...(layers !== undefined ? { layers } : {}), ...(accept !== undefined ? { accept } : {}) };
-  }
-
-  /** A filtered 3D ray (origin, direction not normalized) into a script's hit. */
-  private castRay3D(origin: readonly number[], direction: readonly number[], maxDistance: number, filter: unknown): PhysicsHit | null {
-    const f = this.queryFilter3D(filter);
-    const len = Math.hypot(direction[0]!, direction[1]!, direction[2]!);
-    if (!(len > 0)) return null;
-    const port = this.takeQuery3D();
-    if (port === null || typeof port.raycast !== 'function') return null;
-    const u = [direction[0]! / len, direction[1]! / len, direction[2]! / len];
-    const hit = port.raycast({ x: origin[0]!, y: origin[1]!, z: origin[2]! }, { x: u[0]!, y: u[1]!, z: u[2]! }, maxDistance, f);
-    if (hit === null) return null;
-    const p = hit.point ?? { x: origin[0]! + u[0]! * hit.distance, y: origin[1]! + u[1]! * hit.distance, z: origin[2]! + u[2]! * hit.distance };
-    const entityId = colliderEntityOf(hit.entityId);
-    // A block layer's chunk: the layer, and the cell just inside the surface the ray hit (1 mm behind it); a scatter copy: its address.
-    const detail = entityId !== hit.entityId ? this.grid.hitDetail(entityId, hit.entityId, [p.x - hit.normal.x * 1e-3, p.y - hit.normal.y * 1e-3, p.z - hit.normal.z * 1e-3]) : {};
-    return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...detail }) as PhysicsHit;
-  }
-
-  /** A filtered 3D overlap (sorted ids, at most 64). */
-  private overlap3D(shape: OverlapShape3D, center: readonly number[], rotation: PhysicsQuat | undefined, filter: unknown): string[] {
-    const f = this.queryFilter3D(filter);
-    const port = this.takeQuery3D();
-    if (port === null || typeof port.overlap !== 'function') return [];
-    // A block layer's chunk colliders are reported as their layer (once).
-    return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
-  }
-
   /**
    * The active camera's yaw for the 3D character's move input —
    * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
@@ -4005,18 +3878,9 @@ export class RuntimeInstance implements Runtime {
     this.failedModuleId = moduleId;
     this.failedPhase = phase;
     this.failedStepIndex = stepIndex;
-    const entry: DiagnosticErrorEntry = { code, message: clipMessage(message), stepIndex, reason };
-    if (moduleId !== undefined) entry.moduleId = moduleId;
-    if (phase !== undefined) entry.phase = phase;
-    if (detail !== undefined) entry.detail = detail;
-    if (this.failNodeId !== undefined) entry.nodeId = this.failNodeId;
+    this.recordError(errorEntryOf({ code, message, stepIndex, reason, moduleId, phase, detail, nodeId: this.failNodeId, frames: this.failFrames }));
     this.failNodeId = undefined;
-    if (this.failFrames.length > 0) {
-      entry.at = this.failFrames[0];
-      entry.frames = this.failFrames;
-      this.failFrames = [];
-    }
-    this.recordError(entry);
+    this.failFrames = [];
   }
 
   private recordError(entry: DiagnosticErrorEntry): void {

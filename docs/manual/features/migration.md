@@ -154,6 +154,10 @@ engine:
   expected `playtest_game_failed` from a script error now finds the error
   in its run's `errors` and `runtime.errors` instead
   ([Scripts and the step model](../concepts/scripts-and-the-step-model.md)).
+- **`ctx` works only while a hook runs.** A call on a `ctx` kept past its
+  hook (after an `await`, in a promise callback or a timer) is refused with
+  an error, and an `async` hook is switched off at its first call. Such
+  code used to act at whatever step came next.
 - **A script check type-checks.** `tl_script_publish {check: true}` and the
   editor's check refuse a source with a type error
   (`behavior_type_error`); publishing and Play do not, so the project still

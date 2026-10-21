@@ -90,7 +90,7 @@ A script that throws does not fail the run: that script on that object is
 switched off, everything else keeps stepping and `state` stays `running`
 ([what stops and what does not](../concepts/scripts-and-the-step-model.md)).
 Its error is one `runtime.errors` entry (with `entityId`, the step and the
-source line), one Problems line for the script, and in a play-test the
+source line), one Problems line per different error, and in a play-test the
 run's `errors`. Read `tl_diagnostics` after every play: a game that "runs"
 may have a script switched off.
 

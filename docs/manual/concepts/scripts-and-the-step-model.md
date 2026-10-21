@@ -71,12 +71,24 @@ In each step every script runs, in phases: first `intent`, then
   other script, the same script on other objects, and the physics keep
   stepping. The error is listed once, with the script, the object, the step
   and the source line: in Play's diagnostics (`runtime.errors`), in the
-  console, and as one Problems line per script; an exported game prints
-  it to the browser console. A restart of the run starts the script again.
+  console, and as one Problems line per different error (the same throw on
+  many copies of a script is one line); an exported game prints each to
+  the browser console. A restart of the run starts the script again, and
+  an error that comes back is reported again.
   An error in `prepare`, or in `instantiate` at the game's start, still
   stops the game from starting; an `instantiate` that throws later (an
   object in a scene loaded mid-run, a spawned copy, a restart) only leaves
   that script switched off on that object, and the load or spawn completes.
+  A failure of the engine itself inside a `ctx` call (a physics query whose
+  physics world broke) is not the script's error: it fails the run, as it
+  would anywhere else in the step.
+- **Hooks are synchronous; `ctx` works only during the call.** An `async`
+  hook (one that returns a promise) is switched off at its first call and
+  listed once as async. Code that outlives its hook (after an `await`, in a
+  promise callback or a timer) runs at a moment the step order does not
+  fix, so any `ctx` call it makes is refused: it throws, and the script's
+  first refused call is logged. Keep what must happen later in `state`, and
+  do it in a later step (`ctx.timers` counts steps).
 
 ## Determinism and replays
 

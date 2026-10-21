@@ -336,7 +336,7 @@ test('tl_playtest through the MCP stdio adapter: a script whose run pauses and p
     expect(refused.isError).toBe(true);
     expect(refused.content[0]!.text).toContain('unknown section \\"playre\\"');
     expect(refused.content[0]!.text).toContain('pausePanel');
-    await expect.poll(async () => ((await tool('tl_diagnostics', {})) as { problems?: { code: string }[] }).problems?.map((p) => p.code) ?? [], { timeout: 10_000 }).toContain('script_error_behavior_playtest_probe');
+    await expect.poll(async () => ((await tool('tl_diagnostics', {})) as { problems?: { code: string }[] }).problems?.map((p) => p.code) ?? [], { timeout: 10_000 }).toContainEqual(expect.stringMatching(/^script_error_behavior_playtest_probe_[0-9a-f]{16}$/));
     await tool('tl_play_stop', { playSessionId });
     const boom = await call({ frames: [walk(0, 90)], variables: { boom: 60 }, threads: 'worker', runs: 1 });
     expect(boom.isError, JSON.stringify(boom.body).slice(0, 1500)).toBe(false);

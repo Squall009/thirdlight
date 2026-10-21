@@ -78,7 +78,8 @@ and listen.
   on that object stops for the rest of the run (the rest of the game keeps
   stepping). `tl_diagnostics`' `runtime.errors` lists the error once, with
   its object (`entityId`), step and source line; the project's Problems
-  name the script; a play-test's run lists it among its `errors`. A run
+  name the script (one line per different error); a play-test's run lists
+  it among its `errors`. A run
   still ends with `state: "failed"` (and a play-test with
   `playtest_game_failed`) when the engine itself fails, such as the
   physics, or a script's `prepare` or `instantiate` at the start.

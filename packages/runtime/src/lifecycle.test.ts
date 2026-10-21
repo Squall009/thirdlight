@@ -356,11 +356,14 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
 
   it('moves the character to the active spawn at the next step boundary; a named spawn becomes the active one', () => {
     const seen: string[] = [];
+    // Calls are made in a step (ctx works only during a hook): `ask` runs in the next one.
     let ask: (() => boolean) | null = null;
     let lifecycle: BehaviorLifecycle | null = null;
+    let spawnPoint = '';
     const h = run((ctx) => {
       if (ctx.phase !== 'intent') return;
       lifecycle = ctx.lifecycle;
+      spawnPoint = ctx.lifecycle!.spawnPoint();
       const p = ctx.world.transform('player-0001')!.position;
       seen.push(`${p[0]},${p[1]}`);
       if (ask !== null) {
@@ -372,7 +375,7 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     expect(h.character().slice(0, 2)).toEqual([0, 5]);
     // The run's start placed the character where it starts.
     expect(h.placed).toEqual([{ x: 0, y: 5 }]);
-    expect(lifecycle!.spawnPoint()).toBe('spawn-a'); // the first spawn until one is set
+    expect(spawnPoint).toBe('spawn-a'); // the first spawn until one is set
 
     // Asked in a step: that step still sees the character where it was; the next one sees it at the spawn.
     seen.length = 0;
@@ -391,12 +394,13 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     ask = () => lifecycle!.respawn('spawn-b');
     h.tick(2);
     expect(h.placed.at(-1)).toEqual({ x: 8, y: 3 });
-    expect(lifecycle!.spawnPoint()).toBe('spawn-b');
+    expect(spawnPoint).toBe('spawn-b');
     expect(h.character().slice(0, 2)).toEqual([8, 3]);
     // An unknown spawn is refused and moves nothing.
-    expect(lifecycle!.respawn('box-keeper')).toBe(false);
     const before = h.placed.length;
+    ask = () => !lifecycle!.respawn('box-keeper');
     h.tick(2);
+    expect(ask).toBe(null);
     expect(h.placed.length).toBe(before);
     expect(h.rt.getDiagnostics().ok && (h.rt.getDiagnostics() as { diagnostics: { state: string } }).diagnostics.state).toBe('running');
   });

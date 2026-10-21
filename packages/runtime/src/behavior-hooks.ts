@@ -25,7 +25,8 @@ import { RandomCallError, type InstanceRandom } from './random';
 import { TimerCallError, type InstanceTimers } from './timers';
 import { BehaviorIntentError, type BehaviorLogLevel } from './intents';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, FrozenPreparedError, GRAPH_DETAIL_RE, graphNodeIdOf, isThenable, messageOf } from './behavior-errors';
-import type { ErrorCode } from './errors';
+import { takeEngineFailure, type ErrorCode } from './errors';
+import { hookEnded, hookStarted } from './ctx-guard';
 import type { BehaviorCallbackName, BehaviorContext, BehaviorProperties, LoadedBehaviorSpec } from './behavior';
 import type { AnimatorEventRecord, BehaviorMessages, ModuleConfig, PrimitiveEventRecord, SimulationPhase, StepContext, TriggerEventRecord } from './types';
 
@@ -108,6 +109,15 @@ export interface HookRunner {
   instantiateFailed(instance: BehaviorInstance, failure: Error): void;
 }
 
+/** Settle a returned promise without a trace (a thenable whose `then` misbehaves included). */
+function quietly(thenable: unknown): void {
+  try {
+    Promise.resolve(thenable).then(undefined, () => undefined);
+  } catch {
+    // Not a usable thenable: nothing will settle later.
+  }
+}
+
 export function createHookRunner(input: HookRunnerInput): HookRunner {
   const { behaviorId, spec, prepared, triggerCallbacks, beginInstanceStep, contextFor, ownsTrigger, cfg } = input;
   const hasStep = typeof spec.step === 'function';
@@ -137,7 +147,7 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
   };
   const resultFailure = (result: unknown, what: string): BehaviorHostError =>
     isThenable(result)
-      ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a thenable (${what} must be synchronous)`)
+      ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what} is async (it returned a promise): hooks must not be async, and ctx works only during the call`)
       : new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a value (${what} must return undefined)`);
 
   const disposeInstance = (instance: BehaviorInstance): void => {
@@ -183,19 +193,41 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
     report(instance, failure, 'instantiate');
   };
 
+  /**
+   * What a hook's end means: an engine failure inside one of its `ctx` calls fails the run (even when the
+   * script caught it); a throw, a returned promise or a returned value switches the instance off.
+   */
+  const afterHook = (instance: BehaviorInstance, hook: string, phase: SimulationPhase, stepIndex: number, threw: boolean, error: unknown, result: unknown): void => {
+    const engine = takeEngineFailure();
+    if (engine !== null) throw engine;
+    if (threw) switchOff(instance, scriptFailure(error, hook), hook, phase, stepIndex);
+    else if (result !== undefined) {
+      // An async hook's promise is settled here, so its rejection (its own throw, or a refused late ctx call)
+      // is never an unhandled rejection: the hook is reported once, as async.
+      if (isThenable(result)) quietly(result);
+      switchOff(instance, resultFailure(result, hook), hook, phase, stepIndex);
+    }
+  };
+
   const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
     if (instance.off) return;
     beginInstanceStep(instance, ctx.stepIndex);
     if (!hasStep) return;
     const behaviorCtx = contextFor(instance, phase, ctx);
     let result: unknown;
+    let threw = false;
+    let error: unknown;
+    takeEngineFailure();
+    hookStarted();
     try {
       result = spec.step!(instance.state, behaviorCtx);
     } catch (e) {
-      switchOff(instance, scriptFailure(e, 'step'), 'step', phase, ctx.stepIndex);
-      return;
+      threw = true;
+      error = e;
+    } finally {
+      hookEnded();
     }
-    if (result !== undefined) switchOff(instance, resultFailure(result, 'step'), 'step', phase, ctx.stepIndex);
+    afterHook(instance, 'step', phase, ctx.stepIndex, threw, error, result);
   };
 
   const callback = (instance: BehaviorInstance, name: BehaviorCallbackName, src: StepContext, event?: unknown): void => {
@@ -205,13 +237,19 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
     beginInstanceStep(instance, src.stepIndex);
     const behaviorCtx = contextFor(instance, 'intent', src);
     let result: unknown;
+    let threw = false;
+    let error: unknown;
+    takeEngineFailure();
+    hookStarted();
     try {
       result = event === undefined ? (fn as (s: unknown, c: unknown) => unknown).call(spec, instance.state, behaviorCtx) : (fn as (s: unknown, e: unknown, c: unknown) => unknown).call(spec, instance.state, event, behaviorCtx);
     } catch (e) {
-      switchOff(instance, scriptFailure(e, name), name, 'intent', src.stepIndex);
-      return;
+      threw = true;
+      error = e;
+    } finally {
+      hookEnded();
     }
-    if (result !== undefined) switchOff(instance, resultFailure(result, name), name, 'intent', src.stepIndex);
+    afterHook(instance, name, 'intent', src.stepIndex, threw, error, result);
   };
 
   const lifecycle = (instance: BehaviorInstance, src: StepContext): void => {

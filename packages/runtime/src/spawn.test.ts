@@ -332,7 +332,7 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(errors[0]).toMatchObject({ reason: 'behavior_instantiate_failed', entityId: id });
     expect(errors[0]!.message).toContain('grumpy cannot start');
     expect(calls).toEqual([]);
-    expect(h.rt.takeProblems?.().map((p) => p.code)).toContain('script_error_grumpy');
+    expect(h.rt.takeProblems?.().map((p) => p.code)).toContainEqual(expect.stringMatching(/^script_error_grumpy_[0-9a-f]{16}$/));
   });
 
   it('a new run removes every spawned entity (ids are never reused); the same inputs give the same game', () => {

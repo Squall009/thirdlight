@@ -529,7 +529,7 @@ describe('step failures and the frozen prepare object', () => {
     expect(seen.filter((x) => x.startsWith('box-0002@')).at(-1)).toBe('box-0002@17:transform');
     expect(disposed).toEqual(['box-0001']);
     // One Problems line for the script.
-    expect(h.rt.takeProblems?.()).toEqual([{ code: 'script_error_behavior_0001', message: expect.stringContaining('boom at ten') }]);
+    expect(h.rt.takeProblems?.()).toEqual([{ code: expect.stringMatching(/^script_error_behavior_0001_[0-9a-f]{16}$/), message: expect.stringContaining('boom at ten') }]);
     // A run restart makes it again (dispose is not run twice) and it steps in the new run.
     for (let i = 7; i <= 10; i += 1) h.tick(i * DT);
     expect(seen.filter((x) => x.startsWith('box-0001@')).length).toBeGreaterThan(one.length);
@@ -554,7 +554,50 @@ describe('step failures and the frozen prepare object', () => {
     expect(d.errors).toHaveLength(1);
     expect(d.errors[0]).toMatchObject({ count: 3, entityIds: ['box-0001', 'box-0002', 'box-0003'], stepIndex: 10 });
     expect(d.errors[0]!.message).not.toContain('box-000');
-    expect(h.rt.takeProblems?.()).toEqual([{ code: 'script_error_behavior_0001', message: expect.stringContaining('switched off on "box-0001"') }]);
+    expect(h.rt.takeProblems?.()).toEqual([{ code: expect.stringMatching(/^script_error_behavior_0001_[0-9a-f]{16}$/), message: expect.stringContaining('switched off on "box-0001"') }]);
+  });
+
+  it('each different error of a script is its own Problems line; a run restart reports them again', () => {
+    let restarted = false;
+    // Steps are counted per run (the step index goes on counting through a restart).
+    const art = artifact('behavior-0001', (s, ctx) => {
+      const c = ctx as { entityId: string; phase: string; lifecycle: { restart(): void } };
+      if (c.phase !== 'intent') return;
+      const n = ((s as { n: number }).n += 1);
+      if (c.entityId === 'box-0001' && n === 5) throw new Error('first error');
+      if (c.entityId === 'box-0002' && n === 7) throw new Error('second error');
+      if (c.entityId === 'box-0003' && n === 12 && !restarted) {
+        restarted = true;
+        c.lifecycle.restart();
+      }
+    }, { instantiate: () => ({ n: 0 }) });
+    const h = boot([art], sceneWithBehaviors([
+      { entityId: 'box-0001', behaviorId: 'behavior-0001' },
+      { entityId: 'box-0002', behaviorId: 'behavior-0001' },
+      { entityId: 'box-0003', behaviorId: 'behavior-0001' },
+    ]));
+    h.boot();
+    for (let i = 1; i <= 14; i += 1) h.tick(i * DT);
+    expect(restarted).toBe(true);
+    const lines = (h.rt.takeProblems?.() ?? []).filter((p) => p.code.startsWith('script_error'));
+    expect(lines.map((p) => p.message)).toEqual(['first error', 'second error', 'first error', 'second error'].map((m) => expect.stringContaining(m)));
+    // Two errors, two codes; the restart switched both on again, they threw again and were reported again.
+    expect(new Set(lines.map((p) => p.code)).size).toBe(2);
+    expect(lines[2]!.code).toBe(lines[0]!.code);
+  });
+
+  it('scripts whose ids differ only in "-" and "_" (or past the code length) get their own Problems lines', () => {
+    const long = `${'a'.repeat(50)}`;
+    const ids = ['mover-ai', 'mover_ai', `${long}-1`, `${long}-2`];
+    const arts = ids.map((id) => artifact(id, () => {
+      throw new Error('same text');
+    }));
+    const h = boot(arts, sceneWithBehaviors(ids.map((behaviorId, i) => ({ entityId: `box-000${i + 1}`, behaviorId }))));
+    h.boot();
+    const codes = (h.rt.takeProblems?.() ?? []).map((p) => p.code);
+    expect(codes).toHaveLength(4);
+    expect(new Set(codes).size).toBe(4);
+    for (const c of codes) expect(c).toMatch(/^[a-z][a-z0-9_]{0,63}$/);
   });
 
   it('a script error carries where in the compiled script it was thrown', () => {
