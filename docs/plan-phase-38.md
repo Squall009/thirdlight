@@ -107,7 +107,7 @@ budget.
 | 38.10 | Done 2026-10-21: (1) TL-REQ-32.1 was a bug: with wall paint and material rules, the rules filled a wall's unpainted share from layer 0, so rules naming only tops turned walls to the first layer; each share now takes the rules over its own base (top 0, wall 1); `features/blocks.md` says where layers count from 0 (`layer`, `channel`) and where they are named 1–4 (`a63d23e0`). (2) TL-REQ-32.2: the decode is right (UASTC of the same sheet passes, orientation checked); ETC1S's 4×4 blocks move a row's edge and gutter apart as much as a fault (padded sheet from the pinned encoder: up to 77 levels smooth, 186 noise; unpadded 38–78), so an ETC1S KTX2 without a lossless original passes when its gutters still repeat and otherwise says "not judged" instead of warning (`b47c17dd`). (3) Sprout Q2: 2D polygon movers push sideways and carry like boxes (real Rapier test); in 3D no mover pushed a standing player (box and convex alike: Rapier's sweep stopped the push at the ground contact) — fixed, a mover moving across keeps its velocity for the sweep unless stood on (`f2f9c92a`). (4) A 2D block layer and player arriving with a later scene already collide (new page+worker test, `3ad005f6`); no fix. (5) E86/D235: uncapped-only GPU-process back-pressure, not an engine defect (D235 has the trace); at vsync both renderers 16.8 ms max, nothing missed. Fast gates green (village WebGL 2 p50 4.7–4.8 ms); e2e files unchanged (`block-layers` 15.8 s, `layered-material` 57.5 s, `physics-3d-colliders` 14.5 s). The "not judged" text in the editor is unverified in a browser. |
 | 38.11 | Done 2026-10-21: manual made consistent for the phase: stale "a script error stops the game" lines fixed (play-tools' failed run, spawn errors, the visual-script loop cap, first Play, the agent skill); new play-tools section on folded rows, trimming order and `sections`; type check's strictness and skips (guides/scripts, editor); character track details (one step later, held input, blocked walks, skip/stop, 2D x-only and `run`) in timelines, gameplay and a new walk-a-character cutscene in guides/timelines (its script and timeline JSON checked with the 38.3 checker and the timeline validator in a scratch vitest, deleted); later-scene layers and arriving players' Autostep (blocks), 2D block ground (2d-and-3d, which-tool), ETC1S "not judged" (trim-sheets), setActive (environment), a migration list of behaviour changes; skill and traps updated; `ctx.character`/`ctx.scenes`/`ctx.shell` doc comments fixed, reference regenerated. Fast gate green (`script-editor.e2e.ts` 10.7 → 9.8 s; village WebGL 2 p50 4.7 ms). |
 | 38.12 | Acceptance in the browser done 2026-10-21 (the full gate and the review are the lead's): the real editor at 1920×1080 on the Iris Xe, both renderers, fresh projects; 30 screenshots looked at (`~/.cache/thirdlight-phase38/acceptance/INDEX.md`). Seen on WebGPU and WebGL 2: the guide's cutscene walk on the 3D starter (mid-walk, then on its mark turned to the camera), a 2D character track walking along x, a 2D block level (standing on the one-way ledge, on the 1:2 slope, falling into the pit), a script throwing on three copies while another keeps moving a box (one Console row ×3 with its objects). Seen on WebGPU: the one-way switch and *Play plane z*, Apply to prefab and its result, the script editor's `blendTime` type mark, ETC1S "not judged" in the trim table and the kit's Check all (a KTX2 imported twice through the Project window). Fixed: the guide's mark sat inside the starter's raised blocks (the walk ended blocked); a timeline field typed and a control used straight after lost one edit (`revision_conflict`; saves merge onto the stored timeline as materials do); three copies' throws were three rows (the error text named the object; it now says "its object", the Problems line keeps the name, the Console lists the objects and "step N" for one step); the Console said "relay failed" after a stop. E2E: `play-logs.e2e.ts` 11.0 → 11.1 s, `timeline.e2e.ts` editor 2.5 → 2.6 s, Play 10.9 → 10.5 s. Fast gate green (village WebGL 2 p50 4.6 ms, WebGPU 5.6 ms). Unverified: the 2D arrival's left/right facing by eye (the starter's model reads the same both ways), audio, the export. D291–D294 logged. Owner look pending. |
-| 38.13 | Part A (scripts, errors, type check) done 2026-10-21 (`1687cc81`, `472e9d10`): H1 an async hook is switched off once and its promise settled (no unhandled rejection), every `ctx` call made after its hook returned is refused (one log line per script), page = worker in `m38-script-errors`; M1/M2 one Problems line per different script error (kind `script_error_<id>_<hash>`, collision-free), cleared by a restart, at most 32 a run, the export console prints each; M3 a physics port throw in a `ctx` query fails the run (`physics_port_error`) even when caught (physics queries moved to `runtime/physics-queries.ts`: runtime.ts 4,124 → 3,988); M9 the type check on a worker: first check's event-loop stall 615 → 3 ms quiet, 1,852 → 16 ms under the gate (warm 6–40 ms either way); L6 one error-row builder, L7, L11, L12, L13 (trim note within its room), L14 (debugCommands cut gone; sections checked in the playtest e2e). E2E: `playtest.e2e.ts` 16.5 / 15.7 → 16.8 / 15.7 s, `play-logs.e2e.ts` 11.2 → 11.1 s, `script-editor.e2e.ts` 9.8 → 9.8 s. Fast gates green (one `rendering.e2e.ts` dynamic-resolution miss passed on rerun; village WebGL 2 p50 4.6–4.7 ms). Part B (director, movers, prefab apply, the 38.7 test, plane cut) is the next agent's. |
+| 38.13 | Part A (scripts, errors, type check) done 2026-10-21 (`1687cc81`, `472e9d10`): H1 an async hook is switched off once and its promise settled (no unhandled rejection), every `ctx` call made after its hook returned is refused (one log line per script), page = worker in `m38-script-errors`; M1/M2 one Problems line per different script error (kind `script_error_<id>_<hash>`, collision-free), cleared by a restart, at most 32 a run, the export console prints each; M3 a physics port throw in a `ctx` query fails the run (`physics_port_error`) even when caught (physics queries moved to `runtime/physics-queries.ts`: runtime.ts 4,124 → 3,988); M9 the type check on a worker: first check's event-loop stall 615 → 3 ms quiet, 1,852 → 16 ms under the gate (warm 6–40 ms either way); L6 one error-row builder, L7, L11, L12, L13 (trim note within its room), L14 (debugCommands cut gone; sections checked in the playtest e2e). E2E: `playtest.e2e.ts` 16.5 / 15.7 → 16.8 / 15.7 s, `play-logs.e2e.ts` 11.2 → 11.1 s, `script-editor.e2e.ts` 9.8 → 9.8 s. Fast gates green (one `rendering.e2e.ts` dynamic-resolution miss passed on rerun; village WebGL 2 p50 4.6–4.7 ms). Part B done 2026-10-21 (`911dd219` … `43184f6d`): M4 a stopped cutscene gives the input back and switches its characters back to before (one rule, the director's `release`); M5 a cutscene on a character still loading waits for it; L1–L5 (skip faces a later turn, an arrival turn yields to input, no climb while held, a loaded save ends walks, a 2D unplaceable key logs once); M6/M10 3D movers carry a rim rider (footprint support for carry and stilling) and push every character in the step; M7/L9/L10 Apply to prefab takes the nearest copy, nested same-prefab sources refused, `nextLocalNumber`, definition copies keep tags; M8/L8 lifetime test on an exact clock, an expired set stays expired; L15–L18, L21 (exact cut spans, 8.5 vs 7.7 ms on 512 × 64 × 2; `MESH_WELD`; one flush loop; plane rings). New vitest `m38-character-track/director-rules`, rim/push case in `colliders-triggers`, each failing on the old code. E2E unchanged: `timeline.e2e.ts` 2.6 / 10.5 → 2.6 / 10.7 s, `delete-content` 4.8 → 4.9 s, `playtest` 16.8 / 15.7 → 16.8 / 15.9 s, `block-layers` 15.7 → 15.8 s, `physics-3d-colliders` 14.5 → 14.7 s. Fast gate (all five areas): build, lint, vitest 745 files, e2e 37/37 green, village WebGL 2 p50 4.8 ms, WebGPU 5.6 ms. |
 | Phase gate | `full --both-renderers` at `51990a82` (2026-10-21 09:17, 2 workers): build, lint, vitest 742 files passed; e2e **389 passed, 1 failed** (project-settings, passed alone in 7.6 s → watch D295) in 21.9 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak 6.4 GB. Review: `~/.cache/thirdlight-phase38/review.md` (1 High, 10 Medium) → 38.13. |
 
 ## 5. Decision log
@@ -350,3 +350,56 @@ budget.
   and counts the rest under "…", so a long note never costs an error; an
   answer still over its bound after that (a kept part near the bound by
   itself) keeps only what its plan never cuts.
+- 2026-10-21 (38.13): what a cutscene leaves a character with is one rule,
+  the director's `release`: its holds end however it ends; a stop also stops
+  its walks where they are and switches each character it switched back to
+  what it was before its first switch (a later play that still runs and has
+  switched it since decides instead); a finish or skip leaves its last
+  keys' state. A run restart forgets everything (controllers start on). A
+  timeline has no owning scene (it plays on across scene loads and
+  unloads), so there is no scene-unload case; a character whose scene goes
+  out while a cutscene holds it is waited for until it comes back or the
+  cutscene ends. Default chosen, owner to confirm.
+- 2026-10-21 (38.13): a cutscene may name a character that is not in the
+  game yet while a scene is loading or asked for in that step (the track
+  holds and keys it; it applies once the character arrives); one that never
+  becomes a player character once the loads are in is dropped with a log
+  line. A loaded save ends every walk, placement and turn (it places the
+  characters itself); cutscene holds stay with the cutscenes still playing.
+  A turn on arrival ends as soon as the player (or a script's move) moves a
+  character nothing holds; the director's hold or walk also holds the climb
+  input (`IntentSet.inputHeld`, read by both controllers). A switch asked in
+  a step a game mode holds physics waits for the next running step. Default
+  chosen, owner to confirm.
+- 2026-10-21 (38.13): in 3D what a character stands on is one answer for the
+  carry, the sweep's stilling and the re-sweep on a kinematic support: under
+  its centre, else under its footprint (a ball 0.9 × its radius at its
+  bottom sphere, cast down as far as the centre ray reaches, so a wall at its
+  side never counts). A stilled mover gets its velocity back after each
+  character's sweep, so every character in the step is pushed. Default
+  chosen, owner to confirm.
+- 2026-10-21 (38.13): Apply to prefab captures the nearest copy root (the
+  object whose provenance names the prefab's root part; an update never
+  renames the root part), and `updatePrefab` refuses a source holding
+  another copy of the same prefab (`prefab_nested_forbidden`). A definition
+  carries an optional `nextLocalNumber` (additive, schema 7): a new part's
+  local id is taken at or above it and undo never lowers it, so a dropped
+  part's id never names another part. The editor's definition copy keeps
+  every field (tags included).
+- 2026-10-21 (38.13): a play content set's grace after its play ends never
+  reaches past the set's own expiry (the old min restored), so an expired set
+  stays expired; since the content's expiry follows the play's, a play that
+  ends by itself takes its content with it and only a stop gets the 60 s.
+  The lifetime test fakes only `Date` (the in-process backend's clock), each
+  check at an exact time, the inactivity end still on its real timer.
+- 2026-10-21 (38.13): the 2D cut's segments do cross inside a slab (an edge
+  piece reaches into the cells beside its line; a kit's collision mesh can
+  reach past its cell), so a slab now ends at its first crossing: the spans
+  are exact; only the slab's own segments are scanned (a 512 × 64 × 2 layer
+  cuts in about 8.5 ms against 7.7 ms). The 0.1 mm weld step is `MESH_WELD`
+  (block-mesh), one flush loop builds the 2D and 3D chunk colliders, and on
+  the 2D plane a streamed layer's rings are measured from a source's x and y
+  to a chunk's column (terrain stays on x and z).
+- 2026-10-21 (38.13): a 2D transform key that cannot place a player
+  character (a physics world without placements) logs one line per
+  character.
