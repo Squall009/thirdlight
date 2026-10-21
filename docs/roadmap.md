@@ -77,6 +77,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 36 | `docs/plan-phase-36.md` | The block editor, kits as one item with a kit editor and an engine Basic Kit, the trim sheet spec with real-height trims, a 3D starter template |
 | 38 | `docs/plan-phase-38.md` | Requests from Sprout, Skyforge Tactics and Temporal, third batch (owner, 2026-10-21): scripts that fail alone, type-checked publish, Play tools that keep errors, a character timeline track, prefab updates, 2D block collision; `ctx.scenes.load`/`unload` the one way to change levels |
 | 39 | `docs/plan-phase-39.md` | See-through around subjects (owner, 2026-10-21, from Temporal G7): a dithered circle around each subject through whatever is in front of it, above its feet only, every object by default |
+| 39b | `docs/plan-phase-39b.md` | Consolidation (owner, 2026-10-21, from the maintainability assessment): unit-size rule, the large roots split, gate within budget, defect statuses, owner decisions applied |
 | 40 | `docs/plan-phase-40.md` | Ground cover at scale and wind (owner, 2026-10-21): GPU-driven cover on any surface, global wind with zones, bending from subjects; a 1 km² meadow at 60 Hz on the Iris Xe |
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 

@@ -47,6 +47,14 @@ scene with local zones. The phase proves both with one target scene. Read
     blades blend into the terrain;
   - it is an opt-in material setting, off by default, and kept only if it
     stays inside the budget.
+- **One placement pipeline** (owner, 2026-10-21, after the maintainability
+  review). Today ground placement is three systems: stored scatter (baked
+  copies), cover (run-time CPU copies) and the instance brush (hand-placed
+  sets). They become one pipeline:
+  - rules and brush strokes produce placements;
+  - placements go to one GPU instance renderer.
+  
+  The GPU cover path is that renderer, not a fourth system.
 - **The grass model and its LODs** are made in Blender (the art-factory
   pipeline). It is a game-ready asset: triangle budget met, LODs, no hidden
   geometry, compressed textures if any. Its triangles, LODs, texture sizes and
@@ -90,6 +98,28 @@ scene with local zones. The phase proves both with one target scene. Read
   on.
 - **Shadows.** A cover rule's `castShadows` defaults to false. Cover always
   receives shadows. Contact darkening comes from SSAO.
+
+### One placement pipeline
+
+- **Sources** produce placements:
+  - **procedural rules:** the GPU evaluates them per patch (cover on
+    terrain);
+  - **baked rules:** points stored per tile or chunk (today's stored scatter:
+    trees and rocks, with colliders and `ctx.scatter` addresses);
+  - **hand-placed sets:** the instance brush.
+- **One renderer** draws every source: GPU patches and instance buffers, one
+  LOD and density-thinning scheme, one culling path, impostors for the far
+  range.
+- **Per-copy CPU work** stays only where a copy needs an identity:
+  colliders and script addresses (`ctx.scatter`) for nearby copies. It is
+  never needed for drawing.
+- **What disappears:**
+  - `cover-view.ts` / `cover-worker.ts`, merged into the renderer;
+  - the separate scatter and brush draw paths (`scatter-view.ts`, the
+    brush's instance sets);
+  - the per-copy LOD pick on the main thread (D183, D212).
+- **Rules and brush data keep their formats.** An upgrade on load is needed
+  only if a field moves.
 
 ### Wind
 
@@ -151,6 +181,7 @@ is one step in the terrain or scatter e2e.
 | 40.1 | **The grass asset** in Blender (the clump variants and LODs above), imported through the job export. Its report: triangles per LOD, texture sizes, file size. Looked at in the editor. |
 | 40.2 | **GPU cover on terrain:** patch rings per view, procedural placement from the heightfield and layer weights, density thinning, per-ring LODs, frustum culling of patches, no shadow casting. The old CPU cover path is removed once this covers its cases; there are not two paths. |
 | 40.3 | **GPU cover on other surfaces:** baked point sets per chunk for block layers, meshes and architecture, thinned on the GPU through the same renderer. An interior case (moss and debris on a block-built floor) is a test scene. |
+| 40.3b | **One placement pipeline:** stored scatter and the instance brush draw through the same GPU renderer as cover. The old scatter and brush draw paths and the main-thread per-copy LOD pick are removed. Colliders and `ctx.scatter` addresses remain for nearby copies. The landscape and village classes must not regress (both renderers, at the cap), and the landscape class's main thread must fall (D212). |
 | 40.4 | **Wind:** the global wind in the scene environment, `windZone` with blend and priority, the camera-centred wind map, the foliage shader reading it (bend by weight and height), `ctx.environment.setWind`, and the editor (environment panel, zone gizmo). Scatter trees and placed foliage models move with the same wind. |
 | 40.5 | **Bending away from subjects** in the foliage shader from the per-view subject list, with radius and strength per rule and per subject. |
 | 40.6 | **Editor:** cover rules on the GPU path in the terrain and block editors (density and layer weights painted as today), a live preview in the Scene view, wind zones placeable and shown, and a Scene view "wind preview" toggle. One step in an existing e2e. |
@@ -163,6 +194,8 @@ is one step in the terrain or scatter e2e.
 **Done when:**
 - The meadow holds the 60 Hz cap at 1080p on both renderers.
 - Cover works on terrain and on other surfaces through one GPU path.
+- Stored scatter, cover and the instance brush share one placement pipeline
+  and one renderer.
 - Wind is one system with a global value and blending zones.
 - Grass bends away from subjects.
 - No art-style feature is built into the engine.
@@ -181,3 +214,6 @@ is one step in the terrain or scatter e2e.
   with a global value and local zones, no shadow casting with SSAO for
   contact, bending from the subject list, root colour as a stretch, and the
   frame rate measured at the cap.
+- 2026-10-21: The owner added one placement pipeline (stored scatter, cover
+  and the instance brush through one renderer), after the maintainability
+  review counted three placement systems.
