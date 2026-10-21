@@ -9,6 +9,8 @@
  * - A syntax error: Ctrl+S compiles through the backend compiler; the error is
  *   marked inline (squiggle + gutter) and listed with its line; fixing it
  *   compiles clean after the idle pause.
+ * - A type error (a wrong option name, which the build accepts) is marked
+ *   and listed the same way, from the check's type check.
  * - Publish: the trust acknowledgment for the new digest, then the source
  *   route (one publishBehavior command); the backend stores both files.
  * - Play runs it: the script adds its property to a run counter (observed).
@@ -148,6 +150,16 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
   await expect(view.locator('.cm-lintRange-error')).toHaveCount(0);
   await expect(problems).toContainText('No problems.');
+
+  // A wrong option name builds (esbuild strips types); the check's type check marks it where it is.
+  await replaceCode(page, FIXED.replace("return;\n", "return;\n    ctx.camera.activate('cam', { blendTime: 1 });\n"));
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(status).toHaveAttribute('data-status', 'errors', { timeout: 20_000 });
+  await expect(problems).toContainText('src/index.ts:7:34');
+  await expect(problems).toContainText("'blendTime' does not exist in type 'CameraBlendOptions'");
+  await expect(view.locator('.cm-lintRange-error').first()).toBeVisible();
+  await replaceCode(page, FIXED);
+  await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
 
   // Publish: acknowledge the new digest, then the source route.
   await view.getByRole('button', { name: 'Publish', exact: true }).click();

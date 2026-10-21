@@ -29,6 +29,12 @@ export const COMPILER_VERSION = '1' as const;
 export const ESBUILD_PIN = '0.28.2' as const;
 export const TYPESCRIPT_PIN = '5.9.3' as const;
 
+/**
+ * How long a script's type check may run (ms of checking, after the program
+ * is built). Not a compile limit: a type check never changes what is built.
+ */
+export const TYPE_CHECK_TIMEOUT_MS = 5_000;
+
 /** The behavior API version. */
 export const BEHAVIOR_API_VERSION = 1 as const;
 

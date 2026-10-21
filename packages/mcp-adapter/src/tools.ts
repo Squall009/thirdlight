@@ -450,7 +450,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         ownedTransforms: { type: 'array', items: { type: 'string' }, description: 'objects whose transform the script may move ("@self": the object it is on)' },
         graph: { type: 'boolean', description: 'true: publish the visual script stored as the behavior\'s graph (no files)' },
         declaration: { type: 'object', description: 'the property declaration, for a source that does not declare its properties in code' },
-        check: { type: 'boolean', description: 'true: compile only (diagnostics), publish nothing; no expectedRevision' },
+        check: { type: 'boolean', description: 'true: compile and type-check only (diagnostics), publish nothing; no expectedRevision' },
         expectedRevision: { type: 'integer', minimum: 0, description: 'required to publish' },
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },

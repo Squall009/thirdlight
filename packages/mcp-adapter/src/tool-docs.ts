@@ -681,7 +681,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'Capture a bounded PNG (≤ 1 MiB, maxWidth 256–2048) of a play session as the player sees it (ui: false for the rendered frame alone); the PNG comes back as an image block.',
   tl_script_publish:
     'Publish a script\'s TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/<library> and its own .json files) or, with graph: true, ' +
-    'a visual script from its stored graph; check: true compiles without publishing. The same route as the editor\'s Publish; a new script needs its record first ' +
+    'a visual script from its stored graph; check: true compiles and type-checks without publishing (a type error: compiled false, behavior_type_error with file, line and column; a publish does not type-check). The same route as the editor\'s Publish; a new script needs its record first ' +
     '(tl_command publishBehavior, mode declaration-create). A source not yet trusted ' +
     'answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.',
 };

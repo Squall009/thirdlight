@@ -24,11 +24,11 @@
  */
 import { SCRIPT_LIBRARY_LIMITS } from '@thirdlight/project-model/limits';
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { BEHAVIOR_API_DTS } from '@thirdlight/behavior-build/api-typings';
 import type { ScriptLibrary } from '@thirdlight/project-model';
 
 import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDiagnosticView } from '../../session/behavior-publication';
 import { ENTRY_PATH, libraryFilePatch, pathProblem, type ScriptContainer, type ScriptFile } from '../../session/script-sources';
-import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import { API_TYPINGS_PATH, CHECK_IDLE_MS, useSourceFocus } from './ScriptDocument';
 import type { SourceFocus } from '../../session/source-location';

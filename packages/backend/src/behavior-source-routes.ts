@@ -6,7 +6,7 @@
  * project one way.
  */
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { canonicalContainerText, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
+import { canonicalContainerText, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, TYPE_CHECK_TIMEOUT_MS, TYPE_ERROR_CODE } from '@thirdlight/behavior-build';
 import { BEHAVIOR_ENTRY_PATH, ID_RE } from '@thirdlight/project-model/limits';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
@@ -348,10 +348,33 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
     } catch (e) {
       result = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
     }
+    // A source that builds is then type-checked against the API typings
+    // (esbuild only strips types, so a wrong option name builds). The check
+    // refuses on a type error; a publish never runs it, so a project whose
+    // scripts have type errors still opens and plays.
+    let typed: Awaited<ReturnType<NonNullable<typeof behaviorCompiler.typeCheck>>> | null = null;
+    let typeCheckFailed = false;
+    if (result.ok && behaviorCompiler.typeCheck !== undefined) {
+      try {
+        typed = await behaviorCompiler.typeCheck({ behaviorId, containerBytes: bytes, libraries });
+      } catch {
+        typeCheckFailed = true;
+      }
+    }
+    if (result.ok && typed !== null && typed.diagnostics.length > 0) {
+      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: TYPE_ERROR_CODE, reason: 'types', diagnostics: typed.diagnostics.slice(0, 32) });
+      return;
+    }
     if (result.ok) {
+      const warnings: { message: string }[] = [];
+      if (typed?.timedOut === true) warnings.push({ message: `the type check stopped after ${TYPE_CHECK_TIMEOUT_MS / 1000} s; the source was not fully type-checked` });
+      if (typed?.skipped === 'toolchain') warnings.push({ message: 'the type check did not run: the installed typescript is not the pinned version' });
+      if (typeCheckFailed) warnings.push({ message: 'the type check failed internally; the source was not type-checked' });
       sendJson(res, 200, {
         ok: true,
         compiled: true,
+        ...(typed !== null && typed.skipped === undefined && typed.timedOut !== true ? { typeChecked: true } : {}),
+        ...(warnings.length > 0 ? { warnings } : {}),
         behaviorId,
         sourceDigest: result.manifest.sourceDigest,
         outputByteLength: result.manifest.outputByteLength,

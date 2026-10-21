@@ -301,9 +301,11 @@ export const NODE_SIDE_ALLOWED = {
   // parseSourceGraphContainer/validateDeclaration), esbuild (the pinned
   // parser)". Pure and Node-side: no Node builtins, no browser edge, and
   // never a value edge into runtime/three/editor/backend/workspace/commands.
+  // + typescript (the pinned compiler, loaded on first use): a script check
+  // type-checks the in-memory files against the generated API typings.
   'behavior-build': {
     packages: ['project-model'],
-    external: ['esbuild'],
+    external: ['esbuild', 'typescript'],
     node: [],
   },
   'mcp-adapter': {
@@ -320,11 +322,13 @@ export const NODE_SIDE_ALLOWED = {
   editor: {
     // + game-host, its `./ui-layer` subpath only — the UI
     // document preview draws with the very layer Play and exports use.
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host'],
+    // + behavior-build, its `./api-typings` subpath only (a generated string
+    // constant): the script editor shows the typings the compiler checks against.
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host', 'behavior-build'],
     // + its `./dialogue-preview` subpath — the dialogue tab's
     // previewer plays a conversation with the runtime's runner, the host's UI
     // layer and audio owner (the same code as Play), outside Play.
-    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'] },
+    subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'], 'behavior-build': ['api-typings'] },
     external: [
       'three',
       'react',

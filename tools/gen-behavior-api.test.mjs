@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-import { OUTPUT, generateBehaviorApi } from './gen-behavior-api.mjs';
+import { OUTPUT, TYPINGS_OUTPUT, generateBehaviorApi } from './gen-behavior-api.mjs';
 
 const generated = generateBehaviorApi();
 
@@ -34,12 +34,13 @@ function check(dts, script) {
 }
 
 describe('behavior API typings (tools/gen-behavior-api.mjs)', () => {
-  it('the checked-in behavior-api.generated.ts matches the runtime types (run node tools/gen-behavior-api.mjs)', () => {
-    expect(readFileSync(OUTPUT, 'utf8') === generated).toBe(true);
+  it('the checked-in generated typings and member table match the runtime types (run node tools/gen-behavior-api.mjs)', () => {
+    expect(readFileSync(OUTPUT, 'utf8') === generated[OUTPUT]).toBe(true);
+    expect(readFileSync(TYPINGS_OUTPUT, 'utf8') === generated[TYPINGS_OUTPUT]).toBe(true);
   });
 
   it('the typings compile and type a script that uses the context', () => {
-    const dts = dtsOf(generated);
+    const dts = dtsOf(generated[TYPINGS_OUTPUT]);
     const script = [
       "import type { BehaviorContext, BehaviorSpec } from '@thirdlight/runtime';",
       'const spec: BehaviorSpec<{ n: number }> = {',
@@ -60,7 +61,7 @@ describe('behavior API typings (tools/gen-behavior-api.mjs)', () => {
   });
 
   it('the member table resolves the context and its nested types', () => {
-    const table = JSON.parse(/BEHAVIOR_API_TYPES: [^=]*= (\{[\s\S]*\});\n$/.exec(generated)[1]);
+    const table = JSON.parse(/BEHAVIOR_API_TYPES: [^=]*= (\{[\s\S]*\});\n$/.exec(generated[OUTPUT])[1]);
     const ctx = table.BehaviorContext;
     const names = ctx.map((m) => m.name);
     for (const n of ['entityId', 'properties', 'input', 'timers', 'game', 'emit', 'log']) expect(names).toContain(n);

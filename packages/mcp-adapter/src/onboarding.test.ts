@@ -8,7 +8,8 @@
  *   search, every answer bounded and a long page in parts;
  * - tl_inspect target="engine" names the build and the manual it serves;
  * - tl_script_publish publishes TypeScript through the editor's source route
- *   (compile check, the trust refusal, acknowledgment, publication);
+ *   (compile and type check, the trust refusal, acknowledgment, publication;
+ *   a type error refuses the check but not a publish);
  * - the descriptions on the wire stay short.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -134,8 +135,14 @@ describe('MCP onboarding (real client, real backend)', () => {
     const broken = await call('tl_script_publish', { behaviorId: 'scorer', check: true, files: [{ path: 'src/index.ts', text: 'export default { step(: number) {} };\n' }] });
     expect(broken.body).toMatchObject({ ok: true, compiled: false });
 
+    // A wrong option name builds (esbuild strips types); the check's type check refuses it, at its position.
+    const typo = [{ path: 'src/index.ts', text: "export default {\n  step(state, ctx) {\n    ctx.camera.activate('cam', { blendTime: 0.5 });\n  },\n};\n" }];
+    const mistyped = await call('tl_script_publish', { behaviorId: 'scorer', check: true, files: typo });
+    expect(mistyped.body, JSON.stringify(mistyped.body)).toMatchObject({ ok: true, compiled: false, code: 'behavior_type_error', diagnostics: [{ code: 'behavior_type_error', path: 'src/index.ts', line: 3, column: 34 }] });
+    expect(JSON.stringify(mistyped.body)).toMatch(/'blendTime' does not exist in type 'CameraBlendOptions'.*has: [^)]*time/);
+
     const checked = await call('tl_script_publish', { behaviorId: 'scorer', check: true, files });
-    expect(checked.body, JSON.stringify(checked.body)).toMatchObject({ ok: true, compiled: true, declaredInCode: true });
+    expect(checked.body, JSON.stringify(checked.body)).toMatchObject({ ok: true, compiled: true, typeChecked: true, declaredInCode: true });
     const digest = String(checked.body.sourceDigest);
 
     const refused = await call('tl_script_publish', { behaviorId: 'scorer', displayName: 'Scorer', files, expectedRevision: await revision() });
@@ -152,7 +159,14 @@ describe('MCP onboarding (real client, real backend)', () => {
     expect(row?.source?.sourceDigest).toBe(digest);
     expect(row?.declaration?.properties.map((p) => p.key)).toEqual(['every']);
 
+    // A publish does not type-check: the mistyped source publishes (once acknowledged), so a project with type errors still opens and plays.
+    const typoRefused = await call('tl_script_publish', { behaviorId: 'scorer', displayName: 'Scorer', files: typo, expectedRevision: before + 1 });
+    const typoDigest = String((JSON.stringify(typoRefused.body).match(/[0-9a-f]{64}/) ?? [''])[0]);
+    expect((await call('tl_command', { op: 'acknowledgeBehaviorTrust', expectedRevision: before + 1, args: { sourceDigest: typoDigest } })).isError).toBe(false);
+    const typoPublished = await call('tl_script_publish', { behaviorId: 'scorer', displayName: 'Scorer', files: typo, expectedRevision: before + 2 });
+    expect(typoPublished.body, JSON.stringify(typoPublished.body)).toMatchObject({ ok: true, behaviorId: 'scorer', revision: before + 3 });
+
     // A request that names neither a source nor a graph is refused before the backend.
-    expect((await call('tl_script_publish', { behaviorId: 'scorer', displayName: 'Scorer', expectedRevision: before + 1 })).isError).toBe(true);
+    expect((await call('tl_script_publish', { behaviorId: 'scorer', displayName: 'Scorer', expectedRevision: before + 3 })).isError).toBe(true);
   });
 });

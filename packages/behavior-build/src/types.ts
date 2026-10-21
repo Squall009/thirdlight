@@ -10,6 +10,8 @@
 
 import type { DeclaredProperty } from '@thirdlight/project-model';
 
+import type { ScriptTypeCheckInput, ScriptTypeCheckResult } from './type-check';
+
 /** A pinned engine module the host allows a behavior graph to name (types only). */
 export interface PinnedModuleRef {
   /** e.g. `@thirdlight/runtime`. */
@@ -271,6 +273,12 @@ export interface BehaviorCompiler {
   checkLibrary?(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult>;
   /** The compile cache (a repeated compile of the same input is not run again). */
   cacheStats?(): { hits: number; misses: number; entries: number };
+  /**
+   * Type-check a script's source against the behavior API typings (the
+   * pinned TypeScript); nothing is produced. A script check runs it after a
+   * successful compile; a publish or a Play build never does.
+   */
+  typeCheck?(input: ScriptTypeCheckInput): Promise<ScriptTypeCheckResult>;
 }
 
 /** `checkScriptLibrary` input. */

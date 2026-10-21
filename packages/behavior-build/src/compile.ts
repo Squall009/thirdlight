@@ -39,6 +39,7 @@ import { createLibraryCache, resolveLibraries, type CompiledLibrary } from './li
 import { compileSharedLibraries, LINK_NAMESPACE, linkNamesInText, linkStubText } from './shared-libraries';
 import { readCodeDeclaration, rewriteCodeDeclaration } from './declare';
 import { GRAPH_SOURCE_BANNER } from './graph-banner';
+import { createScriptTypeChecker, type ScriptTypeChecker } from './type-check';
 import type {
   BehaviorCompileFailure,
   BehaviorCompileInput,
@@ -543,6 +544,7 @@ export function createBehaviorCompiler(
   const maxEntries = options.build !== undefined ? 0 : Math.max(0, options.cacheEntries ?? 256);
   const memo = new Map<string, BehaviorCompileSuccess>();
   const stats = { hits: 0, misses: 0 };
+  let typeChecker: ScriptTypeChecker | undefined;
   const keyOf = (input: BehaviorCompileInput): string =>
     sha256HexOfText(
       canonicalJsonText({
@@ -577,6 +579,8 @@ export function createBehaviorCompiler(
       });
     },
     cacheStats: () => ({ hits: stats.hits, misses: stats.misses, entries: memo.size }),
+    // One checker per instance: the standard library and the typings are parsed once.
+    typeCheck: (input) => (typeChecker ??= createScriptTypeChecker(options.now !== undefined ? { now: options.now } : {})).check(input),
     checkLibrary(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult> {
       return checkScriptLibrary({ ...input, pinnedModules }, compileOptions);
     },

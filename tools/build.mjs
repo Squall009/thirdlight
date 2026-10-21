@@ -271,7 +271,9 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     // ktx2-encoder loads its Basis WASM next to its own file
     // (import.meta.url) and jpeg-js is CommonJS: both from node_modules; the
     // WebP decoder's WASM file is read from its package there too.
-    external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js', '@jsquash/webp'],
+    // typescript (the script check's type checker) reads its lib .d.ts files
+    // next to its own file, and loads only when a script is checked.
+    external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js', '@jsquash/webp', 'typescript'],
     banner: {
       js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
     },

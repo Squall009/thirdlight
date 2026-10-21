@@ -19,9 +19,10 @@ import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { EditorState, type Extension } from '@codemirror/state';
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+import { BEHAVIOR_API_DTS } from '@thirdlight/behavior-build/api-typings';
 
 import { exportedTypeNames, memberCompletion, specMemberCompletion } from '../../session/script-sources';
-import { BEHAVIOR_API_DTS, BEHAVIOR_API_TYPES } from './behavior-api.generated';
+import { BEHAVIOR_API_TYPES } from './behavior-api.generated';
 
 /** One diagnostic to mark in the open file (1-based line/column; column optional). */
 export interface InlineDiagnostic {

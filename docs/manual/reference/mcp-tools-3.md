@@ -139,7 +139,7 @@ Capture a bounded screenshot (PNG data URL ≤ 1 MiB, maxWidth 256–2048) from 
 <a id="tool-tl_script_publish"></a>
 ## `tl_script_publish`
 
-Publish a script's TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/\<library> and its own .json files) or, with graph: true, a visual script from its stored graph; check: true compiles without publishing. The same route as the editor's Publish; a new script needs its record first (tl_command publishBehavior, mode declaration-create). A source not yet trusted answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.
+Publish a script's TypeScript source (files: [{path, text}], the entry src/index.ts; imports @lib/\<library> and its own .json files) or, with graph: true, a visual script from its stored graph; check: true compiles and type-checks without publishing (a type error: compiled false, behavior_type_error with file, line and column; a publish does not type-check). The same route as the editor's Publish; a new script needs its record first (tl_command publishBehavior, mode declaration-create). A source not yet trusted answers behavior_trust_unacknowledged with its sourceDigest: tl_command acknowledgeBehaviorTrust {sourceDigest}, then publish again.
 
 <a id="tool-tl_sessions"></a>
 ## `tl_sessions`

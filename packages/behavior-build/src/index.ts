@@ -16,7 +16,7 @@
  * holds only its type).
  */
 
-export { COMPILER_ID, COMPILER_LIMITS, COMPILER_OPTIONS, COMPILER_VERSION, ENTRY_PATH, ESBUILD_PIN, TYPESCRIPT_PIN, BEHAVIOR_API_VERSION, M2_PINNED_MODULES, OUTPUT_SCAN_PATTERNS, OUTPUT_SCAN_ENGINE_LETTER, OUTPUT_SCAN_HOST_LETTERS, compilerToolchain, esbuildPinMatches } from './limits';
+export { COMPILER_ID, COMPILER_LIMITS, COMPILER_OPTIONS, COMPILER_VERSION, ENTRY_PATH, ESBUILD_PIN, TYPESCRIPT_PIN, TYPE_CHECK_TIMEOUT_MS, BEHAVIOR_API_VERSION, M2_PINNED_MODULES, OUTPUT_SCAN_PATTERNS, OUTPUT_SCAN_ENGINE_LETTER, OUTPUT_SCAN_HOST_LETTERS, compilerToolchain, esbuildPinMatches } from './limits';
 export type { PinnedModuleRef } from './types';
 export {
   analyzeSourceGraph,
@@ -54,6 +54,9 @@ export type { BehaviorPrepareResult } from './prepare';
 export { compileBehaviorGraph, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, GRAPH_SOURCE_BANNER } from './graph';
 export type { BehaviorGraphCompileResult, GraphSourceOptions, GraphSourceResult } from './graph';
 export { canonicalJsonText, sha256Hex, sha256HexOfText } from './canonical';
+// The script type check (the pinned TypeScript against the generated API typings).
+export { createScriptTypeChecker, SCRIPT_GLOBALS_DTS, TYPE_ERROR_CODE } from './type-check';
+export type { ScriptTypeChecker, ScriptTypeCheckInput, ScriptTypeCheckResult } from './type-check';
 export type {
   BehaviorCompileFailure,
   BehaviorCompileInput,

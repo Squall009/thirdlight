@@ -97,6 +97,7 @@ budget.
 | 38.0 | Done 2026-10-21: three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 is out; the pinned 0.20.0 stays, since nothing in this phase needs it (a minor release would be its own item). |
 | 38.1 | Done 2026-10-21: D151 (the block layer counts hidden-set changes and owns the joined set; runtime.ts 4,154 → 4,146 lines), prefab objects keep their tags into placed and spawned copies (`ctx.tags` finds them until destroyed), E21 (imports matched in code only). New vitest checks in runtime, commands, project-model, behavior-build; no e2e change. Fast gate e2e 36/36 green; its village perf check missed twice (WebGPU p50 7.7 / 7.6 ms); interleaved A/B against `8315f041`, 3 rounds: A 7.7 / 7.7 / 7.9 ms, B 7.5 / 7.6 / 6.9 ms (plain three.js page 6.3–7.0 ms): host state (D290). |
 | 38.2 | Done 2026-10-21: a throwing hook (step, any callback; an async step or a returned value) switches off that one instance at the throw, its `dispose` runs once; one `runtime.errors` entry with `entityId`, step, phase and frames, one Problems line per script (`script_error_<id>`), the export prints it to the console; a run restart switches it on again; an `instantiate` that throws after the start (a loaded scene, a spawned copy, a restart) switches that instance off and the load or spawn completes. Hook code moved to `behavior-hooks.ts`, errors to `behavior-errors.ts` (behavior.ts 1,945 → 1,677; runtime.ts 4,146 → 4,145). Vitest: runtime unit checks (spawned copy and loaded scene with a throwing `instantiate` included), `tests/integration/m38-script-errors` (page and worker, real 3D physics, a step and an `onMessage` throw); 9 tests that asserted the old halt rewritten. `playtest.e2e.ts` MCP step rewritten (the game runs on; source line; Problems; play-test run errors): 28.3 s (last full gate) → 15.7 s. Fast gate: build, lint, vitest 734 files, e2e 33/33 green; village perf missed twice (WebGPU p50 7.6 / 6.8 ms); A/B against `8315f041`, 3 rounds: A 7.7 / 7.5 / 7.9 ms, B 7.9 / 7.9 / 7.7 ms: host state (D290); the follow-up's fast gate green again but for the same miss (7.7 ms), within the same hour as that A/B. |
+| 38.3 | Done 2026-10-21: a script check (`tl_script_publish {check}`, the editor's idle check / Ctrl+S) type-checks a source that builds with the pinned TypeScript 5.9.3 (now a `behavior-build` dependency, loaded on first check, external in the backend bundle) against the generated API typings (moved to `behavior-build/api-typings`; the editor shows the same), in memory with the script's modules and the project's libraries; a type error answers `compiled: false`, `behavior_type_error` with file, line, column and the option type's fields (`blendTime` → "CameraBlendOptions has: blend, time"). Check time: first check 0.6 s (compiler load), typical script 4–9 ms warm, a 64 KiB / 1,442-line module 41–55 ms warm (109 ms first). Vitest at the real build (`type-check.test.ts`) and through real MCP + backend HTTP (`onboarding.test.ts`: check refuses, publish of the same source goes through); `script-editor.e2e.ts` gained the type-error step: 7.9 s (last full gate) → 10.7 s (fast gate; earlier fast gates 9.4–22 s). Fast gate: build, lint, vitest 735 files, e2e 41/41 green; village perf missed twice (WebGL 2 p50 5.2 / 5.1 ms); A/B against `8315f041`, 3 rounds: WebGL 2 A 4.6 / 4.9 / 5.8, B 4.7 / 6.0 / 5.2 ms, WebGPU A 5.7 / 5.7 / 6.0, B 5.6 / 8.3 / 7.9 ms (load 2.6 → 8.7): host state (D290). |
 
 ## 5. Decision log
 
@@ -135,3 +136,18 @@ budget.
 - 2026-10-21 (38.2): `features/debugging.md` and `features/scripting.md`
   said a debug command declared twice and a zero `facing` "stop the game";
   both were already refusals (a log line, no stop), and say so now.
+- 2026-10-21 (38.3): a type error makes `check` refuse (`compiled: false`,
+  code `behavior_type_error`, `reason` the TypeScript error as `ts2353`),
+  since a check is "may I publish this"; a publish (MCP, the editor's
+  Publish, a library save's recompiles) and a Play build never type-check,
+  so a project whose scripts have type errors still opens and runs. The
+  check is `strict` minus `noImplicitAny` and `strictNullChecks`: the
+  manual's `step(state, ctx)` is unannotated (the entry's default export is
+  checked as `BehaviorSpec<any, any>`, so `ctx` is typed), and nearly every
+  `ctx` member is optional in the typings while Play always has it, so null
+  checks would flag every documented `ctx.camera.activate(…)`. Visual
+  scripts are not type-checked (their source is generated; a type error
+  there is an engine bug, covered by the generator's own tests). A script
+  library's own check (its tab) is not type-checked yet; a script check
+  reports type errors in the libraries it imports, with the library named.
+  Default chosen, owner to confirm.

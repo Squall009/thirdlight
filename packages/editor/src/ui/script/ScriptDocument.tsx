@@ -19,6 +19,7 @@
  * Browser-only (React).
  */
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { BEHAVIOR_API_DTS } from '@thirdlight/behavior-build/api-typings';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 
 import { BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL, BEHAVIOR_TRUST_NOTICE, type CompileDiagnosticView } from '../../session/behavior-publication';
@@ -38,7 +39,6 @@ import {
   type ScriptContainer,
 } from '../../session/script-sources';
 import { DeclarationEditor, type DeclarationSave } from '../DeclarationEditor';
-import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import type { SourceFocus } from '../../session/source-location';
 import type { ScriptPublishOutcome } from '../../session/script-publish';

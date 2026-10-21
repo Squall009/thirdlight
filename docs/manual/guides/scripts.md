@@ -41,7 +41,8 @@ Everything a script can do: [Scripting](../features/scripting.md) and the
      },
    };
    ```
-   Ctrl+S compiles without publishing; problems are underlined.
+   Ctrl+S compiles and type-checks without publishing; problems are
+   underlined.
    **Publish**: the first time a source is published, the trust notice
    asks you to acknowledge it.
 3. Select an object, **+ Add component → Script**, pick the script under
@@ -61,9 +62,14 @@ MCP's `tl_script_publish` sends to it, and so can any HTTP client.
    `{"behaviorId": "scorer", "displayName": "Scorer", "mode": "declaration-create", "declaration": {"properties": []}}`.
 3. Check it compiles: `tl_script_publish`
    `{"behaviorId": "scorer", "check": true, "files": [{"path": "src/index.ts", "text": "…"}]}`
-   answers `compiled`, the diagnostics with their file and line, the
-   declaration the code declares and the source's `sourceDigest`. Nothing
-   is written.
+   answers `compiled`, the diagnostics with their file, line and column,
+   the declaration the code declares and the source's `sourceDigest`.
+   Nothing is written. A source that builds is then type-checked against
+   the script API typings: a type error answers `compiled: false` with
+   `code: "behavior_type_error"` (each diagnostic's `reason` is the
+   TypeScript error, e.g. `ts2353` for an unknown option field); a clean
+   one answers `typeChecked: true`. Publishing does not type-check, so a
+   project whose scripts have type errors still opens and plays.
 4. Publish it: the same with `"displayName": "Scorer"` and
    `"expectedRevision"` instead of `check` (`ownedTransforms: ["@self"]`
    when it moves its own object). While the source's digest is not

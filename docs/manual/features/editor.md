@@ -158,9 +158,15 @@ The "Script: <behavior>" tab edits a behavior's TypeScript source.
   publishing uses — without publishing or storing anything. Problems are
   underlined in the code, marked in the gutter, counted on their file and
   listed under the code (`src/index.ts:7:96 …`; click one to jump there).
-  The compiler checks syntax, imports and the declaration; it does not
-  type-check, so a misspelt member shows only when the script runs.
-- **Publish**: compiles again and publishes the source through the ordinary
+  The check covers syntax, imports and the declaration, then type-checks
+  the files (with the libraries they import) against the script API
+  typings: a misspelt member or a wrong option name (`{ blendTime }` where
+  the field is `time`) is listed like a compile error, with the fields the
+  option type has. `step(state, ctx)` needs no annotations: `ctx` is
+  typed as the step context. The type check is strict except for
+  implicit `any` and null checks.
+- **Publish**: compiles again (without the type check, so a type error
+  never stops a publish) and publishes the source through the ordinary
   source route — one `publishBehavior` command, one undo step. A source
   digest that was never acknowledged first shows the trust notice and asks
   for the acknowledgment of that exact digest (its own command). Play then

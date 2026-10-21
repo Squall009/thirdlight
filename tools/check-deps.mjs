@@ -93,7 +93,7 @@ const PIN_CONSUMERS = {
   'react-dom': 'editor (packet 10)',
   '@types/react': 'editor, dev (packet 10)',
   '@types/react-dom': 'editor, dev (packet 10)',
-  typescript: 'workspace (root dev)',
+  typescript: 'workspace (root dev) + behavior-build (the script check\'s type checker; loaded from node_modules, never in a browser bundle)',
   esbuild: 'workspace build script (root dev) + exporter (packet 12)',
   vitest: 'workspace (root dev)',
   '@types/node': 'Node-side packages (backend, workspace, exporter, mcp-adapter), dev — replaces the hand-written ambient stubs (D21)',
