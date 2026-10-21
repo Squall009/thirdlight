@@ -24,7 +24,9 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box or polygon collider it carries the player standing on
-  it and pushes a player it moves into (a polygon by its exact shape). A mover rising beside or under the player
+  it and pushes a player it moves into (a polygon by its exact shape); in 3D
+  any collider that can move (box, sphere, capsule, convex) does, by its
+  bounding box. A mover rising beside or under the player
   (a gate opening, a pillar) pushes the player aside, never up: only a player
   above it rides it up. The Scene view draws its path. More
   signals — **Stop on signal** holds it where it is, **Toggle on signal** moves

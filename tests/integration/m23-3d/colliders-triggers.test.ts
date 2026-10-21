@@ -220,3 +220,40 @@ describe('a start scene with nothing physical in a project that needs the 3D bac
     }
   }, 60_000);
 });
+
+describe('a mover sliding into the player in 3D', () => {
+  // A 1 m block slides 5 m along −x at 2 m/s into an idle player on the floor (page and worker): as a box and as a
+  // convex hull of the same cube (a model's collider; a triangle mesh never moves), it pushes the player ahead of it.
+  const cube = [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]];
+  const shapes = [{ type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 }, { type: 'convex', points: cube }];
+  it('pushes the player ahead of it and never up, box and convex alike', async () => {
+    const ends: number[] = [];
+    for (const shape of shapes) {
+      for (const mode of ['single', 'worker'] as const) {
+        const scene = sceneOf(
+          [
+            CAM,
+            { id: 'player-0001', components: { transform: T([0, 0.95, 0]), controller: {} } },
+            { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } } },
+            { id: 'block-0001', components: { transform: T([3, 0.5, 0]), collider: { shape }, mover: { waypoints: [[-5, 0, 0]], speed: 2, mode: 'once' } } },
+          ],
+          'd3push',
+        );
+        const a = await run(mode, scene, 420);
+        try {
+          expect(a.at('block-0001')[0]).toBeCloseTo(-2, 6);
+          const p = a.at('player-0001');
+          // Ahead of the block's face (−2.5) by about the capsule's radius, on the floor, not slid off along z.
+          expect(p[0]).toBeLessThan(-2.8 + 2e-3);
+          expect(p[0]).toBeGreaterThan(-2.95);
+          expect(p[1]).toBeLessThan(0.9 + 0.03);
+          expect(Math.abs(p[2]!)).toBeLessThan(0.01);
+          ends.push(p[0]!);
+        } finally {
+          await a.h.dispose();
+        }
+      }
+    }
+    expect(Math.max(...ends) - Math.min(...ends)).toBeLessThan(0.02);
+  }, 120_000);
+});

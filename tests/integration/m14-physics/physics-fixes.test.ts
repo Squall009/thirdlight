@@ -179,3 +179,51 @@ describe('a character start inside a one-way platform', () => {
     expect(y).toBeLessThan(REST_Y + 0.01);
   });
 });
+
+describe('a mover sliding into the character pushes it sideways (Sprout question 2)', () => {
+  // A 1 m block on the floor slides 5 m left at 2 m/s into an idle player.
+  // As a box centred on its entity, and as a polygon standing on its origin
+  // (a model's collider, as a kit ledge piece carries it): the same push.
+  const blocks = {
+    box: { y: 0.5, bottom: -0.5, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
+    polygon: { y: 0, bottom: 0, collider: { shape: { type: 'polygon', vertices: [[-0.5, 0], [0.5, 0], [0.5, 1], [-0.5, 1]] } } },
+  } as const;
+  it('pushes the player ahead of it, never into it nor up, box and polygon alike', async () => {
+    const ends: number[] = [];
+    for (const b of Object.values(blocks)) {
+      const block = box('block-0001', 3, b.y, { collider: b.collider, mover: { waypoints: [[-5, 0, 0]], speed: 2, mode: 'once' } });
+      const L = await level([0, REST_Y], [block], () => ({ moveX: 0, jump: 'none' }));
+      expect(L.started.ok).toBe(true);
+      let maxY = -Infinity;
+      for (let i = 0; i < 360; i++) {
+        L.tick();
+        const [x, y] = L.pos('player-0001');
+        maxY = Math.max(maxY, y);
+        // Never inside the block: its left face (x − 0.5) less the capsule's radius.
+        expect(x).toBeLessThan(L.pos('block-0001')[0] - 0.5 - 0.3 + 2e-3);
+      }
+      expect(L.pos('block-0001')[0]).toBeCloseTo(-2, 6);
+      const x = L.pos('player-0001')[0];
+      expect(x).toBeLessThan(-2.8 + 2e-3);
+      expect(x).toBeGreaterThan(-2.9);
+      expect(maxY).toBeLessThan(REST_Y + 0.01);
+      expect(L.failed()).toBe(false);
+      ends.push(x);
+    }
+    expect(Math.abs(ends[0]! - ends[1]!)).toBeLessThan(0.01);
+  });
+
+  it('a polygon platform sliding sideways carries the player standing on it', async () => {
+    const ledge = box('ledge-0001', 0, 2, { collider: { shape: { type: 'polygon', vertices: [[-1, 0], [1, 0], [1, 0.25], [-1, 0.25]] } }, mover: { waypoints: [[3, 0, 0]], speed: 1.5, mode: 'once' } });
+    const L = await level([0, 2.25 + REST_Y], [ledge], () => ({ moveX: 0, jump: 'none' }));
+    expect(L.started.ok).toBe(true);
+    L.tick(300);
+    expect(L.pos('ledge-0001')[0]).toBeCloseTo(3, 6);
+    const [x, y] = L.pos('player-0001');
+    expect(x).toBeGreaterThan(3 - 0.02);
+    expect(x).toBeLessThan(3 + 0.02);
+    expect(y).toBeGreaterThan(2.25 + REST_Y - 0.02);
+    expect(y).toBeLessThan(2.25 + REST_Y + 0.02);
+    expect(L.failed()).toBe(false);
+  });
+});
