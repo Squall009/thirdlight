@@ -69,19 +69,20 @@ new e2e.
 | 39b.2 | **Split `RuntimeInstance`** into subsystem modules behind interfaces (scene set, entities and access, physics bridge, behaviours and hooks, audio, camera, UI, saves, streaming, diagnostics; the boundaries are chosen from the code). `RuntimeInstance` becomes a composition root. `runtime.ts` falls under 2,000 lines. |
 | 39b.3 | **Split `createSceneAdapter`** (three-adapter) and **`createBackend`** (backend) the same way: per-subsystem modules wired by a thin root. |
 | 39b.4 | **Split the editor's large units:** `EditorApp`, `Viewport`, `SessionClientCore`, `GraphEditor` and `attachBrowserInput`, each into per-area modules or hooks. `asset-pipeline/src/inspect.ts` is split per asset kind. |
-| 39b.5 | **The test gate inside 15 min.** Fix or delete each of the 22 watch tests: fixed if it guards something real, deleted with a note if it duplicates another test. Merge and prune e2e files (one backend per file; browser-free checks move to vitest) until `full --both-renderers` runs ≤ 15 min on this host with 2 workers (D253 closed). |
+| 39b.5 | **A lean test gate.** Fix or delete each of the 22 watch tests: fixed if it guards something real, deleted with a note if it duplicates another test. Merge and prune e2e files that duplicate coverage (one backend per file; browser-free checks move to vitest). There is no fixed time budget (owner, 2026-10-21): the gate must not grow without need, and each phase records its time against the previous one (D253 closed). |
 | 39b.6 | **Apply the owner's decisions.** Every default from the decision list is marked confirmed or reversed in its plan. Reversals are implemented as items here (or moved to the phase that owns the area, if larger). The phases the owner has looked at are marked done without "owner look pending". |
 | 39b.7 | **The defect list gets a status column** (open / fixed `<commit>` / superseded / won't fix). Every row is classified; fixed and stale rows are closed with evidence; duplicates are merged. STATUS.md shows the open counts. |
 | 39b.8 | **Old formats out.** Drop types and upgrade code for project formats older than the oldest version a supported project can still be on (default: older than schema 6 — every template and game repo is at 7). An older project is refused with a clear message naming the last engine version that upgrades it. Default chosen, owner to confirm. |
 | 39b.9 | **Two-place logic shared where possible.** For each of the 19 parity pairs, either one implementation serves both sides (shared module) and the parity test goes, or the reason it can't (CPU reference for a GPU shader, for example) is written next to the pair. |
 | 39b.10 | **Small hygiene:** `package.json` descriptions say what each package is today (no history); the boundary exceptions are reviewed (each one justified or removed); the repeated tolerances become named constants in their owners; the Inspector's hand-built panels that duplicate descriptor fields move to descriptors (the rest are declared exceptions). |
-| 39b.11 | **Acceptance:** the size rule passes with the ratchet list shorter; `runtime.ts` and `inspect.ts` are under 2,000 lines; the full gate runs ≤ 15 min and is green; no perf class regresses at the cap; the open D-row count is known. Then the phase review. |
+| 39b.10b | **Occlusion culling (owner, 2026-10-21):** it stays off by default, since it made too little difference to matter. The WebGL 2 occlusion-query path is removed (about 700 lines and 4 private three.js hooks; D287). The WebGPU path stays opt-in (`occlusion_culling: 2`) for a later performance pass (D282, D286). |
+| 39b.11 | **Acceptance:** the size rule passes with the ratchet list shorter; `runtime.ts` and `inspect.ts` are under 2,000 lines; the full gate is green and shorter than at the phase start; no perf class regresses at the cap; the open D-row count is known. Then the phase review. |
 | 39b.12 | **Review fixes.** |
 
 **Done when:**
 - No unit grows past the size rule, and the ratchet list only shrinks.
 - The runtime, adapter, backend and editor roots are composition roots.
-- The full gate is green in ≤ 15 min.
+- The full gate is green, with no duplicated coverage and no watch tests left.
 - The defect list has a status for every row.
 - Every logged default is confirmed or reversed.
 
@@ -96,3 +97,6 @@ new e2e.
 - 2026-10-21: Planned from the maintainability assessment, on the owner's
   approval of a consolidation phase between 39 and 40, the placement pipeline
   folded into 40, and a batched owner decision session.
+- 2026-10-21 (owner, decision session): no fixed gate-time budget; the gate
+  must just not grow without need (AGENTS.md updated). Occlusion culling
+  stays off; the WebGL 2 query path is removed (39b.10b).

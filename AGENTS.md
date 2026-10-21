@@ -34,10 +34,11 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   detached (`tools/gate.sh start full …`, then `tools/gate.sh wait`) so it
   outlives the session that started it. A test that fails in the full run
   and passes alone gets a watch D-row; the full gate is never run twice.
-- The phase-end full gate (`full --both-renderers`) has a budget of 15 min.
+- The full gate has no fixed time budget, but it must not grow without need.
   A phase that adds e2e time extends or replaces existing tests (one backend
-  per file, browser-free checks in vitest) to stay inside it; the phase
-  review checks the gate's time.
+  per file, browser-free checks in vitest) rather than adding files; each
+  phase records the gate's time against the previous phase, and the phase
+  review questions any growth that new coverage doesn't explain.
 - Comments say why the code is the way it is. No phase numbers, item ids,
   dates or `§` spec references in source comments; history lives in git and
   `docs/plan-phase-*.md`.

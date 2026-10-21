@@ -112,6 +112,21 @@ first.
   - The default input maps and the audio panning default move to the scene's
     plane setting.
 
+### Telling game teams what to migrate (owner, 2026-10-21)
+
+Every upgrade on load writes a Problems line for each converted item, so a
+game team can review and fix it properly in the unified system. Converted
+items include:
+- a 2D collider (with the depth it was given);
+- a polygon split into prisms;
+- a one-way platform;
+- a 2D trigger, mover or switch;
+- the project's former 2D setting.
+
+Each line names the object and the new field to check. The lines stay until
+the item is saved in its new form. Lines are grouped by kind, so a large
+project gets a readable list, not thousands of rows.
+
 ### Export and removal
 
 - One physics wasm ships.
