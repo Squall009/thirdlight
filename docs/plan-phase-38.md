@@ -1,6 +1,6 @@
 # Phase 38 — Requests from Sprout, Skyforge Tactics and Temporal, third batch
 
-Status: in progress (started 2026-10-21).
+Status: done 2026-10-21, owner look pending.
 
 Goal: close the engine gaps the three game projects reported after phase 28,
 as generic capabilities. Most of the work is about scripts that fail
@@ -403,3 +403,20 @@ budget.
 - 2026-10-21 (38.13): a 2D transform key that cannot place a player
   character (a physics world without placements) logs one line per
   character.
+- 2026-10-21, phase review (fresh agent, `~/.cache/thirdlight-phase38/review.md`):
+  1 High, 10 Medium, 21 Low. **High:** an async hook kept acting after its
+  script was switched off (determinism broken). **Medium:** later errors of a
+  script never reached Problems or the export console; Problems codes could
+  collide; engine failures inside `ctx` calls were blamed on the script; a
+  stopped cutscene left the character disabled; a cutscene lost its hold when
+  the character's scene loaded the same step; the 3D mover push missed a
+  rider on the rim and every character after the first; Apply to prefab could
+  capture a parent copy; the content-lifetime test was timing-fragile; the
+  first type check blocked the backend's event loop. All fixed in 38.13
+  (part A `1687cc81`, `472e9d10`; part B `911dd219` … `43184f6d`) except
+  M3's general case (D296). Rule checks passed: no file grown past 2,000
+  lines (`runtime.ts` 4,154 → 3,988), no history comments, no per-project
+  caps, boundaries kept, tests at real boundaries. Owner to read: every
+  "default chosen, owner to confirm" row above; existing 2D projects'
+  block layers now collide; the wall-paint fix changes existing wall-painted
+  levels' look; the gate's 26 min against the 15 min budget (D253).
