@@ -307,6 +307,25 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     minify: false,
   });
   console.log('build: backend (terrain erosion worker): packages/backend/src/erosion-worker.ts -> dist/backend/erosion-worker.mjs');
+  // The script type check's worker thread, beside the bundle.
+  await esbuild.build({
+    entryPoints: [join(root, 'packages/backend/src/type-check-worker.ts')],
+    outfile: join(root, 'dist/backend/type-check-worker.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: true,
+    sourcemap: false,
+    minify: false,
+    // typescript and esbuild (the source scan's) load from node_modules, as for the bundle.
+    external: ['typescript', 'esbuild'],
+    // A bundled CommonJS dependency's require of a Node built-in, as in the bundle itself.
+    banner: {
+      js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
+    },
+  });
+  console.log('build: backend (script type check worker): packages/backend/src/type-check-worker.ts -> dist/backend/type-check-worker.mjs');
   // The manual the backend serves (GET /api/v1/docs, MCP tl_docs), copied beside the bundle so a running
   // backend answers with the manual of its own build, not of whatever the checkout holds later.
   const docsOut = join(root, 'dist', 'docs');

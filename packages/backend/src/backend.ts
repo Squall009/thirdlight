@@ -52,6 +52,11 @@ const KTX2_WORKER: URL | null = (() => {
   const url = new URL('./ktx2-worker.mjs', import.meta.url);
   return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
 })();
+/** The script type check's worker beside the bundle (null from source: checks run in process). */
+const TYPE_CHECK_WORKER: URL | null = (() => {
+  const url = new URL('./type-check-worker.mjs', import.meta.url);
+  return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
+})();
 /** The terrain erosion worker script beside the bundle (null from source: erosion runs in process). */
 const EROSION_WORKER: URL | null = (() => {
   const url = new URL('./erosion-worker.mjs', import.meta.url);
@@ -153,7 +158,7 @@ export function createBackend(
 
   // One compiler instance for both the injected workspace path and
   // the play build's deterministic behavior-output recompilation.
-  const behaviorCompiler = createBehaviorCompilerPort(nowMs);
+  const behaviorCompiler = createBehaviorCompilerPort(nowMs, TYPE_CHECK_WORKER);
   const assetInspector = createAssetInspector();
   // The mesh simplifier (its WebAssembly module) is in before the backend serves: what a spline makes gets the same
   // levels of detail from the first command on.

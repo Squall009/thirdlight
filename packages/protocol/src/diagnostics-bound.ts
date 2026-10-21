@@ -118,21 +118,35 @@ function fitWithin(source: Record<string, unknown>, budget: number, plan: FitPla
   }
   // Last, the oldest errors.
   if (over()) dropFromLog(true);
-  const trimmed: PlayDiagnosticsTrim = { logEntries, errorEntries, lists, omitted, merged };
-  return { ...d, trimmed };
+  return { ...d, trimmed: noteWithinRoom({ logEntries, errorEntries, lists, omitted, merged }) };
+}
+
+/** The paths of a by-path count with the most rows first, at most `n`; the rest summed under "…". */
+function largestPaths(m: Readonly<Record<string, number>>, n: number): Readonly<Record<string, number>> {
+  const rows = Object.entries(m).sort((a, b) => b[1] - a[1]);
+  if (rows.length <= n) return m;
+  return { ...Object.fromEntries(rows.slice(0, n)), '…': rows.slice(n).reduce((sum, [, v]) => sum + v, 0) };
+}
+
+/**
+ * The note within its room: when it names many paths (a big answer cut in
+ * many places), it keeps the paths that lost the most and counts the rest,
+ * so the note never takes room from the answer (its errors above all).
+ */
+function noteWithinRoom(t: PlayDiagnosticsTrim): PlayDiagnosticsTrim {
+  for (let n = 8; bytesOf({ trimmed: t }) > NOTE_ROOM && n >= 0; n -= n > 1 ? Math.ceil(n / 2) : 1) {
+    const all = t.omitted.length;
+    t = { ...t, lists: largestPaths(t.lists, n), merged: largestPaths(t.merged, n), omitted: all > n ? [...t.omitted.slice(0, n), `… ${all - n} more`] : t.omitted };
+  }
+  return t;
 }
 
 /** The answer as it is when it fits `maxBytes`; else a copy that fits, with a `trimmed` note (see the module comment for the order). */
 function fitAnswer(answer: Record<string, unknown>, maxBytes: number, plan: FitPlan): Record<string, unknown> {
   if (bytesOf(answer) <= maxBytes) return answer;
-  let budget = Math.max(0, maxBytes - NOTE_ROOM);
-  let fit = fitWithin(answer, budget, plan);
-  // A note longer than its room (many trimmed paths) takes it from the answer.
-  for (let i = 0; i < 4 && bytesOf(fit) > maxBytes; i += 1) {
-    budget = Math.max(0, budget - (bytesOf(fit) - maxBytes) - 64);
-    fit = fitWithin(answer, budget, plan);
-  }
-  return fit;
+  const fit = fitWithin(answer, Math.max(0, maxBytes - NOTE_ROOM), plan);
+  // Over only when a part the plan keeps (an observation's header) is itself near the bound: everything else goes.
+  return bytesOf(fit) <= maxBytes ? fit : fitWithin(answer, 0, plan);
 }
 
 /**

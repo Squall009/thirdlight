@@ -66,6 +66,7 @@ import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import { importKeyOfConverted, type CommandError, type IntegrityPage, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
+import { createTypeCheckRunner } from './type-check-runner';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
 import { checkTrimSheetTexture } from './trim-check';
 import { trimSheetErrors, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
@@ -188,8 +189,12 @@ export function createAssetInspector(): StageInspector {
  * The pinned module table travels with the instance, so the prepared manifest
  * records the host's actual pins.
  */
-export function createBehaviorCompilerPort(now: () => number): BehaviorCompiler {
-  return createBehaviorCompiler({ now });
+export function createBehaviorCompilerPort(now: () => number, typeCheckWorker: URL | null = null): BehaviorCompiler {
+  const compiler = createBehaviorCompiler({ now });
+  if (typeCheckWorker === null || compiler.typeCheck === undefined) return compiler;
+  // The type check runs on its worker thread (the compiler's own check is the fallback from source).
+  const runner = createTypeCheckRunner(typeCheckWorker, compiler.typeCheck.bind(compiler));
+  return { ...compiler, typeCheck: (input) => runner.check(input) };
 }
 
 // ---- bounded job coordination -------------------------------------------------

@@ -101,6 +101,21 @@ describe('Play diagnostics within the relay bound', () => {
     expect(fit.trimmed.omitted).toContain('buildId');
   });
 
+  it('a note naming many cut paths stays within its room and never costs an error', () => {
+    const thrown = (i: number) => ({ code: 'module_error', reason: 'behavior_step_failed', message: `error ${i} ${'z'.repeat(300)}`, stepIndex: i });
+    const errors = Array.from({ length: 10 }, (_, i) => thrown(i));
+    // 600 lists, each at its own long path, every one cut: the note would name 600 paths.
+    const lists = Object.fromEntries(Array.from({ length: 600 }, (_, i) => [`a-rather-long-list-name-${String(i).padStart(4, '0')}`, Array.from({ length: 4 }, (_, j) => ({ row: j, text: 'w'.repeat(40) }))]));
+    const fit = fitPlayDiagnostics({ runtime: { state: 'running', errors, errorCount: 10 }, renderer: lists, buildId: 'b' }) as { runtime: { errors: unknown[] }; trimmed: { errorEntries: number; lists: Record<string, number>; omitted: string[] } };
+    expect(bytes(fit)).toBeLessThanOrEqual(PLAY_DIAGNOSTICS_MAX_BYTES);
+    expect(fit.runtime.errors).toHaveLength(10);
+    expect(fit.trimmed.errorEntries).toBe(0);
+    expect(bytes({ trimmed: fit.trimmed })).toBeLessThanOrEqual(512);
+    // The largest cuts by path, the rest counted together.
+    expect(fit.trimmed.lists['…']).toBeGreaterThan(0);
+    expect(Object.values(fit.trimmed.lists).reduce((a, b) => a + b, 0)).toBe(600 * 4);
+  });
+
   it('trims an oversize observation instead of the bridge refusing it: the header and a failed run\'s error stay', () => {
     const header = { ok: true, playSessionId: `play-${'a'.repeat(32)}`, snapshotId: 'snap', buildId: 'b', runId: 'snap@r1#0', revision: 1, observedAt: '2026-10-21T00:00:00Z', stepIndex: 9, simTime: 0.1, state: 'running', error: { code: 'module_error', message: 'stopped' }, inputMode: 'physical', sound: { status: 'ready', unlocked: true, muted: false, voices: 0, gesture: 'none' } };
     const o = { ...header, player: { x: 1, y: 2, z: 3 }, debug: { trace: Array.from({ length: 900 }, (_, i) => `node-${i}`) }, audio: { voices: Array.from({ length: 40 }, () => ({ assetId: 'fire-crackle', gain: 0.5 })) }, ui: { values: 'v'.repeat(9000) } };

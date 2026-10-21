@@ -7,7 +7,7 @@
  */
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { canonicalContainerText, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, TYPE_CHECK_TIMEOUT_MS, TYPE_ERROR_CODE } from '@thirdlight/behavior-build';
-import { BEHAVIOR_ENTRY_PATH, ID_RE } from '@thirdlight/project-model/limits';
+import { BEHAVIOR_ENTRY_PATH, ID_RE, MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 
@@ -210,7 +210,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
     }
     if (outcome.kind === 'compile') {
       recordProblem(projectId, 'compile', outcome.failure.code, `Script ${behaviorId} failed to compile: ${outcome.failure.reason}`);
-      const diagnostics = outcome.failure.diagnostics.slice(0, 32);
+      const diagnostics = outcome.failure.diagnostics.slice(0, MAX_BEHAVIOR_DIAGNOSTICS);
       sendJson(res, 400, {
         ok: false,
         error: {
@@ -277,7 +277,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
         return;
       }
       const g = gen.result;
-      const warnings = g.problems.slice(0, 32).map((p) => ({ message: p.message, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}) }));
+      const warnings = g.problems.slice(0, MAX_BEHAVIOR_DIAGNOSTICS).map((p) => ({ message: p.message, ...(p.nodeId !== undefined ? { nodeId: p.nodeId } : {}) }));
       let compiled;
       try {
         compiled = await behaviorCompiler.compile({ behaviorId, declaration: g.declaration, containerBytes: g.containerBytes, pinnedModules: behaviorCompiler.pinnedModules });
@@ -299,7 +299,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
         });
         return;
       }
-      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: compiled.code, reason: String(compiled.reason).slice(0, 256), diagnostics: diagnosticsWithNodes(compiled.diagnostics.slice(0, 32), g.lineNodes), warnings });
+      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: compiled.code, reason: String(compiled.reason).slice(0, 256), diagnostics: diagnosticsWithNodes(compiled.diagnostics.slice(0, MAX_BEHAVIOR_DIAGNOSTICS), g.lineNodes), warnings });
       return;
     }
     for (const key of Object.keys(value)) {
@@ -362,7 +362,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
       }
     }
     if (result.ok && typed !== null && typed.diagnostics.length > 0) {
-      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: TYPE_ERROR_CODE, reason: 'types', diagnostics: typed.diagnostics.slice(0, 32) });
+      sendJson(res, 200, { ok: true, compiled: false, behaviorId, code: TYPE_ERROR_CODE, reason: 'types', diagnostics: typed.diagnostics.slice(0, MAX_BEHAVIOR_DIAGNOSTICS) });
       return;
     }
     if (result.ok) {
@@ -391,7 +391,7 @@ export function makeBehaviorSourceRoutes(ctx: BehaviorSourceRoutesContext) {
       behaviorId,
       code: result.code,
       reason: String(result.reason).slice(0, 256),
-      diagnostics: result.diagnostics.slice(0, 32),
+      diagnostics: result.diagnostics.slice(0, MAX_BEHAVIOR_DIAGNOSTICS),
     });
   };
 

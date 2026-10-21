@@ -745,7 +745,7 @@ function uiObservation(h: M3PreviewHandle, ui: unknown): { ui?: Record<string, u
 /**
  * `debugCommands` {registered [{name, description, args}], applied
  * [{stepIndex, name, args}] (the last 16)} and `start` (what the start options
- * did), for tl_game_observe — bounded (32 commands, 16 calls).
+ * did), for tl_game_observe (32 commands, 16 calls).
  */
 function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<string, unknown>; start?: Record<string, unknown> } {
   const st = h.host.runtime.debugCommandState?.();
@@ -754,9 +754,8 @@ function debugCommandsObservation(h: M3PreviewHandle): { debugCommands?: Record<
   if (st !== undefined && (st.registered.length > 0 || st.applied.length > 0)) {
     const applied = st.applied.slice(-16).map((a) => ({ stepIndex: a.stepIndex, name: a.name, args: { ...a.args } }));
     const registered = st.registered.slice(0, 32).map((c) => ({ name: c.name, description: c.description, args: c.args.map((a) => ({ ...a })) }));
+    // A big list is trimmed with the rest of the observation (fitGameObservation), oldest rows first.
     debugCommands = { registered, applied };
-    // The observation's 16 KiB bound: long descriptions go first, then the oldest calls.
-    if (JSON.stringify(debugCommands).length > 6000) debugCommands = { registered: registered.map((c) => ({ ...c, description: c.description.slice(0, 24) })), applied: applied.slice(-8), truncated: true };
   }
   return {
     ...(debugCommands !== undefined ? { debugCommands } : {}),
