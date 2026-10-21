@@ -10,9 +10,9 @@ import { M2_PINNED_MODULES } from './limits';
 
 const DECLARATION = { properties: [{ key: 'speed', label: 'Speed', type: 'number' as const, default: 1 }] };
 
-function container(files: { path: string; text: string }[]): Uint8Array {
+function container(files: { path: string; text: string }[], requiredModules: string[] = []): Uint8Array {
   return new TextEncoder().encode(
-    canonicalContainerText({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: [], ownedTransforms: [], files }),
+    canonicalContainerText({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules, ownedTransforms: [], files }),
   );
 }
 
@@ -78,15 +78,38 @@ describe('an import-scan hit says where it is (line; comment, string or code)', 
     expect(f.d.message).toContain('inside a comment');
   });
 
-  it('an import in a block comment, and a declaration whose "from" is in a trailing comment', async () => {
-    const block = await failure(`/*\n  import fs from 'fs';\n*/\n${STEP}`);
-    expect(block.code).toBe('behavior_import_forbidden');
-    expect(block.d.line).toBe(2);
-    expect(block.d.message).toContain('inside a comment');
-    const trailing = await failure(`${STEP}export const a = 1; // loaded from 'disk'\n`);
-    expect(trailing.code).toBe('behavior_import_forbidden');
-    expect(trailing.d.line).toBe(2);
-    expect(trailing.d.message).toContain('inside a comment');
+  const compiles = async (text: string, requiredModules: string[] = []): Promise<void> => {
+    const r = await compileBehavior({ behaviorId: 'b', declaration: DECLARATION, containerBytes: container([{ path: 'src/index.ts', text }], requiredModules), pinnedModules: M2_PINNED_MODULES });
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.diagnostics)).toBe(true);
+  };
+
+  it('an import declaration in a comment or a string is not an import', async () => {
+    await compiles(`/*\n  import fs from 'fs';\n*/\n${STEP}`);
+    await compiles(`${STEP}export const a = 1; // loaded from 'disk'\n`);
+    await compiles(`${STEP}export const help = "import fs from 'fs'";\n`);
+    await compiles(`${STEP}export const help = \`export * from 'net'\`;\n`);
+  });
+
+  it('a comment with the word "import" above a type-only engine import keeps the import type-only', async () => {
+    const text = [
+      '// The engine refuses import cycles (type-only imports too), so the helpers live in this file.',
+      "import type { BehaviorContext } from '@thirdlight/runtime';",
+      'export default { step(_s: unknown, _ctx: BehaviorContext) {} };',
+      '',
+    ].join('\n');
+    await compiles(text, ['@thirdlight/runtime']);
+    // The same file with a real value import of the engine is still refused, on its own line.
+    const f = await failure(text.replace('import type {', 'import {'));
+    expect(f.code).toBe('behavior_import_forbidden');
+    expect(f.reason).toBe('engine_value_import');
+    expect(f.d).toMatchObject({ line: 2, column: 28 });
+  });
+
+  it('a forbidden import after a comment and a string keeps its line and column', async () => {
+    const f = await failure(`/* one\n two */ const s = 'x';\n  import fs from 'fs';\n${STEP}`);
+    expect(f.code).toBe('behavior_import_forbidden');
+    expect(f.d).toMatchObject({ line: 3, column: 13 });
+    expect(f.d.message).not.toContain('inside');
   });
 
   it('in a string, a template text and a regular expression; code inside ${…} is code', async () => {

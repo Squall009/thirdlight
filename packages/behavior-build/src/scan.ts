@@ -7,6 +7,10 @@
  * Textual and structural only: no source bytes are parsed as code, imported,
  * required or evaluated anywhere. A specifier assembled at runtime from string
  * concatenation is deliberately not detected (a documented limitation).
+ * Import declarations are matched in code only (comments and other strings
+ * blanked), so prose that says "import … from" is not an import; the
+ * dynamic-code patterns stay textual, since a non-literal `import(x)` is
+ * caught by nothing else, and a hit outside code says where it sits.
  */
 
 import type {
@@ -187,11 +191,41 @@ function regionNote(region: TextRegion): string {
 }
 
 /**
- * Extract the import-ish constructs in text order (the exact contract
- * constructs; comments/strings are not stripped — the scan is textual by
- * specification).
+ * The text with every comment, regular expression and string blanked to
+ * spaces (line breaks kept, so offsets, lines and columns stay put), except a
+ * string right after `from` or `import`: the specifier the declaration
+ * patterns read.
  */
-function scanText(text: string): ScanHit[] {
+function codeOnly(text: string, regions: Uint8Array): string {
+  const out = text.split('');
+  let i = 0;
+  while (i < text.length) {
+    const r = regions[i]!;
+    let j = i + 1;
+    while (j < text.length && regions[j] === r) j += 1;
+    if (r !== 0 && !(r === 2 && afterImportWord(out, i))) {
+      for (let k = i; k < j; k += 1) if (out[k] !== '\n') out[k] = ' ';
+    }
+    i = j;
+  }
+  return out.join('');
+}
+
+/** Whether the code before `at` (whitespace skipped) ends with the word `from` or `import`. */
+function afterImportWord(out: readonly string[], at: number): boolean {
+  let k = at - 1;
+  while (k >= 0 && /\s/.test(out[k]!)) k -= 1;
+  const end = k + 1;
+  while (k >= 0 && /[\w$]/.test(out[k]!)) k -= 1;
+  const word = out.slice(k + 1, end).join('');
+  return word === 'from' || word === 'import';
+}
+
+/**
+ * Extract the import-ish constructs in text order: the dynamic-code
+ * patterns over the whole text, the import declarations over its code.
+ */
+function scanText(text: string, regions: Uint8Array): ScanHit[] {
   const hits: ScanHit[] = [];
   const dynamic: [RegExp, string][] = [
     [/\bimport\s*\(/g, 'dynamic_import'],
@@ -203,15 +237,17 @@ function scanText(text: string): ScanHit[] {
   for (const [re, reason] of dynamic) {
     for (const m of text.matchAll(re)) hits.push({ index: m.index ?? 0, at: m.index ?? 0, kind: 'dynamic', reason });
   }
-  const declaration = /\b(?:import|export)\s+(type\s+)?([\s\S]*?)\s*from\s*['"]([^'"]+)['"]/g;
-  for (const m of text.matchAll(declaration)) {
-    // Judged at its `from` (a declaration's match may start in code and end in a comment).
+  const code = codeOnly(text, regions);
+  // An import clause holds no `;` or parentheses, so a match never runs on from an earlier statement.
+  const declaration = /\b(?:import|export)\s+(type\s+)?([^;()]*?)\s*from\s*['"]([^'"]+)['"]/g;
+  for (const m of code.matchAll(declaration)) {
+    // Judged at its `from`.
     const tail = /from\s*['"][^'"]+['"]$/.exec(m[0]);
     const at = (m.index ?? 0) + (tail?.index ?? 0);
     hits.push({ index: m.index ?? 0, at, kind: 'specifier', typeOnly: Boolean(m[1]), spec: m[3] as string });
   }
   const sideEffect = /\bimport\s*['"]([^'"]+)['"]/g;
-  for (const m of text.matchAll(sideEffect)) {
+  for (const m of code.matchAll(sideEffect)) {
     hits.push({ index: m.index ?? 0, at: m.index ?? 0, kind: 'specifier', typeOnly: false, spec: m[1] as string });
   }
   hits.sort((a, b) => a.index - b.index);
@@ -293,7 +329,8 @@ export function analyzeSourceGraph(
       }
       continue;
     }
-    const hits = scanText(f.text);
+    const regions = textRegions(f.text);
+    const hits = scanText(f.text, regions);
     const importCount = hits.filter((h) => h.kind === 'specifier').length;
     if (importCount > limits.importsPerFile) {
       return containerFailure('behavior_source_limits_exceeded', 'imports', {
@@ -304,8 +341,7 @@ export function analyzeSourceGraph(
         message: `file "${f.path}" has too many import declarations`,
       });
     }
-    let regions: Uint8Array | null = null;
-    const where = (h: ScanHit): { line: number; column: number; region: TextRegion } => locate(f.text, (regions ??= textRegions(f.text)), h.at);
+    const where = (h: ScanHit): { line: number; column: number; region: TextRegion } => locate(f.text, regions, h.at);
     for (const h of hits) {
       if (h.kind === 'dynamic') {
         const w = where(h);

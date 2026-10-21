@@ -5,8 +5,8 @@
  * - an entry with `bit` keeps that bit (renaming a tag keeps its bit, so
  *   every object carrying it keeps it);
  * - an entry without `bit` gets the lowest bit no other entry uses;
- * - a tag left out frees its bit, which is refused while any entity still
- *   carries that bit (`reference_in_use`, reason `tag`).
+ * - a tag left out frees its bit, which is refused while any entity (or a
+ *   prefab's object) still carries that bit (`reference_in_use`, reason `tag`).
  *
  * Content-only: the scene is unchanged; the undo restores the whole previous
  * registry. Pure.
@@ -19,14 +19,12 @@ import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { SetTagsArgs, SetTagsChange } from './types';
 
-/** The bits any entity in the scene carries (own masks). */
-function usedBits(input: OpInput): number {
-  let used = 0;
-  for (const e of input.scene.entities) {
-    const t = (e as { tags?: number }).tags;
-    if (typeof t === 'number') used = (used | t) >>> 0;
-  }
-  return used;
+/** The scene's entities and the prefabs' objects: their own masks (a prefab copy takes its object's). */
+function taggedMasks(input: OpInput): number[] {
+  const masks: number[] = [];
+  for (const e of input.scene.entities) masks.push((e as { tags?: number }).tags ?? 0);
+  for (const d of contentOf(input.content).prefabs) for (const e of d.entities) masks.push(e.tags ?? 0);
+  return masks;
 }
 
 function tagInUse(tag: TagDefinition, count: number): CommandError {
@@ -36,7 +34,7 @@ function tagInUse(tag: TagDefinition, count: number): CommandError {
     path: '/args/tags',
     reason: 'tag',
     found: tag.name,
-    message: `tag "${tag.name}" (bit ${tag.bit}) is still carried by ${count} entit${count === 1 ? 'y' : 'ies'}; remove it from them first`,
+    message: `tag "${tag.name}" (bit ${tag.bit}) is still carried by ${count} object${count === 1 ? '' : 's'} (scene objects and prefab objects); remove it from them first`,
   } as unknown as CommandError;
 }
 
@@ -61,12 +59,12 @@ export function applySetTags(input: OpInput, args: SetTagsArgs): OpOutcome {
   }
 
   // A dropped bit must be unused.
-  const used = usedBits(input);
+  const masks = taggedMasks(input);
   const keptBits = new Set(next.map((t) => t.bit));
   for (const t of previous) {
-    if (keptBits.has(t.bit) || (used & (1 << t.bit)) === 0) continue;
-    const count = input.scene.entities.filter((e) => (((e as { tags?: number }).tags ?? 0) & (1 << t.bit)) !== 0).length;
-    return { ok: false, error: tagInUse(t, count) };
+    if (keptBits.has(t.bit)) continue;
+    const count = masks.filter((m) => (m & (1 << t.bit)) !== 0).length;
+    if (count > 0) return { ok: false, error: tagInUse(t, count) };
   }
 
   const nextContent = { ...catalog, tags: next.sort((a, b) => a.bit - b.bit) };

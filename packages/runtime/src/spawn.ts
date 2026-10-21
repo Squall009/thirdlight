@@ -130,6 +130,7 @@ export function expandPrefab(def: PrefabDefinition, ids: readonly string[], plac
       id: ids[i]!,
       ...(de.name !== undefined ? { name: de.name } : {}),
       ...(parentId !== undefined ? { parentId } : {}),
+      ...(de.tags !== undefined ? { tags: de.tags } : {}),
       // Kept: the root carries the flag (its children are kept with it).
       ...(i === 0 && placement.keepLoaded === true ? { keepLoaded: true } : {}),
       components,

@@ -305,6 +305,10 @@ export class GameplayBlocks {
   private readonly climbVolumes = new Map<string, { half: Vec3 }>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
+  /** Goes up on every change to `hidden`: a swap (one hidden, one shown) keeps its size, so the joined set compares this. */
+  private hiddenVersion = 0;
+  /** The hidden set joined with the switched-off set, as last asked for. */
+  private hiddenUnion: { off: ReadonlySet<string>; version: number; set: ReadonlySet<string> } | null = null;
   /** Loaded objects authored hidden (`visible: false`): every run starts with them hidden. */
   private readonly startHidden = new Set<string>();
   /** The hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
@@ -402,6 +406,7 @@ export class GameplayBlocks {
       if (e.visible === false) {
         this.startHidden.add(e.id);
         this.hidden.add(e.id);
+        this.hiddenVersion += 1;
       }
       const c = e.components as unknown as Record<string, Record<string, unknown> | undefined>;
       const p = e.components.transform.position;
@@ -530,7 +535,7 @@ export class GameplayBlocks {
       this.switches.delete(id);
       this.climbVolumes.delete(id);
       this.oneWay.delete(id);
-      this.hidden.delete(id);
+      if (this.hidden.delete(id)) this.hiddenVersion += 1;
       this.startHidden.delete(id);
       this.parents.delete(id);
       this.facers.delete(id);
@@ -552,6 +557,7 @@ export class GameplayBlocks {
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
     this.hidden.clear();
     for (const id of this.startHidden) this.hidden.add(id);
+    this.hiddenVersion += 1;
     this.hiddenStart = null;
     this.counters.clear();
     this.signalsNow.clear();
@@ -641,6 +647,7 @@ export class GameplayBlocks {
     if (this.hiddenStart === null) this.hiddenStart = new Set(this.hidden);
     if (visible) this.hidden.delete(entityId);
     else this.hidden.add(entityId);
+    this.hiddenVersion += 1;
   }
 
   /** Whether an object was hidden at the start of this step (`ctx.entity(id).get('object').visible`). */
@@ -689,6 +696,17 @@ export class GameplayBlocks {
 
   hiddenEntities(): ReadonlySet<string> {
     return this.hidden;
+  }
+
+  /** The hidden objects with the switched-off ones (`off`, rebuilt on every change): what the renderer leaves out. */
+  hiddenWith(off: ReadonlySet<string>): ReadonlySet<string> {
+    if (off.size === 0) return this.hidden;
+    if (this.hidden.size === 0) return off;
+    const u = this.hiddenUnion;
+    if (u === null || u.off !== off || u.version !== this.hiddenVersion) {
+      this.hiddenUnion = { off, version: this.hiddenVersion, set: new Set([...this.hidden, ...off]) };
+    }
+    return this.hiddenUnion!.set;
   }
 
   countersView(): Record<string, number> {

@@ -34,6 +34,7 @@ import {
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
   PREFAB_V4_COMPONENTS,
+  effectiveEntityFlags,
   nextFreeEntityIdOf,
 } from '@thirdlight/project-model';
 
@@ -282,7 +283,10 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
       error: limitsExceeded('prefab_entities', closure.length, MAX_PREFAB_ENTITIES),
     };
   }
+  // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
+  const flags = effectiveEntityFlags(scene.entities);
   const entities: PrefabEntity[] = closure.map((e) => {
+    const tags = flags.get(e.id)?.tags ?? 0;
     const components: PrefabComponentsV2 = {
       transform: cloneTransform(e.components.transform) as unknown as PrefabComponentsV2['transform'],
     };
@@ -301,6 +305,7 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
       localId: e.id,
       ...(e.name !== undefined ? { name: e.name } : {}),
       ...(parentLocalId !== undefined ? { parentLocalId } : {}),
+      ...(tags !== 0 ? { tags } : {}),
       components,
     };
   });
@@ -416,6 +421,7 @@ function buildInstanceEntity(
     id: newId,
     ...(de.name !== undefined ? { name: de.name } : {}),
     ...(parent !== null ? { parentId: parent } : {}),
+    ...(de.tags !== undefined ? { tags: de.tags } : {}),
     components,
   };
 }

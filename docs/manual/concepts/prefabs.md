@@ -16,7 +16,9 @@ Each placed object carries a [Prefab link](../reference/components-organisation.
 component that says which prefab and which of its objects it came from.
 
 What a prefab keeps: models and boxes, colliders, materials, animators,
-scripts and the gameplay blocks (movers, triggers, health and so on). What
+scripts and the gameplay blocks (movers, triggers, health and so on), and
+each object's tags (its folders' tags included), so scripts find placed and
+spawned copies with `ctx.tags`. What
 it never holds: the player controller and level wiring such as cameras,
 lights and spawn points. The exact list of components a prefab may hold is
 in [prefabs in the reference](../reference/content-blocks-scenes.md#content-prefabs).

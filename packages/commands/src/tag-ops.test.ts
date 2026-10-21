@@ -76,6 +76,28 @@ describe('setTags', () => {
   });
 });
 
+describe('prefab tags', () => {
+  it('createPrefab keeps each object\'s tags (its folders\' included), a placed copy carries them, and a bit a prefab carries is not freed', () => {
+    let s = ok(fresh(), 'setTags', { tags: [{ name: 'walker' }, { name: 'pickup' }] }).state;
+    const folder = ok(s, 'createEntity', { kind: 'folder', name: 'Walkers' });
+    s = ok(folder.state, 'updateEntity', { entityId: folder.id, tags: ['walker'] }).state;
+    const box = ok(s, 'createEntity', { kind: 'box', name: 'crate', parentId: folder.id });
+    s = ok(box.state, 'updateEntity', { entityId: box.id, tags: ['pickup'] }).state;
+    s = ok(s, 'createPrefab', { prefabId: 'prefab-tagged', displayName: 'Tagged', sourceEntityId: box.id }).state;
+    const def = (s.content as ContentDocument).prefabs.find((d) => d.prefabId === 'prefab-tagged')!;
+    expect(def.entities[0]!.tags).toBe(0b11);
+    s = ok(s, 'instantiatePrefab', { prefabId: 'prefab-tagged' }).state;
+    const copy = s.scene.entities.find((e) => (e.components as { prefab?: { prefabId: string } }).prefab?.prefabId === 'prefab-tagged')!;
+    expect(tagsOf(s, copy.id)).toBe(0b11);
+    // Only the prefab still carries "pickup" once the scene objects are gone.
+    s = ok(s, 'deleteEntity', { entityId: copy.id }).state;
+    s = ok(s, 'deleteEntity', { entityId: folder.id }).state;
+    expect(s.scene.entities.filter((e) => (e as { tags?: number }).tags !== undefined)).toEqual([]);
+    const refused = run(s, 'setTags', { tags: [{ bit: 0, name: 'walker' }] });
+    expect(refused.result.error).toMatchObject({ code: 'reference_in_use', reason: 'tag' });
+  });
+});
+
 describe('updateEntity tags', () => {
   it('sets an entity’s tags by name (stored as the mask), clears them, and undoes', () => {
     let s = ok(fresh(), 'setTags', { tags: [{ name: 'walker' }, { name: 'pickup' }, { bit: 5, name: 'boss' }] }).state;

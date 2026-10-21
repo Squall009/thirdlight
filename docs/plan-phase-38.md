@@ -95,9 +95,23 @@ budget.
 | Item | Status |
 |---|---|
 | 38.0 | Done 2026-10-21: three.js 0.186.1 is still the latest on npm (no update). Rapier 0.21.0 is out; the pinned 0.20.0 stays, since nothing in this phase needs it (a minor release would be its own item). |
+| 38.1 | Done 2026-10-21: D151 (the block layer counts hidden-set changes and owns the joined set; runtime.ts 4,154 → 4,146 lines), prefab objects keep their tags into placed and spawned copies (`ctx.tags` finds them until destroyed), E21 (imports matched in code only). New vitest checks in runtime, commands, project-model, behavior-build; no e2e change. Fast gate e2e 36/36 green; its village perf check missed twice (WebGPU p50 7.7 / 7.6 ms); interleaved A/B against `8315f041`, 3 rounds: A 7.7 / 7.7 / 7.9 ms, B 7.5 / 7.6 / 6.9 ms (plain three.js page 6.3–7.0 ms): host state (D290). |
 
 ## 5. Decision log
 
 - 2026-10-21: Planned from the three games' request docs, checked against
   `8315f041`. The owner made `ctx.scenes.load` / `unload` the standard way
   to change levels and declined TL-REQ-29 and TL-REQ-30 (§1).
+- 2026-10-21 (38.1): a prefab keeps each object's *effective* tags (its
+  folders' tags included), since a copy has no folder to inherit them from;
+  a placed copy (`instantiatePrefab`) carries them as well as a spawned one,
+  and `setTags` refuses to free a bit a prefab object still carries. Default
+  chosen, owner to confirm.
+- 2026-10-21 (38.1): the live tag index is now made for every runtime, not
+  only one with a scene catalog, so spawned copies always reach `ctx.tags`.
+- 2026-10-21 (38.1, E21): import declarations are matched in code only
+  (comments, regular expressions and strings other than a specifier are
+  blanked, offsets kept). The dynamic-code patterns (`import(`, `require(`,
+  `eval(`, `Function(`) stay textual with the "inside a comment" note: a
+  non-literal `import(x)` is caught by nothing else, so a region the
+  classifier gets wrong must not hide one.

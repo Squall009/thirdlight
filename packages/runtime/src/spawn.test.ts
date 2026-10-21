@@ -95,6 +95,7 @@ interface SpawnCtx {
   spawn(prefabId: string, options: unknown): string | null;
   destroy(id: string): boolean;
   world: { transform(id: string): { position: readonly number[] } | undefined };
+  tags: { mask(...names: string[]): number; of(id: string): number; query(mask: number): readonly string[] };
 }
 
 function artifact(behaviorId: string, step: (ctx: SpawnCtx) => void, calls: string[], ownedTransforms: string[] = []): never {
@@ -119,7 +120,7 @@ function artifact(behaviorId: string, step: (ctx: SpawnCtx) => void, calls: stri
   } as never;
 }
 
-function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModuleSpec[]; prefabs?: unknown[]; entities?: unknown[] } = {}) {
+function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModuleSpec[]; prefabs?: unknown[]; entities?: unknown[]; tags?: unknown[] } = {}) {
   const log: PortLog = { added: [], removed: [] };
   const calls: string[] = [];
   const spawner = createBehaviorModuleSpec({ declaration: DECL, artifact: artifact('spawner', script, calls) });
@@ -146,6 +147,7 @@ function harness(script: (ctx: SpawnCtx) => void, more: { specs?: SimulationModu
         ],
       },
       prefabs: [...PREFABS, ...(more.prefabs ?? [])],
+      ...(more.tags !== undefined ? { tags: more.tags } : {}),
     },
     registry,
     modules: specs.map((s) => s.id),
@@ -494,5 +496,37 @@ describe('spawn: a copy moves itself ("@self" in ownedTransforms)', () => {
     }, { specs: [boltSpec()], prefabs: BOLT_PREFABS });
     expect(() => b.tick(30)).toThrow();
     expect(b.diag().errors.some((e) => e.message.includes('physics'))).toBe(true);
+  });
+
+  it('a copy keeps its prefab objects\' tags: ctx.tags finds it until it is destroyed', () => {
+    const shot = {
+      prefabId: 'shot',
+      displayName: 'Shot',
+      createdRevision: 1,
+      entityCount: 2,
+      depth: 2,
+      entities: [
+        { localId: 'shot-root', components: { transform: at(0, 0) } },
+        { localId: 'shot-hurt', parentLocalId: 'shot-root', tags: 0b11, components: { transform: at(0, 0) } },
+      ],
+    };
+    const seen: Record<string, unknown> = {};
+    const h = harness((ctx) => {
+      const harmful = ctx.tags.mask('harmful');
+      if (ctx.stepIndex === 20) seen['id'] = ctx.spawn('shot', { position: [1, 1] });
+      if (ctx.stepIndex === 21) {
+        seen['of'] = ctx.tags.of('spawn-2');
+        seen['rootOf'] = ctx.tags.of('spawn-1');
+        seen['found'] = ctx.tags.query(harmful);
+      }
+      if (ctx.stepIndex === 22) ctx.destroy('spawn-1');
+      if (ctx.stepIndex === 24) seen['after'] = ctx.tags.query(harmful);
+    }, { prefabs: [shot], tags: [{ bit: 0, name: 'harmful' }, { bit: 1, name: 'marked' }] });
+    h.tick(30);
+    expect(seen['id']).toBe('spawn-1');
+    expect(seen['of']).toBe(0b11);
+    expect(seen['rootOf']).toBe(0);
+    expect(seen['found']).toEqual(['spawn-2']);
+    expect(seen['after']).toEqual([]);
   });
 });

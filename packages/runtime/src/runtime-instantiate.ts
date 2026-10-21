@@ -169,14 +169,14 @@ export function instantiateRuntime(
   // is bound to the RuntimeInstance once it exists (no log can be emitted
   // before the first step).
   const logSink: BehaviorLogSink = { handler: null };
-  // With a scene catalog the tag index follows loads/unloads.
-  const liveTags = sceneRows !== null ? createTagQuery(frozenSnapshot) : null;
+  // One tag index for every script, following loads, unloads, spawns and destroys.
+  const liveTags = createTagQuery(frozenSnapshot);
   const configFor = (specId: string): ModuleConfig => ({
     fixedStepHz: hz,
     settings: resolvedSettings,
     sceneVersion,
     behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
-    ...(liveTags !== null ? { tags: liveTags } : {}),
+    tags: liveTags,
     // A 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
     // The 3D character controller's read-only world queries.
@@ -358,8 +358,8 @@ export function instantiateRuntime(
     sceneRows,
     startBatches,
     liveTags,
-    // The tag index 3D queries filter by (the live one when the project has a scene catalog).
-    queryTags: liveTags ?? (physics3d !== undefined ? createTagQuery(frozenSnapshot) : null),
+    // The tag index 3D queries filter by.
+    queryTags: liveTags,
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
     prefabs: snap.prefabs,

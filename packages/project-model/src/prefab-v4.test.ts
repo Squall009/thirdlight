@@ -66,4 +66,12 @@ describe('v4 prefab components', () => {
     expect(comps['collectible']).toMatchObject({ counter: 'items', amount: 2, size: [0.5, 0.5] });
     expect((comps['surface'] as { color: string }).color).toBe('#ff0000');
   });
+
+  it('an object\'s tag mask is kept (a 32-bit mask; zero is not stored)', () => {
+    const tagged = { ...def({}), entities: [{ ...def({}).entities[0]!, tags: 0x80000001 }] };
+    expect(errorsOf([tagged])).toEqual([]);
+    expect(canonicalPrefabs([tagged as never])[0]!.entities[0]!.tags).toBe(0x80000001);
+    expect('tags' in canonicalPrefabs([{ ...tagged, entities: [{ ...tagged.entities[0]!, tags: 0 }] } as never])[0]!.entities[0]!).toBe(false);
+    for (const bad of [-1, 1.5, 2 ** 32, 'harmful']) expect(errorsOf([{ ...tagged, entities: [{ ...tagged.entities[0]!, tags: bad }] }]).map((e) => e.path)).toContain('/prefabs/0/entities/0/tags');
+  });
 });

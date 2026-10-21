@@ -480,6 +480,8 @@ export interface PrefabEntity {
   localId: string;
   name?: string;
   parentLocalId?: string;
+  /** The object's tag mask (as an entity's `tags`), given to every copy. Stored only when non-zero. */
+  tags?: number;
   components: PrefabComponentsV2;
 }
 

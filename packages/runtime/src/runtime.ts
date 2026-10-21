@@ -362,7 +362,6 @@ const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
-const NO_IDS: ReadonlySet<string> = new Set();
 
 export class RuntimeInstance implements Runtime {
   private stateName: RuntimeStateName;
@@ -1221,16 +1220,9 @@ export class RuntimeInstance implements Runtime {
    * With the objects scripts switched off (and their children), which are not drawn either.
    */
   hiddenEntities(): ReadonlySet<string> {
-    const hidden = this.blocks?.hiddenEntities() ?? NO_IDS;
     const off = this.entityAccess.inactive();
-    if (off.size === 0) return hidden;
-    if (hidden.size === 0) return off;
-    if (this.hiddenUnion === null || this.hiddenUnion.hidden !== hidden || this.hiddenUnion.off !== off || this.hiddenUnion.size !== hidden.size) {
-      this.hiddenUnion = { hidden, off, size: hidden.size, set: new Set([...hidden, ...off]) };
-    }
-    return this.hiddenUnion.set;
+    return this.blocks?.hiddenWith(off) ?? off;
   }
-  private hiddenUnion: { hidden: ReadonlySet<string>; off: ReadonlySet<string>; size: number; set: ReadonlySet<string> } | null = null;
 
   /** The objects scripts switched off, with their children (not drawn, no collision, no triggers, no ticking; audio sources silent). */
   inactiveEntities(): ReadonlySet<string> {

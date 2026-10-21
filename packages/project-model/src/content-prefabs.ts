@@ -40,7 +40,7 @@ import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
 
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'entityCount', 'depth', 'entities']);
-const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'components']);
+const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'tags', 'components']);
 
 // ---- prefabs ----------------------------------------------------
 
@@ -183,6 +183,10 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
       }
     }
   }
+  const tags = e['tags'];
+  if (tags !== undefined && (typeof tags !== 'number' || !Number.isInteger(tags) || tags < 0 || tags > 0xffffffff)) {
+    errors.push(fieldValue(`${path}/tags`, tags, 'integer 0 to 4294967295 (a 32-bit tag mask)', 'tags is the unsigned 32-bit mask of the tag bits'));
+  }
   const comps = e['components'];
   if (comps === undefined) {
     errors.push(fieldMissing(`${path}/components`, 'components'));
@@ -222,7 +226,7 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
     if (version === 4) validatePrefabExtras(comps, parent, `${path}/components`, errors);
   }
   for (const k of Object.keys(e)) {
-    if (!KNOWN_PREFAB_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'localId, name, parentLocalId, components'));
+    if (!KNOWN_PREFAB_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'localId, name, parentLocalId, tags, components'));
   }
 }
 
@@ -335,6 +339,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),
     ...(e.parentLocalId !== undefined ? { parentLocalId: e.parentLocalId } : {}),
+    ...(e.tags !== undefined && e.tags !== 0 ? { tags: e.tags } : {}),
     components,
   };
 }

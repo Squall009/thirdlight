@@ -721,6 +721,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         str('localId', 'Local id', 'The id inside the prefab.', { ...ID, required: true, readOnly: true }),
         str('name', 'Name', 'The object name.', { ...NAME, readOnly: true }),
         str('parentLocalId', 'Parent', 'The parent inside the prefab (none: a root).', { ...ID, nullable: true, readOnly: true }),
+        int('tags', 'Tags', 'The tag bits each copy carries (a 32-bit mask).', { min: 0, max: 0xffffffff, readOnly: true }),
         { type: 'components', key: 'components', label: 'Components', tooltip: 'The prefab component vocabulary.', required: true, readOnly: true, allowed: ['transform', 'model', 'box', 'behavior', ...PREFAB_V4_COMPONENTS] },
       ]), { required: true, minItems: 1, maxItems: MAX_PREFAB_ENTITIES, readOnly: true }),
     ]), { required: true }),
