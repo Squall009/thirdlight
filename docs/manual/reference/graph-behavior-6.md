@@ -1,8 +1,222 @@
-# Graph: Visual script (part 6, from UI event (`api.ui.event`))
+# Graph: Visual script (part 6, from UI)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--ui"></a>
+## UI
+
+- Set UI value (`api.ui.set`): Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+- UI value (`api.ui.get`): The published value at a path (null when there is none).
+- Clear UI value (`api.ui.clear`): Remove a path from the view model (`false` when it was not there).
+- Show UI (`api.ui.show`): Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+- Hide UI (`api.ui.hide`): Hide a shown UI document (`false` when it was not shown).
+- UI shown (`api.ui.isShown`): The document is shown.
+- Play UI tween (`api.ui.play`): Play a tween of a document (on a widget, or the whole document). Presentation only.
+- Focus UI widget (`api.ui.focus`): Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
+- UI view (`api.ui.view`): The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
+- UI events (`api.ui.events`): The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+- UI event (`api.ui.event`): The first UI event of this step with this name (a button's or an input's event), or null.
+
+<a id="node-behavior--api-ui-set"></a>
+### Set UI value (`api.ui.set`)
+
+Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `path` (string)
+- `value` (number): type from field `value_type`
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `path` | path | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
+| `value` | value | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-get"></a>
+### UI value (`api.ui.get`)
+
+The published value at a path (null when there is none).
+
+Inputs:
+
+- `path` (string)
+
+Outputs:
+
+- `value` (number): type from field `value_type`
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `path` | path | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
+
+<a id="node-behavior--api-ui-clear"></a>
+### Clear UI value (`api.ui.clear`)
+
+Remove a path from the view model (`false` when it was not there).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `path` (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `path` | path | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-show"></a>
+### Show UI (`api.ui.show`)
+
+Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `docId` "document" (string)
+- `layer` (number)
+- `modal` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `docId` | document | string | `""` | ≤ 256 chars |
+| `modal` | modal | boolean | `false` |  |
+
+<a id="node-behavior--api-ui-hide"></a>
+### Hide UI (`api.ui.hide`)
+
+Hide a shown UI document (`false` when it was not shown).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `docId` "document" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `docId` | document | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-is-shown"></a>
+### UI shown (`api.ui.isShown`)
+
+The document is shown.
+
+Inputs:
+
+- `docId` "document" (string)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `docId` | document | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-play"></a>
+### Play UI tween (`api.ui.play`)
+
+Play a tween of a document (on a widget, or the whole document). Presentation only.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `docId` "document" (string)
+- `tween` (string)
+- `widgetId` "widget" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `docId` | document | string | `""` | ≤ 256 chars |
+| `tween` | tween | string | `""` | ≤ 256 chars |
+| `widgetId` | widget | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-focus"></a>
+### Focus UI widget (`api.ui.focus`)
+
+Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `docId` "document" (string)
+- `widgetId` "widget" (string)
+- `index` "list item" (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `docId` | document | string | `""` | ≤ 256 chars |
+| `widgetId` | widget | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-ui-view"></a>
+### UI view (`api.ui.view`)
+
+The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
+
+Outputs:
+
+- `width` (number)
+- `height` (number)
+- `aspect` (number)
+- `pixelRatio` "pixel ratio" (number)
+
+<a id="node-behavior--api-ui-events"></a>
+### UI events (`api.ui.events`)
+
+The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+
+Outputs:
+
+- `value` (list)
 
 <a id="node-behavior--api-ui-event"></a>
 ### UI event (`api.ui.event`)

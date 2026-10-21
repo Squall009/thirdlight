@@ -1,8 +1,59 @@
-# Script API types (from `BehaviorUi`)
+# Script API types (from `BehaviorAssets`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-assets"></a>
+## `BehaviorAssets`
+
+```ts
+/**
+ * `ctx.assets` — load assets by id, address or label and let them go.
+ * A load answers at once with a handle; the assets arrive while the game
+ * plays (the simulation never waits) and the handle's state says when they
+ * are ready. Release every handle you load: what it holds stays in memory
+ * until then.
+ */
+export interface BehaviorAssets {
+  /**
+   * Start loading the asset or resource with this id or address, or every one with this label.
+   * Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading'
+   * until the assets are ready, a later step.
+   * @graphNode Load assets
+   * @graphLabel key id, address or label
+   */
+  load(key: string): number;
+  /**
+   * Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
+   * @graphNode Release assets
+   */
+  release(handle: number): boolean;
+  /**
+   * A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
+   * @graphPure
+   * @graphNode Assets state
+   */
+  state(handle: number): AssetHandleState | null;
+  /**
+   * True once a handle's assets are loaded.
+   * @graphPure
+   * @graphNode Assets ready
+   */
+  ready(handle: number): boolean;
+  /**
+   * The ids a ready handle loaded (the assets and resources its key named, in id order); empty otherwise.
+   * @graphNode skip a list of ids; read a known id with Assets ready
+   */
+  ids(handle: number): readonly string[];
+  /**
+   * Why a failed handle failed ('' otherwise).
+   * @graphPure
+   * @graphNode Assets error
+   */
+  error(handle: number): string;
+}
+```
 
 <a id="script-type-behavior-ui"></a>
 ## `BehaviorUi`
@@ -1256,6 +1307,23 @@ export interface BehaviorRandomStream {
 }
 ```
 
+<a id="script-type-character-walk-options"></a>
+## `CharacterWalkOptions`
+
+```ts
+/** `ctx.character.walkTo`'s options. */
+export interface CharacterWalkOptions {
+  /** At the run speed (the 2D plane has one speed). */
+  run?: boolean;
+  /** How near the mark counts as arrived (m, 0.01–100; absent: 0.1). */
+  arrive?: number;
+  /** Degrees about +Y to face once arrived (absent: as it walked in). */
+  facing?: number;
+  /** The player controller's object (absent: the first). */
+  entityId?: string;
+}
+```
+
 <a id="script-type-behavior-look-value"></a>
 ## `BehaviorLookValue`
 
@@ -1333,72 +1401,4 @@ export interface AudioFinishedEvent {
   /** `ended`: it played to its end; `stopped`: a script stopped it (after its fade). */
   readonly reason: 'ended' | 'stopped';
 }
-```
-
-<a id="script-type-audio-music-options"></a>
-## `AudioMusicOptions`
-
-```ts
-/** Options of `ctx.audio.music`. */
-export interface AudioMusicOptions {
-  /** What the track belongs to (`object`; see `AudioPlayOptions.owner`): when it goes, the music is released over the track's fade. */
-  owner?: 'object' | 'scene' | 'none';
-}
-```
-
-<a id="script-type-audio-stinger-options"></a>
-## `AudioStingerOptions`
-
-```ts
-/** Options of `ctx.audio.stinger`. */
-export interface AudioStingerOptions {
-  /** 0–1 (1). */
-  volume?: number;
-  /** The music's level under it, 0–1 (0.3). */
-  duck?: number;
-  /** Seconds to duck and to come back (0.25). */
-  fade?: number;
-  /** How late it may still start, in ms (500; see `AudioPlayOptions.maxLateMs`). */
-  maxLateMs?: number;
-  /** What it belongs to (`object`; see `AudioPlayOptions.owner`). */
-  owner?: 'object' | 'scene' | 'none';
-  /** Seconds it fades out over when its owner stops it (0). */
-  fadeOut?: number;
-}
-```
-
-<a id="script-type-audio-music-state"></a>
-## `AudioMusicState`
-
-```ts
-/** A script's view of the music (`ctx.audio.musicState()`). */
-export interface AudioMusicState {
-  /** Who picks the track: the scripts (after `music`), or the host (`flow`: the engine has no level flow, so nothing plays then). */
-  readonly owner: 'script' | 'flow';
-  /** The scripts' track (null: silence, or the host owns it). */
-  readonly track: string | null;
-  /** The music duck now (1 = not ducked). */
-  readonly duck: number;
-}
-```
-
-<a id="script-type-debug-command-options"></a>
-## `DebugCommandOptions`
-
-```ts
-/** How a script declares a debug command (`ctx.debug.command(name, options)`). */
-export interface DebugCommandOptions {
-  /** One line the console and tools show (at most 120 characters). */
-  readonly description?: string;
-  /** The arguments in order (at most 8; the console also takes them by position). */
-  readonly args?: readonly DebugCommandArgSpec[];
-}
-```
-
-<a id="script-type-debug-command-args"></a>
-## `DebugCommandArgs`
-
-```ts
-/** The arguments of one debug command call. */
-export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
 ```

@@ -226,9 +226,11 @@ starts `after("close", 4)`, which shows it again.
   the copy's own objects.
 - `ctx.emit({ kind: 'character_place', position: [x, y, z] })` also works on
   the 2D plane (z ignored): the character is placed from rest in that step.
-  In 3D an optional `facing` (degrees about +Y, 0 facing +Z — what
-  `ctx.physics.characterState().facing` reads) turns it as it is placed;
-  without it it keeps facing as it was.
+  An optional `facing` (degrees about +Y, 0 facing +Z — in 3D what
+  `ctx.physics.characterState().facing` reads; on the 2D plane its
+  face-movement models, 90 right and −90 left) turns it as it is placed;
+  without it it keeps facing as it was. `character_enable` works on the 2D
+  plane too.
 - `ctx.shell.nextScene()` moves to the next entry of the shell's scene list
   (the same move as the shell's Next scene action); `sceneIndex()` and
   `sceneCount()` read the list.

@@ -187,17 +187,19 @@ export interface CharacterPlaceIntent {
   /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
   position: readonly [number, number, number];
   /**
-   * 3D projects: the way it faces once placed, in degrees about +Y (0 faces
-   * +Z) — what `ctx.physics.characterState().facing` reads, so a saved facing
-   * restores. Absent: it keeps facing as it was. The 2D plane ignores it.
+   * The way it faces once placed, in degrees about +Y (0 faces
+   * +Z) — in 3D what `ctx.physics.characterState().facing` reads, so a saved facing
+   * restores. Absent: it keeps facing as it was. On the 2D plane it turns the
+   * character's face-movement models (90 faces +X, −90 faces −X).
    */
   facing?: number;
 }
 
 /**
- * 3D projects: switch the character controller off (the
+ * Switch the character controller off (the
  * character stays where it is: no input, no gravity — a cutscene or a
- * dialogue) or back on. Lasts until changed. Intent phase.
+ * dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or
+ * the run restarts. Intent phase.
  * @graphNode Enable character
  * @graphPhase intent
  */

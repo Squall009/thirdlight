@@ -76,7 +76,13 @@ const TYPE_LABEL: Record<TimelineTrackType, string> = {
   materialSwap: 'Material swap',
   environment: 'Environment',
   mode: 'Game mode',
+  character: 'Character',
 };
+
+/** The way an object faces (degrees about +Y) from its rotation. */
+const facingOf = (q: readonly number[]): number => round3((2 * Math.atan2(q[1] ?? 0, q[3] ?? 1) * 180) / Math.PI);
+/** Whether an object is a player character (a Character controller: the character track moves it, not a transform track). */
+const isCharacter = (e: TimelineEntityLike | undefined): boolean => e?.components['controller'] !== undefined;
 
 /** A new timeline: five seconds, no slots or tracks yet. */
 export function newTimeline(timelineId: string, name: string): TimelineAsset {
@@ -107,6 +113,8 @@ function keyLabel(t: TimelineTrack, k: TimelineKey): string {
       return k.preset ?? '';
     case 'mode':
       return k.mode ?? '';
+    case 'character':
+      return [k.mode ?? (k.facing !== undefined ? 'turn' : ''), k.run === true ? 'run' : '', k.enabled === false ? 'off' : k.enabled === true ? 'on' : ''].filter((x) => x !== '').join(' ');
     default:
       return typeof k.value === 'number' ? String(round3(k.value)) : typeof k.value === 'string' ? k.value : '';
   }
@@ -240,6 +248,12 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
         return { time, preset: 'preset' };
       case 'mode':
         return props.modes.length > 0 ? { time, mode: props.modes[0]! } : 'the project has no game modes';
+      case 'character': {
+        // The first key puts it where it stands; later ones walk it there (moved with the key's position).
+        const e = boundEntity(t.target);
+        if (!isCharacter(e)) return 'bind the track\'s slot to a player character (an object with a Character controller) first';
+        return { time, mode: t.keys.length === 0 ? 'place' : 'walk', position: [round3(e!.position[0] ?? 0), round3(e!.position[1] ?? 0), round3(e!.position[2] ?? 0)], facing: facingOf(e!.rotation) };
+      }
     }
   };
 
@@ -527,6 +541,23 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
       case 'environment':
         f.push(text('preset', k.preset, (v) => setKey({ preset: v })), num('blendTime', k.blendTime, (v) => setKey({ blendTime: v })));
         break;
+      case 'character': {
+        const e = boundEntity(t.target);
+        const here = (): [number, number, number] => [round3(e?.position[0] ?? 0), round3(e?.position[1] ?? 0), round3(e?.position[2] ?? 0)];
+        f.push(
+          choice('mode', k.mode, ['place', 'walk'], (v) => setKey(v === undefined ? { mode: undefined, position: undefined, run: undefined } : { mode: v, position: k.position ?? here(), ...(v !== 'walk' ? { run: undefined } : {}) })),
+          vec('position', k.position, 3, (v) => setKey({ position: v as [number, number, number] | undefined })),
+          num('facing', k.facing, (v) => setKey({ facing: v }), 1),
+        );
+        if (k.mode === 'walk') f.push(flag('run', k.run, (v) => setKey({ run: v ? true : undefined })));
+        f.push(
+          choice('control', k.enabled === undefined ? undefined : k.enabled ? 'on' : 'off', ['on', 'off'], (v) => setKey({ enabled: v === undefined ? undefined : v === 'on' })),
+          <button key="cap" className="tl-btn tl-btn--small" disabled={e === undefined} onClick={() => e !== undefined && setKey({ mode: k.mode ?? 'place', position: here(), facing: facingOf(e.rotation) })}>
+            Capture the character's place
+          </button>,
+        );
+        break;
+      }
     }
     return (
       <div className="tl-timeline__inspector" aria-label="Key inspector" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
@@ -647,6 +678,16 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
             <div key={`${t.trackId}:h`} className={`tl-timeline__track-head${isSel ? ' is-active' : ''}`} data-track-id={t.trackId} style={{ display: 'flex', gap: 4, alignItems: 'center', height: 30, padding: '0 4px', borderBottom: '1px solid #2e3440', fontSize: 12 }}>
               <span style={{ minWidth: 70 }}>{t.name ?? TYPE_LABEL[t.type]}</span>
               {needsTarget && slotSelect(t.target, (v) => v !== '' && void save(withTrack(t.trackId, (x) => ({ ...x, target: v }))), `Track ${t.trackId} target`)}
+              {t.type === 'character' && (
+                <label title="the player's input still moves the character while the track plays (off: the cutscene holds it)">
+                  <input type="checkbox" aria-label={`Track ${t.trackId} player input`} checked={t.playerInput === true} onChange={(e) => void save(withTrack(t.trackId, (x) => ({ ...x, playerInput: e.target.checked ? true : undefined })))} /> input
+                </label>
+              )}
+              {t.type === 'transform' && isCharacter(boundEntity(t.target)) && (
+                <span className="tl-hint" data-character-hint={t.trackId} title="A transform key teleports a player character every step; a Character track places, walks and turns it with its controller">
+                  use a Character track
+                </span>
+              )}
               {t.type === 'material' && (
                 <input className="tl-input" aria-label={`Track ${t.trackId} parameter`} style={{ width: 60 }} defaultValue={t.param ?? ''} key={`p:${t.param}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== t.param && void save(withTrack(t.trackId, (x) => ({ ...x, param: e.target.value.trim() })))} />
               )}

@@ -118,6 +118,21 @@ describe('timeline data', () => {
     expect(e2.map((e) => e.code).sort()).toEqual(['field_unexpected', 'field_value', 'reference_missing'].sort());
   });
 
+  it('character keys: place or walk with a position, a turn, on/off; run only on a walk; playerInput on the track', () => {
+    const tl = (keys: unknown[], extra: Record<string, unknown> = {}): ModelErrorV2[] => {
+      const errors: ModelErrorV2[] = [];
+      validateTimeline({ timelineId: 'c', name: 'C', duration: 4, slots: [{ name: 'hero', entity: 'player-0001' }], tracks: [{ trackId: 't', type: 'character', target: 'hero', keys, ...extra }] }, '', errors);
+      return errors;
+    };
+    expect(tl([{ time: 0, mode: 'place', position: [0, 1, 0], facing: 90 }, { time: 1, mode: 'walk', position: [2, 1, 0], run: true }, { time: 2, facing: -90 }, { time: 3, enabled: false }], { playerInput: true })).toEqual([]);
+    expect(tl([{ time: 0, mode: 'walk' }]).map((e) => e.path)).toEqual(['/tracks/0/keys/0/position']);
+    expect(tl([{ time: 0, position: [0, 0, 0] }]).map((e) => e.path)).toEqual(['/tracks/0/keys/0/mode']);
+    expect(tl([{ time: 0, mode: 'place', position: [0, 0, 0], run: true }]).map((e) => e.path)).toEqual(['/tracks/0/keys/0/run']);
+    expect(tl([{ time: 0 }]).map((e) => e.code)).toEqual(['field_missing']);
+    expect(tl([{ time: 0, mode: 'fly', position: [0, 0, 0], facing: 720 }]).map((e) => e.path).sort()).toEqual(['/tracks/0/keys/0/facing', '/tracks/0/keys/0/mode']);
+    expect(tl([{ time: 0, facing: 0 }], { playerInput: 'yes' }).map((e) => e.path)).toEqual(['/tracks/0/playerInput']);
+  });
+
   it('canonical form sorts keys by time (stable) and markers', () => {
     const c = canonicalTimeline({ timelineId: 'a', name: 'A', duration: 2, tracks: [{ trackId: 't', type: 'signal', keys: [{ time: 1, name: 'b' }, { time: 0.5, name: 'a' }, { time: 1, name: 'c' }] }] });
     expect(c.tracks[0]!.keys.map((k) => k.name)).toEqual(['a', 'b', 'c']);
@@ -153,6 +168,18 @@ describe('evaluation', () => {
     // Bindings: another actor.
     const other = evaluateTimelineAt(tl, 1, new Map([['actor', 'someone'], ['camA', 'cam-a']]));
     expect([...other.transforms.keys()]).toEqual(['someone']);
+  });
+});
+
+describe('the character track preview', () => {
+  it('a place key puts it there, a walk slides it to its mark by the next key, a facing turns it', () => {
+    const tl: TimelineAsset = { timelineId: 'c', name: 'C', duration: 4, slots: [{ name: 'hero', entity: 'player-0001' }], tracks: [{ trackId: 't', type: 'character', target: 'hero', keys: [{ time: 1, mode: 'place', position: [0, 1, 0], facing: 90 }, { time: 2, mode: 'walk', position: [4, 1, 0] }, { time: 3, facing: 180 }] }] };
+    expect(evaluateTimelineAt(tl, 0.5).transforms.size).toBe(0);
+    expect(evaluateTimelineAt(tl, 1).transforms.get('player-0001')?.position).toEqual([0, 1, 0]);
+    expect(evaluateTimelineAt(tl, 2.5).transforms.get('player-0001')?.position).toEqual([2, 1, 0]);
+    const end = evaluateTimelineAt(tl, 3.5).transforms.get('player-0001')!;
+    expect(end.position).toEqual([4, 1, 0]);
+    expect(end.rotation![1]).toBeCloseTo(1, 6);
   });
 });
 

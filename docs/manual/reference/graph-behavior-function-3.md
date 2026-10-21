@@ -1,8 +1,23 @@
-# Graph: Script function (part 3, from Stats)
+# Graph: Script function (part 3, from UI)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-function--ui"></a>
+## UI
+
+- [Set UI value](graph-behavior-6.md#node-behavior--api-ui-set) (`api.ui.set`, as in `behavior`): Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
+- [UI value](graph-behavior-6.md#node-behavior--api-ui-get) (`api.ui.get`, as in `behavior`): The published value at a path (null when there is none).
+- [Clear UI value](graph-behavior-6.md#node-behavior--api-ui-clear) (`api.ui.clear`, as in `behavior`): Remove a path from the view model (`false` when it was not there).
+- [Show UI](graph-behavior-6.md#node-behavior--api-ui-show) (`api.ui.show`, as in `behavior`): Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
+- [Hide UI](graph-behavior-6.md#node-behavior--api-ui-hide) (`api.ui.hide`, as in `behavior`): Hide a shown UI document (`false` when it was not shown).
+- [UI shown](graph-behavior-6.md#node-behavior--api-ui-is-shown) (`api.ui.isShown`, as in `behavior`): The document is shown.
+- [Play UI tween](graph-behavior-6.md#node-behavior--api-ui-play) (`api.ui.play`, as in `behavior`): Play a tween of a document (on a widget, or the whole document). Presentation only.
+- [Focus UI widget](graph-behavior-6.md#node-behavior--api-ui-focus) (`api.ui.focus`, as in `behavior`): Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
+- [UI view](graph-behavior-6.md#node-behavior--api-ui-view) (`api.ui.view`, as in `behavior`): The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
+- [UI events](graph-behavior-6.md#node-behavior--api-ui-events) (`api.ui.events`, as in `behavior`): The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
+- [UI event](graph-behavior-6.md#node-behavior--api-ui-event) (`api.ui.event`, as in `behavior`): The first UI event of this step with this name (a button's or an input's event), or null.
 
 <a id="graph-behavior-function--stats"></a>
 ## Stats

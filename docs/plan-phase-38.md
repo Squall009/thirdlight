@@ -99,6 +99,7 @@ budget.
 | 38.2 | Done 2026-10-21: a throwing hook (step, any callback; an async step or a returned value) switches off that one instance at the throw, its `dispose` runs once; one `runtime.errors` entry with `entityId`, step, phase and frames, one Problems line per script (`script_error_<id>`), the export prints it to the console; a run restart switches it on again; an `instantiate` that throws after the start (a loaded scene, a spawned copy, a restart) switches that instance off and the load or spawn completes. Hook code moved to `behavior-hooks.ts`, errors to `behavior-errors.ts` (behavior.ts 1,945 → 1,677; runtime.ts 4,146 → 4,145). Vitest: runtime unit checks (spawned copy and loaded scene with a throwing `instantiate` included), `tests/integration/m38-script-errors` (page and worker, real 3D physics, a step and an `onMessage` throw); 9 tests that asserted the old halt rewritten. `playtest.e2e.ts` MCP step rewritten (the game runs on; source line; Problems; play-test run errors): 28.3 s (last full gate) → 15.7 s. Fast gate: build, lint, vitest 734 files, e2e 33/33 green; village perf missed twice (WebGPU p50 7.6 / 6.8 ms); A/B against `8315f041`, 3 rounds: A 7.7 / 7.5 / 7.9 ms, B 7.9 / 7.9 / 7.7 ms: host state (D290); the follow-up's fast gate green again but for the same miss (7.7 ms), within the same hour as that A/B. |
 | 38.3 | Done 2026-10-21: a script check (`tl_script_publish {check}`, the editor's idle check / Ctrl+S) type-checks a source that builds with the pinned TypeScript 5.9.3 (now a `behavior-build` dependency, loaded on first check, external in the backend bundle) against the generated API typings (moved to `behavior-build/api-typings`; the editor shows the same), in memory with the script's modules and the project's libraries; a type error answers `compiled: false`, `behavior_type_error` with file, line, column and the option type's fields (`blendTime` → "CameraBlendOptions has: blend, time"). Check time: first check 0.6 s (compiler load), typical script 4–9 ms warm, a 64 KiB / 1,442-line module 41–55 ms warm (109 ms first). Vitest at the real build (`type-check.test.ts`) and through real MCP + backend HTTP (`onboarding.test.ts`: check refuses, publish of the same source goes through); `script-editor.e2e.ts` gained the type-error step: 7.9 s (last full gate) → 10.7 s (fast gate; earlier fast gates 9.4–22 s). Fast gate: build, lint, vitest 735 files, e2e 41/41 green; village perf missed twice (WebGL 2 p50 5.2 / 5.1 ms); A/B against `8315f041`, 3 rounds: WebGL 2 A 4.6 / 4.9 / 5.8, B 4.7 / 6.0 / 5.2 ms, WebGPU A 5.7 / 5.7 / 6.0, B 5.6 / 8.3 / 7.9 ms (load 2.6 → 8.7): host state (D290). |
 | 38.4 | Done 2026-10-21: copies of one row (same code, message, script, position; differing in step or object) fold into one with `count`, `firstStep`, `entityIds` (first 4), at the runtime's 32-row play log (now `runtime/error-ring.ts`; log lines keep at most half the ring while errors need it) and in the bound; the shape is project-model `repeated-rows` (runtime cannot import protocol). `fitPlayDiagnostics` folds copies, then cuts other lists (longest first, oldest rows), then log lines, then whole parts, errors last; `fitGameObservation` trims an oversize observation (header and `error` never cut) instead of the bridge refusing it (bridge now checks `GAME_OBSERVATION_MAX_BYTES` in UTF-8 bytes); `trimmed {logEntries, errorEntries, lists, omitted, merged}` by path with counts. `sections` on `tl_diagnostics` / `tl_game_observe` (protocol `PLAY_DIAGNOSTICS_SECTIONS`, `GAME_OBSERVATION_SECTIONS`; unknown names refused with the valid ones), picked on the page before the trim; the Console shows `×N` and the step range. Vitest: protocol bound/bridge/sections (a big scene keeps all 10 errors, 16 effect copies → one row ×16; an oversize observation passes the bridge trimmed), runtime ring. E2E: `play-logs.e2e.ts` (Console ×N) 10.9–11.2 s → 11.0 s; `playtest.e2e.ts` MCP step (sections, refusal) 15.7–15.9 s → 16.0 s. Fast gate: build, lint, vitest 736 files, e2e 33/33 green; village perf missed once (WebGL 2 p50 4.9 ms > 4.84), rerun green (4.7 ms). The `×N` badge's look is unverified (asserted by text only). |
+| 38.5 | Done 2026-10-21: a `character` timeline track (`{mode: place \| walk, position, facing, run, enabled}`, track `playerInput`) and `ctx.character.place / walkTo / walkState / stop / turn / setEnabled` (graph nodes too), one path: the new character director (`runtime/character-director.ts`; the track driver `timeline-character.ts`) writes the character's intent channels after the intent phase: a walk is the controller's own move input (braking, 0.1 m arrival, blocked after 1 s), the track holds the player's input while it plays, a skip lands walks on their marks; a rotation key on a character turns its controller; 2D: walks along x, facing turns face-movement models, `character_enable` and a transform key's position now work there. runtime.ts 4,143 → 4,140 lines. Vitest: `tests/integration/m38-character-track` (3D and 2D, page and worker, real Rapier: place, walk against held input, turn, park, skip, script walk, blocked walk, rotation key), timeline model/preview checks. `timeline.e2e.ts` editor step gained the character track (add, key, walk, preview): 2.3 s (last full gate) → 2.5 s; Play step 11.2 → 10.9 s. Fast gate: build, lint, vitest 737 files, e2e 34/34 green, village perf in its limits (WebGL 2 p50 4.8 ms ≤ 4.84). |
 
 ## 5. Decision log
 
@@ -169,3 +170,41 @@ budget.
   (`repeated-rows` subpath, a value subpath for protocol like `limits`),
   since the runtime may not import the protocol; `BEHAVIOR_LOG_CODE` moved
   there with it (runtime re-exports it).
+- 2026-10-21 (38.5): a character key is `{time, mode: place | walk, position,
+  facing, run, enabled}` (`mode` is the key field the game-mode track already
+  has; `facing` in degrees about +Y as `character_place`'s); the track's
+  `playerInput: true` lets the player's input move the character, absent
+  the track holds it (zero move, no jump) from the play's start to its end,
+  as Unity's Timeline owns what it animates. `enabled` is `character_enable`
+  (parked: no input, no gravity), not the hold, since a walk needs the
+  controller on. Default chosen, owner to confirm.
+- 2026-10-21 (38.5): a walk is its controller's move input toward the mark
+  (`character_move` in 3D, `control_move` on the 2D plane), slowing inside
+  the braking distance its deceleration needs and arriving within 0.1 m
+  (`walkTo`'s `arrive` sets it); one that gets no 1 cm closer for a second
+  is blocked: it ends there with a log line. A walk still under way when the
+  timeline finishes carries on to its mark (the hold lasts until it
+  arrives); a skip lands it on its mark (every walk key still to come is a
+  placement, the way a transform track jumps to its end); a stop leaves the
+  character where it is. Arrival facing turns at the controller's turn
+  speed in 3D. Default chosen, owner to confirm.
+- 2026-10-21 (38.5): the character director writes a character's channels
+  once per step right after the intent phase, so a cutscene or a script
+  walk has the last word over a script's own move of that step for that
+  character; timeline keys fire at the end of a step and so reach the
+  character in the next one (one step after a transform key). A transform
+  track's rotation key on a player character turns its controller (the
+  quaternion's yaw), and on the 2D plane its position key places it
+  (before: a warning and nothing). Default chosen, owner to confirm.
+- 2026-10-21 (38.5): on the 2D plane a walk goes along x (the mark's y is
+  where the ground is), `run` changes nothing (the 2D controller has one
+  speed), and a facing turns the character's face-movement models (90
+  right, −90 left; after a walk once it stands still, since they follow its
+  motion). `character_enable` now works on the 2D plane and
+  `character_place`'s `facing` turns the face-movement models there.
+  `ctx.character`'s new calls follow `impulse`'s shape (the controller's
+  object last and optional): `place(position, facing?, entityId?)`,
+  `walkTo(position, {run, arrive, facing, entityId})` → a handle for
+  `walkState(handle)` (walking, arrived, blocked, stopped), `stop`, `turn`,
+  `setEnabled`; each has a visual-script node. Default chosen, owner to
+  confirm.

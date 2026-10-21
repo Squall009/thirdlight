@@ -536,6 +536,42 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(velocity: readonly [number, number, number], entityId?: string | undefined): boolean",
       "doc": "Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings i"
+    },
+    {
+      "name": "place",
+      "kind": "method",
+      "detail": "(position: readonly [number, number, number], facing?: number | undefined, entityId?: string | undefined): boolean",
+      "doc": "Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a lat"
+    },
+    {
+      "name": "walkTo",
+      "kind": "method",
+      "detail": "(position: readonly [number, number, number], options?: CharacterWalkOptions | undefined): number",
+      "doc": "Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height"
+    },
+    {
+      "name": "walkState",
+      "kind": "method",
+      "detail": "(handle: number): 'walking' | 'arrived' | 'blocked' | 'stopped' | null",
+      "doc": "A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle."
+    },
+    {
+      "name": "stop",
+      "kind": "method",
+      "detail": "(entityId?: string | undefined): boolean",
+      "doc": "Stop a player character's walk where it is. False when it was not walking."
+    },
+    {
+      "name": "turn",
+      "kind": "method",
+      "detail": "(facing: number, entityId?: string | undefined): boolean",
+      "doc": "Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character."
+    },
+    {
+      "name": "setEnabled",
+      "kind": "method",
+      "detail": "(enabled: boolean, entityId?: string | undefined): boolean",
+      "doc": "Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that charac"
     }
   ],
   "BehaviorCollectible": [

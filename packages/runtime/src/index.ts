@@ -409,7 +409,7 @@ export type { BehaviorSpawnControl } from './types';
 export { MAX_TIMERS_PER_INSTANCE, MAX_TIMER_SECONDS } from './timers';
 export type { BehaviorMessage, BehaviorMessageControl, BehaviorMessages, BehaviorTimers, TriggerEventRecord } from './types';
 // The generic primitives' script APIs and events.
-export type { BehaviorCharacter, BehaviorLook, BehaviorLookValue, RuntimeEventCue } from './types';
+export type { BehaviorCharacter, CharacterWalkOptions, BehaviorLook, BehaviorLookValue, RuntimeEventCue } from './types';
 export type { EntityLook } from './primitives';
 export { CHARACTER_IMPULSE_MAX } from './character-placement';
 export { LOOK_MAX_EMISSIVE_INTENSITY, MAX_LOOK_OVERRIDES } from './primitives';
@@ -692,7 +692,7 @@ export {
 export type { BehaviorTimeline, BehaviorTimelineEvent } from './types';
 export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineTrackType } from '@thirdlight/project-model';
 // The editor may take project-model values only through the runtime.
-export { TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, TIMELINE_LIMITS } from '@thirdlight/project-model';
+export { TIMELINE_CHARACTER_MODES, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, TIMELINE_LIMITS } from '@thirdlight/project-model';
 // The resource manager a game page and the editor's Scene view hold what they load from assets in.
 export {
   createResourceManager,

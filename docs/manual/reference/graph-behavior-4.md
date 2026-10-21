@@ -1,8 +1,198 @@
-# Graph: Visual script (part 4, from Audio)
+# Graph: Visual script (part 4, from Walk character to (`api.character.walkTo`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-character-walk-to"></a>
+### Walk character to (`api.character.walkTo`)
+
+Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if gi An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `position` (vector)
+- `run` (boolean)
+- `arrive` (number)
+- `facing` (number)
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (number)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `run` | run | boolean | `false` |  |
+| `entityId` | player | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-character-walk-state"></a>
+### Character walk state (`api.character.walkState`)
+
+A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle.
+
+Inputs:
+
+- `handle` (number)
+
+Outputs:
+
+- `value` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-character-stop"></a>
+### Stop character walk (`api.character.stop`)
+
+Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | player | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-character-turn"></a>
+### Turn character (`api.character.turn`)
+
+Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `facing` (number)
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `facing` | facing | number | `0` | -1000000000 – 1000000000 |
+| `entityId` | player | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-character-set-enabled"></a>
+### Enable character control (`api.character.setEnabled`)
+
+Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `enabled` (boolean)
+- `entityId` "player" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `enabled` | enabled | boolean | `false` |  |
+| `entityId` | player | string | `""` | ≤ 256 chars |
+
+<a id="graph-behavior--look"></a>
+## Look
+
+- Set look (`api.look.set`): Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value. An empty entity means this object.
+- Clear look (`api.look.clear`): Give an object its own look back. False when it had no override. An empty entity means this object.
+- Look of (`api.look.get`): The object's look override now, or null when it has none. An empty entity means this object.
+
+<a id="node-behavior--api-look-set"></a>
+### Set look (`api.look.set`)
+
+Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+- `emissive` (string)
+- `emissiveIntensity` "emissive intensity" (number)
+- `tint` (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+| `emissive` | emissive | string | `""` | ≤ 256 chars |
+| `tint` | tint | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-look-clear"></a>
+### Clear look (`api.look.clear`)
+
+Give an object its own look back. False when it had no override. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-look-get"></a>
+### Look of (`api.look.get`)
+
+The object's look override now, or null when it has none. An empty entity means this object.
+
+Inputs:
+
+- `entityId` "object" (string)
+
+Outputs:
+
+- `emissive` (string)
+- `emissiveIntensity` "emissive intensity" (number)
+- `tint` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
 
 <a id="graph-behavior--audio"></a>
 ## Audio
@@ -1236,207 +1426,3 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `targetId` | target | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-set-cutaway-point"></a>
-### Set cut-away point (`api.grid.setCutawayPoint`)
-
-A world point [x, y, z] that decides the layers' cut-aways in place of an object. False when it is not three finite numbers.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `point` (vector)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `point` | point | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-
-<a id="node-behavior--api-grid-set-kit"></a>
-### Set kit (`api.grid.setKit`)
-
-Show a kit over a layer (no region) or one of its regions: its block types are drawn, collide and spawn as each type's swap under the kit, without changing the cells (a dungeon burnt in place). Null shows no kit there (the authored one included); the layer re-meshes in the background, the old look drawn until the new is ready. False when refused (an unknown layer, kit or region). Saved with the gr
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `kit` (string)
-- `region` (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `kit` | kit | string | `""` | ≤ 256 chars |
-| `region` | region | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-kit"></a>
-### Kit (`api.grid.kit`)
-
-The kit a layer (no region) or one of its regions shows now (null: none).
-
-Inputs:
-
-- `layer` (string)
-- `region` (string)
-
-Outputs:
-
-- `value` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `region` | region | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-set-architecture-preset"></a>
-### Set architecture preset (`api.grid.setArchitecturePreset`)
-
-Restyle generated architecture: every outline styled by preset `from` is made by preset `to` instead (its style, values and trim sheet), in every loaded and later loaded scene, without touching the outlines; null puts `from` back. The page makes the changed chunks in the background, the old ones drawn until the new are in, and the colliders follow. False when refused (not preset ids, `to` not a pr
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `from` (string)
-- `to` (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `from` | from | string | `""` | ≤ 256 chars |
-| `to` | to | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-architecture-preset"></a>
-### Architecture preset (`api.grid.architecturePreset`)
-
-The preset shown in place of `from` now (null: `from` itself).
-
-Inputs:
-
-- `from` (string)
-
-Outputs:
-
-- `value` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `from` | from | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-door-link"></a>
-### Door link near (`api.grid.doorLink`)
-
-The linked door nearest a world point within `reach` metres (absent: 2) on the ground, or null.
-
-Inputs:
-
-- `point` (vector)
-- `reach` (number)
-
-Outputs:
-
-- `id` (string)
-- `building` (string)
-- `door` (string)
-- `entity` (string)
-- `scene` (string)
-- `side` (string)
-- `to_position` "to position" (vector)
-- `to_spawn` "to spawn" (vector)
-- `to_facing` "to facing" (number)
-- `to_scene` "to scene" (string)
-- `position` (vector)
-- `spawn` (vector)
-- `facing` (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `point` | point | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `reach` | reach | number | `2` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-grid-edge"></a>
-### Get edge (`api.grid.edge`)
-
-The edge piece on a side of a cell (a wall, door or fence between it and its neighbour), or null when none stands there.
-
-Inputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-
-Outputs:
-
-- `block` (string)
-- `rot` (number)
-- `variant` (number)
-- `piece` (string)
-- `kitBlock` "kit block" (string)
-- `open` (boolean)
-- `blocked` (boolean)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |
-
-<a id="node-behavior--api-grid-blocked"></a>
-### Edge blocked (`api.grid.blocked`)
-
-Whether an edge piece blocks moving from a cell across one of its sides (a wall or a closed door does; an open door, a non-blocking piece or no piece does not). Where no piece stands, a room's wall drawn on the layer blocks (its doorways and windows do not).
-
-Inputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `side` | side | enum | `"-x"` | `-x`, `+x`, `-z`, `+z` |

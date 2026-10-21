@@ -36,7 +36,14 @@
  *                authored one]; the swap shows once the material has loaded;
  * - `environment` switch to an environment preset [preset, blendTime];
  * - `mode` switch the game mode (as `ctx.modes.switch`)
- *                [mode, blend, blendTime].
+ *                [mode, blend, blendTime];
+ * - `character`  a player character (an object with a Character
+ *                controller, 3D or the 2D plane) placed, walked by its own
+ *                controller, turned and switched off and on [mode place |
+ *                walk with a position, facing (degrees about +Y), run (walk
+ *                keys), enabled]; track `playerInput`: the player's input
+ *                still moves it while the track plays (absent: the track
+ *                holds that input from its start to its end).
  *
  * Validation here is the data's own rules; references to assets, effects and
  * materials are checked against the project by `validateTimelineReferences`.
@@ -70,7 +77,7 @@ export const TIMELINE_LIMITS = Object.freeze({
   params: 16,
 });
 
-export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'materialSwap', 'environment', 'mode'] as const;
+export const TIMELINE_TRACK_TYPES = ['camera', 'transform', 'animator', 'audio', 'dialogue', 'effect', 'activation', 'signal', 'fade', 'letterbox', 'wait', 'material', 'materialSwap', 'environment', 'mode', 'character'] as const;
 export type TimelineTrackType = (typeof TIMELINE_TRACK_TYPES)[number];
 
 /** How a value moves from the previous key to this one (`step`: holds the previous value, then jumps). */
@@ -78,7 +85,10 @@ export const TIMELINE_EASINGS = ['linear', 'step', 'easeIn', 'easeOut', 'easeInO
 export type TimelineEasing = (typeof TIMELINE_EASINGS)[number];
 
 /** Tracks that act on one bound object (`target` is required). */
-export const TIMELINE_TARGET_TRACKS: readonly TimelineTrackType[] = ['transform', 'animator', 'activation', 'material', 'materialSwap'];
+export const TIMELINE_TARGET_TRACKS: readonly TimelineTrackType[] = ['transform', 'animator', 'activation', 'material', 'materialSwap', 'character'];
+
+/** How a character key moves its character: `place` puts it there at once, `walk` has its controller walk it there. */
+export const TIMELINE_CHARACTER_MODES = ['place', 'walk'] as const;
 
 export type TimelineValue = number | number[] | string;
 
@@ -130,8 +140,15 @@ export interface TimelineKey {
   timeout?: number;
   // environment
   preset?: string;
-  // mode
+  // mode: the game mode; character: place | walk
   mode?: string;
+  // character
+  /** Degrees about +Y (0 faces +Z, 90 faces +X): where a character faces once placed or arrived, or now. */
+  facing?: number;
+  /** A walk key: at the run speed. */
+  run?: boolean;
+  /** Switch the character's controller off (it stays where it is: no input, no gravity) or on. */
+  enabled?: boolean;
 }
 
 export interface TimelineTrack {
@@ -155,6 +172,8 @@ export interface TimelineTrack {
   /** material: the parameter key and, optionally, the one material. */
   param?: string;
   material?: string;
+  /** character: the player's input still moves the character while the track plays (absent: the track holds it). */
+  playerInput?: boolean;
 }
 
 export interface TimelineSlot {
@@ -208,6 +227,7 @@ const TRACK_EXTRA: Record<TimelineTrackType, readonly string[]> = {
   materialSwap: ['target'],
   environment: [],
   mode: [],
+  character: ['target', 'playerInput'],
 };
 const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   camera: ['time', 'camera', 'release', 'blend', 'blendTime', 'progress', 'easing'],
@@ -225,6 +245,7 @@ const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   materialSwap: ['time', 'materials'],
   environment: ['time', 'preset', 'blendTime'],
   mode: ['time', 'mode', 'blend', 'blendTime'],
+  character: ['time', 'mode', 'position', 'facing', 'run', 'enabled'],
 };
 
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
@@ -402,6 +423,17 @@ function validateKey(type: TimelineTrackType, k: unknown, path: string, duration
       re(errors, k['preset'], `${path}/preset`, ID_RE, 'preset', true);
       num(errors, k['blendTime'], `${path}/blendTime`, 0, 60, 'blendTime (seconds)');
       break;
+    case 'character':
+      oneOf(errors, k['mode'], `${path}/mode`, TIMELINE_CHARACTER_MODES, 'mode');
+      vec(errors, k['position'], `${path}/position`, 3, 'position');
+      num(errors, k['facing'], `${path}/facing`, -360, 360, 'facing (degrees about +Y)');
+      bool(errors, k['run'], `${path}/run`, 'run');
+      bool(errors, k['enabled'], `${path}/enabled`, 'enabled');
+      if (k['mode'] !== undefined && k['position'] === undefined) err(errors, 'field_missing', `${path}/position`, `a ${String(k['mode'])} key has a position`, undefined, '[x, y, z]');
+      if (k['mode'] === undefined && k['position'] !== undefined) err(errors, 'field_missing', `${path}/mode`, 'a key with a position says how the character gets there (place or walk)', undefined, TIMELINE_CHARACTER_MODES.join(' | '));
+      if (k['run'] !== undefined && k['mode'] !== 'walk') err(errors, 'field_unexpected', `${path}/run`, 'run belongs to a walk key', k['run'], 'mode walk');
+      if (k['mode'] === undefined && k['position'] === undefined && k['facing'] === undefined && k['enabled'] === undefined) err(errors, 'field_missing', path, 'a character key places or walks it, turns it or switches it off or on', undefined, 'mode + position | facing | enabled');
+      break;
   }
 }
 
@@ -479,6 +511,7 @@ export function validateTimeline(value: unknown, path: string, errors: ModelErro
     }
     if (type === 'fade' || type === 'letterbox') bool(errors, t['hold'], `${p}/hold`, 'hold');
     if (type === 'audio') bool(errors, t['releaseMusic'], `${p}/releaseMusic`, 'releaseMusic');
+    if (type === 'character') bool(errors, t['playerInput'], `${p}/playerInput`, 'playerInput');
     if (type === 'material') {
       re(errors, t['param'], `${p}/param`, PARAM_RE, 'param', true);
       re(errors, t['material'], `${p}/material`, ID_RE, 'material');

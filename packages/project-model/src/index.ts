@@ -1745,6 +1745,7 @@ export { UI_DIALOGUE_INPUTS, type UiDialogueInput } from './ui-documents';
 export {
   TIMELINE_LIMITS,
   TIMELINE_TRACK_TYPES,
+  TIMELINE_CHARACTER_MODES,
   TIMELINE_EASINGS,
   TIMELINE_TARGET_TRACKS,
   validateTimeline,

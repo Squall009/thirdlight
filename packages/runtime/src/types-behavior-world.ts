@@ -930,7 +930,7 @@ export interface BehaviorCollectible {
   restore(entityId: string): boolean;
 }
 
-/** `ctx.character` — the player characters (the objects with a Character controller; several in local co-op). */
+/** `ctx.character` — the player characters (the objects with a Character controller; several in local co-op): push, place, walk, turn and switch them off and on. */
 export interface BehaviorCharacter {
   /**
    * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a bad vector.
@@ -939,6 +939,54 @@ export interface BehaviorCharacter {
    * @graphLabel entityId player
    */
   impulse(velocity: readonly [number, number, number], entityId?: string): boolean;
+  /**
+   * Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point.
+   * @graphNode Place character at
+   * @graphLabel entityId player
+   */
+  place(position: readonly [number, number, number], facing?: number, entityId?: string): boolean;
+  /**
+   * Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if given. A walk that gets no closer for a second is blocked and ends there. Returns the walk's handle for `walkState` (0 when refused: no such character, a bad point). A new walk, a placement or `stop` ends the one under way.
+   * @graphNode Walk character to
+   * @graphLabel entityId player
+   */
+  walkTo(position: readonly [number, number, number], options?: CharacterWalkOptions): number;
+  /**
+   * A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle.
+   * @graphPure
+   * @graphNode Character walk state
+   */
+  walkState(handle: number): 'walking' | 'arrived' | 'blocked' | 'stopped' | null;
+  /**
+   * Stop a player character's walk where it is. False when it was not walking.
+   * @graphNode Stop character walk
+   * @graphLabel entityId player
+   */
+  stop(entityId?: string): boolean;
+  /**
+   * Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character.
+   * @graphNode Turn character
+   * @graphLabel entityId player
+   */
+  turn(facing: number, entityId?: string): boolean;
+  /**
+   * Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character.
+   * @graphNode Enable character control
+   * @graphLabel entityId player
+   */
+  setEnabled(enabled: boolean, entityId?: string): boolean;
+}
+
+/** `ctx.character.walkTo`'s options. */
+export interface CharacterWalkOptions {
+  /** At the run speed (the 2D plane has one speed). */
+  run?: boolean;
+  /** How near the mark counts as arrived (m, 0.01–100; absent: 0.1). */
+  arrive?: number;
+  /** Degrees about +Y to face once arrived (absent: as it walked in). */
+  facing?: number;
+  /** The player controller's object (absent: the first). */
+  entityId?: string;
 }
 
 /**

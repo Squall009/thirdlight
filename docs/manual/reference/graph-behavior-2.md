@@ -604,7 +604,7 @@ Outputs:
 - Respawn player (`api.emit.respawn`): Kill the player (intent phase; ignored unless the run is playing). Runs only in the intent phase.
 - Walk character (`api.emit.character_move`): 3D projects: walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
 - Place character (`api.emit.character_place`): Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step. On the 2D plane too (z is ignored there), with the placement of scene arrivals and respawns (from rest: velocity and jump reset). Runs only in the intent phase.
-- Enable character (`api.emit.character_enable`): 3D projects: switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on. Lasts until changed. Intent phase. Runs only in the intent phase.
+- Enable character (`api.emit.character_enable`): Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
 
 <a id="node-behavior--api-intents-step-index"></a>
 ### Intents step index (`api.intents.stepIndex`)
@@ -887,7 +887,7 @@ Fields:
 <a id="node-behavior--api-emit-character-enable"></a>
 ### Enable character (`api.emit.character_enable`)
 
-3D projects: switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on. Lasts until changed. Intent phase. Runs only in the intent phase.
+Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
 
 Inputs:
 

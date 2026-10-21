@@ -1431,6 +1431,12 @@ Fields:
 ## Character
 
 - Character impulse (`api.character.impulse`): Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
+- Place character at (`api.character.place`): Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
+- Walk character to (`api.character.walkTo`): Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if gi An empty entity means this object.
+- Character walk state (`api.character.walkState`): A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle.
+- Stop character walk (`api.character.stop`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
+- Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
+- Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
 
 <a id="node-behavior--api-character-impulse"></a>
 ### Character impulse (`api.character.impulse`)
@@ -1455,25 +1461,17 @@ Fields:
 | `velocity` | velocity | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
 | `entityId` | player | string | `""` | ≤ 256 chars |
 
-<a id="graph-behavior--look"></a>
-## Look
+<a id="node-behavior--api-character-place"></a>
+### Place character at (`api.character.place`)
 
-- Set look (`api.look.set`): Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value. An empty entity means this object.
-- Clear look (`api.look.clear`): Give an object its own look back. False when it had no override. An empty entity means this object.
-- Look of (`api.look.get`): The object's look override now, or null when it has none. An empty entity means this object.
-
-<a id="node-behavior--api-look-set"></a>
-### Set look (`api.look.set`)
-
-Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value. An empty entity means this object.
+Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
 
 Inputs:
 
 - `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-- `emissive` (string)
-- `emissiveIntensity` "emissive intensity" (number)
-- `tint` (string)
+- `position` (vector)
+- `facing` (number)
+- `entityId` "player" (string)
 
 Outputs:
 
@@ -1484,49 +1482,5 @@ Fields:
 
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-| `emissive` | emissive | string | `""` | ≤ 256 chars |
-| `tint` | tint | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-look-clear"></a>
-### Clear look (`api.look.clear`)
-
-Give an object its own look back. False when it had no override. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-look-get"></a>
-### Look of (`api.look.get`)
-
-The object's look override now, or null when it has none. An empty entity means this object.
-
-Inputs:
-
-- `entityId` "object" (string)
-
-Outputs:
-
-- `emissive` (string)
-- `emissiveIntensity` "emissive intensity" (number)
-- `tint` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
+| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `entityId` | player | string | `""` | ≤ 256 chars |

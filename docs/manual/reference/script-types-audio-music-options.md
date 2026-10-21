@@ -1,8 +1,76 @@
-# Script API types (from `GridCell`)
+# Script API types (from `AudioMusicOptions`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-audio-music-options"></a>
+## `AudioMusicOptions`
+
+```ts
+/** Options of `ctx.audio.music`. */
+export interface AudioMusicOptions {
+  /** What the track belongs to (`object`; see `AudioPlayOptions.owner`): when it goes, the music is released over the track's fade. */
+  owner?: 'object' | 'scene' | 'none';
+}
+```
+
+<a id="script-type-audio-stinger-options"></a>
+## `AudioStingerOptions`
+
+```ts
+/** Options of `ctx.audio.stinger`. */
+export interface AudioStingerOptions {
+  /** 0–1 (1). */
+  volume?: number;
+  /** The music's level under it, 0–1 (0.3). */
+  duck?: number;
+  /** Seconds to duck and to come back (0.25). */
+  fade?: number;
+  /** How late it may still start, in ms (500; see `AudioPlayOptions.maxLateMs`). */
+  maxLateMs?: number;
+  /** What it belongs to (`object`; see `AudioPlayOptions.owner`). */
+  owner?: 'object' | 'scene' | 'none';
+  /** Seconds it fades out over when its owner stops it (0). */
+  fadeOut?: number;
+}
+```
+
+<a id="script-type-audio-music-state"></a>
+## `AudioMusicState`
+
+```ts
+/** A script's view of the music (`ctx.audio.musicState()`). */
+export interface AudioMusicState {
+  /** Who picks the track: the scripts (after `music`), or the host (`flow`: the engine has no level flow, so nothing plays then). */
+  readonly owner: 'script' | 'flow';
+  /** The scripts' track (null: silence, or the host owns it). */
+  readonly track: string | null;
+  /** The music duck now (1 = not ducked). */
+  readonly duck: number;
+}
+```
+
+<a id="script-type-debug-command-options"></a>
+## `DebugCommandOptions`
+
+```ts
+/** How a script declares a debug command (`ctx.debug.command(name, options)`). */
+export interface DebugCommandOptions {
+  /** One line the console and tools show (at most 120 characters). */
+  readonly description?: string;
+  /** The arguments in order (at most 8; the console also takes them by position). */
+  readonly args?: readonly DebugCommandArgSpec[];
+}
+```
+
+<a id="script-type-debug-command-args"></a>
+## `DebugCommandArgs`
+
+```ts
+/** The arguments of one debug command call. */
+export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
+```
 
 <a id="script-type-grid-cell"></a>
 ## `GridCell`
@@ -544,9 +612,10 @@ export interface CharacterPlaceIntent {
   /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
   position: readonly [number, number, number];
   /**
-   * 3D projects: the way it faces once placed, in degrees about +Y (0 faces
-   * +Z) — what `ctx.physics.characterState().facing` reads, so a saved facing
-   * restores. Absent: it keeps facing as it was. The 2D plane ignores it.
+   * The way it faces once placed, in degrees about +Y (0 faces
+   * +Z) — in 3D what `ctx.physics.characterState().facing` reads, so a saved facing
+   * restores. Absent: it keeps facing as it was. On the 2D plane it turns the
+   * character's face-movement models (90 faces +X, −90 faces −X).
    */
   facing?: number;
 }
@@ -557,9 +626,10 @@ export interface CharacterPlaceIntent {
 
 ```ts
 /**
- * 3D projects: switch the character controller off (the
+ * Switch the character controller off (the
  * character stays where it is: no input, no gravity — a cutscene or a
- * dialogue) or back on. Lasts until changed. Intent phase.
+ * dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or
+ * the run restarts. Intent phase.
  * @graphNode Enable character
  * @graphPhase intent
  */

@@ -133,6 +133,17 @@ These work in both dimensions.
 - **Character impulse**: `ctx.character.impulse([x, y, z], entityId?)` adds a velocity
   (m/s) at a player's next move (a push, a launch, a bounce; up lifts it
   off the ground; the 2D plane ignores z; absent id: the first player).
+- **Moving a character from a script** (3D and the 2D plane; absent id: the
+  first player): `ctx.character.place([x, y, z], facing?, entityId?)` puts
+  it there from rest; `ctx.character.walkTo([x, y, z], { run?, arrive?,
+  facing?, entityId? })` has its own controller walk it to the mark (the
+  player's input does not move it meanwhile) and returns a handle —
+  `ctx.character.walkState(handle)` is walking, arrived, blocked (it got no
+  closer for a second) or stopped; `ctx.character.stop(entityId?)` ends the
+  walk; `ctx.character.turn(facing, entityId?)` turns it (degrees about +Y);
+  `ctx.character.setEnabled(false | true, entityId?)` switches its controller
+  off and on. The timeline's Character track goes the same way
+  ([Timelines](timelines.md)).
 - **Facing**: Face movement **Face velocity** turns a model toward its
   motion in any direction (3D too; **Yaw offset** for a model authored facing
   another way; at the top of the hierarchy it follows its own motion). A

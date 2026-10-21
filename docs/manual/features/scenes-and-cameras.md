@@ -48,7 +48,8 @@ input and its own state.
   a one-player game never names it: the intents `control_move`,
   `control_jump`, `character_move`, `character_place`, `character_enable`
   and `respawn` take `entityId` right after `kind`;
-  `ctx.character.impulse(v, entityId?)`, `ctx.lifecycle.respawn(spawnId?,
+  `ctx.character.impulse(v, entityId?)` (and `place`, `walkTo`, `turn`,
+  `stop`, `setEnabled`), `ctx.lifecycle.respawn(spawnId?,
   entityId?)`, `ctx.physics.characterState(entityId?)`,
   `ctx.physics.characterResult(entityId?)`, `ctx.game.health(entityId?)`.
   Visual-script nodes drive the first controller (their player input picks

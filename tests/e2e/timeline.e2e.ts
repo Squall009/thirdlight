@@ -18,7 +18,10 @@
  * - Editor: the Timelines tab opens a timeline's centre tab; clicking the
  *   ruler scrubs and the Scene view draws the bound box where the timeline
  *   puts it (and the camera track's frustum); dragging a key is one command
- *   (one revision) and Edit → Undo puts it back.
+ *   (one revision) and Edit → Undo puts it back. A character track on the
+ *   player is added and keyed from the panel: its first key places the
+ *   player where it stands, the key inspector makes it a walk to a mark,
+ *   and the scrub preview slides the player there.
  *
  * What it sounds like is owner look pending.
  */
@@ -325,12 +328,14 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
   const crate = await create('Crate', [0, 0.5, 0], { box: { size: [1, 1, 1], material: { color: '#88aacc' } } }, 'box');
   const shotCam = await create('Shot', [0, 3, 8]);
   await cmd('setComponent', { entityId: shotCam, component: 'virtualCamera', value: { rig: 'fixed', target: crate } });
+  const hero = await create('Hero', [-2, 0.91, 1]);
+  await cmd('setComponent', { entityId: hero, component: 'controller', value: {} });
   await cmd('setTimeline', {
     timeline: {
       timelineId: 'slide',
       name: 'Slide',
       duration: 4,
-      slots: [{ name: 'crate', entity: crate }, { name: 'shot', entity: shotCam }],
+      slots: [{ name: 'crate', entity: crate }, { name: 'shot', entity: shotCam }, { name: 'hero', entity: hero }],
       tracks: [
         { trackId: 'cam', type: 'camera', keys: [{ time: 0, camera: 'shot' }] },
         { trackId: 'move', type: 'transform', target: 'crate', keys: [{ time: 0, position: [0, 0.5, 0] }, { time: 2, position: [4, 0.5, 0] }] },
@@ -387,4 +392,25 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
   await menu(page, 'Edit', 'Undo');
   await expect.poll(storedKeyTime).toBe(2);
   await expect(page.locator('.tl-timeline__key[data-track-id="move"][data-key-index="1"]')).toHaveAttribute('data-time', '2');
+
+  // A character track on the hero: the first key (at the 1.5 s playhead) places it where it stands; the inspector makes it a walk to a mark.
+  const characterKeys = async (): Promise<Record<string, unknown>[]> => {
+    const g = await query('queryGameConfig');
+    const tl = ((g['timelines'] ?? (g['game'] as Record<string, unknown> | undefined)?.['timelines']) as { timelineId: string; tracks: { type: string; target?: string; keys: Record<string, unknown>[] }[] }[]).find((t) => t.timelineId === 'slide')!;
+    const t = tl.tracks.find((x) => x.type === 'character');
+    return t === undefined ? [] : [{ target: t.target }, ...t.keys];
+  };
+  await page.getByLabel('New track type').selectOption('character');
+  await page.getByRole('button', { name: 'Add track' }).click();
+  await page.getByLabel('Track track-3 target').selectOption('hero');
+  await expect.poll(characterKeys).toEqual([{ target: 'hero' }]);
+  await page.locator('.tl-timeline__lane[data-lane="track-3"]').dispatchEvent('pointerdown');
+  await page.getByRole('button', { name: 'Add key at playhead' }).click();
+  await expect.poll(characterKeys).toEqual([{ target: 'hero' }, { time: 1.5, mode: 'place', position: [-2, 0.91, 1], facing: 0 }]);
+  await page.getByLabel('Key mode').selectOption('walk');
+  await page.getByLabel('Key position (3 numbers)').fill('2, 0.91, 1');
+  await page.getByLabel('Key position (3 numbers)').press('Enter');
+  await expect.poll(characterKeys).toEqual([{ target: 'hero' }, { time: 1.5, mode: 'walk', position: [2, 0.91, 1], facing: 0 }]);
+  // With no key before it, the walk shows the hero on its mark from 1.5 s on.
+  await expect.poll(async () => (await preview())?.transforms[hero]?.[0] ?? -1).toBeCloseTo(2, 1);
 });

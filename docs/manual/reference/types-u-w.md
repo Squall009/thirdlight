@@ -1,8 +1,42 @@
-# Types (UiIcon to WindConfig)
+# Types (UiEngineAction to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-engine-action"></a>
+### UiEngineAction
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiEngineAction =
+  | 'resume'
+  | 'pause'
+  | 'restartLevel'
+  | 'newGame'
+  | 'continue'
+  | 'quitToTitle'
+  | 'settings'
+  | 'load'
+  | 'save'
+  | 'back'
+  | 'setSetting'
+  | 'mute'
+  | 'unmute'
+  // Rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
+  | 'rebind'
+  | 'cancelRebind'
+  | 'resetBindings'
+  // The game shell — open one of its screens (`screen`), move on to the next listed scene.
+  | 'open'
+  | 'nextScene'
+  // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.
+  | 'reloadScene'
+  // Load or unload the scene named by `scene` — `ctx.scenes.load` / `ctx.scenes.unload` for a button.
+  | 'loadScene'
+  | 'unloadScene';
+```
 
 <a id="type-ui-icon"></a>
 ### UiIcon

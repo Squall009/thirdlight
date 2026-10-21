@@ -1,8 +1,32 @@
-# Graph: Shared script function (part 3, from Dialogue)
+# Graph: Shared script function (part 3, from Stats)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Shared script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-library--stats"></a>
+## Stats
+
+- [Stats fps](graph-behavior-6.md#node-behavior--api-stats-fps) (`api.stats.fps`, as in `behavior`): Frames drawn per second over the window.
+- [Stats frame ms](graph-behavior-6.md#node-behavior--api-stats-frame-ms) (`api.stats.frameMs`, as in `behavior`): The time from one frame to the next (ms).
+- [Stats cpu ms](graph-behavior-6.md#node-behavior--api-stats-cpu-ms) (`api.stats.cpuMs`, as in `behavior`): The page thread's work per frame (ms): the simulation's steps when it runs on the page, the frame's host work and the draw calls' submission.
+- [Stats gpu ms](graph-behavior-6.md#node-behavior--api-stats-gpu-ms) (`api.stats.gpuMs`, as in `behavior`): The GPU's time per frame (ms) from timestamp queries; null where the browser or GPU has none (not measured).
+- [Stats draw calls](graph-behavior-6.md#node-behavior--api-stats-draw-calls) (`api.stats.drawCalls`, as in `behavior`): Draw calls of the last frame.
+- [Stats triangles](graph-behavior-6.md#node-behavior--api-stats-triangles) (`api.stats.triangles`, as in `behavior`): Triangles of the last frame.
+- [Stats texture bytes](graph-behavior-6.md#node-behavior--api-stats-texture-bytes) (`api.stats.textureBytes`, as in `behavior`): Texture bytes resident on the GPU (streamed and fixed, images inside models included).
+- [Stats texture budget bytes](graph-behavior-6.md#node-behavior--api-stats-texture-budget-bytes) (`api.stats.textureBudgetBytes`, as in `behavior`): The texture budget (bytes; the setting texture_budget_mb).
+- [Stats geometry bytes](graph-behavior-6.md#node-behavior--api-stats-geometry-bytes) (`api.stats.geometryBytes`, as in `behavior`): Geometry bytes of the loaded models.
+- [Stats entities](graph-behavior-6.md#node-behavior--api-stats-entities) (`api.stats.entities`, as in `behavior`): Objects in the simulation.
+- [Stats quality](graph-behavior-6.md#node-behavior--api-stats-quality) (`api.stats.quality`, as in `behavior`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
+- [Stats frame rate cap](graph-behavior-6.md#node-behavior--api-stats-frame-rate-cap) (`api.stats.frameRateCap`, as in `behavior`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
+- [Stats occlusion](graph-behavior-6.md#node-behavior--api-stats-occlusion) (`api.stats.occlusion`, as in `behavior`): Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
+- [Stats window ms](graph-behavior-6.md#node-behavior--api-stats-window-ms) (`api.stats.windowMs`, as in `behavior`): The window the times are measured over (ms).
+
+<a id="graph-behavior-library--display"></a>
+## Display
+
+- [Frame-rate cap](graph-behavior-6.md#node-behavior--api-display-frame-rate-cap) (`api.display.frameRateCap`, as in `behavior`): The cap in frames per second (30, 60 or 120), or null for none (the display's rate).
+- [Set frame-rate cap](graph-behavior-6.md#node-behavior--api-display-set-frame-rate-cap) (`api.display.setFrameRateCap`, as in `behavior`): Cap the frame rate at 30, 60 or 120 fps, or null (or 0) for none (the display's rate); false for any other value (nothing changes).
 
 <a id="graph-behavior-library--dialogue"></a>
 ## Dialogue

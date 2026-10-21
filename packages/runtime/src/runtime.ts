@@ -105,7 +105,8 @@ import { SpawnRequests } from './spawn-requests';
 import { TransformMirror } from './step-buffers';
 import { FrameClock } from './frame-clock';
 import { StepReads, type DrawnSteps } from './step-reads';
-import { CHARACTER_IMPULSE_MAX, CharacterPlacement, ControllerPlacements } from './character-placement';
+import { CharacterPlacement, ControllerPlacements } from './character-placement';
+import { CharacterDirector } from './character-director';
 import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
 import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
 import {
@@ -641,17 +642,12 @@ export class RuntimeInstance implements Runtime {
   });
   /** The climb volume a player controller's capsule centre is in (read by the character controllers in the controller phase). */
   private readonly climbQuery: ClimbQuery = Object.freeze({ volume: (entityId?: string) => this.blocks?.climbVolume(entityId) ?? null });
-  /** The player controllers (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
-  private readonly characterControl = Object.freeze({
-    impulse: (v: unknown, entityId?: unknown): boolean => {
-      const id = typeof entityId === 'string' || entityId === undefined ? this.controllers.resolve(entityId) : undefined;
-      if (id === undefined) return false;
-      if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= CHARACTER_IMPULSE_MAX)) return false;
-      // The 2D plane has no depth: its z is dropped.
-      this.controllers.addImpulse(id, [v[0] as number, v[1] as number, v[2] as number]);
-      this.intentsVersion += 1;
-      return true;
-    },
+  /** Placements, walks, turns, impulses and a cutscene's hold on the player controllers (`ctx.character`, the character track). */
+  private readonly director = new CharacterDirector({
+    is3D: () => this.physics3d !== undefined, hz: () => this.hz, settings: () => this.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.curr.get(id), entityDocument: (id) => this.entityDocument(id),
+    channels: (id) => this.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
+    canPlace: () => this.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
+    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:character', 'warn', message),
   });
   /** Per-object look overrides (`ctx.look`; the renderer applies them). */
   private readonly lookControl = Object.freeze({
@@ -2003,7 +1999,8 @@ export class RuntimeInstance implements Runtime {
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
-      // A respawn or a script's character_place places the character before the controller runs.
+      // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
+      this.director.afterIntentPhase(held);
       this.placement.afterIntentPhase(ordinal);
       if (!held) {
         this.runPhase('controller', action);
@@ -2259,6 +2256,7 @@ export class RuntimeInstance implements Runtime {
     this.listedScene = null;
     // A save's placement, scripts' impulses and a spawn facing do not outlive the run.
     this.placement.restartRun();
+    this.director.reset();
     this.controllers.clearImpulses();
     this.clearSpawned();
     this.runSpawnBase = this.spawnRequests.serial;
@@ -2554,12 +2552,10 @@ export class RuntimeInstance implements Runtime {
     return {
       writeTransform: (id, pose) => {
         const t = rt.curr.get(id);
-        if (t === undefined) return false;
+        // A player character turns with a rotation key (its controller too); on the 2D plane the director places it.
+        if (t === undefined || rt.director.timelinePose(id, pose)) return t !== undefined;
         if (rt.physics3d !== undefined && pose.position !== undefined && rt.controllers.moveWithTimeline3D(id, pose.position)) {
           // A 3D player controller's body moves with it (as a script's character_place does).
-        } else if (rt.physics3d === undefined && rt.controllers.has(id) && pose.position !== undefined) {
-          warn(`timeline: the 2D player "${id}" is moved by its physics body; a transform track does not move it`);
-          return true;
         }
         // Its colliders (and its children's) follow it from the next step.
         rt.colliders.timelineMove(id);
@@ -2601,6 +2597,7 @@ export class RuntimeInstance implements Runtime {
       environment: { apply: (presetId, blendSeconds) => rt.environment.api.set(presetId, blendSeconds > 0 ? { blend: blendSeconds } : {}) },
       // The dialogue track runs a node through the dialogue runner and waits while it runs.
       ...(rt.dialogue.enabled ? { dialogue: rt.dialogue.timelinePort() } : {}),
+      character: rt.director.timelinePort,
       warn,
     };
   }
@@ -3453,7 +3450,7 @@ export class RuntimeInstance implements Runtime {
       fields['hitbox'] = { value: this.hitboxControl, enumerable: true };
       fields['collectible'] = { value: this.collectibleControl, enumerable: true };
       // The character's impulse and the per-object look overrides.
-      fields['character'] = { value: this.characterControl, enumerable: true };
+      fields['character'] = { value: this.director.control, enumerable: true };
       fields['look'] = { value: this.lookControl, enumerable: true };
       fields['audio'] = { value: this.audioControl.control, enumerable: true };
       fields['audioOwned'] = { value: this.audioControl.owned, enumerable: true };
@@ -3623,10 +3620,10 @@ export class RuntimeInstance implements Runtime {
       return;
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
-      // The 3D character controller's channels (one writer each per controller and step).
-      // character_place on the 2D plane too (a character with a physics port).
-      if (this.physics3d === undefined && (intent.kind !== 'character_place' || player === undefined || this.controllers.resetPort2D() === null)) {
-        throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_place' ? 'a character_place intent needs a character (a controller) with physics' : `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
+      // The character controller's channels (one writer each per controller and step); character_move is 3D only,
+      // character_place on the 2D plane needs a character with a physics port, character_enable a character.
+      if (this.physics3d === undefined && (intent.kind === 'character_move' || player === undefined || (intent.kind === 'character_place' && this.controllers.resetPort2D() === null))) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_move' ? 'a character_move intent needs a 3D project (physics_dimension 3)' : `a ${intent.kind} intent needs a character (a controller)${intent.kind === 'character_place' ? ' with physics' : ''}`);
       }
       const c = channels!;
       const writer = c.characterWriters.get(intent.kind);

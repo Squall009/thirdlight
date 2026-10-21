@@ -1,4 +1,4 @@
-# Types (PaintTarget to UiEngineAction)
+# Types (PaintTarget to UiEasing)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1247,7 +1247,7 @@ const TIMELINE_EASINGS: readonly ["linear", "step", "easeIn", "easeOut", "easeIn
 Declared in `packages/project-model/src/timelines.ts`.
 
 ```ts
-const TIMELINE_TRACK_TYPES: readonly ["camera", "transform", "animator", "audio", "dialogue", "effect", "activation", "signal", "fade", "letterbox", "wait", "material", "materialSwap", "environment", "mode"];
+const TIMELINE_TRACK_TYPES: readonly ["camera", "transform", "animator", "audio", "dialogue", "effect", "activation", "signal", "fade", "letterbox", "wait", "material", "materialSwap", "environment", "mode", "character"];
 ```
 
 <a id="type-timeline-asset"></a>
@@ -1335,8 +1335,15 @@ interface TimelineKey {
   timeout?: number;
   // environment
   preset?: string;
-  // mode
+  // mode: the game mode; character: place | walk
   mode?: string;
+  // character
+  /** Degrees about +Y (0 faces +Z, 90 faces +X): where a character faces once placed or arrived, or now. */
+  facing?: number;
+  /** A walk key: at the run speed. */
+  run?: boolean;
+  /** Switch the character's controller off (it stays where it is: no input, no gravity) or on. */
+  enabled?: boolean;
 }
 ```
 
@@ -1393,6 +1400,8 @@ interface TimelineTrack {
   /** material: the parameter key and, optionally, the one material. */
   param?: string;
   material?: string;
+  /** character: the player's input still moves the character while the track plays (absent: the track holds it). */
+  playerInput?: boolean;
 }
 ```
 
@@ -1587,38 +1596,4 @@ Declared in `packages/project-model/src/ui-documents.ts`.
 
 ```ts
 type UiEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'back';
-```
-
-<a id="type-ui-engine-action"></a>
-### UiEngineAction
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiEngineAction =
-  | 'resume'
-  | 'pause'
-  | 'restartLevel'
-  | 'newGame'
-  | 'continue'
-  | 'quitToTitle'
-  | 'settings'
-  | 'load'
-  | 'save'
-  | 'back'
-  | 'setSetting'
-  | 'mute'
-  | 'unmute'
-  // Rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
-  | 'rebind'
-  | 'cancelRebind'
-  | 'resetBindings'
-  // The game shell — open one of its screens (`screen`), move on to the next listed scene.
-  | 'open'
-  | 'nextScene'
-  // A scene's objects as authored again (`scene`; absent: the active scene) — `ctx.scenes.reload`.
-  | 'reloadScene'
-  // Load or unload the scene named by `scene` — `ctx.scenes.load` / `ctx.scenes.unload` for a button.
-  | 'loadScene'
-  | 'unloadScene';
 ```

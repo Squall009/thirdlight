@@ -211,13 +211,32 @@ export class CharacterPlacement {
       const place = intents.characterPlace;
       this.host.place3D(place.x, place.y, place.z);
     }
+    const yaw = this.placeYaw;
     this.placeYaw = null;
-    // A respawn asked for in this step gives way to it (as in 3D).
+    // A respawn asked for in this step gives way to it (as in 3D); a facing turns its face-movement models, as a spawn's yaw does.
     if (!is3D && intents.characterPlace !== null) {
       this.respawn = null;
       this.pendingYaw = null;
       this.host.place2D(intents.characterPlace.x, intents.characterPlace.y, ordinal);
+      const id = this.host.controllerId();
+      if (yaw !== null && id !== undefined) this.host.faceSpawn2D(id, yaw);
     }
+  }
+
+  /**
+   * Turn the character to a yaw (radians about +Y) without placing it — in
+   * 3D its transform now and its controller this step (as a placement's
+   * facing), on the 2D plane its face-movement models.
+   */
+  turn(yaw: number): void {
+    if (!this.host.is3D()) {
+      const id = this.host.controllerId();
+      if (id !== undefined) this.host.faceSpawn2D(id, yaw);
+      return;
+    }
+    this.stepYaw = yaw;
+    this.face3D(yaw);
+    this.host.intentsChanged();
   }
 
   /** Where the character is in a save: its position, velocity (m/s) and, in 3D, the way it faces (degrees). */

@@ -238,7 +238,9 @@ named `actions` (e.g. `run`).
 where it is: no input, no gravity) or on, and `control_move` takes an
 optional `y` (the forward input). `ctx.physics.characterState(id)` reads its
 position, velocity, grounding, contacts, whether it is on and climbing, and
-its facing. These intents are refused in a 2D-plane project. A recorded
+its facing. `character_move` is refused in a 2D-plane project
+(`character_place` and `character_enable` work there too; `ctx.character.walkTo`
+walks either). A recorded
 input replays the same positions in the page, the simulation worker and the
 export.
 

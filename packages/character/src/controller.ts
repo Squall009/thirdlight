@@ -533,6 +533,8 @@ interface Controlled {
   readonly tuning: ControllerStepTuning;
   readonly names: { move: string; jump: string };
   readonly movement: ControllerMovementTuning;
+  /** Switched off by `character_enable` (no input, no gravity) until switched on again. */
+  enabled: boolean;
 }
 
 /**
@@ -565,6 +567,7 @@ export function createControllerModule(
       names: controllerActionNames(controller),
       // Climbing and walls.
       movement: controllerMovementTuning(controller),
+      enabled: true,
     };
   };
   const controlled: Controlled[] = findControllerEntities(snapshot).map((id) => controlledOf(snapshot.scene.entities.find((e) => e.id === id)!));
@@ -630,6 +633,7 @@ export function createControllerModule(
         const t = ctx.state.curr.get(c.id);
         resetState(c.state, t !== undefined ? { x: t.position[0], y: t.position[1] } : i === 0 ? ctx.playerCenter : { x: c.state.charX, y: c.state.charY });
         c.state.coyote = c.tuning.coyoteSteps;
+        c.enabled = true;
       });
     },
     step(phase, ctx): void {
@@ -638,6 +642,15 @@ export function createControllerModule(
           // A controller whose object is not in the game (its scene is not loaded) does not move.
           if (!ctx.state.curr.has(c.id)) return;
           const intents: ControllerIntents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[c.id] ?? NO_INTENTS);
+          if (intents.characterEnabled !== undefined && intents.characterEnabled !== null) c.enabled = intents.characterEnabled;
+          if (!c.enabled) {
+            // Switched off (a cutscene, a dialogue): it stays where it is, as the 3D controller does; what it stands on still carries it.
+            c.state.vx = 0;
+            c.state.vy = 0;
+            c.state.climbing = null;
+            ctx.physics.stageCharacterMove(c.id, { x: 0, y: 0 });
+            return;
+          }
           // Effective input: a committed intent for a channel
           // replaces the sampled channel for this phase only (`ctx.action`
           // itself stays the sampled frame).

@@ -21,7 +21,23 @@ nothing), so one timeline serves any actors.
   end the track **releases** the view to the game's cameras (with its end
   blend) or **keeps** the last camera enabled.
 - **Transform** — the target's position, rotation, scale, each channel eased
-  between keys (from its first key on). A 3D character's body moves with it.
+  between keys (from its first key on). A 3D character's body moves with it
+  (a teleport each step: use a Character track to walk it); on a player
+  character a rotation key turns its controller too, and on the 2D plane a
+  position key places it.
+- **Character** — a player character (an object with a Character
+  controller, 3D or the 2D plane): **place** it at a position from rest,
+  **walk** it there with its own controller (its speed, acceleration,
+  collisions, slopes and animator speed, as with the player's input; **run**
+  at the run speed; it slows down near the mark and arrives within 0.1 m),
+  **facing** (degrees about +Y, 0 faces +Z, 90 faces +X: where it faces once
+  placed or arrived, or a turn now; on the 2D plane its face-movement models
+  turn), **enabled** off / on (its controller: no input, no gravity). While
+  the track plays the player's input does not move the character, from the
+  play's start to its end (the track's **input** box lets it). At the end a
+  walk still under way carries on to its mark; a walk that gets no closer
+  for a second is blocked and ends there (a log line). Scripts do the same
+  with [`ctx.character`](gameplay.md).
 - **Animator** — set a parameter, fire a trigger, or go to a state (with a
   crossfade) on the target's animator.
 - **Audio** — music change (crossfade; no asset: silence), give the music back,
@@ -68,8 +84,10 @@ transforms, material values, fade and letterbox at the end, the remaining
 animator parameter sets and state changes (triggers are dropped), the
 remaining music changes (the music owner and track end as if played; stingers
 and SFX are not played, the sounds it started stop), the remaining activation
-keys, the remaining signals (unless a key says drop); waits pass, pending
-dialogue does not run; markers after the skip point are not reported.
+keys, the remaining signals (unless a key says drop), the remaining character
+keys (a walk becomes a placement on its mark, a walk under way lands there,
+turns are at once); waits pass, pending dialogue does not run; markers after
+the skip point are not reported. A stop leaves a character where it is.
 
 **Determinism.** Timelines run in the simulation step (after the scripts,
 before the camera brain): time counts in fixed steps, a wait key reads the
@@ -83,8 +101,12 @@ dragged along the ruler (one command per drag), a key inspector for the
 selected key, **Add key at playhead**. Clicking or dragging the ruler scrubs:
 the Scene view stays visible above the timeline and shows the bound objects
 where the timeline puts them and the live camera's frustum at that time;
-animator tracks show the state their keys lead to; sound, effects, signals and
-dialogue play in Play only.
+animator tracks show the state their keys lead to; a character track shows
+the character on its keys' marks (a walk slides it there by the next key;
+Play walks it at its own speed); sound, effects, signals and dialogue play in
+Play only. A character key starts where the character stands (**Capture the
+character's place** takes it again); a transform track on a character says
+to use a Character track.
 
 **Observing.** `tl_game_observe` / `window.__thirdlightObserve()` report
 `timeline: { screen: { fade, opacity, letterbox }, playing: [{ handle,

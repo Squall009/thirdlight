@@ -112,8 +112,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     patrol: { get: rec('patrol.get', { direction: [1, 0, 0], active: true }), setActive: rec('patrol.setActive', true), turn: rec('patrol.turn', true) },
     hitbox: { setActive: rec('hitbox.setActive', true), touching: rec('hitbox.touching', ['box-2']) },
     collectible: { collected: rec('collectible.collected', false), restore: rec('collectible.restore', true) },
-    // The character's impulse and the look overrides.
-    character: { impulse: rec('character.impulse', true) },
+    // The character's impulse, placement, walks, turns and switch, and the look overrides.
+    character: { impulse: rec('character.impulse', true), place: rec('character.place', true), walkTo: rec('character.walkTo', 1), walkState: rec('character.walkState', 'arrived'), stop: rec('character.stop', true), turn: rec('character.turn', true), setEnabled: rec('character.setEnabled', true) },
     look: { set: rec('look.set', true), clear: rec('look.clear', true), get: rec('look.get', { emissive: '#ff0000', emissiveIntensity: 1 }) },
     // Playback handles, music, duck, bus mix.
     audio: {

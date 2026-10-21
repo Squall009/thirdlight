@@ -23,7 +23,7 @@
  *   2. a new play fires the keys at step 0; a playing one advances one step
  *      and fires the discrete keys it crossed (camera cuts, animator
  *      set/trigger/play, audio, dialogue, effects, activation, material swaps, signals,
- *      environment presets); a wait key stops it until its action is pressed
+ *      environment presets, character keys); a wait key stops it until its action is pressed
  *      (or its timeout); a dialogue key with `wait` stops it until the
  *      dialogue ends;
  *   3. the continuous tracks are applied at the current time (transforms,
@@ -38,6 +38,8 @@ import { TIMELINE_LIMITS, type TimelineAsset, type TimelineEasing, type Timeline
 
 import type { ActionFrame } from './actions';
 import { slerp } from './camera-rig';
+import type { TimelineCharacterPort } from './character-director';
+import { characterTrackPose, fireCharacterKey, holdCharacters, releaseCharacters, timelineOwner } from './timeline-character';
 
 // ---------------------------------------------------------------------------
 // Pure evaluation (shared with the editor's scrub preview)
@@ -194,10 +196,10 @@ export function evaluateTimelineAt(tl: TimelineAsset, time: number, bindings: Re
   for (const m of tl.markers ?? []) if (m.time <= time) markers.push(m.name);
   for (const t of tl.tracks) {
     if (t.muted === true) continue;
-    if (t.type === 'transform' && t.target !== undefined) {
+    if ((t.type === 'transform' || t.type === 'character') && t.target !== undefined) {
       const id = bindings.get(t.target);
       if (id === undefined) continue;
-      const pose = transformTrackAt(t, time);
+      const pose: TimelineTransformPose = t.type === 'character' ? characterTrackPose(t, time, tl.duration) : transformTrackAt(t, time);
       if (pose.position !== undefined || pose.rotation !== undefined || pose.scale !== undefined) transforms.set(id, { ...transforms.get(id), ...pose });
     } else if (t.type === 'camera') {
       const i = cameraKeyAt(t, time);
@@ -251,6 +253,8 @@ export interface TimelineHost {
   switchMode?(modeId: string, transition: { blend?: 'cut' | 'linear' | 'eased'; blendTime?: number }): boolean;
   /** The environment presets (optional). */
   environment?: TimelineEnvironmentPort;
+  /** The player characters (optional): the character track. */
+  character?: TimelineCharacterPort;
   warn(message: string): void;
 }
 
@@ -539,6 +543,7 @@ export class TimelineSystem {
       if (inst.status === 'new') {
         inst.status = 'playing';
         this.event('started', inst, '', '');
+        holdCharacters(this.host.character, inst.tl.tracks, (slot) => this.bound(inst, slot, 'character'), timelineOwner(inst.handle));
       }
       this.applyContinuous(inst, true);
       return true;
@@ -546,6 +551,7 @@ export class TimelineSystem {
     if (inst.status === 'new') {
       inst.status = 'playing';
       this.event('started', inst, '', '');
+      holdCharacters(this.host.character, inst.tl.tracks, (slot) => this.bound(inst, slot, 'character'), timelineOwner(inst.handle));
       this.advanceTo(inst, -1, 0);
     } else if (inst.status === 'waiting') {
       inst.waited += 1;
@@ -707,6 +713,12 @@ export class TimelineSystem {
           if (!ok) this.warnOnce(`mode:${k.mode}`, `timeline "${inst.tl.timelineId}": no game mode "${k.mode ?? ''}"`);
           break;
         }
+        case 'character': {
+          const id = this.bound(inst, t.target, 'character');
+          const problem = id === null ? null : fireCharacterKey(this.host.character, id, k, skipping, timelineOwner(inst.handle));
+          if (problem !== null) this.warnOnce(`char:${id}`, `timeline "${inst.tl.timelineId}": ${problem}`);
+          break;
+        }
         case 'environment': {
           const port = this.host.environment;
           if (port === undefined) {
@@ -804,6 +816,8 @@ export class TimelineSystem {
    * - activation, material swaps: remaining keys applied in order (the last wins);
    * - signal: remaining keys fire now unless `onSkip: "drop"`;
    * - wait: passed; environment: the last preset without a blend;
+   * - character: remaining keys applied in order, a walk as a placement at
+   *   its mark (a walk under way lands there too), turns at once;
    * - markers after the skip point are not reported.
    */
   private skipInstance(inst: Instance): void {
@@ -820,6 +834,7 @@ export class TimelineSystem {
     inst.step = inst.durationSteps;
     this.applyContinuous(inst, true);
     this.release(inst, true);
+    releaseCharacters(this.host.character, timelineOwner(inst.handle), 'skipped');
     this.event('ended', inst, '', 'skipped');
     this.noteEnded(inst.handle);
   }
@@ -841,6 +856,8 @@ export class TimelineSystem {
       }
     }
     this.release(inst, false, reason === 'stopped');
+    // The characters take the player's input again (a walk still under way carries on to its mark unless stopped).
+    releaseCharacters(this.host.character, timelineOwner(inst.handle), reason);
     this.event('ended', inst, '', reason);
     this.noteEnded(inst.handle);
   }
