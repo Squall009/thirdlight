@@ -189,7 +189,8 @@ reason `expired`). Anything that reads or drives it (`tl_game_observe`,
 pushes that limit forward: `tl_play_start` answers its `expiresAt`. The
 play's content (its scenes, scripts and files, `playContent.expiresAt`)
 stays readable for as long as the play lives, so a long play-test can still
-load a scene it unloaded, and for a minute after the play ends.
+load a scene it unloaded, and for a minute after the play is stopped (a
+play that ends by itself after its 30 minutes takes its content with it).
 
 ## Where a Play's start time went
 

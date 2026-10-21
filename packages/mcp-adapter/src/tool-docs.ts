@@ -578,7 +578,7 @@ export const TOOL_DETAILS = {
     'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
     'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
     'playSessionId + the frozen snapshotId/revision on success. expiresAt is when the play ends unless something uses it (the inactivity limit, 30 minutes: an observe, input, screenshot or diagnostics ' +
-    `call pushes it forward); playContent.expiresAt is the same time and moves with it, so the game can load scenes for as long as the play runs, and for ${PLAY_CONTENT_GRACE_SECONDS} s after it stops. ` +
+    `call pushes it forward); playContent.expiresAt is the same time and moves with it, so the game can load scenes for as long as the play runs, and for ${PLAY_CONTENT_GRACE_SECONDS} s after it is stopped (one that ends by itself takes its content with it). ` +
     'Test/debug starts (the editor\'s "Play from..." sends the same): ' +
     'sceneId - start there (the scene loads with the start scenes and the character starts at its first player spawn); ' +
     `variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= ${PLAY_START_VARIABLES_MAX} keys, <= ${PLAY_START_VARIABLE_MAX_CHARS} characters each); ` +

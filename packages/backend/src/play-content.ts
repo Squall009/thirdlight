@@ -12,7 +12,8 @@
  * - `PlayContentStore` holds one immutable artifact set per play start and
  *   serves reads only through the exact locator route set; a set is readable
  *   while its play runs (at least `PLAY_CONTENT_TTL`, renewed with the play's
- *   own expiry) and `PLAY_CONTENT_GRACE` after the play ended, and the
+ *   own expiry) and `PLAY_CONTENT_GRACE` after the play ended (never past
+ *   that expiry), and the
  *   contentId is a redacted secret-equivalent.
  * - `captureRuntimeContentManifest` is a compatibility adapter over
  *   `project-model`'s pure `captureManifest` (one assembler, no second copy).
@@ -293,9 +294,15 @@ export class PlayContentStore {
     if (set !== undefined && set.terminalAtMs === null && untilMs > set.expiresAtMs) set.expiresAtMs = untilMs;
   }
 
-  /** The time a set stops being readable (as `status` says): its expiry, or the end of the grace after its play ended. */
+  /**
+   * The time a set stops being readable (as `status` says): its expiry, or the
+   * end of the grace after its play ended, whichever is first. The grace never
+   * reaches past the expiry, so a set that expired before its play ended (the
+   * play's inactivity timer fires at or after the expiry it renewed the set to)
+   * stays expired instead of becoming readable again.
+   */
   deadline(set: PlayContentSet): number {
-    return set.terminalAtMs !== null ? set.terminalAtMs + this.graceMs : set.expiresAtMs;
+    return set.terminalAtMs !== null ? Math.min(set.expiresAtMs, set.terminalAtMs + this.graceMs) : set.expiresAtMs;
   }
 
   /** `live` (TTL running), `grace` (terminal grace), `expired`. */
