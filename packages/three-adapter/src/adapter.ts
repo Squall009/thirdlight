@@ -26,11 +26,9 @@
  * backend), never a throw.
  */
 import type { MaterialFunctionLike } from './material-graph';
-import { createDecalPages } from './decal-pages';
-import { createDecalProjectors, type DecalRequestLike, type ProjectedDecalLike } from './decal-projectors';
+import type { DecalRequestLike, ProjectedDecalLike } from './decal-projectors';
 import { CLIPPED_DECALS_KEY, ClippedDecals } from './clipped-decals';
 import { setDecalDepthMode } from './mesh-decals';
-import { createMaterialLibrary, type MaterialDefLike, type MaterialLibrary, type WindLike } from './material-library';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createProbeLightingHost } from './probe-grids';
@@ -49,7 +47,6 @@ import { createQualityControl } from './quality-control';
 import { createGpuTiming } from './gpu-timing';
 import { createRenderControl } from './render-control';
 import * as THREE from 'three';
-import { syncCellUv } from './block-cell-uv';
 import { type BlockLayerViewDiagnostics } from './block-layers';
 import { createLevelViews } from './level-views';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
@@ -63,10 +60,11 @@ import { SplineView } from './spline-view';
 import { createAdapterArchitecture } from './architecture-adapter';
 import { createScenePreparations } from './scene-preparation';
 import { TerrainTileStore } from './terrain-tile-store';
-import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
-import { MaterialSwapView, type MaterialMappingLike } from './material-swaps';
+import type { MaterialRenderChangeLike } from './runtime-materials';
+import type { MaterialMappingLike } from './material-swaps';
+import { AdapterMaterials } from './adapter-materials';
 import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
-import { reportPaintStreamOverflow, vertexPaintDiagnostics } from './vertex-paint-draw';
+import { vertexPaintDiagnostics } from './vertex-paint-draw';
 import { paintOnlyChange } from './vertex-paint-update';
 import { PaintChannelView } from './vertex-paint-channel-view';
 import { PATH_PAINT_ENTITY_KEY } from './vertex-paint-paths-view';
@@ -154,51 +152,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    */
   const resources: ResourceManager = opts.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
   if (opts.background !== undefined) scene.background = new THREE.Color(opts.background);
-  // Project materials (shared by boxes, models and instance sets), node materials.
+  // Project materials (shared by boxes, models and instance sets), node materials, decals.
   /** The lightmap set once it exists (the library may report a change while it is still being set up). */
   let lightmapsLive: LightmapSet | null = null;
-  /** A library the host keeps (the editor's) is used as it is: the host sets its materials and wind and disposes it. */
-  const ownLibrary = opts.materials !== undefined && opts.materials.library === undefined;
-  const materialLibrary: MaterialLibrary | null =
-    opts.materials?.library ??
-    (opts.materials !== undefined
-      ? createMaterialLibrary({
-          loadTexture: opts.materials.loadTexture,
-          resources,
-          // A project material changed in place (a texture arrived): lightmapped
-          // copies made before are clones and follow it (else they keep the texture-less look).
-          onChange: () => lightmapsLive?.refresh(),
-        })
-      : null);
-  if (materialLibrary !== null && opts.materials !== undefined && ownLibrary) {
-    materialLibrary.setMaterials(opts.materials.defs, opts.materials.functions ?? []);
-    materialLibrary.setWind(opts.materials.wind);
-  }
-  // The decal pages the loaded decals' materials name, held per decal and uploaded as they arrive.
-  const decalPages = materialLibrary?.decalPageOf !== undefined && opts.materials !== undefined ? createDecalPages({ holds: textureHolds(resources, opts.materials.loadTexture), pageOf: (id) => materialLibrary.decalPageOf!(id), onChange: () => opts.onChange?.() }) : null;
-  // The projected decals the loaded decal entities lay over every lit surface (off: `projectedDecals: false`).
-  const decalOptions = typeof opts.projectedDecals === 'object' ? opts.projectedDecals : {};
-  const projectors =
-    materialLibrary?.projectedDecal !== undefined && opts.projectedDecals !== false
-      ? createDecalProjectors({ scene, materialOf: (holder, id) => materialLibrary.projectedDecal!(holder, id), holdPages: (holder, id) => (id === null ? decalPages?.remove(holder) : decalPages?.set(holder, id)), ...(decalOptions.onProblem !== undefined ? { onProblem: decalOptions.onProblem } : {}), onChange: () => opts.onChange?.() })
-      : null;
-  // A painted draw past the device's largest texture is drawn unpainted: the host's Problems say so.
-  const paintOverflow = typeof opts.vertexPaint === 'object' && opts.vertexPaint.onProblem !== undefined ? reportPaintStreamOverflow(opts.vertexPaint.onProblem) : null;
-  // A library the host keeps (the editor's) outlives this adapter: its listener goes with the adapter.
-  const stopDefinitions = materialLibrary?.onDefinitions?.(() => {
-    decalPages?.refresh();
-    projectors?.refresh();
-  });
-  const materialUndo = new Map<string, () => void>();
-  /** The material swaps the running game made, put on once their materials have loaded (created with the scene below). */
-  let materialSwaps: MaterialSwapView | null = null;
-  /** An object's own mapping with the swap it wears over it (undefined: none of either). */
-  const effectiveMaterials = (entityId: string, own: Readonly<Record<string, string>> | undefined): Readonly<Record<string, string>> | undefined => {
-    const swap = materialSwaps?.swapOf(entityId) ?? null;
-    return swap === null ? own : { ...(own ?? {}), ...swap };
-  };
-  /** The values scripts set per object (the simulation's material changes). */
-  let runtimeMaterials: RuntimeMaterialView | null = null;
+  const materials = new AdapterMaterials(scene, resources, opts, () => lightmapsLive);
+  const materialLibrary = materials.library;
+  const { decalPages, projectors } = materials;
+  const effectiveMaterials = materials.effective;
   /** Lightmaps of the baked static objects; the lights a bake holds are not realtime (an editing host replaces the bakes). */
   const lightmapSetOf = (bakes: Readonly<Record<string, LightingBakeLike>> | null): LightmapSet | null =>
     opts.lighting !== undefined && bakes !== null && Object.keys(bakes).length > 0
@@ -308,7 +268,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     graph.node(entityId)?.traverse((o) => void ((o as THREE.Mesh).isMesh === true && out.push(o)));
     return out;
   };
-  if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
+  materials.trackRuntime(ownMeshes);
   // --- Visual effects --------------------------------------------
   const effects = new AdapterEffects(scene, resources, opts, materialLibrary);
   /** The MSAA samples last stamped on the canvas. */
@@ -422,10 +382,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   // An editor's edit mode drawing only the objects it edits.
   const isolation = new IsolationView({ scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), regroup: (o) => batcher?.touch(o), shadowsChanged: () => staticShadows?.bump() });
-  // A block chunk's UVs follow the unit its (re)defined material reads (cells or metres), before it is grouped again.
-  const stopCellUv = materialLibrary?.onReassigned?.((root) => void ((root as THREE.Mesh).isMesh === true && syncCellUv(root as THREE.Mesh)));
-  // Project materials redefined (an editing host): the meshes wearing them are grouped again.
-  const stopReassigned = batcher === null ? undefined : materialLibrary?.onReassigned?.((root) => batcher.touch(root));
+  // Redefined project materials: block chunks' UVs follow, then the meshes wearing them are grouped again.
+  materials.listenReassigned(batcher === null ? null : (root) => batcher.touch(root));
   /** The documents of every realized entity (the loaded scenes). */
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
   // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
@@ -571,7 +529,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const node = graph.node(e.id);
     const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
     // With the object's values for its graph materials' public parameters.
-    if (boxMesh !== null && node !== undefined && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(node, boxMaterials, materialParamsOf(e.components)));
+    if (boxMesh !== null && node !== undefined && materialLibrary !== null && boxMaterials !== undefined) materials.undo.set(e.id, materialLibrary.apply(node, boxMaterials, materialParamsOf(e.components)));
     if (boxMesh !== null && node !== undefined) lightmaps?.apply(e.id, node);
     if (own.geometries.length > 0) entityResources.set(e.id, own);
     // An effect component plays from the object (on start unless it waits for a signal or a script).
@@ -601,7 +559,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     terrains.removeTerrain(id);
     splines.remove(id);
     architecture.remove(id);
-    runtimeMaterials?.release(id);
+    materials.runtime?.release(id);
     effects.detach(id);
     const obj = graph.node(id);
     // Per-object looks first (a look override's own copies), then the shared paths undo.
@@ -616,9 +574,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).
     const hung = overlays.get(id);
     if (hung !== undefined && obj !== undefined) for (const o of hung) obj.remove(o);
-    materialUndo.get(id)?.();
-    materialUndo.delete(id);
-    materialSwaps?.removed(id);
+    materials.undo.get(id)?.();
+    materials.undo.delete(id);
+    materials.swaps?.removed(id);
     // Its drawables leave the scene first (the node's tree is all its own: children have nodes of their own).
     graph.removeEntity(id);
     if (obj !== undefined) {
@@ -712,7 +670,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
         applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
         // Values a script set before the model arrived.
-        runtimeMaterials?.reapply(entityId);
+        materials.runtime?.reapply(entityId);
         // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
         markBatchable(root);
         const scope = staticScopes.get(entityId);
@@ -736,54 +694,25 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
 
-  if (materialLibrary !== null) {
-    const textureRefs = opts.materials?.textureRefs;
-    const assetMaterials = (assetId: string | undefined): Readonly<Record<string, string>> | undefined => (assetId === undefined ? undefined : opts.models?.assets.find((a) => a.assetId === assetId)?.materials);
-    materialSwaps = new MaterialSwapView({
-      entityMapping: (entityId, swap) => {
-        const c = entityDocs.get(entityId)?.components as { materials?: Record<string, string>; model?: { asset?: { assetId?: string } }; instances?: { asset?: { assetId?: string } } } | undefined;
-        if (c === undefined) return null;
-        const mapping = { ...(assetMaterials(c.model?.asset?.assetId ?? c.instances?.asset?.assetId) ?? {}), ...(c.materials ?? {}), ...(swap ?? {}) };
-        return Object.keys(mapping).length === 0 ? null : mapping;
-      },
-      blockMapping: (blockId, swap) => {
-        const own = authoredBlockTypes.find((t) => t.blockId === blockId)?.materials;
-        const mapping = { ...(own ?? {}), ...(swap ?? {}) };
-        return Object.keys(mapping).length === 0 ? null : mapping;
-      },
-      textureRefs: (materialId) => textureRefs?.(materialId) ?? [],
-      ...(materialLibrary.preloadTextures !== undefined ? { preload: (ids: readonly string[]) => materialLibrary.preloadTextures!(ids) } : {}),
-      applyEntity: (entityId) => {
-        const e = entityDocs.get(entityId);
-        // A spline's mesh wears it (drawn by the spline view, no entity node of its own).
-        if (e !== undefined && !disposed && (e.components as { spline?: unknown }).spline !== undefined) return splines.restyle(entityId);
-        if (e !== undefined && !disposed && (e.components as { architecture?: unknown }).architecture !== undefined) return architecture.restyle(entityId);
-        // A terrain's pages wear it (no entity node of its own).
-        if (e !== undefined && !disposed && (e.components as { terrain?: unknown }).terrain !== undefined) return terrains.restyle(entityId, effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials) ?? null, materialParamsOf(e.components));
-        const obj = graph.node(entityId);
-        if (e === undefined || obj === undefined || disposed) return;
-        // The lightmapped copies are of the materials worn before: taken off, then made again over the new ones.
-        lightmaps?.release(entityId);
-        let root: THREE.Object3D | null = null;
-        if ((e.components as { box?: unknown }).box !== undefined) {
-          const mapping = effectiveMaterials(entityId, (e.components as { materials?: Record<string, string> }).materials);
-          materialUndo.set(entityId, materialLibrary.apply(obj, mapping ?? null, materialParamsOf(e.components)));
-          root = obj;
-        } else root = realization?.reapplyMaterials(entityId) ?? null;
-        if (root !== null) lightmaps?.apply(entityId, root);
-        // Values a script set on its graph materials go on the new ones.
-        runtimeMaterials?.reapply(entityId);
-        regroupEntity(entityId);
-      },
-      applyBlockTypes: () => {
-        const swaps = materialSwaps?.appliedBlocks() ?? new Map<string, MaterialMappingLike>();
-        blockView.setTypes(authoredBlockTypes.map((t) => {
-          const swap = swaps.get(t.blockId);
-          return swap === undefined ? t : { ...t, materials: { ...(t.materials ?? {}), ...swap } };
-        }));
-      },
-    });
-  }
+  materials.createSwaps({
+    components: (id) => entityDocs.get(id)?.components,
+    disposed: () => disposed,
+    assetMaterials: (assetId) => (assetId === undefined ? undefined : opts.models?.assets.find((a) => a.assetId === assetId)?.materials),
+    blockTypes: () => authoredBlockTypes,
+    restyleView: (entityId, c) => {
+      // A spline's, an architecture's or a terrain's object: its view's meshes wear it (no entity node of their own).
+      if ((c as { spline?: unknown }).spline !== undefined) splines.restyle(entityId);
+      else if ((c as { architecture?: unknown }).architecture !== undefined) architecture.restyle(entityId);
+      else if ((c as { terrain?: unknown }).terrain !== undefined) terrains.restyle(entityId, effectiveMaterials(entityId, (c as { materials?: Record<string, string> }).materials) ?? null, materialParamsOf(c));
+      else return false;
+      return true;
+    },
+    node: (id) => graph.node(id),
+    lightmaps: () => lightmaps,
+    reapplyModel: (id) => realization?.reapplyMaterials(id) ?? null,
+    regroup: regroupEntity,
+    setBlockTypes: (types) => blockView.setTypes(types),
+  }, opts.materials?.textureRefs);
 
   // --- renderer state (lazy: created on the first successful render) ---
   const canvasLike = canvas as CanvasLike | null;
@@ -1375,14 +1304,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyLightOverrides();
     applyEnvironmentBlend();
     // Material swaps whose materials have loaded go on before the draw (and before regrouping).
-    if (materialSwaps !== null) {
+    if (materials.swaps !== null) {
       const rt = opts.runtime as { materialSwaps?: () => ReadonlyMap<string, MaterialMappingLike>; blockMaterialSwaps?: () => ReadonlyMap<string, MaterialMappingLike> };
-      materialSwaps.update(rt.materialSwaps?.(), rt.blockMaterialSwaps?.());
+      materials.swaps.update(rt.materialSwaps?.(), rt.blockMaterialSwaps?.());
     }
     // Material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
     if (materialChanges.length > 0) {
-      runtimeMaterials?.apply(materialChanges);
+      materials.runtime?.apply(materialChanges);
       for (const c of materialChanges) regroupEntity(c.entityId);
     }
     // The level of detail each LOD draws attached (the batcher and the draw see only that one).
@@ -1586,7 +1515,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && architecture.ids().length > 0) [d.architecture, d.rooms] = [architecture.diagnostics(), archHost.rooms.diagnostics()];
     if (!disposed) d.occlusion = occlusion.diagnostics();
     if (!disposed) scatter.diagnostics(d);
-    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(materialSwaps !== null && (materialSwaps.applied > 0 || materialSwaps.pending() > 0) ? { swapsApplied: materialSwaps.applied, swapsPending: materialSwaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
+    const { runtime: runtimeMaterials, swaps } = materials;
+    if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(swaps !== null && (swaps.applied > 0 || swaps.pending() > 0) ? { swapsApplied: swaps.applied, swapsPending: swaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
     const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
     if (envDiagnostics !== null) d.environment = envDiagnostics;
     if (!disposed && lastFrameDrawn) d.render = { ...renderControl.diagnostics(), internal: envDiagnostics?.render.internal ?? null };
@@ -1614,21 +1544,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError } {
     if (disposed) return { ok: true, alreadyDisposed: true };
     disposed = true;
-    paintOverflow?.();
     channelView?.dispose();
     isolation.dispose();
     for (const rec of animatorPlayers.values()) rec.player.dispose();
     effects.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
-    decalPages?.dispose();
-    projectors?.dispose();
     clipped?.dispose();
     probes.dispose();
-    runtimeMaterials?.dispose();
-    materialSwaps?.dispose();
     preparations.clear();
-    if (ownLibrary) materialLibrary?.dispose();
+    materials.dispose();
     environmentRenderer?.dispose();
     environmentHolds?.releaseHolder('environment');
     lights.dispose();
@@ -1664,9 +1589,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     entityResources.clear();
-    stopReassigned?.();
-    stopDefinitions?.();
-    stopCellUv?.();
     batcher?.dispose();
     viewCull.dispose();
     occlusion.dispose();
