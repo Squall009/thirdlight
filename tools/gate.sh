@@ -28,6 +28,8 @@
 # A failed full run reruns its failed tests once alone (load flakes on the
 # CPU-rendered host) before it says RED. TL_E2E_WORKERS sets Playwright's
 # worker count (the config's own default is 1). Here: 2 for fast and rerun, FULL_WORKERS for full on a GPU.
+# TL_VITEST_WORKERS caps vitest's workers (default: vitest's own, a CPU each): the unit run alone peaks
+# above a 5G cap with them all, so a gate started under 5G sets about 4.
 # On the GPU host the 29 heaviest e2e files took 600 s on 2 workers and 471–478 s on 3, at
 # 4.7 and 5.6 GB of anonymous memory (6.5 GB with the page cache the cap reclaims), each test
 # about 5 % slower than on 2: the cap holds 3, not 4 (+0.9 GB a worker). With --both-renderers
@@ -73,7 +75,7 @@ case "$mode" in
     # No --collect: a unit that failed stays loaded, so `wait` can read how it ended (reset above on the next start).
     sudo -n systemd-run --unit="$UNIT" --quiet -p MemoryMax="$need" -p MemorySwapMax=0 \
       --working-directory="$PWD" -- sudo -n -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" \
-      NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" ${workers_set:+TL_E2E_WORKERS="$TL_E2E_WORKERS"} \
+      NODE_OPTIONS=--max-old-space-size=4096 TL_GATE_LOGS="$L" ${workers_set:+TL_E2E_WORKERS="$TL_E2E_WORKERS"} ${TL_VITEST_WORKERS:+TL_VITEST_WORKERS="$TL_VITEST_WORKERS"} \
       tools/gate.sh "$sub" "$@" || exit 1
     echo "started $UNIT ($sub), logs $L"
     exit 0 ;;
@@ -115,7 +117,7 @@ build_and_unit() {
   grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; done_ "RED build"; }
   npm run lint > "$L/lint.log" 2>&1 || { grep -E 'error|✖' "$L/lint.log" | head -20; done_ "RED lint"; }
   say "lint: clean"
-  npx vitest run --exclude '.claude/**' --exclude 'archive/**' > "$L/vitest.log" 2>&1
+  npx vitest run --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} > "$L/vitest.log" 2>&1
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
     local failed

@@ -18,24 +18,19 @@
  * is never drawn again for a cut: the mesh, its material and its place stay.
  *
  * Fading: while a zone fades, each of its meshes draws a copy (a child of the
- * mesh, the same geometry, no shadow) whose material is the mesh's own with a
- * screen-space dither discard (`maskNode`) driven by one per-object uniform
- * read from the copy (`FADE_KEY`). One variant per source material, made once
+ * mesh, the same geometry, no shadow) whose material is the mesh's own with
+ * the shared dither fade (`dither-fade.ts`) driven by one per-object uniform
+ * read from the copy (`FADE_KEY`). A copy rather than a mask on the mesh's
+ * own material: the cut mesh keeps casting into the cached static shadow map
+ * with its material untouched. One variant per source material, made once
  * and compiled ahead (`precompile`), so a fade builds no material per frame;
  * fully faded, the copy goes and the mesh is out of the view's draws.
  */
 import * as THREE from 'three/webgpu';
-import * as TSLTyped from 'three/tsl';
 import { CUTAWAY_FADE_SECONDS, cutawayCuts, cutawayZones, type BlockLayerComponent, type CutawayZone } from '@thirdlight/runtime';
 
-import type { N } from './effects-tsl';
-import { LIGHT_LAYERS_KEY } from './light-layers';
-import { DECAL_LAYERS_KEY } from './projected-decals';
+import { ditherKeep, fadeCopy, fadeVariant, FadeVariants, objectFade } from './dither-fade';
 import { HIDDEN_BY_CUTAWAY, hideFromView, OFF_VIEW_LAYER } from './view-hidden';
-
-/** TSL untyped: three's typings lag the node API used here. */
-const TSL: N = TSLTyped;
-const { uniform, screenCoordinate, vec2, float } = TSL;
 
 /** The three.js layer a cut mesh is moved to: the shadow cameras see it, the view's camera does not. */
 export const CUTAWAY_LAYER = OFF_VIEW_LAYER;
@@ -132,44 +127,11 @@ export function splitByCutaway(positions: ArrayLike<number>, indices: ArrayLike<
   return { base: new Uint32Array(base), cut: [...sets.values()].map((s) => ({ zones: s.zones, indices: new Uint32Array(s.indices) })) };
 }
 
-/** The per-object fade the dither reads (one node shared by every variant). */
-const fadeNode = uniform(0).onObjectUpdate(({ object }: { object: THREE.Object3D }) => (object.userData[FADE_KEY] as number | undefined) ?? 0);
-/** Keep a pixel while its screen-space threshold (interleaved gradient noise) is at least the fade. */
-const keepNode = float(52.9829189).mul(screenCoordinate.xy.dot(vec2(0.06711056, 0.00583715)).fract()).fract().greaterThanEqual(fadeNode);
+/** Keep a pixel of a fading copy while the dither is at least its fade (one node shared by every variant). */
+const keepNode = ditherKeep(objectFade(FADE_KEY));
 
-/** The node material class three draws a classic material with. */
-const NODE_CLASSES: Record<string, new () => THREE.NodeMaterial> = {
-  MeshBasicMaterial: THREE.MeshBasicNodeMaterial,
-  MeshLambertMaterial: THREE.MeshLambertNodeMaterial,
-  MeshPhongMaterial: THREE.MeshPhongNodeMaterial,
-  MeshStandardMaterial: THREE.MeshStandardNodeMaterial,
-  MeshPhysicalMaterial: THREE.MeshPhysicalNodeMaterial,
-  MeshToonMaterial: THREE.MeshToonNodeMaterial,
-  MeshMatcapMaterial: THREE.MeshMatcapNodeMaterial,
-  MeshNormalMaterial: THREE.MeshNormalNodeMaterial,
-};
-
-/** Keys never carried to a variant: its identity, listeners and version are its own. */
-const OWN_KEYS = new Set(['uuid', 'id', '_listeners', 'version']);
-
-/** `src` drawn with the fade's dither (null: a material three draws no node material for). */
-function makeFadeVariant(src: THREE.Material): THREE.Material | null {
-  let v: THREE.NodeMaterial;
-  if ((src as { isNodeMaterial?: boolean }).isNodeMaterial === true) v = (src as THREE.NodeMaterial).clone();
-  else {
-    const Cls = NODE_CLASSES[src.type];
-    if (Cls === undefined) return null;
-    v = new Cls();
-    // As three converts a classic material for its node renderer (every field taken over).
-    for (const key in src) if (!OWN_KEYS.has(key)) (v as unknown as Record<string, unknown>)[key] = (src as unknown as Record<string, unknown>)[key];
-    v.userData = { ...src.userData };
-  }
-  const own = (v as { maskNode?: N }).maskNode;
-  (v as { maskNode?: N }).maskNode = own !== null && own !== undefined ? TSL.bool(own).and(keepNode) : keepNode;
-  v.name = `${src.name} (cut-away fade)`;
-  v.needsUpdate = true;
-  return v;
-}
+/** `src` drawn with the cut-away's fade (null: a material three draws no node material for). */
+const makeFadeVariant = (src: THREE.Material): THREE.Material | null => fadeVariant(src, keepNode, 'cut-away fade');
 
 export interface CutawayDrawingDeps {
   /**
@@ -187,8 +149,6 @@ interface CutMesh {
   /** The fade it shows (0 drawn … 1 cut). */
   shown: number;
   copy: THREE.Mesh | null;
-  /** The material whose fade variant it holds (null: none yet). */
-  held: THREE.Material | null;
 }
 
 interface ZoneState {
@@ -219,8 +179,8 @@ export interface CutawayDiagnostics {
 
 export class CutawayDrawing {
   private readonly layers = new Map<string, LayerCut>();
-  /** Each source material's fade variant and the cut meshes holding it (it goes with the last of them). */
-  private readonly variants = new Map<THREE.Material, { version: number; variant: THREE.Material | null; users: Set<CutMesh> }>();
+  /** Each source material's fade variant, held by the cut meshes wearing it (it goes with the last of them). */
+  private readonly variants = new FadeVariants<CutMesh>(makeFadeVariant);
   private readonly subjectCell = new THREE.Vector3();
   private readonly cellScale = new THREE.Vector3();
 
@@ -263,7 +223,7 @@ export class CutawayDrawing {
   register(entityId: string, ck: string, meshes: readonly { mesh: THREE.Mesh; zones: readonly number[] }[]): void {
     const l = this.layers.get(entityId);
     if (l === undefined || meshes.length === 0) return;
-    const list: CutMesh[] = meshes.map((m) => ({ mesh: m.mesh, zones: m.zones.map((i) => l.zones[i]!.key), shown: 0, copy: null, held: null }));
+    const list: CutMesh[] = meshes.map((m) => ({ mesh: m.mesh, zones: m.zones.map((i) => l.zones[i]!.key), shown: 0, copy: null }));
     l.meshes.set(ck, list);
     for (const c of list) {
       this.apply(c, this.meshFade(l, c));
@@ -372,8 +332,7 @@ export class CutawayDrawing {
 
   dispose(): void {
     for (const id of [...this.layers.keys()]) this.removeLayer(id);
-    for (const v of this.variants.values()) v.variant?.dispose();
-    this.variants.clear();
+    this.variants.dispose();
   }
 
   // ---- internals ---------------------------------------------------------------------
@@ -404,24 +363,13 @@ export class CutawayDrawing {
 
   /** The mesh's fading copy (made when a fade starts; null: its material cannot fade, it goes at once). */
   private copyOf(c: CutMesh): THREE.Mesh | null {
-    const variant = this.variantFor(c);
+    const variant = this.variantFor(c).variant;
     if (variant === null) return null;
     let copy = c.copy;
     if (copy === null) {
-      copy = new THREE.Mesh(c.mesh.geometry, variant);
-      copy.name = `${c.mesh.name} (fade)`;
-      copy.castShadow = false;
-      copy.receiveShadow = c.mesh.receiveShadow;
-      copy.frustumCulled = c.mesh.frustumCulled;
-      copy.renderOrder = c.mesh.renderOrder;
-      copy.userData[CUTAWAY_COPY_KEY] = true;
-      const ll = c.mesh.userData[LIGHT_LAYERS_KEY] as number | undefined;
-      if (ll !== undefined) copy.userData[LIGHT_LAYERS_KEY] = ll;
-      const dl = c.mesh.userData[DECAL_LAYERS_KEY] as number | undefined;
-      if (dl !== undefined) copy.userData[DECAL_LAYERS_KEY] = dl;
       // Placed with its mesh (which never moves while it is built); it is a child only to ride along into the scene.
-      copy.matrixAutoUpdate = false;
-      copy.matrixWorldAutoUpdate = false;
+      copy = fadeCopy(c.mesh, variant, `${c.mesh.name} (fade)`);
+      copy.userData[CUTAWAY_COPY_KEY] = true;
       c.mesh.add(copy);
       c.copy = copy;
     } else if (copy.material !== variant) copy.material = variant;
@@ -438,65 +386,25 @@ export class CutawayDrawing {
   /** A cut mesh goes: its copy, and its hold on a variant. */
   private release(c: CutMesh): void {
     this.removeCopy(c);
-    this.unhold(c);
+    this.variants.release(c);
   }
 
-  private unhold(c: CutMesh): void {
-    const src = c.held;
-    if (src === null) return;
-    c.held = null;
-    const v = this.variants.get(src);
-    if (v === undefined) return;
-    v.users.delete(c);
-    if (v.users.size > 0) return;
-    v.variant?.dispose();
-    this.variants.delete(src);
-  }
-
-  /**
-   * The fade variant of the material `c` wears: made once per material
-   * (again only after the material itself changed), held by the meshes
-   * wearing it.
-   */
-  private variantFor(c: CutMesh): THREE.Material | null {
+  /** The fade variant of the material `c` wears (none for a multi-material mesh: it goes at once). */
+  private variantFor(c: CutMesh): { variant: THREE.Material | null; made: boolean } {
     const src = c.mesh.material;
-    if (Array.isArray(src)) return null;
-    let known = this.variants.get(src);
-    if (known !== undefined && known.version !== src.version) {
-      known.variant?.dispose();
-      known.variant = makeFadeVariant(src);
-      known.version = src.version;
-    }
-    if (known === undefined) this.variants.set(src, (known = { version: src.version, variant: makeFadeVariant(src), users: new Set() }));
-    if (c.held !== src) {
-      this.unhold(c);
-      c.held = src;
-      known.users.add(c);
-    }
-    return known.variant;
+    if (Array.isArray(src)) return { variant: null, made: false };
+    return this.variants.hold(c, src);
   }
 
   /** Make a new mesh's fade variant now and compile it in the background, so its first fade does not stall a frame. */
   private prepare(c: CutMesh): void {
-    const fresh = Array.isArray(c.mesh.material) || this.variants.get(c.mesh.material)?.version !== c.mesh.material.version;
-    const variant = this.variantFor(c);
-    if (!fresh || variant === null || this.deps.precompile === undefined) return;
-    const mesh = c.mesh;
+    const { variant, made } = this.variantFor(c);
+    if (!made || variant === null || this.deps.precompile === undefined) return;
     // Drawn whole-faded (every pixel discarded) wherever the camera looks, until the host takes it out.
-    const probe = new THREE.Mesh(mesh.geometry, variant);
-    probe.name = `${mesh.name} (fade, compiling)`;
+    const probe = fadeCopy(c.mesh, variant, `${c.mesh.name} (fade, compiling)`);
     probe.userData[FADE_KEY] = 1;
     probe.userData[CUTAWAY_COPY_KEY] = true;
     probe.frustumCulled = false;
-    probe.castShadow = false;
-    probe.receiveShadow = mesh.receiveShadow;
-    probe.matrixWorld.copy(mesh.matrixWorld);
-    probe.matrixAutoUpdate = false;
-    probe.matrixWorldAutoUpdate = false;
-    const ll = mesh.userData[LIGHT_LAYERS_KEY] as number | undefined;
-    if (ll !== undefined) probe.userData[LIGHT_LAYERS_KEY] = ll;
-    const dl = mesh.userData[DECAL_LAYERS_KEY] as number | undefined;
-    if (dl !== undefined) probe.userData[DECAL_LAYERS_KEY] = dl;
     this.deps.precompile(probe);
   }
 }

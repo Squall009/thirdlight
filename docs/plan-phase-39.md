@@ -113,6 +113,7 @@ where possible). The editor surface is one step in an existing e2e file.
 | Item | Status |
 |---|---|
 | 39.0 | Done 2026-10-22: three.js 0.186.1 is still the latest on npm (no update; `@types/three` 0.186.0 likewise). Rapier 0.21.0 (2026-09-25) is out; the pinned 0.20.0 stays (a minor release, nothing in phase 39 needs it; phase 41's one-backend move is where to plan it). |
+| 39.1 | Done 2026-10-22: `three-adapter/src/dither-fade.ts` holds the dither (one shared threshold, `ditherKeep(fade)`, `objectFade(key)`), `andMask` (ANDs a keep term into a material's `maskNode` at creation, keeping its own: what 39.2 uses, no copies, no per-value programs), node-material copies of classic materials, the `FadeVariants` cache (one per source, remade on a version change, disposed with the last holder) and `fadeCopy` (the fade copy and the precompile probe); the cut-away uses it (502 → 410 lines). Vitest `dither-fade.test.ts`: the cut-away variants' WGSL on 16 material kinds equals digests recorded before the move; two fades share one threshold in one discard (`t ≥ a && t ≥ b`); fade values share one program. e2e unchanged and green: `block-layers` 15.6 → 15.7 s (the dithered roof's pixel counts while fading 40 20 10 4 before, 43 21 10 5 0 after), `block-editor` 9.0 → 9.1 s. Fast gate: build, lint, vitest 746 files, e2e 32/32; village perf missed twice on WebGPU (7.2 / 7.5 ms > 6.16), A/B against `25994ae3` equal (WebGPU B 7.2 / 6.5 / 7.3, A 7.2 / 7.6 / 7.6 ms; WebGL 2 4.5–4.8 both): host state (D290). `tools/gate.sh` takes `TL_VITEST_WORKERS` (the fast gate OOMed in vitest under 5G and 6G caps; 4 workers peak 4.3 GB). |
 
 ## 5. Decision log
 
@@ -122,3 +123,9 @@ where possible). The editor surface is one step in an existing e2e file.
 - 2026-10-21 (owner, decision session): the height rule is "nothing below half
   the subject's height fades", the same everywhere. It replaces the "2D vs 3D
   project" default (P39-1).
+- 2026-10-22 (39.1): every dither fade compares with one screen-space
+  threshold, so fades ANDed into one mask (cut-away, see-through, later LOD
+  or distance fades) thin a pixel as the largest of them, never more. The
+  cut-away keeps its copy-with-variant path (its cut mesh keeps casting into
+  the cached static shadow map with its own material); see-through ANDs its
+  term into each material when the material is made (`andMask`).
