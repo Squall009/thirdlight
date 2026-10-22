@@ -65,6 +65,7 @@ import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from '
 import type { LodTuning } from './lod-switch';
 import { ROOM_AT_KEY, ROOM_TAG_KEY } from './room-culling';
 import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
+import { SEE_THROUGH_KEY } from './see-through';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
 import { STREAM_ARRIVAL_MS } from './world-stream';
@@ -1107,6 +1108,8 @@ export class ArchitectureView {
     const receive = rec.component.receiveShadow !== false;
     // Its decal layers (projected-decals.ts; absent: every layer), on every mesh it makes.
     const decalLayers = decalLayersField(rec.component.decalLayers);
+    // Whether its meshes fade round see-through subjects (see-through.ts; absent: they do).
+    const seeThrough = (rec.component as { seeThrough?: unknown }).seeThrough !== false;
     const group = new THREE.Group();
     group.name = `architecture:${id}:${ck}`;
     group.userData[PATH_PAINT_ENTITY_KEY] = id;
@@ -1160,6 +1163,7 @@ export class ArchitectureView {
         mesh.receiveShadow = receive;
         if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
         if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
+        if (!seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
         // Clipped decals may be cut from it (clipped-decals.ts).
         mesh.userData[DECAL_SURFACE_KEY] = true;
         return mesh;
@@ -1209,6 +1213,7 @@ export class ArchitectureView {
           mesh.receiveShadow = receive;
           if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
           if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
+          if (!seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
           if (part.at !== undefined) mesh.userData[ROOM_AT_KEY] = part.at;
         }
         const undress = this.deps.dress(built.group, s.model.assetId);

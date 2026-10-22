@@ -10,12 +10,15 @@
  * so several keep terms ANDed into one mask thin a pixel as the largest of
  * their fades would (`t >= a && t >= b` is `t >= max(a, b)`), never more.
  *
- * Two ways to wear a fade:
+ * Three ways to wear a fade:
  * - in place: {@link andMask} a keep term into a material when it is made
  *   (its program then holds the term for good; a fade of 0 keeps every pixel);
  * - as a variant: {@link FadeVariants} makes one masked copy per source
  *   material (again only when the source changes), held by the meshes that
- *   draw it, for fades that must leave the source's own program alone.
+ *   draw it, for fades that must leave the source's own program alone;
+ * - at build, for every material a renderer draws: see-through
+ *   (`see-through.ts`) adds its keep term where three builds each program,
+ *   for the renderers a view armed (the shadow pass's material never).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -23,6 +26,7 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { LIGHT_LAYERS_KEY } from './light-layers';
 import { DECAL_LAYERS_KEY } from './projected-decals';
+import { SEE_THROUGH_KEY } from './see-through';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -159,7 +163,7 @@ export class FadeVariants<U> {
 
 /**
  * A mesh drawing `mesh`'s geometry with `material` where `mesh` is, casting
- * no shadow and lit as `mesh` (its light and decal layers): a fade's copy
+ * no shadow and lit as `mesh` (its light and decal layers, its see-through opt-out): a fade's copy
  * over the mesh, or a compile probe of a variant. Placed once; the caller
  * keeps it where the mesh is.
  */
@@ -174,6 +178,7 @@ export function fadeCopy(mesh: THREE.Mesh, material: THREE.Material, name: strin
   if (ll !== undefined) copy.userData[LIGHT_LAYERS_KEY] = ll;
   const dl = mesh.userData[DECAL_LAYERS_KEY] as number | undefined;
   if (dl !== undefined) copy.userData[DECAL_LAYERS_KEY] = dl;
+  if (mesh.userData[SEE_THROUGH_KEY] === false) copy.userData[SEE_THROUGH_KEY] = false;
   copy.matrixAutoUpdate = false;
   copy.matrixWorldAutoUpdate = false;
   copy.matrixWorld.copy(mesh.matrixWorld);

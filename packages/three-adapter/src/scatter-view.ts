@@ -44,6 +44,7 @@ import type { ModelInstance } from './visual';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { perfMark } from './perf-marks';
 import { VIEW_OWNER_KEY } from './isolation-view';
+import { SEE_THROUGH_KEY } from './see-through';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
@@ -988,6 +989,8 @@ export class ScatterView {
       m.castShadow = casts;
       m.receiveShadow = true;
       if (casts) m.userData[STATIC_CASTER_KEY] = true;
+      // A rule's copies fade round see-through subjects unless it opts out (see-through.ts).
+      if ((rule as { seeThrough?: unknown }).seeThrough === false) m.userData[SEE_THROUGH_KEY] = false;
     }
     const undress = this.deps.dress?.(built.group, rule.asset.assetId) ?? null;
     g.root.add(built.group);

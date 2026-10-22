@@ -114,6 +114,7 @@ where possible). The editor surface is one step in an existing e2e file.
 |---|---|
 | 39.0 | Done 2026-10-22: three.js 0.186.1 is still the latest on npm (no update; `@types/three` 0.186.0 likewise). Rapier 0.21.0 (2026-09-25) is out; the pinned 0.20.0 stays (a minor release, nothing in phase 39 needs it; phase 41's one-backend move is where to plan it). |
 | 39.1 | Done 2026-10-22: `three-adapter/src/dither-fade.ts` holds the dither (one shared threshold, `ditherKeep(fade)`, `objectFade(key)`), `andMask` (ANDs a keep term into a material's `maskNode` at creation, keeping its own: what 39.2 uses, no copies, no per-value programs), node-material copies of classic materials, the `FadeVariants` cache (one per source, remade on a version change, disposed with the last holder) and `fadeCopy` (the fade copy and the precompile probe); the cut-away uses it (502 → 410 lines). Vitest `dither-fade.test.ts`: the cut-away variants' WGSL on 16 material kinds equals digests recorded before the move; two fades share one threshold in one discard (`t ≥ a && t ≥ b`); fade values share one program. e2e unchanged and green: `block-layers` 15.6 → 15.7 s (the dithered roof's pixel counts while fading 40 20 10 4 before, 43 21 10 5 0 after), `block-editor` 9.0 → 9.1 s. Fast gate: build, lint, vitest 746 files, e2e 32/32; village perf missed twice on WebGPU (7.2 / 7.5 ms > 6.16), A/B against `25994ae3` equal (WebGPU B 7.2 / 6.5 / 7.3, A 7.2 / 7.6 / 7.6 ms; WebGL 2 4.5–4.8 both): host state (D290). `tools/gate.sh` takes `TL_VITEST_WORKERS` (the fast gate OOMed in vitest under 5G and 6G caps; 4 workers peak 4.3 GB). |
+| 39.2 | Done 2026-10-22: `three-adapter/src/see-through.ts`: a view arms its renderer through `renderer.contextNode` (part of every draw's program key) and one `NodeMaterial.setupDiffuseColor` step ANDs the mask (shared dither) into every node material at build: standard, trim, layered surface, graph, terrain, skinned, instanced, decals and classic materials alike; no copies, no draws, no program per object or value; unarmed renderers build byte-identical WGSL (recorded digests); shadow pass, colourless and no-depth-test draws never take it. Per view: `SEE_THROUGH_SUBJECTS` (4) slots of render-group uniforms (centre, radii, depth limit, half-height plane, eased fade; other cameras see none), nearest kept + one `see_through_subjects` Problem; per draw: subject bits (`seeThrough: false` → none, a subject and its children drop their own). Flag on box/model/instances/block layer/terrain/architecture/scatter rules; batch and merge keys split on it. Settings/defaults in project-model `see-through.ts`; hook for 39.3: adapter option `seeThrough`, `adapter.seeThrough().set({…, subjects})`, `diagnostics.seeThrough`, page flag `?seethrough=on`. Vitest `see-through.test.ts` (20: CPU reference incl. stairs/ortho/two subjects, view slots/easing/exclusion, WGSL). Looked at in the block-layers export with `?seethrough=on` on both renderers: the post in front of the player dithers above half its height, its shadow stays. No e2e touched (`block-layers` 16.0 s, `block-editor` 9.3 s in the gate). Fast gate green: vitest 747 files, e2e 32/32, village WebGPU p50 5.7 ms (base 5.6), WebGL 2 4.6 ms (4.4), both under limit. |
 
 ## 5. Decision log
 
@@ -129,3 +130,22 @@ where possible). The editor surface is one step in an existing e2e file.
   cut-away keeps its copy-with-variant path (its cut mesh keeps casting into
   the cached static shadow map with its own material); see-through ANDs its
   term into each material when the material is made (`andMask`).
+- 2026-10-22 (39.2): the see-through term goes in where three builds a
+  program (one `setupDiffuseColor` step for renderers a view armed through
+  `renderer.contextNode`), not by `andMask` per material at creation: that
+  reaches classic materials three converts itself and every material made
+  anywhere, keeps it out of the shadow pass (three's shadow pass reuses
+  `maskNode`) and leaves unarmed renderers' programs untouched. Arming builds
+  each program once more (precompiled ahead); turning it off at run time
+  keeps the renderer armed (no rebuild back and forth).
+- 2026-10-22 (39.2), default chosen, owner to confirm: the circle's radius
+  is `radius` × the view height at the subject's distance but never less
+  than 0.75 × the subject's height (it covers the body when zoomed in);
+  `softness` is the share of the radius that is soft (not a view-height
+  share); defaults radius 0.2, softness 0.4, depth margin 0.25 m, fade time
+  0.25 s, max fade 0.75 (clamped to ≤ 0.95); a subject's height is its
+  controller capsule's, else its meshes' bounds; the circle centres on the
+  middle of its body.
+- 2026-10-22 (39.2): a subject's own exclusion is per draw: a subject drawn
+  inside a batch or merged cell (not skinned, static) is not excluded from
+  its own fade (39.4 checks whether that needs a batching refusal).

@@ -96,6 +96,7 @@ import {
 } from './animation';
 import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
+import { SeeThroughView } from './see-through';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
@@ -542,6 +543,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     sun: () => (([x, y, z]) => [-x, -y, -z] as const)(lights.keyDirection() ?? [0, 0, 0]),
     horizon: opts.terrainHorizon !== false,
   });
+  // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
+  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => (opts.runtime as { cameraView?: () => { target?: string } | null }).cameraView?.()?.target ?? null, requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
@@ -1470,6 +1473,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Then what is hidden behind what is in front of it (what the frustum, the rooms and isolation left drawn, the
     // terrains' nodes and the cover chosen for this view).
     occlusion.update();
+    seeThrough.update(renderer, camera!);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) opts.onChange?.();
     // Shadows on before the draw (and before the precompile below, so the programs are built with
@@ -1661,6 +1665,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (clips !== null && clips.decals > 0) d.clippedDecals = clips;
     const painted = disposed ? null : vertexPaintDiagnostics(scene);
     if (painted !== null) d.vertexPaint = painted;
+    if (seeThrough.diagnostics().armed) d.seeThrough = seeThrough.diagnostics();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     if (!disposed) d.sceneGraph = graph.counts();
     return {
@@ -1694,6 +1699,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     environmentRenderer?.dispose();
     environmentHolds?.releaseHolder('environment');
     lights.dispose();
+    seeThrough.dispose();
     // Tear down the model realization
     // FIRST — cancel every in-flight prepare, dispose the attached
     // instances (cloned materials + controllers + instances) and the
@@ -1917,6 +1923,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     instanceBuffer: (digest) => realization?.instanceBuffer(digest),
     modelFailures: () => realization?.failures() ?? new Map(),
     blockLayers: () => blockView,
+    seeThrough: () => seeThrough,
     terrainDiagnostics: () => (terrains.ids().length > 0 ? terrains.diagnostics() : null),
     terrains: () => terrains,
     scatter: () => scatter.stored,

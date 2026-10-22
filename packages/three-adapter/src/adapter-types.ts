@@ -245,6 +245,14 @@ export interface SceneAdapterOptions {
    */
   vertexPaint?: boolean | { readonly onProblem?: (code: string, message: string) => void };
   /**
+   * See-through round the subjects (`see-through.ts`): the project's
+   * settings (absent: the defaults, off) and where more subjects than a view
+   * draws are reported (`see_through_subjects`). Off, the renderer builds and
+   * draws exactly as without it; the host turns it on or changes it with
+   * `seeThrough().set(…)`.
+   */
+  seeThrough?: { readonly settings?: Partial<import('@thirdlight/runtime').SeeThroughSettings>; readonly onProblem?: (code: string, message: string) => void };
+  /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;
    * default true). False: every caster drawn into one map every frame (tests
@@ -419,6 +427,8 @@ export interface SceneAdapterDiagnostics {
   clippedDecals?: import('./clipped-decals').ClippedDecalsDiagnostics;
   /** Vertex paint drawn: painted meshes alone and merged, instanced draws reading a paint stream and their copies, GPU bytes; ABSENT without any. */
   vertexPaint?: import('./vertex-paint-draw').VertexPaintDiagnostics;
+  /** See-through: whether it is on and armed, its subjects and their fades; ABSENT while it was never on. */
+  seeThrough?: import('./see-through').SeeThroughDiagnostics;
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then
@@ -555,6 +565,8 @@ export interface SceneAdapter {
   modelFailures?(): ReadonlyMap<string, { readonly code: string; readonly message: string }>;
   /** The block layers drawn (a host drives layers of its own through it: the editor's block tools). */
   blockLayers?(): BlockLayerView;
+  /** The view's see-through: its settings and subjects (a game's script, the editor's preview). */
+  seeThrough?(): import('./see-through').SeeThroughControl;
   /** The terrains drawn (null: none): tiles, texture bytes, the nodes selected per level, draws. */
   terrainDiagnostics?(): TerrainViewDiagnostics | null;
   /** The terrains drawn: their fields (picking) and stroke previews (the editor's terrain tools). */

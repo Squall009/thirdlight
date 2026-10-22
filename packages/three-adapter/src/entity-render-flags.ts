@@ -3,7 +3,8 @@
  * instance set casts and receives the key light's shadow, which light
  * layers it is in (light-layers.ts), which decal layers projected decals
  * mark it in (projected-decals.ts), how its local lights are shaded
- * (local-lights.ts) and whether it counts as an occluder (occluders.ts). Set on every mesh under what the entity
+ * (local-lights.ts), whether it counts as an occluder (occluders.ts) and whether it fades round see-through
+ * subjects (see-through.ts). Set on every mesh under what the entity
  * shows, when it is realized and when a model or instance set arrives.
  */
 import type * as THREE from 'three';
@@ -13,6 +14,7 @@ import { applyObjectLocalLights, localLightsOfComponents } from './local-lights'
 import { applyObjectDecalLayers, decalLayersOfComponents } from './projected-decals';
 import { MATERIAL_NO_SHADOW_KEY } from './material-library';
 import { applyObjectOccluder, isOccluderStandin } from './occluders';
+import { applyObjectSeeThrough, seeThroughOfComponents } from './see-through';
 
 /**
  * Whether an entity's box, model or instance set casts and
@@ -44,8 +46,8 @@ function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive:
 
 /**
  * The entity's shadow flags, light layers, local-light mode and occluder flag
- * on every mesh under `root`. Returns whether the light layers, the mode or
- * the occluder flag of a mesh changed (the shadow maps that drew it, and its
+ * and see-through flag on every mesh under `root`. Returns whether the light
+ * layers, the mode, the occluder or see-through flag of a mesh changed (the shadow maps that drew it, and its
  * batch, must follow).
  */
 export function applyEntityRenderFlags(root: THREE.Object3D, components: unknown): boolean {
@@ -53,5 +55,6 @@ export function applyEntityRenderFlags(root: THREE.Object3D, components: unknown
   const layers = applyObjectLightLayers(root, lightLayersOfComponents(components));
   const decalLayers = applyObjectDecalLayers(root, decalLayersOfComponents(components));
   const occluder = applyObjectOccluder(root, components);
-  return applyObjectLocalLights(root, localLightsOfComponents(components)) || layers || decalLayers || occluder;
+  const seeThrough = applyObjectSeeThrough(root, seeThroughOfComponents(components));
+  return applyObjectLocalLights(root, localLightsOfComponents(components)) || layers || decalLayers || occluder || seeThrough;
 }

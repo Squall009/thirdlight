@@ -60,6 +60,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
+import { objectSeeThrough, SEE_THROUGH_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
 import { meshDecalRenderOrder } from './mesh-decals';
 import { occluderMarksOf, setOccluderMarks } from './occluders';
@@ -118,6 +119,8 @@ export interface BatchKeyParts {
   readonly decalOrder: number | null;
   /** Its occluder marks (occluders.ts; '': counts as its material says): one draw counts as an occluder or not. */
   readonly occluder: string;
+  /** Whether it fades round see-through subjects (see-through.ts): one draw fades or not. */
+  readonly seeThrough: boolean;
 }
 
 const DEFAULT_ON_BEFORE_RENDER = THREE.Object3D.prototype.onBeforeRender;
@@ -176,6 +179,7 @@ export function batchKeyParts(mesh: THREE.Mesh): BatchKeyParts | null {
     decalLayers: mesh.userData[DECAL_LAYERS_KEY] as number | undefined,
     decalOrder: meshDecalRenderOrder(mesh),
     occluder: occluderMarksOf(mesh),
+    seeThrough: objectSeeThrough(mesh),
   };
 }
 
@@ -200,7 +204,7 @@ const keyIdOf = (o: object): number => {
 
 /** The group key of a batchable mesh: geometry, material, shadow flags, light layers and (detailed geometry only) the world cell. */
 export function batchKey(parts: BatchKeyParts, worldPosition: readonly [number, number, number] | null, cellSize: number): string {
-  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.decalOrder === null ? '' : `D${parts.decalOrder}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}`;
+  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.decalOrder === null ? '' : `D${parts.decalOrder}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}${parts.seeThrough ? '' : 'S0'}`;
   const base = `${keyIdOf(parts.geometry)}|${keyIdOf(parts.material)}|${flags}`;
   if (worldPosition === null) return base;
   return `${base}|${Math.floor(worldPosition[0] / cellSize)},${Math.floor(worldPosition[1] / cellSize)},${Math.floor(worldPosition[2] / cellSize)}`;
@@ -695,6 +699,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       if (g.parts.room !== undefined) mesh.userData[ROOM_KEY] = g.parts.room;
       if (g.parts.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = g.parts.decalLayers;
       setOccluderMarks(mesh, g.parts.occluder);
+      if (!g.parts.seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
       mesh.userData['tlBatch'] = true;
       // A decal group draws in its decal order (its material's and its members' own; mesh-decals.ts).
       mesh.renderOrder = g.parts.decalOrder ?? 0;

@@ -338,6 +338,8 @@ export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VA
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
 export { DECALS_URL_PARAM, decalsFromUrl } from './projected-decals';
+// See-through: what stands between the camera and a subject dithers away round it (`?seethrough=on|off` over the project's setting).
+export { applyObjectSeeThrough, objectSeeThrough, SEE_THROUGH_KEY, SEE_THROUGH_URL_PARAM, seeThroughFromUrl, SeeThroughView, type SeeThroughControl, type SeeThroughDiagnostics, type SeeThroughPatch } from './see-through';
 export { PAINT_URL_PARAM, paintFromUrl } from './vertex-paint-draw';
 export type { MeshPaintPreview, PaintPreviewMesh, PaintPreviewTarget, PathPaintPreview, VertexPaintPreview } from './vertex-paint-preview';
 export { paintOnlyChange } from './vertex-paint-update';

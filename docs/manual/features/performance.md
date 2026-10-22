@@ -164,6 +164,8 @@ on an export's URL they apply directly):
 - `?vertexLights=off` — every local light per pixel;
 - `?paint=off` — draws without vertex paint (models, instance copies,
   generated walls and roads as if unpainted);
+- `?seethrough=on|off` — see-through round the camera's target on or off
+  over the project's setting (its look and cost, by comparison);
 - `?quality=<id>` — pins a quality level;
 - `?ao=off|ssao|gtao`, `?renderScale=0.5…1`, `?dynamicResolution=on|off` —
   pin the render settings over the project's (an export's URL; the perf
