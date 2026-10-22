@@ -81,9 +81,11 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 39c | `docs/plan-phase-39c.md` | Linked prefabs (owner, 2026-10-22): overrides, edit mode, nesting, variants, unpack, player prefabs |
 | 40 | `docs/plan-phase-40.md` | Ground cover at scale and wind (owner, 2026-10-21): GPU-driven cover on any surface, global wind with zones, bending from subjects; a 1 km² meadow at 60 Hz on the Iris Xe |
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
+| 42 | `docs/plan-phase-42.md` | Unified lighting (owner, 2026-10-22), on a branch after 41: one surface radiance cache for every static surface (direct light from every light kind with traced soft shadows, bounced light, emissive, a new `area` light), probes per room through portals, reflections from the same tracer, updates only where something changed, TAAU on an integrated GPU; the bake is the same system saved, drawn on WebGL 2
 
 Future (owner, 2026-10-21), not planned yet:
-- **A lighting phase** after 41:
+- **A lighting phase** after 41 (phase 42 covers most of it; which parts
+  it absorbs is an owner decision, `docs/plan-phase-42.md` §1):
   - clustered (or tiled) forward lighting, so scenes are no longer limited to
     16 local lights (D204);
   - **adaptive probe placement** (owner, 2026-10-22), instead of an even 2 m
