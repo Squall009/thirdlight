@@ -130,3 +130,9 @@ new e2e.
   for the lighting phase; probe budget, block-layer lightmaps (kept for now),
   CDLOD terrain, macro texture, height fog, far-terrain lighting, scatter
   addresses and impostors, cached-shadow instances confirmed.
+- 2026-10-22 (owner, round 7): confirmed the merged-start-scene interiors and
+  per-room furniture, re-bake shader keep-alive, and the decal internals
+  (grid budget, clipper, mesh decal order, receivers, vertex-paint storage,
+  start hold with D239 open, depth offset). D205 (first-room light hitch)
+  moves to the lighting phase. Effects leaving decals waits for a game's
+  request.
