@@ -468,7 +468,7 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
     ...common,
     ...(s.minExclusive === true ? { minExclusive: true } : {}),
     ...(s.maxExclusive === true ? { maxExclusive: true } : {}),
-    step: 0.1,
+    step: s.step ?? 0.1,
   });
 }), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 

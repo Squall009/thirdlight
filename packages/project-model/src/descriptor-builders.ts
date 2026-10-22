@@ -27,6 +27,9 @@ export const lightLayerMask = (key: string, label: string, tooltip: string, min:
 export const decalLayerMask = (key: string, label: string, tooltip: string, min: 0 | 1, o: Opts<IntFieldDescriptor> = {}): IntFieldDescriptor =>
   int(key, label, tooltip, { min, max: DECAL_LAYERS_ALL, default: DECAL_LAYERS_ALL, mask: 'decalLayers', ...o });
 export const bool = (key: string, label: string, tooltip: string, o: Opts<BoolFieldDescriptor> = {}): BoolFieldDescriptor => ({ type: 'bool', key, label, tooltip, ...o });
+/** A drawn object's `seeThrough` (see-through.ts): absent is true, so everything takes part unless it opts out. */
+export const seeThroughField = (): BoolFieldDescriptor =>
+  bool('seeThrough', 'See-through', 'Thins to a dither between the camera and a subject (Rendering → See-through). Off: always solid.', { default: true, omitDefault: true });
 const opts = (values: readonly string[], labels: Readonly<Record<string, string>> = {}): EnumOption[] => values.map((v) => ({ value: v, label: labels[v] ?? v.charAt(0).toUpperCase() + v.slice(1) }));
 export const enm = (key: string, label: string, tooltip: string, values: readonly string[], o: Opts<EnumFieldDescriptor> | (Omit<Opts<EnumFieldDescriptor>, 'options'> & { labels?: Readonly<Record<string, string>> }) = {}): EnumFieldDescriptor => {
   const { labels, ...rest } = o as Omit<Opts<EnumFieldDescriptor>, 'options'> & { labels?: Readonly<Record<string, string>> };

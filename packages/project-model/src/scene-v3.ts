@@ -259,7 +259,7 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
  */
 
 /** The keys of an `instances` component. */
-const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers', 'paint']);
+const INSTANCES_KEYS = new Set(['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize', 'lightLayers', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'localLights', 'decalLayers', 'paint', 'seeThrough']);
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
   if (!isPlainObject(c)) {
@@ -1114,7 +1114,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
   if (comps['vertexPaint'] !== undefined) components.vertexPaint = canonicalVertexPaint(comps['vertexPaint'] as VertexPaintComponent);
   if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint };
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
     components.instances = {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
@@ -1132,6 +1132,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
       ...(typeof i.decalLayers === 'number' ? { decalLayers: i.decalLayers } : {}),
       ...(i.paint !== undefined ? { paint: canonicalInstancePaint(i.paint) } : {}),
+      ...(typeof i.seeThrough === 'boolean' ? { seeThrough: i.seeThrough } : {}),
     };
   }
   const name = e['name'];

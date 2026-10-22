@@ -1,8 +1,31 @@
-# Graph: Script function (part 2, from Animator)
+# Graph: Script function (part 2, from Input)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-function--input"></a>
+## Input
+
+- [Input value](graph-behavior-3.md#node-behavior--api-input-value) (`api.input.value`, as in `behavior`): A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name.
+- [Input vector](graph-behavior-3.md#node-behavior--api-input-vector) (`api.input.vector`, as in `behavior`): A 2D axis as [x, y] ([value, 0] for others).
+- [Input pressed](graph-behavior-3.md#node-behavior--api-input-pressed) (`api.input.pressed`, as in `behavior`): Pressed in this step.
+- [Input released](graph-behavior-3.md#node-behavior--api-input-released) (`api.input.released`, as in `behavior`): Released in this step.
+- [Input held](graph-behavior-3.md#node-behavior--api-input-held) (`api.input.held`, as in `behavior`): Down this step (pressed or held).
+- [Pointer](graph-behavior-3.md#node-behavior--api-input-pointer) (`api.input.pointer`, as in `behavior`): The pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
+- [Pointer pressed](graph-behavior-3.md#node-behavior--api-input-pointer-pressed) (`api.input.pointerPressed`, as in `behavior`): A pointer button (default left) went down this step — a click.
+- [Pointer released](graph-behavior-3.md#node-behavior--api-input-pointer-released) (`api.input.pointerReleased`, as in `behavior`): A pointer button (default left) went up this step.
+- [Pointer held](graph-behavior-3.md#node-behavior--api-input-pointer-held) (`api.input.pointerHeld`, as in `behavior`): A pointer button (default left) is down this step.
+- [Any button pressed](graph-behavior-3.md#node-behavior--api-input-any-pressed) (`api.input.anyPressed`, as in `behavior`): Any key, mouse or pad button that went down this step, bound to an action or not — its device (keyboard, mouse, gamepad) and code (a key's code such as `KeyK` or `Space`, `left`/`right`/`middle`, `button0`…), or null. A key or pad button before a mouse button when several went down.
+- [Set cursor](graph-behavior-3.md#node-behavior--api-input-set-cursor) (`api.input.setCursor`, as in `behavior`): Ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
+- [Using gamepad](graph-behavior-3.md#node-behavior--api-input-using-gamepad) (`api.input.usingGamepad`, as in `behavior`): The player used a gamepad last (else the keyboard or mouse).
+- [Action glyph label](graph-behavior-3.md#node-behavior--api-input-glyph-label) (`api.input.glyphLabel`, as in `behavior`): An action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
+- [Action glyph icon](graph-behavior-3.md#node-behavior--api-input-glyph-icon) (`api.input.glyphIcon`, as in `behavior`): An action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
+- [Rebinding](graph-behavior-3.md#node-behavior--api-input-rebinding) (`api.input.rebinding`, as in `behavior`): The rebind listening for input now (action, binding index, part), or null.
+- [Cancel rebind](graph-behavior-3.md#node-behavior--api-input-cancel-rebind) (`api.input.cancelRebind`, as in `behavior`): Stop listening for a rebind.
+- [Reset bindings](graph-behavior-3.md#node-behavior--api-input-reset-bindings) (`api.input.resetBindings`, as in `behavior`): Reset one action's bindings (or all, without a name) to the project's defaults.
+- [Use binding profile](graph-behavior-3.md#node-behavior--api-input-use-binding-profile) (`api.input.useBindingProfile`, as in `behavior`): Use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
+- [Binding profile](graph-behavior-3.md#node-behavior--api-input-binding-profile) (`api.input.bindingProfile`, as in `behavior`): The player profile whose bindings are in effect.
 
 <a id="graph-behavior-function--animator"></a>
 ## Animator
@@ -153,10 +176,10 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Neighbour cells](graph-behavior-4.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
 - [Walk neighbours](graph-behavior-4.md#node-behavior--api-grid-walk-neighbours) (`api.grid.walkNeighbours`, as in `behavior`): The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
 - [Walk path](graph-behavior-4.md#node-behavior--api-grid-path) (`api.grid.path`, as in `behavior`): The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
-- [Walk path outcome](graph-behavior-4.md#node-behavior--api-grid-path-outcome) (`api.grid.pathOutcome`, as in `behavior`): Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
-- [Walk reach](graph-behavior-4.md#node-behavior--api-grid-reachable) (`api.grid.reachable`, as in `behavior`): The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
-- [Regions](graph-behavior-4.md#node-behavior--api-grid-regions) (`api.grid.regions`, as in `behavior`): The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
-- [Region cells](graph-behavior-4.md#node-behavior--api-grid-region) (`api.grid.region`, as in `behavior`): The cells of a named region (at most 65,536), or null when the layer has no such region.
+- [Walk path outcome](graph-behavior-5.md#node-behavior--api-grid-path-outcome) (`api.grid.pathOutcome`, as in `behavior`): Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
+- [Walk reach](graph-behavior-5.md#node-behavior--api-grid-reachable) (`api.grid.reachable`, as in `behavior`): The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
+- [Regions](graph-behavior-5.md#node-behavior--api-grid-regions) (`api.grid.regions`, as in `behavior`): The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
+- [Region cells](graph-behavior-5.md#node-behavior--api-grid-region) (`api.grid.region`, as in `behavior`): The cells of a named region (at most 65,536), or null when the layer has no such region.
 - [In region](graph-behavior-5.md#node-behavior--api-grid-in-region) (`api.grid.inRegion`, as in `behavior`): Whether a cell lies in a named region.
 - [Set cut-away](graph-behavior-5.md#node-behavior--api-grid-set-cutaway) (`api.grid.setCutaway`, as in `behavior`): Force a cut-away zone of a layer hidden (true) or shown (false) whatever the subject does, or give it back to the subject (null). A zone is a region the layer's cutaway lists, or "#<row>" for one of its height planes. Drawing only (it fades like any cut-away). False when refused (an unknown layer or zone).
 - [Set cut-away subject](graph-behavior-5.md#node-behavior--api-grid-set-cutaway-subject) (`api.grid.setCutawaySubject`, as in `behavior`): The object whose position decides the layers' cut-aways (what is cut while it stands under or inside it), or null for the camera's target (the default). False when the id is not a string.
@@ -207,6 +230,7 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Set camera rig](graph-behavior-5.md#node-behavior--api-camera-set) (`api.camera.set`, as in `behavior`): Set a camera's rig values (each optional): distance, yaw, pitch (kept within its pitch limits), progress and railSpeed of a rail camera, field of view, letterbox, the orbit point, the target offset.
 - [Turn camera](graph-behavior-5.md#node-behavior--api-camera-turn) (`api.camera.turn`, as in `behavior`): Turn a camera by whole steps (an orbit-a-point camera: its turn step; positive turns left).
 - [Shake camera](graph-behavior-5.md#node-behavior--api-camera-shake) (`api.camera.shake`, as in `behavior`): Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern).
+- [Set see-through](graph-behavior-5.md#node-behavior--api-camera-set-see-through) (`api.camera.setSeeThrough`, as in `behavior`): Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the
 - [Live camera](graph-behavior-5.md#node-behavior--api-camera-live) (`api.camera.live`, as in `behavior`): The live virtual camera, or null while none is (the view holds the default pose).
 - [Camera blending](graph-behavior-5.md#node-behavior--api-camera-blending) (`api.camera.blending`, as in `behavior`): A blend between two cameras is in progress.
 - [Camera state](graph-behavior-5.md#node-behavior--api-camera-get) (`api.camera.get`, as in `behavior`): A virtual camera's live rig values, or null when there is no such camera.
@@ -229,31 +253,3 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Reset material parameter](graph-behavior-5.md#node-behavior--api-materials-reset) (`api.materials.reset`, as in `behavior`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
 - [Write material data](graph-behavior-5.md#node-behavior--api-materials-set-data) (`api.materials.setData`, as in `behavior`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
 - [Material data cell](graph-behavior-5.md#node-behavior--api-materials-get-data) (`api.materials.getData`, as in `behavior`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
-
-<a id="graph-behavior-function--saves"></a>
-## Saves
-
-- [Save version](graph-behavior-5.md#node-behavior--api-saves-version) (`api.saves.version`, as in `behavior`): The save document's schema version (0: the project declares no save schema).
-- [Save slot count](graph-behavior-5.md#node-behavior--api-saves-slot-count) (`api.saves.slotCount`, as in `behavior`): How many slots the game offers.
-- [Write save document](graph-behavior-5.md#node-behavior--api-saves-write) (`api.saves.write`, as in `behavior`): Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
-- [Save document](graph-behavior-5.md#node-behavior--api-saves-read) (`api.saves.read`, as in `behavior`): The project's save document (a copy; null before one is written or loaded).
-- [Save to slot](graph-behavior-5.md#node-behavior--api-saves-save) (`api.saves.save`, as in `behavior`): Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
-- [Load slot](graph-behavior-5.md#node-behavior--api-saves-load) (`api.saves.load`, as in `behavior`): Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
-- [Delete slot](graph-behavior-5.md#node-behavior--api-saves-delete) (`api.saves.delete`, as in `behavior`): Delete a slot (the outcome in `results()`).
-- [Save slots](graph-behavior-5.md#node-behavior--api-saves-slots) (`api.saves.slots`, as in `behavior`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
-- [Save slots ready](graph-behavior-5.md#node-behavior--api-saves-ready) (`api.saves.ready`, as in `behavior`): Whether the slot list has arrived from storage (it is empty before).
-- [Save results](graph-behavior-5.md#node-behavior--api-saves-results) (`api.saves.results`, as in `behavior`): The outcomes that arrived this step (saves, loads and deletes).
-- [Save storage](graph-behavior-5.md#node-behavior--api-saves-storage) (`api.saves.storage`, as in `behavior`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-- [Play time](graph-behavior-5.md#node-behavior--api-saves-play-seconds) (`api.saves.playSeconds`, as in `behavior`): Play time in seconds (restored with a loaded save).
-- [Setting](graph-behavior-5.md#node-behavior--api-saves-setting) (`api.saves.setting`, as in `behavior`): A value of the project settings document (its default until the player changes it).
-- [Settings document](graph-behavior-5.md#node-behavior--api-saves-settings) (`api.saves.settings`, as in `behavior`): The whole project settings document (a copy).
-- [Set setting](graph-behavior-5.md#node-behavior--api-saves-set-setting) (`api.saves.setSetting`, as in `behavior`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
-
-<a id="graph-behavior-function--assets"></a>
-## Assets
-
-- [Load assets](graph-behavior-5.md#node-behavior--api-assets-load) (`api.assets.load`, as in `behavior`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
-- [Release assets](graph-behavior-5.md#node-behavior--api-assets-release) (`api.assets.release`, as in `behavior`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
-- [Assets state](graph-behavior-6.md#node-behavior--api-assets-state) (`api.assets.state`, as in `behavior`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
-- [Assets ready](graph-behavior-6.md#node-behavior--api-assets-ready) (`api.assets.ready`, as in `behavior`): True once a handle's assets are loaded.
-- [Assets error](graph-behavior-6.md#node-behavior--api-assets-error) (`api.assets.error`, as in `behavior`): Why a failed handle failed ('' otherwise).

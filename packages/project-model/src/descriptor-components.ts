@@ -38,7 +38,7 @@ const LOCAL_LIGHT_LABELS = { pixel: 'Per pixel', vertex: 'Per vertex', none: 'No
 import { DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ABS_V3, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MAX_LOCAL_INTENSITY, SURFACE_DEFAULTS } from './scene-v3';
 import { MAX_INSTANCES } from './types-v3';
 import { type ComponentDescriptor, type FieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
-import { asset, bool, color, enm, entity, ID, int, json, lightLayerMask, list, map, NAME, num, obj, ref, scene, signal, str, vec2, vec3, when } from './descriptor-builders';
+import { asset, bool, color, enm, entity, ID, int, json, lightLayerMask, list, map, NAME, num, obj, ref, scene, seeThroughField, signal, str, vec2, vec3, when } from './descriptor-builders';
 
 // ---- components ------------------------------------------------------------------
 
@@ -80,6 +80,7 @@ export const model: ComponentDescriptor = {
     enm('localLights', 'Local lights', 'Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel).', LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
     decalLayersField(true),
     bool('occluder', 'Occluder', 'Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested).', { default: true, omitDefault: true }),
+    seeThroughField(),
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],
@@ -108,6 +109,7 @@ export const box: ComponentDescriptor = {
     enm('localLights', 'Local lights', 'Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as its material says, else per pixel).', LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
     decalLayersField(false),
     bool('occluder', 'Occluder', 'Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested).', { default: true, omitDefault: true }),
+    seeThroughField(),
   ]),
   add: { kind: 'menu', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } },
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'transform' }],
@@ -669,6 +671,7 @@ export const instances: ComponentDescriptor = {
     lightLayerMask('lightLayers', 'Light layers', 'The light layers it is in: only lights whose light mask shares one of them light it, and it casts shadows only for lights whose shadow caster mask shares one.', 1),
     enm('localLights', 'Local lights', `Point, spot and effect lights per pixel, per vertex (diffuse only, cheap) or none (—: as the material says, else ${INSTANCES_LOCAL_LIGHTS_DEFAULT === 'vertex' ? 'per vertex' : 'per pixel'}).`, LOCAL_LIGHT_MODES, { labels: LOCAL_LIGHT_LABELS }),
     decalLayersField(false),
+    seeThroughField(),
     // Absent = the project's Instance chunk size (32 m unless set).
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on.', { min: 1, max: 4096, step: 1, unit: 'm' }),
     // Off by default: a chunk straddling a switch point draws once per level when on (performance first).

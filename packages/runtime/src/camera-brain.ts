@@ -202,6 +202,8 @@ export interface CameraViewInfo {
   readonly region?: string | null;
   /** The object the live camera follows or frames (absent: none) — what block layers' cut-aways test by default. */
   readonly target?: string;
+  /** See-through as the game's scripts set it (absent: no call yet; the project's settings stand). */
+  readonly seeThrough?: import('./see-through-control').SeeThroughScriptState;
 }
 
 interface CamState {

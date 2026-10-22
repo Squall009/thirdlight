@@ -8,8 +8,8 @@ What the engine offers, generated from its source: the objects, components and c
 |---|---|
 | [Objects and components](objects.md) | Object fields, Components, Scene-view handle kinds |
 | [Components: Object](components-object.md) | transform — Transform, socketAttach — Socket |
-| [Components: Rendering (part 1)](components-rendering-1.md) | 14 sections |
-| [Components: Rendering (part 2)](components-rendering-2.md) | architecture — Architecture |
+| [Components: Rendering (part 1)](components-rendering-1.md) | 13 sections |
+| [Components: Rendering (part 2)](components-rendering-2.md) | spline — Spline, architecture — Architecture |
 | [Components: Physics](components-physics.md) | collider — Collider, controller — Player controller |
 | [Components: Camera](components-camera.md) | virtualCamera — Virtual camera, cameraPath — Camera path, cameraRegion — Camera region |
 | [Components: Lighting](components-lighting.md) | light — Light |
@@ -32,26 +32,27 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (PaintTarget to UiEasing)](types-p-u.md) | 95 sections |
 | [Types (UiEngineAction to WindConfig)](types-u-w.md) | 21 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
-| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 24 sections |
-| [Script API types (from `BehaviorPatrol`)](script-types-behavior-patrol.md) | 20 sections |
-| [Script API types (from `BehaviorAssets`)](script-types-behavior-assets.md) | 53 sections |
-| [Script API types (from `AudioPlayOptions`)](script-types-audio-play-options.md) | 83 sections |
+| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 23 sections |
+| [Script API types (from `BehaviorHealth`)](script-types-behavior-health.md) | 20 sections |
+| [Script API types (from `BehaviorSaves`)](script-types-behavior-saves.md) | 51 sections |
+| [Script API types (from `BehaviorRandomStream`)](script-types-behavior-random-stream.md) | 80 sections |
+| [Script API types (from `DebugCommandArgType`)](script-types-debug-command-arg-type.md) | `DebugCommandArgType`, `CellMetaValue`, `ScriptWriteCode`, `Vec3`, `SAVE_SECTIONS`, `SavedCharacter` |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics, Tags |
-| [Graph: Visual script (part 3, from World)](graph-behavior-3.md) | 81 sections |
-| [Graph: Visual script (part 4, from Character impulse (`api.character.impulse`))](graph-behavior-4.md) | Look, Audio, Effects, Decals, Save, Grid |
-| [Graph: Visual script (part 5, from In region (`api.grid.inRegion`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves, Assets |
-| [Graph: Visual script (part 6, from Assets state (`api.assets.state`))](graph-behavior-6.md) | UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
-| [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 33 sections |
-| [Graph: Script function (part 2, from Animator)](graph-behavior-function-2.md) | 24 sections |
-| [Graph: Script function (part 3, from UI)](graph-behavior-function-3.md) | UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
-| [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 23 sections |
-| [Graph: Shared script function (part 2, from Timers)](graph-behavior-library-2.md) | 24 sections |
-| [Graph: Shared script function (part 3, from Stats)](graph-behavior-library-3.md) | Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Visual script (part 3, from Tag mask (`api.tags.mask`))](graph-behavior-3.md) | World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health, Patrol, Hitbox, Collectible |
+| [Graph: Visual script (part 4, from Character)](graph-behavior-4.md) | Character, Look, Audio, Effects, Decals, Save, Grid |
+| [Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves |
+| [Graph: Visual script (part 6, from Save storage (`api.saves.storage`))](graph-behavior-6.md) | Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
+| [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
+| [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 22 sections |
+| [Graph: Shared script function (part 2, from Animator)](graph-behavior-library-2.md) | 24 sections |
+| [Graph: Shared script function (part 3, from UI)](graph-behavior-library-3.md) | UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
 | [Graph: Material graph](graph-material.md) | Material graph, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions, Output |
 | [Graph: Material function](graph-material-function.md) | Material function, Interface, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions |
 | [Graph: Particle system](graph-effect.md) | Particle system, Contexts, Spawn, Position, Initialize, Forces, Collision, Over life, Kill, Output, Values, Maths |

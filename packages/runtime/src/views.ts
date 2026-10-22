@@ -15,10 +15,11 @@
  * step), so replays, a second run and the simulation worker see the same view
  * and the same screen rays.
  */
-import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE } from '@thirdlight/project-model';
+import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE, SEE_THROUGH_DEFAULTS, type SeeThroughSettings } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
 import { CameraBrain, type BaseLens, type CameraViewInfo, type CameraWorld } from './camera-brain';
+import { SeeThroughScript } from './see-through-control';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import type { BehaviorCamera, CameraInfo } from './types';
 
@@ -31,14 +32,18 @@ export class RuntimeViews {
   private readonly brains = new Map<string, CameraBrain>();
   private readonly basePosition = [...DEFAULT_VIEW_POSE.position];
   private readonly baseRotation = [...DEFAULT_VIEW_POSE.rotation];
+  /** Each view's see-through as scripts set it. */
+  private readonly seeThrough = new Map<string, SeeThroughScript>();
   readonly control: BehaviorCamera;
 
   constructor(
     hz: number,
     private readonly lens: BaseLens,
     private readonly host: ViewHost,
+    seeThrough: Readonly<SeeThroughSettings> = SEE_THROUGH_DEFAULTS,
   ) {
     this.brains.set(DEFAULT_VIEW_ID, new CameraBrain(hz, lens, (message) => host.warn(message)));
+    this.seeThrough.set(DEFAULT_VIEW_ID, new SeeThroughScript(seeThrough));
     this.control = this.buildControl();
   }
 
@@ -65,6 +70,7 @@ export class RuntimeViews {
   /** A new run: every view back to the start. */
   reset(): void {
     for (const b of this.brains.values()) b.reset();
+    for (const s of this.seeThrough.values()) s.reset();
   }
 
   /** One step of every view on the step's committed transforms. */
@@ -86,7 +92,9 @@ export class RuntimeViews {
   /** A view's committed state (the live camera, a blend, the pose and lens), or null before its first step. */
   view(view: string = DEFAULT_VIEW_ID): CameraViewInfo | null {
     const b = this.brains.get(view);
-    return b === undefined || !b.hasView() ? null : b.view();
+    if (b === undefined || !b.hasView()) return null;
+    const seeThrough = this.seeThrough.get(view)?.current() ?? null;
+    return seeThrough === null ? b.view() : { ...b.view(), seeThrough };
   }
 
   /** The viewport a view is drawn in (its projection's aspect). */
@@ -155,6 +163,7 @@ export class RuntimeViews {
       set: (cameraId: string, params: unknown): boolean => brain.set(String(cameraId), params),
       turn: (cameraId: string, steps: number): boolean => brain.turn(String(cameraId), Number(steps)),
       shake: (amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void => brain.shake(Number(amplitude), Number(seconds), frequency, rotation, seed),
+      setSeeThrough: (patch: unknown): boolean => this.seeThrough.get(DEFAULT_VIEW_ID)!.set(patch),
       live: (): string | null => brain.live(),
       blending: (): boolean => brain.blending(),
       get: (cameraId: string) => brain.get(String(cameraId)),

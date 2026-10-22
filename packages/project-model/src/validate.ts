@@ -752,6 +752,7 @@ export function canonicalBox(b: unknown): BoxComponent {
     ...(typeof o['localLights'] === 'string' ? { localLights: o['localLights'] as LocalLightMode } : {}),
     ...(typeof o['decalLayers'] === 'number' ? { decalLayers: o['decalLayers'] } : {}),
     ...(typeof o['occluder'] === 'boolean' ? { occluder: o['occluder'] } : {}),
+    ...(typeof o['seeThrough'] === 'boolean' ? { seeThrough: o['seeThrough'] } : {}),
   };
 }
 

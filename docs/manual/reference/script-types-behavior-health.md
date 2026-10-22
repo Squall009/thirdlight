@@ -1,8 +1,51 @@
-# Script API types (from `BehaviorPatrol`)
+# Script API types (from `BehaviorHealth`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-health"></a>
+## `BehaviorHealth`
+
+```ts
+/**
+ * `ctx.health` — the health of any object with a Health
+ * component. Changes apply at once (a later `get` in the same step sees them);
+ * each is an event (`damaged`, `healed`, and `died` when it reaches 0) that
+ * scripts owning the object read in the next step's `ctx.events` (all of them:
+ * `events()`). What reaching 0 means is the game's rule: the engine only
+ * reports it.
+ */
+export interface BehaviorHealth {
+  /**
+   * The object's health now, or null when it has no Health component.
+   * @graphPure
+   * @graphNode Health of
+   * @graphLabel entityId object
+   */
+  get(entityId: string): { current: number; max: number } | null;
+  /**
+   * Take `amount` (> 0) from the object's health, not below 0 (a `damaged` event, and `died` when it reaches 0). `source` names what did it (an object id or any text). False without health, when it is already at 0, or for a bad amount.
+   * @graphNode Damage
+   * @graphLabel entityId object
+   * @graphDefault amount 1
+   */
+  damage(entityId: string, amount: number, source?: string): boolean;
+  /**
+   * Give `amount` (> 0) back, not above its maximum (a `healed` event). False without health, at its maximum, or for a bad amount.
+   * @graphNode Heal
+   * @graphLabel entityId object
+   * @graphDefault amount 1
+   */
+  heal(entityId: string, amount: number): boolean;
+  /**
+   * Every object's health events of the previous step (damaged, healed, died), in the order they happened.
+   * @graphPure
+   * @graphNode Health events
+   */
+  events(): readonly HealthEventRecord[];
+}
+```
 
 <a id="script-type-behavior-patrol"></a>
 ## `BehaviorPatrol`
@@ -841,6 +884,12 @@ export interface BehaviorCamera {
    */
   shake(amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void;
   /**
+   * Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the radius, maxFade stays below 1, depthMargin is metres, fadeTime seconds. Lasts until the next call or a new run. `false` (nothing changed) for a wrong argument.
+   * @graphNode Set see-through
+   * @graphDefault enabled true
+   */
+  setSeeThrough(params: { enabled?: boolean; subjects?: readonly string[] | null; radius?: number; softness?: number; maxFade?: number; depthMargin?: number; fadeTime?: number }): boolean;
+  /**
    * The live virtual camera, or null while none is (the view holds the default pose).
    * @graphPure
    * @graphNode Live camera
@@ -973,114 +1022,5 @@ export interface BehaviorMaterials {
    * @graphLabel materialId material
    */
   getData(entityId: string, param: string, x: number, y: number, materialId?: string): number[] | null;
-}
-```
-
-<a id="script-type-behavior-saves"></a>
-## `BehaviorSaves`
-
-```ts
-/**
- * `ctx.saves` — the project's save document and its slots, and the project
- * settings document. Requires a save schema in the project (Project → Saves);
- * without one every call answers false / empty.
- */
-export interface BehaviorSaves {
-  /**
-   * The save document's schema version (0: the project declares no save schema).
-   * @graphPure
-   * @graphNode Save version
-   */
-  readonly version: number;
-  /**
-   * How many slots the game offers.
-   * @graphPure
-   * @graphNode Save slot count
-   */
-  readonly slotCount: number;
-  /**
-   * Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
-   * @graphNode Write save document
-   */
-  write(doc: unknown): boolean;
-  /**
-   * The project's save document (a copy; null before one is written or loaded).
-   * @graphPure
-   * @graphNode Save document
-   */
-  read(): unknown;
-  /**
-   * Save to a slot at the end of this step (the document and the engine sections of the schema);
-   * the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON).
-   * False for a slot the game does not have or a meta that does not fit.
-   * @graphNode Save to slot
-   */
-  save(slot: number, meta?: SaveMeta): boolean;
-  /**
-   * Load a slot: when storage answers, the document is migrated and restored at the end of that step
-   * (the outcome in `results()`).
-   * @graphNode Load slot
-   */
-  load(slot: number): boolean;
-  /**
-   * Delete a slot (the outcome in `results()`).
-   * @graphNode Delete slot
-   */
-  delete(slot: number): boolean;
-  /**
-   * The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
-   * @graphPure
-   * @graphNode Save slots
-   */
-  slots(): readonly SaveSlotInfo[];
-  /**
-   * Whether the slot list has arrived from storage (it is empty before).
-   * @graphPure
-   * @graphNode Save slots ready
-   */
-  ready(): boolean;
-  /**
-   * The outcomes that arrived this step (saves, loads and deletes).
-   * @graphPure
-   * @graphNode Save results
-   */
-  results(): readonly SaveResult[];
-  /**
-   * The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for
-   * at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-   * @graphPure
-   * @graphNode Save storage
-   */
-  storage(): SaveStorageInfo;
-  /**
-   * Play time in seconds (restored with a loaded save).
-   * @graphPure
-   * @graphNode Play time
-   */
-  playSeconds(): number;
-  /**
-   * Register the migration a save schema names: `migrate(doc, fromVersion)` returns the document one
-   * version later. Call it every step (or once at the start); the last registration counts.
-   * @graphNode skip a migration is a function (code)
-   */
-  migration(name: string, migrate: (doc: unknown, fromVersion: number) => unknown): boolean;
-  /**
-   * A value of the project settings document (its default until the player changes it).
-   * @graphPure
-   * @graphNode Setting
-   */
-  setting(key: string): boolean | number | string | null;
-  /**
-   * The whole project settings document (a copy).
-   * @graphPure
-   * @graphNode Settings document
-   */
-  settings(): Record<string, boolean | number | string>;
-  /**
-   * Change a value of the project settings document (kept in the player's browser; an engine setting
-   * it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
-   * @graphNode Set setting
-   */
-  setSetting(key: string, value: boolean | number | string): boolean;
 }
 ```

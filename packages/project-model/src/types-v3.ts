@@ -71,6 +71,8 @@ export interface InstancesComponent {
   localLights?: LocalLightMode;
   /** The decal layers projected decals mark the copies in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** The copies thin to a dither round a subject behind them (see-through.ts; absent: true). */
+  seeThrough?: boolean;
   /** The copies' vertex paint: a sparse copy → slot table and a slot pool per mesh (vertex-paint.ts; absent: none painted). */
   paint?: import('./vertex-paint').InstancePaint;
   /** Density falloff: the screen size where copies start thinning, where they reach `densityMin`, and that share (absent: `model-lod.ts` defaults). */

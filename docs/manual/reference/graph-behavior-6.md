@@ -1,8 +1,132 @@
-# Graph: Visual script (part 6, from Assets state (`api.assets.state`))
+# Graph: Visual script (part 6, from Save storage (`api.saves.storage`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-saves-storage"></a>
+### Save storage (`api.saves.storage`)
+
+The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+
+Outputs:
+
+- `persisted` (boolean)
+- `usage` (number)
+- `quota` (number)
+
+<a id="node-behavior--api-saves-play-seconds"></a>
+### Play time (`api.saves.playSeconds`)
+
+Play time in seconds (restored with a loaded save).
+
+Outputs:
+
+- `value` (number)
+
+<a id="node-behavior--api-saves-setting"></a>
+### Setting (`api.saves.setting`)
+
+A value of the project settings document (its default until the player changes it).
+
+Inputs:
+
+- `key` (string)
+
+Outputs:
+
+- `value` (number): type from field `value_type`
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `key` | key | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
+
+<a id="node-behavior--api-saves-settings"></a>
+### Settings document (`api.saves.settings`)
+
+The whole project settings document (a copy).
+
+Outputs:
+
+- `value` (map)
+
+<a id="node-behavior--api-saves-set-setting"></a>
+### Set setting (`api.saves.setSetting`)
+
+Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `key` (string)
+- `value` (number): type from field `value_type`
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `key` | key | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
+| `value` | value | string | `""` | ≤ 256 chars |
+
+<a id="graph-behavior--assets"></a>
+## Assets
+
+- Load assets (`api.assets.load`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
+- Release assets (`api.assets.release`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
+- Assets state (`api.assets.state`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
+- Assets ready (`api.assets.ready`): True once a handle's assets are loaded.
+- Assets error (`api.assets.error`): Why a failed handle failed ('' otherwise).
+
+<a id="node-behavior--api-assets-load"></a>
+### Load assets (`api.assets.load`)
+
+Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `key` "id, address or label" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (number)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `key` | id, address or label | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-assets-release"></a>
+### Release assets (`api.assets.release`)
+
+Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `handle` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `handle` | handle | number | `0` | -1000000000 – 1000000000 |
 
 <a id="node-behavior--api-assets-state"></a>
 ### Assets state (`api.assets.state`)

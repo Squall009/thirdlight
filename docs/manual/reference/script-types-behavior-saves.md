@@ -1,8 +1,117 @@
-# Script API types (from `BehaviorAssets`)
+# Script API types (from `BehaviorSaves`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-saves"></a>
+## `BehaviorSaves`
+
+```ts
+/**
+ * `ctx.saves` — the project's save document and its slots, and the project
+ * settings document. Requires a save schema in the project (Project → Saves);
+ * without one every call answers false / empty.
+ */
+export interface BehaviorSaves {
+  /**
+   * The save document's schema version (0: the project declares no save schema).
+   * @graphPure
+   * @graphNode Save version
+   */
+  readonly version: number;
+  /**
+   * How many slots the game offers.
+   * @graphPure
+   * @graphNode Save slot count
+   */
+  readonly slotCount: number;
+  /**
+   * Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
+   * @graphNode Write save document
+   */
+  write(doc: unknown): boolean;
+  /**
+   * The project's save document (a copy; null before one is written or loaded).
+   * @graphPure
+   * @graphNode Save document
+   */
+  read(): unknown;
+  /**
+   * Save to a slot at the end of this step (the document and the engine sections of the schema);
+   * the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON).
+   * False for a slot the game does not have or a meta that does not fit.
+   * @graphNode Save to slot
+   */
+  save(slot: number, meta?: SaveMeta): boolean;
+  /**
+   * Load a slot: when storage answers, the document is migrated and restored at the end of that step
+   * (the outcome in `results()`).
+   * @graphNode Load slot
+   */
+  load(slot: number): boolean;
+  /**
+   * Delete a slot (the outcome in `results()`).
+   * @graphNode Delete slot
+   */
+  delete(slot: number): boolean;
+  /**
+   * The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
+   * @graphPure
+   * @graphNode Save slots
+   */
+  slots(): readonly SaveSlotInfo[];
+  /**
+   * Whether the slot list has arrived from storage (it is empty before).
+   * @graphPure
+   * @graphNode Save slots ready
+   */
+  ready(): boolean;
+  /**
+   * The outcomes that arrived this step (saves, loads and deletes).
+   * @graphPure
+   * @graphNode Save results
+   */
+  results(): readonly SaveResult[];
+  /**
+   * The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for
+   * at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+   * @graphPure
+   * @graphNode Save storage
+   */
+  storage(): SaveStorageInfo;
+  /**
+   * Play time in seconds (restored with a loaded save).
+   * @graphPure
+   * @graphNode Play time
+   */
+  playSeconds(): number;
+  /**
+   * Register the migration a save schema names: `migrate(doc, fromVersion)` returns the document one
+   * version later. Call it every step (or once at the start); the last registration counts.
+   * @graphNode skip a migration is a function (code)
+   */
+  migration(name: string, migrate: (doc: unknown, fromVersion: number) => unknown): boolean;
+  /**
+   * A value of the project settings document (its default until the player changes it).
+   * @graphPure
+   * @graphNode Setting
+   */
+  setting(key: string): boolean | number | string | null;
+  /**
+   * The whole project settings document (a copy).
+   * @graphPure
+   * @graphNode Settings document
+   */
+  settings(): Record<string, boolean | number | string>;
+  /**
+   * Change a value of the project settings document (kept in the player's browser; an engine setting
+   * it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
+   * @graphNode Set setting
+   */
+  setSetting(key: string, value: boolean | number | string): boolean;
+}
+```
 
 <a id="script-type-behavior-assets"></a>
 ## `BehaviorAssets`
@@ -1269,82 +1378,5 @@ export interface CollectEventRecord {
   /** collected: the object that collected it ('' on restored). */
   readonly by: string;
   readonly stepIndex: number;
-}
-```
-
-<a id="script-type-behavior-random-stream"></a>
-## `BehaviorRandomStream`
-
-```ts
-/**
- * One seeded random number stream (`ctx.random`, `ctx.random.stream(name)`).
- * Replay-safe: the numbers come from the project's `random_seed` setting mixed with the
- * script id, the object's id and the stream name, and advance only when drawn — a replay,
- * the simulation worker and the page all draw the same numbers. Each new run starts over.
- */
-export interface BehaviorRandomStream {
-  /**
-   * A number in [0, 1) (a multiple of 2^-32).
-   * @graphNode Seeded random
-   */
-  next(): number;
-  /**
-   * A number in [min, max).
-   * @graphNode Seeded random range
-   * @graphDefault max 1
-   */
-  range(min: number, max: number): number;
-  /**
-   * A whole number from `min` to `max`, both included (the bounds are rounded inward).
-   * @graphNode Seeded random integer
-   * @graphDefault max 6
-   */
-  int(min: number, max: number): number;
-  /**
-   * True with probability `p` (0: never, 1: always).
-   * @graphNode Seeded chance
-   * @graphDefault p 0.5
-   */
-  chance(p: number): boolean;
-  /**
-   * One item of `list` chosen evenly, or `undefined` when it is empty.
-   * @graphNode skip a list's random item is Seeded random integer with the list's Get item
-   */
-  pick<T>(list: readonly T[]): T | undefined;
-}
-```
-
-<a id="script-type-character-walk-options"></a>
-## `CharacterWalkOptions`
-
-```ts
-/** `ctx.character.walkTo`'s options. */
-export interface CharacterWalkOptions {
-  /** At the run speed (the 2D plane has one speed). */
-  run?: boolean;
-  /** How near the mark counts as arrived (m, 0.01–100; absent: 0.1). */
-  arrive?: number;
-  /** Degrees about +Y to face once arrived (absent: as it walked in). */
-  facing?: number;
-  /** The player controller's object (absent: the first). */
-  entityId?: string;
-}
-```
-
-<a id="script-type-behavior-look-value"></a>
-## `BehaviorLookValue`
-
-```ts
-/**
- * A look override (`ctx.look.set`): an emissive glow and a tint
- * multiplied into the object's own colour, on every mesh under the object.
- */
-export interface BehaviorLookValue {
-  /** The glow colour ('#rrggbb'). */
-  emissive?: string;
-  /** How strongly it glows (0–4; absent with a glow colour: 1). */
-  emissiveIntensity?: number;
-  /** A colour ('#rrggbb') multiplied into the object's own colour. */
-  tint?: string;
 }
 ```

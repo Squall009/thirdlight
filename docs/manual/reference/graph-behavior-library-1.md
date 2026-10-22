@@ -245,6 +245,12 @@ Implicit conversions:
 - [Settings occlusion culling](graph-behavior-2.md#node-behavior--api-settings-occlusion-culling) (`api.settings.occlusion_culling`, as in `behavior`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - [Settings streaming budget mb](graph-behavior-2.md#node-behavior--api-settings-streaming-budget-mb) (`api.settings.streaming_budget_mb`, as in `behavior`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - [Settings architecture ship meshes](graph-behavior-2.md#node-behavior--api-settings-architecture-ship-meshes) (`api.settings.architecture_ship_meshes`, as in `behavior`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
+- [Settings see through](graph-behavior-2.md#node-behavior--api-settings-see-through) (`api.settings.see_through`, as in `behavior`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts).
+- [Settings see through radius](graph-behavior-2.md#node-behavior--api-settings-see-through-radius) (`api.settings.see_through_radius`, as in `behavior`): The see-through circle's radius, a share of the view's height (absent: 0.2).
+- [Settings see through softness](graph-behavior-2.md#node-behavior--api-settings-see-through-softness) (`api.settings.see_through_softness`, as in `behavior`): The share of the see-through radius its edge softens over (absent: 0.4).
+- [Settings see through max fade](graph-behavior-2.md#node-behavior--api-settings-see-through-max-fade) (`api.settings.see_through_max_fade`, as in `behavior`): How far see-through thins what is in front at most (below 1; absent: 0.75).
+- [Settings see through depth margin m](graph-behavior-2.md#node-behavior--api-settings-see-through-depth-margin-m) (`api.settings.see_through_depth_margin_m`, as in `behavior`): Metres a surface must be nearer the camera than the subject to fade (absent: 0.25).
+- [Settings see through fade s](graph-behavior-2.md#node-behavior--api-settings-see-through-fade-s) (`api.settings.see_through_fade_s`, as in `behavior`): Seconds see-through eases in or out round a subject (absent: 0.25).
 
 <a id="graph-behavior-library--physics"></a>
 ## Physics
@@ -264,10 +270,10 @@ Implicit conversions:
 <a id="graph-behavior-library--tags"></a>
 ## Tags
 
-- [Tag mask](graph-behavior-2.md#node-behavior--api-tags-mask) (`api.tags.mask`, as in `behavior`): The mask of the named tags (names ignore case). Throws on an unknown name.
-- [Tags of](graph-behavior-2.md#node-behavior--api-tags-of) (`api.tags.of`, as in `behavior`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
-- [Has tags](graph-behavior-2.md#node-behavior--api-tags-has) (`api.tags.has`, as in `behavior`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
-- [Find by tags](graph-behavior-2.md#node-behavior--api-tags-query) (`api.tags.query`, as in `behavior`): The entities carrying any (default) or all of the mask's bits, in scene order.
+- [Tag mask](graph-behavior-3.md#node-behavior--api-tags-mask) (`api.tags.mask`, as in `behavior`): The mask of the named tags (names ignore case). Throws on an unknown name.
+- [Tags of](graph-behavior-3.md#node-behavior--api-tags-of) (`api.tags.of`, as in `behavior`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
+- [Has tags](graph-behavior-3.md#node-behavior--api-tags-has) (`api.tags.has`, as in `behavior`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
+- [Find by tags](graph-behavior-3.md#node-behavior--api-tags-query) (`api.tags.query`, as in `behavior`): The entities carrying any (default) or all of the mask's bits, in scene order.
 
 <a id="graph-behavior-library--world"></a>
 ## World
@@ -313,19 +319,3 @@ Implicit conversions:
 - [Reset bindings](graph-behavior-3.md#node-behavior--api-input-reset-bindings) (`api.input.resetBindings`, as in `behavior`): Reset one action's bindings (or all, without a name) to the project's defaults.
 - [Use binding profile](graph-behavior-3.md#node-behavior--api-input-use-binding-profile) (`api.input.useBindingProfile`, as in `behavior`): Use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
 - [Binding profile](graph-behavior-3.md#node-behavior--api-input-binding-profile) (`api.input.bindingProfile`, as in `behavior`): The player profile whose bindings are in effect.
-
-<a id="graph-behavior-library--animator"></a>
-## Animator
-
-- [Set animator parameter](graph-behavior-3.md#node-behavior--api-animator-set) (`api.animator.set`, as in `behavior`): Set a float/int/bool parameter; false for an unknown name or a wrong type. An empty entity means this object.
-- [Set animator trigger](graph-behavior-3.md#node-behavior--api-animator-trigger) (`api.animator.trigger`, as in `behavior`): Set a trigger (it resets when a transition uses it). An empty entity means this object.
-- [Animator parameter](graph-behavior-3.md#node-behavior--api-animator-get) (`api.animator.get`, as in `behavior`): A parameter's value (undefined for an unknown name). An empty entity means this object.
-- [Animator state](graph-behavior-3.md#node-behavior--api-animator-state) (`api.animator.state`, as in `behavior`): The current state's name (of the base layer, or of override layer `layer` — 1 is the first). An empty entity means this object.
-- [Play animator state](graph-behavior-3.md#node-behavior--api-animator-play) (`api.animator.play`, as in `behavior`): Go to a state by name over `fade` seconds (0: at once), on layer `layer` (0: the base layer, 1 the first override layer), the state starting at normalized time `time` (0–1 of its length; 0: its beginning). False for an unknown state or layer, or a time below 0. An empty entity means this object.
-- [Set look target](graph-behavior-3.md#node-behavior--api-animator-set-look-target) (`api.animator.setLookTarget`, as in `behavior`): The object the look-at constraint turns the head toward (its origin), or null for nothing (the head turns back at its turn speed). False when the animator has no look-at. An empty entity means this object.
-- [Set look point](graph-behavior-3.md#node-behavior--api-animator-set-look-point) (`api.animator.setLookPoint`, as in `behavior`): A world point [x, y, z] the look-at constraint turns the head toward (in place of a target object). False when the animator has no look-at or the point is not three finite numbers. An empty entity means this object.
-- [Set look weight](graph-behavior-3.md#node-behavior--api-animator-set-look-weight) (`api.animator.setLookWeight`, as in `behavior`): The look-at constraint's weight (0–1; 0: the clip pose alone — the head turns back at its turn speed). False when the animator has no look-at or the weight is outside 0–1. An empty entity means this object.
-- [Set animation speed](graph-behavior-3.md#node-behavior--api-animator-set-speed) (`api.animator.setSpeed`, as in `behavior`): Set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10. An empty entity means this object.
-- [Animation speed](graph-behavior-3.md#node-behavior--api-animator-speed) (`api.animator.speed`, as in `behavior`): This animator's playback speed. An empty entity means this object.
-- [Set morph weight](graph-behavior-3.md#node-behavior--api-animator-set-morph) (`api.animator.setMorph`, as in `behavior`): Set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any). An empty entity means this object.
-- [Morph weight](graph-behavior-3.md#node-behavior--api-animator-morph) (`api.animator.morph`, as in `behavior`): A morph target's weight now (0 when nothing sets it). An empty entity means this object.

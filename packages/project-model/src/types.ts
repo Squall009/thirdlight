@@ -46,6 +46,8 @@ export interface BoxComponent {
   decalLayers?: number;
   /** Hides what is behind it from the view for occlusion culling (absent: true). */
   occluder?: boolean;
+  /** Thins to a dither round a subject behind it (see-through.ts; absent: true). */
+  seeThrough?: boolean;
 }
 
 /** `camera` component — perspective; `aspect` is never persisted. */

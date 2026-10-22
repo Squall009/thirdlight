@@ -390,6 +390,12 @@ Fields:
 - [Settings occlusion culling](graph-behavior-2.md#node-behavior--api-settings-occlusion-culling) (`api.settings.occlusion_culling`, as in `behavior`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - [Settings streaming budget mb](graph-behavior-2.md#node-behavior--api-settings-streaming-budget-mb) (`api.settings.streaming_budget_mb`, as in `behavior`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - [Settings architecture ship meshes](graph-behavior-2.md#node-behavior--api-settings-architecture-ship-meshes) (`api.settings.architecture_ship_meshes`, as in `behavior`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
+- [Settings see through](graph-behavior-2.md#node-behavior--api-settings-see-through) (`api.settings.see_through`, as in `behavior`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts).
+- [Settings see through radius](graph-behavior-2.md#node-behavior--api-settings-see-through-radius) (`api.settings.see_through_radius`, as in `behavior`): The see-through circle's radius, a share of the view's height (absent: 0.2).
+- [Settings see through softness](graph-behavior-2.md#node-behavior--api-settings-see-through-softness) (`api.settings.see_through_softness`, as in `behavior`): The share of the see-through radius its edge softens over (absent: 0.4).
+- [Settings see through max fade](graph-behavior-2.md#node-behavior--api-settings-see-through-max-fade) (`api.settings.see_through_max_fade`, as in `behavior`): How far see-through thins what is in front at most (below 1; absent: 0.75).
+- [Settings see through depth margin m](graph-behavior-2.md#node-behavior--api-settings-see-through-depth-margin-m) (`api.settings.see_through_depth_margin_m`, as in `behavior`): Metres a surface must be nearer the camera than the subject to fade (absent: 0.25).
+- [Settings see through fade s](graph-behavior-2.md#node-behavior--api-settings-see-through-fade-s) (`api.settings.see_through_fade_s`, as in `behavior`): Seconds see-through eases in or out round a subject (absent: 0.25).
 
 <a id="graph-behavior-function--physics"></a>
 ## Physics
@@ -409,10 +415,10 @@ Fields:
 <a id="graph-behavior-function--tags"></a>
 ## Tags
 
-- [Tag mask](graph-behavior-2.md#node-behavior--api-tags-mask) (`api.tags.mask`, as in `behavior`): The mask of the named tags (names ignore case). Throws on an unknown name.
-- [Tags of](graph-behavior-2.md#node-behavior--api-tags-of) (`api.tags.of`, as in `behavior`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
-- [Has tags](graph-behavior-2.md#node-behavior--api-tags-has) (`api.tags.has`, as in `behavior`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
-- [Find by tags](graph-behavior-2.md#node-behavior--api-tags-query) (`api.tags.query`, as in `behavior`): The entities carrying any (default) or all of the mask's bits, in scene order.
+- [Tag mask](graph-behavior-3.md#node-behavior--api-tags-mask) (`api.tags.mask`, as in `behavior`): The mask of the named tags (names ignore case). Throws on an unknown name.
+- [Tags of](graph-behavior-3.md#node-behavior--api-tags-of) (`api.tags.of`, as in `behavior`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
+- [Has tags](graph-behavior-3.md#node-behavior--api-tags-has) (`api.tags.has`, as in `behavior`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
+- [Find by tags](graph-behavior-3.md#node-behavior--api-tags-query) (`api.tags.query`, as in `behavior`): The entities carrying any (default) or all of the mask's bits, in scene order.
 
 <a id="graph-behavior-function--world"></a>
 ## World
@@ -435,26 +441,3 @@ Fields:
 - [Scene transition](graph-behavior-3.md#node-behavior--api-scenes-transition) (`api.scenes.transition`, as in `behavior`): The scene transition in progress (its scene, `out` while the view fades out, `loading` while the scene loads), or null.
 - [Active scene](graph-behavior-3.md#node-behavior--api-scenes-active) (`api.scenes.active`, as in `behavior`): The active scene: its sky, fog, post-processing and wind are the look (the first start scene at first; a transition that unloads it makes its scene active).
 - [Set active scene](graph-behavior-3.md#node-behavior--api-scenes-set-active) (`api.scenes.setActive`, as in `behavior`): Make a loaded scene the active one: its look blends in over `blend` seconds (0: at once). Applies with the step.
-
-<a id="graph-behavior-function--input"></a>
-## Input
-
-- [Input value](graph-behavior-3.md#node-behavior--api-input-value) (`api.input.value`, as in `behavior`): A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name.
-- [Input vector](graph-behavior-3.md#node-behavior--api-input-vector) (`api.input.vector`, as in `behavior`): A 2D axis as [x, y] ([value, 0] for others).
-- [Input pressed](graph-behavior-3.md#node-behavior--api-input-pressed) (`api.input.pressed`, as in `behavior`): Pressed in this step.
-- [Input released](graph-behavior-3.md#node-behavior--api-input-released) (`api.input.released`, as in `behavior`): Released in this step.
-- [Input held](graph-behavior-3.md#node-behavior--api-input-held) (`api.input.held`, as in `behavior`): Down this step (pressed or held).
-- [Pointer](graph-behavior-3.md#node-behavior--api-input-pointer) (`api.input.pointer`, as in `behavior`): The pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
-- [Pointer pressed](graph-behavior-3.md#node-behavior--api-input-pointer-pressed) (`api.input.pointerPressed`, as in `behavior`): A pointer button (default left) went down this step — a click.
-- [Pointer released](graph-behavior-3.md#node-behavior--api-input-pointer-released) (`api.input.pointerReleased`, as in `behavior`): A pointer button (default left) went up this step.
-- [Pointer held](graph-behavior-3.md#node-behavior--api-input-pointer-held) (`api.input.pointerHeld`, as in `behavior`): A pointer button (default left) is down this step.
-- [Any button pressed](graph-behavior-3.md#node-behavior--api-input-any-pressed) (`api.input.anyPressed`, as in `behavior`): Any key, mouse or pad button that went down this step, bound to an action or not — its device (keyboard, mouse, gamepad) and code (a key's code such as `KeyK` or `Space`, `left`/`right`/`middle`, `button0`…), or null. A key or pad button before a mouse button when several went down.
-- [Set cursor](graph-behavior-3.md#node-behavior--api-input-set-cursor) (`api.input.setCursor`, as in `behavior`): Ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
-- [Using gamepad](graph-behavior-3.md#node-behavior--api-input-using-gamepad) (`api.input.usingGamepad`, as in `behavior`): The player used a gamepad last (else the keyboard or mouse).
-- [Action glyph label](graph-behavior-3.md#node-behavior--api-input-glyph-label) (`api.input.glyphLabel`, as in `behavior`): An action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
-- [Action glyph icon](graph-behavior-3.md#node-behavior--api-input-glyph-icon) (`api.input.glyphIcon`, as in `behavior`): An action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
-- [Rebinding](graph-behavior-3.md#node-behavior--api-input-rebinding) (`api.input.rebinding`, as in `behavior`): The rebind listening for input now (action, binding index, part), or null.
-- [Cancel rebind](graph-behavior-3.md#node-behavior--api-input-cancel-rebind) (`api.input.cancelRebind`, as in `behavior`): Stop listening for a rebind.
-- [Reset bindings](graph-behavior-3.md#node-behavior--api-input-reset-bindings) (`api.input.resetBindings`, as in `behavior`): Reset one action's bindings (or all, without a name) to the project's defaults.
-- [Use binding profile](graph-behavior-3.md#node-behavior--api-input-use-binding-profile) (`api.input.useBindingProfile`, as in `behavior`): Use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
-- [Binding profile](graph-behavior-3.md#node-behavior--api-input-binding-profile) (`api.input.bindingProfile`, as in `behavior`): The player profile whose bindings are in effect.

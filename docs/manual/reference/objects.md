@@ -69,7 +69,7 @@ Every component, in "+ Add component" order within its category.
 | [`blockFootprint`](components-gameplay.md#component-blockFootprint) | Block footprint | Gameplay | The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked). |
 | [`behaviorGroup`](components-scripting.md#component-behaviorGroup) | Behavior group | Scripting | The group this object's behavior belongs to. A game mode lists the groups that tick while it is active; the others pause (their scripts do not run). |
 | [`terrain`](components-rendering-1.md#component-terrain) | Terrain | Rendering | A heightfield of square tiles for landscape reaching the horizon, sculpted, painted and cut in the terrain editor (the editTerrain commands). |
-| [`spline`](components-rendering-1.md#component-spline) | Spline | Rendering | A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines). |
+| [`spline`](components-rendering-2.md#component-spline) | Spline | Rendering | A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines). |
 | [`architecture`](components-rendering-2.md#component-architecture) | Architecture | Rendering | Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture"). |
 
 <a id="handle-kinds"></a>

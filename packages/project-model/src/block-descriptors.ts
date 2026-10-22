@@ -6,7 +6,7 @@
  *
  * Pure data.
  */
-import { lightLayerMask, list, ref, str } from './descriptor-builders';
+import { lightLayerMask, list, ref, seeThroughField, str } from './descriptor-builders';
 import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
 import { WALK_METRES_RANGE } from './block-walk-settings';
 import { streamingField } from './world-streaming-descriptor';
@@ -59,6 +59,7 @@ export const blockLayer: ComponentDescriptor = {
     bool('wallPaint', 'Wall paint', "Walls have paint of their own (Paint mode, Walls): an unpainted wall shows material layer 2 (`layer: 1` in rules), also where rules name only tops, the top's paint wraps over the lip and fades one row down, and wall faces get vertices about every 0.5 m so the paint shows. Off: walls show the paint of the top above them.", { default: false }),
     lightLayerMask('lightLayers', 'Light layers', 'The light layers its blocks are in: only lights whose light mask shares one of them light the blocks, and the blocks cast shadows only for lights whose shadow caster mask shares one.', 1),
     decalLayersField(false),
+    seeThroughField(),
     obj('cutaway', 'Cut-away', "What is hidden from the view while the camera's target (or a subject a script names) is under or inside it: roofs and upper floors over the player, the walls round the room it is in, the floors above a dungeon level. Drawing only: collision, queries and shadows stay.", [
       list('regions', 'Regions', "Regions of the layer whose cells are hidden while the subject stands under them (within their columns, below their lowest row), or, with When, while it is inside another region.", obj('*', 'Region', 'A region cut away.', [
         str('region', 'Region', 'The region whose cells are hidden.', { required: true, minLength: 1, maxLength: 64 }),
@@ -81,7 +82,7 @@ export const blockLayer: ComponentDescriptor = {
       bool('diagonal', 'Diagonal', 'Steps across cell corners too, where both ways round the corner walk.', { default: false }),
     ]),
     json('rules', 'Material rules', 'Layers 0-3 by slope, height, cavity, noise, top or wall, block type and cell metadata, painted at every vertex when chunks are meshed: [{name?, layer, strength?, face?, height?, slope?, cavity?, noise?, weight?, blocks?, meta?}] (the block editor\'s Rules). Hand paint stays over them.', { shape: 'SurfaceRule[]' }),
-    json('scatter', 'Scatter rules', 'Models placed on the tops by rules, their copies baked per chunk by the layer\'s edits: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, blocks?, meta?, exclude?, castShadow?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (the block editor\'s Rules). The scatter brush\'s hand edits stay over them.', { shape: 'ScatterRule[]' }),
+    json('scatter', 'Scatter rules', 'Models placed on the tops by rules, their copies baked per chunk by the layer\'s edits: [{id, asset, density, spacing?, scale?, yaw?, align?, sink?, seed?, height?, slope?, cavity?, noise?, layers?, blocks?, meta?, exclude?, castShadow?, seeThrough?, chunkSize?, density falloff, lodPerCopy?, impostorSize?, collide?}] (the block editor\'s Rules). The scatter brush\'s hand edits stay over them.', { shape: 'ScatterRule[]' }),
     num('vertexAO', 'Corner shading', "How dark the blocks' corners and creases get from per-vertex ambient occlusion: where neighbouring blocks close a corner in, that much of its indirect light is taken away. 0: none. Cheap (worked out when a chunk is meshed); a layer with baked lightmaps has its shading in the bake.", { min: 0, max: 1, step: 0.05, default: 0 }),
     streamingField('chunks', true, 256),
   ]),

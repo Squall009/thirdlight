@@ -606,6 +606,8 @@ interface ScatterRule extends RuleConditions {
   cover?: boolean;
   /** Ground cover: metres from the camera it reaches (absent: {@link SCATTER_COVER_DISTANCE_DEFAULT}). */
   coverDistance?: number;
+  /** Drawing: the copies thin to a dither round a subject behind them (see-through.ts; absent: true). */
+  seeThrough?: boolean;
 }
 ```
 

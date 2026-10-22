@@ -159,6 +159,7 @@ function ScatterCard(p: ScatterRuleCardsProps & { rule: ScatterRule; index: numb
           {r.blobShadow !== undefined && (
             <SliderField label="radius" aria={`${pre} blob shadow`} value={r.blobShadow} min={L.blobShadow.min} max={8} log limit={[L.blobShadow.min, L.blobShadow.max]} step={0.05} unit="m" disabled={off} onChange={(v) => p.set('blobShadow', v)} />
           )}
+          <Toggle label="See-through" aria={`${pre} see through`} hint="The copies thin to a dither round a subject behind them (the project's see-through; off: they always stay solid)." on={r.seeThrough !== false} disabled={off} onChange={(on) => p.set('seeThrough', on ? undefined : false)} />
           {r.cover !== true && (
             <>
               <Toggle label="Thin out far copies" aria={`${pre} density falloff`} hint="Far copies, small on screen, are drawn fewer: from the start size down to the end size, where the least share is drawn." on={thinning} disabled={off} onChange={(on) => p.update((x) => {

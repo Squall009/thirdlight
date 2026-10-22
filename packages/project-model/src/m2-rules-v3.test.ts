@@ -313,6 +313,13 @@ describe('gameplay settings resolution', () => {
       'streaming_budget_mb',
       // Exports ship generated architecture's meshes too (0 no, 1 yes).
       'architecture_ship_meshes',
+      // See-through (0 off, 1 on; absent: off) and its shape.
+      'see_through',
+      'see_through_radius',
+      'see_through_softness',
+      'see_through_max_fade',
+      'see_through_depth_margin_m',
+      'see_through_fade_s',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

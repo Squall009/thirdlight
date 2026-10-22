@@ -79,6 +79,8 @@ export function stepDigest(rt: Runtime): string {
     h.num(cam.far);
     h.num(cam.letterbox);
     h.num(cam.shake);
+    // See-through as scripts set it (only once one did, so every other digest is unchanged).
+    if (cam.seeThrough !== undefined) h.text(JSON.stringify(cam.seeThrough));
   }
   // The audio intent log (only once scripts used audio, so every other digest is unchanged).
   const audio = rt.audioState?.() ?? null;

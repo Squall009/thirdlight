@@ -397,6 +397,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern)."
     },
     {
+      "name": "setSeeThrough",
+      "kind": "method",
+      "detail": "(params: { enabled?: boolean | undefined; subjects?: readonly string[] | null | undefined; radius?: number | undefined; softness?: number | undefined; maxFade?: number | undefined; depthMargin?: number | undefined; fadeTime?: number | undefined; }): boolean",
+      "doc": "Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; th"
+    },
+    {
       "name": "live",
       "kind": "method",
       "detail": "(): string | null",
@@ -4269,6 +4275,48 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "number | undefined",
       "optional": true,
       "doc": "Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load)."
+    },
+    {
+      "name": "see_through",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts)."
+    },
+    {
+      "name": "see_through_radius",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "The see-through circle's radius, a share of the view's height (absent: 0.2)."
+    },
+    {
+      "name": "see_through_softness",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "The share of the see-through radius its edge softens over (absent: 0.4)."
+    },
+    {
+      "name": "see_through_max_fade",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "How far see-through thins what is in front at most (below 1; absent: 0.75)."
+    },
+    {
+      "name": "see_through_depth_margin_m",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "Metres a surface must be nearer the camera than the subject to fade (absent: 0.25)."
+    },
+    {
+      "name": "see_through_fade_s",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "Seconds see-through eases in or out round a subject (absent: 0.25)."
     }
   ],
   "Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number]; }>": [

@@ -451,6 +451,18 @@ export interface GameplaySettings {
   streaming_budget_mb?: number;
   /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
   architecture_ship_meshes?: number;
+  /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts). */
+  see_through?: number;
+  /** The see-through circle's radius, a share of the view's height (absent: 0.2). */
+  see_through_radius?: number;
+  /** The share of the see-through radius its edge softens over (absent: 0.4). */
+  see_through_softness?: number;
+  /** How far see-through thins what is in front at most (below 1; absent: 0.75). */
+  see_through_max_fade?: number;
+  /** Metres a surface must be nearer the camera than the subject to fade (absent: 0.25). */
+  see_through_depth_margin_m?: number;
+  /** Seconds see-through eases in or out round a subject (absent: 0.25). */
+  see_through_fade_s?: number;
 }
 ```
 
@@ -1115,48 +1127,5 @@ export interface BehaviorGameState {
    * @graphDefault visible true
    */
   setVisible(entityId: string, visible: boolean): void;
-}
-```
-
-<a id="script-type-behavior-health"></a>
-## `BehaviorHealth`
-
-```ts
-/**
- * `ctx.health` — the health of any object with a Health
- * component. Changes apply at once (a later `get` in the same step sees them);
- * each is an event (`damaged`, `healed`, and `died` when it reaches 0) that
- * scripts owning the object read in the next step's `ctx.events` (all of them:
- * `events()`). What reaching 0 means is the game's rule: the engine only
- * reports it.
- */
-export interface BehaviorHealth {
-  /**
-   * The object's health now, or null when it has no Health component.
-   * @graphPure
-   * @graphNode Health of
-   * @graphLabel entityId object
-   */
-  get(entityId: string): { current: number; max: number } | null;
-  /**
-   * Take `amount` (> 0) from the object's health, not below 0 (a `damaged` event, and `died` when it reaches 0). `source` names what did it (an object id or any text). False without health, when it is already at 0, or for a bad amount.
-   * @graphNode Damage
-   * @graphLabel entityId object
-   * @graphDefault amount 1
-   */
-  damage(entityId: string, amount: number, source?: string): boolean;
-  /**
-   * Give `amount` (> 0) back, not above its maximum (a `healed` event). False without health, at its maximum, or for a bad amount.
-   * @graphNode Heal
-   * @graphLabel entityId object
-   * @graphDefault amount 1
-   */
-  heal(entityId: string, amount: number): boolean;
-  /**
-   * Every object's health events of the previous step (damaged, healed, died), in the order they happened.
-   * @graphPure
-   * @graphNode Health events
-   */
-  events(): readonly HealthEventRecord[];
 }
 ```

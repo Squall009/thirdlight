@@ -1,8 +1,92 @@
-# Graph: Visual script (part 5, from In region (`api.grid.inRegion`))
+# Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-path-outcome"></a>
+### Walk path outcome (`api.grid.pathOutcome`)
+
+Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
+
+Outputs:
+
+- `value` (string)
+- `found` (boolean)
+
+<a id="node-behavior--api-grid-reachable"></a>
+### Walk reach (`api.grid.reachable`)
+
+The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
+
+Inputs:
+
+- `layer` (string)
+- `from` (list)
+- `maxCost` "max cost" (number)
+- `maxStep` "max step" (number)
+- `maxDrop` "max drop" (number)
+- `headroom` (number)
+- `maxSlope` "max slope" (number)
+- `diagonal` (boolean)
+- `field` (string)
+- `costField` "cost field" (string)
+- `avoid` (list)
+
+Outputs:
+
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `maxCost` | max cost | number | `0` | -1000000000 – 1000000000 |
+| `diagonal` | diagonal | boolean | `false` |  |
+| `field` | field | string | `""` | ≤ 256 chars |
+| `costField` | cost field | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-grid-regions"></a>
+### Regions (`api.grid.regions`)
+
+The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
+
+Inputs:
+
+- `layer` (string)
+
+Outputs:
+
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-grid-region"></a>
+### Region cells (`api.grid.region`)
+
+The cells of a named region (at most 65,536), or null when the layer has no such region.
+
+Inputs:
+
+- `layer` (string)
+- `regionId` "region" (string)
+
+Outputs:
+
+- `value` (list)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `regionId` | region | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-grid-in-region"></a>
 ### In region (`api.grid.inRegion`)
@@ -736,6 +820,7 @@ Fields:
 - Set camera rig (`api.camera.set`): Set a camera's rig values (each optional): distance, yaw, pitch (kept within its pitch limits), progress and railSpeed of a rail camera, field of view, letterbox, the orbit point, the target offset.
 - Turn camera (`api.camera.turn`): Turn a camera by whole steps (an orbit-a-point camera: its turn step; positive turns left).
 - Shake camera (`api.camera.shake`): Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern).
+- Set see-through (`api.camera.setSeeThrough`): Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the
 - Live camera (`api.camera.live`): The live virtual camera, or null while none is (the view holds the default pose).
 - Camera blending (`api.camera.blending`): A blend between two cameras is in progress.
 - Camera state (`api.camera.get`): A virtual camera's live rig values, or null when there is no such camera.
@@ -914,6 +999,33 @@ Fields:
 | `frequency` | frequency | number | `8` | -1000000000 – 1000000000 |
 | `rotation` | rotation | number | `0` | -1000000000 – 1000000000 |
 | `seed` | seed | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-camera-set-see-through"></a>
+### Set see-through (`api.camera.setSeeThrough`)
+
+Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `enabled` (boolean)
+- `subjects` (list)
+- `radius` (number)
+- `softness` (number)
+- `maxFade` "max fade" (number)
+- `depthMargin` "depth margin" (number)
+- `fadeTime` "fade time" (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `enabled` | enabled | boolean | `true` |  |
 
 <a id="node-behavior--api-camera-live"></a>
 ### Live camera (`api.camera.live`)
@@ -1432,127 +1544,3 @@ The outcomes that arrived this step (saves, loads and deletes).
 Outputs:
 
 - `value` (list)
-
-<a id="node-behavior--api-saves-storage"></a>
-### Save storage (`api.saves.storage`)
-
-The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-
-Outputs:
-
-- `persisted` (boolean)
-- `usage` (number)
-- `quota` (number)
-
-<a id="node-behavior--api-saves-play-seconds"></a>
-### Play time (`api.saves.playSeconds`)
-
-Play time in seconds (restored with a loaded save).
-
-Outputs:
-
-- `value` (number)
-
-<a id="node-behavior--api-saves-setting"></a>
-### Setting (`api.saves.setting`)
-
-A value of the project settings document (its default until the player changes it).
-
-Inputs:
-
-- `key` (string)
-
-Outputs:
-
-- `value` (number): type from field `value_type`
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `key` | key | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
-
-<a id="node-behavior--api-saves-settings"></a>
-### Settings document (`api.saves.settings`)
-
-The whole project settings document (a copy).
-
-Outputs:
-
-- `value` (map)
-
-<a id="node-behavior--api-saves-set-setting"></a>
-### Set setting (`api.saves.setSetting`)
-
-Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `key` (string)
-- `value` (number): type from field `value_type`
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `key` | key | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
-| `value` | value | string | `""` | ≤ 256 chars |
-
-<a id="graph-behavior--assets"></a>
-## Assets
-
-- Load assets (`api.assets.load`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
-- Release assets (`api.assets.release`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
-- Assets state (`api.assets.state`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
-- Assets ready (`api.assets.ready`): True once a handle's assets are loaded.
-- Assets error (`api.assets.error`): Why a failed handle failed ('' otherwise).
-
-<a id="node-behavior--api-assets-load"></a>
-### Load assets (`api.assets.load`)
-
-Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `key` "id, address or label" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (number)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `key` | id, address or label | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-assets-release"></a>
-### Release assets (`api.assets.release`)
-
-Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `handle` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `handle` | handle | number | `0` | -1000000000 – 1000000000 |

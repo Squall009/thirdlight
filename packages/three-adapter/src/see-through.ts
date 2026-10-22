@@ -204,6 +204,24 @@ export interface SeeThroughPatch extends Partial<SeeThroughSettings> {
   readonly subjects?: readonly string[] | null;
 }
 
+/** What the game's scripts set, as the runtime's view carries it (`ctx.camera.setSeeThrough`): whole settings and the subjects. */
+export interface SeeThroughScripted {
+  readonly settings: Readonly<SeeThroughSettings>;
+  readonly subjects: readonly string[] | null;
+}
+
+const SETTING_FIELDS = ['enabled', 'radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const;
+
+/** Whether two scripted states say the same (the worker's view arrives as a new object every step). */
+function sameScripted(a: SeeThroughScripted | null, b: SeeThroughScripted | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (SETTING_FIELDS.some((k) => a.settings[k] !== b.settings[k])) return false;
+  const x = a.subjects;
+  const y = b.subjects;
+  return x === y || (x !== null && y !== null && x.length === y.length && x.every((id, i) => id === y[i]));
+}
+
 /** A view's see-through, for its host (the project settings, a game's script, the editor's preview). */
 export interface SeeThroughControl {
   set(patch: SeeThroughPatch): void;
@@ -219,6 +237,10 @@ export interface SeeThroughDeps {
   components(id: string): unknown;
   /** The entity the camera follows (the subject when none is named). */
   cameraTarget(): string | null;
+  /** What the game's scripts set (null: nothing yet; the host's settings stand). */
+  scripted?(): SeeThroughScripted | null;
+  /** On or off whatever the host or a script says (absent: as they say). */
+  readonly pinned?: boolean;
   /** Programs will be built again (the renderer armed): build them ahead of the next present. */
   requestPrecompile?(): void;
   /** A fade still eases: a host drawing on demand draws again. */
@@ -244,8 +266,13 @@ interface ArmedRenderer {
 
 /** A view's subjects and the uniforms its renderer's programs read. */
 export class SeeThroughView implements SeeThroughControl {
+  /** What draws: the host's settings, or a script's over them, with the pin over either. */
   private s: SeeThroughSettings;
   private named: readonly string[] | null = null;
+  /** The host's (the project's, an editor preview's). */
+  private base: SeeThroughSettings;
+  private baseNamed: readonly string[] | null = null;
+  private script: SeeThroughScripted | null = null;
   private readonly slots: (Slot | null)[] = new Array<Slot | null>(SEE_THROUGH_SUBJECTS).fill(null);
   private readonly packs: SubjectPack[] = Array.from({ length: SEE_THROUGH_SUBJECTS }, emptyPack);
   private armed: ArmedRenderer | null = null;
@@ -263,13 +290,32 @@ export class SeeThroughView implements SeeThroughControl {
     private readonly d: SeeThroughDeps,
     settings?: Partial<SeeThroughSettings>,
   ) {
-    this.s = seeThroughSettingsOf(settings ?? {}, SEE_THROUGH_DEFAULTS);
+    this.base = seeThroughSettingsOf(settings ?? {}, SEE_THROUGH_DEFAULTS);
+    this.s = this.resolved();
   }
 
   set(patch: SeeThroughPatch): void {
-    this.s = seeThroughSettingsOf(patch, this.s);
-    if (patch.subjects !== undefined) this.named = patch.subjects === null ? null : [...patch.subjects];
+    this.base = seeThroughSettingsOf(patch, this.base);
+    if (patch.subjects !== undefined) this.baseNamed = patch.subjects === null ? null : [...patch.subjects];
+    this.s = this.resolved();
     this.d.onChange?.();
+  }
+
+  /** The settings that draw, and the subjects named with them. */
+  private resolved(): SeeThroughSettings {
+    const sc = this.script;
+    this.named = sc !== null ? sc.subjects : this.baseNamed;
+    const s = sc !== null ? seeThroughSettingsOf(sc.settings) : { ...this.base };
+    if (this.d.pinned !== undefined) s.enabled = this.d.pinned;
+    return s;
+  }
+
+  /** Follow what the game's scripts set (each change once). */
+  private followScript(): void {
+    const sc = this.d.scripted?.() ?? null;
+    if (sameScripted(sc, this.script)) return;
+    this.script = sc;
+    this.s = this.resolved();
   }
 
   settings(): Readonly<SeeThroughSettings> {
@@ -295,6 +341,7 @@ export class SeeThroughView implements SeeThroughControl {
    */
   update(renderer: unknown, camera: THREE.Camera, now: number = performance.now()): void {
     const r = renderer as Partial<ArmedRenderer>;
+    this.followScript();
     if (!this.s.enabled && this.armed === null) return;
     if (this.s.enabled && this.armed !== r && r.contextNode !== undefined) this.arm(r as ArmedRenderer);
     this.camera = camera;

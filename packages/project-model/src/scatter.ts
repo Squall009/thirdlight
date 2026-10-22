@@ -107,13 +107,15 @@ export interface ScatterRule extends RuleConditions {
   cover?: boolean;
   /** Ground cover: metres from the camera it reaches (absent: {@link SCATTER_COVER_DISTANCE_DEFAULT}). */
   coverDistance?: number;
+  /** Drawing: the copies thin to a dither round a subject behind them (see-through.ts; absent: true). */
+  seeThrough?: boolean;
 }
 
 /** The rule fields in canonical order. */
 export const SCATTER_RULE_FIELDS: readonly string[] = Object.freeze([
   'id', 'asset', 'density', 'spacing', 'scale', 'yaw', 'align', 'sink', 'seed',
   'height', 'slope', 'cavity', 'noise', 'layers', 'blocks', 'meta', 'exclude',
-  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'impostorSize', 'collide', 'cover', 'coverDistance',
+  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'impostorSize', 'collide', 'cover', 'coverDistance', 'seeThrough',
 ]);
 
 /** Bounds of a rule's values (dimensions of a value, not counts). */
@@ -223,7 +225,7 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
       err(errors, 'field_value', `${p}/scale`, `scale is [min, max] with ${L.scale.min} ≤ min ≤ max ≤ ${L.scale.max}`, sc);
     }
     if (r['seed'] !== undefined && !Number.isSafeInteger(r['seed'])) err(errors, 'field_value', `${p}/seed`, 'seed is a whole number', r['seed']);
-    for (const k of ['castShadow', 'lodPerCopy', 'collide', 'cover']) if (r[k] !== undefined && typeof r[k] !== 'boolean') err(errors, 'field_type', `${p}/${k}`, `${k} is true or false`, r[k]);
+    for (const k of ['castShadow', 'lodPerCopy', 'collide', 'cover', 'seeThrough']) if (r[k] !== undefined && typeof r[k] !== 'boolean') err(errors, 'field_type', `${p}/${k}`, `${k} is true or false`, r[k]);
     validateRuleConditions(r, p, errors, blocks);
     const layers = r['layers'];
     if (layers !== undefined) {
@@ -276,6 +278,7 @@ export function canonicalScatterRules(rules: readonly ScatterRule[]): ScatterRul
     if (r.collide === true) out.collide = true;
     if (r.cover === true) out.cover = true;
     if (r.coverDistance !== undefined) out.coverDistance = r.coverDistance;
+    if (r.seeThrough === false) out.seeThrough = false;
     return out;
   });
 }

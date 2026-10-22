@@ -141,6 +141,15 @@ test('Project Settings: every sub-tab shows its panel and its edits round-trip t
   await expect(occ).toHaveValue('1');
   await occ.selectOption('2');
   await expect.poll(async () => (await settings())['occlusion_culling']).toBe(2);
+  // See-through: off until the project turns it on; its shape's numbers beside it.
+  const seeThrough = quality.getByLabel('settings see_through', { exact: true });
+  await expect(seeThrough).toHaveValue('0');
+  await seeThrough.selectOption('1');
+  await expect.poll(async () => (await settings())['see_through']).toBe(1);
+  const maxFade = quality.getByLabel('settings see_through_max_fade', { exact: true });
+  await maxFade.fill('0.6');
+  await maxFade.press('Enter');
+  await expect.poll(async () => (await settings())['see_through_max_fade']).toBe(0.6);
 
   // Saves: add the schema.
   await openProjectSettings(page, 'Saves');

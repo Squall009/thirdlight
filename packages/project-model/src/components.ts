@@ -37,14 +37,14 @@ export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 export const MAX_ENTITIES_V2 = 1024;
 
-const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder']);
+const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
 const KNOWN_COLLIDER_FIELDS = new Set(['shape']);
 
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
-const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder']);
+const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough']);
 const KNOWN_MATERIAL_FIELDS = new Set(['color']);
 const KNOWN_CAMERA_FIELDS = new Set(['type', 'fovY', 'near', 'far']);
 
@@ -92,7 +92,7 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
   validateShadowFlags(c, path, errors);
   validateOccluderFlag(c, path, errors);
   for (const k of Object.keys(c)) {
-    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder'));
+    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder, seeThrough'));
   }
 }
 
@@ -112,6 +112,8 @@ export function validateShadowFlags(c: Record<string, unknown>, path: string, er
   validateLocalLightMode(c['localLights'], `${path}/localLights`, errors);
   // The decal layers projected decals mark it in (decals.ts; absent: every layer, none on a skinned model).
   validateDecalLayerMask(c['decalLayers'], `${path}/decalLayers`, errors, 0);
+  // Whether it thins round a subject behind it (see-through.ts; absent: true).
+  if (c['seeThrough'] !== undefined && typeof c['seeThrough'] !== 'boolean') errors.push(fieldType(`${path}/seeThrough`, c['seeThrough'], 'boolean'));
 }
 
 /**
@@ -908,7 +910,7 @@ export function validateBoxV2(b: unknown, path: string, errors: ModelErrorV2[]):
   validateShadowFlags(b, path, errors);
   validateOccluderFlag(b, path, errors);
   for (const k of Object.keys(b)) {
-    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder'));
+    if (!KNOWN_BOX_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'size, material, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder, seeThrough'));
   }
 }
 

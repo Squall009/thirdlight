@@ -141,6 +141,7 @@ export function buildingInteriorEntity(source: BuildingSourceEntity, sceneId: st
     ...(c.lodDistance !== undefined ? { lodDistance: c.lodDistance } : {}),
     ...(c.castShadow !== undefined ? { castShadow: c.castShadow } : {}),
     ...(c.receiveShadow !== undefined ? { receiveShadow: c.receiveShadow } : {}),
+    ...(c.seeThrough !== undefined ? { seeThrough: c.seeThrough } : {}),
     interiorOf: { scene: sceneId, entity: source.id },
   };
   const components: Record<string, unknown> = {

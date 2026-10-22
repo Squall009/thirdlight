@@ -482,20 +482,20 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex', decalLayers: 5, occluder: false }],
-  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0, occluder: true }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'vertex', decalLayers: 5, occluder: false, seeThrough: false }],
+  box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0, occluder: true, seeThrough: true }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
   surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
-  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel', decalLayers: 2, paint: { copies: 'e'.repeat(64), painted: 3, slots: 4, meshes: [{ mesh: 'Rock#0', vertices: 50, positions: 'f'.repeat(16), paint: 'a'.repeat(64) }] } }],
+  instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel', decalLayers: 2, seeThrough: false, paint: { copies: 'e'.repeat(64), painted: 3, slots: 4, meshes: [{ mesh: 'Rock#0', vertices: 50, positions: 'f'.repeat(16), paint: 'a'.repeat(64) }] } }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
-  architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town' }],
+  architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town', seeThrough: false }],
   spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) , decalLayers: 1 }],
-  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] , decalLayers: 1 }],
+  terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] , decalLayers: 1, seeThrough: false }],
   collider: [
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
@@ -582,7 +582,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
-  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, planeZ: 1.5, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1, kitId: 'town' }],
+  blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, planeZ: 1.5, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1, kitId: 'town', seeThrough: false }],
   // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
@@ -889,7 +889,7 @@ function runAllProbes(): void {
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));
   ANIMATOR_BASES.forEach((b, i) => probe(`animators[${i}]`, (v) => errorsOf((e) => validateAnimators(v, '', e)), b, '', block('animators'), 'animators:'));
   probe('tags', (v) => errorsOf((e) => validateTagRegistry(v, '', e)), [{ bit: 3, name: 'walker' }], '', block('tags'), 'tags:');
-  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, occlusion_culling: 0, streaming_budget_mb: 512, architecture_ship_meshes: 1 } }), '/settings', block('settings'), 'settings:');
+  probe('settings', contentErrors, contentDoc({ settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, fixed_step_hz: 240, audio_voices: 12, music_fade_s: 2, animation_crossfade_s: 0.3, render_backend: 1, physics_dimension: 3, sim_thread: 2, debug_console: 1, random_seed: 7, depth_buffer: 2, audio_spatial: 2, instance_chunk_m: 16, texture_budget_mb: 256, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400, import_extract_textures: 1, block_chunk_storage: 1, stats_overlay: 2, frame_rate_cap: 30, lod_bias: 1.5, lod_hysteresis: 0.2, ambient_occlusion: 2, render_scale: 0.75, dynamic_resolution: 1, occlusion_culling: 0, streaming_budget_mb: 512, architecture_ship_meshes: 1, see_through: 1, see_through_radius: 0.3, see_through_softness: 0.5, see_through_max_fade: 0.6, see_through_depth_margin_m: 0.5, see_through_fade_s: 0.4 } }), '/settings', block('settings'), 'settings:');
   probe('scenes', contentErrors, contentDoc(), '/scenes', block('scenes'), 'scenes:');
   probe('startScenes', contentErrors, contentDoc(), '/startScenes', block('startScenes'), 'startScenes:');
   const anims = { ...MODEL_ASSET, assetId: 'anims-0001', displayName: 'Anims', vertexColors: 'tint', materials: { '*': 'mat-a' }, extractTextures: true, textures: { '0': 'tex-albedo' }, clipsFor: MODEL_ASSET['assetId'], labels: ['level-3', 'voice'], address: 'anims/walk', occluder: 'occ' };
@@ -1041,8 +1041,9 @@ describe('descriptor registry', () => {
     // the trim sheet's rows at their real height, about 0.3 KB; kits and the kit a layer or architecture names, about 2.6 KB;
     // occlusion culling, the setting and a quality level's field, about 0.6 KB; occluders — the object flag and a model's import setting, about 1 KB;
     // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB; a block layer's 2D play plane
-    // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(334_200);
+    // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB; see-through — the object flag on
+    // six kinds and its six settings, about 3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(337_400);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

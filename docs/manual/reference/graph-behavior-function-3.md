@@ -1,8 +1,36 @@
-# Graph: Script function (part 3, from UI)
+# Graph: Script function (part 3, from Saves)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-function--saves"></a>
+## Saves
+
+- [Save version](graph-behavior-5.md#node-behavior--api-saves-version) (`api.saves.version`, as in `behavior`): The save document's schema version (0: the project declares no save schema).
+- [Save slot count](graph-behavior-5.md#node-behavior--api-saves-slot-count) (`api.saves.slotCount`, as in `behavior`): How many slots the game offers.
+- [Write save document](graph-behavior-5.md#node-behavior--api-saves-write) (`api.saves.write`, as in `behavior`): Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
+- [Save document](graph-behavior-5.md#node-behavior--api-saves-read) (`api.saves.read`, as in `behavior`): The project's save document (a copy; null before one is written or loaded).
+- [Save to slot](graph-behavior-5.md#node-behavior--api-saves-save) (`api.saves.save`, as in `behavior`): Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
+- [Load slot](graph-behavior-5.md#node-behavior--api-saves-load) (`api.saves.load`, as in `behavior`): Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
+- [Delete slot](graph-behavior-5.md#node-behavior--api-saves-delete) (`api.saves.delete`, as in `behavior`): Delete a slot (the outcome in `results()`).
+- [Save slots](graph-behavior-5.md#node-behavior--api-saves-slots) (`api.saves.slots`, as in `behavior`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
+- [Save slots ready](graph-behavior-5.md#node-behavior--api-saves-ready) (`api.saves.ready`, as in `behavior`): Whether the slot list has arrived from storage (it is empty before).
+- [Save results](graph-behavior-5.md#node-behavior--api-saves-results) (`api.saves.results`, as in `behavior`): The outcomes that arrived this step (saves, loads and deletes).
+- [Save storage](graph-behavior-6.md#node-behavior--api-saves-storage) (`api.saves.storage`, as in `behavior`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+- [Play time](graph-behavior-6.md#node-behavior--api-saves-play-seconds) (`api.saves.playSeconds`, as in `behavior`): Play time in seconds (restored with a loaded save).
+- [Setting](graph-behavior-6.md#node-behavior--api-saves-setting) (`api.saves.setting`, as in `behavior`): A value of the project settings document (its default until the player changes it).
+- [Settings document](graph-behavior-6.md#node-behavior--api-saves-settings) (`api.saves.settings`, as in `behavior`): The whole project settings document (a copy).
+- [Set setting](graph-behavior-6.md#node-behavior--api-saves-set-setting) (`api.saves.setSetting`, as in `behavior`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
+
+<a id="graph-behavior-function--assets"></a>
+## Assets
+
+- [Load assets](graph-behavior-6.md#node-behavior--api-assets-load) (`api.assets.load`, as in `behavior`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
+- [Release assets](graph-behavior-6.md#node-behavior--api-assets-release) (`api.assets.release`, as in `behavior`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
+- [Assets state](graph-behavior-6.md#node-behavior--api-assets-state) (`api.assets.state`, as in `behavior`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
+- [Assets ready](graph-behavior-6.md#node-behavior--api-assets-ready) (`api.assets.ready`, as in `behavior`): True once a handle's assets are loaded.
+- [Assets error](graph-behavior-6.md#node-behavior--api-assets-error) (`api.assets.error`, as in `behavior`): Why a failed handle failed ('' otherwise).
 
 <a id="graph-behavior-function--ui"></a>
 ## UI

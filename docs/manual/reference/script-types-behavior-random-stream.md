@@ -1,8 +1,85 @@
-# Script API types (from `AudioPlayOptions`)
+# Script API types (from `BehaviorRandomStream`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-random-stream"></a>
+## `BehaviorRandomStream`
+
+```ts
+/**
+ * One seeded random number stream (`ctx.random`, `ctx.random.stream(name)`).
+ * Replay-safe: the numbers come from the project's `random_seed` setting mixed with the
+ * script id, the object's id and the stream name, and advance only when drawn — a replay,
+ * the simulation worker and the page all draw the same numbers. Each new run starts over.
+ */
+export interface BehaviorRandomStream {
+  /**
+   * A number in [0, 1) (a multiple of 2^-32).
+   * @graphNode Seeded random
+   */
+  next(): number;
+  /**
+   * A number in [min, max).
+   * @graphNode Seeded random range
+   * @graphDefault max 1
+   */
+  range(min: number, max: number): number;
+  /**
+   * A whole number from `min` to `max`, both included (the bounds are rounded inward).
+   * @graphNode Seeded random integer
+   * @graphDefault max 6
+   */
+  int(min: number, max: number): number;
+  /**
+   * True with probability `p` (0: never, 1: always).
+   * @graphNode Seeded chance
+   * @graphDefault p 0.5
+   */
+  chance(p: number): boolean;
+  /**
+   * One item of `list` chosen evenly, or `undefined` when it is empty.
+   * @graphNode skip a list's random item is Seeded random integer with the list's Get item
+   */
+  pick<T>(list: readonly T[]): T | undefined;
+}
+```
+
+<a id="script-type-character-walk-options"></a>
+## `CharacterWalkOptions`
+
+```ts
+/** `ctx.character.walkTo`'s options. */
+export interface CharacterWalkOptions {
+  /** At the run speed (the 2D plane has one speed). */
+  run?: boolean;
+  /** How near the mark counts as arrived (m, 0.01–100; absent: 0.1). */
+  arrive?: number;
+  /** Degrees about +Y to face once arrived (absent: as it walked in). */
+  facing?: number;
+  /** The player controller's object (absent: the first). */
+  entityId?: string;
+}
+```
+
+<a id="script-type-behavior-look-value"></a>
+## `BehaviorLookValue`
+
+```ts
+/**
+ * A look override (`ctx.look.set`): an emissive glow and a tint
+ * multiplied into the object's own colour, on every mesh under the object.
+ */
+export interface BehaviorLookValue {
+  /** The glow colour ('#rrggbb'). */
+  emissive?: string;
+  /** How strongly it glows (0–4; absent with a glow colour: 1). */
+  emissiveIntensity?: number;
+  /** A colour ('#rrggbb') multiplied into the object's own colour. */
+  tint?: string;
+}
+```
 
 <a id="script-type-audio-play-options"></a>
 ## `AudioPlayOptions`
@@ -1378,55 +1455,4 @@ export interface WorldSave {
 ```ts
 /** Where a binding comes from. */
 export type InputBindingDevice = 'keyboard' | 'mouse' | 'gamepad';
-```
-
-<a id="script-type-debug-command-arg-type"></a>
-## `DebugCommandArgType`
-
-```ts
-/** The type of a debug command argument. */
-export type DebugCommandArgType = 'number' | 'string' | 'boolean';
-```
-
-<a id="script-type-cell-meta-value"></a>
-## `CellMetaValue`
-
-```ts
-/** A metadata value: bool, number (int/float) or string. */
-export type CellMetaValue = boolean | number | string;
-```
-
-<a id="script-type-script-write-code"></a>
-## `ScriptWriteCode`
-
-```ts
-/** Why a write was refused (the runtime adds its own: see runtime `EntityWriteCode`). */
-export type ScriptWriteCode = 'component_unknown' | 'patch_invalid' | 'field_unknown' | 'field_not_writable' | 'field_not_applicable' | 'field_value';
-```
-
-<a id="script-type-vec3"></a>
-## `Vec3`
-
-```ts
-/** Three finite numbers (meters), in canonical order. */
-export type Vec3 = [number, number, number];
-```
-
-<a id="script-type-save-sections"></a>
-## `SAVE_SECTIONS`
-
-```ts
-export const SAVE_SECTIONS: readonly ["grid", "materials", "spawned", "storage", "environment", "dialogue", "components", "world"];
-```
-
-<a id="script-type-saved-character"></a>
-## `SavedCharacter`
-
-```ts
-/** A player controller's place in a save: position, velocity (m/s) and, in 3D, its facing (degrees). */
-export interface SavedCharacter {
-  readonly position: readonly [number, number, number];
-  readonly velocity: readonly [number, number, number];
-  readonly facing?: number;
-}
 ```

@@ -446,6 +446,8 @@ export interface ArchitectureComponent {
   interiorOf?: ArchitectureInteriorOf;
   /** The decal layers projected decals mark its meshes in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** Its meshes thin to a dither round a subject behind them (see-through.ts; absent: true). */
+  seeThrough?: boolean;
   /**
    * The kit (`content.kits`) its rooms and buildings are styled from: the
    * presets and pieces the editor offers. Editor-side: outlines name their
@@ -455,7 +457,7 @@ export interface ArchitectureComponent {
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf', 'decalLayers', 'kitId']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf', 'decalLayers', 'kitId', 'seeThrough']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
 const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer', 'cap'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
@@ -868,6 +870,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
   num(value, 'lodDistance', path, errors, 0, 100_000, '0-100000 metres');
   bool(value, 'castShadow', path, errors);
   bool(value, 'receiveShadow', path, errors);
+  bool(value, 'seeThrough', path, errors);
   if (value['baked'] !== undefined && (typeof value['baked'] !== 'string' || !DIGEST_RE.test(value['baked']))) err(errors, 'field_value', `${path}/baked`, 'baked is the SHA-256 of the shipped meshes (64 lowercase hex), written by an export', value['baked']);
   if (value['layer'] !== undefined && (typeof value['layer'] !== 'string' || value['layer'].length < 1 || value['layer'].length > 128)) err(errors, 'field_value', `${path}/layer`, 'layer names the block layer object the rooms are drawn on', value['layer']);
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);

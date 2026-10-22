@@ -16,7 +16,7 @@ import { SEE_THROUGH_DEFAULTS, SEE_THROUGH_SUBJECTS, type SeeThroughSettings } f
 import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { digestOf } from './material-graph';
-import { applyObjectSeeThrough, emptyPack, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SubjectExtent, type SubjectPack } from './see-through';
+import { applyObjectSeeThrough, emptyPack, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
 const ON: SeeThroughSettings = { ...SEE_THROUGH_DEFAULTS, enabled: true };
@@ -229,6 +229,41 @@ describe('a view\'s subjects', () => {
     expect(precompiles()).toBe(1);
     view.dispose();
     expect(r.contextNode.value).toEqual({});
+  });
+
+  it('follows what the game\'s scripts set over the host\'s settings, back to them on a new run; a page pin stands over both', () => {
+    const r = renderer();
+    let scripted: SeeThroughScripted | null = null;
+    const objects = { p: body(0, 0), q: body(2, 0) };
+    const deps = { object: (id: string) => objects[id as 'p' | 'q'], components: () => ({}), cameraTarget: () => 'p', scripted: () => scripted };
+    const view = new SeeThroughView(deps, { enabled: false, radius: 0.3 });
+    view.update(r, camera, 0);
+    expect(view.diagnostics().armed).toBe(false);
+    // A script turns it on round q (a new object each step, as the worker's view arrives: applied once).
+    scripted = { settings: { ...SEE_THROUGH_DEFAULTS, enabled: true, radius: 0.5 }, subjects: ['q'] };
+    view.update(r, camera, 1000);
+    expect(view.settings()).toMatchObject({ enabled: true, radius: 0.5 });
+    expect(view.subjects()).toEqual(['q']);
+    expect(view.diagnostics().subjects.map((s) => s.id)).toEqual(['q']);
+    scripted = { settings: { ...scripted.settings }, subjects: ['q'] };
+    view.update(r, camera, 2000);
+    expect(r.contextNode.version).toBe(1);
+    // A host change while a script's stands: kept for when the script's goes (a new run).
+    view.set({ radius: 0.1 });
+    expect(view.settings().radius).toBe(0.5);
+    scripted = null;
+    view.update(r, camera, 3000);
+    expect(view.settings()).toMatchObject({ enabled: false, radius: 0.1 });
+    expect(view.subjects()).toBeNull();
+    // ?seethrough=off: never on, whatever the script says.
+    const pinned = new SeeThroughView({ ...deps, pinned: false }, { enabled: true });
+    scripted = { settings: { ...SEE_THROUGH_DEFAULTS, enabled: true }, subjects: null };
+    const r2 = renderer();
+    pinned.update(r2, camera, 0);
+    expect(pinned.settings().enabled).toBe(false);
+    expect(r2.contextNode.version).toBe(0);
+    view.dispose();
+    pinned.dispose();
   });
 
   it('sees no subject from any other camera (a bake, a thumbnail)', () => {

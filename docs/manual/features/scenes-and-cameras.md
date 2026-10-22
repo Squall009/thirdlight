@@ -303,6 +303,9 @@ letterbox, point, targetOffset})`, `turn(id, steps)`, `shake(amplitude,
 seconds, frequency?, rotation?, seed?)`, `live()`, `blending()`, `get(id)`,
 `worldToScreen(position)` and `screenToRay(x, y)` (screen coordinates 0–1
 from the top left, with the aspect of the view the game is drawn in).
+`setSeeThrough({enabled?, subjects?, radius?, softness?, maxFade?,
+depthMargin?, fadeTime?})` changes see-through over the project's Rendering
+settings (`subjects`: entity ids; `null` goes back to the camera's target).
 Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.
@@ -313,5 +316,5 @@ and camera path points are Scene handles (one undo step per drag).
 
 **Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
 export) reports `camera: { live, blend: {from, progress, style} | null,
-position, rotation, fovY, near, far, letterbox, shake }` while the game has
-virtual cameras.
+position, rotation, fovY, near, far, letterbox, shake, seeThrough? }` while
+the game has virtual cameras (`seeThrough` once a script set it).

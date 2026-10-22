@@ -46,6 +46,8 @@ export interface ModelComponent {
   decalLayers?: number;
   /** Hides what is behind it from the view for occlusion culling (absent: true; the model's `occluder` import setting says with which geometry). */
   occluder?: boolean;
+  /** Thins to a dither round a subject behind it (see-through.ts; absent: true). */
+  seeThrough?: boolean;
 }
 
 /** Seven-type property value vocabulary. */
@@ -614,6 +616,18 @@ export interface GameplaySettings {
   streaming_budget_mb?: number;
   /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
   architecture_ship_meshes?: number;
+  /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts). */
+  see_through?: number;
+  /** The see-through circle's radius, a share of the view's height (absent: 0.2). */
+  see_through_radius?: number;
+  /** The share of the see-through radius its edge softens over (absent: 0.4). */
+  see_through_softness?: number;
+  /** How far see-through thins what is in front at most (below 1; absent: 0.75). */
+  see_through_max_fade?: number;
+  /** Metres a surface must be nearer the camera than the subject to fade (absent: 0.25). */
+  see_through_depth_margin_m?: number;
+  /** Seconds see-through eases in or out round a subject (absent: 0.25). */
+  see_through_fade_s?: number;
 }
 
 // ---- content block and captured view ---------------------------------

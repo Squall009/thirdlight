@@ -72,3 +72,21 @@ export function seeThroughSettingsOf(patch: unknown, base: Readonly<SeeThroughSe
   }
   return out;
 }
+
+/** The project setting each field is stored in (`content.settings`; absent: its default). */
+export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
+  enabled: 'see_through',
+  radius: 'see_through_radius',
+  softness: 'see_through_softness',
+  maxFade: 'see_through_max_fade',
+  depthMargin: 'see_through_depth_margin_m',
+  fadeTime: 'see_through_fade_s',
+} as const satisfies Record<keyof SeeThroughSettings, string>);
+
+/** A project's see-through from its settings (`see_through` 1 turns it on; the rest as set, else their defaults). */
+export function seeThroughSettingsOfProject(settings: unknown): SeeThroughSettings {
+  const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};
+  const patch: Record<string, unknown> = { enabled: s[SEE_THROUGH_SETTING_KEYS.enabled] === 1 };
+  for (const k of ['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const) patch[k] = s[SEE_THROUGH_SETTING_KEYS[k]];
+  return seeThroughSettingsOf(patch);
+}

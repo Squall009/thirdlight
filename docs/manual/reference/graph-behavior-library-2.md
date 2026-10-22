@@ -1,8 +1,24 @@
-# Graph: Shared script function (part 2, from Timers)
+# Graph: Shared script function (part 2, from Animator)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Shared script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-library--animator"></a>
+## Animator
+
+- [Set animator parameter](graph-behavior-3.md#node-behavior--api-animator-set) (`api.animator.set`, as in `behavior`): Set a float/int/bool parameter; false for an unknown name or a wrong type. An empty entity means this object.
+- [Set animator trigger](graph-behavior-3.md#node-behavior--api-animator-trigger) (`api.animator.trigger`, as in `behavior`): Set a trigger (it resets when a transition uses it). An empty entity means this object.
+- [Animator parameter](graph-behavior-3.md#node-behavior--api-animator-get) (`api.animator.get`, as in `behavior`): A parameter's value (undefined for an unknown name). An empty entity means this object.
+- [Animator state](graph-behavior-3.md#node-behavior--api-animator-state) (`api.animator.state`, as in `behavior`): The current state's name (of the base layer, or of override layer `layer` — 1 is the first). An empty entity means this object.
+- [Play animator state](graph-behavior-3.md#node-behavior--api-animator-play) (`api.animator.play`, as in `behavior`): Go to a state by name over `fade` seconds (0: at once), on layer `layer` (0: the base layer, 1 the first override layer), the state starting at normalized time `time` (0–1 of its length; 0: its beginning). False for an unknown state or layer, or a time below 0. An empty entity means this object.
+- [Set look target](graph-behavior-3.md#node-behavior--api-animator-set-look-target) (`api.animator.setLookTarget`, as in `behavior`): The object the look-at constraint turns the head toward (its origin), or null for nothing (the head turns back at its turn speed). False when the animator has no look-at. An empty entity means this object.
+- [Set look point](graph-behavior-3.md#node-behavior--api-animator-set-look-point) (`api.animator.setLookPoint`, as in `behavior`): A world point [x, y, z] the look-at constraint turns the head toward (in place of a target object). False when the animator has no look-at or the point is not three finite numbers. An empty entity means this object.
+- [Set look weight](graph-behavior-3.md#node-behavior--api-animator-set-look-weight) (`api.animator.setLookWeight`, as in `behavior`): The look-at constraint's weight (0–1; 0: the clip pose alone — the head turns back at its turn speed). False when the animator has no look-at or the weight is outside 0–1. An empty entity means this object.
+- [Set animation speed](graph-behavior-3.md#node-behavior--api-animator-set-speed) (`api.animator.setSpeed`, as in `behavior`): Set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10. An empty entity means this object.
+- [Animation speed](graph-behavior-3.md#node-behavior--api-animator-speed) (`api.animator.speed`, as in `behavior`): This animator's playback speed. An empty entity means this object.
+- [Set morph weight](graph-behavior-3.md#node-behavior--api-animator-set-morph) (`api.animator.setMorph`, as in `behavior`): Set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any). An empty entity means this object.
+- [Morph weight](graph-behavior-3.md#node-behavior--api-animator-morph) (`api.animator.morph`, as in `behavior`): A morph target's weight now (0 when nothing sets it). An empty entity means this object.
 
 <a id="graph-behavior-library--timers"></a>
 ## Timers
@@ -137,10 +153,10 @@ The Shared script function node catalogue: port types, then each category's node
 - [Neighbour cells](graph-behavior-4.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
 - [Walk neighbours](graph-behavior-4.md#node-behavior--api-grid-walk-neighbours) (`api.grid.walkNeighbours`, as in `behavior`): The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
 - [Walk path](graph-behavior-4.md#node-behavior--api-grid-path) (`api.grid.path`, as in `behavior`): The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
-- [Walk path outcome](graph-behavior-4.md#node-behavior--api-grid-path-outcome) (`api.grid.pathOutcome`, as in `behavior`): Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
-- [Walk reach](graph-behavior-4.md#node-behavior--api-grid-reachable) (`api.grid.reachable`, as in `behavior`): The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
-- [Regions](graph-behavior-4.md#node-behavior--api-grid-regions) (`api.grid.regions`, as in `behavior`): The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
-- [Region cells](graph-behavior-4.md#node-behavior--api-grid-region) (`api.grid.region`, as in `behavior`): The cells of a named region (at most 65,536), or null when the layer has no such region.
+- [Walk path outcome](graph-behavior-5.md#node-behavior--api-grid-path-outcome) (`api.grid.pathOutcome`, as in `behavior`): Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
+- [Walk reach](graph-behavior-5.md#node-behavior--api-grid-reachable) (`api.grid.reachable`, as in `behavior`): The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
+- [Regions](graph-behavior-5.md#node-behavior--api-grid-regions) (`api.grid.regions`, as in `behavior`): The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
+- [Region cells](graph-behavior-5.md#node-behavior--api-grid-region) (`api.grid.region`, as in `behavior`): The cells of a named region (at most 65,536), or null when the layer has no such region.
 - [In region](graph-behavior-5.md#node-behavior--api-grid-in-region) (`api.grid.inRegion`, as in `behavior`): Whether a cell lies in a named region.
 - [Set cut-away](graph-behavior-5.md#node-behavior--api-grid-set-cutaway) (`api.grid.setCutaway`, as in `behavior`): Force a cut-away zone of a layer hidden (true) or shown (false) whatever the subject does, or give it back to the subject (null). A zone is a region the layer's cutaway lists, or "#<row>" for one of its height planes. Drawing only (it fades like any cut-away). False when refused (an unknown layer or zone).
 - [Set cut-away subject](graph-behavior-5.md#node-behavior--api-grid-set-cutaway-subject) (`api.grid.setCutawaySubject`, as in `behavior`): The object whose position decides the layers' cut-aways (what is cut while it stands under or inside it), or null for the camera's target (the default). False when the id is not a string.
@@ -191,6 +207,7 @@ The Shared script function node catalogue: port types, then each category's node
 - [Set camera rig](graph-behavior-5.md#node-behavior--api-camera-set) (`api.camera.set`, as in `behavior`): Set a camera's rig values (each optional): distance, yaw, pitch (kept within its pitch limits), progress and railSpeed of a rail camera, field of view, letterbox, the orbit point, the target offset.
 - [Turn camera](graph-behavior-5.md#node-behavior--api-camera-turn) (`api.camera.turn`, as in `behavior`): Turn a camera by whole steps (an orbit-a-point camera: its turn step; positive turns left).
 - [Shake camera](graph-behavior-5.md#node-behavior--api-camera-shake) (`api.camera.shake`, as in `behavior`): Shake the view: up to `amplitude` metres (and `rotation` degrees), `frequency` times a second (default 8), fading out over `seconds`. Seeded: the same run shakes the same way (`seed` picks another pattern).
+- [Set see-through](graph-behavior-5.md#node-behavior--api-camera-set-see-through) (`api.camera.setSeeThrough`, as in `behavior`): Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the
 - [Live camera](graph-behavior-5.md#node-behavior--api-camera-live) (`api.camera.live`, as in `behavior`): The live virtual camera, or null while none is (the view holds the default pose).
 - [Camera blending](graph-behavior-5.md#node-behavior--api-camera-blending) (`api.camera.blending`, as in `behavior`): A blend between two cameras is in progress.
 - [Camera state](graph-behavior-5.md#node-behavior--api-camera-get) (`api.camera.get`, as in `behavior`): A virtual camera's live rig values, or null when there is no such camera.
@@ -227,32 +244,17 @@ The Shared script function node catalogue: port types, then each category's node
 - [Save slots](graph-behavior-5.md#node-behavior--api-saves-slots) (`api.saves.slots`, as in `behavior`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
 - [Save slots ready](graph-behavior-5.md#node-behavior--api-saves-ready) (`api.saves.ready`, as in `behavior`): Whether the slot list has arrived from storage (it is empty before).
 - [Save results](graph-behavior-5.md#node-behavior--api-saves-results) (`api.saves.results`, as in `behavior`): The outcomes that arrived this step (saves, loads and deletes).
-- [Save storage](graph-behavior-5.md#node-behavior--api-saves-storage) (`api.saves.storage`, as in `behavior`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-- [Play time](graph-behavior-5.md#node-behavior--api-saves-play-seconds) (`api.saves.playSeconds`, as in `behavior`): Play time in seconds (restored with a loaded save).
-- [Setting](graph-behavior-5.md#node-behavior--api-saves-setting) (`api.saves.setting`, as in `behavior`): A value of the project settings document (its default until the player changes it).
-- [Settings document](graph-behavior-5.md#node-behavior--api-saves-settings) (`api.saves.settings`, as in `behavior`): The whole project settings document (a copy).
-- [Set setting](graph-behavior-5.md#node-behavior--api-saves-set-setting) (`api.saves.setSetting`, as in `behavior`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
+- [Save storage](graph-behavior-6.md#node-behavior--api-saves-storage) (`api.saves.storage`, as in `behavior`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+- [Play time](graph-behavior-6.md#node-behavior--api-saves-play-seconds) (`api.saves.playSeconds`, as in `behavior`): Play time in seconds (restored with a loaded save).
+- [Setting](graph-behavior-6.md#node-behavior--api-saves-setting) (`api.saves.setting`, as in `behavior`): A value of the project settings document (its default until the player changes it).
+- [Settings document](graph-behavior-6.md#node-behavior--api-saves-settings) (`api.saves.settings`, as in `behavior`): The whole project settings document (a copy).
+- [Set setting](graph-behavior-6.md#node-behavior--api-saves-set-setting) (`api.saves.setSetting`, as in `behavior`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
 
 <a id="graph-behavior-library--assets"></a>
 ## Assets
 
-- [Load assets](graph-behavior-5.md#node-behavior--api-assets-load) (`api.assets.load`, as in `behavior`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
-- [Release assets](graph-behavior-5.md#node-behavior--api-assets-release) (`api.assets.release`, as in `behavior`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
+- [Load assets](graph-behavior-6.md#node-behavior--api-assets-load) (`api.assets.load`, as in `behavior`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
+- [Release assets](graph-behavior-6.md#node-behavior--api-assets-release) (`api.assets.release`, as in `behavior`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
 - [Assets state](graph-behavior-6.md#node-behavior--api-assets-state) (`api.assets.state`, as in `behavior`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
 - [Assets ready](graph-behavior-6.md#node-behavior--api-assets-ready) (`api.assets.ready`, as in `behavior`): True once a handle's assets are loaded.
 - [Assets error](graph-behavior-6.md#node-behavior--api-assets-error) (`api.assets.error`, as in `behavior`): Why a failed handle failed ('' otherwise).
-
-<a id="graph-behavior-library--ui"></a>
-## UI
-
-- [Set UI value](graph-behavior-6.md#node-behavior--api-ui-set) (`api.ui.set`, as in `behavior`): Publish a value at a view-model path ("hud.hp", "party.0.name"): a number, text (≤ 1024), true/false, null, a list (≤ 256) or an object (≤ 64 keys). `false` for a bad path or value, or past the view model's 64 KiB.
-- [UI value](graph-behavior-6.md#node-behavior--api-ui-get) (`api.ui.get`, as in `behavior`): The published value at a path (null when there is none).
-- [Clear UI value](graph-behavior-6.md#node-behavior--api-ui-clear) (`api.ui.clear`, as in `behavior`): Remove a path from the view model (`false` when it was not there).
-- [Show UI](graph-behavior-6.md#node-behavior--api-ui-show) (`api.ui.show`, as in `behavior`): Show a UI document (on top of its layer; `layer` and `modal` override the document's). `false` when there is no such document.
-- [Hide UI](graph-behavior-6.md#node-behavior--api-ui-hide) (`api.ui.hide`, as in `behavior`): Hide a shown UI document (`false` when it was not shown).
-- [UI shown](graph-behavior-6.md#node-behavior--api-ui-is-shown) (`api.ui.isShown`, as in `behavior`): The document is shown.
-- [Play UI tween](graph-behavior-6.md#node-behavior--api-ui-play) (`api.ui.play`, as in `behavior`): Play a tween of a document (on a widget, or the whole document). Presentation only.
-- [Focus UI widget](graph-behavior-6.md#node-behavior--api-ui-focus) (`api.ui.focus`, as in `behavior`): Move the keyboard/gamepad focus to a widget of a shown document; `index` names the list item the widget is in (absent: the first such widget). `false` for an unknown document, a bad widget id or index.
-- [UI view](graph-behavior-6.md#node-behavior--api-ui-view) (`api.ui.view`, as in `behavior`): The view the UI is drawn over: its size in CSS px, its aspect (width / height) and the device pixels per CSS px. Read from the page each frame (not simulation state: a replay in another window reads that window's); 1280 × 720 at 1 until the page reported it.
-- [UI events](graph-behavior-6.md#node-behavior--api-ui-events) (`api.ui.events`, as in `behavior`): The UI events of this step (clicks, submits, focus changes, shows and hides), in order.
-- [UI event](graph-behavior-6.md#node-behavior--api-ui-event) (`api.ui.event`, as in `behavior`): The first UI event of this step with this name (a button's or an input's event), or null.

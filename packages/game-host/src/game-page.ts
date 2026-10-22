@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_2D_MODULE_ID, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort } from '@thirdlight/physics-rapier';
 import { architectureFromUrl, batchingFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
@@ -910,8 +910,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           clippedDecals: decalsFromUrl(pageSearch()),
           // Vertex paint drawn unless the page says ?paint=off (a diagnostic comparison).
           vertexPaint: paintFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
-          // See-through round the camera's target: ?seethrough=on|off over the project's setting (a look and cost comparison).
-          seeThrough: ((on) => ({ ...(on !== null ? { settings: { enabled: on } } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch())),
+          // See-through as the project sets it (scripts change it through the view); ?seethrough=on|off pins it (a look and cost comparison).
+          seeThrough: ((on) => ({ settings: seeThroughSettingsOfProject(settings), ...(on !== null ? { pinned: on } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch())),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

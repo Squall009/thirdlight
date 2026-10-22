@@ -1,8 +1,19 @@
-# Graph: Visual script (part 4, from Character impulse (`api.character.impulse`))
+# Graph: Visual script (part 4, from Character)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--character"></a>
+## Character
+
+- Character impulse (`api.character.impulse`): Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
+- Place character at (`api.character.place`): Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
+- Walk character to (`api.character.walkTo`): Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if gi An empty entity means this object.
+- Character walk state (`api.character.walkState`): A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle.
+- Stop character walk (`api.character.stop`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
+- Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
+- Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
 
 <a id="node-behavior--api-character-impulse"></a>
 ### Character impulse (`api.character.impulse`)
@@ -1316,87 +1327,3 @@ Fields:
 | `diagonal` | diagonal | boolean | `false` |  |
 | `field` | field | string | `""` | ≤ 256 chars |
 | `costField` | cost field | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-path-outcome"></a>
-### Walk path outcome (`api.grid.pathOutcome`)
-
-Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
-
-Outputs:
-
-- `value` (string)
-- `found` (boolean)
-
-<a id="node-behavior--api-grid-reachable"></a>
-### Walk reach (`api.grid.reachable`)
-
-The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
-
-Inputs:
-
-- `layer` (string)
-- `from` (list)
-- `maxCost` "max cost" (number)
-- `maxStep` "max step" (number)
-- `maxDrop` "max drop" (number)
-- `headroom` (number)
-- `maxSlope` "max slope" (number)
-- `diagonal` (boolean)
-- `field` (string)
-- `costField` "cost field" (string)
-- `avoid` (list)
-
-Outputs:
-
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `maxCost` | max cost | number | `0` | -1000000000 – 1000000000 |
-| `diagonal` | diagonal | boolean | `false` |  |
-| `field` | field | string | `""` | ≤ 256 chars |
-| `costField` | cost field | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-regions"></a>
-### Regions (`api.grid.regions`)
-
-The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).
-
-Inputs:
-
-- `layer` (string)
-
-Outputs:
-
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-region"></a>
-### Region cells (`api.grid.region`)
-
-The cells of a named region (at most 65,536), or null when the layer has no such region.
-
-Inputs:
-
-- `layer` (string)
-- `regionId` "region" (string)
-
-Outputs:
-
-- `value` (list)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `regionId` | region | string | `""` | ≤ 256 chars |

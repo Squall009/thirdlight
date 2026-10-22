@@ -1231,7 +1231,7 @@ export {
 } from './trim-sheet';
 export { TRIM_GRIME_PAINT_LAYER, paintArchitectureColours, trimColoursFromWallPaint, type TrimWallPaintOptions } from './trim-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
-export { SEE_THROUGH_DEFAULTS, SEE_THROUGH_FADE_SECONDS, SEE_THROUGH_LIMITS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOf, type SeeThroughSettings } from './see-through';
+export { SEE_THROUGH_DEFAULTS, SEE_THROUGH_FADE_SECONDS, SEE_THROUGH_LIMITS, SEE_THROUGH_SUBJECTS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOf, seeThroughSettingsOfProject, type SeeThroughSettings } from './see-through';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';
 export { blockKitNames, canonicalBlockTypeKits, canonicalLayerKits, composeBlockTypeKits, kitKey, kitRegionsMissing, kitSwapCollides, kitZones, validateBlockTypeKits, validateLayerKits, type BlockKitSwap, type BlockLayerKit, type KitZone } from './block-kit';
 export { BlockKitView, blockKitView, swapBlockCell, swapBlockEdge } from './block-kit-view';

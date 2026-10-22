@@ -28,7 +28,7 @@ import { PresentationRequests } from './presentation-requests';
 import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { ErrorRing } from './error-ring';
-import { projectFrameRateCap, type SaveSchema } from '@thirdlight/project-model';
+import { projectFrameRateCap, seeThroughSettingsOfProject, type SaveSchema } from '@thirdlight/project-model';
 
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
@@ -860,7 +860,7 @@ export class RuntimeInstance implements Runtime {
         return hit === null ? null : { distance: hit.distance };
       },
       warn: (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message),
-    });
+    }, seeThroughSettingsOfProject(args.settings));
     this.views.add(args.initialEntities);
     // The project UI (inert until a script or a frame uses it).
     this.ui = new UiState(args.uiDocuments);

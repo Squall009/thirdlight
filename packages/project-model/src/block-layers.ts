@@ -146,6 +146,8 @@ export interface BlockLayerComponent {
   lightLayers?: number;
   /** The decal layers projected decals mark it in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
+  /** Its blocks thin to a dither round a subject behind them (see-through.ts; absent: true; stored only when false). */
+  seeThrough?: boolean;
   /**
    * Degrees: the steepest part of the layer's surface that counts as ground —
    * characters do not walk up steeper slopes whatever their own slope limit,
@@ -888,7 +890,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'planeZ', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'planeZ', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers', 'seeThrough'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -918,7 +920,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
       if (w > BLOCK_LIMITS.layerWidth || d > BLOCK_LIMITS.layerWidth || h > BLOCK_LIMITS.layerHeight) err(errors, 'limits_exceeded', `${path}/bounds`, `a layer spans at most ${BLOCK_LIMITS.layerWidth} × ${BLOCK_LIMITS.layerHeight} × ${BLOCK_LIMITS.layerWidth} cells`, [w, h, d]);
     }
   }
-  for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'wallPaint']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
+  for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'wallPaint', 'seeThrough']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
   const pz = v['planeZ'];
   if (pz !== undefined && (!finite(pz) || Math.abs(pz) > BLOCK_PLANE_Z_MAX)) err(errors, 'field_value', `${path}/planeZ`, `planeZ is metres within ±${BLOCK_PLANE_Z_MAX}`, pz);
   const ms = v['maxSlope'];
@@ -963,6 +965,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.scatter !== undefined && c.scatter.length > 0 ? { scatter: canonicalScatterRules(c.scatter) } : {}),
     ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}),
     ...(c.decalLayers !== undefined ? { decalLayers: c.decalLayers } : {}),
+    ...(c.seeThrough === false ? { seeThrough: false as const } : {}),
   };
 }
 

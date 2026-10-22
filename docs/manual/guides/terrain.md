@@ -208,7 +208,7 @@ its width grip and its tangent. Each drag is one undo step, and the terrain
 follows in the same step.
 
 **API:** `createEntity` with a
-[`spline`](../reference/components-rendering-1.md#component-spline):
+[`spline`](../reference/components-rendering-2.md#component-spline):
 
 ```json
 {"sceneId": "scene-main", "kind": "group", "name": "Road", "components": {"spline": {

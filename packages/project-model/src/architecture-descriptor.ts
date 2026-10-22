@@ -7,7 +7,7 @@
  *
  * Pure data.
  */
-import { bool, int, json, num, obj, ref, str } from './descriptor-builders';
+import { bool, int, json, num, obj, ref, seeThroughField, str } from './descriptor-builders';
 import type { ComponentDescriptor } from './descriptor-types';
 import { decalLayersField } from './decal-descriptor';
 import { ARCHITECTURE_AO_DEFAULTS, ARCHITECTURE_CHUNK_DEFAULT, ARCHITECTURE_LIMITS, ARCHITECTURE_LOD_DISTANCE_DEFAULT } from './architecture';
@@ -41,6 +41,7 @@ export const architecture: ComponentDescriptor = {
     num('lodDistance', 'Far level from', 'Metres from the camera where detail (mouldings, frames, chamfers) is left out.', { min: 0, max: 100_000, step: 1, unit: 'm', default: ARCHITECTURE_LOD_DISTANCE_DEFAULT }),
     bool('castShadow', 'Casts shadows', 'Blocks the directional light.', { default: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the shadows falling on it.', { default: true }),
+    seeThroughField(),
     str('layer', 'Block layer', 'The block layer object the rooms are drawn on: their walls block its grid walks, rooms are its regions, its wall paint shows on them.', { maxLength: 128 }),
     decalLayersField(false),
     ref('kitId', 'Kit', 'The kit its rooms and buildings are styled from: the editor offers its presets and pieces. Editor-side: outlines name their presets and openings their models themselves.', 'kit'),

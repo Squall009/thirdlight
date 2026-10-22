@@ -96,7 +96,7 @@ import {
 } from './animation';
 import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
-import { SeeThroughView } from './see-through';
+import { SeeThroughView, type SeeThroughScripted } from './see-through';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
@@ -544,7 +544,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     horizon: opts.terrainHorizon !== false,
   });
   // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
-  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => (opts.runtime as { cameraView?: () => { target?: string } | null }).cameraView?.()?.target ?? null, requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
+  const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
+  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
