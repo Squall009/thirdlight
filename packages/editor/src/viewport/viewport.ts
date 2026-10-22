@@ -51,7 +51,7 @@ import {
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type OcclusionCulling, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, VIEW_LENS_DEFAULTS, type ArchitectureGraphLike, type SeeThroughSettings, type OcclusionCulling, type ArchitecturePreview, type EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -60,6 +60,7 @@ import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarch
 import { clampScale, getSnapSettings } from '../session/snapping';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { HelperOverlay } from './helper-overlay';
+import { SeeThroughPreview } from './see-through-preview';
 import { copyAt, type CopyTransform } from '../session/instance-copies';
 import { BrushBlockSurfaces } from './instance-brush';
 import { iconTableOf } from './icons';
@@ -169,6 +170,8 @@ export class Viewport {
   /** Everything the viewport draws itself, in the adapter's scene. */
   private readonly overlay = new THREE.Group();
   /** Occlusion culling in this view: the View menu's switches, and what is never culled. */
+  /** The See-through preview (the view's own, never saved). */
+  private readonly seeThrough = new SeeThroughPreview();
   private readonly occlusion = new SceneViewOcclusion(() => this.adapter, () => this.root, occlusionFromUrl(pageSearch()));
   /** What occlusion culling leaves alone: the selection's subtree and the edited objects (made again when one changes). */
   private occlusionKept: { selected: string | null; projected: readonly ProjectedEntity[]; edited: ReadonlySet<string> | null; ids: ReadonlySet<string> } | null = null;
@@ -528,6 +531,12 @@ export class Viewport {
     this.occlusionCulling = mode;
     this.adapter.setRenderSettings?.({ occlusionCulling: mode }, 'project');
     this.requestRender();
+  }
+
+  /** The See-through preview on or off, with the project's see-through settings (view only: nothing is saved). */
+  setSeeThroughPreview(on: boolean, settings: Readonly<SeeThroughSettings>): void {
+    this.seeThrough.set(on, settings);
+    if (this.seeThrough.apply(this.adapter, this.selectedId, this.projected)) this.requestRender();
   }
 
   /** The View menu's occlusion switches (culling on or off here, the culled boxes, the depth pyramid). */
@@ -1225,6 +1234,7 @@ export class Viewport {
     else this.root.removeAttribute('data-terrain');
     this.tools.afterFrame();
     this.occlusion.afterFrame();
+    this.seeThrough.stamp(this.root, adapter);
     const f = adapter.lastFrame?.();
     this.root.setAttribute('data-frames', String(this.framesDrawn));
     // An edit mode's isolation: drawables hidden and swept at this frame (tests and the perf check read it).
@@ -1295,6 +1305,7 @@ export class Viewport {
     this.adapter = this.makeAdapter(next);
     this.occlusion.apply();
     this.isolation.apply();
+    this.seeThrough.apply(this.adapter, this.selectedId, this.projected, true);
     this.lookApplied = null;
     this.applyLightingMode();
     if (this.environmentSet) this.setEnvironment(this.environmentValue);
@@ -1384,6 +1395,8 @@ export class Viewport {
     // Automatic lighting follows whether the scene has a light.
     this.applyLightingMode();
     this.syncVirtualCameraPreviews(entities);
+    // The preview's subject follows a camera target or a selection that changed.
+    this.seeThrough.apply(this.adapter, this.selectedId, entities);
     // A timeline scrub preview stays on top of the synced transforms.
     if (this.timelinePreview !== null) this.applyTimelinePreview();
     // The helper overlay syncs from the SAME projection pass
@@ -1479,6 +1492,7 @@ export class Viewport {
       this.gizmoTargetId = null;
     }
     this.helpers.setSelected(id);
+    this.seeThrough.apply(this.adapter, id, this.projected);
     this.stampGizmoCounts();
     this.render();
   }

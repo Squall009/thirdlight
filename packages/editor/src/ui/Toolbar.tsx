@@ -24,6 +24,9 @@ interface Props {
   /** The Scene view's lighting — the fixed editor rig or the scene's own lights. */
   lighting?: 'editor' | 'game';
   onToggleLighting?: () => void;
+  /** The Scene view's See-through preview (view only; the project's setting is what Play uses). */
+  seeThrough?: boolean;
+  onToggleSeeThrough?: () => void;
   onPlay: () => void;
   /** Open the "Play from…" dialog (a scene, variables, a save slot). */
   onPlayFrom?: () => void;
@@ -71,6 +74,16 @@ export function Toolbar(p: Props): JSX.Element {
             title="Scene view lighting: the scene's own lights (as in Play) or a fixed editor rig"
           >
             light: {p.lighting}
+          </button>
+        )}
+        {p.onToggleSeeThrough !== undefined && (
+          <button
+            className={p.seeThrough === true ? 'tl-btn is-active' : 'tl-btn'}
+            aria-pressed={p.seeThrough === true}
+            onClick={p.onToggleSeeThrough}
+            title="See-through preview: what stands between the camera and the selected object (or the camera's target) thins as in Play, with the project's see-through settings. Only this view; nothing is saved"
+          >
+            see-through{p.seeThrough === true ? ': on' : ': off'}
           </button>
         )}
       </div>

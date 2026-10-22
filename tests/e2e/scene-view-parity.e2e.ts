@@ -9,6 +9,11 @@
  * light gizmos, gameplay helpers, the grid), and nothing is selected. Both
  * renderers (renderer-variants.ts). The scene uses light layers, per-vertex
  * local lights and ambient occlusion as well, so those agree too.
+ *
+ * Then the Scene view's See-through preview (view only, never stored): a
+ * screen put between the camera and the cube dithers round the camera's
+ * target with nothing selected, the subject follows the selection, and the
+ * toolbar's switch works in a full-screen edit mode too.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,8 +22,9 @@ import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
 import { diff, diffPng, show, STRICT, within } from './parity';
+import { decodePng } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu, showView } from './ui';
+import { editMode, leaveEditMode, menu, showView } from './ui';
 import { centre, gameCameraAtView, settledShot, viewCamera } from './view-match';
 
 let be: E2EBackend;
@@ -73,6 +79,9 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   await expect(page.getByText('light: game')).toBeVisible();
 
   const cam = await gameCameraAtView(page, command, variant, async (id) => (await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: id } }))['entity'] as never);
+  // A screen between the camera and the cube (part of the parity scene; the see-through preview thins it below).
+  const at = cam.position.map((c, i) => [0, 0.5, 0][i]! + (c - [0, 0.5, 0][i]!) * 0.4);
+  await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'screen', transform: { position: at }, box: { size: [0.7, 0.7, 0.7], material: { color: '#30a050' } } });
   const scene = await settledShot(view, `scene-view-${variant}`);
   expect(await viewCamera(page)).toEqual(cam);
 
@@ -94,4 +103,39 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   console.log(`[scene-view-parity] ${variant}: ${show(d)}`);
   if (!within(d)) writeFileSync(join(test.info().outputPath(), `diff-${variant}.png`), diffPng(a, b));
   expect(within(d), show(d)).toBe(true);
+
+  // See-through preview: the camera's target (the cube) with nothing selected thins the screen in front of it.
+  const cubeId = String(cube['createdId']);
+  const pillarId = String(tall['createdId']);
+  const camEntity = (await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: 'cam-main' } }))['entity'] as { components: { virtualCamera: Record<string, unknown> } };
+  await command('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...camEntity.components.virtualCamera, target: cubeId } });
+  const revision = (await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision'];
+  const seeThrough = page.getByRole('button', { name: /^see-through/ });
+  const state = async (): Promise<{ enabled: boolean; subjects: { id: string; fade: number }[] } | null> => JSON.parse((await view.getAttribute('data-see-through')) || 'null');
+  await seeThrough.click();
+  await expect(seeThrough).toHaveText('see-through: on');
+  await expect.poll(state).toMatchObject({ enabled: true, subjects: [{ id: cubeId, fade: 1 }] });
+  // The view draws on demand and stamps the fade after a drawn frame: once it is whole, the picture is final.
+  const png = await view.screenshot();
+  writeFileSync(join(test.info().outputPath(), `see-through-on-${variant}.png`), png);
+  const thinned = decodePng(png);
+  // Round the middle of the view (the cube and the screen): the screen's dither shows the cube through it.
+  const st = diff(centre(scene, 160, 160), centre(thinned, 160, 160), STRICT);
+  console.log(`[scene-view-parity] ${variant}: see-through preview vs off, middle of the view: ${show(st)}`);
+  expect(st.bad, show(st)).toBeGreaterThan(0.05);
+  // The selection is the subject when it is something to follow.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${pillarId}"]`).click();
+  await expect.poll(async () => (await state())?.subjects).toEqual([{ id: pillarId, fade: 1 }]);
+  // The toolbar's switch in a full-screen edit mode (the decal editor's, which selects no object: the camera's target).
+  await page.getByRole('button', { name: 'decal', exact: true }).click();
+  await expect(editMode(page)).toBeVisible();
+  await seeThrough.click();
+  await expect.poll(async () => (await state())?.enabled).toBe(false);
+  await seeThrough.click();
+  await expect.poll(state).toMatchObject({ enabled: true, subjects: [{ id: cubeId, fade: 1 }] });
+  await leaveEditMode(page);
+  await seeThrough.click();
+  await expect(seeThrough).toHaveText('see-through: off');
+  // View only: nothing was stored.
+  expect((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']).toBe(revision);
 });

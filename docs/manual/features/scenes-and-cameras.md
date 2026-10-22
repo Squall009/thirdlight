@@ -310,6 +310,10 @@ Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.
 
+The Scene view's **see-through** toolbar switch previews see-through while you edit,
+with the project's settings, round the selected object (else the live
+camera's target); it only changes the view, never the project.
+
 **Editor.** A selected virtual camera shows its frustum where its rig puts
 it (the same maths as Play) and a line to what it looks at; the orbit point
 and camera path points are Scene handles (one undo step per drag).

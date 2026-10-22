@@ -44,7 +44,7 @@ import type { DecalPageRef, EffectComponent, MaterialDef } from '@thirdlight/pro
 import { lodTuningOf, renderSettingsOf } from '@thirdlight/project-model/limits';
 import { decalPageTextureKey, withDecalPageRefs } from '../session/decal-atlas';
 import { withSlotTextureKeys } from '../session/texture-slots';
-import { architectureGraphsOf, architectureStylesOf, viewLensOf, type ArchitectureStyles } from '@thirdlight/runtime';
+import { architectureGraphsOf, architectureStylesOf, seeThroughSettingsOfProject, viewLensOf, type ArchitectureStyles, type SeeThroughSettings } from '@thirdlight/runtime';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
@@ -250,6 +250,7 @@ function EditorApp(): JSX.Element {
   useEffect(() => viewportRef.current?.setOcclusionView(occlusionView), [occlusionView]);
   const [assetDropActive, setAssetDropActive] = useState(false);
   const [lightingMode, setLightingMode] = useState<'editor' | 'game'>('editor');
+  const [seeThroughPreview, setSeeThroughPreview] = useState(false);
   const [snapping, setSnapping] = useState(true);
   // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
@@ -569,6 +570,12 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setOcclusionCulling(renderSettingsOf({ occlusion_culling: occlusionSetting }).occlusionCulling);
   }, [occlusionSetting]);
+
+  // The See-through preview draws with the project's see-through settings (the preview's own on/off over theirs).
+  const seeThroughSettings = JSON.stringify(seeThroughSettingsOfProject(settings));
+  useEffect(() => {
+    viewportRef.current?.setSeeThroughPreview(seeThroughPreview, JSON.parse(seeThroughSettings) as SeeThroughSettings);
+  }, [seeThroughPreview, seeThroughSettings]);
 
   // The project's render_backend setting (under the page's ?renderer= flag) picks the
   // Scene view's backend and the one previews and thumbnails create their renderer with.
@@ -1176,6 +1183,8 @@ function EditorApp(): JSX.Element {
           viewportRef.current?.setLighting(next);
           setLightingMode(next);
         }}
+        seeThrough={seeThroughPreview}
+        onToggleSeeThrough={() => setSeeThroughPreview((v) => !v)}
         onPlay={() => void play()}
         onPlayFrom={() => {
           dialogs.setPlayFromForm((f) => ({ ...f, busy: false, error: null }));
