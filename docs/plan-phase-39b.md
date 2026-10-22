@@ -160,3 +160,4 @@ new e2e.
   closed). Notes for the art-factory owner: KTX2 exports should record their
   source PNG's hash; decal sheets use alpha as opacity; the trim-sheet spec
   proposal is pending. Open: the prefab discussion.
+- 2026-10-22 (owner): the prefab discussion became phase 39c (linked prefabs), after this phase and before 40.
