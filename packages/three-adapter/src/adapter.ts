@@ -27,7 +27,6 @@
  */
 import type { MaterialFunctionLike } from './material-graph';
 import type { DecalRequestLike, ProjectedDecalLike } from './decal-projectors';
-import { CLIPPED_DECALS_KEY, ClippedDecals } from './clipped-decals';
 import { setDecalDepthMode } from './mesh-decals';
 import { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPoseLike } from './animator-player';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
@@ -48,16 +47,10 @@ import { createGpuTiming } from './gpu-timing';
 import { createRenderControl } from './render-control';
 import * as THREE from 'three';
 import { type BlockLayerViewDiagnostics } from './block-layers';
-import { createLevelViews } from './level-views';
-import { PageWorldStream, STREAMING_KEY } from './world-stream';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
 import { OcclusionCuller } from './occlusion';
 import { markHostDrawing } from './occludees';
-import { createBrowserMeshWorker } from './block-mesh-pool';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
-import { createScatterHost } from './scatter-host';
-import { SplineView } from './spline-view';
-import { createAdapterArchitecture } from './architecture-adapter';
 import { createScenePreparations } from './scene-preparation';
 import { TerrainTileStore } from './terrain-tile-store';
 import type { MaterialRenderChangeLike } from './runtime-materials';
@@ -93,7 +86,7 @@ import {
 } from './animation';
 import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
-import { SeeThroughView, seeThroughEntitiesOf, type SeeThroughScripted } from './see-through';
+import { createAdapterLevel } from './adapter-level';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import type { EffectComponentLike, EffectRequestLike } from './effects-player';
@@ -386,86 +379,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   materials.listenReassigned(batcher === null ? null : (root) => batcher.touch(root));
   /** The documents of every realized entity (the loaded scenes). */
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
-  // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
-  const blockPrefabs = (opts.snapshot as { prefabs?: readonly { prefabId: string; entities: readonly { parentLocalId?: string; components: Record<string, unknown> }[] }[] }).prefabs ?? [];
-  const assetMaterialsOf = (assetId: string): Readonly<Record<string, string>> | undefined => (opts.models?.assets.find((a) => a.assetId === assetId) ?? opts.models?.rowOf?.(assetId))?.materials;
-  // World streaming (a game page): what streamed terrains, layers and scatter hold round the camera, within the budget.
-  const stream = opts.streaming !== undefined ? new PageWorldStream({ budgetBytes: opts.streaming.budgetBytes, resources, ...(opts.streaming.onProblem !== undefined ? { onProblem: opts.streaming.onProblem } : {}) }) : null;
-  if (stream !== null) scene.userData[STREAMING_KEY] = stream;
-  // Rule scatter on block layers and terrains: stored copies and ground cover (scatter-host.ts).
-  const scatter = createScatterHost({
-    stream,
-    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
-    dress: (root, assetId) => {
-      const mapping = assetMaterialsOf(assetId);
-      return materialLibrary !== null && mapping !== undefined && Object.keys(mapping).length > 0 ? materialLibrary.apply(root, mapping, null) : null;
-    },
-    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
-    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
-    shapeChanged: () => staticShadows?.bump(),
-    tile: (digest) => (opts.terrainTiles ?? ownTiles)?.tile(digest),
-    ...(opts.meshWorkerUrl !== undefined ? { worker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-cover'), scatterWorker: () => createBrowserMeshWorker(opts.meshWorkerUrl!, 'thirdlight-scatter') } : {}),
-    tuning: graph.lodTuning, renderer: () => owned.renderer?.current() ?? null,
-    changed: () => opts.onChange?.(),
-    drawn: opts.scatter !== false,
+  // Streaming, scatter, splines, architecture and its rooms, clipped decals, block layers, terrains, see-through.
+  const level = createAdapterLevel({
+    opts, scene, resources, canvas, graph, materialLibrary, effectiveMaterials, components: (id) => entityDocs.get(id)?.components,
+    realization: () => realization, lightmaps: () => lightmaps, staticShadows, batcher, viewCull, renderer: () => owned.renderer?.current() ?? null, lights,
+    precompile: () => precompile, startModelsIn: () => startModelsIn,
   });
-  // Splines: what they make (meshes, pieces' copies), and terrain ground cover kept clear of their scatter bands.
-  const splines = new SplineView({
-    cover: (list) => scatter.sink?.setSplines?.(list),
-    read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
-    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
-    dress: (root, assetId) => {
-      const mapping = assetMaterialsOf(assetId);
-      return materialLibrary !== null && mapping !== undefined && Object.keys(mapping).length > 0 ? materialLibrary.apply(root, mapping, null) : null;
-    },
-    materials: (root, id) => {
-      const c = entityDocs.get(id)?.components as { materials?: Record<string, string> } | undefined;
-      const mapping = effectiveMaterials(id, c?.materials);
-      return materialLibrary !== null && mapping !== undefined ? materialLibrary.apply(root, mapping, materialParamsOf(c)) : null;
-    },
-    place: (root, shown) => (shown ? graph.listStatic(root) : graph.unlistStatic(root)),
-    shapeChanged: () => staticShadows?.bump(),
-    tuning: graph.lodTuning,
-    changed: () => opts.onChange?.(),
-    drawn: opts.splines !== false,
-  });
-  // Generated architecture: made at load from its parameters on generator workers, a chunk at a time nearest the eye.
-  const archHost = createAdapterArchitecture({
-    components: (id) => entityDocs.get(id)?.components, effectiveMaterials, materialParams: materialParamsOf, materialLibrary, assetMaterials: assetMaterialsOf,
-    template: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null,
-    graph, staticShadows, arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null, meshWorkerUrl: opts.meshWorkerUrl,
-    store: opts.architectureStore ?? null, styles: opts.architectureStyles, drawn: opts.architecture !== false, changed: () => opts.onChange?.(),
-    rooms: { scene, blocks: () => blockView, regroup: (o) => batcher?.touch(o), roomLights: (on) => lights.setRoomLights(on), culling: opts.portals !== false, canvas: canvas as { setAttribute?(k: string, v: string): void } | null },
-  });
-  const architecture = archHost.view;
-  // They hear what enters and leaves the scene and what moved from the render graph (none walks the scene); rooms first
-  // (the room is part of a batch's key).
-  graph.setMembership(bothMemberships(archHost.rooms, bothMemberships(batcher, viewCull)));
-  // Clipped decals: cut from the surfaces the graph holds, on the generator's workers, kept with its chunks' store.
-  const clipped = opts.clippedDecals !== false ? new ClippedDecals({ node: (id) => graph.nodeFor(id) ?? null, dress: (mesh, id) => materialLibrary?.apply(mesh, { '*': id }, null) ?? null, workers: architecture, store: opts.architectureStore ?? null, changed: () => opts.onChange?.(), surfacesIn: () => startModelsIn && !blockView.meshing() && !architecture.making() && !splines.making() }) : null;
-  graph.onSurfaces(clipped);
-  // A measurement reads their diagnostics from the scene (as the projected decals').
-  if (clipped !== null) scene.userData[CLIPPED_DECALS_KEY] = { diagnostics: () => clipped.diagnostics() };
-  // Block layers and terrains (level-views.ts), streamed round the camera on a game page; cut-aways follow their subject.
-  const { blockView, terrains, ownTiles, cutaways } = createLevelViews({
-    blockInstance: (assetId, piece, onReady) => realization?.blockInstance?.(assetId, piece, onReady) ?? null,
-    prefabs: blockPrefabs, assetMaterials: assetMaterialsOf, materials: materialLibrary, lightmaps: () => lightmaps,
-    scene, runtime: opts.runtime, position: (id, out) => graph.world.position(id, out), precompileIdle: () => precompile.idle(), requestPrecompile: () => precompile.want(),
-    staticShadows, listStatic: (o) => graph.listStatic(o), unlistStatic: (o) => graph.unlistStatic(o), lodBias: () => graph.lodTuning.bias,
-    scatter: scatter.sink, stream, meshWorkerUrl: opts.meshWorkerUrl, tiles: opts.terrainTiles, read: opts.resolveBuffer ?? opts.models?.resolveBuffer ?? null, onChange: () => opts.onChange?.(),
-    // The key light shines along its direction: toward it is the other way.
-    sun: () => (([x, y, z]) => [-x, -y, -z] as const)(lights.keyDirection() ?? [0, 0, 0]),
-    horizon: opts.terrainHorizon !== false,
-  });
-  // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
-  const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
-  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), ...(opts.seeThrough?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), regroup: (o) => batcher?.touch(o), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
+  const { stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough } = level;
+  const authoredBlockTypes = level.blockTypes;
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
   const overlays = new Map<string, Set<THREE.Object3D>>();
-  const authoredBlockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
-  blockView.setTypes(authoredBlockTypes);
   /**
    * The static scope of each realized entity that never moves: its scene (static batching merges per scene, so
    * an unload drops only that scene's merged cells). None for an object kept loaded across scenes or spawned.
@@ -1508,11 +1433,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const t = graph.lodTuning;
       d.lod = { bias: t.bias, hysteresis: t.hysteresis, switches: t.switches, copySwitches: t.copySwitches, instances: realization?.instanceStats() ?? { copies: 0, inView: 0, byLevel: [], culled: 0, thinned: 0 } };
     }
-    if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
-    if (!disposed && terrains.ids().length > 0) d.terrain = terrains.diagnostics();
-    if (!disposed && stream !== null) d.streaming = stream.diagnostics();
-    if (!disposed && splines.ids().length > 0) d.splines = splines.diagnostics();
-    if (!disposed && architecture.ids().length > 0) [d.architecture, d.rooms] = [architecture.diagnostics(), archHost.rooms.diagnostics()];
+    if (!disposed) level.diagnostics(d);
     if (!disposed) d.occlusion = occlusion.diagnostics();
     if (!disposed) scatter.diagnostics(d);
     const { runtime: runtimeMaterials, swaps } = materials;
