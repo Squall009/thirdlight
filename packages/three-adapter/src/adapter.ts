@@ -87,6 +87,7 @@ import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { createAdapterLevel } from './adapter-level';
 import { AdapterEntities } from './adapter-entities';
+import { AdapterModels } from './adapter-models';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import type { EffectComponentLike, EffectRequestLike } from './effects-player';
@@ -173,34 +174,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let hiddenIds: ReadonlySet<string> = NO_HIDDEN;
   /** The hidden set last derived from (the runtime hands out the same set while nothing changes). */
   let hiddenSeen: { set: ReadonlySet<string> | null; size: number; revision: number } = { set: null, size: 0, revision: -1 };
-  /** The animator poses the runtime committed, played on the models. */
-  const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
-  const applyAnimatorPoses = (): void => {
-    const poses = (opts.runtime as { animatorPoses?: () => ReadonlyMap<string, AnimatorPoseLike> }).animatorPoses?.();
-    if (poses === undefined || realization === null) return;
-    for (const [id, rec] of [...animatorPlayers]) {
-      const now = realization.instanceOf(id);
-      if (!poses.has(id) || now === null || now.instance !== rec.instance) {
-        rec.player.dispose();
-        animatorPlayers.delete(id);
-      }
-    }
-    for (const [id, pose] of poses) {
-      let rec = animatorPlayers.get(id);
-      if (rec === undefined) {
-        const found = realization.instanceOf(id);
-        if (found === null) continue;
-        const rig = found.assetId;
-        const r = realization;
-        // Clips of an animation-only asset marked "clips for" this model's asset.
-        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig, id) }) };
-        animatorPlayers.set(id, rec);
-      }
-      // Poses for an object taken in as static (its animator came later): posed from now on, not baked.
-      graph.ensureAnimated(id);
-      rec.player.apply(pose);
-    }
-  };
   /** The environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
   /** The environment's textures (held while it exists). */
@@ -333,15 +306,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Streaming, scatter, splines, architecture and its rooms, clipped decals, block layers, terrains, see-through.
   const level = createAdapterLevel({
     opts, scene, resources, canvas, graph, materialLibrary, effectiveMaterials, components: (id) => entityDocs.get(id)?.components,
-    realization: () => realization, lightmaps: () => lightmaps, staticShadows, batcher, viewCull, renderer: () => owned.renderer?.current() ?? null, lights,
-    precompile: () => precompile, startModelsIn: () => startModelsIn,
+    realization: () => models.realization, lightmaps: () => lightmaps, staticShadows, batcher, viewCull, renderer: () => owned.renderer?.current() ?? null, lights,
+    precompile: () => precompile, startModelsIn: () => models.startIn,
   });
   const { stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough } = level;
   const authoredBlockTypes = level.blockTypes;
   // What each loaded entity's components make, realized from its document (adapter-entities.ts).
   const entities = new AdapterEntities(entityDocs, {
     graph, lights, blockView, terrains, splines, architecture, clipped, effects, materials,
-    lightmaps: () => lightmaps, realization: () => realization, unitBox, vertexPaint: opts.vertexPaint !== false, terrain: opts.terrain !== false,
+    lightmaps: () => lightmaps, realization: () => models.realization, unitBox, vertexPaint: opts.vertexPaint !== false, terrain: opts.terrain !== false,
   });
   {
     // The start scenes' entities, each with its scene (the snapshot's own scene when the runtime has no scene set).
@@ -354,94 +327,35 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // property, updated per frame from the canvas size.
   camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   camera.position.set(startView[0], startView[1], startView[2]);
-  // --- The model realization ------------
-  // The entity nodes are made on demand (`holderFor`); the prepared
-  // ModelInstance roots attach as their children. The realization is
-  // created lazily when `models` is present (absent ⇒ no model path at
-  // all, byte-stable). Fail-fast config
-  // validation surfaces through `modelsSettled` + the structured
-  // result; the base scene keeps rendering (degraded, never a throw).
-  let realization: ModelsRealization | null = null;
-  /**
-   * The start scenes' models have settled (the blocking assets
-   * of the first picture): the first present waits for them, so it shows the
-   * whole world and its precompile covers the models' programs. The rest —
-   * instance buffers, textures, clips, later scenes — stream in.
-   */
-  let startModelsIn = true;
-  let modelsConfigError: AdapterError | null = null;
-  if (opts.models !== undefined) {
-    // Structural reads over the (deep-frozen, runtime-validated) snapshot —
-    // the adapter never re-validates (the runtime already did).
-    const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities, paints: modelPaint } = modelRefsOf(opts.snapshot.scene.entities);
-    // No game session drives the roles (the idle/run/airborne
-    // profile of an older project): every animated entity gets the constant
-    // neutral motion at the runtime's step, so the accepted pure selector
-    // yields `idle` — no blending, no run/airborne. The selector reads no
-    // runtime internals (rule 1).
-    const viewFor = (entityId: string): AnimationRoleView | null => {
-      void entityId;
-      let stepIndex = 0;
-      try {
-        const d = opts.runtime.getDiagnostics?.();
-        if (d?.ok === true && Number.isFinite(d.diagnostics.stepIndex)) stepIndex = Math.trunc(d.diagnostics.stepIndex);
-      } catch {
-        return null;
+  // The model realization (models.ts), when `models` is given; the base scene keeps rendering without it.
+  const models = new AdapterModels(opts, {
+    graph, materialLibrary, resources,
+    entityMaterials: (entityId) => effectiveMaterials(entityId, (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials) ?? null,
+    entityMaterialParams: (entityId) => materialParamsOf(entityDocs.get(entityId)?.components),
+    // A copy dragged in place: the shadowed lamps near it draw their maps again.
+    copiesMoved: (spheres) => archHost.rooms.noteMoved(spheres),
+    // Painted again in place (stored paint, a brush's preview): batches and merged cells take the new paint.
+    repainted: (entityId) => {
+      regroupEntity(entityId);
+      opts.onChange?.();
+    },
+    attached: (entityId, root) => {
+      // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
+      applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
+      // Values a script set before the model arrived.
+      materials.runtime?.reapply(entityId);
+      // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
+      markBatchable(root);
+      const scope = entities.staticScopes.get(entityId);
+      if (scope !== undefined) {
+        markStatic(root, scope);
+        // Marked after its meshes came into the scene: the static shadow map takes them now.
+        staticShadows?.bump();
       }
-      return { stepIndex, playerMotion: { speed: 0, grounded: true } };
-    };
-    const result = createModelsRealization({
-      schemaVersion: sceneDoc.schemaVersion,
-      models: opts.models,
-      loader: opts.modelsLoader,
-      modelEntities,
-      modelAnimationEntities,
-      instanceEntities,
-      modelPaint,
-      vertexPaint: opts.vertexPaint !== false,
-      modelPieces,
-      materialLibrary,
-      resources,
-      entityMaterials: (entityId: string) => effectiveMaterials(entityId, (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials) ?? null,
-      entityMaterialParams: (entityId: string) => materialParamsOf(entityDocs.get(entityId)?.components),
-      ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
-      holderFor: (entityId: string) => graph.nodeFor(entityId) ?? null,
-      viewFor,
-      lodTuning: graph.lodTuning,
-      // A copy dragged in place: the shadowed lamps near it draw their maps again.
-      copiesMoved: (spheres) => archHost.rooms.noteMoved(spheres),
-      // Painted again in place (stored paint, a brush's preview): batches and merged cells take the new paint.
-      onRepainted: (entityId: string) => {
-        regroupEntity(entityId);
-        opts.onChange?.();
-      },
-      onAttached: (entityId: string, root: THREE.Object3D) => {
-        // Models and instance sets cast and receive the key light's shadow (their data), in their light layers.
-        applyEntityRenderFlags(root, entityDocs.get(entityId)?.components);
-        // Values a script set before the model arrived.
-        materials.runtime?.reapply(entityId);
-        // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
-        markBatchable(root);
-        const scope = entities.staticScopes.get(entityId);
-        if (scope !== undefined) {
-          markStatic(root, scope);
-          // Marked after its meshes came into the scene: the static shadow map takes them now.
-          staticShadows?.bump();
-        }
-        lightmaps?.apply(entityId, root);
-        opts.onChange?.();
-      },
-    });
-    if (result.ok === true) {
-      realization = result.realization;
-      startModelsIn = false;
-      void realization.settled().then(() => {
-        startModelsIn = true;
-      });
-    } else {
-      modelsConfigError = result.error;
-    }
-  }
+      lightmaps?.apply(entityId, root);
+      opts.onChange?.();
+    },
+  });
 
   materials.createSwaps({
     components: (id) => entityDocs.get(id)?.components,
@@ -458,7 +372,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     node: (id) => graph.node(id),
     lightmaps: () => lightmaps,
-    reapplyModel: (id) => realization?.reapplyMaterials(id) ?? null,
+    reapplyModel: (id) => models.realization?.reapplyMaterials(id) ?? null,
     regroup: regroupEntity,
     setBlockTypes: (types) => blockView.setTypes(types),
   }, opts.materials?.textureRefs);
@@ -481,11 +395,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let disposed = false;
   /** The paint tool's channel view (made the first time it is shown). */
   let channelView: PaintChannelView | null = null;
-  /** The previous frame's `performance.now()` for the clamped
-   *  role-controller delta (the adapter derives `deltaSeconds` from the
-   *  host clock, guarded). The first frame uses 0 (a fresh anchor
-   *  after mount/suspend/resume: no fast-forward). */
-  let lastFrameNow: number | null = null;
   /** Releases of the WebGL context listeners this adapter owns. */
   const contextListenerReleases: Array<() => void> = [];
 
@@ -686,7 +595,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The scenes realized since the last drawn frame (for `onFrameDrawn`). */
   const frameRealized: string[] = [];
   /** Scenes prepared ahead of their load (released once realized). */
-  const preparations = createScenePreparations({ disposed: () => disposed, realization: () => realization, materialLibrary, architecture });
+  const preparations = createScenePreparations({ disposed: () => disposed, realization: () => models.realization, materialLibrary, architecture });
   /** The scene set revision the last presented frame drew. */
   let presentedRevision = -1;
   function syncSceneSet(): void {
@@ -707,7 +616,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         return false;
       }));
       for (const id of ids) lightmaps?.release(id);
-      realization?.removeEntities(ids);
+      models.realization?.removeEntities(ids);
       for (const id of ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
       for (const id of [...ids].reverse()) entities.release(id);
@@ -733,7 +642,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
       if (gone.size > 0) {
         for (const id of gone) lightmaps?.release(id);
-        realization?.removeEntities(gone);
+        models.realization?.removeEntities(gone);
         for (const id of gone) shownLooks.delete(id);
         // Children before parents (reverse document order).
         for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (gone.has(e.id)) entities.release(e.id);
@@ -751,7 +660,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         entities.realize(e, sceneId);
         rec.ids.add(e.id);
       }
-      realization?.addEntities(modelRefsOf(fresh));
+      models.realization?.addEntities(modelRefsOf(fresh));
       added = true;
     }
     for (const b of set.batches) {
@@ -759,7 +668,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const docs = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
       for (const e of docs) entities.realize(e, b.sceneId);
       realizedScenes.set(b.sceneId, { ids: new Set(docs.map((e) => e.id)), list: b.entities });
-      realization?.addEntities(modelRefsOf(docs));
+      models.realization?.addEntities(modelRefsOf(docs));
       // Its entities hold what the preparation held.
       preparations.realized(b.sceneId);
       frameRealized.push(b.sceneId);
@@ -778,7 +687,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function releaseScenes(): void {
     for (const [sceneId, rec] of [...realizedScenes]) {
       for (const id of rec.ids) lightmaps?.release(id);
-      realization?.removeEntities(rec.ids);
+      models.realization?.removeEntities(rec.ids);
       for (const id of rec.ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
       for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (rec.ids.has(e.id)) entities.release(e.id);
@@ -797,7 +706,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gone = [...realizedSpawned].filter(([id, e]) => live.get(id) !== e).map(([id]) => id);
     if (gone.length > 0) {
       const ids = new Set(gone);
-      realization?.removeEntities(ids);
+      models.realization?.removeEntities(ids);
       for (const id of gone.reverse()) {
         entities.release(id);
         realizedSpawned.delete(id);
@@ -810,7 +719,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       entities.realize(e);
       realizedSpawned.set(e.id, e);
     }
-    realization?.addEntities(modelRefsOf(added));
+    models.realization?.addEntities(modelRefsOf(added));
   }
 
   /**
@@ -976,32 +885,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (materialLibrary !== null && materialLibrary.animated()) {
       materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
     }
-    // One host-driven update per
-    // rendered frame, in this order — (1) the transform sync above,
-    // (2) every live role controller advanced once with the
-    // real frame delta CLAMPED to the accepted [0, 0.25] range (first
-    // frame after mount or after a suspend/resume: a fresh anchor — the
-    // host's frame-time reset makes a resume a fresh anchor; the clamp is
-    // the adapter-side bound, no fast-forward), (3) `renderer.render`
-    // (below). The controllers install no rAF, no timer, no mixer
-    // listener — there is no second loop.
-    if (realization !== null) {
-      let delta = 0;
-      const perf = globalThis.performance;
-      if (perf !== undefined && typeof perf.now === 'function') {
-        const now = perf.now();
-        if (lastFrameNow !== null && Number.isFinite(now) && Number.isFinite(lastFrameNow) && now >= lastFrameNow) {
-          delta = (now - lastFrameNow) / 1000;
-        }
-        lastFrameNow = now;
-      }
-      // The accepted clamp (presentation.md rule 2:
-      // 0 ≤ deltaSeconds ≤ 0.25).
-      if (!Number.isFinite(delta) || delta < 0) delta = 0;
-      if (delta > ANIMATION_MAX_DELTA_SECONDS) delta = ANIMATION_MAX_DELTA_SECONDS;
-      realization.update(delta);
-      applyAnimatorPoses();
-    }
+    // The models' role controllers and animator poses, once per rendered frame (adapter-models.ts).
+    models.animate(graph);
     // The animated hierarchies posed as the mixers left them (their bones and drawables follow).
     graph.poseAnimated();
     const renderer = live;
@@ -1132,7 +1017,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // No present that would build programs in the frame — they are built ahead
     // (renderer.compileAsync) before the first present and after a scene attached; frames are
     // skipped meanwhile (the last picture stays). A capture draws regardless.
-    if (!force && precompile.holds(() => !startModelsIn || clipped?.holdsStart() === true, camera === null ? null : () => compileFrame(renderer))) {
+    if (!force && precompile.holds(() => !models.startIn || clipped?.holdsStart() === true, camera === null ? null : () => compileFrame(renderer))) {
       if (probing) lights.probeAgain();
       lastFrameSkipped = true;
       return { ok: true };
@@ -1222,8 +1107,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // The `models` counters block — present iff the `models`
     // option was given and the adapter is not disposed (absent when
     // `models` is absent; after dispose the realization is gone).
-    if (realization !== null && !disposed) {
-      d.models = realization.counters();
+    if (models.realization !== null && !disposed) {
+      d.models = models.realization.counters();
     }
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
@@ -1255,7 +1140,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && lastFrameDrawn) d.viewCull = viewCull.diagnostics();
     if (!disposed && lastFrameDrawn) {
       const t = graph.lodTuning;
-      d.lod = { bias: t.bias, hysteresis: t.hysteresis, switches: t.switches, copySwitches: t.copySwitches, instances: realization?.instanceStats() ?? { copies: 0, inView: 0, byLevel: [], culled: 0, thinned: 0 } };
+      d.lod = { bias: t.bias, hysteresis: t.hysteresis, switches: t.switches, copySwitches: t.copySwitches, instances: models.realization?.instanceStats() ?? { copies: 0, inView: 0, byLevel: [], culled: 0, thinned: 0 } };
     }
     if (!disposed) level.diagnostics(d);
     if (!disposed) d.occlusion = occlusion.diagnostics();
@@ -1291,9 +1176,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     disposed = true;
     channelView?.dispose();
     isolation.dispose();
-    for (const rec of animatorPlayers.values()) rec.player.dispose();
+    models.disposePlayers();
     effects.dispose();
-    animatorPlayers.clear();
     lightmaps?.dispose();
     clipped?.dispose();
     probes.dispose();
@@ -1303,19 +1187,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     environmentHolds?.releaseHolder('environment');
     lights.dispose();
     seeThrough.dispose();
-    // Tear down the model realization
-    // FIRST — cancel every in-flight prepare, dispose the attached
-    // instances (cloned materials + controllers + instances) and the
-    // store (a late completion is discarded and released, never applied).
-    if (realization !== null) {
-      try {
-        realization.dispose();
-      } catch {
-        /* best effort */
-      }
-      realization = null;
-      lastFrameNow = null;
-    }
+    // The model realization first of what holds assets: every in-flight prepare cancelled, a late completion released.
+    models.dispose();
     // A manager of the adapter's own goes with it (the page's is the page's).
     if (opts.resources === undefined) resources.dispose();
     // Release ALL owned Object3D/material/renderer lifetimes (repeatable
@@ -1375,7 +1248,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     diagnostics,
     dispose,
-    renderedNodes: (entityId, names) => (disposed ? null : (animatorPlayers.get(entityId)?.player.nodePoses(names) ?? null)),
+    renderedNodes: (entityId, names) => (disposed ? null : models.nodePoses(entityId, names)),
     setLodTuning(tuning: { readonly bias?: number; readonly hysteresis?: number }): void {
       qualityControl.setProjectLod(tuning);
     },
@@ -1487,7 +1360,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     paintPreview(entityId, target) {
       if (disposed || opts.vertexPaint === false) return null;
       if ('path' in target) return target.path === 'spline' ? splines.paintPreview(entityId, target.side) : architecture.paintPreview(entityId, target.path, target.side);
-      return realization?.paintPreview(entityId, target.copy) ?? null;
+      return models.realization?.paintPreview(entityId, target.copy) ?? null;
     },
     paintOwnerOf(object): string | null {
       for (let o: THREE.Object3D | null = object; o !== null; o = o.parent) if (typeof o.userData[PATH_PAINT_ENTITY_KEY] === 'string') return o.userData[PATH_PAINT_ENTITY_KEY] as string;
@@ -1496,9 +1369,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     paintChannelView: (channel) => (channelView ??= new PaintChannelView(scene)).set(channel),
     attachOverlay: (entityId, object): void => entities.attachOverlay(entityId, object),
     detachOverlay: (entityId, object): void => entities.detachOverlay(entityId, object),
-    instanceSet: (entityId) => realization?.instanceSet(entityId) ?? null,
-    instanceBuffer: (digest) => realization?.instanceBuffer(digest),
-    modelFailures: () => realization?.failures() ?? new Map(),
+    instanceSet: (entityId) => models.realization?.instanceSet(entityId) ?? null,
+    instanceBuffer: (digest) => models.realization?.instanceBuffer(digest),
+    modelFailures: () => models.realization?.failures() ?? new Map(),
     blockLayers: () => blockView,
     seeThrough: () => seeThrough,
     terrainDiagnostics: () => (terrains.ids().length > 0 ? terrains.diagnostics() : null),
@@ -1513,16 +1386,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // given. A config-invalid block resolves the structured failure (the
   // wrapper posts `tl.error`); a realized block resolves when every
   // prepare has settled. Never rejects.
-  if (opts.models !== undefined) {
-    api.modelsSettled = (): Promise<ModelsSettledResult> => {
-      if (realization !== null) return realization.settled();
-      if (modelsConfigError !== null) {
-        return Promise.resolve({ ok: false as const, code: modelsConfigError.code, message: modelsConfigError.message });
-      }
-      // Defensive: `models` present but no realization/config error (e.g.
-      // disposed before the realization attached) — structured, honest.
-      return Promise.resolve({ ok: false as const, code: 'adapter_disposed', message: 'the adapter carries no live model realization' });
-    };
-  }
+  if (opts.models !== undefined) api.modelsSettled = () => models.settled();
   return api;
 }
