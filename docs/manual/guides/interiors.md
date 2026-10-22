@@ -20,7 +20,13 @@ player, so doorways and rooms stay readable. Three features work together:
    ground floor as in [the block layers guide](block-layers.md) (floor,
    walls on the cell edges, a doorway). Paint the upper floor's slab on the
    row above the walls, its walls on the rows above that, stairs between the
-   two, and a roof on top. (Generated rooms work the same: see
+   two, and a roof on top. The starter's layer is 6 rows high: grow it first
+   (Regions → **Layer size**; two 3 m storeys, their floor and a roof take 9
+   rows). Make the upper floor of full blocks (`Ground`): the kit's `Floor
+   slab` is a quarter-cell plate at the bottom of its cell, so walls on the
+   row above it would stand 0.75 m clear of it. The kit's `Stairs` climb a
+   row in two 0.5 m steps, higher than the controller's default step-up:
+   set the player's **Step-up height** to 0.55. (Generated rooms work the same: see
    [Generate rooms and buildings](generated-architecture.md); a room's
    upper storey is the region `<room>-s1`.)
 2. **The camera.** Select the starter's follow camera and set **Pitch** 50,
@@ -33,7 +39,10 @@ player, so doorways and rooms stay readable. Three features work together:
    the Scene view. For the upper storey while the player is downstairs, the
    layer's **Cut-away** in the Inspector also takes a plane: the row of the
    upper floor's walls hides every cell from there up while the player is
-   below it.
+   below it. The upper floor itself then stays, so downstairs the rooms show
+   only through the circle; a plane at the upper floor's own row opens the
+   whole ground storey instead, and on the stairs that floor is then cut
+   rather than faded.
 4. **See-through.** Project Settings → Quality → Rendering → **See-through**
    On. The defaults fit a follow camera (a circle a fifth of the view's
    height, thinning to a 75 % dither); raise **See-through radius** for
@@ -90,7 +99,9 @@ off outside; the fade time eases each switch.
 
 1. The building: the commands of [the block layers guide](block-layers.md#through-the-api)
    (one [`editBlocks`](../reference/ops-detail.md#op-editBlocks) per storey:
-   `fill` for floors, `edges` for walls, a `region` for the roof).
+   `fill` for floors, `edges` for walls, a `region` for the roof). Grow the
+   layer's `bounds` first if the building is taller than it, and raise the
+   player's `controller` `stepHeight` (0.55 for the Basic Kit's stairs).
 2. The camera ([`setComponent`](../reference/ops-detail.md#op-setComponent)):
    `{"entityId": "<follow camera>", "component": "virtualCamera", "value": {"pitch": 50, "distance": 12, "targetOffset": [0, 1, 0], "collision": false}}`.
 3. The cut-aways: `{"entityId": "<layer>", "component": "blockLayer", "value": {"cutaway": {"regions": [{"region": "roof"}], "planes": [<upper floor's wall row>]}}}`.
