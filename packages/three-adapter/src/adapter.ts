@@ -89,7 +89,6 @@ import {
 import type { GlbLoaderPort } from './visual';
 import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 import { textureHolds, type TextureHolds } from './texture-holds';
-import { objectResidentBytes } from './resource-bytes';
 import {
   ANIMATION_MAX_DELTA_SECONDS,
   type AnimationRoleView,
@@ -99,7 +98,8 @@ import { applyEntityRenderFlags } from './entity-render-flags';
 import { SeeThroughView, seeThroughEntitiesOf, type SeeThroughScripted } from './see-through';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
-import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
+import type { EffectComponentLike, EffectRequestLike } from './effects-player';
+import { AdapterEffects } from './adapter-effects';
 import {
   createRenderer,
   DEFAULT_RENDERER_PREFERENCE,
@@ -144,10 +144,6 @@ interface OwnedResources {
 const NO_HIDDEN: ReadonlySet<string> = new Set();
 /** An applied-blend key no blend has: the next frame applies the blend (or its end) again. */
 
-/** What a particle material holder wears until the project material library dresses it. */
-const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
-/** The effect models' holder in the resource manager (one effect player per page). */
-const EFFECTS_HOLDER = 'effects';
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
@@ -314,47 +310,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
   // --- Visual effects --------------------------------------------
-  /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
-  const effectMaterials = new Map<string, THREE.Mesh>();
-  /** The effects' textures and models are held for the effect player's life. */
-  const effectTextures = opts.effects !== undefined ? textureHolds(resources, opts.effects.loadTexture) : null;
-  const effectModelLoad = opts.effects?.loadModel;
-  const effects: EffectsPlayer | null =
-    opts.effects !== undefined
-      ? createEffectsPlayer({
-          scene,
-          defs: opts.effects.defs,
-          wind: opts.effects.wind ?? opts.materials?.wind ?? null,
-          loadTexture: (assetId) => effectTextures!.get(assetId, 'effects'),
-          ...(effectModelLoad !== undefined
-            ? {
-                loadModel: (assetId: string) =>
-                  resources
-                    .acquire<THREE.Object3D>('effect-model', assetId, EFFECTS_HOLDER, async () => {
-                      const root = await effectModelLoad(assetId);
-                      if (root === null) throw new Error(`effect model ${assetId} is not available`);
-                      return { value: root, ...objectResidentBytes(root), free: (r) => disposeObjectTree(r) };
-                    })
-                    .catch(() => null),
-              }
-            : {}),
-          projectMaterial: (id: string) => {
-            if (materialLibrary === null || id === '') return null;
-            let holder = effectMaterials.get(id);
-            if (holder === undefined) {
-              holder = new THREE.Mesh(new THREE.BufferGeometry(), EFFECT_MATERIAL_PLACEHOLDER);
-              materialLibrary.apply(holder, { '*': id });
-              effectMaterials.set(id, holder);
-            }
-            // Still the placeholder: no such project material (the particles fall back to their built-in shading).
-            return holder.material === EFFECT_MATERIAL_PLACEHOLDER ? null : (holder.material as THREE.Material);
-          },
-        })
-      : null;
-  /** Entities carrying an `effect` component (hidden ones stop spawning). */
-  const effectEntities = new Set<string>();
-  let effectsLastNow: number | null = null;
-  let effectsMark = '';
+  const effects = new AdapterEffects(scene, resources, opts, materialLibrary);
   /** The MSAA samples last stamped on the canvas. */
   let msaaMark = -1;
   let drawsMark = -1;
@@ -620,10 +576,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (own.geometries.length > 0) entityResources.set(e.id, own);
     // An effect component plays from the object (on start unless it waits for a signal or a script).
     const fx = (e.components as { effect?: EffectComponentLike }).effect;
-    if (effects !== null && fx !== undefined) {
-      effectEntities.add(e.id);
-      effects.attach(e.id, graph.nodeFor(e.id)!, fx, fx.playOnStart !== false);
-    }
+    if (effects.player !== null && fx !== undefined) effects.attach(e.id, graph.nodeFor(e.id)!, fx);
     // What a host hangs on it (back after the entity was realized again), last: the material, look and lightmap paths above never see it.
     const hung = overlays.get(e.id);
     if (hung !== undefined) {
@@ -649,10 +602,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     splines.remove(id);
     architecture.remove(id);
     runtimeMaterials?.release(id);
-    if (effects !== null) {
-      effects.detach(id);
-      effectEntities.delete(id);
-    }
+    effects.detach(id);
     const obj = graph.node(id);
     // Per-object looks first (a look override's own copies), then the shared paths undo.
     if (obj !== undefined) releaseEmissiveLooks(obj);
@@ -950,7 +900,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const inf = handle.info();
     renderBackend = inf.api;
     // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
-    effects?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
+    effects.player?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     lights.rendererReplaced();
     // A new renderer (a lost device) builds its programs ahead of its first present too.
@@ -1341,25 +1291,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     applyResolvedCamera();
     syncEntityLooks();
     // The effect requests of the steps since the last frame (presentation only), then the effects step.
-    if (effects !== null) {
-      for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => graph.nodeFor(id));
-      for (const id of effectEntities) effects.setAttachedActive(id, !hiddenIds.has(id));
-      const perf = globalThis.performance;
-      const now = perf !== undefined ? perf.now() : 0;
-      const paused = (opts.runtime as { isPaused?: boolean }).isPaused === true;
-      const frameSeconds = effectsLastNow === null || paused ? 0 : Math.max(0, (now - effectsLastNow) / 1000);
-      effectsLastNow = now;
-      if (camera !== null) effects.update(frameSeconds, camera, (now - clockStart) / 1000);
-      // The canvas reports the executor and what plays (an export has no other in-page diagnostics surface).
-      const d = effects.diagnostics();
-      const mark = `${d.executor ?? 'none'}|${d.playing}|${d.particles}|${d.lights}`;
-      if (mark !== effectsMark && typeof canvasLike?.setAttribute === 'function') {
-        effectsMark = mark;
-        canvasLike.setAttribute('data-tl-effects', d.executor ?? 'none');
-        canvasLike.setAttribute('data-tl-effects-playing', String(d.playing));
-        canvasLike.setAttribute('data-tl-effects-particles', String(d.particles));
-        canvasLike.setAttribute('data-tl-effects-lights', String(d.lights));
-      }
+    if (effects.player !== null) {
+      const rt = opts.runtime as { takeEffectRequests?: () => EffectRequestLike[]; isPaused?: boolean };
+      effects.frame(rt.takeEffectRequests?.() ?? [], (id) => graph.nodeFor(id), hiddenIds, rt.isPaused === true, camera, (now) => (now - clockStart) / 1000, canvasLike);
     }
     if (materialLibrary !== null && materialLibrary.animated()) {
       materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
@@ -1615,7 +1549,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
-    if (effects !== null && !disposed) d.effects = effects.diagnostics();
+    const fx = disposed ? null : effects.diagnostics();
+    if (fx !== null) d.effects = fx;
     if (!disposed && lastFrameDrawn) {
       const ros = (liveRenderer as unknown as { _objects?: { _renderObjects?: Iterable<{ object?: THREE.Object3D; geometry?: THREE.BufferGeometry; _nodeBuilderState?: unknown }> } } | null)?._objects?._renderObjects;
       if (ros !== undefined) {
@@ -1683,11 +1618,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     channelView?.dispose();
     isolation.dispose();
     for (const rec of animatorPlayers.values()) rec.player.dispose();
-    effects?.dispose();
-    effectTextures?.releaseHolder('effects');
-    resources.releaseHolder(EFFECTS_HOLDER);
-    for (const h of effectMaterials.values()) h.geometry.dispose();
-    effectMaterials.clear();
+    effects.dispose();
     animatorPlayers.clear();
     lightmaps?.dispose();
     decalPages?.dispose();

@@ -34,7 +34,7 @@
     {"file":"packages/runtime/src/grid.ts","kind":"class","unit":"RuntimeGrid","size":93},
     {"file":"packages/runtime/src/runtime.ts","kind":"class","unit":"RuntimeInstance","size":147},
     {"file":"packages/runtime/src/snapshot.ts","kind":"function","unit":"validateRuntimeSnapshot","size":413},
-    {"file":"packages/three-adapter/src/adapter.ts","kind":"function","unit":"createSceneAdapter","size":1802},
+    {"file":"packages/three-adapter/src/adapter.ts","kind":"function","unit":"createSceneAdapter","size":1737},
     {"file":"packages/three-adapter/src/attribute-instancing.ts","kind":"function","unit":"createAttributeInstancedMesh","size":416},
     {"file":"packages/three-adapter/src/batching.ts","kind":"function","unit":"createAutoBatcher","size":555},
     {"file":"packages/three-adapter/src/block-layers.ts","kind":"class","unit":"BlockLayerView","size":84},
