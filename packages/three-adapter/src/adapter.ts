@@ -65,6 +65,7 @@ import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { AdapterRenderer, type CanvasLike } from './adapter-renderer';
+import { AdapterEnvironment } from './adapter-environment';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
 import { EntityNode, RenderGraph } from './render-graph';
@@ -156,31 +157,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let hiddenIds: ReadonlySet<string> = NO_HIDDEN;
   /** The hidden set last derived from (the runtime hands out the same set while nothing changes). */
   let hiddenSeen: { set: ReadonlySet<string> | null; size: number; revision: number } = { set: null, size: 0, revision: -1 };
-  /** The environment renderer (created with the renderer). */
-  let environmentRenderer: EnvironmentRenderer | null = null;
-  /** The environment's textures (held while it exists). */
-  let environmentHolds: TextureHolds | null = null;
-  /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
-  let environmentSize: [number, number] | null = null;
-  /** The scenes' looks (absent: the environment's value is the whole look). */
-  const sceneLooks = opts.environment?.scenes ?? null;
-  /** The look drawn: the project environment (an editing host replaces it, `setEnvironment`), the active scene's look, a blend. */
-  const envLook = new EnvironmentLook(
-    {
-      sceneLooks,
-      readBlend: () => (opts.runtime as { readEnvironmentBlend?: () => EnvironmentBlendView | null }).readEnvironmentBlend?.() ?? null,
-      renderer: () => environmentRenderer,
-      lights: () => lights,
-      lightmaps: () => lightmaps,
-      materials: materialLibrary,
-      defaultWind: opts.materials?.wind ?? null,
-    },
-    opts.environment?.value ?? null,
-    (opts.snapshot as { tags?: readonly { bit: number; name: string }[] }).tags ?? [],
-  );
-  const envTagBits = envLook.tagBits;
-  const effectiveEnvironment = (): EnvironmentLike | null => envLook.effective();
-  const applyEnvironmentBlend = (): void => envLook.apply();
+  /** The look drawn (the project environment, the active scene's look, a blend) and the environment renderer. */
+  const environment = new AdapterEnvironment(scene, resources, opts, { lights: () => lights, lightmaps: () => lightmaps, materials: materialLibrary });
+  const envLook = environment.look;
   const tmpSize = new THREE.Vector2();
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   /**
@@ -256,7 +235,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       precompile.want();
       opts.onChange?.();
     },
-    tagBits: envTagBits,
+    tagBits: envLook.tagBits,
     localShadows: { roomSeen: (k) => archHost.rooms.roomSeen(k), movers: () => archHost.rooms.movers() },
   });
 
@@ -363,11 +342,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // WebGL context lifecycle (adapter-renderer.ts).
   const canvasRenderer = new AdapterRenderer(canvas as CanvasLike | null, opts, {
     pixelRatioCap: () => qualityControl.pixelRatioCap(),
-    dropRendererState: () => {
-      environmentRenderer?.dispose();
-      environmentRenderer = null;
-      environmentSize = null;
-    },
+    dropRendererState: () => environment.drop(),
     adopted: (r, api) => {
       // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
       effects.player?.setRenderer(r, api);
@@ -452,9 +427,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       setPixelRatioCap: (cap) => {
         canvasRenderer.setPixelRatioCap(cap);
         // The post stack follows the new drawing-buffer size.
-        environmentSize = null;
+        environment.resized();
       },
-      environment: () => environmentRenderer,
+      environment: () => environment.renderer,
       changed: () => opts.onChange?.(),
     },
     { project: envLook.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
@@ -509,7 +484,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The scene as the frame would draw it, compiled: the environment renderer's scene pass, or the canvas. */
   const compileFrame = (renderer: AnyRenderer): Precompile => {
     const r = renderer as unknown as import('three/webgpu').WebGPURenderer;
-    return environmentRenderer !== null ? environmentRenderer.compileAsync(camera!) : compileIntoTarget(r, scene, camera!, r.getRenderTarget(), r.getMRT());
+    return environment.renderer !== null ? environment.renderer.compileAsync(camera!) : compileIntoTarget(r, scene, camera!, r.getRenderTarget(), r.getMRT());
   };
 
   /**
@@ -675,7 +650,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // The light values scripts wrote, then the environment preset blend
     // (the running game's, or the editor's preview) before the draw.
     applyLightOverrides();
-    applyEnvironmentBlend();
+    environment.applyBlend();
     // Material swaps whose materials have loaded go on before the draw (and before regrouping).
     if (materials.swaps !== null) {
       const rt = opts.runtime as { materialSwaps?: () => ReadonlyMap<string, MaterialMappingLike>; blockMaterialSwaps?: () => ReadonlyMap<string, MaterialMappingLike> };
@@ -720,36 +695,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const probing = lights.beforeFrame(renderer);
     probes.beforeFrame(renderer as unknown as Parameters<typeof probes.beforeFrame>[0], camera!);
     try {
-      // A quality level also applies without a project environment (a level without MSAA
-      // draws through a plain pass), so the environment renderer draws then too.
-      // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
-      // a game whose scenes set no look renders as one without an environment.
-      const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envLook.presets.size > 0 || envLook.blendActive);
-      if ((wanted || qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment()) && environmentRenderer === null) {
-        // The sky, its faces and the grading LUT are held for the environment's life. They are the same
-        // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
-        // from their images and never changes them), so a texture used by both is decoded once.
-        const envTextures = textureHolds(resources, opts.environment?.loadTexture ?? (async () => null));
-        // A sky image that arrives later is drawn by the next frame (a host drawing on demand is told).
-        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment'), scenePasses: () => occlusion.scenePasses(), ...(opts.onChange !== undefined ? { onChange: opts.onChange } : {}) });
-        environmentHolds = envTextures;
-        environmentRenderer.set(effectiveEnvironment());
-        qualityControl.applyEnvironment(environmentRenderer);
-        // A blend already running goes onto the new environment renderer.
-        envLook.appliedKey = '';
-        envLook.blendActive = false;
-        applyEnvironmentBlend();
-      }
-      if (environmentRenderer !== null) {
-        renderControl.apply(environmentRenderer);
-        const keyDir = lights.keyDirection();
-        environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
-        environmentRenderer.setFogVolumes(entities.fogVolumesNow());
-        if (environmentSize === null || environmentSize[0] !== w || environmentSize[1] !== h) {
-          environmentSize = [w, h];
-          environmentRenderer.resize(w, h);
-        }
-      }
+      environment.beforeFrame(renderer, w, h, {
+        needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),
+        scenePasses: () => occlusion.scenePasses(),
+        created: (env) => qualityControl.applyEnvironment(env),
+        apply: (env) => renderControl.apply(env),
+        keyDirection: () => lights.keyDirection(),
+        fogVolumes: () => entities.fogVolumesNow(),
+      });
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
@@ -769,7 +722,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const job = precompile.job();
     const draw = (): void => {
       const render = (): void => {
-        if (environmentRenderer !== null) environmentRenderer.render(camera!);
+        const env = environment.renderer;
+        if (env !== null) env.render(camera!);
         else renderer.render(scene, camera!);
       };
       if (job !== null) job.aside(render);
@@ -788,7 +742,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         draw();
       }
       // The MSAA samples the frame was drawn with (the export has no other in-page diagnostics surface).
-      const samples = environmentRenderer !== null ? environmentRenderer.samples() : renderer.samples;
+      const samples = environment.renderer !== null ? environment.renderer.samples() : renderer.samples;
       if (samples !== msaaMark && typeof canvasLike?.setAttribute === 'function') {
         msaaMark = samples;
         canvasLike.setAttribute('data-tl-msaa', String(samples));
@@ -807,7 +761,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     probes.frameDrawn();
     gpuTiming.afterFrame(renderer);
     const drawnAt = performance.now();
-    renderControl.frameDrawn(environmentRenderer, drawnAt, drawnAt - frameStart, gpuTiming);
+    renderControl.frameDrawn(environment.renderer, drawnAt, drawnAt - frameStart, gpuTiming);
     scenes.presentedRevision = scenes.realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
       const realized = scenes.frameRealized.splice(0);
@@ -886,7 +840,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed) scatter.diagnostics(d);
     const { runtime: runtimeMaterials, swaps } = materials;
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...(swaps !== null && (swaps.applied > 0 || swaps.pending() > 0) ? { swapsApplied: swaps.applied, swapsPending: swaps.pending() } : {}), ...runtimeMaterials.diagnostics() };
-    const envDiagnostics = environmentRenderer !== null && !disposed ? environmentRenderer.diagnostics() : null;
+    const envDiagnostics = environment.renderer !== null && !disposed ? environment.renderer.diagnostics() : null;
     if (envDiagnostics !== null) d.environment = envDiagnostics;
     if (!disposed && lastFrameDrawn) d.render = { ...renderControl.diagnostics(), internal: envDiagnostics?.render.internal ?? null };
     if (!disposed) d.quality = { ...qualityControl.diagnostics(), ...(lit.shadowMapSize !== undefined ? { keyShadowMapSize: lit.shadowMapSize } : {}) };
@@ -922,8 +876,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     probes.dispose();
     preparations.clear();
     materials.dispose();
-    environmentRenderer?.dispose();
-    environmentHolds?.releaseHolder('environment');
+    environment.dispose();
     lights.dispose();
     seeThrough.dispose();
     // The model realization first of what holds assets: every in-flight prepare cancelled, a late completion released.
@@ -998,8 +951,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       envLook.preview = view;
       // The editor previews with the project's tags as they are now (presets name lights by tag).
       if (tagBits !== undefined) {
-        envTagBits.clear();
-        for (const [name, bit] of tagBits) envTagBits.set(name.toLowerCase(), bit);
+        envLook.tagBits.clear();
+        for (const [name, bit] of tagBits) envLook.tagBits.set(name.toLowerCase(), bit);
         envLook.appliedKey = ENV_STALE;
       }
     },
@@ -1014,17 +967,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     setEnvironment(value: EnvironmentLike | null): void {
       if (disposed) return;
-      const texturesBefore = JSON.stringify(environmentTextureIds(envLook.value));
-      envLook.setValue(value);
-      qualityControl.setProject(value);
-      if (JSON.stringify(environmentTextureIds(value)) !== texturesBefore && environmentRenderer !== null) {
-        // Other textures: a new environment renderer holds them, and the ones only the old one named are let go.
-        environmentRenderer.dispose();
-        environmentRenderer = null;
-        environmentSize = null;
-        environmentHolds?.releaseHolder('environment');
-        environmentHolds = null;
-      } else environmentRenderer?.set(effectiveEnvironment());
+      environment.setValue(value, (v) => qualityControl.setProject(v));
     },
     setBakes(bakes): void {
       if (disposed) return;
