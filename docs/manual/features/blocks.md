@@ -373,6 +373,15 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     ms against 6.5/9.3 with the same roofs never cut, GPU 10.33 vs 10.32 ms,
     main thread 6.62 vs 6.54 ms; WebGL 2 2.8/6.7 vs 2.6/6.9 ms; one shadow
     draw a frame throughout (the static map never drawn again).
+  - Combine with [see-through](rendering.md#see-through): a cut-away hides
+    whole zones (the roof and upper storeys over the player), see-through
+    thins what is left between the camera and the player (a wall in front, a
+    pillar, a tree outside) to a dither in a circle round them, never
+    floors. Use both for interiors seen from a follow camera: the cut-away so
+    the room is open from above, see-through so the walls on the camera's
+    side don't hide the doorways ([the interiors guide](../guides/interiors.md)).
+    They share one dither pattern, so a fading roof inside the circle is
+    thinned as the larger of the two fades, never more.
 - **Themes** (stored as `kits`; not the same thing as a [kit](#kits), the
   project item that gathers a trim sheet, presets, block types and pieces):
   one layout, several looks — a dungeon and its burnt or ruined state share

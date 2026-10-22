@@ -12,6 +12,7 @@ walks through it.
 | Open ground to the horizon: hills, valleys, roads | [Terrain](terrain.md) | A heightfield with levels of detail; sculpted, painted by rules, streamed |
 | A road, a path, a river, a fence along a curve | A spline ([terrain guide](terrain.md#a-road-or-a-river-splines)) | Shapes and paints the terrain, makes its own mesh and pieces |
 | Rooms and buildings with mouldings, doors and roofs | [Generated architecture](generated-architecture.md) on a block layer | Parameters, not meshes: restyle a whole level by swapping presets |
+| Interiors seen from a follow camera: walls in front out of the way | See-through and a roof cut-away ([interiors guide](interiors.md)) | See-through dithers what is between the camera and the player, never floors; the cut-away hides the roof and the storeys above |
 | A courtyard or village set into a landscape | A block layer on terrain ([terrain guide](terrain.md#a-block-area-on-terrain)) | The ground meets the blocks without a seam |
 | The ground of a side-view (2D) level: slopes, stairs, ledges, pits | A [block layer](block-layers.md) in a 2D project | It collides where it crosses the play plane; one-way block types make ledges |
 

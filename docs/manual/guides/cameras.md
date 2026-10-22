@@ -65,7 +65,9 @@ what is on screen to the new one (**Blend in**: cut, linear or eased over
 Other script calls ([`ctx.camera`](../reference/script-api.md#ctx-camera)):
 `activate(id, {blend, time})`, `deactivate`, `setTarget`, `set(id,
 {distance, yaw, pitch, fovY, letterbox, …})`, `shake(amplitude, seconds)`,
-`worldToScreen` and `screenToRay`.
+`worldToScreen`, `screenToRay` and `setSeeThrough` (walls between the
+camera and the player thin to a dither: see
+[the interiors guide](interiors.md)).
 
 ## Which to use
 

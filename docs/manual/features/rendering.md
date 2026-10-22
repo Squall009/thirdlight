@@ -97,3 +97,122 @@ when it drew the first one.
 Exported games link only three's WebGPU build (`three/webgpu`, which carries
 the whole three core, plus TSL); three's WebGL renderer code is not in the
 bundle.
+
+## See-through
+
+What stands between the camera and a **subject** (the player, a unit) thins
+to a dither in a soft circle round it, so rooms, doorways and paths behind
+walls stay readable while the rest of the scene is drawn as before: the
+occluder fade (x-ray) of isometric and third-person games. It is a camera
+feature and works on everything drawn: boxes, models, characters, instance
+sets, block layers, terrain, generated architecture, scatter copies, decals
+and graph materials. It does not hide whole zones; that is what a block
+layer's [cut-aways](blocks.md#block-layers) do, and the two combine
+(see [the interiors guide](../guides/interiors.md)).
+
+**Turning it on.** Project Settings → Quality → Rendering (MCP:
+[`setSettings`](../reference/ops-detail.md#op-setSettings)):
+
+| Setting | Key | Default | |
+|---|---|---|---|
+| **See-through** | `see_through` | 0 (off) | 1: on in Play and the export |
+| **See-through radius** | `see_through_radius` | 0.2 | the circle's radius as a share of the view's height at the subject; never less than 0.75 × the subject's height, so it covers the body when zoomed in |
+| **See-through softness** | `see_through_softness` | 0.4 | the share of the radius the edge softens over (0: a hard edge) |
+| **See-through max fade** | `see_through_max_fade` | 0.75 | how far what is in front thins at most (up to 0.95) |
+| **See-through depth margin** | `see_through_depth_margin_m` | 0.25 m | how much nearer the camera than the subject a surface must be to fade (what the subject touches stays solid) |
+| **See-through fade time** | `see_through_fade_s` | 0.25 s | how long the fade eases in or out round a subject (0: at once) |
+
+The defaults and ranges are `SEE_THROUGH_DEFAULTS` and `SEE_THROUGH_LIMITS`
+in [the limits reference](../reference/limits-project-model-2.md#limits-project-model--see-through).
+
+**What fades.** A pixel fades only when all three hold: it is inside a
+subject's circle (centred on the middle of its body), it is nearer the
+camera than the subject by more than the depth margin, and it is **higher
+than half the subject's height above its feet**. A subject's height is its
+character controller's capsule, else the bounds of its meshes. The height
+rule is the same everywhere, in a side view, from above and in 3D, in
+every project kind: floors, ground and anything low round the subject never
+fade. On a multi-storey level a character on the stairs fades the slab of the
+storey above, never the one it stands on or those below; walking up hands
+the fade to the next slab up. What is behind the subject never fades.
+
+**A dither, never gone.** The fade stops at the max fade (below 1), so a
+wall, a door or a tree in front stays visible as a see-through pattern. All
+fades share one dither pattern: a faded wall behind another faded wall is
+hidden by the front one's kept pixels, so what is in front is never thinner
+than the max fade, however many layers stand there. The cut-away's fading
+zones use the same pattern, so a pixel both fade is thinned as the larger
+of the two.
+
+**Subjects.** By default the subject is the live
+[virtual camera](scenes-and-cameras.md#cameras-virtual-cameras)'s target (a
+camera without a target fades nothing). A script names any objects instead
+with `ctx.camera.setSeeThrough({subjects: [ids]})` (below). Each view fades
+round the subjects nearest the camera, up to `SEE_THROUGH_SUBJECTS` (4): the
+size of the shader's subject array, a GPU constant, not a cap on the
+project. Ask for more and the farthest are left out, with one Problems line
+`see_through_subjects`. A subject never fades itself or its children; while
+it is a subject it is drawn on its own, out of any automatic batch or merged
+cell (a draw or two), and it rejoins once its fade has gone.
+
+**Opting out.** Everything takes part unless it says otherwise: the
+**See-through** checkbox (`seeThrough: false`) in the Inspector section of a
+box, a model, an instance set, a block layer (per layer), terrain and an
+architecture object (its rooms' walls, floors and ceilings follow it), and
+the toggle on a scatter rule's card (`seeThrough` on the
+[rule](../reference/types-p-u.md#type-scatter-rule)). Off draws it solid
+always: a sign that must stay readable, a glass case. It is a per-draw
+value, so it adds no shader per object, and automatic batching and merged
+statics keep objects that opt out apart from the rest.
+
+**Shadows** are unaffected: a faded wall still casts its full shadow, and
+the shadow maps never take the mask.
+
+**Scripts.** `ctx.camera.setSeeThrough({enabled?, subjects?, radius?,
+softness?, maxFade?, depthMargin?, fadeTime?})` (the visual-script node
+**Set see-through**) changes it while the game runs. Each field is optional;
+the rest stay as the project or an earlier call set them, numbers are
+clamped to their ranges, and a wrong argument changes nothing and returns
+`false`. `subjects: null` or an empty list goes back to the camera's
+target. The change lasts until a new run (loading a scene keeps it) and is
+simulation state like the rest of the camera, so replays and the simulation
+worker give the same view; `tl_game_observe` shows it as
+`camera.seeThrough` once a script set it. See
+[Scenes and cameras](scenes-and-cameras.md#cameras-virtual-cameras).
+
+**The setting decides what is built.** With Rendering → See-through on,
+Play and the export build every shader with the mask at load (a draw no
+subject can reach skips it), so a script can turn see-through off and on at
+any time without a hitch. A game that wants it only in some places keeps
+the setting on and turns it off from a script at the start; the fade's
+easing hides the first frame. With the setting off nothing is built and
+nothing is paid, and a script that turns it on anyway makes every shader be
+built again in the middle of the game: the picture holds meanwhile (about
+half a second on a large interior, a frame or two missed) and Problems says
+once `see_through_rebuild`, with the fix (turn the setting on).
+
+**In the editor.** The Scene view's **see-through** toolbar switch (beside
+the light switch, so it stays in reach in the full-screen edit modes)
+previews it with the project's settings round the selected object — a box,
+a model, a character or an object with drawn children — and otherwise round
+the target of the enabled virtual camera with the highest priority; in the
+edit modes, which select nothing, that camera's target. The switch only
+changes the view: it starts off on each page load and nothing is stored.
+
+**Comparing.** `?seethrough=on|off` on the editor's or an export's URL pins
+it on or off over the project, the host and scripts; `off` also builds the
+shaders without the mask, as a project with the setting off (see
+[the switches](performance.md#performance)).
+
+**Cost.** Measured with 4 subjects on an Iris Xe at 1920 × 1080 at the 60 Hz
+cap, both renderers: no added draws, no added shaders after load, p95
+16.7–16.8 ms and no missed frames, as with see-through off. GPU time
+(WebGPU timestamps): the village's open view costs nothing measurable; a
+two-storey interior (rooms stacked, stairs, 800 props, seen from above like
+a follow camera) costs 1.0 ms (11.17 → 12.15 ms): about 0.27 ms is the
+shaders carrying the mask while nothing fades (paid by every project with
+the setting on), 0.4 ms the mask inside the circles and 0.3 ms drawing the
+rooms the circles reveal. That is over the engine's soft 0.3 ms target and
+is an open defect (D297 in the audit list). On WebGL 2 the GPU process time
+moved by no more than ±0.2 ms. A script turning it on with the setting off
+costs the rebuild above.

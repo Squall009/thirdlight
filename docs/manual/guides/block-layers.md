@@ -131,6 +131,9 @@ hand.
   with **Collision** on is pulled in under the cut roof (the roof still
   collides), so you look at the walls: turn the camera's Collision off, or
   keep its distance short enough to stay inside.
+  For the walls between the camera and the player, add
+  [see-through](../features/rendering.md#see-through) rather than more
+  cut-aways ([the interiors guide](interiors.md)).
 - **A level you walk around in needs a 3D project.** On the 2D plane the
   player moves along X only and the camera looks from the side: start from
   the 3D starter (see *Before you start*).

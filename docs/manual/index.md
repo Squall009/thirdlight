@@ -70,6 +70,7 @@ use and why.
   - [Effects](guides/effects.md)
   - [The animator](guides/animator.md)
   - [Cameras](guides/cameras.md)
+  - [Interiors with a follow camera: see-through and cut-aways](guides/interiors.md)
 - Game logic
   - [Write a script and a shared library](guides/scripts.md)
   - [Visual scripts](guides/visual-scripts.md)

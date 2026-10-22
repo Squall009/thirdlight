@@ -306,19 +306,19 @@ from the top left, with the aspect of the view the game is drawn in).
 `setSeeThrough({enabled?, subjects?, radius?, softness?, maxFade?,
 depthMargin?, fadeTime?})` changes see-through over the project's Rendering
 settings (`subjects`: entity ids; `null` goes back to the camera's target).
-With Rendering → See-through on, Play and the export build their shaders
-ready for it at load (skipped while nothing fades), so a script can turn it
-off at the start and on and off later without a hitch. With the setting off
-nothing is built and nothing is paid; a script that turns it on anyway makes
-every shader be built again then (the picture holds meanwhile) and Problems
-says so.
 Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.
 
-The Scene view's **see-through** toolbar switch previews see-through while you edit,
-with the project's settings, round the selected object (else the live
-camera's target); it only changes the view, never the project.
+**See-through.** What stands between the camera and its target (or the
+subjects a script names) thins to a dither in a soft circle round it; only
+what is nearer the camera and higher than half the subject's height above
+its feet fades, so floors never do. It is turned on in Project Settings →
+Quality → Rendering, previewed with the Scene view's **see-through** switch
+and changed by scripts with `setSeeThrough`. What fades, the subject list,
+opting out, the setting's effect on loading and the cost are in
+[Rendering → See-through](rendering.md#see-through); building an interior
+with it is in [the interiors guide](../guides/interiors.md).
 
 **Editor.** A selected virtual camera shows its frustum where its rig puts
 it (the same maths as Play) and a line to what it looks at; the orbit point
