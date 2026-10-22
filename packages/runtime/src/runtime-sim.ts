@@ -163,4 +163,42 @@ export class RuntimeSim {
   parentOf(id: string): string | null | undefined {
     return this.entities.get(id)?.parentId ?? (this.entities.has(id) ? null : undefined);
   }
+
+  /** An entity's world position and rotation, composed up its parents from the step's transforms (false: not loaded). */
+  worldTransformOf(id: string, position: number[], rotation: number[]): boolean {
+    const t = this.curr.get(id);
+    if (t === undefined) return false;
+    let px = t.position[0], py = t.position[1], pz = t.position[2];
+    let qx = t.rotation[0], qy = t.rotation[1], qz = t.rotation[2], qw = t.rotation[3];
+    let parent = this.entities.get(id)?.parentId ?? null;
+    for (let depth = 0; parent !== null && depth < 64; depth += 1) {
+      const pt = this.curr.get(parent);
+      if (pt === undefined) break;
+      // p := parentPos + parentRot · (parentScale ⊙ p); q := parentRot · q
+      const sx = px * pt.scale[0], sy = py * pt.scale[1], sz = pz * pt.scale[2];
+      const [ax, ay, az, aw] = pt.rotation;
+      const tx = 2 * (ay * sz - az * sy), ty = 2 * (az * sx - ax * sz), tz = 2 * (ax * sy - ay * sx);
+      px = pt.position[0] + sx + aw * tx + (ay * tz - az * ty);
+      py = pt.position[1] + sy + aw * ty + (az * tx - ax * tz);
+      pz = pt.position[2] + sz + aw * tz + (ax * ty - ay * tx);
+      const nx = aw * qx + ax * qw + ay * qz - az * qy;
+      const ny = aw * qy - ax * qz + ay * qw + az * qx;
+      const nz = aw * qz + ax * qy - ay * qx + az * qw;
+      const nw = aw * qw - ax * qx - ay * qy - az * qz;
+      qx = nx;
+      qy = ny;
+      qz = nz;
+      qw = nw;
+      parent = this.entities.get(parent)?.parentId ?? null;
+    }
+    position[0] = px;
+    position[1] = py;
+    position[2] = pz;
+    const len = Math.hypot(qx, qy, qz, qw) || 1;
+    rotation[0] = qx / len;
+    rotation[1] = qy / len;
+    rotation[2] = qz / len;
+    rotation[3] = qw / len;
+    return true;
+  }
 }
