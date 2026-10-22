@@ -88,7 +88,11 @@ Future (owner, 2026-10-21), not planned yet:
   - **adaptive probe placement** (owner, 2026-10-22), instead of an even 2 m
     grid: probes dense near geometry and sparse in open space (bricks
     subdivided by geometry, Unity APV-style), with invalid probes moved or
-    dropped.
+    dropped;
+  - **light modes in probes** (owner, 2026-10-22), like Unity: a *baked*
+    light puts its direct and bounced light into the probes, so moving
+    objects are lit by it; a *mixed* light puts only its bounce there (direct
+    stays realtime); a *realtime* light puts nothing there.
 - **The owner's own dogfood pass**: building a small game from the docs alone
   (deferred from 31.8).
 - **One walk graph for block layers and terrain** (owner, 2026-10-22): the
