@@ -11,13 +11,21 @@
  * its last line), so comments in front of a unit do not count and a nested
  * closure counts on its own as well as inside its parent.
  *
- * Usage: node tools/check-size.mjs              (every unit over the limits, largest first)
- *        node tools/check-size.mjs --near       (also files over FILE_LINES_NEAR)
+ * Units over a limit today are named in the ratchet list (RATCHET_FILE) with
+ * their current size. An entry may only shrink: the check fails when a listed
+ * unit grows, when a unit not on the list goes over a limit, when a listed unit
+ * got smaller than its entry (record the new size, so it cannot grow back) and
+ * when a listed unit fits or is gone (remove its entry).
+ *
+ * Usage: node tools/check-size.mjs              (check; exit 1 on a violation)
+ *        node tools/check-size.mjs --update     (lower shrunk entries, drop fitting ones; never adds or raises)
+ *        node tools/check-size.mjs --list       (every unit over the limits, largest first)
+ *        node tools/check-size.mjs --near       (--list, with files over FILE_LINES_NEAR too)
  */
 
 import ts from 'typescript';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
@@ -27,6 +35,8 @@ export const CLASS_MEMBERS_MAX = 80;
 export const FILE_LINES_MAX = 2000;
 /** Reported with --near: files close enough to the file limit that the next feature should split first. */
 export const FILE_LINES_NEAR = 1800;
+/** The ratchet list, relative to the workspace root. */
+export const RATCHET_FILE = 'tools/size-ratchet.json';
 
 /**
  * Where the check applies: every package's sources, the tools and the repo tests. The file limit holds for
@@ -122,7 +132,7 @@ export function measureUnits(text, fileName = 'source.ts') {
     const isClass = ts.isClassDeclaration(node) || ts.isClassExpression(node);
     if (isFn || isClass) {
       const name = ownName(node, sf) ?? (isClass ? '(class)' : '(function)');
-      const sep = path.length === 0 ? '' : ts.isClassElement(node) ? '.' : ' > ';
+      const sep = path.length === 0 ? '' : node.parent && ts.isClassLike(node.parent) ? '.' : ' > ';
       const base = path.length === 0 ? name : `${path.join('')}${sep}${name}`;
       const count = (seen.get(base) ?? 0) + 1;
       seen.set(base, count);
@@ -189,17 +199,120 @@ export function oversized(root, { fileLimit = FILE_LINES_MAX } = {}) {
   return out.sort((a, b) => order[a.kind] - order[b.kind] || b.size - a.size || a.file.localeCompare(b.file));
 }
 
-function main(argv) {
-  const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-  const near = argv.includes('--near');
-  const found = oversized(root, { fileLimit: near ? FILE_LINES_NEAR : FILE_LINES_MAX });
-  for (const e of found) {
-    const what = e.kind === 'class' ? 'members' : 'lines';
-    console.log(`${e.kind.padEnd(8)} ${String(e.size).padStart(5)} ${what.padEnd(7)} ${e.file}${e.unit === '(file)' ? '' : `  ${e.unit}`}`);
+const keyOf = (e) => `${e.file}\u0000${e.kind}\u0000${e.unit}`;
+const describe = (e) => `${e.file}${e.unit === '(file)' ? '' : ` ${e.unit}`} (${e.kind})`;
+const unitOf = (kind) => (kind === 'class' ? 'members' : 'lines');
+
+/**
+ * The found units against the ratchet entries (`[{ file, unit, kind, size }]`): every violation as
+ * `{ entry, problem: 'new' | 'grew' | 'shrank' | 'stale', size? }` (size: what was found), and the
+ * entries as they should read after an update (shrunk ones lowered, stale ones dropped, nothing added).
+ */
+export function compareRatchet(found, entries) {
+  const byKey = new Map(found.map((e) => [keyOf(e), e]));
+  const listed = new Set();
+  const problems = [];
+  const updated = [];
+  for (const entry of entries) {
+    const key = keyOf(entry);
+    listed.add(key);
+    const now = byKey.get(key);
+    if (!now) {
+      problems.push({ entry, problem: 'stale' });
+      continue;
+    }
+    if (now.size > entry.size) problems.push({ entry, problem: 'grew', size: now.size });
+    else if (now.size < entry.size) problems.push({ entry, problem: 'shrank', size: now.size });
+    updated.push({ ...entry, size: Math.min(entry.size, now.size) });
   }
+  for (const e of found) {
+    if (!listed.has(keyOf(e))) problems.push({ entry: { file: e.file, unit: e.unit, kind: e.kind, size: e.size }, problem: 'new', size: e.size });
+  }
+  return { problems, updated };
+}
+
+/** One violation as a line of the check's output. */
+export function problemText({ entry, problem, size }) {
+  const limit = entry.kind === 'class' ? CLASS_MEMBERS_MAX : entry.kind === 'file' ? FILE_LINES_MAX : FUNCTION_LINES_MAX;
+  const u = unitOf(entry.kind);
+  switch (problem) {
+    case 'new':
+      return `${describe(entry)}: ${size} ${u}, over the limit of ${limit}; split it`;
+    case 'grew':
+      return `${describe(entry)}: grew to ${size} ${u} (the ratchet list allows ${entry.size}); split it, never raise the entry`;
+    case 'shrank':
+      return `${describe(entry)}: shrank to ${size} ${u} (listed at ${entry.size}); record it: node tools/check-size.mjs --update`;
+    default:
+      return `${describe(entry)}: fits the limit of ${limit} now or is gone; drop its entry: node tools/check-size.mjs --update`;
+  }
+}
+
+/** Reads the ratchet list under `root` (an absent file is an empty list). */
+export function readRatchet(root) {
+  let text;
+  try {
+    text = readFileSync(join(root, RATCHET_FILE), 'utf8');
+  } catch {
+    return [];
+  }
+  return JSON.parse(text).entries;
+}
+
+/** Writes the ratchet list: one entry per line, sorted, so a change to it reads as a one-line diff. */
+export function writeRatchet(root, entries) {
+  const order = { file: 0, function: 1, class: 2 };
+  const sorted = [...entries].sort((a, b) => a.file.localeCompare(b.file) || order[a.kind] - order[b.kind] || a.unit.localeCompare(b.unit));
+  const lines = sorted.map((e) => `    ${JSON.stringify({ file: e.file, kind: e.kind, unit: e.unit, size: e.size })}`);
+  mkdirSync(dirname(join(root, RATCHET_FILE)), { recursive: true });
+  writeFileSync(join(root, RATCHET_FILE), `{\n  "entries": [\n${lines.join(',\n')}\n  ]\n}\n`);
+}
+
+/** The check over a workspace root: `{ files, found, problems, updated }`. */
+export function checkSize(root) {
+  const found = oversized(root);
+  const { problems, updated } = compareRatchet(found, readRatchet(root));
+  return { files: checkedFiles(root).length, found, problems, updated };
+}
+
+function main(argv) {
+  const root = process.cwd();
+  if (argv.includes('--list') || argv.includes('--near')) {
+    const near = argv.includes('--near');
+    for (const e of oversized(root, { fileLimit: near ? FILE_LINES_NEAR : FILE_LINES_MAX })) {
+      console.log(`${e.kind.padEnd(8)} ${String(e.size).padStart(5)} ${unitOf(e.kind).padEnd(7)} ${e.file}${e.unit === '(file)' ? '' : `  ${e.unit}`}`);
+    }
+    return 0;
+  }
+  const { files, found, problems, updated } = checkSize(root);
+  if (argv.includes('--update')) {
+    writeRatchet(root, updated);
+    const left = problems.filter((p) => p.problem === 'new' || p.problem === 'grew');
+    for (const p of left) console.error(`check-size: ${problemText(p)}`);
+    console.log(`check-size: ${RATCHET_FILE} updated (${updated.length} entries)`);
+    return left.length > 0 ? 1 : 0;
+  }
+  if (problems.length > 0) {
+    for (const p of problems) console.error(`check-size: ${problemText(p)}`);
+    console.error(
+      `check-size: FAIL — ${problems.length} problem(s). Functions and closures stay within ${FUNCTION_LINES_MAX} lines, ` +
+        `classes within ${CLASS_MEMBERS_MAX} members, files within ${FILE_LINES_MAX} lines; ${RATCHET_FILE} lists today's ` +
+        'larger units, and an entry may only shrink.',
+    );
+    return 1;
+  }
+  console.log(`check-size: OK — ${files} source file(s), ${found.length} unit(s) over a limit, each within its ratchet entry.`);
   return 0;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exit(main(process.argv.slice(2)));
+// Realpath-based, so a symlinked or relative tool path still runs the check.
+function isMain() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  try {
+    return realpathSync(invoked) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
 }
+
+if (isMain()) process.exit(main(process.argv.slice(2)));

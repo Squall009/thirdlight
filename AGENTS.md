@@ -46,6 +46,10 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   it everywhere else. No per-project count caps on assets or resources.
 - Split before growing: a change that adds to a file over 2,000 lines first
   moves the area it touches into its own module.
+- Units stay small too: no function or closure over 400 lines, no class over
+  80 members, no file over 2,000 lines (`tools/check-size.mjs`, in `npm run
+  build`). Today's larger units are listed in `tools/size-ratchet.json`; an
+  entry only shrinks, and goes when the unit fits.
 - Keep `npm run lint` (ESLint, from phase 26.1) green. An `eslint-disable`
   needs its reason on the same line.
 - After each whole phase (e.g. phase 26, not its items 26.1, 26.2, …),
