@@ -64,6 +64,7 @@ import { type ArchitectureComponent, type BlockLayerComponent, type BlockLayerDa
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import type { EnvironmentBlendView } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
+import { AdapterRenderer, type CanvasLike } from './adapter-renderer';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
 import { EntityNode, RenderGraph } from './render-graph';
@@ -111,26 +112,6 @@ import { type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, t
 
 const RENDERER_INFO_LIMIT = 128;
 
-/** Structural canvas surface (duck-typed: the adapter never assumes a
- *  real HTMLCanvasElement, so Node unit tests can pass a stub). */
-interface CanvasLike {
-  getContext?: (type: string, options?: unknown) => unknown;
-  toDataURL?: (type?: string) => string;
-  addEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
-  removeEventListener?: (type: string, listener: (event: unknown) => void, options?: unknown) => void;
-  clientWidth?: number;
-  clientHeight?: number;
-  width?: number;
-  height?: number;
-  setAttribute?: (name: string, value: string) => void;
-}
-
-interface OwnedResources {
-  geometries: THREE.BufferGeometry[];
-  materials: THREE.Material[];
-  /** The renderer handle (the factory's); its renderer may be replaced after a loss. */
-  renderer: RendererHandle | null;
-}
 
 /** An environment preset (project-model's, as the runtime's blend maths takes it). */
 
@@ -239,7 +220,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   /** The graph's revision at the last transform sync (a change: every transform is read again). */
   let syncedRevision = -1;
-  const owned: OwnedResources = { geometries: [], materials: [], renderer: null };
   const reportedViewport: [number, number] = [0, 0];
   let camera: THREE.PerspectiveCamera | null = null;
 
@@ -307,7 +287,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Streaming, scatter, splines, architecture and its rooms, clipped decals, block layers, terrains, see-through.
   const level = createAdapterLevel({
     opts, scene, resources, canvas, graph, materialLibrary, effectiveMaterials, components: (id) => entityDocs.get(id)?.components,
-    realization: () => models.realization, lightmaps: () => lightmaps, staticShadows, batcher, viewCull, renderer: () => owned.renderer?.current() ?? null, lights,
+    realization: () => models.realization, lightmaps: () => lightmaps, staticShadows, batcher, viewCull, renderer: () => canvasRenderer.current(), lights,
     precompile: () => precompile, startModelsIn: () => models.startIn,
   });
   const { stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough } = level;
@@ -379,127 +359,33 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }, opts.materials?.textureRefs);
 
   // --- renderer state (lazy: created on the first successful render) ---
-  const canvasLike = canvas as CanvasLike | null;
-  let renderBackend: 'webgl2' | 'webgpu' | null = null;
-  let rendererInfo: string | null = null;
-  let pixelRatio = 1;
-  let contextAttempted = false;
+  // Made on the first frame (WebGPURenderer initialises asynchronously; set up once ready), with the canvas'
+  // WebGL context lifecycle (adapter-renderer.ts).
+  const canvasRenderer = new AdapterRenderer(canvas as CanvasLike | null, opts, {
+    pixelRatioCap: () => qualityControl.pixelRatioCap(),
+    dropRendererState: () => {
+      environmentRenderer?.dispose();
+      environmentRenderer = null;
+      environmentSize = null;
+    },
+    adopted: (r, api) => {
+      // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
+      effects.player?.setRenderer(r, api);
+      lights.rendererReplaced();
+      // A new renderer (a lost device) builds its programs ahead of its first present too.
+      precompile.restart();
+    },
+  });
+  const canvasLike = canvasRenderer.canvas;
   /** The last frame was skipped (WebGPURenderer still initialising). */
   let lastFrameSkipped = false;
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null }, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
-  /** The renderer choice as last seen (kept for diagnostics after dispose). */
-  let lastRendererInfo: RendererInfo | null = null;
-  let contextLost = false;
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => canvasRenderer.backend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (canvasRenderer.backend === 'webgpu' ? canvasRenderer.current() : null), webgl: () => (canvasRenderer.backend === 'webgl2' ? canvasRenderer.current() : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null }, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
   let disposed = false;
   /** The paint tool's channel view (made the first time it is shown). */
   let channelView: PaintChannelView | null = null;
-  /** Releases of the WebGL context listeners this adapter owns. */
-  const contextListenerReleases: Array<() => void> = [];
-
-  // Observe the WebGL context lifecycle of the canvas this adapter
-  // renders into. Loss is reported as a structured `render_context_lost` (no
-  // render into a dead context); three.js re-initializes its own GL state on
-  // restoration and this adapter clears the flag. The adapter owns exactly
-  // these two listeners and releases them in dispose().
-  if (typeof canvasLike?.addEventListener === 'function') {
-    const onLost = (event: unknown): void => {
-      contextLost = true;
-      const e = event as { preventDefault?: () => void } | null;
-      if (typeof e?.preventDefault === 'function') e.preventDefault();
-    };
-    const onRestored = (): void => {
-      contextLost = false;
-    };
-    canvasLike.addEventListener('webglcontextlost', onLost, false);
-    canvasLike.addEventListener('webglcontextrestored', onRestored, false);
-    contextListenerReleases.push(
-      () => canvasLike.removeEventListener?.('webglcontextlost', onLost, false),
-      () => canvasLike.removeEventListener?.('webglcontextrestored', onRestored, false),
-    );
-  }
-
-  function canvasSize(): [number, number] {
-    const w = Math.max(1, Math.floor(canvasLike?.clientWidth ?? canvasLike?.width ?? 0));
-    const h = Math.max(1, Math.floor(canvasLike?.clientHeight ?? canvasLike?.height ?? 0));
-    return [w, h];
-  }
-
-  /** The renderer generation the environment renderer and shadow probe were set up for. */
-  let rendererGeneration = 0;
-
-  function ensureRenderer(): AdapterError | null {
-    if (disposed) return adapterError('adapter_disposed', 'adapter is disposed');
-    if (owned.renderer) return null;
-    if (contextAttempted) {
-      return adapterError('render_unsupported', 'renderer creation previously failed (no canvas renderer in this environment)');
-    }
-    if (typeof canvasLike?.getContext !== 'function') {
-      contextAttempted = true;
-      return adapterError('canvas_invalid', 'canvas argument is missing or does not expose getContext()');
-    }
-    contextAttempted = true;
-    const preference = opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE;
-    try {
-      // The one renderer factory (WebGPURenderer on WebGPU or WebGL 2).
-      const handle = createRenderer({
-        canvas: canvasLike,
-        preference,
-        source: opts.renderer?.source ?? 'default',
-        antialias: opts.antialias ?? true,
-        powerPreference: 'high-performance',
-        // Opaque black where nothing is drawn (what WebGLRenderer always cleared to).
-        clearColor: 0x000000,
-        clearAlpha: 1,
-        // The game canvas is not drawn to again after dispose: free its WebGL context.
-        loseContextOnDispose: true,
-        ...(opts.renderer?.depthBuffer !== undefined ? { depthBuffer: opts.renderer.depthBuffer } : {}),
-        ...(opts.renderer?.trackTimestamp === true ? { trackTimestamp: true } : {}),
-        ...(opts.renderer?.deps !== undefined ? { deps: opts.renderer.deps } : {}),
-      });
-      owned.renderer = handle;
-      const onChange = opts.renderer?.onChange;
-      if (onChange !== undefined) handle.onChange(() => onChange(handle.info()));
-      pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio, qualityControl.pixelRatioCap());
-      // Set up when it is ready (adoptRenderer): WebGPURenderer initialises asynchronously.
-      return null;
-    } catch {
-      owned.renderer = null;
-      renderBackend = null;
-      rendererInfo = null;
-      return adapterError('render_unsupported', 'renderer creation failed (non-browser environment or no WebGPU/WebGL 2)');
-    }
-  }
-
-  /**
-   * A (re)created WebGPURenderer became ready — set it up, and
-   * rebuild what held the previous renderer (the environment renderer; the
-   * shadow probe runs again).
-   */
-  function adoptRenderer(handle: RendererHandle, r: AnyRenderer): void {
-    if (handle.generation() === rendererGeneration) return;
-    rendererGeneration = handle.generation();
-    environmentRenderer?.dispose();
-    environmentRenderer = null;
-    environmentSize = null;
-    r.setPixelRatio(pixelRatio);
-    const inf = handle.info();
-    renderBackend = inf.api;
-    // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
-    effects.player?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
-    rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
-    lights.rendererReplaced();
-    // A new renderer (a lost device) builds its programs ahead of its first present too.
-    precompile.restart();
-    // The depth buffer the renderer draws with (reversed Z falls back to standard without support).
-    const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
-    const depthMode = depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard';
-    if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depthMode);
-    // Mesh decals take their fixed depth offset only with a standard depth buffer.
-    setDecalDepthMode(depthMode);
-  }
 
   // The simulation's per-object look overrides (ctx.look): applied
   // when one changes, and again when the object's meshes change (a model that
@@ -564,8 +450,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       setLightLimits: (limits) => lights.setLimits(limits),
       reselectLights: selectLights,
       setPixelRatioCap: (cap) => {
-        pixelRatio = renderPixelRatio(globalThis.window?.devicePixelRatio, cap);
-        owned.renderer?.current()?.setPixelRatio(pixelRatio);
+        canvasRenderer.setPixelRatioCap(cap);
         // The post stack follows the new drawing-buffer size.
         environmentSize = null;
       },
@@ -693,7 +578,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const frameStart = performance.now();
     const renderStart = opts.onFrameDrawn !== undefined ? frameStart : 0;
     if (firstRenderCallAt === null) firstRenderCallAt = renderStart;
-    if (contextLost) {
+    if (canvasRenderer.contextLost) {
       // The context is currently lost: render nothing (three.js re-initializes
       // its own GL state on `webglcontextrestored`, which clears this flag).
       return {
@@ -701,12 +586,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         error: adapterError('render_context_lost', 'the WebGL context is lost; the frame was not rendered and the context will be restored by the browser'),
       };
     }
-    const err = ensureRenderer();
+    const err = canvasRenderer.ensure(disposed);
     if (err) return { ok: false, error: err };
     lastFrameSkipped = false;
-    const handle = owned.renderer!;
+    const handle = canvasRenderer.handle!;
     const hInfo = handle.info();
-    lastRendererInfo = hInfo;
+    canvasRenderer.lastInfo = hInfo;
     if (hInfo.state === 'failed') {
       return { ok: false, error: adapterError('render_unsupported', `the renderer could not start: ${hInfo.reason}`.slice(0, 256)) };
     }
@@ -720,7 +605,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lastFrameSkipped = true;
       return { ok: true };
     }
-    adoptRenderer(handle, live);
+    canvasRenderer.adopt(handle, live);
     // While a precompile runs, a skipped frame does none of the frame's work (the transform
     // sync, the batches): the compile gets the main thread, and the frame after it starts from now.
     if (!force && precompile.running(performance.now())) {
@@ -747,7 +632,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (followShadow) lights.followCamera(camera!);
     // The follow shadow and the size first — the shadow probe below is a
     // real frame (it compiles the scene's pipelines), drawn as the game will draw it.
-    const [w, h] = canvasSize();
+    const [w, h] = canvasRenderer.canvasSize();
     // Resize only on a change: setSize rewrites the canvas' drawing buffer,
     // and the environment renderer rebuilds its whole post stack on resize.
     const current = renderer.getSize(tmpSize);
@@ -944,15 +829,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // (the runtime.md adapter block).
     const lit = lights.diagnostics();
     const d: SceneAdapterDiagnostics = {
-      renderBackend,
-      rendererInfo,
-      canvasSize: canvasSize(),
-      pixelRatio,
+      renderBackend: canvasRenderer.backend,
+      rendererInfo: canvasRenderer.info,
+      canvasSize: canvasRenderer.canvasSize(),
+      pixelRatio: canvasRenderer.pixelRatio,
       shadows: lit.shadows,
     };
     const pre = precompile.diagnostics();
     if (pre !== null) d.precompile = pre;
-    const choice = owned.renderer !== null && !disposed ? owned.renderer.info() : lastRendererInfo;
+    const choice = canvasRenderer.handle !== null && !disposed ? canvasRenderer.handle.info() : canvasRenderer.lastInfo;
     if (choice !== null) d.renderer = choice;
     // `shadowReason` is present iff `shadows === 'off'`; the lights that are on.
     if (lit.shadowReason !== undefined) d.shadowReason = lit.shadowReason;
@@ -964,7 +849,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (models.realization !== null && !disposed) {
       d.models = models.realization.counters();
     }
-    const liveRenderer = owned.renderer !== null && !disposed ? owned.renderer.current() : null;
+    const liveRenderer = canvasRenderer.handle !== null && !disposed ? canvasRenderer.handle.current() : null;
     if (liveRenderer !== null) d.gpu = rendererMemory(liveRenderer);
     const fx = disposed ? null : effects.diagnostics();
     if (fx !== null) d.effects = fx;
@@ -1047,11 +932,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (opts.resources === undefined) resources.dispose();
     // Release ALL owned Object3D/material/renderer lifetimes (repeatable
     // disposal, as in runtime.md: no leaked loop, no stale GPU state).
-    for (const release of contextListenerReleases) {
-      try { release(); } catch { /* best effort */ }
-    }
-    contextListenerReleases.length = 0;
-    contextLost = false;
+    canvasRenderer.dispose();
     entities.dispose();
     batcher?.dispose();
     viewCull.dispose();
@@ -1065,20 +946,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     entities.disposeBoxMaterials();
     unitBox.dispose();
     entityDocs.clear();
-    for (const g of owned.geometries) {
-      try { g.dispose(); } catch { /* best effort */ }
-    }
-    for (const m of owned.materials) {
-      try { m.dispose(); } catch { /* best effort */ }
-    }
-    if (owned.renderer) {
-      lastRendererInfo = owned.renderer.info();
-      // The handle disposes the renderer (WebGPURenderer's WebGL 2 backend drops its context).
-      try { owned.renderer.dispose(); } catch { /* best effort */ }
-    }
-    owned.geometries = [];
-    owned.materials = [];
-    owned.renderer = null;
+    // The handle disposes the renderer (WebGPURenderer's WebGL 2 backend drops its context).
+    canvasRenderer.disposeRenderer();
     graph.dispose();
     scene.clear();
     camera = null;
@@ -1092,14 +961,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     renderFrame,
     captureScreenshot,
     captureThumbnail,
-    rendererStarting(): boolean {
-      if (disposed) return false;
-      const h = owned.renderer;
-      // No renderer yet: the next frame creates one, unless that was tried and failed.
-      if (h === null) return !contextAttempted && typeof canvasLike?.getContext === 'function';
-      const state = h.info().state;
-      return state !== 'failed' && state !== 'lost' && (h.current() === null || !h.ready());
-    },
+    rendererStarting: (): boolean => !disposed && canvasRenderer.starting(),
     diagnostics,
     dispose,
     renderedNodes: (entityId, names) => (disposed ? null : models.nodePoses(entityId, names)),
@@ -1232,7 +1094,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     terrains: () => terrains,
     scatter: () => scatter.stored,
     cover: () => scatter.cover,
-    currentRenderer: () => (disposed ? null : (owned.renderer?.current() ?? null)),
+    currentRenderer: () => (disposed ? null : canvasRenderer.current()),
     frameSkipped: () => lastFrameSkipped || precompile.active(),
     lastFrame: () => ({ drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles, samples: msaaMark, batching: batcher !== null && lastFrameDrawn ? batcher.diagnostics() : null }),
   };
