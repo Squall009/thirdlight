@@ -150,6 +150,20 @@ scene with local zones. The phase proves both with one target scene. Read
     runtime;
   - zones are ordinary objects (move, enable, disable).
 
+### Clouds (owner, 2026-10-22)
+
+- The physical sky's clouds move with the scene's **global wind**: drift
+  direction and speed come from it, so changing the wind changes the sky
+  too. Today they are three.js's sky clouds, held still.
+- The physical sky gets **cloud coverage** and **density** settings (0 =
+  clear), plus a time offset so the start looks the same in replays.
+- **Global only:** wind zones don't move clouds, since a zone is local
+  ground wind.
+- **Cost:** no extra pass; it's the sky shader's existing cloud term with
+  moving inputs. Measured in 40.8 with the rest.
+- Generic as everything else: no stylised cloud look. Coverage, density,
+  colour and wind are settings; a game's look comes from its values.
+
 ### Bending away from subjects
 
 The foliage shader pushes vertices away from each subject in the per-view
@@ -183,6 +197,7 @@ is one step in the terrain or scatter e2e.
 | 40.3 | **GPU cover on other surfaces:** baked point sets per chunk for block layers, meshes and architecture, thinned on the GPU through the same renderer. An interior case (moss and debris on a block-built floor) is a test scene. |
 | 40.3b | **One placement pipeline:** stored scatter and the instance brush draw through the same GPU renderer as cover. The old scatter and brush draw paths and the main-thread per-copy LOD pick are removed. Colliders and `ctx.scatter` addresses remain for nearby copies. The landscape and village classes must not regress (both renderers, at the cap), and the landscape class's main thread must fall (D212). |
 | 40.4 | **Wind:** the global wind in the scene environment, `windZone` with blend and priority, the camera-centred wind map, the foliage shader reading it (bend by weight and height), `ctx.environment.setWind`, and the editor (environment panel, zone gizmo). Scatter trees and placed foliage models move with the same wind. |
+| 40.4b | **Clouds:** the physical sky's clouds drift with the global wind; coverage and density settings on the sky (Environment window, presets, `setEnvironment`, `ctx.environment`); deterministic start; both renderers. |
 | 40.5 | **Bending away from subjects** in the foliage shader from the per-view subject list, with radius and strength per rule and per subject. |
 | 40.6 | **Editor:** cover rules on the GPU path in the terrain and block editors (density and layer weights painted as today), a live preview in the Scene view, wind zones placeable and shown, and a Scene view "wind preview" toggle. One step in an existing e2e. |
 | 40.7 | **Stretch: roots take the surface colour** (opt-in material setting, off by default): each instance reads the surface colour at its root and blends the blade base toward it. Kept only if it stays in budget. |
@@ -214,6 +229,8 @@ is one step in the terrain or scatter e2e.
   with a global value and local zones, no shadow casting with SSAO for
   contact, bending from the subject list, root colour as a stretch, and the
   frame rate measured at the cap.
+- 2026-10-22: The owner added clouds that drift with the global wind, with
+  coverage and density settings (40.4b).
 - 2026-10-21: The owner added one placement pipeline (stored scatter, cover
   and the instance brush through one renderer), after the maintainability
   review counted three placement systems.
