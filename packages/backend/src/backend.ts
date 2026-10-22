@@ -16,13 +16,6 @@
  * adapter imports); the default subpath is the executable
  * bootstrap (the owner-deployment entry point).
  */
-import { audioPlaybackProblems } from './audio-gaps';
-import { createScriptNameChecker } from './script-name-problems';
-import { createKitChecker } from './kit-check';
-import { createKitProblemChecker } from './kit-problems';
-import { createBlockProblemChecker } from './block-problems';
-import { createPaintProblemChecker } from './paint-problems';
-import { createOccluderProblemChecker } from './occluder-problems';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -36,8 +29,8 @@ import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config'
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { loadMeshSimplifier, type MeshSimplifier } from '@thirdlight/asset-pipeline';
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
-import { createHeldImagesChecker } from './held-images';
-import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
+import { makeMissingFilesRoute } from './missing-files';
+import { createProblemLog, createProjectChecks } from './problems';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
@@ -79,8 +72,7 @@ import { makeBehaviorSourceRoutes } from './behavior-source-routes';
 import { loadManual, makeDocsRoute, manualSummary } from './docs';
 import { makePlayRoutes } from './play-routes';
 import { comparePin, engineIdentity, makeEngineInfo } from './engine';
-import { createMaterialProblemChecker, materialProblemLine, type MaterialRow } from './material-problems';
-import { createHeightAlphaChecks, createHeightAlphaProblems, makeHeightAlphaRoute } from './height-alpha';
+import { createHeightAlphaChecks, makeHeightAlphaRoute } from './height-alpha';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING };
@@ -117,14 +109,7 @@ export interface Backend {
   };
 }
 
-/** One recorded problem: bounded, log-safe (no secrets, no host paths). */
-export interface Problem {
-  seq: number;
-  at: string;
-  source: 'command' | 'import' | 'compile' | 'play' | 'export' | 'workspace';
-  code: string;
-  message: string;
-}
+export type { Problem } from './problems';
 
 export function createBackend(
   rawConfig: unknown,
@@ -350,22 +335,8 @@ export function createBackend(
     if (!q.ok) {
       return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
     }
-    reportUpgradeNotes(projectId);
-    scriptNames.loaded(projectId);
-    kitProblemChecker.loaded(projectId);
-    heldImages.loaded(projectId);
-    blockProblems.loaded(projectId);
-    paintProblems.loaded(projectId);
-    heightProblems.loaded(projectId);
-    occluderProblems.loaded(projectId);
-    // An editor loading the project: its materials are checked (once; after that, after each change).
-    if (materialChecker.last(projectId) === null) {
-      try {
-        checkMaterials(projectId);
-      } catch (e) {
-        logStartup(`material check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
+    checks.loaded(projectId);
+    checks.loadedByEditor(projectId);
     if (!('manifest' in q)) {
       // queryProject always yields the project shape; this is a defensive
       // guard so the code below narrows to `QueryProjectResult`.
@@ -446,118 +417,16 @@ export function createBackend(
       hint,
     });
 
-  /**
-   * Deliver `mutation.applied` to the project's registered session (every
-   * applied mutation, of any origin). No-op when absent/disconnected.
-   */
-  // ---------- project problems log (editor Problems tab + MCP) ----------
-  const PROBLEMS_PER_PROJECT = 200;
-  const problems = new Map<string, Problem[]>();
-  let problemSeq = 0;
-  const recordProblem = (projectId: string, source: Problem['source'], code: string, message: string): void => {
-    problemSeq += 1;
-    const entry: Problem = { seq: problemSeq, at: new Date(nowMs()).toISOString(), source, code, message: message.slice(0, 256) };
-    const list = problems.get(projectId) ?? [];
-    list.push(entry);
-    if (list.length > PROBLEMS_PER_PROJECT) list.splice(0, list.length - PROBLEMS_PER_PROJECT);
-    problems.set(projectId, list);
-    const s = sessions.sessionForProject(projectId);
-    if (s && s.connected && s.socket) {
-      try {
-        s.socket.send(JSON.stringify({ type: 'problems.added', problem: entry }));
-      } catch {
-        // the Problems query returns it anyway
-      }
-    }
-  };
-
-  /** What the open's format upgrade did (files written, older versions kept, the report's name) goes to the Problems log once. */
-  const reportUpgradeNotes = (projectId: string): void => {
-    for (const note of service.takeUpgradeNotes(projectId)) recordProblem(projectId, 'workspace', 'project_upgraded', note);
-    for (const p of service.takeOpenProblems(projectId)) recordProblem(projectId, 'workspace', p.code, p.message);
-  };
-
-  // The missing asset files (read at the first problems query and after each file check or asset change).
-  const missingFiles = createMissingFiles({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
+  // ---------- project problems log (editor Problems tab + MCP) and the checks that fill it ----------
+  const problemLog = createProblemLog({ nowMs, sendToProject: (projectId, frame) => sendToProject(projectId, frame) });
+  const recordProblem = problemLog.record;
+  const checks = createProjectChecks({ service, recordProblem, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles });
+  const { missingFiles } = checks;
   const missingFilesRoute = makeMissingFilesRoute({ missingFiles, requireAuth, sendJson, sendError });
-
-  // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
-  const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
-  // Kits against the trim sheet spec (the kit editor's checks); their pieces' errors join the kit Problems.
-  const kitChecker = createKitChecker({ service, encoder: textureEncoder });
-  const kitProblemChecker = createKitProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed, pieceErrors: kitChecker.pieceErrors });
-  // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
-  const blockProblems = createBlockProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
-  // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
-  const paintProblems = createPaintProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
-  // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
-  const heightProblems = createHeightAlphaProblems({ service, checks: heightChecks, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
-  // Models' `_OCC` stand-ins that are ignored, being outside their piece (checked on load and after imports).
-  const occluderProblems = createOccluderProblemChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
-  const heightAlphaRoute = makeHeightAlphaRoute({ problems: heightProblems, requireAuth, sendJson, sendError });
+  const heightAlphaRoute = makeHeightAlphaRoute({ problems: checks.heightProblems, requireAuth, sendJson, sendError });
   // The editor's decal atlas: the pages the build plans, composed on request (decal-atlas.ts).
   const decalAtlasRoute = makeDecalAtlasRoutes({ service, port: textureSlots, requireAuth, sendJson, sendError });
-  // Models still holding images when the project extracts every model's: extracted where their files are, the rest listed.
-  const heldImages = createHeldImagesChecker({ service, extract: assetFiles.extractModels, recordProblem: (projectId, code, message) => recordProblem(projectId, 'import', code, message), logStartup, closed: () => closed });
 
-  // ---------- Graph materials' problems (checked on load and after every change) ----------
-  const materialChecker = createMaterialProblemChecker();
-  const materialCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Check a project's materials now; problems that appeared or changed go to the problems log. Null: the project cannot be read. */
-  const checkMaterials = (projectId: string): MaterialRow[] | null => {
-    if (closed) return null;
-    const t = materialCheckTimers.get(projectId);
-    if (t !== undefined) {
-      clearTimeout(t);
-      materialCheckTimers.delete(projectId);
-    }
-    const captured = service.readCapturedV3(projectId);
-    if (!captured.ok) return null;
-    const { rows, changed } = materialChecker.update(projectId, captured.read.content);
-    for (const r of changed) recordProblem(projectId, 'compile', 'material_graph_problems', materialProblemLine(r));
-    return rows;
-  };
-  /** The project's material rows: the last check, else a check now (the load). */
-  const materialRows = (projectId: string): MaterialRow[] | null => (materialCheckTimers.has(projectId) ? null : materialChecker.last(projectId)) ?? checkMaterials(projectId);
-  /** After a change: check soon (coalesced; off the request's path). */
-  const scheduleMaterialCheck = (projectId: string): void => {
-    if (closed || materialCheckTimers.has(projectId)) return;
-    const t = setTimeout(() => {
-      materialCheckTimers.delete(projectId);
-      try {
-        checkMaterials(projectId);
-      } catch (e) {
-        logStartup(`material check of ${projectId} failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }, 25);
-    (t as { unref?: () => void }).unref?.();
-    materialCheckTimers.set(projectId, t);
-  };
-  /**
-   * Whether a change can change a material's compile: the materials
-   * themselves, a standalone graph (a material function), or the texture
-   * assets a graph samples. A scene edit or any other content edit cannot,
-   * and the check reads the whole project.
-   */
-  const changeReachesMaterials = (change: unknown): boolean => {
-    const type = (change as { type?: unknown } | null)?.type;
-    return (
-      type === 'setMaterial' ||
-      type === 'setMaterials' ||
-      type === 'setGraph' ||
-      type === 'graphEdit' ||
-      type === 'publishAsset' ||
-      type === 'removeAsset' ||
-      type === 'importAssets' ||
-      type === 'importResources' ||
-      type === 'setAssetOptions'
-    );
-  };
-  /** Whether a change adds, removes, moves or re-imports an asset record (what the missing-file walk reads). */
-  const changesAssetRecords = (change: unknown): boolean => {
-    const type = (change as { type?: unknown } | null)?.type;
-    return type === 'publishAsset' || type === 'removeAsset' || type === 'importAssets' || type === 'importResources' || type === 'setAssetOptions';
-  };
   // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
   // The manual of the build this process runs: read once now (dist/docs/ the build copied; else the checkout's docs/).
@@ -572,23 +441,7 @@ export function createBackend(
     change: unknown,
     sceneId?: string,
   ): void => {
-    // Materials are checked again after a change that can change what they compile to.
-    if (changeReachesMaterials(change)) {
-      scheduleMaterialCheck(projectId);
-      // Only an asset-record change can change which files are missing (the walk stats every asset, which
-      // on a big project costs a noticeable main-thread pause per burst of graph edits); a material or
-      // graph edit can only change what uses the files already listed.
-      if (changesAssetRecords(change)) missingFiles.schedule(projectId);
-      else missingFiles.scheduleUses(projectId);
-    }
-    scriptNames.changed(projectId, change);
-    kitProblemChecker.changed(projectId, change);
-    heldImages.changed(projectId, change);
-    blockProblems.changed(projectId, change);
-    paintProblems.changed(projectId, change);
-    heightProblems.changed(projectId, change);
-    occluderProblems.changed(projectId, change);
-    for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
+    checks.changed(projectId, change);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     // A full-state/change frame never carries GLB or source bytes.
@@ -1153,7 +1006,7 @@ export function createBackend(
             sendError(res, authError);
             return;
           }
-          const rows = materialRows(projectId);
+          const rows = checks.materialRows(projectId);
           if (rows === null) {
             sendError(res, sessionError('project_not_found', 'not_found', `project ${projectId} cannot be read`), 404);
             return;
@@ -1346,7 +1199,7 @@ export function createBackend(
             sendError(res, authError);
             return;
           }
-          const r = await kitChecker.check(projectId, decodeURIComponent(parts[5]!), { image: query.get('image') === '1' });
+          const r = await checks.kitChecker.check(projectId, decodeURIComponent(parts[5]!), { image: query.get('image') === '1' });
           if (r.ok) sendJson(res, 200, r);
           else sendJson(res, 404, { ok: false, error: { code: r.code, cls: 'validation', message: r.message } });
           return;
@@ -1410,18 +1263,11 @@ export function createBackend(
             return;
           }
           // The graph materials with problems now (checked at the project's load and after each change).
-          const rows = materialRows(projectId);
-          reportUpgradeNotes(projectId);
-          scriptNames.loaded(projectId);
-          kitProblemChecker.loaded(projectId);
-          heldImages.loaded(projectId);
-          blockProblems.loaded(projectId);
-          paintProblems.loaded(projectId);
-          heightProblems.loaded(projectId);
-          occluderProblems.loaded(projectId);
+          const rows = checks.materialRows(projectId);
+          checks.loaded(projectId);
           // The missing asset files (the first page; the missing-files route pages them).
           const missing = missingFiles.firstPage(projectId);
-          const list = problems.get(projectId) ?? [];
+          const list = problemLog.list(projectId);
           sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}), ...(missing !== null ? { missingFiles: missing } : {}) });
           return;
         }
@@ -1680,9 +1526,7 @@ export function createBackend(
           return;
         }
         closed = true;
-        // No material check after close (it would open the project again).
-        for (const t of materialCheckTimers.values()) clearTimeout(t);
-        materialCheckTimers.clear();
+        checks.dispose();
         void headless.dispose();
         if (sweepTimer !== undefined) clearInterval(sweepTimer);
         clearInterval(externalTimer);
