@@ -64,7 +64,8 @@ const EROSION_WORKER: URL | null = (() => {
 })();
 import { createThumbnailCache } from './thumbnails';
 import { createBakeService } from './bake';
-import { isTrustedRequest, parseCidrList } from './trusted';
+import { createAuth } from './auth';
+import { badOriginError, bearerToken, parseQuery, readBody, sendError, sendJson, workspaceError } from './http';
 import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord } from './play';
@@ -184,8 +185,6 @@ export function createBackend(
     ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
   });
   const sessions = new SessionRegistry();
-  const tokenScopes = new Map<string, string>();
-  for (const t of config.tokens) tokenScopes.set(t.token, t.scope);
 
   logStartup(
     `starting: dataRoot=${config.dataRoot} authoring=${config.authoringOrigin} preview=${config.previewOrigin}`,
@@ -257,68 +256,8 @@ export function createBackend(
   let closed = false;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
 
-  // ---------- helpers ----------
-
-  const sendJson = (res: ServerResponse, status: number, body: unknown): void => {
-    res.setHeader('content-type', 'application/json');
-    res.statusCode = status;
-    res.end(JSON.stringify(body));
-  };
-
-  const sendError = (res: ServerResponse, error: SessionError, statusOverride?: number): void => {
-    // The error-class status mapping, with the contract's explicit exceptions:
-    // unauthorized ⇒ 401, bad_origin / session_required ⇒ 403.
-    let status = statusFor(error.cls);
-    if (error.code === 'unauthorized') status = 401;
-    if (error.code === 'bad_origin' || error.code === 'session_required') status = 403;
-    if (statusOverride !== undefined) status = statusOverride;
-    sendJson(res, status, { ok: false, error });
-  };
-
-  const bearerToken = (req: IncomingMessage): string | null => {
-    const h = req.headers.authorization;
-    if (typeof h !== 'string') return null;
-    const m = h.match(/^Bearer\s+(\S+)$/);
-    return m?.[1] ?? null;
-  };
-
-  // A request from a trusted network (config.trustedNetworks, through a
-  // listed proxy's X-Forwarded-For) is the owner without a token. The Origin
-  // allowlist still applies to it.
-  const trustedNetworks = parseCidrList(config.trustedNetworks);
-  const trustedProxies = parseCidrList(config.trustedProxies);
-  const trustedRequest = (req: IncomingMessage): boolean =>
-    isTrustedRequest(req as unknown as Parameters<typeof isTrustedRequest>[0], trustedNetworks, trustedProxies);
-  const tokenScope = (token: string | null, req?: IncomingMessage): string | null => {
-    const scope = token === null ? null : (tokenScopes.get(token) ?? null);
-    if (scope !== null) return scope;
-    return req !== undefined && trustedRequest(req) ? 'admin' : null;
-  };
-
-  /** Absent `Origin` header ⇒ not checked; present ⇒ exact match. */
-  const originRejected = (req: IncomingMessage): string | null => {
-    const o = req.headers.origin;
-    if (typeof o !== 'string') return null;
-    return config.authoringOrigins.includes(o) ? null : o;
-  };
-
-  const badOriginError = (found: string): SessionError =>
-    sessionError('bad_origin', 'validation', 'Origin is not in the authoring allowlist', { found: found.slice(0, 256) });
-
-  /**
-   * Auth for a project-scoped route: an `authoring:<projectId>` token for
-   * this project, or an `admin` token (adminOnly: `admin` only).
-   */
-  const requireAuth = (req: IncomingMessage, projectId: string, adminOnly: boolean): SessionError | null => {
-    const scope = tokenScope(bearerToken(req), req);
-    if (scope === null) return sessionError('unauthorized', 'validation', 'a valid bearer token is required');
-    if (adminOnly) {
-      return scope === 'admin' ? null : sessionError('unauthorized', 'validation', 'this route requires an admin token');
-    }
-    if (scope === 'admin') return null;
-    if (scope === `authoring:${projectId}`) return null;
-    return sessionError('unauthorized', 'validation', 'the token scope does not cover this project');
-  };
+  const auth = createAuth(config);
+  const { tokenScope, requireAuth, originRejected, trustedRequest } = auth;
 
   // Content transport (bounded uploads, jobs, content queries and
   // the authenticated asset-byte read). It delegates every write/read to the
@@ -380,56 +319,6 @@ export function createBackend(
   });
 
 
-  const readBody = (req: IncomingMessage): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; error: SessionError }> =>
-    new Promise((resolve) => {
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      let done = false;
-      req.on('data', (chunk: Uint8Array) => {
-        if (done) return;
-        size += chunk.length;
-        if (size > MAX_HTTP_BODY) {
-          done = true;
-          resolve({ ok: false, error: sessionError('invalid_request', 'validation', 'request body exceeds the 1 MiB bound') });
-          return;
-        }
-        chunks.push(chunk);
-      });
-      req.on('end', () => {
-        if (done) return;
-        done = true;
-        const bytes = new Uint8Array(size);
-        let off = 0;
-        for (const c of chunks) {
-          bytes.set(c, off);
-          off += c.length;
-        }
-        resolve({ ok: true, bytes });
-      });
-      req.on('error', () => {
-        if (!done) {
-          done = true;
-          resolve({ ok: false, error: sessionError('invalid_request', 'validation', 'request body read failed') });
-        }
-      });
-    });
-
-  const parseQuery = (qs: string): Map<string, string> => {
-    const out = new Map<string, string>();
-    if (qs.length === 0) return out;
-    for (const pair of qs.split('&')) {
-      if (pair.length === 0) continue;
-      const eq = pair.indexOf('=');
-      const k = eq === -1 ? pair : pair.slice(0, eq);
-      const v = eq === -1 ? '' : pair.slice(eq + 1);
-      try {
-        out.set(decodeURIComponent(k), decodeURIComponent(v));
-      } catch {
-        // un-decodable pair: dropped
-      }
-    }
-    return out;
-  };
 
   /**
    * The content part of the full state: the size of the project index. The
@@ -524,17 +413,6 @@ export function createBackend(
     };
   };
 
-  /** Surface a workspace/command error through the session layer unchanged
-   * (workspace codes surface through the session operations unchanged). */
-  const workspaceError = (e: CommandError): SessionError =>
-    sessionError(e.code as SessionError['code'], e.cls as SessionError['cls'], e.message, {
-      ...(e.hint !== undefined ? { hint: e.hint } : {}),
-      ...(e.projectId !== undefined ? { projectId: e.projectId } : {}),
-      ...(e.reason !== undefined ? { reason: e.reason } : {}),
-      ...(e.holder !== undefined ? { holder: e.holder } : {}),
-      // Why a project does not load (the model's problems, at most 10) reaches the caller.
-      ...(e.details !== undefined ? { details: e.details } : {}),
-    });
 
   const sessionView = (s: SessionRecord): SessionView => {
     const v: SessionView = {
