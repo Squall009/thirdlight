@@ -95,6 +95,7 @@ new e2e.
 |---|---|
 | 39b.0 | Done 2026-10-22: three.js 0.186.1 still latest; Rapier 0.21.0 (minor) stays planned for 41. Start numbers at 28701f1d (`node tools/check-size.mjs --near`): 50 units over the limits (2 files: `runtime.ts` 3,988, `inspect.ts` 2,876; 39 functions, largest `createSceneAdapter` 1,802, `createBackend` 1,709, `EditorApp` 1,307; 9 classes, `RuntimeInstance` 330, `Viewport` 190, `SessionClientCore` 159 members) and 12 files at 1,800–1,999 lines. Phase 39 full gate: 27 min, e2e 22.1 min wall (43.4 min summed over 182 files; the slowest 30 are 21.8 min: terrain-cdlod 204 s, rendering 129 s, layered-material 117 s, memory 115 s, lightmaps 56 s …). D-rows: 299, ~139 open by text heuristic (C 8, H 13, M 31, L 87; 22 watch). At the 60 Hz cap (`--vsync`) village export, its Scene view and the level area/landscape/interior classes: p95 16.7–16.8 ms, 0 missed frames on both renderers; main thread 2.4–4.6 ms (Scene view 8.3/8.7), WebGPU GPU 9.2–9.9 ms; the fast gate's village check (its own uncapped frame check) p50 5.7 / 4.7 ms (WebGPU / WebGL 2). Full lists: `~/.cache/thirdlight-phase39b/baseline.md`. |
 | 39b.1 | Done 2026-10-22: `tools/check-size.mjs` runs in `npm run build` (after the history check, ~2.5 s): functions/closures ≤ 400 lines, classes ≤ 80 members, files ≤ 2,000 lines, spans from the TypeScript parser. `tools/size-ratchet.json` lists the 50 units over today (2 files, 39 functions, 9 classes); a new or grown unit fails, a shrunk one fails until recorded (`--update`, which only lowers and drops), a fitting or vanished one fails until removed. `tools/check-size.test.mjs` (9 tests, ~13 s) drives the tool on workspaces on disk and checks the repo's own list. AGENTS.md states the rule. No e2e touched. |
+| 39b.2 | Done 2026-10-22 (e4c6f99a … 04c0915f, 7 commits): `RuntimeInstance` is a composition root over `RuntimeSim` (shared step state), `RuntimeFaults`, `RuntimeScenes`, `RuntimeEntities`, `RuntimePhases` + `ScriptContext`/`script-controls`, `RuntimeInput`, `RuntimeCharacters` (physics bridge), `FrameDriver` and `runtime-bindings`. `runtime.ts` 3,988 → 1,752 lines (off the ratchet), `RuntimeInstance` 330 → 147 members (ratchet; the `Runtime` interface alone is 87 of them). Tests unchanged, all vitest green; headless 2D step (sim, interleaved A/B vs 28701f1d) small 0.043–0.047 vs 0.045–0.049 ms, medium 0.109 vs 0.105–0.118, script-heavy 0.040–0.044 vs 0.042–0.044; village at the cap A/B: p95 16.7–16.8, 0 missed, main 4.96/4.54 (base) vs 4.92/4.60 ms (WebGPU/WebGL 2). No e2e touched. |
 
 ## 5. Decision log
 
@@ -168,3 +169,11 @@ new e2e.
   entry is lowered (`node tools/check-size.mjs --update`), so it cannot grow back to its old size; the file
   rule shares the same ratchet list (`runtime.ts`, `inspect.ts`). Units are named by their path of named
   parents (`createBackend > dispatch`, `Viewport.render`), repeats numbered in source order.
+- 2026-10-22 (39b.2, default chosen, owner to confirm): `RuntimeInstance` keeps the public `Runtime` surface as its own
+  methods (one-line delegations to the parts), so callers, the worker protocol and tests that read the instance
+  (`curr`, `controllers`, `captureWorld`, `cameraYawSource`) are unchanged; at 147 members it stays on the ratchet
+  (≤ 80 would need the surface moved off the class, a change to what callers hold). Parts share one `RuntimeSim`
+  (the step state) and report through `RuntimeFaults`; each part names what it reaches in a small host interface.
+  The fast gate's uncapped village check missed on WebGL 2 at 4.9 ms (limit 4.84) on three commits; interleaved
+  A/B against 28701f1d was equal (base 4.7–5.0 ms), host state (D199, D290). `playtest.e2e.ts` `tl_playtest`
+  New game failed once with the D114 preview timeout and passed on rerun.
