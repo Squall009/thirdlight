@@ -20,32 +20,23 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { listTemplates } from './templates';
-import { createPackInstaller, listPacks } from './packs';
+import { listPacks } from './packs';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
-import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
+import { createAssetInspector, createBehaviorCompilerPort, type ContentRoutes } from './content';
+import type { TextureSlotAssembler } from './texture-slots';
+import { createContentServices } from './content-services';
+import { makeFullState } from './full-state';
 import { loadMeshSimplifier, type MeshSimplifier } from '@thirdlight/asset-pipeline';
-import { createAssetFileCheck, reimportProblemLines } from './asset-files';
 import { makeMissingFilesRoute } from './missing-files';
 import { createProblemLog, createProjectChecks } from './problems';
 import { createWsChannel } from './ws-channel';
 import { createExternalEdits } from './external-edits';
-import { createFolderImport } from './folder-import';
-import { createFbxConverter } from './fbx';
-import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
 import { makeDecalAtlasRoutes } from './decal-atlas';
-import { createDecalPageAssembler } from './decal-page-assembly';
-import { createTextureSlotAssembler, type TextureSlotAssembler } from './texture-slots';
-import { createTextureExtraction } from './model-textures';
 import { createErosionRunner } from './erosion-runner';
 
-/** The KTX2 encoder's worker script, when this runs as the built bundle. */
-const KTX2_WORKER: URL | null = (() => {
-  const url = new URL('./ktx2-worker.mjs', import.meta.url);
-  return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
-})();
 /** The script type check's worker beside the bundle (null from source: checks run in process). */
 const TYPE_CHECK_WORKER: URL | null = (() => {
   const url = new URL('./type-check-worker.mjs', import.meta.url);
@@ -56,8 +47,6 @@ const EROSION_WORKER: URL | null = (() => {
   const url = new URL('./erosion-worker.mjs', import.meta.url);
   return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
 })();
-import { createThumbnailCache } from './thumbnails';
-import { createBakeService } from './bake';
 import { createAuth } from './auth';
 import { badOriginError, bearerToken, parseQuery, readBody, sendError, sendJson, workspaceError } from './http';
 import { PlayContentStore } from './play-content';
@@ -73,7 +62,7 @@ import { makeBehaviorSourceRoutes } from './behavior-source-routes';
 import { loadManual, makeDocsRoute, manualSummary } from './docs';
 import { makePlayRoutes } from './play-routes';
 import { comparePin, engineIdentity, makeEngineInfo } from './engine';
-import { createHeightAlphaChecks, makeHeightAlphaRoute } from './height-alpha';
+import { makeHeightAlphaRoute } from './height-alpha';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING };
@@ -229,146 +218,23 @@ export function createBackend(
   const auth = createAuth(config);
   const { tokenScope, requireAuth, originRejected, trustedRequest } = auth;
 
-  // Content transport (bounded uploads, jobs, content queries and
-  // the authenticated asset-byte read). It delegates every write/read to the
-  // injected workspace service and performs no filesystem work itself.
-  const fbx = createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') });
-  // KTX2 encoding on import — a worker thread next to the deployment bundle
-  // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
-  const textureEncoder = KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder();
-  // Per-layer texture slots' arrays (Play, the export and the editor's views), cached in the import cache.
-  // Decal pages ride on the same port: the builds that assemble slot arrays make the pages too.
-  const decalPages = createDecalPageAssembler({ service, encoder: textureEncoder, now: nowMs });
-  // Height in alpha: the albedos layered surfaces blend by height are checked, and an array gives a layer without one a brightness height.
-  const heightChecks = createHeightAlphaChecks({ service, encoder: textureEncoder });
-  const textureSlots: TextureSlotAssembler = { ...createTextureSlotAssembler({ service, encoder: textureEncoder, now: nowMs, heights: heightChecks, refused: (projectId, code, message) => recordProblem(projectId, 'import', code, message) }), decalPages: decalPages.assemble };
-  // A model's "extract textures" import setting: its images become texture assets.
-  const textures = createTextureExtraction({ service, inspector: assetInspector, textureEncoder, now: nowMs });
-  // The game folder is the truth for assets: moved and changed files, the import cache.
-  const assetFiles = createAssetFileCheck({
+  // The content side: imports, the game folder's file check, texture slots and decal pages, packs, the content transport.
+  const { textureEncoder, decalPages, heightChecks, textureSlots, textures, assetFiles, packs, folderImport, contentRoutes } = createContentServices({
+    config,
     service,
-    inspector: assetInspector,
-    fbx,
-    textureEncoder,
-    textures,
-    now: nowMs,
-    onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
+    assetInspector,
+    nowMs,
+    logStartup,
+    recordProblem: (projectId, source, code, message) => recordProblem(projectId, source, code, message),
+    requireAuth,
+    onApplied: (...args) => notifyMutationApplied(...args),
     // A full check is when a Play build is made ahead (the Play routes are made below).
     onChecked: (projectId) => {
       missingFiles.refresh(projectId);
       warmPlay?.(projectId);
     },
-    onReimported: (projectId, reimported) => {
-      for (const line of reimportProblemLines(reimported)) recordProblem(projectId, 'import', 'asset_reimported', line);
-    },
   });
   let warmPlay: ((projectId: string) => void) | undefined;
-  // Engine content packs (the Basic Kit) added to a project as ordinary items, one command at a time.
-  const packs = createPackInstaller({ service, inspector: assetInspector, engineRoot: config.engineRoot, now: nowMs, onApplied: (projectId, r, origin) => notifyMutationApplied(projectId, r.requestId, r.revision, origin, r.change, (r as { sceneId?: string }).sceneId) });
-  // A folder's files are inspected before its importAssets command.
-  const folderImport = createFolderImport({ service, assetFiles, textures, now: nowMs });
-  const contentRoutes = new ContentRoutes({
-    service,
-    now: nowMs,
-    sendJson,
-    sendError,
-    requireAuth,
-    log: logStartup,
-    onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
-    fbx,
-    textureEncoder,
-    textureSlots,
-    assetFiles,
-    thumbnails: createThumbnailCache((projectId) => service.importCacheDir(projectId)),
-    bakes: createBakeService({
-      ...(config.bake !== undefined ? { host: config.bake.host } : {}),
-      blender: config.bake?.blender ?? 'blender',
-      timeoutMs: config.bake?.timeoutMs ?? 3_600_000,
-      workRoot: join(config.dataRoot, 'cache', 'bakes'),
-    }),
-  });
-
-
-
-  /**
-   * The content part of the full state: the size of the project index. The
-   * editor reads what it shows from the index in pages (`queryIndex`) and the
-   * records it needs by id (`queryAssets {ids}`, …) — never a first page
-   * standing in for the catalog. Undefined for a project whose index cannot
-   * be read (the scene full state is still served).
-   */
-  const contentProjection = (projectId: string): Record<string, unknown> | undefined => {
-    const index = service.query({ op: 'queryIndex', projectId, args: { limit: 1, refs: false } });
-    if (!index.ok) return undefined;
-    return { index: { total: (index as unknown as { total: number }).total } };
-  };
-
-  /** The page the editor session's entities (all scenes) are read in; there is no bound on how many. */
-  const SESSION_PAGE = 16_384;
-  const fullState = (projectId: string):
-    | {
-        ok: true;
-        revision: number;
-        manifest: Record<string, unknown>;
-        scene: Record<string, unknown>;
-        history: Record<string, unknown>;
-        workspace: Record<string, unknown>;
-        content?: Record<string, unknown>;
-      }
-    | { ok: false; error: SessionError; status: number } => {
-    const q = service.query({ op: 'queryProject', projectId });
-    if (!q.ok) {
-      return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
-    }
-    checks.loaded(projectId);
-    checks.loadedByEditor(projectId);
-    if (!('manifest' in q)) {
-      // queryProject always yields the project shape; this is a defensive
-      // guard so the code below narrows to `QueryProjectResult`.
-      return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
-    }
-    // Paged, every entity of every scene (a project's size is not capped); a v4
-    // project also names each entity's scene and lists its scenes.
-    const v4 = (q as { scenes?: unknown }).scenes !== undefined;
-    const page = v4 ? SESSION_PAGE : 1024; // a legacy (v1–v3) session reads 1024 pages
-    const entities: unknown[] = [];
-    const entitySceneIds: string[] = [];
-    let total = 0;
-    for (let offset = 0; ; offset += page) {
-      const e = service.query({ op: 'queryEntities', projectId, args: { limit: page, offset } });
-      if (!e.ok) {
-        return { ok: false, error: workspaceError(e.error), status: statusFor(e.error.cls) };
-      }
-      if (!('entities' in e)) {
-        return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
-      }
-      total = e.total;
-      entities.push(...e.entities);
-      const ids = (e as { entitySceneIds?: string[] }).entitySceneIds;
-      if (ids !== undefined) entitySceneIds.push(...ids);
-      if (entities.length >= total || e.entities.length === 0) break;
-    }
-    const scene: Record<string, unknown> = {
-      // The SCENE document's `schemaVersion`
-      // (1/2/3/4) — never the manifest's.
-      schemaVersion: q.scene.schemaVersion,
-      sceneId: q.scene.sceneId,
-      revision: q.revision,
-      entities,
-      ...(v4 ? { entitySceneIds, scenes: (q as { scenes?: unknown }).scenes, startScenes: (q as { startScenes?: unknown }).startScenes } : {}),
-    };
-    const content = contentProjection(projectId);
-    return {
-      ok: true,
-      revision: q.revision,
-      manifest: q.manifest as unknown as Record<string, unknown>,
-      scene,
-      history: q.history as unknown as Record<string, unknown>,
-      workspace: q.workspace as unknown as Record<string, unknown>,
-      ...(content !== undefined ? { content } : {}),
-    };
-  };
-
 
   const sessionView = (s: SessionRecord): SessionView => {
     const v: SessionView = {
@@ -411,6 +277,7 @@ export function createBackend(
   const heightAlphaRoute = makeHeightAlphaRoute({ problems: checks.heightProblems, requireAuth, sendJson, sendError });
   // The editor's decal atlas: the pages the build plans, composed on request (decal-atlas.ts).
   const decalAtlasRoute = makeDecalAtlasRoutes({ service, port: textureSlots, requireAuth, sendJson, sendError });
+  const fullState = makeFullState({ service, checks });
 
   // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
