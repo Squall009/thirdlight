@@ -27,7 +27,6 @@ import { rideOnFrame } from './frame-queues';
 import { PresentationRequests } from './presentation-requests';
 import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
-import { ErrorRing } from './error-ring';
 import { projectFrameRateCap, seeThroughSettingsOfProject, type SaveSchema } from '@thirdlight/project-model';
 
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
@@ -50,7 +49,9 @@ import {
   type PointerSample,
 } from './actions';
 
-import { clipMessage, errorEntryOf, scriptStopReport, ScriptErrorLines, type ErrorCode, type RuntimeError } from './errors';
+import { clipMessage, type RuntimeError } from './errors';
+import { RuntimeSim, cloneCurr, cloneTransform, messageOf, ownerSetOf, type ModuleEntry, type PhaseViews } from './runtime-sim';
+import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
@@ -58,7 +59,7 @@ import { EngineStatsHolder } from './engine-stats';
 import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
-import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
+import type { BehaviorDebugView, BehaviorPropertyView } from './behavior';
 import { offsetEntities, type LiveTagIndex } from './scene-set';
 import { ColliderSystem } from './collider-system';
 import {
@@ -73,7 +74,7 @@ import {
   type BehaviorLogLevel,
   type IntentSet,
 } from './intents';
-import { DuplicateMoveError, PhaseViolationError, frozenContext, liveScopedState, phaseScopedState } from './guard';
+import { frozenContext, liveScopedState, phaseScopedState } from './guard';
 import { deepFreeze } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
@@ -101,13 +102,11 @@ import { createShellControl, deprecatedEngineActionLine } from './scene-list';
 import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
-import { TransformMirror } from './step-buffers';
 import { FrameClock } from './frame-clock';
 import { StepReads, type DrawnSteps } from './step-reads';
 import { CharacterPlacement, ControllerPlacements } from './character-placement';
 import { CharacterDirector } from './character-director';
-import { PhysicsPortFailure, PlayerControllers } from './player-controllers';
-import { actionDiagnostics, behaviorLogTotals, physicsDiagnostics } from './diagnostics-reads';
+import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
   type BehaviorMessage,
@@ -182,74 +181,10 @@ export interface BehaviorLogSink {
   stopped?: (moduleId: string, stop: ScriptStop) => void;
 }
 
-export interface ModuleEntry {
-  id: string;
-  /** The declared phases; `['transform']` for an accepted M1 module. */
-  phases: readonly SimulationPhase[];
-  phased: boolean;
-  instance: SimulationModule | SimulationPhaseModule;
-  owners: readonly string[];
-  /** The reused state view and step context per phase. */
-  views?: Map<SimulationPhase, PhaseViews>;
-  /** `owners` as a set (remade when `owners` is replaced). */
-  ownerSet?: ReadonlySet<string>;
-  ownerSetSource?: readonly string[];
-}
-
-/** A module's owners as a set, remade only when the owners list is replaced. */
-function ownerSetOf(entry: ModuleEntry): ReadonlySet<string> {
-  if (entry.ownerSet === undefined || entry.ownerSetSource !== entry.owners) {
-    entry.ownerSet = new Set(entry.owners);
-    entry.ownerSetSource = entry.owners;
-  }
-  return entry.ownerSet;
-}
-
-/** One module's reused views for one phase. */
-interface PhaseViews {
-  state: SimState;
-  /** The step context (phased modules). */
-  ctx: StepContext | null;
-  /** The intents view the module's current call sees. */
-  intents: IntentSet | null;
-}
-
 /** An `ActionSource.sample()` throw (module_error, reason `input_source_threw`). */
 class InputSourceError extends Error {
   readonly reason = 'input_source_threw';
 }
-
-export function messageOf(e: unknown): string {
-  // Duck-typed: an artifact executed in another realm (the Node `vm` test host)
-  // throws an Error that is not `instanceof` this realm's Error.
-  if (typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string') {
-    const m = (e as { message: string }).message;
-    if (m !== '') return clipMessage(m);
-  }
-  if (e instanceof Error) return clipMessage(e.message !== '' ? e.message : 'Error');
-  try {
-    const s = JSON.stringify(e);
-    if (typeof s === 'string' && s.length > 0) return clipMessage(s);
-  } catch {
-    /* non-serializable — fall through */
-  }
-  return clipMessage(String(e));
-}
-
-export function cloneTransform(t: TransformState): TransformState {
-  return {
-    position: [t.position[0], t.position[1], t.position[2]],
-    rotation: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]],
-    scale: [t.scale[0], t.scale[1], t.scale[2]],
-  };
-}
-
-function cloneCurr(curr: Map<string, TransformState>): Map<string, TransformState> {
-  const out = new Map<string, TransformState>();
-  for (const [id, t] of curr) out.set(id, cloneTransform(t));
-  return out;
-}
-
 
 /** What the runtime is made of: `instantiateRuntime`'s validated, resolved inputs. */
 export interface RuntimeArgs {
@@ -353,51 +288,29 @@ const nowMs = (): number => (typeof performance !== 'undefined' ? performance.no
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 
 export class RuntimeInstance implements Runtime {
-  private stateName: RuntimeStateName;
+  /** The simulation state the parts share (the module set, the entities and their transforms, the step). */
+  private readonly sim: RuntimeSim;
+  /** Errors, Problems lines and the fail-stop. */
+  private readonly faults: RuntimeFaults;
+  /** The step's transforms (integration tests that follow a run step by step read them off the instance). */
+  get curr(): ReadonlyMap<string, TransformState> {
+    return this.sim.curr;
+  }
   private readonly snapshotId: string;
   private readonly revision: number;
-  private readonly hz: number;
-  private readonly dt: number;
   private readonly clock: () => number;
   private readonly clockLabel: 'performance' | 'injected';
   private readonly driverKind: 'raf' | 'manual';
   private onFrame?: () => void;
   private readonly modules: string[];
-  private entries: ModuleEntry[];
   private readonly isM2: boolean;
   private readonly actions: ActionSource;
-  private readonly physics?: PhysicsPort;
-  /**
-   * The 3D port. With it the runtime runs the 3D character phase
-   * (`PlayerControllers.runPhysics3D`) and commits the full position; `physics` is then
-   * absent, so every 2D path (movers, drop-through, queries, respawn) is inert.
-   */
-  private readonly physics3d?: PhysicsPort3D;
   /** Where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
   private cameraYawSource: (() => number | undefined) | null = null;
   /** The colliders in the physics world: placed where their objects are, and those that follow a moving object. */
   private readonly colliders: ColliderSystem;
-  private readonly settings: GameplaySettings;
   /** The player controllers (several share the view in local co-op; the first is what a call naming none means). */
   private readonly controllers: PlayerControllers;
-  private order: readonly string[];
-  private entities: Map<string, SimEntityData>;
-  private entityCount: number;
-  private prev: Map<string, TransformState>;
-  private curr: Map<string, TransformState>;
-  /** The last fully committed step's transforms (fail-stop rendering). */
-  private committed: Map<string, TransformState> | null = null;
-  /**
-   * The step's backup (`prev` after the step) alternates between
-   * two reused copies, and the committed state is a third, so a steady step
-   * allocates no transform objects.
-   */
-  private readonly stepMirrors: readonly [TransformMirror, TransformMirror] = [new TransformMirror(), new TransformMirror()];
-  private readonly committedMirror = new TransformMirror();
-  /** Bumped whenever transforms are added to or removed from `curr` (the mirrors' shape key). */
-  private currShape = 0;
-  private stepIndex = 0;
-  private simTime = 0;
   /** The frame clock: the steps a frame owes, the bounded catch-up and the interpolation alpha. */
   private readonly frameClock = new FrameClock();
   private inputSamples = 0;
@@ -405,20 +318,9 @@ export class RuntimeInstance implements Runtime {
   private settleSteps = 0;
   /** The engine timing in steps. */
   private readonly timing: { settleSteps: number; dropThroughSteps: number };
-  private failedModuleId?: string;
-  private failedPhase?: SimulationPhase;
-  private failedStepIndex?: number;
-  private readonly errorRing = new ErrorRing();
-  /** The visual-script node of the error being fail-stopped (consumed by `failStop`). */
-  private failNodeId: string | undefined = undefined;
-  /** The failing error's compiled script frames (consumed by the fail-stop entry). */
-  private failFrames: CompiledFrame[] = [];
-  private errorCount = 0;
   /** The settle pre-roll is initialization: cancellable before the first frame. */
   private prerollDone = false;
   private needsPreroll = false;
-  private currentPhase?: SimulationPhase;
-  private currentModuleId?: string;
   /** The runtime's per-step intent set. */
   private intents: MutableIntentSet = emptyMutableIntents(-1);
   /** Bumped at every commit and step start; the intents view is remade only when it moved. */
@@ -450,8 +352,6 @@ export class RuntimeInstance implements Runtime {
   private intentCommitCount = 0;
   /** The behavior-log ring sink bound to this instance. */
   private readonly logSink: BehaviorLogSink;
-  /** Last observed behavior log totals (retained after disposal). */
-  private behaviorLogTotals = { logCount: 0, logDropped: 0 };
   // ---- Scene set ---------------------------------------------------------
   /** Every scene of the project (null: one fixed scene, no scene API). */
   private readonly sceneRows: readonly RuntimeSceneRow[] | null;
@@ -562,8 +462,6 @@ export class RuntimeInstance implements Runtime {
   private readonly materialIds: ReadonlySet<string> | null;
   /** `ctx.entity(ref).get/set` — the written fields, the switched-off objects and the end-of-step writes. */
   private readonly entityAccess: EntityAccess;
-  /** The step's pre-step transforms (what `get('transform')` reads during the step). */
-  private stepStart: Map<string, TransformState> | null = null;
   /** `ctx.shell` (the shell's scene list from scripts). */
   private readonly shellControl: import('./types').BehaviorShell;
   /** Project saves (`ctx.saves`). */
@@ -572,15 +470,15 @@ export class RuntimeInstance implements Runtime {
   private readonly environment: EnvironmentDirector;
   /** `ctx.physics` (and the engine modules' queries) with the step's query budget. */
   private readonly queries: PhysicsQueries = new PhysicsQueries(((rt: RuntimeInstance): PhysicsQueryHost => ({
-    get physics() { return rt.physics; },
-    get physics3d() { return rt.physics3d; },
+    get physics() { return rt.sim.physics; },
+    get physics3d() { return rt.sim.physics3d; },
     get controllers() { return rt.controllers; },
     get views() { return rt.views; },
     get grid() { return rt.grid; },
     get tags() { return rt.queryTags; },
     pointer: () => rt.heldPointer,
-    stepIndex: () => rt.stepIndex,
-    warn: (m) => rt.recordBehaviorLog('thirdlight.runtime:physics', 'warn', m),
+    stepIndex: () => rt.sim.stepIndex,
+    warn: (m) => rt.faults.log('thirdlight.runtime:physics', 'warn', m),
   }))(this));
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
@@ -607,12 +505,12 @@ export class RuntimeInstance implements Runtime {
         if (typeof target !== 'string' || target.length > 128) return false;
         to = target;
       }
-      return this.blocks?.sendMessage({ name, value: v, from, stepIndex: this.stepIndex }, to) ?? false;
+      return this.blocks?.sendMessage({ name, value: v, from, stepIndex: this.sim.stepIndex }, to) ?? false;
     },
     received: (to: string, name: unknown): readonly BehaviorMessage[] => (typeof name === 'string' ? (this.blocks?.messagesFor(to, name) ?? []) : []),
     all: (to: string): readonly BehaviorMessage[] => this.blocks?.messagesTo(to) ?? [],
   });
-  private readonly gameControl = createGameControl({ blocks: () => this.blocks, has: (id) => this.curr.has(id), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:counters', 'warn', message) });
+  private readonly gameControl = createGameControl({ blocks: () => this.blocks, has: (id) => this.sim.curr.has(id), warn: (message) => this.faults.log('thirdlight.runtime:counters', 'warn', message) });
   /** Any object's health (`ctx.health`; changes apply at once, events are seen next step). */
   private readonly healthControl = Object.freeze({
     get: (entityId: string): { current: number; max: number } | null => (typeof entityId === 'string' ? (this.blocks?.primitives.healthOf(entityId) ?? null) : null),
@@ -641,10 +539,10 @@ export class RuntimeInstance implements Runtime {
   private readonly climbQuery: ClimbQuery = Object.freeze({ volume: (entityId?: string) => this.blocks?.climbVolume(entityId) ?? null });
   /** Placements, walks, turns, impulses and a cutscene's hold on the player controllers (`ctx.character`, the character track). */
   private readonly director = new CharacterDirector({
-    is3D: () => this.physics3d !== undefined, hz: () => this.hz, settings: () => this.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.curr.get(id), entityDocument: (id) => this.entityDocument(id),
+    is3D: () => this.sim.physics3d !== undefined, hz: () => this.sim.hz, settings: () => this.sim.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.sim.curr.get(id), entityDocument: (id) => this.entityDocument(id),
     channels: (id) => this.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
-    canPlace: () => this.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
-    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.recordBehaviorLog('thirdlight.runtime:character', 'warn', message), loading: () => [...this.sceneStatus.values()].includes('loading') || this.stepSceneOps.some((op) => op.op === 'load' || op.op === 'reload'), moveAction: (id) => this.controllers.actionsOf(id)?.move,
+    canPlace: () => this.sim.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
+    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => [...this.sceneStatus.values()].includes('loading') || this.stepSceneOps.some((op) => op.op === 'load' || op.op === 'reload'), moveAction: (id) => this.controllers.actionsOf(id)?.move,
   });
   /** Per-object look overrides (`ctx.look`; the renderer applies them). */
   private readonly lookControl = Object.freeze({
@@ -677,23 +575,19 @@ export class RuntimeInstance implements Runtime {
   /** Debug commands: declared ones, calls waiting for the next step, this step's calls. */
   private readonly debugCommands = new DebugCommands({
     emitSignal: (name) => this.blocks?.emit(name),
-    dropped: (problem, stepIndex) => this.recordError({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex, reason: 'debug_command_invalid' }),
+    dropped: (problem, stepIndex) => this.faults.record({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex, reason: 'debug_command_invalid' }),
   });
   /** Storage answers queued by the host for the next sampled step. */
   private saveQueue: SaveEvent[] = [];
   /** Scripts' asset handles (`ctx.assets`) and the host's answers waiting for the next sampled step. */
-  private readonly assetHandles = new RuntimeAssetHandles((message) => this.recordBehaviorLog('thirdlight.runtime:assets', 'warn', message));
+  private readonly assetHandles = new RuntimeAssetHandles((message) => this.faults.log('thirdlight.runtime:assets', 'warn', message));
   private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
   /** Effect and decal requests for the renderer (presentation only, never part of the simulation). */
-  private readonly presentation = new PresentationRequests({ stepIndex: () => this.stepIndex, prefab: (id) => this.prefabs.get(id), problem: (code, message) => this.problem(code, message) });
+  private readonly presentation = new PresentationRequests({ stepIndex: () => this.sim.stepIndex, prefab: (id) => this.prefabs.get(id), problem: (code, message) => this.faults.problem(code, message) });
 
   /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
   private readonly kept = new KeptObjects();
-  /** Problems for the author (one Problems line per kind and Play; the host drains them). */
-  private problems: { code: string; message: string }[] = [];
-  private readonly problemCodes = new Set<string>();
-  private readonly scriptErrorLines = new ScriptErrorLines();
   private readonly sceneControl: BehaviorSceneControl;
   private readonly sceneControlHost: SceneRequestHost;
   // ---- Spawned prefab copies ----
@@ -714,17 +608,20 @@ export class RuntimeInstance implements Runtime {
   };
 
   constructor(args: RuntimeArgs) {
-    this.stateName = 'instantiated';
+    this.sim = new RuntimeSim({ hz: args.hz, settings: args.settings, physics: args.physics, physics3d: args.physics3d, entries: args.entries, order: args.order, entities: args.entities, prev: args.prev, curr: args.curr });
+    this.faults = new RuntimeFaults(this.sim, () => {
+      this.loop.cancel();
+      this.needsPreroll = false;
+      this.sim.stateName = 'failed';
+      this.frameClock.alpha = 0;
+    });
     this.snapshotId = args.snapshotId;
     this.revision = args.revision;
-    this.hz = args.hz;
-    this.dt = 1 / args.hz;
     this.clock = args.clock;
     this.clockLabel = args.clockLabel;
     this.driverKind = args.driverKind;
     this.onFrame = args.onFrame;
     this.modules = [...args.modules];
-    this.entries = args.entries;
     this.isM2 = args.isM2;
     this.timing = args.timing;
     this.actions = args.actions;
@@ -732,46 +629,30 @@ export class RuntimeInstance implements Runtime {
     // And again at every restart (a replay, a shell's new game), so every start begins with them.
     this.startVariables = args.variables;
     this.applyStartVariables();
-    this.physics = args.physics;
     const rt = this;
     this.colliders = new ColliderSystem({
       get physics() {
-        return rt.physics;
+        return rt.sim.physics;
       },
       get physics3d() {
-        return rt.physics3d;
+        return rt.sim.physics3d;
       },
-      curr: () => rt.curr,
-      parentOf: (id) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
+      curr: () => rt.sim.curr,
+      parentOf: (id) => rt.sim.parentOf(id),
       inactive: () => rt.entityAccess.inactive(),
-      ownedIds: () => rt.entries.flatMap((entry) => entry.owners),
+      ownedIds: () => rt.sim.entries.flatMap((entry) => entry.owners),
       componentsOf: (id) => rt.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
-      warn: (message) => rt.recordBehaviorLog('thirdlight.runtime:colliders', 'warn', message),
+      warn: (message) => rt.faults.log('thirdlight.runtime:colliders', 'warn', message),
     }, args.modelColliders);
-    if (args.physics3d !== undefined) {
-      this.physics3d = args.physics3d;
-      this.colliders.track(args.initialEntities);
-    }
-    this.settings = args.settings;
-    const loopHost = { running: () => this.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
+    if (args.physics3d !== undefined) this.colliders.track(args.initialEntities);
+    const loopHost = { running: () => this.sim.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
     this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
     this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
     this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.sceneStatus.get(sceneId) === 'loading');
-    this.order = args.order;
-    this.entities = args.entities;
-    this.entityCount = args.order.length;
-    this.prev = args.prev;
-    this.curr = args.curr;
-    // The state committed at the end of the last fully completed step.
-    // Initialized to the instantiate-time state so a fail-stop during the
-    // 12-step settle pre-roll (before any step completes) renders only the
-    // committed initial state — never the abandoned step's transform.
-    this.committedMirror.copyFrom(args.curr, this.currShape);
-    this.committed = this.committedMirror.map;
     this.logSink = args.logSink;
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
-      this.recordBehaviorLog(moduleId, level, message, at);
-    args.logSink.stopped = (moduleId, stop) => { const r = scriptStopReport(moduleId, stop, this.stepIndex); this.recordError(r.entry); const line = this.scriptErrorLines.take(r); if (line !== null) this.problems.push(line); };
+      this.faults.log(moduleId, level, message, at);
+    args.logSink.stopped = (moduleId, stop) => this.faults.scriptStopped(moduleId, stop);
     this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
@@ -799,11 +680,11 @@ export class RuntimeInstance implements Runtime {
       spawned: () => this.spawnedEntities,
       live: (id) => this.grid.isLive(id),
       liveCount: () => this.grid.liveCount,
-      inGame: (id) => this.entities.has(id),
-      transformOf: (id) => this.curr.get(id),
+      inGame: (id) => this.sim.entities.has(id),
+      transformOf: (id) => this.sim.curr.get(id),
       entityRefKeysOf: (b) => this.entityRefKeysOf(b),
       valuesProblem: (b, values) => this.behaviorValuesProblem(b, values),
-      refused: (message) => this.recordError({ code: 'spawn_refused', message: clipMessage(message), stepIndex: this.stepIndex }),
+      refused: (message) => this.faults.record({ code: 'spawn_refused', message: clipMessage(message), stepIndex: this.sim.stepIndex }),
     });
     this.spawnControl = this.spawnRequests.control();
     // The start scenes' block layers; their chunks collide (on the 2D plane, cut at the layer's play plane).
@@ -815,7 +696,7 @@ export class RuntimeInstance implements Runtime {
       args.materialIds,
       this.prefabs,
       args.modelColliders,
-      () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.curr.get(id)?.position),
+      () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.sim.curr.get(id)?.position),
       args.architectureStyles,
       (id) => this.sceneOfEntity(id),
     );
@@ -825,41 +706,41 @@ export class RuntimeInstance implements Runtime {
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
     this.entityAccess = this.buildEntityAccess();
-    this.shellControl = createShellControl({ listedIndex: () => rt.listedSceneIndex(), count: () => rt.sceneList.length, goTo: (i) => void (rt.pendingListedScene = i), problem: (code, message) => rt.problem(code, message) });
+    this.shellControl = createShellControl({ listedIndex: () => rt.listedSceneIndex(), count: () => rt.sceneList.length, goTo: (i) => void (rt.pendingListedScene = i), problem: (code, message) => rt.faults.problem(code, message) });
     this.materials.addEntities(args.initialEntities);
     // The environment preset blend (before the saves, whose sections read it).
     // The first start scene is the active one (its look is the base look).
-    this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message), args.sceneRows !== null ? (args.startBatches[0]?.sceneId ?? null) : null);
+    this.environment = new EnvironmentDirector(this.sim.hz, args.environmentPresets, (message) => this.faults.log('thirdlight.runtime:environment', 'warn', message), args.sceneRows !== null ? (args.startBatches[0]?.sceneId ?? null) : null);
     // Project saves (the document, slots, settings; inert without a save schema).
-    this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message), (code, message) => this.problem(code, message));
+    this.saves = new RuntimeSaves(args.saveSchema, this.sim.hz, this.buildSaveSections(), args.projectSettings, (message) => this.faults.log('thirdlight.runtime:saves', 'warn', message), (code, message) => this.faults.problem(code, message));
     this.animators = new AnimatorSystem(args.animatorControllers, {
-      hz: this.hz,
-      seed: randomSeedOf(this.settings),
+      hz: this.sim.hz,
+      seed: randomSeedOf(this.sim.settings),
       characterIds: () => this.controllers.ids,
-      transformOf: (id) => this.curr.get(id),
+      transformOf: (id) => this.sim.curr.get(id),
       grounded: (id) => this.controllers.grounded(id),
       inactive: () => this.entityAccess.inactive(),
-      stepIndex: () => this.stepIndex,
+      stepIndex: () => this.sim.stepIndex,
       // The look-at reads the models' rigs and world matrices the sockets keep.
       rigOf: (id) => this.sockets.rigOf(id),
       worldMatrix: (id, out) => this.sockets.worldMatrix(id, out),
-      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:animator', 'warn', message),
+      warn: (message) => this.faults.log('thirdlight.runtime:animator', 'warn', message),
     });
     this.animators.add(args.initialEntities);
     // The audio intent log (clip lengths from the snapshot's recorded durations).
-    this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
+    this.audio = new AudioMixer(this.sim.hz, args.audioDurations, () => this.sim.stepIndex);
     this.audioControl = createScriptAudio(this.audio, (id) => this.sceneOfEntity(id));
     // The views and the start set's shots.
-    this.views = new RuntimeViews(this.hz, args.viewLens, {
+    this.views = new RuntimeViews(this.sim.hz, args.viewLens, {
       worldOf: (id, position, rotation) => this.worldTransformOf(id, position, rotation),
       raycast: (origin, direction, maxDistance) => {
         // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
-        const port = this.physics3d;
+        const port = this.sim.physics3d;
         if (port === undefined || typeof port.raycast !== 'function') return null;
         const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
         return hit === null ? null : { distance: hit.distance };
       },
-      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message),
+      warn: (message) => this.faults.log('thirdlight.runtime:camera', 'warn', message),
     }, seeThroughSettingsOfProject(args.settings));
     this.views.add(args.initialEntities);
     // The project UI (inert until a script or a frame uses it).
@@ -871,19 +752,19 @@ export class RuntimeInstance implements Runtime {
       args.dialogue ?? null,
       { set: (p, v) => ui.set(p, v), clear: (p) => ui.clear(p), show: (d) => ui.show(d), hide: (d) => ui.hide(d), isShown: (d) => ui.isShown(d), focus: (d, w) => ui.command('focus', d, w, undefined) },
       this.audio,
-      this.hz,
+      this.sim.hz,
       (id) => {
         const ms = durations[id];
         return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
       },
     );
     // The game modes (inert without modes) — the first run begins in the start mode.
-    this.modes = new ModeState(args.modes, this.hz, {
+    this.modes = new ModeState(args.modes, this.sim.hz, {
       showUi: (doc) => void this.ui.show(doc),
       hideUi: (doc) => void this.ui.hide(doc),
       isShown: (doc) => this.ui.isShown(doc),
       setCamera: (id, blend) => this.views.main.setOverride(id, blend),
-      warn: (message) => this.recordBehaviorLog('thirdlight.runtime:modes', 'warn', message),
+      warn: (message) => this.faults.log('thirdlight.runtime:modes', 'warn', message),
     });
     this.modes.setStartMode(args.startMode);
     this.modes.beginRun(1);
@@ -896,13 +777,13 @@ export class RuntimeInstance implements Runtime {
     // (the characters are the player controllers' objects in both dimensions).
     this.blocks = new GameplayBlocks(
       {
-        hz: this.hz,
-        physics: this.physics,
-        curr: this.curr,
+        hz: this.sim.hz,
+        physics: this.sim.physics,
+        curr: this.sim.curr,
         characters: args.initialEntities.filter((e) => this.controllers.has(e.id)).map((e) => blocksCharacterOf(e, args.physics3d !== undefined)),
         // Gravity bodies fall under the project's gravity, capped at its fall speed.
-        gravityY: this.settings.gravity_y,
-        maxFallSpeed: this.settings.max_fall_speed,
+        gravityY: this.sim.settings.gravity_y,
+        maxFallSpeed: this.sim.settings.max_fall_speed,
         groundEntityId: (id) => rt.controllers.groundEntityId(id),
         // The 3D world (movers posed on it, triggers in 3D).
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.colliders.poses() } : {}),
@@ -915,18 +796,18 @@ export class RuntimeInstance implements Runtime {
     // Sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
     this.sockets = new SocketSystem(args.rigs, {
       get curr() {
-        return rt.curr;
+        return rt.sim.curr;
       },
-      parentOf: (id: string) => rt.entities.get(id)?.parentId ?? (rt.entities.has(id) ? null : undefined),
-      componentsOf: (id: string) => rt.entities.get(id)?.componentKinds ?? (rt.entities.has(id) ? [] : undefined),
+      parentOf: (id: string) => rt.sim.entities.get(id)?.parentId ?? (rt.sim.entities.has(id) ? null : undefined),
+      componentsOf: (id: string) => rt.sim.entities.get(id)?.componentKinds ?? (rt.sim.entities.has(id) ? [] : undefined),
       poseOf: (id: string) => rt.animators.poseOf(id),
-      warn: (message: string) => rt.recordBehaviorLog('thirdlight.runtime:sockets', 'warn', message),
+      warn: (message: string) => rt.faults.log('thirdlight.runtime:sockets', 'warn', message),
     });
     this.sockets.add(args.initialEntities);
     this.settleSockets();
     this.socketControl = this.buildSocketControl();
     // The timelines (inert while the project has none).
-    this.timelines = new TimelineSystem(args.timelines ?? [], this.hz, this.buildTimelineHost());
+    this.timelines = new TimelineSystem(args.timelines ?? [], this.sim.hz, this.buildTimelineHost());
     this.timelineControl = this.buildTimelineControl();
     // The event → cue table listens to the blocks' signals and events.
     if (this.eventCues.length > 0) this.blocks?.enableCueLog();
@@ -941,10 +822,10 @@ export class RuntimeInstance implements Runtime {
    */
   private settleSockets(): void {
     if (!this.sockets.active) return;
-    this.sockets.resolve(this.committed);
+    this.sockets.resolve(this.sim.committed);
     for (const a of this.sockets.list()) {
-      const c = this.curr.get(a.entityId);
-      const p = this.prev.get(a.entityId);
+      const c = this.sim.curr.get(a.entityId);
+      const p = this.sim.prev.get(a.entityId);
       if (c === undefined || p === undefined || p === c) continue;
       for (let k = 0; k < 3; k += 1) p.position[k] = c.position[k]!;
       for (let k = 0; k < 4; k += 1) p.rotation[k] = c.rotation[k]!;
@@ -1009,7 +890,7 @@ export class RuntimeInstance implements Runtime {
   /** Terrain tiles and scatter blobs decoded on the page (by digest): their colliders are built now (between steps). */
   addTerrainTiles(tiles: readonly TerrainSimData[]): void {
     this.grid.addTerrainData(tiles);
-    this.grid.flushCollision(this.physics3d, this.physics);
+    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
   }
 
   /** The cells changed since the run started (tests, saves). */
@@ -1037,8 +918,8 @@ export class RuntimeInstance implements Runtime {
    * script changed the environment. Reading changes nothing the simulation computes.
    */
   readEnvironmentBlend(): EnvironmentBlendView | null {
-    if (this.stateName === 'disposed') return null;
-    return this.environment.view(this.stateName === 'failed' ? 1 : this.frameClock.alpha);
+    if (this.sim.stateName === 'disposed') return null;
+    return this.environment.view(this.sim.stateName === 'failed' ? 1 : this.frameClock.alpha);
   }
 
   /** The committed environment blend as digest text (null until a script changed it). */
@@ -1048,7 +929,7 @@ export class RuntimeInstance implements Runtime {
 
   /** The player's save from the game shell, made now (between steps) and handed to the host with the next requests. */
   requestSave(slot: number, meta?: import('./project-saves').SaveMeta): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
     const problem = this.saves.saveNow(slot, meta ?? {});
     return problem === null ? { ok: true } : { ok: false, error: fail('game_command_invalid', problem, { reason: 'saves' }) };
@@ -1072,7 +953,7 @@ export class RuntimeInstance implements Runtime {
    * entry, or when 64 are already waiting.
    */
   queueSaveEvent(event: SaveEvent): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
     const checked = validateSaveEvents([event]);
     if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
@@ -1093,7 +974,7 @@ export class RuntimeInstance implements Runtime {
 
   /** Queue the host's answer to one asset load for the next sampled step (it rides on that step's input frame). */
   queueAssetAnswer(answer: AssetHandleAnswer): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const checked = validateAssetAnswers([answer]);
     if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `assets answer: ${checked.message}`, { reason: 'assets' }) };
     // A recorded input replays the answers at the steps they arrived when it was recorded; a live one is not added.
@@ -1161,7 +1042,7 @@ export class RuntimeInstance implements Runtime {
 
   /** The last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
   get interpolationAlpha(): number {
-    return this.stateName === 'failed' ? 0 : this.frameClock.alpha;
+    return this.sim.stateName === 'failed' ? 0 : this.frameClock.alpha;
   }
 
   /**
@@ -1254,16 +1135,16 @@ export class RuntimeInstance implements Runtime {
     const rt = this;
     return new EntityAccess({
       doc: (id) => rt.entityDocument(id),
-      stepStartTransform: (id) => rt.stepStart?.get(id) ?? rt.curr.get(id),
+      stepStartTransform: (id) => rt.sim.stepStart?.get(id) ?? rt.sim.curr.get(id),
       get curr() {
-        return rt.curr;
+        return rt.sim.curr;
       },
-      order: () => rt.order,
-      parentOf: (id) => rt.entities.get(id)?.parentId ?? undefined,
+      order: () => rt.sim.order,
+      parentOf: (id) => rt.sim.entities.get(id)?.parentId ?? undefined,
       get controllerIds() {
         return rt.controllers.ids;
       },
-      isPhysicsBody: (id) => rt.controllers.has(id) || rt.entities.get(id)?.hasCollider === true,
+      isPhysicsBody: (id) => rt.controllers.has(id) || rt.sim.entities.get(id)?.hasCollider === true,
       isKept: (id) => rt.kept.has(id),
       keepProblem: (id, keep) => rt.keepProblem(id, keep),
       setKept: (id, keep) => rt.setKept(id, keep),
@@ -1285,8 +1166,8 @@ export class RuntimeInstance implements Runtime {
         if (doc !== undefined) rt.materials.remap(doc, swap);
       },
       inactiveChanged: (off, on) => rt.onInactiveChanged(off, on),
-      record: (entry) => rt.recordError(entry),
-      stepIndex: () => rt.stepIndex,
+      record: (entry) => rt.faults.record(entry),
+      stepIndex: () => rt.sim.stepIndex,
     });
   }
 
@@ -1301,12 +1182,12 @@ export class RuntimeInstance implements Runtime {
     this.blocks?.setInactive(set);
     this.behaviorTicksFn = undefined;
     this.behaviorTicksOff = null;
-    const colliderOf = (id: string): boolean => !this.controllers.has(id) && this.entities.get(id)?.hasCollider === true;
+    const colliderOf = (id: string): boolean => !this.controllers.has(id) && this.sim.entities.get(id)?.hasCollider === true;
     const leaving = off.filter(colliderOf);
     const coming = on.filter(colliderOf);
     if (leaving.length === 0 && coming.length === 0) return;
     const failed = this.colliders.activeChanged(leaving, coming);
-    if (failed !== null) this.failStop('physics_port_error', 'entity_active', failed, this.stepIndex);
+    if (failed !== null) this.faults.failStop('physics_port_error', 'entity_active', failed, this.sim.stepIndex);
   }
 
   /**
@@ -1315,14 +1196,14 @@ export class RuntimeInstance implements Runtime {
    * copies; undefined for a behavior this game has no module for.
    */
   private readonly entityRefKeysOf = (behaviorId: string): readonly string[] | undefined => {
-    const entry = this.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
+    const entry = this.sim.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
     const probe = entry?.instance as { behaviorEntityRefKeys?: () => readonly string[] } | undefined;
     return typeof probe?.behaviorEntityRefKeys === 'function' ? probe.behaviorEntityRefKeys() : undefined;
   };
 
   /** Why values cannot be a spawned copy's own for a behavior (its module's declaration; null: they can, or no module checks them). */
   private behaviorValuesProblem(behaviorId: string, values: Readonly<Record<string, unknown>>): string | null {
-    const entry = this.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
+    const entry = this.sim.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
     const probe = entry?.instance as { behaviorValuesProblem?: (v: Readonly<Record<string, unknown>>) => string | null } | undefined;
     return typeof probe?.behaviorValuesProblem === 'function' ? probe.behaviorValuesProblem(values) : null;
   }
@@ -1338,19 +1219,19 @@ export class RuntimeInstance implements Runtime {
   }
 
   start(): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
+    if (this.sim.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
-    if (this.stateName === 'failed') {
+    if (this.sim.stateName === 'failed') {
       return { ok: false, error: fail('runtime_failed', 'runtime is failed (dispose and instantiate fresh; a failed instance cannot resume)') };
     }
-    if (this.stateName === 'running') {
+    if (this.sim.stateName === 'running') {
       return { ok: false, error: fail('runtime_already_started', 'runtime is already running') };
     }
     // Settle pre-roll (M2 module sets): initialization on the first frame
     // after start, cancellable by stop()/dispose() before that frame.
     if (this.isM2 && !this.prerollDone) this.needsPreroll = true;
-    this.stateName = 'running';
+    this.sim.stateName = 'running';
     // Exactly one driver at any time (normative): one rAF loop, installed here, cancelled on stop/dispose.
     if (this.driverKind === 'raf') this.loop.start();
     // Manual driver: no auto-loop; the host calls tick(), and the first
@@ -1359,12 +1240,12 @@ export class RuntimeInstance implements Runtime {
   }
 
   stop(): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (this.stateName === 'failed') {
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'failed') {
       // stop() from `failed` returns { ok: true } (no driver).
       return { ok: true };
     }
-    if (this.stateName !== 'running') {
+    if (this.sim.stateName !== 'running') {
       return { ok: false, error: fail('runtime_not_running', 'runtime is not running (stop requires running)') };
     }
     // Cancel the driver (the owned listener is removed); the mutable
@@ -1373,22 +1254,22 @@ export class RuntimeInstance implements Runtime {
     this.loop.cancel();
     // A stop before the pre-roll frame cancels the pending initialization.
     this.needsPreroll = false;
-    this.stateName = 'stopped';
+    this.sim.stateName = 'stopped';
     return { ok: true };
   }
 
   tick(nowSeconds: number): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.driverKind === 'raf') {
       return {
         ok: false,
         error: fail('tick_not_allowed', 'tick() is manual-driver only (a second loop source would double-step the simulation)'),
       };
     }
-    if (this.stateName === 'failed') {
+    if (this.sim.stateName === 'failed') {
       return { ok: false, error: fail('runtime_failed', 'runtime is failed (a failed instance is never ticked again)') };
     }
-    if (this.stateName !== 'running') {
+    if (this.sim.stateName !== 'running') {
       return { ok: false, error: fail('runtime_not_running', 'runtime is not running (tick requires running)') };
     }
     if (typeof nowSeconds !== 'number' || !Number.isFinite(nowSeconds)) {
@@ -1405,19 +1286,19 @@ export class RuntimeInstance implements Runtime {
 
   /** The two steps a draw reads now (a failed runtime draws its last committed step). */
   private drawnSteps(): DrawnSteps {
-    const failed = this.stateName === 'failed' && this.committed !== null;
+    const failed = this.sim.stateName === 'failed' && this.sim.committed !== null;
     return {
-      order: this.order,
-      prev: failed ? this.committed! : this.prev,
-      curr: failed ? this.committed! : this.curr,
-      alpha: this.stateName === 'failed' ? 0 : this.frameClock.alpha,
+      order: this.sim.order,
+      prev: failed ? this.sim.committed! : this.sim.prev,
+      curr: failed ? this.sim.committed! : this.sim.curr,
+      alpha: this.sim.stateName === 'failed' ? 0 : this.frameClock.alpha,
     };
   }
 
   getInterpolatedState(): { ok: true; state: InterpolatedState } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const s = this.drawnSteps();
-    return { ok: true, state: { stepIndex: this.stepIndex, simTime: this.simTime, alpha: s.alpha, transforms: this.stepReads.transforms(s) } };
+    return { ok: true, state: { stepIndex: this.sim.stepIndex, simTime: this.sim.simTime, alpha: s.alpha, transforms: this.stepReads.transforms(s) } };
   }
 
   /**
@@ -1427,17 +1308,17 @@ export class RuntimeInstance implements Runtime {
    * no objects per frame. False when the runtime is disposed.
    */
   forEachInterpolated(visit: InterpolatedVisitor): boolean {
-    if (this.stateName === 'disposed') return false;
+    if (this.sim.stateName === 'disposed') return false;
     this.stepReads.forEach(this.drawnSteps(), visit);
     return true;
   }
 
   /** Every entity's committed transform (the last step's state; no interpolation). */
   forEachCommitted(visit: InterpolatedVisitor): boolean {
-    if (this.stateName === 'disposed') return false;
+    if (this.sim.stateName === 'disposed') return false;
     const curr = this.drawnSteps().curr;
     // alpha 0 reads the committed transform as it is.
-    this.stepReads.forEach({ order: this.order, prev: curr, curr, alpha: 0 }, visit);
+    this.stepReads.forEach({ order: this.sim.order, prev: curr, curr, alpha: 0 }, visit);
     return true;
   }
 
@@ -1449,7 +1330,7 @@ export class RuntimeInstance implements Runtime {
    * its own clock.
    */
   forEachStepPair(visit: StepPairVisitor): boolean {
-    if (this.stateName === 'disposed') return false;
+    if (this.sim.stateName === 'disposed') return false;
     this.stepReads.forEachPair(this.drawnSteps(), visit);
     return true;
   }
@@ -1461,7 +1342,7 @@ export class RuntimeInstance implements Runtime {
    * last two steps.
    */
   get interpolationRate(): number {
-    return this.stateName === 'running' && !this.paused && !this.debugHold && this.frameClock.anchored ? this.frameClock.scale : 0;
+    return this.sim.stateName === 'running' && !this.paused && !this.debugHold && this.frameClock.anchored ? this.frameClock.scale : 0;
   }
 
   /**
@@ -1469,7 +1350,7 @@ export class RuntimeInstance implements Runtime {
    * (no allocation). False when the runtime is disposed or has no such entity.
    */
   readInterpolated(id: string, position: number[], rotation: number[], scale: number[]): boolean {
-    if (this.stateName === 'disposed') return false;
+    if (this.sim.stateName === 'disposed') return false;
     return this.stepReads.read(this.drawnSteps(), id, position, rotation, scale);
   }
 
@@ -1483,37 +1364,37 @@ export class RuntimeInstance implements Runtime {
    * pose before the brain's first step), or null for an unknown view.
    */
   readCameraView(position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
-    if (this.stateName === 'disposed') return null;
-    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : cameraBlendOf(this.frameClock.alpha), position, rotation, view);
+    if (this.sim.stateName === 'disposed') return null;
+    return this.views.readInterpolated(this.sim.stateName === 'failed' ? 1 : cameraBlendOf(this.frameClock.alpha), position, rotation, view);
   }
 
   /** `readCameraView` at a given alpha between the last two steps (0 the step before, 1 the last; a failed runtime reads its last step). */
   readCameraViewAt(alpha: number, position: number[], rotation: number[], view?: string): { fovY: number; near: number; far: number; letterbox: number } | null {
-    if (this.stateName === 'disposed') return null;
-    return this.views.readInterpolated(this.stateName === 'failed' ? 1 : alpha, position, rotation, view);
+    if (this.sim.stateName === 'disposed') return null;
+    return this.views.readInterpolated(this.sim.stateName === 'failed' ? 1 : alpha, position, rotation, view);
   }
 
   /** A view's committed state (the live camera, a blend in progress, the pose and lens), or null before its first step. */
   cameraView(view?: string): CameraViewInfo | null {
-    if (this.stateName === 'disposed') return null;
+    if (this.sim.stateName === 'disposed') return null;
     return this.views.view(view);
   }
 
   /** The viewport a view is drawn in (the renderer reports it): screen↔world projection (`ctx.camera`) uses its aspect (16:9 until reported). */
   setCameraViewport(width: number, height: number, view?: string): boolean {
-    if (this.stateName === 'disposed') return false;
+    if (this.sim.stateName === 'disposed') return false;
     return this.views.setViewport(width, height, view);
   }
 
   /** An entity's world position and rotation, composed up its parents from the step's transforms (false: not loaded). */
   private worldTransformOf(id: string, position: number[], rotation: number[]): boolean {
-    const t = this.curr.get(id);
+    const t = this.sim.curr.get(id);
     if (t === undefined) return false;
     let px = t.position[0], py = t.position[1], pz = t.position[2];
     let qx = t.rotation[0], qy = t.rotation[1], qz = t.rotation[2], qw = t.rotation[3];
-    let parent = this.entities.get(id)?.parentId ?? null;
+    let parent = this.sim.entities.get(id)?.parentId ?? null;
     for (let depth = 0; parent !== null && depth < 64; depth += 1) {
-      const pt = this.curr.get(parent);
+      const pt = this.sim.curr.get(parent);
       if (pt === undefined) break;
       // p := parentPos + parentRot · (parentScale ⊙ p); q := parentRot · q
       const sx = px * pt.scale[0], sy = py * pt.scale[1], sz = pz * pt.scale[2];
@@ -1530,7 +1411,7 @@ export class RuntimeInstance implements Runtime {
       qy = ny;
       qz = nz;
       qw = nw;
-      parent = this.entities.get(parent)?.parentId ?? null;
+      parent = this.sim.entities.get(parent)?.parentId ?? null;
     }
     position[0] = px;
     position[1] = py;
@@ -1550,7 +1431,7 @@ export class RuntimeInstance implements Runtime {
   }
 
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
+    if (this.sim.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
     // Stable for the session: the main view's key and the project's lens; aspect is a viewport property.
@@ -1586,7 +1467,7 @@ export class RuntimeInstance implements Runtime {
     sceneId: string,
     result: { ok: true; entities: readonly EntityV3[] } | { ok: false; message: string },
   ): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     // A load cancelled while it was fetched (an unload, a replay) is dropped.
     if (!this.fetchingLoads.has(sceneId)) return { ok: true };
     if (!result.ok) {
@@ -1594,7 +1475,7 @@ export class RuntimeInstance implements Runtime {
       // A transition to a scene that could not be read keeps the world it has.
       this.transitions.delete(sceneId);
       this.setSceneStatus(sceneId, 'unloaded');
-      this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.stepIndex, reason: 'fetch' });
+      this.faults.record({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.sim.stepIndex, reason: 'fetch' });
       return { ok: true };
     }
     this.readyLoads.set(sceneId, result.entities);
@@ -1602,7 +1483,7 @@ export class RuntimeInstance implements Runtime {
   }
 
   requestScene(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const problem = this.sceneOpProblem(op, sceneId, options);
     if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
     this.enqueueSceneOp(op === 'load' ? loadOp(sceneId, options) : { op, sceneId });
@@ -1635,26 +1516,26 @@ export class RuntimeInstance implements Runtime {
    * arrival (the spawn becomes the active one).
    */
   requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (!this.sceneStatus.has(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
     this.placement.arriveAt(spawnId, sceneId);
     return { ok: true };
   }
 
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') {
+    if (this.sim.stateName === 'disposed') {
       return { ok: true, alreadyDisposed: true };
     }
     this.loop.cancel();
-    this.stateName = 'disposed';
+    this.sim.stateName = 'disposed';
     // Capture the behavior log totals before the instances are released so
     // `logCount`/`logDropped` stay observable after disposal.
-    this.behaviorLogDiagnostics();
+    this.faults.behaviorLogTotals();
     // Release the module instances and all references held by the
     // runtime so the heap is reclaimable: dispose is
     // called exactly once on every module instance (including a failed one)
     // and on the port.
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       const d = entry.instance.dispose;
       if (typeof d === 'function') {
         try {
@@ -1664,26 +1545,26 @@ export class RuntimeInstance implements Runtime {
         }
       }
     }
-    this.entries = [];
-    if (this.physics) {
+    this.sim.entries = [];
+    if (this.sim.physics) {
       try {
-        this.physics.dispose();
+        this.sim.physics.dispose();
       } catch {
         /* a failing port dispose must not break runtime disposal */
       }
     }
-    if (this.physics3d) {
+    if (this.sim.physics3d) {
       try {
-        this.physics3d.dispose();
+        this.sim.physics3d.dispose();
       } catch {
         /* a failing port dispose must not break runtime disposal */
       }
     }
-    this.prev = new Map();
-    this.curr = new Map();
-    this.committed = null;
-    this.entities = new Map();
-    this.order = [];
+    this.sim.prev = new Map();
+    this.sim.curr = new Map();
+    this.sim.committed = null;
+    this.sim.entities = new Map();
+    this.sim.order = [];
     this.controllers.clearStaged();
     this.onFrame = undefined;
     this.frameClock.clear();
@@ -1702,16 +1583,16 @@ export class RuntimeInstance implements Runtime {
       this.prerollDone = true;
       this.settleSteps = this.timing.settleSteps;
       for (let i = 0; i < this.timing.settleSteps; i += 1) {
-        if (!this.stepOnceM2(neutralFrame(this.stepIndex))) return; // failed
+        if (!this.stepOnceM2(neutralFrame(this.sim.stepIndex))) return; // failed
       }
-      clock.anchorAt(t, this.simTime);
+      clock.anchorAt(t, this.sim.simTime);
       this.onFrame?.();
       return;
     }
     if (!clock.anchored) {
       // First frame after start: initialize the anchor at that frame
       //  — time before start is never simulated (zero steps).
-      clock.anchorAt(t, this.simTime);
+      clock.anchorAt(t, this.sim.simTime);
       this.onFrame?.();
       return;
     }
@@ -1728,9 +1609,9 @@ export class RuntimeInstance implements Runtime {
         if (this.isM2) {
           if (!this.stepOnceM2()) return;
         } else if (!this.stepOnce()) return;
-        this.stepObserver?.(this.stepIndex);
+        this.stepObserver?.(this.sim.stepIndex);
       }
-      clock.anchorAt(t, this.simTime);
+      clock.anchorAt(t, this.sim.simTime);
       this.onFrame?.();
       return;
     }
@@ -1740,13 +1621,13 @@ export class RuntimeInstance implements Runtime {
       // show another scene — the title background); this is the same step
       // boundary the next step would apply them at, so runs replay alike.
       if (!this.applySceneOps(false)) return;
-      clock.anchorAt(t, this.simTime);
+      clock.anchorAt(t, this.sim.simTime);
       this.onFrame?.();
       return;
     }
     // The game mode's time scale — fewer or more fixed steps per wall second, each
     // step unchanged (1 without modes: exactly the arithmetic before).
-    const due = clock.due(elapsed, this.simTime, this.dt);
+    const due = clock.due(elapsed, this.sim.simTime, this.sim.dt);
     let held = false;
     for (let i = 0; i < due.n; i += 1) {
       if (this.isM2) {
@@ -1754,7 +1635,7 @@ export class RuntimeInstance implements Runtime {
       } else if (!this.stepOnce()) {
         return; // a 3D physics fail-stop (the only way a plain step stops)
       }
-      this.stepObserver?.(this.stepIndex);
+      this.stepObserver?.(this.sim.stepIndex);
       // An observer that held the simulation (an input exercise with `hold`) stops the frame's steps right there.
       if (this.debugHold) {
         this.debugSteps = 0;
@@ -1762,16 +1643,16 @@ export class RuntimeInstance implements Runtime {
         break;
       }
       // A breakpoint holds right after the step it hit.
-      if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
+      if (this.stepWatcher !== null && this.stepWatcher(this.sim.stepIndex)) {
         this.debugHold = true;
         this.debugSteps = 0;
         held = true;
         break;
       }
     }
-    if (held) clock.anchorAt(t, this.simTime);
-    else clock.settle(t, this.simTime, this.dt, due, this.isM2);
-    if (this.modes.active) clock.rescale(t, this.simTime, this.modes.timeScale());
+    if (held) clock.anchorAt(t, this.sim.simTime);
+    else clock.settle(t, this.sim.simTime, this.sim.dt, due, this.isM2);
+    if (this.modes.active) clock.rescale(t, this.sim.simTime, this.modes.timeScale());
     this.onFrame?.();
   }
 
@@ -1780,31 +1661,31 @@ export class RuntimeInstance implements Runtime {
     // Scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
-    if (!this.placement.atBoundary(this.stepIndex + 1)) return false;
+    if (!this.placement.atBoundary(this.sim.stepIndex + 1)) return false;
     // A restart asked for, then the game mode's step start.
-    if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
+    if (this.pendingRestart && !this.restartRun(this.sim.stepIndex + 1)) return false;
     if (this.runStartDue && !this.startRun()) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
     if (!this.syncLiveBlocks()) return false;
-    this.modes.beginStep(this.stepIndex + 1);
-    this.grid.beginStep(this.stepIndex + 1);
-    this.materials.beginStep(this.stepIndex + 1);
+    this.modes.beginStep(this.sim.stepIndex + 1);
+    this.grid.beginStep(this.sim.stepIndex + 1);
+    this.materials.beginStep(this.sim.stepIndex + 1);
     // Nothing in a plain step reads actions, but the input source is sampled all the same: what the host
     // queued for the UI rides on the frame (the pause panel's restart, a relayed replay), and a relayed
     // input exercise counts its frames by the steps that sample it (without it a game without scripts
     // never answered one).
     try {
-      this.sampleAction(this.stepIndex);
+      this.sampleAction(this.sim.stepIndex);
     } catch (e) {
-      this.recordError({ code: 'module_error', message: `input frame refused: ${messageOf(e)}`, stepIndex: this.stepIndex + 1 });
+      this.faults.record({ code: 'module_error', message: `input frame refused: ${messageOf(e)}`, stepIndex: this.sim.stepIndex + 1 });
     }
     // Copy curr before the step; restore it if any module throws
     // (no partial module application). Into the reused step
     // buffer `prev` does not hold (as the M2 step does) — a 3D scene plays on
     // this path, and a fresh copy per step would be ~0.5 KiB of garbage per
     // entity per step.
-    const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
-    backupMirror.copyFrom(this.curr, this.currShape);
+    const backupMirror = this.sim.stepMirrors[this.sim.stepMirrors[0].map === this.sim.prev ? 1 : 0];
+    backupMirror.copyFrom(this.sim.curr, this.sim.currShape);
     const backup = backupMirror.map;
     let failed = false;
     // The module receives the 1-based ordinal of the step being executed:
@@ -1814,22 +1695,22 @@ export class RuntimeInstance implements Runtime {
     // this ordinal semantics. The SimState view still carries completed
     // steps (stepIndex = completed steps at call time;
     // simTime = stepIndex / fixedStepHz).
-    const stepOrdinal = this.stepIndex + 1;
+    const stepOrdinal = this.sim.stepIndex + 1;
     const view: SimState = {
-      order: this.order,
-      entities: this.entities,
-      stepIndex: this.stepIndex,
-      simTime: this.simTime,
-      prev: this.prev,
-      curr: this.curr,
+      order: this.sim.order,
+      entities: this.sim.entities,
+      stepIndex: this.sim.stepIndex,
+      simTime: this.sim.simTime,
+      prev: this.sim.prev,
+      curr: this.sim.curr,
     };
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       // Registration order (each module in registration order).
       try {
         (entry.instance as SimulationModule).step(view, stepOrdinal);
       } catch (e) {
         failed = true;
-        this.recordError({ code: 'module_error', message: `module step threw: ${messageOf(e)}`, stepIndex: stepOrdinal });
+        this.faults.record({ code: 'module_error', message: `module step threw: ${messageOf(e)}`, stepIndex: stepOrdinal });
         break;
       }
     }
@@ -1838,23 +1719,23 @@ export class RuntimeInstance implements Runtime {
       // advance; a module_error diagnostic is recorded. The failed module
       // instance is not re-created; the step keeps no-opping on every
       // subsequent step until disposed.
-      this.curr = cloneCurr(backup);
+      this.sim.curr = cloneCurr(backup);
       return true;
     }
     // Signals, events and messages turn over every step (a 3D step running physics in beforeStep below);
     // a 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
     const held = this.modes.physicsHeld;
-    if (this.physics3d === undefined || held) this.blocks?.turnover(stepOrdinal);
-    if (this.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
+    if (this.sim.physics3d === undefined || held) this.blocks?.turnover(stepOrdinal);
+    if (this.sim.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
     // A respawn places the character (a plain step has no intent phase).
     try {
       this.placement.respawn3DNow();
     } catch (e) {
-      this.curr = cloneCurr(backup);
-      this.failStopFromError(e, stepOrdinal);
+      this.sim.curr = cloneCurr(backup);
+      this.faults.failStopFromError(e, stepOrdinal);
       return false;
     }
-    if (this.physics3d !== undefined && !held) {
+    if (this.sim.physics3d !== undefined && !held) {
       // A 3D game steps its physics in a plain (scene-mode) step
       // too — its character falls and rests under the runtime's 3D phase
       // even without a controller module. The 2D plane's scene mode has no
@@ -1862,17 +1743,17 @@ export class RuntimeInstance implements Runtime {
       // Movers advance and are posed (script-driven colliders too), then after physics
       // the triggers test the player (a scene has no run state: always "playing").
       if (this.colliders.needsSync && !this.syncColliders()) {
-        this.curr = cloneCurr(backup);
+        this.sim.curr = cloneCurr(backup);
         return false;
       }
       try {
         this.queries.beginStep();
         this.blocks?.beforeStep(stepOrdinal);
-        this.controllers.runPhysics3D(this.physics3d);
+        this.controllers.runPhysics3D(this.sim.physics3d);
         this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
       } catch (e) {
-        this.curr = cloneCurr(backup);
-        this.failStopFromError(e, stepOrdinal);
+        this.sim.curr = cloneCurr(backup);
+        this.faults.failStopFromError(e, stepOrdinal);
         return false;
       }
     }
@@ -1888,14 +1769,14 @@ export class RuntimeInstance implements Runtime {
     if (this.eventCues.length > 0) this.playEventCues();
     // Fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
-    this.prev = backup; // prev := curr at the end of step n−1
-    this.stepIndex += 1;
-    this.simTime = this.stepIndex / this.hz; // single division
+    this.sim.prev = backup; // prev := curr at the end of step n−1
+    this.sim.stepIndex += 1;
+    this.sim.simTime = this.sim.stepIndex / this.sim.hz; // single division
     this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped).
     this.stepSockets(null);
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.physics3d, this.physics);
+    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
     if (!this.syncLiveBlocks()) return false;
     return true;
   }
@@ -1905,7 +1786,7 @@ export class RuntimeInstance implements Runtime {
    * caller stops the frame loop immediately.
    */
   private stepOnceM2(actionOverride?: ActionFrame): boolean {
-    const stepIndex = this.stepIndex;
+    const stepIndex = this.sim.stepIndex;
     const ordinal = stepIndex + 1; // the 1-based executed-step index (fixtures)
     // Scene unloads/loads take effect at the step boundary,
     // before the arrivals (a spawn may be in a scene that just loaded).
@@ -1939,9 +1820,9 @@ export class RuntimeInstance implements Runtime {
         action = this.sampleAction(stepIndex);
       } catch (e) {
         if (e instanceof InputFrameError) {
-          this.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex);
+          this.faults.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex);
         } else {
-          this.failStop('module_error', 'input_source_threw', messageOf(e), stepIndex);
+          this.faults.failStop('module_error', 'input_source_threw', messageOf(e), stepIndex);
         }
         return false;
       }
@@ -1953,7 +1834,7 @@ export class RuntimeInstance implements Runtime {
     // reaches the controller; down + jump on a one-way platform drops through.
     this.queries.beginStep();
     // The colliders scripts drive become kinematic bodies before they are first posed.
-    if (this.physics3d !== undefined && this.colliders.needsSync && !this.syncColliders()) return false;
+    if (this.sim.physics3d !== undefined && this.colliders.needsSync && !this.syncColliders()) return false;
     // A game mode may hold physics (the controller, physics, movers and triggers stand still);
     // signals, trigger events and script messages turn over all the same.
     const held = this.modes.physicsHeld;
@@ -1962,15 +1843,15 @@ export class RuntimeInstance implements Runtime {
     this.placement.beginStep();
     action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || this.grid.isOneWayCollider(id), this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
-    const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
-    backupMirror.copyFrom(this.curr, this.currShape);
+    const backupMirror = this.sim.stepMirrors[this.sim.stepMirrors[0].map === this.sim.prev ? 1 : 0];
+    backupMirror.copyFrom(this.sim.curr, this.sim.currShape);
     const backup = backupMirror.map;
     // `ctx.entity(id).get('transform')` reads the step-start transforms; the hidden set's step-start copy starts over.
-    this.stepStart = backup;
+    this.sim.stepStart = backup;
     this.blocks?.beginScriptStep();
     this.controllers.clearStaged();
-    this.currentPhase = undefined;
-    this.currentModuleId = undefined;
+    this.sim.currentPhase = undefined;
+    this.sim.currentModuleId = undefined;
     // The intent set is cleared at the start of every fixed step.
     // Reset in place (the committed writes are frozen copies, never handed out mutable).
     resetMutableIntents(this.intents, stepIndex);
@@ -1991,18 +1872,18 @@ export class RuntimeInstance implements Runtime {
       // switches, the primitives; not while a game mode holds physics).
       if (!held) this.blocks?.afterPhysics(action);
     } catch (e) {
-      this.failStopFromError(e, stepIndex);
+      this.faults.failStopFromError(e, stepIndex);
       return false;
     }
     // The component writes scripts queued in this step, in script order.
     this.entityAccess.applyQueued();
-    if (this.stateName === 'failed') return false;
+    if (this.sim.stateName === 'failed') return false;
     // The timelines, after every script phase and before the camera brain (on this step's input frame).
     if (this.timelines.active) {
       try {
         this.timelines.step(ordinal, action);
       } catch (e) {
-        this.failStopFromError(e, stepIndex);
+        this.faults.failStopFromError(e, stepIndex);
         return false;
       }
     }
@@ -2023,17 +1904,17 @@ export class RuntimeInstance implements Runtime {
     // the end of step n−2): `prev := backup`
     // below, where `backup` is the pre-step `curr` — the post-reset `curr`
     // when a reset wrote at this step's boundary (the no-streak mechanism).
-    this.prev = backup;
-    this.stepIndex += 1;
-    this.simTime = this.stepIndex / this.hz;
+    this.sim.prev = backup;
+    this.sim.stepIndex += 1;
+    this.sim.simTime = this.sim.stepIndex / this.sim.hz;
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.physics3d, this.physics);
+    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
     if (!this.syncLiveBlocks()) return false;
-    this.committedMirror.copyFrom(this.curr, this.currShape);
-    this.committed = this.committedMirror.map;
+    this.sim.committedMirror.copyFrom(this.sim.curr, this.sim.currShape);
+    this.sim.committed = this.sim.committedMirror.map;
     this.animators.step();
     // Attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
-    this.stepSockets(this.committed);
+    this.stepSockets(this.sim.committed);
     // The step's scene requests commit with it.
     if (this.stepSceneOps.length > 0) {
       for (const op of this.stepSceneOps) this.enqueueSceneOp(op);
@@ -2044,12 +1925,12 @@ export class RuntimeInstance implements Runtime {
 
   /** The view the host draws the UI over (`ctx.ui.view()`; false: not a view). */
   setUiView(width: number, height: number, pixelRatio: number): boolean {
-    return this.stateName !== 'disposed' && this.ui.setScreenView(width, height, pixelRatio);
+    return this.sim.stateName !== 'disposed' && this.ui.setScreenView(width, height, pixelRatio);
   }
 
   /** The page's frame statistics (`ctx.stats`; false: not stats). */
   setStats(stats: unknown): boolean {
-    return this.stateName !== 'disposed' && this.engineStats.set(stats);
+    return this.sim.stateName !== 'disposed' && this.engineStats.set(stats);
   }
 
   /** The game's frame-rate cap (`ctx.display.frameRateCap`). */
@@ -2059,12 +1940,12 @@ export class RuntimeInstance implements Runtime {
 
   /** Set the game's frame-rate cap (false: not a cap). */
   setFrameRateCap(fps: unknown): boolean {
-    return this.stateName !== 'disposed' && this.loop.pacer.setCap(fps);
+    return this.sim.stateName !== 'disposed' && this.loop.pacer.setCap(fps);
   }
 
   /** Pace at this cap whatever the game sets (undefined: the game's again). */
   pinFrameRateCap(fps: unknown): boolean {
-    return this.stateName !== 'disposed' && this.loop.pacer.pinCap(fps);
+    return this.sim.stateName !== 'disposed' && this.loop.pacer.pinCap(fps);
   }
 
   framePacing(): FramePacingStats {
@@ -2073,7 +1954,7 @@ export class RuntimeInstance implements Runtime {
 
   /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
   queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const queued = queueUiEventChecked(this.ui, this.uiQueue, event);
     return queued.ok ? queued : { ok: false, error: fail('game_command_invalid', queued.message, { reason: queued.reason, ...(queued.path !== undefined ? { path: queued.path } : {}) }) };
   }
@@ -2085,7 +1966,7 @@ export class RuntimeInstance implements Runtime {
    * replays it and the worker applies it at the same step.
    */
   queueDialogueInput(input: DialogueInputRecord): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (!this.dialogue.enabled) return { ok: false, error: fail('game_command_invalid', 'this game has no conversations', { reason: 'dialogue' }) };
     const checked = validateDialogueInput(input);
     if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `dialogue input: ${checked.message}`, { reason: 'dialogue', path: `/${checked.field}` }) };
@@ -2153,7 +2034,7 @@ export class RuntimeInstance implements Runtime {
     if (c !== undefined) return c;
     const modes = this.modes;
     const none: readonly import('./modes').ModeEventRecord[] = Object.freeze([]);
-    const events = (): readonly import('./modes').ModeEventRecord[] => (phase === 'intent' ? modes.events(this.stepIndex + 1) : none);
+    const events = (): readonly import('./modes').ModeEventRecord[] => (phase === 'intent' ? modes.events(this.sim.stepIndex + 1) : none);
     c = Object.freeze({
       current: (): string => modes.current ?? '',
       previous: (): string => modes.previous ?? '',
@@ -2162,7 +2043,7 @@ export class RuntimeInstance implements Runtime {
       events,
       entered: (modeId?: string): boolean => events().some((e) => e.kind === 'enter' && (modeId === undefined || modeId === '' || e.mode === modeId)),
       exited: (modeId?: string): boolean => events().some((e) => e.kind === 'exit' && (modeId === undefined || modeId === '' || e.mode === modeId)),
-      time: (): number => modes.secondsIn(this.stepIndex + 1),
+      time: (): number => modes.secondsIn(this.sim.stepIndex + 1),
     });
     this.modeControls.set(phase, c);
     return c;
@@ -2171,22 +2052,22 @@ export class RuntimeInstance implements Runtime {
   /** The player spawns loaded now, in entity order. */
   private playerSpawnIds(): string[] {
     const out: string[] = [];
-    for (const id of this.order) if (this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true) out.push(id);
+    for (const id of this.sim.order) if (this.sim.entities.get(id)?.componentKinds?.includes('playerSpawn') === true) out.push(id);
     return out;
   }
 
   /** Where a respawn puts a player controller: the spawn's position, else where it started (null: no such controller). */
   private respawnTarget(spawnId: string | null, player: string): [number, number, number] | null {
     const id = spawnId ?? this.activeSpawn ?? this.playerSpawnIds()[0] ?? null;
-    const t = id !== null ? this.curr.get(id) : undefined;
+    const t = id !== null ? this.sim.curr.get(id) : undefined;
     if (t !== undefined) return [t.position[0], t.position[1], t.position[2]];
-    const data = this.entities.get(player);
+    const data = this.sim.entities.get(player);
     return data === undefined ? null : [data.transform.position[0], data.transform.position[1], data.transform.position[2]];
   }
 
   /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
   private buildLifecycleControl(): import('./types').BehaviorLifecycle {
-    const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
+    const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.sim.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
     return Object.freeze({
       respawn: (spawnId?: string, entityId?: string): boolean => {
         const player = typeof entityId === 'string' || entityId === undefined ? this.controllers.resolve(entityId) : undefined;
@@ -2206,7 +2087,7 @@ export class RuntimeInstance implements Runtime {
       spawnPoint: (): string => this.activeSpawn ?? this.playerSpawnIds()[0] ?? '',
       restart: (): boolean => {
         this.pendingRestart = true;
-        this.problem(LIFECYCLE_RESTART_DEPRECATED.code, `ctx.lifecycle.restart() is deprecated and will be removed (it restarts the whole run); use ${LIFECYCLE_RESTART_DEPRECATED.replacement} — see the migration notes`);
+        this.faults.problem(LIFECYCLE_RESTART_DEPRECATED.code, `ctx.lifecycle.restart() is deprecated and will be removed (it restarts the whole run); use ${LIFECYCLE_RESTART_DEPRECATED.replacement} — see the migration notes`);
         return true;
       },
     });
@@ -2244,8 +2125,8 @@ export class RuntimeInstance implements Runtime {
     // The scripts start over knowing no handle: those still open are released (and reported).
     this.assetHandles.endRun();
     if (!this.restoreStartSet()) return false;
-    for (const [id, data] of this.entities) {
-      const t = this.curr.get(id);
+    for (const [id, data] of this.sim.entities) {
+      const t = this.sim.curr.get(id);
       if (t === undefined) continue;
       for (let k = 0; k < 3; k += 1) t.position[k] = data.transform.position[k]!;
       for (let k = 0; k < 4; k += 1) t.rotation[k] = data.transform.rotation[k]!;
@@ -2264,11 +2145,11 @@ export class RuntimeInstance implements Runtime {
     this.entityAccess.reset();
     // The live blocks start over as fresh objects at the next boundary.
     this.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.spawnedEntities.has(id))));
-    this.grid.flushCollision(this.physics3d, this.physics);
+    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
     this.dialogue.resetRun();
-    this.scriptErrorLines.clear();
+    this.faults.scriptErrorLines.clear();
     this.saves.reset();
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
@@ -2276,24 +2157,24 @@ export class RuntimeInstance implements Runtime {
     // Every module's run reset brings the controllers back in the state they were created in (not a placement's,
     // which starts a character from rest mid-run); right after, the run starts as the first did (`startRun`).
     this.runStartDue = true;
-    const first = this.controllers.first !== undefined ? this.entities.get(this.controllers.first) : undefined;
+    const first = this.controllers.first !== undefined ? this.sim.entities.get(this.controllers.first) : undefined;
     const start: Vec2 = first === undefined ? { x: 0, y: 0 } : { x: first.transform.position[0], y: first.transform.position[1] };
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       if (!entry.phased) continue;
       const instance = entry.instance as SimulationPhaseModule;
       if (typeof instance.reset !== 'function') continue;
-      this.currentModuleId = entry.id;
+      this.sim.currentModuleId = entry.id;
       try {
         instance.reset(this.buildResetContext('replay', ordinal, start, new Set(entry.owners)));
       } catch (e) {
-        this.failStopFromError(e, this.stepIndex);
+        this.faults.failStopFromError(e, this.sim.stepIndex);
         return false;
       }
     }
     // No render streak: prev := curr for the restarted state.
-    const prevMirror = this.stepMirrors[this.stepMirrors[1].map === this.prev ? 1 : 0];
-    prevMirror.copyFrom(this.curr, this.currShape);
-    this.prev = prevMirror.map;
+    const prevMirror = this.sim.stepMirrors[this.sim.stepMirrors[1].map === this.sim.prev ? 1 : 0];
+    prevMirror.copyFrom(this.sim.curr, this.sim.currShape);
+    this.sim.prev = prevMirror.map;
     return true;
   }
 
@@ -2311,14 +2192,14 @@ export class RuntimeInstance implements Runtime {
     for (const sceneId of t.unload) {
       const problem = sceneId === t.scene ? `it unloads the scene it loads (${JSON.stringify(sceneId)})` : this.sceneOpProblem('unload', sceneId);
       if (problem !== null) {
-        this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: 'unload' });
+        this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
         continue;
       }
       unload.push(sceneId);
     }
     const problem = this.sceneOpProblem('load', t.scene);
     if (problem !== null) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.stepIndex, reason: 'load' });
+      this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.sim.stepIndex, reason: 'load' });
       // Nothing to wait for: the unloads go as before.
       for (const sceneId of unload) this.enqueueSceneOp({ op: 'unload', sceneId });
       return;
@@ -2343,7 +2224,7 @@ export class RuntimeInstance implements Runtime {
     this.pendingListedScene = null;
     const entry = Number.isInteger(index) ? this.sceneList[index] : undefined;
     if (entry === undefined) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`the scene list has no entry ${String(index)}`), stepIndex: this.stepIndex, reason: 'load' });
+      this.faults.record({ code: 'scene_invalid', message: clipMessage(`the scene list has no entry ${String(index)}`), stepIndex: this.sim.stepIndex, reason: 'load' });
       return;
     }
     if (this.listedScene === null) this.listedScene = this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
@@ -2407,18 +2288,18 @@ export class RuntimeInstance implements Runtime {
   private buildPlayerControllers(ids: readonly string[], entities: readonly EntityV3[]): PlayerControllers {
     const rt = this;
     return new PlayerControllers({
-      hz: rt.hz,
-      settings: rt.settings,
-      physics: rt.physics,
-      physics3d: rt.physics3d,
-      curr: () => rt.curr,
-      currentPhase: () => rt.currentPhase,
+      hz: rt.sim.hz,
+      settings: rt.sim.settings,
+      physics: rt.sim.physics,
+      physics3d: rt.sim.physics3d,
+      curr: () => rt.sim.curr,
+      currentPhase: () => rt.sim.currentPhase,
       carry2D: (id) => rt.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
       carry3D: (id) => rt.blocks?.carryDelta3(id) ?? [0, 0, 0],
-      flushCollision: () => rt.grid.flushCollision(rt.physics3d, rt.physics),
+      flushCollision: () => rt.grid.flushCollision(rt.sim.physics3d, rt.sim.physics),
       countStep: () => void (rt.physicsSteps += 1),
       status3D: (id) => {
-        for (const entry of rt.entries) {
+        for (const entry of rt.sim.entries) {
           const probe = entry.instance as { character3DStatus?: (id?: string) => { enabled: boolean; climbing: boolean; yaw: number } | null };
           if (typeof probe.character3DStatus === 'function') return probe.character3DStatus(id);
         }
@@ -2432,21 +2313,21 @@ export class RuntimeInstance implements Runtime {
   private buildCharacterPlacement(controllerId: string): CharacterPlacement {
     const rt = this;
     return new CharacterPlacement({
-      is3D: () => rt.physics3d !== undefined,
+      is3D: () => rt.sim.physics3d !== undefined,
       controllerId: () => controllerId,
-      transform: (id) => rt.curr.get(id),
+      transform: (id) => rt.sim.curr.get(id),
       entityDocument: (id) => rt.entityDocument(id),
       sceneLoading: (sceneId) => rt.sceneStatus.get(sceneId) === 'loading',
       setActiveSpawn: (spawnId) => {
         rt.activeSpawn = spawnId;
       },
-      arrivalMissed: (message) => rt.recordError({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.stepIndex, reason: 'transfer' }),
+      arrivalMissed: (message) => rt.faults.record({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.sim.stepIndex, reason: 'transfer' }),
       isKept: (id) => rt.kept.has(id),
       listedSpawnOf: (sceneId) => rt.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined)?.spawn,
       place3D: (x, y, z) => rt.controllers.place3D(controllerId, x, y, z),
       place2D: (x, y, ordinal) => rt.placeCharacter2D(controllerId, x, y, ordinal),
       faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
-      failStop: (e) => rt.failStopFromError(e, rt.stepIndex),
+      failStop: (e) => rt.faults.failStopFromError(e, rt.sim.stepIndex),
       intents: () => rt.channelsOf(controllerId),
       intentsChanged: () => {
         rt.intentsVersion += 1;
@@ -2454,7 +2335,7 @@ export class RuntimeInstance implements Runtime {
       setImpulse: (v) => rt.controllers.setImpulse(controllerId, v),
       // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
       lastMotion: () => rt.controllers.lastMotion(controllerId),
-      hz: () => rt.hz,
+      hz: () => rt.sim.hz,
     });
   }
 
@@ -2476,11 +2357,11 @@ export class RuntimeInstance implements Runtime {
   private placeCharacter2D(id: string, x: number, y: number, ordinal: number): void {
     if (!this.controllers.place2D(id, x, y)) return;
     const target: Vec2 = { x, y };
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       if (!entry.phased || !entry.owners.includes(id)) continue;
       const instance = entry.instance as SimulationPhaseModule;
       if (typeof instance.reset !== 'function') continue;
-      this.currentModuleId = entry.id;
+      this.sim.currentModuleId = entry.id;
       instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners), id));
     }
   }
@@ -2526,13 +2407,13 @@ export class RuntimeInstance implements Runtime {
   /** What the sequencer drives — the runtime's own channels. */
   private buildTimelineHost(): import('./timeline').TimelineHost {
     const rt = this;
-    const warn = (message: string): void => rt.recordBehaviorLog('thirdlight.runtime:timeline', 'warn', message);
+    const warn = (message: string): void => rt.faults.log('thirdlight.runtime:timeline', 'warn', message);
     return {
       writeTransform: (id, pose) => {
-        const t = rt.curr.get(id);
+        const t = rt.sim.curr.get(id);
         // A player character turns with a rotation key (its controller too); on the 2D plane the director places it.
         if (t === undefined || rt.director.timelinePose(id, pose)) return t !== undefined;
-        if (rt.physics3d !== undefined && pose.position !== undefined && rt.controllers.moveWithTimeline3D(id, pose.position)) {
+        if (rt.sim.physics3d !== undefined && pose.position !== undefined && rt.controllers.moveWithTimeline3D(id, pose.position)) {
           // A 3D player controller's body moves with it (as a script's character_place does).
         }
         // Its colliders (and its children's) follow it from the next step.
@@ -2563,7 +2444,7 @@ export class RuntimeInstance implements Runtime {
         stop: (handle) => rt.presentation.effects.stop(handle),
       },
       setVisible: (id, visible) => {
-        if (rt.curr.has(id)) rt.blocks?.setVisible(id, visible);
+        if (rt.sim.curr.has(id)) rt.blocks?.setVisible(id, visible);
       },
       emitSignal: (name) => rt.signalControl.emit(name),
       signaled: (name) => rt.signalControl.on(name),
@@ -2644,7 +2525,7 @@ export class RuntimeInstance implements Runtime {
         this.pendingRestart = true;
         // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
         const line = deprecatedEngineActionLine(e.name);
-        if (line !== null) this.problem(line.code, line.message);
+        if (line !== null) this.faults.problem(line.code, line.message);
       } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.sceneOpFromUi(e.kind, e.value);
       else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
     }
@@ -2653,7 +2534,7 @@ export class RuntimeInstance implements Runtime {
       if (e.kind !== 'scene' || typeof e.value !== 'number') continue;
       this.pendingListedScene = e.value;
       const line = deprecatedEngineActionLine(e.name);
-      if (line !== null) this.problem(line.code, line.message);
+      if (line !== null) this.faults.problem(line.code, line.message);
     }
   }
 
@@ -2730,7 +2611,7 @@ export class RuntimeInstance implements Runtime {
 
   /** Queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
   queueDebugCommand(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const r = this.debugCommands.enqueue(call);
     return r.ok ? r : { ok: false, error: fail('game_command_invalid', r.message, { reason: r.reason, ...(r.path !== undefined ? { path: r.path } : {}) }) };
   }
@@ -2741,9 +2622,9 @@ export class RuntimeInstance implements Runtime {
     try {
       this.controllers.startRun();
     } catch (e) {
-      this.failStopFromError(e, this.stepIndex);
+      this.faults.failStopFromError(e, this.sim.stepIndex);
     }
-    return this.stateName !== 'failed';
+    return this.sim.stateName !== 'failed';
   }
 
   /** Build one `ModuleResetContext` (the character was placed). */
@@ -2760,12 +2641,12 @@ export class RuntimeInstance implements Runtime {
       playerCenter: Object.freeze({ ...target }),
       ...(characterId !== undefined ? { characterId } : {}),
       state: phaseScopedState({
-        order: this.order,
-        entities: this.entities,
-        stepIndex: this.stepIndex,
-        simTime: this.simTime,
-        prev: this.prev,
-        curr: this.curr,
+        order: this.sim.order,
+        entities: this.sim.entities,
+        stepIndex: this.sim.stepIndex,
+        simTime: this.sim.simTime,
+        prev: this.sim.prev,
+        curr: this.sim.curr,
         writableOwners,
       }),
     });
@@ -2781,7 +2662,7 @@ export class RuntimeInstance implements Runtime {
   /** Why a scene op cannot be requested (null: it can). */
   /** Why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
   sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
-    if (this.stateName === 'disposed') return 'runtime is disposed';
+    if (this.sim.stateName === 'disposed') return 'runtime is disposed';
     return this.sceneOpProblem(op, sceneId);
   }
 
@@ -2814,7 +2695,7 @@ export class RuntimeInstance implements Runtime {
       }
       // A transition waits for its scene (a later one for the same scene replaces it).
       if (op.transition !== undefined) {
-        const fadeSteps = Math.round(op.transition.fade * this.hz);
+        const fadeSteps = Math.round(op.transition.fade * this.sim.hz);
         this.transitions.set(op.sceneId, { ...op.transition, fadeSteps, outLeft: fadeSteps });
         this.loadingViewCache = null;
       }
@@ -2912,22 +2793,22 @@ export class RuntimeInstance implements Runtime {
   private addBatch(sceneId: string, all: readonly EntityV3[], start: boolean, prepared = false, placeReturning = !start): boolean {
     const refuse = (why: string): boolean => {
       this.setSceneStatus(sceneId, 'unloaded');
-      this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.stepIndex, reason: 'refused' });
+      this.faults.record({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.sim.stepIndex, reason: 'refused' });
       return true;
     };
     // A kept object of this scene that is still alive (the scene loaded again) is not brought a second time.
-    const { entities, skipped } = this.kept.arriving(all, (id) => this.entities.has(id));
+    const { entities, skipped } = this.kept.arriving(all, (id) => this.sim.entities.has(id));
     for (const e of entities) {
-      if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
+      if (this.sim.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
     }
-    const players = arrivalProblem(entities, this.controllers, this.physics3d ?? this.physics);
+    const players = arrivalProblem(entities, this.controllers, this.sim.physics3d ?? this.sim.physics);
     if (players !== null) return refuse(players);
     // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
     const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
     const added = this.colliders.add(frozen, `scene "${sceneId}"`);
     if (!added.ok && 'refused' in added) return refuse(added.refused);
     if (!added.ok && 'failed' in added) {
-      this.failStop('physics_port_error', 'scene_colliders', added.failed, this.stepIndex);
+      this.faults.failStop('physics_port_error', 'scene_colliders', added.failed, this.sim.stepIndex);
       return false;
     }
     const ids = new Set(frozen.map((e) => e.id));
@@ -2936,9 +2817,9 @@ export class RuntimeInstance implements Runtime {
     // The scene's block layers and their colliders (at this step boundary).
     if (this.grid.addLayers(frozen).length > 0) {
       try {
-        this.grid.flushCollision(this.physics3d, this.physics);
+        this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
       } catch (e) {
-        this.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.stepIndex);
+        this.faults.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.sim.stepIndex);
         return false;
       }
     }
@@ -2954,7 +2835,7 @@ export class RuntimeInstance implements Runtime {
 
   /** Why a script cannot switch an object's keep flag now (null: it can). */
   private keepProblem(id: string, keep: boolean): string | null {
-    const parent = this.entities.get(id)?.parentId ?? null;
+    const parent = this.sim.entities.get(id)?.parentId ?? null;
     if (parent !== null && this.kept.has(parent)) return keep ? null : `its parent "${parent}" keeps it loaded`;
     if (keep && parent !== null) return `its parent "${parent}" is not kept loaded (the object would go with it)`;
     if (!keep && this.kept.orphan(id) !== undefined) return 'its scene is not loaded: it would have nowhere to be';
@@ -2964,26 +2845,16 @@ export class RuntimeInstance implements Runtime {
   /** Keep (or stop keeping) an object and everything under it (a script's write, at the end of the step). */
   private setKept(id: string, keep: boolean): void {
     const subtree = new Set([id]);
-    for (const other of this.order) {
-      const p = this.entities.get(other)?.parentId;
+    for (const other of this.sim.order) {
+      const p = this.sim.entities.get(other)?.parentId;
       if (p !== null && p !== undefined && subtree.has(p)) subtree.add(other);
     }
     this.kept.set([...subtree], keep);
   }
 
-  /** One Problems line per kind for the author (the host passes them to Play's Problems; repeated kinds are dropped). */
-  private problem(code: string, message: string): void {
-    if (this.problemCodes.has(code)) return;
-    this.problemCodes.add(code);
-    this.problems.push({ code, message: clipMessage(message) });
-  }
-
   /** The problems since the last call (the host relays them). */
   takeProblems(): { code: string; message: string }[] {
-    if (this.problems.length === 0) return [];
-    const out = this.problems;
-    this.problems = [];
-    return out;
+    return this.faults.takeProblems();
   }
 
   /**
@@ -3000,15 +2871,15 @@ export class RuntimeInstance implements Runtime {
       const box = e.components.box;
       if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
       if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
-      this.entities.set(e.id, data);
-      this.prev.set(e.id, cloneTransform(t));
-      this.curr.set(e.id, cloneTransform(t));
-      this.currShape += 1;
-      this.committed?.set(e.id, cloneTransform(t));
+      this.sim.entities.set(e.id, data);
+      this.sim.prev.set(e.id, cloneTransform(t));
+      this.sim.curr.set(e.id, cloneTransform(t));
+      this.sim.currShape += 1;
+      this.sim.committed?.set(e.id, cloneTransform(t));
     }
     this.colliders.track(frozen);
-    this.order = [...this.order, ...frozen.map((e) => e.id)];
-    this.entityCount = this.order.length;
+    this.sim.order = [...this.sim.order, ...frozen.map((e) => e.id)];
+    this.sim.entityCount = this.sim.order.length;
     // Their behavior groups (game modes tick groups).
     this.noteBehaviorGroups(frozen);
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
@@ -3024,9 +2895,9 @@ export class RuntimeInstance implements Runtime {
   /** The player controllers among attached entities (`playersArrive`). Returns false after a fail-stop. */
   private playersArrive(frozen: readonly EntityV3[], placeReturning: boolean): boolean {
     try {
-      playersArrive(frozen, { controllers: this.controllers, placement: this.placement, blocks: this.blocks, threeD: this.physics3d !== undefined, transform: (id) => this.curr.get(id) }, placeReturning);
+      playersArrive(frozen, { controllers: this.controllers, placement: this.placement, blocks: this.blocks, threeD: this.sim.physics3d !== undefined, transform: (id) => this.sim.curr.get(id) }, placeReturning);
     } catch (e) {
-      this.failStopFromError(e, this.stepIndex);
+      this.faults.failStopFromError(e, this.sim.stepIndex);
       return false;
     }
     return true;
@@ -3034,15 +2905,15 @@ export class RuntimeInstance implements Runtime {
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
   private notifyLoaded(frozen: readonly EntityV3[]): boolean {
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneLoaded !== 'function') continue;
-      this.currentModuleId = entry.id;
-      this.currentPhase = undefined;
+      this.sim.currentModuleId = entry.id;
+      this.sim.currentPhase = undefined;
       try {
         instance.sceneLoaded(frozen);
       } catch (e) {
-        this.failStopFromError(e, this.stepIndex);
+        this.faults.failStopFromError(e, this.sim.stepIndex);
         return false;
       }
       if (!this.refreshOwners(entry)) return false;
@@ -3064,18 +2935,18 @@ export class RuntimeInstance implements Runtime {
     const before = new Set(entry.owners);
     for (const id of next) {
       if (before.has(id)) continue;
-      const other = this.entries.find((en) => en !== entry && en.owners.includes(id));
+      const other = this.sim.entries.find((en) => en !== entry && en.owners.includes(id));
       if (other !== undefined) {
-        this.failStop('transform_owner_conflict', id, `entity "${id}" is claimed by "${other.id}" and "${entry.id}"`, this.stepIndex, entry.id);
+        this.faults.failStop('transform_owner_conflict', id, `entity "${id}" is claimed by "${other.id}" and "${entry.id}"`, this.sim.stepIndex, entry.id);
         return false;
       }
-      const data = this.entities.get(id);
+      const data = this.sim.entities.get(id);
       // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
-      const drivable = this.physics3d !== undefined && this.colliders.drivableId(id);
+      const drivable = this.sim.physics3d !== undefined && this.colliders.drivableId(id);
       const physicsBody = (data?.hasCollider === true && !drivable) || this.controllers.has(id);
       if (physicsBody && !entry.phases.includes('controller')) {
         const what = 'physics_entity';
-        this.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims physics entity "${id}"`, this.stepIndex, entry.id, undefined, what);
+        this.faults.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims physics entity "${id}"`, this.sim.stepIndex, entry.id, undefined, what);
         return false;
       }
     }
@@ -3095,13 +2966,13 @@ export class RuntimeInstance implements Runtime {
       this.behaviorGroupOf.delete(id);
     }
     this.colliders.forget(ids);
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
       try {
         instance.sceneUnloaded(ids, how);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
+        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload', moduleId: entry.id });
       }
       // Owners that left ("@self" carriers) are released.
       const owners = instance.transformOwners;
@@ -3110,37 +2981,37 @@ export class RuntimeInstance implements Runtime {
     // Unloaded block layers take their chunk colliders and their live blocks' objects along.
     const gridColliders = this.grid.removeLayers(ids);
     this.removeSpawnedIds(new Set(this.grid.takeGoneLive().filter((id) => this.spawnedEntities.has(id))));
-    if (gridColliders.length > 0 && typeof (this.physics3d ?? this.physics)?.removeStaticColliders === 'function') {
+    if (gridColliders.length > 0 && typeof (this.sim.physics3d ?? this.sim.physics)?.removeStaticColliders === 'function') {
       try {
-        (this.physics3d ?? this.physics)?.removeStaticColliders?.(gridColliders);
+        (this.sim.physics3d ?? this.sim.physics)?.removeStaticColliders?.(gridColliders);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
       }
     }
-    if (colliderIds.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
+    if (colliderIds.length > 0 && typeof this.sim.physics3d?.removeStaticColliders === 'function') {
       try {
-        this.physics3d.removeStaticColliders(colliderIds);
+        this.sim.physics3d.removeStaticColliders(colliderIds);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
       }
     }
-    if (colliderIds.length > 0 && typeof this.physics?.removeStaticColliders === 'function') {
+    if (colliderIds.length > 0 && typeof this.sim.physics?.removeStaticColliders === 'function') {
       try {
-        this.physics.removeStaticColliders(colliderIds);
+        this.sim.physics.removeStaticColliders(colliderIds);
       } catch (e) {
-        this.recordError({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload' });
+        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
       }
     }
     for (const id of ids) {
-      this.entities.delete(id);
-      this.prev.delete(id);
-      this.curr.delete(id);
-      this.currShape += 1;
-      this.committed?.delete(id);
+      this.sim.entities.delete(id);
+      this.sim.prev.delete(id);
+      this.sim.curr.delete(id);
+      this.sim.currShape += 1;
+      this.sim.committed?.delete(id);
       this.intents.axes.delete(id);
     }
-    this.order = this.order.filter((id) => !ids.has(id));
-    this.entityCount = this.order.length;
+    this.sim.order = this.sim.order.filter((id) => !ids.has(id));
+    this.sim.entityCount = this.sim.order.length;
     this.liveTags?.remove(ids);
     this.animators.remove(ids);
     this.blocks?.remove(ids);
@@ -3171,8 +3042,8 @@ export class RuntimeInstance implements Runtime {
     if (refs.length > 0) {
       const list = refs.slice(0, 4).map((r) => `"${r.from}" → "${r.to}"`).join(', ');
       const message = `kept objects name objects of the unloaded scene "${sceneId}" (${list}${refs.length > 4 ? ', …' : ''}): those references read as empty until something with the id is loaded again`;
-      this.recordBehaviorLog('thirdlight.runtime:scenes', 'warn', message);
-      this.problem('kept_reference_unloaded', message);
+      this.faults.log('thirdlight.runtime:scenes', 'warn', message);
+      this.faults.problem('kept_reference_unloaded', message);
     }
     this.audio.sceneGone(sceneId);
     // A pending arrival at a spawn of the unloaded scene is dropped.
@@ -3186,7 +3057,7 @@ export class RuntimeInstance implements Runtime {
   private sceneOpFromUi(op: 'load' | 'unload' | 'reload', value: unknown): void {
     const id = op === 'reload' && (value === undefined || value === '') ? this.environment.activeScene() : value;
     const problem = id === null ? 'no scene is active' : this.sceneOpProblem(op, id);
-    if (problem !== null) return void this.recordError({ code: 'scene_invalid', message: clipMessage(`${op}Scene: ${problem}`), stepIndex: this.stepIndex, reason: op });
+    if (problem !== null) return void this.faults.record({ code: 'scene_invalid', message: clipMessage(`${op}Scene: ${problem}`), stepIndex: this.sim.stepIndex, reason: op });
     this.enqueueSceneOp({ op, sceneId: id as string });
   }
 
@@ -3204,7 +3075,7 @@ export class RuntimeInstance implements Runtime {
     if (batch === undefined) return true;
     const problem = this.sceneOpProblem('reload', sceneId);
     if (problem !== null) {
-      this.recordError({ code: 'scene_invalid', message: clipMessage(`scene "${sceneId}" was not reloaded: ${problem}`), stepIndex: this.stepIndex, reason: 'reload' });
+      this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene "${sceneId}" was not reloaded: ${problem}`), stepIndex: this.sim.stepIndex, reason: 'reload' });
       return true;
     }
     this.removeSpawnedIds(this.spawnScenes.copiesOf(sceneId, (id) => this.kept.has(id)));
@@ -3246,12 +3117,12 @@ export class RuntimeInstance implements Runtime {
    * false after a fail-stop.
    */
   private syncLiveBlocks(): boolean {
-    const d = this.grid.takeLive((id) => this.entities.has(id), (b) => this.entityRefKeysOf(b));
+    const d = this.grid.takeLive((id) => this.sim.entities.has(id), (b) => this.entityRefKeysOf(b));
     if (d === null) return true;
     this.removeSpawnedIds(new Set(d.remove.filter((id) => this.spawnedEntities.has(id))));
     if (d.refused.length > 0) {
       const message = clipMessage(`live blocks not spawned: objects of the game already have the ids ${d.refused.slice(0, 4).join(', ')}`);
-      this.recordError({ code: 'spawn_refused', message, stepIndex: this.stepIndex });
+      this.faults.record({ code: 'spawn_refused', message, stepIndex: this.sim.stepIndex });
     }
     return d.add.length === 0 || this.addSpawned(d.add, true);
   }
@@ -3259,19 +3130,19 @@ export class RuntimeInstance implements Runtime {
   /** Add one spawned copy (colliders, state, blocks, scripts; `owned`: made for this call, not copied again). Returns false after a fail-stop. */
   private addSpawned(entities: readonly EntityV3[], owned = false): boolean {
     const root = entities[0]!;
-    const clash = entities.find((e) => this.entities.has(e.id));
+    const clash = entities.find((e) => this.sim.entities.has(e.id));
     if (clash !== undefined) {
-      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.stepIndex });
+      this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.sim.stepIndex });
       return true;
     }
     const frozen = deepFreeze(owned ? [...entities] : entities.map((e) => structuredClone(e)));
     const added = this.colliders.add(frozen, `spawn "${root.id}"`);
     if (!added.ok && 'refused' in added) {
-      this.recordError({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${added.refused}`), stepIndex: this.stepIndex });
+      this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${added.refused}`), stepIndex: this.sim.stepIndex });
       return true;
     }
     if (!added.ok && 'failed' in added) {
-      this.failStop('physics_port_error', 'spawn_colliders', added.failed, this.stepIndex);
+      this.faults.failStop('physics_port_error', 'spawn_colliders', added.failed, this.sim.stepIndex);
       return false;
     }
     this.kept.add(frozen);
@@ -3319,7 +3190,7 @@ export class RuntimeInstance implements Runtime {
     // The kept objects whose scene went go too: their start scenes bring them back.
     const orphans = this.kept.takeOrphans();
     if (orphans.size > 0) {
-      const colliders = [...orphans].filter((id) => this.colliders.has(id) || this.entities.get(id)?.hasCollider === true);
+      const colliders = [...orphans].filter((id) => this.colliders.has(id) || this.sim.entities.get(id)?.hasCollider === true);
       this.detachEntities(orphans, colliders, 'kept objects');
       this.sceneRevision += 1;
       this.sceneSetCache = null;
@@ -3349,10 +3220,10 @@ export class RuntimeInstance implements Runtime {
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
     this.phaseAction = action;
-    for (const entry of this.entries) {
+    for (const entry of this.sim.entries) {
       if (!entry.phases.includes(phase)) continue;
-      this.currentPhase = phase;
-      this.currentModuleId = entry.id;
+      this.sim.currentPhase = phase;
+      this.sim.currentModuleId = entry.id;
       const views = this.phaseViewsOf(entry, phase);
       if (entry.phased) {
         // The intents committed before this module runs (it does not see its own in `ctx.intents`).
@@ -3361,16 +3232,16 @@ export class RuntimeInstance implements Runtime {
       } else {
         // Accepted M1 module participating in an M2 set (implicit
         // transform phase): the M1 `(state, stepIndex)` call is preserved.
-        (entry.instance as SimulationModule).step(views.state, this.stepIndex + 1);
+        (entry.instance as SimulationModule).step(views.state, this.sim.stepIndex + 1);
       }
     }
   }
 
   /** The frozen copy of the entity order modules see (remade only when the order changes). */
   private frozenOrder(): readonly string[] {
-    if (this.frozenOrderSource !== this.order) {
-      this.frozenOrderSource = this.order;
-      this.frozenOrderCopy = Object.freeze([...this.order]);
+    if (this.frozenOrderSource !== this.sim.order) {
+      this.frozenOrderSource = this.sim.order;
+      this.frozenOrderCopy = Object.freeze([...this.sim.order]);
     }
     return this.frozenOrderCopy;
   }
@@ -3402,20 +3273,20 @@ export class RuntimeInstance implements Runtime {
     const writablePhase = phase === 'transform';
     const state = liveScopedState({
       order: () => rt.frozenOrder(),
-      entities: () => rt.entities,
-      stepIndex: () => rt.stepIndex,
-      simTime: () => rt.simTime,
-      prev: () => rt.prev,
-      curr: () => rt.curr,
+      entities: () => rt.sim.entities,
+      stepIndex: () => rt.sim.stepIndex,
+      simTime: () => rt.sim.simTime,
+      prev: () => rt.sim.prev,
+      curr: () => rt.sim.curr,
       writableOwners: () => (writablePhase ? ownerSetOf(entry) : null),
     });
     const views: PhaseViews = { state, ctx: null, intents: null };
     if (entry.phased) {
       const fields: PropertyDescriptorMap = {
-        stepIndex: { get: () => rt.stepIndex, enumerable: true },
+        stepIndex: { get: () => rt.sim.stepIndex, enumerable: true },
         phase: { value: phase, enumerable: true },
         action: { get: () => rt.phaseAction, enumerable: true },
-        settings: { value: this.settings, enumerable: true },
+        settings: { value: this.sim.settings, enumerable: true },
         physics: { value: this.queries.client, enumerable: true },
         state: { value: state, enumerable: true },
         intents: { get: () => views.intents, enumerable: true },
@@ -3490,7 +3361,7 @@ export class RuntimeInstance implements Runtime {
       // The climb volume the character is in (the character controllers read it).
       if (blocks !== null) fields['climb'] = { value: this.climbQuery, enumerable: true };
       // 3D: the active camera's yaw for the character's move input (absent: world axes).
-      if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
+      if (this.sim.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
     }
     return views;
@@ -3606,7 +3477,7 @@ export class RuntimeInstance implements Runtime {
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
       // The character controller's channels (one writer each per controller and step); character_move is 3D only,
       // character_place on the 2D plane needs a character with a physics port, character_enable a character.
-      if (this.physics3d === undefined && (intent.kind === 'character_move' || player === undefined || (intent.kind === 'character_place' && this.controllers.resetPort2D() === null))) {
+      if (this.sim.physics3d === undefined && (intent.kind === 'character_move' || player === undefined || (intent.kind === 'character_place' && this.controllers.resetPort2D() === null))) {
         throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_move' ? 'a character_move intent needs a 3D project (physics_dimension 3)' : `a ${intent.kind} intent needs a character (a controller)${intent.kind === 'character_place' ? ' with physics' : ''}`);
       }
       const c = channels!;
@@ -3643,7 +3514,7 @@ export class RuntimeInstance implements Runtime {
     if (!ownerSetOf(entry).has(intent.entityId)) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not owned by module "${entry.id}"`);
     }
-    const transform = this.curr.get(intent.entityId);
+    const transform = this.sim.curr.get(intent.entityId);
     if (transform === undefined) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" does not exist`);
     }
@@ -3758,9 +3629,9 @@ export class RuntimeInstance implements Runtime {
    * re-read when the entity order changes.
    */
   private intentStepLimit(): number {
-    if (this.intentLimitOrder !== this.order) {
+    if (this.intentLimitOrder !== this.sim.order) {
       let instances = 0;
-      for (const entry of this.entries) {
+      for (const entry of this.sim.entries) {
         const probe = entry.instance as { behaviorDiagnostics?: () => { instanceCount?: number } };
         if (typeof probe.behaviorDiagnostics !== 'function') continue;
         try {
@@ -3771,25 +3642,9 @@ export class RuntimeInstance implements Runtime {
         }
       }
       this.intentLimit = Math.max(INTENT_LIMITS.perStep, INTENT_LIMITS.perInstancePerStep * instances);
-      this.intentLimitOrder = this.order;
+      this.intentLimitOrder = this.sim.order;
     }
     return this.intentLimit;
-  }
-
-  /**
-   * Record one accepted behavior `ctx.log` entry in the runtime's bounded
-   * ring. A log flood cannot grow a diagnostics frame beyond
-   * the 32-entry ring; the per-instance ring and counters live in the host.
-   */
-  private recordBehaviorLog(moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void {
-    this.recordError({
-      code: 'behavior_log',
-      reason: level,
-      moduleId,
-      message: clipMessage(message),
-      stepIndex: this.stepIndex,
-      ...(at !== undefined ? { at } : {}),
-    });
   }
 
   /**
@@ -3812,155 +3667,41 @@ export class RuntimeInstance implements Runtime {
   private syncColliders(): boolean {
     const failed = this.colliders.sync();
     if (failed === null) return true;
-    this.failStop('physics_port_error', 'script_colliders', failed, this.stepIndex);
+    this.faults.failStop('physics_port_error', 'script_colliders', failed, this.sim.stepIndex);
     return false;
   }
 
-  private failStopFromError(e: unknown, stepIndex: number): void {
-    const moduleId = this.currentModuleId;
-    const phase = this.currentPhase;
-    // A visual script's error names the node it came from.
-    this.failNodeId = graphNodeIdOf(e);
-    // And where in the compiled scripts it was thrown.
-    this.failFrames = compiledFramesOf(e);
-    if (e instanceof PhaseViolationError) {
-      this.failStop('module_error', 'phase_violation', messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
-    if (e instanceof DuplicateMoveError) {
-      this.failStop('module_error', 'duplicate_move', messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
-    if (e instanceof PhysicsPortFailure) {
-      this.failStop('physics_port_error', e.reason, messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
-    if (e instanceof InputFrameError) {
-      this.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex, moduleId, phase);
-      return;
-    }
-    // Behavior contract: the validated-intent API's
-    // own rejection reasons, the per-instance cap and the host's step/shape
-    // failures. Each is a fail-stop with the contract's exact reason.
-    if (e instanceof BehaviorIntentError) {
-      this.failStop('module_error', e.reason, messageOf(e), stepIndex, moduleId, phase, e.detail);
-      return;
-    }
-    if (e instanceof BehaviorHostIntentLimit) {
-      this.failStop('module_error', e.reason, messageOf(e), stepIndex, moduleId, phase, e.detail);
-      return;
-    }
-    if (e instanceof BehaviorHostError) {
-      this.failStop(e.code, e.reason, messageOf(e), stepIndex, moduleId, phase, e.detail);
-      return;
-    }
-    this.failStop('module_error', 'module_threw', `module step threw: ${messageOf(e)}`, stepIndex, moduleId, phase);
-  }
-
-  /**
-   * Fail-stop: abandon the step (no transform rollback), cancel the
-   * driver, retain the last committed state for rendering, report the
-   * failed module/step and refuse to resume.
-   */
-  private failStop(
-    code: ErrorCode,
-    reason: string,
-    message: string,
-    stepIndex: number,
-    moduleId?: string,
-    phase?: SimulationPhase,
-    detail?: string,
-  ): void {
-    this.loop.cancel();
-    this.needsPreroll = false;
-    this.stateName = 'failed';
-    this.frameClock.alpha = 0;
-    this.failedModuleId = moduleId;
-    this.failedPhase = phase;
-    this.failedStepIndex = stepIndex;
-    this.recordError(errorEntryOf({ code, message, stepIndex, reason, moduleId, phase, detail, nodeId: this.failNodeId, frames: this.failFrames }));
-    this.failNodeId = undefined;
-    this.failFrames = [];
-  }
-
-  private recordError(entry: DiagnosticErrorEntry): void {
-    this.errorRing.push(entry);
-    this.errorCount += 1;
-  }
-
-  /**
-   * Play debugging: what the running behavior instances expose
-   * for a debugger (their module's optional `debug(state)`; a visual script
-   * built for Play returns its trace, wire values and variables), for one
-   * behavior and/or one entity. Read-only by contract; exported games carry
-   * no module that answers.
-   */
+  /** Play debugging: what the running behavior instances expose for a debugger (`behaviorDebugOf`). */
   behaviorDebug(filter: { behaviorId?: string; entityId?: string } = {}): BehaviorDebugView[] {
-    const out: BehaviorDebugView[] = [];
-    for (const entry of this.entries) {
-      const probe = entry.instance as { behaviorDebug?: (f: { behaviorId?: string; entityId?: string }) => BehaviorDebugView[] };
-      if (typeof probe.behaviorDebug !== 'function') continue;
-      out.push(...probe.behaviorDebug(filter));
-    }
-    return out;
+    return behaviorDebugOf(this.sim.entries, filter);
   }
 
   /** The property values every behavior instance on `entityId` reads (public and private), read-only, for the Play debug view. */
   behaviorProperties(entityId: string): BehaviorPropertyView[] {
-    const out: BehaviorPropertyView[] = [];
-    for (const entry of this.entries) {
-      const probe = entry.instance as { behaviorProperties?: (id: string) => BehaviorPropertyView | null };
-      if (typeof probe.behaviorProperties !== 'function') continue;
-      const view = probe.behaviorProperties(entityId);
-      if (view !== null) out.push(view);
-    }
-    return out;
-  }
-
-  /** Cumulative behavior log totals the host instances report (kept: they stay readable after dispose). */
-  private behaviorLogDiagnostics(): { logCount: number; logDropped: number } {
-    if (this.entries.length > 0) this.behaviorLogTotals = behaviorLogTotals(this.entries.map((e) => e.instance));
-    return this.behaviorLogTotals;
+    return behaviorPropertiesOf(this.sim.entries, entityId);
   }
 
   private buildDiagnostics(): RuntimeDiagnostics {
+    const sim = this.sim;
     const base: RuntimeDiagnostics = {
-      state: this.stateName,
+      state: sim.stateName,
       snapshotId: this.snapshotId,
       revision: this.revision,
-      simTime: this.simTime,
-      stepIndex: this.stepIndex,
-      fixedStepHz: this.hz,
+      simTime: sim.simTime,
+      stepIndex: sim.stepIndex,
+      fixedStepHz: sim.hz,
       droppedSteps: this.frameClock.droppedSteps,
       frameCount: this.frameClock.frameCount,
-      entityCount: this.entityCount,
+      entityCount: sim.entityCount,
       modules: [...this.modules],
       clock: this.clockLabel,
       clockWarningCount: this.frameClock.clockWarningCount,
-      errors: this.errorRing.entries(),
-      errorCount: this.errorCount,
+      ...this.faults.base(),
     };
     if (!this.isM2) return base;
-    const actions = actionDiagnostics(this.actions);
-    const physics = physicsDiagnostics(this.physics ?? this.physics3d, this.controllers.first);
-    const logs = this.behaviorLogDiagnostics();
     const m2: RuntimeDiagnostics = {
       ...base,
-      failed: this.stateName === 'failed',
-      inputSamples: this.inputSamples,
-      droppedInputSteps: this.frameClock.droppedInputSteps,
-      settleSteps: this.settleSteps,
-      physicsSteps: this.physicsSteps,
-      inputSuspendCount: actions.suspend,
-      inputActivateCount: actions.activate,
-      inputDisconnectCount: actions.disconnect,
-      inputMappingUnsupportedCount: actions.mappingUnsupported,
-      physicsStallSteps: physics.stall,
-      physicsPenetrationCorrectedCount: physics.penetration,
-      ...physics.deepest,
-      intentCommitCount: this.intentCommitCount,
-      logCount: logs.logCount,
-      logDropped: logs.logDropped,
+      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.inputSamples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.intentCommitCount }),
     };
     // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
@@ -3980,9 +3721,6 @@ export class RuntimeInstance implements Runtime {
     if (architecture !== null) m2.architecture = architecture;
     const worldStream = this.grid.stream.diagnostics();
     if (worldStream !== null) m2.worldStream = worldStream;
-    if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
-    if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
-    if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;
-    return m2;
+    return Object.assign(m2, this.faults.failure());
   }
 }
