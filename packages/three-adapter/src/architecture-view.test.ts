@@ -16,6 +16,9 @@ import type { MeshWorkerPort } from './block-mesh-pool';
 import { LayeredPointLight, lightsObject, ROOM_KEY } from './light-layers';
 import { RoomCulling, ROOM_AT_KEY } from './room-culling';
 import type { ModelInstance } from './visual';
+import { DECAL_LAYERS_KEY } from './projected-decals';
+import { objectSeeThrough } from './see-through';
+import { STATIC_CASTER_KEY } from './shadow-casters';
 
 // A neutral test style: two rooms' walls 40 m apart (two chunks each side), a crown moulding (detail) and a floor.
 const STYLE: ArchitectureComponent = {
@@ -162,6 +165,32 @@ describe('generated architecture on the page', () => {
     await settle(view);
     expect(view.diagnostics().made.page).toBe(after.made.page);
     expect(drawn(root)).toEqual(before);
+  });
+
+  it('a change of its drawing flags (see-through, shadows, decal layers) goes onto the built meshes at once, nothing made again', async () => {
+    let placed = 0;
+    let shapes = 0;
+    const { view, root } = makeView({ place: (r, shown) => (shown ? (placed++, root.add(r)) : root.remove(r)), shapeChanged: () => void shapes++ });
+    view.set('arch', STYLE, [0, 0, 0]);
+    await settle(view);
+    const made = view.diagnostics().made.page;
+    const meshes = (): THREE.Mesh[] => {
+      const out: THREE.Mesh[] = [];
+      root.traverse((o) => void ((o as THREE.Mesh).isMesh === true && out.push(o as THREE.Mesh)));
+      return out;
+    };
+    expect(meshes().length).toBeGreaterThan(0);
+    expect(meshes().every((m) => objectSeeThrough(m) && m.castShadow && m.receiveShadow && m.userData[DECAL_LAYERS_KEY] === undefined)).toBe(true);
+    const [p0, s0] = [placed, shapes];
+    view.set('arch', { ...STYLE, seeThrough: false, castShadow: false, decalLayers: 2 } as ArchitectureComponent, [0, 0, 0]);
+    // Listed again (the batcher keys them anew) with the new flags, before any frame; nothing generated.
+    expect(meshes().every((m) => !objectSeeThrough(m) && !m.castShadow && m.userData[STATIC_CASTER_KEY] === undefined && m.userData[DECAL_LAYERS_KEY] === 2)).toBe(true);
+    expect(placed).toBeGreaterThan(p0);
+    expect(shapes).toBeGreaterThan(s0);
+    await settle(view);
+    expect(view.diagnostics().made.page).toBe(made);
+    view.set('arch', STYLE, [0, 0, 0]);
+    expect(meshes().every((m) => objectSeeThrough(m) && m.castShadow && m.userData[STATIC_CASTER_KEY] === true && m.userData[DECAL_LAYERS_KEY] === undefined)).toBe(true);
   });
 
   it("an export's shipped meshes are drawn as they are: nothing is generated", async () => {

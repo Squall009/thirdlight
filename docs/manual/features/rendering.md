@@ -198,10 +198,17 @@ a model, a character or an object with drawn children — and otherwise round
 the target of the enabled virtual camera with the highest priority; in the
 edit modes, which select nothing, that camera's target. The switch only
 changes the view: it starts off on each page load and nothing is stored.
+As in Play, the project's setting decides when the view's shaders get the
+mask: with it on, at load, so the switch costs nothing; with it off, the
+first switch-on builds every shader of the view again (a short hold).
+Switching the preview off keeps them (the view then pays what Play pays
+with the setting on while nothing fades) rather than holding again to
+build them back.
 
-**Comparing.** `?seethrough=on|off` on the editor's or an export's URL pins
-it on or off over the project, the host and scripts; `off` also builds the
-shaders without the mask, as a project with the setting off (see
+**Comparing.** `?seethrough=on|off` on an export's URL, or on the editor's
+for its Play (the Scene view's preview has its own switch), pins it on or
+off over the project, the host and scripts; `off` also builds the shaders
+without the mask, as a project with the setting off (see
 [the switches](performance.md#performance)).
 
 **Cost.** Measured with 4 subjects on an Iris Xe at 1920 × 1080 at the 60 Hz

@@ -148,6 +148,11 @@ export interface OcclusionCullerDeps {
   readonly changed?: () => void;
   /** Where the objects `keep` names are drawn (absent: nothing can be kept). */
   readonly keep?: OcclusionKeepHost;
+  /**
+   * Whether see-through may thin `standin` in this draw for `camera` (absent: never). Such a stand-in fills no
+   * depth: what stays visible through the dither behind it (the subject too) must not be culled.
+   */
+  readonly fades?: (standin: THREE.Object3D, camera: THREE.Camera) => boolean;
 }
 
 export class OcclusionCuller implements OcclusionSwitch {
@@ -193,6 +198,8 @@ export class OcclusionCuller implements OcclusionSwitch {
     if (this.applied === 'off' || this.deps.view?.is(camera) !== true) return false;
     // What it stands in for is hidden from the view (a cut-away, the rooms, isolation): so is it from the depth.
     if (standin !== undefined && !standinFollowsSurfaces(standin, this.inScene)) return false;
+    // What it stands in for may be dithered round a see-through subject: the depth must not hold it whole.
+    if (standin !== undefined && this.deps.fades?.(standin, camera) === true) return false;
     // On the queries path only in the query render after the frame (never in the depth the frame's draws read).
     if (this.applied === 'queries' && this.queries?.drawing !== true) return false;
     if (this.applied === 'hiz' && (this.frame === null || this.frame.drawing !== 1 || standin === undefined || standin.material !== this.frame.pyramid.standinMaterial())) return false;

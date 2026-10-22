@@ -81,7 +81,7 @@ export function Toolbar(p: Props): JSX.Element {
             className={p.seeThrough === true ? 'tl-btn is-active' : 'tl-btn'}
             aria-pressed={p.seeThrough === true}
             onClick={p.onToggleSeeThrough}
-            title="See-through preview: what stands between the camera and the selected object (or the camera's target) thins as in Play, with the project's see-through settings. Only this view; nothing is saved"
+            title="See-through preview: what stands between the camera and the selected object (or the camera's target) thins as in Play, with the project's see-through settings. Only this view; nothing is saved. With the project's See-through setting off, the first switch-on builds the view's shaders again (a short hold); with it on they are built at load"
           >
             see-through{p.seeThrough === true ? ': on' : ': off'}
           </button>

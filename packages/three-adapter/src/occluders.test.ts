@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { SEE_THROUGH_DEFAULTS } from '@thirdlight/runtime';
 
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { batchKey, batchKeyParts, markBatchable } from './batching';
@@ -15,6 +16,7 @@ import { markOccludee, occludeeKindOf, OccludeeRegistry } from './occludees';
 import { applyModelOccluders, applyObjectOccluder, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OCCLUDER_STANDIN_RENDER_ORDER, occluderRoleOfDraw, SURFACES_STAND_DOWN_KEY } from './occluders';
 import { OcclusionCuller } from './occlusion';
 import { modelPieces, pieceBounds } from './pieces';
+import { SeeThroughView } from './see-through';
 
 /** A 1 m box (y 0..1) named as a file's node, at `x`, scaled by `s` about its base. */
 const node = (name: string, x = 0, s = 1, y = 0): THREE.Mesh => {
@@ -119,6 +121,43 @@ describe('occluder stand-ins', () => {
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
     culler.dispose();
     expect(draws(view)).toBe(0);
+  });
+
+  it('fill no depth while see-through may thin what they stand in for: what shows through the dither is never culled', () => {
+    const root = kit();
+    applyModelOccluders(root);
+    root.updateMatrixWorld(true);
+    const occ = byName(root, 'hedge_OCC');
+    const scene = new THREE.Scene();
+    const view = camera();
+    view.position.set(0, 1, 6);
+    view.lookAt(0, 0.4, -3);
+    view.updateMatrixWorld(true);
+    // A small subject behind the hedge (half its height, 0.25 m, under most of the hedge).
+    const pup = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.4).translate(0, 0.25, 0));
+    pup.position.set(0, 0, -3);
+    pup.updateMatrixWorld(true);
+    const seeThrough = new SeeThroughView({ matrix: (id, out) => id === 'pup' && (out.copy(pup.matrixWorld), true), drawn: (id) => (id === 'pup' ? [pup] : []), components: () => ({}), cameraTarget: () => 'pup' }, { ...SEE_THROUGH_DEFAULTS, enabled: true, fadeTime: 0 });
+    const webgl = { backend: { gl: { beginQuery: () => undefined } } };
+    const culler = new OcclusionCuller({ scene, setting: () => 'auto', renderer: () => 'webgl2', pinned: null, view: { is: (c) => c === view }, webgl: () => webgl, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
+    const draws = (): number => {
+      occ.onBeforeRender(null as never, scene, view, occ.geometry, occ.material as THREE.Material, null as never);
+      return occ.geometry.drawRange.count;
+    };
+    culler.pin('queries');
+    culler.update();
+    (culler.scenePasses() as unknown as { drawing: boolean }).drawing = true;
+    // Nothing fading yet: it fills the depth.
+    expect(draws()).toBe(Number.POSITIVE_INFINITY);
+    const r = { contextNode: { value: {}, needsUpdate: false } };
+    seeThrough.update(r, view, 0);
+    expect(draws()).toBe(0);
+    // Off again (faded out at once): it fills the depth again.
+    seeThrough.set({ enabled: false });
+    seeThrough.update(r, view, 16);
+    expect(draws()).toBe(Number.POSITIVE_INFINITY);
+    culler.dispose();
+    seeThrough.dispose();
   });
 
   it('are never occludees; level geometry is ordered first; materials and the object flag decide the role', () => {

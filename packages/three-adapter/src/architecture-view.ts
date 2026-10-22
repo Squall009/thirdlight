@@ -155,8 +155,38 @@ export interface ArchitectureViewDeps {
   copyRoomAt?: ((x: number, y: number, z: number) => string | null | undefined) | undefined;
 }
 
+/** How an object's meshes draw (its component's flags): what a change re-applies to the built meshes, nothing made again. */
+interface DrawFlags {
+  readonly cast: boolean;
+  readonly receive: boolean;
+  /** Its decal layers (projected-decals.ts; absent: every layer). */
+  readonly decalLayers: number | undefined;
+  /** Whether its meshes fade round see-through subjects (see-through.ts; absent: they do). */
+  readonly seeThrough: boolean;
+}
+
+function drawFlagsOf(c: ArchitectureComponent): DrawFlags {
+  return { cast: c.castShadow !== false, receive: c.receiveShadow !== false, decalLayers: decalLayersField(c.decalLayers), seeThrough: (c as { seeThrough?: unknown }).seeThrough !== false };
+}
+
+const sameFlags = (a: DrawFlags, b: DrawFlags): boolean => a.cast === b.cast && a.receive === b.receive && a.decalLayers === b.decalLayers && a.seeThrough === b.seeThrough;
+
+/** Put an object's flags on one of its meshes (set and cleared: a change is applied in place). */
+function flagMesh(mesh: THREE.Mesh, f: DrawFlags): void {
+  mesh.castShadow = f.cast;
+  mesh.receiveShadow = f.receive;
+  if (f.cast) mesh.userData[STATIC_CASTER_KEY] = true;
+  else delete mesh.userData[STATIC_CASTER_KEY];
+  if (f.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = f.decalLayers;
+  else delete mesh.userData[DECAL_LAYERS_KEY];
+  if (!f.seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
+  else delete mesh.userData[SEE_THROUGH_KEY];
+}
+
 interface BuiltChunk {
   readonly group: THREE.Group;
+  /** The flags its meshes were drawn with. */
+  flags: DrawFlags;
   /** The generated meshes (under `group`, beside the kit copies): what the object's materials go on. */
   readonly generated: THREE.Group;
   /** Its meshes of cut-away zones, registered with its layer under this key (null: none). */
@@ -402,6 +432,9 @@ export class ArchitectureView {
     if (rec.paintSig !== paintBefore || pathsBefore !== component) this.readPaint(id, rec);
     this.expand(id, rec);
     if (moved) for (const c of rec.chunks.values()) if (c.built !== null) this.moveBuilt(rec, c.built);
+    // Its drawing flags (shadows, decal layers, see-through) are not in the chunks' keys: a change goes onto what is built.
+    const flags = drawFlagsOf(rec.component);
+    for (const c of rec.chunks.values()) if (c.built !== null && !sameFlags(c.built.flags, flags)) this.reflag(rec, c.built, flags);
     if (this.deps.drawn === false) return;
     this.refresh(id, rec);
     // Jobs go out now, not at the next frame: the workers start (and load their script) while the scene's first frame is
@@ -1104,12 +1137,7 @@ export class ArchitectureView {
     if (templates.some((t) => t === null)) return;
     const size = rec.component.chunkSize ?? ARCHITECTURE_CHUNK_DEFAULT;
     const lodDistance = rec.component.lodDistance ?? ARCHITECTURE_LOD_DISTANCE_DEFAULT;
-    const cast = rec.component.castShadow !== false;
-    const receive = rec.component.receiveShadow !== false;
-    // Its decal layers (projected-decals.ts; absent: every layer), on every mesh it makes.
-    const decalLayers = decalLayersField(rec.component.decalLayers);
-    // Whether its meshes fade round see-through subjects (see-through.ts; absent: they do).
-    const seeThrough = (rec.component as { seeThrough?: unknown }).seeThrough !== false;
+    const flags = drawFlagsOf(rec.component);
     const group = new THREE.Group();
     group.name = `architecture:${id}:${ck}`;
     group.userData[PATH_PAINT_ENTITY_KEY] = id;
@@ -1159,11 +1187,7 @@ export class ArchitectureView {
         markOccludee(mesh, 'architecture');
         // A chunk spans rooms: each face is lit by the room it looks into and drawn while that room is seen (room-culling.ts).
         mesh.userData[ROOM_TAG_KEY] = true;
-        mesh.castShadow = cast;
-        mesh.receiveShadow = receive;
-        if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
-        if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
-        if (!seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
+        flagMesh(mesh, flags);
         // Clipped decals may be cut from it (clipped-decals.ts).
         mesh.userData[DECAL_SURFACE_KEY] = true;
         return mesh;
@@ -1209,11 +1233,7 @@ export class ArchitectureView {
         const name = `architecture:${id}:${ck}:${s.model.assetId}${part.at === undefined ? '' : `:${part.room}`}`;
         const built = buildInstanceSet(t, part.transforms, part.transforms.length / INSTANCE_FLOATS, name, { chunkSize: INSTANCE_CHUNK_METERS, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
         for (const mesh of built.meshes) {
-          mesh.castShadow = cast;
-          mesh.receiveShadow = receive;
-          if (cast) mesh.userData[STATIC_CASTER_KEY] = true;
-          if (decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = decalLayers;
-          if (!seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
+          flagMesh(mesh, flags);
           if (part.at !== undefined) mesh.userData[ROOM_AT_KEY] = part.at;
         }
         const undress = this.deps.dress(built.group, s.model.assetId);
@@ -1229,7 +1249,7 @@ export class ArchitectureView {
     if (ch.built !== null) this.dropBuilt(ch.built);
     const cut = cutMeshes.length > 0 ? { layer: rec.raw.layer!, key: `architecture:${id}:${ck}` } : null;
     if (cut !== null) this.deps.cutaway?.register(cut.layer, cut.key, cutMeshes);
-    ch.built = { group, generated, geometries, sets, undo, triangles, draws, cut };
+    ch.built = { group, flags, generated, geometries, sets, undo, triangles, draws, cut };
     ch.builtKey = key;
     ch.builtChunk = chunk;
     ch.builtPaint = rec.paintSig;
@@ -1280,6 +1300,18 @@ export class ArchitectureView {
   private redress(id: string, b: BuiltChunk): void {
     b.undo[0]?.();
     b.undo[0] = this.deps.materials(b.generated, id, this.recs.get(id)?.materials ?? {}) ?? ((): void => undefined);
+  }
+
+  /** New flags on a built chunk's meshes, listed again so the batcher, the shadows and the decals see them. */
+  private reflag(rec: Rec, b: BuiltChunk, flags: DrawFlags): void {
+    b.flags = flags;
+    b.group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh === true) flagMesh(o as THREE.Mesh, flags);
+    });
+    this.deps.place(b.group, false);
+    if (!rec.hidden) this.deps.place(b.group, true);
+    this.deps.shapeChanged();
+    this.deps.changed();
   }
 
   private moveBuilt(rec: Rec, b: BuiltChunk): void {

@@ -232,6 +232,8 @@ export class RenderGraph {
   private readonly scene: THREE.Scene;
   private readonly animated: (entityId: string) => boolean;
   private readonly nodes = new Map<string, EntityNode>();
+  /** Each entity's children by id (the world table keeps only parents). */
+  private readonly kids = new Map<string, Set<string>>();
   private readonly held = new Map<EntityNode, Holding>();
   /** Objects listed on their own (block chunks): placed by their owner, never moved here. */
   private readonly loose = new Map<THREE.Object3D, Holding>();
@@ -322,10 +324,47 @@ export class RenderGraph {
     return this.parked;
   }
 
-  /** Add an entity's row (its local transform starts at identity). */
+  /** Add an entity's row (its local transform starts at identity), or give it a new parent. */
   addEntity(id: string, parentId: string | null): void {
+    const before = this.world.parentOf(id);
+    if (before !== undefined && before !== parentId && before !== null) this.kids.get(before)?.delete(id);
+    if (parentId !== null) {
+      let set = this.kids.get(parentId);
+      if (set === undefined) this.kids.set(parentId, (set = new Set()));
+      set.add(id);
+    }
     this.world.add(id, parentId);
     this.revision += 1;
+  }
+
+  /**
+   * The nodes of an entity and of every entity below it (the entity
+   * hierarchy, not three's tree: a node's three children are only what that
+   * one entity shows), its own first; those that show nothing have none.
+   */
+  subtreeNodes(id: string): EntityNode[] {
+    const out: EntityNode[] = [];
+    if (!this.world.has(id)) return out;
+    const seen = new Set<string>();
+    // Any depth; a parent cycle (reported by the world table) ends where it closes.
+    const open = [id];
+    for (let at = open.pop(); at !== undefined; at = open.pop()) {
+      if (seen.has(at)) continue;
+      seen.add(at);
+      const node = this.nodes.get(at);
+      if (node !== undefined) out.push(node);
+      const kids = this.kids.get(at);
+      if (kids !== undefined) for (const k of kids) if (this.world.has(k)) open.push(k);
+    }
+    return out;
+  }
+
+  /** An entity's world matrix into `out` (false: it is not realized). */
+  worldMatrixOf(id: string, out: THREE.Matrix4): boolean {
+    const i = this.world.indexOf(id);
+    if (i === undefined) return false;
+    out.fromArray(this.world.world, i * 16);
+    return true;
   }
 
   /** Remove an entity: its drawables leave the scene; its node (if any) is returned for disposal. */
@@ -338,6 +377,14 @@ export class RenderGraph {
       this.posed.delete(node);
       this.nodes.delete(id);
     }
+    // Its children keep their parent's id (they hang under it again when it comes back).
+    const parent = this.world.parentOf(id);
+    if (parent !== undefined && parent !== null) {
+      const set = this.kids.get(parent);
+      set?.delete(id);
+      if (set?.size === 0 && !this.world.has(parent)) this.kids.delete(parent);
+    }
+    if (this.kids.get(id)?.size === 0) this.kids.delete(id);
     this.world.remove(id);
     this.revision += 1;
     return node;

@@ -96,7 +96,7 @@ import {
 } from './animation';
 import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
-import { SeeThroughView, type SeeThroughScripted } from './see-through';
+import { SeeThroughView, seeThroughEntitiesOf, type SeeThroughScripted } from './see-through';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import { createEffectsPlayer, type EffectComponentLike, type EffectDefLike, type EffectRequestLike, type EffectsDiagnostics, type EffectsPlayer, type EffectsPlayerOptions } from './effects-player';
@@ -545,7 +545,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
   const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
-  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), ...(opts.seeThrough?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), regroup: (o) => batcher?.touch(o), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
+  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), ...(opts.seeThrough?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), regroup: (o) => batcher?.touch(o), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
@@ -846,7 +846,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
-  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null } });
+  const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderBackend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderBackend === 'webgpu' ? (owned.renderer?.current() ?? null) : null), webgl: () => (renderBackend === 'webgl2' ? (owned.renderer?.current() ?? null) : null), computeMs: () => gpuTiming.computeMs(), canvas: canvasLike, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => api.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null }, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
   /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
@@ -1456,7 +1456,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     isolation.beforeBatch();
-    seeThrough.beforeBatch();
+    seeThrough.beforeBatch(camera!);
     if (batcher !== null) batcher.update(camera!);
     else {
       scene.updateMatrixWorld();

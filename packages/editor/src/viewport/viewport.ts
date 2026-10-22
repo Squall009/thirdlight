@@ -169,9 +169,9 @@ export class Viewport {
   private adapter: SceneAdapter;
   /** Everything the viewport draws itself, in the adapter's scene. */
   private readonly overlay = new THREE.Group();
-  /** Occlusion culling in this view: the View menu's switches, and what is never culled. */
   /** The See-through preview (the view's own, never saved). */
   private readonly seeThrough = new SeeThroughPreview();
+  /** Occlusion culling in this view: the View menu's switches, and what is never culled. */
   private readonly occlusion = new SceneViewOcclusion(() => this.adapter, () => this.root, occlusionFromUrl(pageSearch()));
   /** What occlusion culling leaves alone: the selection's subtree and the edited objects (made again when one changes). */
   private occlusionKept: { selected: string | null; projected: readonly ProjectedEntity[]; edited: ReadonlySet<string> | null; ids: ReadonlySet<string> } | null = null;

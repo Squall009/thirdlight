@@ -35,6 +35,16 @@ export function wgslRenderer(): WebGPURenderer {
 
 /** The vertex and fragment WGSL three builds for a mesh in a scene (its lights included). */
 export function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): string {
+  const b = builtFor(renderer, scene, mesh);
+  return `${b.vertexShader}\n${b.fragmentShader}`;
+}
+
+/** Whether three refreshes `mesh`'s own uniforms every frame (its observer says its material has nodes). */
+export function refreshesEveryFrame(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): boolean {
+  return (builtFor(renderer, scene, mesh) as unknown as { observer: { hasNode: boolean } }).observer.hasNode;
+}
+
+function builtFor(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): Builder {
   const camera = new THREE.PerspectiveCamera();
   const lights: THREE.Light[] = [];
   scene.traverse((o) => {
@@ -49,7 +59,7 @@ export function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE
   lightsNode.setLights(lights);
   b.lightsNode = lightsNode;
   b.build();
-  return `${b.vertexShader}\n${b.fragmentShader}`;
+  return b;
 }
 
 /** A lit scene: a sun and an ambient light. */

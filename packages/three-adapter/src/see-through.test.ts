@@ -20,10 +20,24 @@ import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
-import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
-import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
+import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { RenderGraph } from './render-graph';
+import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, refreshesEveryFrame, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
 const ON: SeeThroughSettings = { ...SEE_THROUGH_DEFAULTS, enabled: true };
+
+/** Subjects that are plain three objects (one per id, no entity hierarchy): what the maths cases need. */
+function plain(objects: Readonly<Record<string, THREE.Object3D | undefined>>): SeeThroughEntities {
+  return {
+    matrix: (id, out) => {
+      const o = objects[id];
+      if (o === undefined) return false;
+      out.copy(o.matrixWorld);
+      return true;
+    },
+    drawn: (id) => (objects[id] === undefined ? [] : [objects[id]!]),
+  };
+}
 
 function perspective(eye: readonly number[], at: readonly number[]): THREE.PerspectiveCamera {
   const c = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
@@ -164,15 +178,20 @@ describe('a subject\'s extent', () => {
     o.position.set(2, 5, 1);
     o.updateMatrixWorld(true);
     const out: SubjectExtent = { centre: new THREE.Vector3(), feet: 0, height: 0 };
-    subjectExtent(o, { controller: { capsule: { radius: 0.3, height: 1.6, offset: [0, 0.8] } } }, out);
-    expect([out.feet, out.height, out.centre.y]).toEqual([5, 1.6, 5.8]);
-    subjectExtent(o, {}, out);
+    subjectExtent(o.matrixWorld, [o], { controller: { capsule: { radius: 0.3, height: 1.6, offset: [0, 0.8, 0.5] } } }, out);
+    expect([out.feet, out.height, out.centre.y, out.centre.z]).toEqual([5, 1.6, 5.8, 1.5]);
+    subjectExtent(o.matrixWorld, [o], {}, out);
     expect([out.feet, out.height]).toEqual([5, 0]);
     const box = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1));
     box.position.y = 1;
     o.add(box);
+    // A line (a helper) and a hidden mesh do not size it.
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -3, 0), new THREE.Vector3(0, 9, 0)]));
+    const hidden = new THREE.Mesh(new THREE.BoxGeometry(1, 9, 1));
+    hidden.visible = false;
+    o.add(line, hidden);
     o.updateMatrixWorld(true);
-    subjectExtent(o, {}, out);
+    subjectExtent(o.matrixWorld, [o], {}, out);
     expect([out.feet, out.height]).toEqual([5, 2]);
   });
 });
@@ -181,7 +200,7 @@ describe('a subject\'s extent', () => {
 function viewOf(objects: Record<string, THREE.Object3D>, target: string | null, settings: Partial<SeeThroughSettings> = ON) {
   const problems: string[] = [];
   let precompiles = 0;
-  const view = new SeeThroughView({ object: (id) => objects[id], components: () => ({}), cameraTarget: () => target, requestPrecompile: () => precompiles++, onProblem: (code) => problems.push(code) }, settings);
+  const view = new SeeThroughView({ ...plain(objects), components: () => ({}), cameraTarget: () => target, requestPrecompile: () => precompiles++, onProblem: (code) => problems.push(code) }, settings);
   return { view, problems, precompiles: () => precompiles };
 }
 
@@ -260,7 +279,7 @@ describe('which draws a subject may fade', () => {
     for (const prebuild of [false, true]) {
       const problems: string[] = [];
       let scripted: SeeThroughScripted | null = null;
-      const view = new SeeThroughView({ object: () => body(0, 0), components: () => ({}), cameraTarget: () => 'a', scripted: () => scripted, prebuild, onProblem: (code) => problems.push(code) });
+      const view = new SeeThroughView({ ...plain({ a: body(0, 0) }), components: () => ({}), cameraTarget: () => 'a', scripted: () => scripted, prebuild, onProblem: (code) => problems.push(code) });
       const r = { contextNode: { value: {}, needsUpdate: false } };
       view.update(r, camera, 0);
       scripted = { settings: { ...ON }, subjects: null };
@@ -274,7 +293,7 @@ describe('which draws a subject may fade', () => {
   it('a draw far from every circle takes no subject; a wall in front of one takes it', () => {
     const objects: Record<string, THREE.Object3D> = { a: body(0, 0) };
     const camera = perspective([0, 6, 10], [0, 1, 0]);
-    const view = new SeeThroughView({ object: (id) => objects[id], components: () => ({}), cameraTarget: () => 'a' }, { ...ON, fadeTime: 0 });
+    const view = new SeeThroughView({ ...plain(objects), components: () => ({}), cameraTarget: () => 'a' }, { ...ON, fadeTime: 0 });
     view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 0);
     const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 0.2));
     wall.position.set(0, 1.5, 4);
@@ -346,7 +365,7 @@ describe('a view\'s subjects', () => {
     const r = renderer();
     let scripted: SeeThroughScripted | null = null;
     const objects = { p: body(0, 0), q: body(2, 0) };
-    const deps = { object: (id: string) => objects[id as 'p' | 'q'], components: () => ({}), cameraTarget: () => 'p', scripted: () => scripted };
+    const deps = { ...plain(objects), components: () => ({}), cameraTarget: () => 'p', scripted: () => scripted };
     const view = new SeeThroughView(deps, { enabled: false, radius: 0.3 });
     view.update(r, camera, 0);
     expect(view.diagnostics().armed).toBe(false);
@@ -477,7 +496,7 @@ describe('a subject drawn in a batch or a merged cell', () => {
 
   /** One frame as the adapter runs it: subjects marked, batches grouped, the view followed. */
   const frame = (view: SeeThroughView, b: ReturnType<typeof createAutoBatcher>, t: number): void => {
-    view.beforeBatch();
+    view.beforeBatch(camera);
     b.update(camera);
     view.update(r, camera, t);
   };
@@ -496,7 +515,7 @@ describe('a subject drawn in a batch or a merged cell', () => {
     }
     const b = createAutoBatcher(scene);
     for (const m of Object.values(boxes)) b.listed(m);
-    const view = new SeeThroughView({ object: (id) => boxes[id], components: () => ({}), cameraTarget: () => 's0', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
+    const view = new SeeThroughView({ ...plain(boxes), components: () => ({}), cameraTarget: () => 's0', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
     frame(view, b, 0);
     const s0 = boxes['s0']!;
     expect(batchRefusal(s0)).toBe('see-through subject');
@@ -512,6 +531,32 @@ describe('a subject drawn in a batch or a merged cell', () => {
     expect(batchRefusal(s0)).toBeNull();
     expect(drawnAlone(s0)).toBe(false);
     expect(b.drawOf(s0)).toBe(batch);
+    view.dispose();
+    b.dispose();
+  });
+
+  it('only the subjects that hold a slot leave their batches: more named than slots keep the farthest batched', () => {
+    const scene = new THREE.Scene();
+    const geo = new THREE.BoxGeometry(0.6, 1.8, 0.6);
+    const mat = new THREE.MeshStandardMaterial();
+    const boxes: Record<string, THREE.Mesh> = {};
+    const n = SEE_THROUGH_SUBJECTS + 3;
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(0, 0.9, 8 - i * 3);
+      m.userData[BATCH_KEY] = true;
+      m.updateMatrixWorld(true);
+      scene.add(m);
+      boxes[`s${i}`] = m;
+    }
+    const b = createAutoBatcher(scene);
+    for (const m of Object.values(boxes)) b.listed(m);
+    const view = new SeeThroughView({ ...plain(boxes), components: () => ({}), cameraTarget: () => null, regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
+    view.set({ subjects: Object.keys(boxes) });
+    frame(view, b, 0);
+    const alone = Object.keys(boxes).filter((id) => batchRefusal(boxes[id]!) === 'see-through subject');
+    expect(alone.sort()).toEqual(Object.keys(boxes).slice(0, SEE_THROUGH_SUBJECTS).sort());
+    expect(view.diagnostics().subjects.map((x) => x.id).sort()).toEqual(alone.sort());
     view.dispose();
     b.dispose();
   });
@@ -534,7 +579,7 @@ describe('a subject drawn in a batch or a merged cell', () => {
     b.update(camera);
     expect(props.filter(drawnAlone)).toEqual([]);
     const subject = props[0]!;
-    const view = new SeeThroughView({ object: (id) => (id === 'p' ? subject : undefined), components: () => ({}), cameraTarget: () => 'p', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
+    const view = new SeeThroughView({ ...plain({ p: subject }), components: () => ({}), cameraTarget: () => 'p', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
     frame(view, b, 0);
     expect(props.filter(drawnAlone)).toEqual([subject]);
     expect(view.bitsFor(subject)).toBe(0);
@@ -551,6 +596,83 @@ describe('a subject drawn in a batch or a merged cell', () => {
     expect(batchRefusal(subject)).toBeNull();
     expect(batchRefusal(part)).toBeNull();
     b.dispose();
+  });
+});
+
+describe('subjects in the engine\'s entity hierarchy (the render graph)', () => {
+  const r = { contextNode: { value: {} as Record<string, unknown>, needsUpdate: false } };
+  const camera = perspective([0, 6, 10], [0, 1, 0]);
+
+  /** A prefab-shaped hero (a controller root drawing nothing, its model a child entity holding a sword entity), a crate prefab root with a child model, and a wall. */
+  function world() {
+    const scene = new THREE.Scene();
+    const graph = new RenderGraph(scene, () => false);
+    const place = (id: string, parent: string | null, p: readonly number[]): void => {
+      graph.addEntity(id, parent);
+      graph.world.setLocal(id, p, [0, 0, 0, 1], [1, 1, 1]);
+    };
+    // The capsule (1.8 m, the default) is centred on the root: its feet on the floor.
+    place('hero', null, [0, 0.9, 0]);
+    place('hero-model', 'hero', [0, 0, 0]);
+    place('sword', 'hero-model', [0.4, 0.2, 0]);
+    place('crate', null, [3, 0, 0]);
+    place('crate-model', 'crate', [0, 0.6, 0]);
+    place('wall', null, [0, 1.5, 4]);
+    const mesh = (id: string, w: number, h: number, d: number): THREE.Mesh => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial());
+      graph.nodeFor(id)!.add(m);
+      return m;
+    };
+    const meshes = { model: mesh('hero-model', 0.6, 1.8, 0.6), sword: mesh('sword', 0.1, 1, 0.1), crate: mesh('crate-model', 1.2, 1.2, 1.2), wall: mesh('wall', 8, 3, 0.2) };
+    graph.update();
+    const components: Record<string, unknown> = { hero: { controller: {} } };
+    const view = (target: string): SeeThroughView => new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => components[id] ?? {}, cameraTarget: () => target }, { ...ON, fadeTime: 0 });
+    return { graph, meshes, view };
+  }
+
+  it('a controller root whose model is a child entity is a subject, sized by its capsule; its model and the item its model holds never fade for it', () => {
+    const { graph, meshes, view } = world();
+    expect(graph.node('hero')).toBeUndefined();
+    const v = view('hero');
+    v.beforeBatch(camera);
+    v.update(r, camera, 0);
+    expect(v.diagnostics().subjects).toEqual([{ id: 'hero', slot: 0, fade: 1 }]);
+    expect(v.bitsFor(meshes.model, camera)).toBe(0);
+    expect(v.bitsFor(meshes.sword, camera)).toBe(0);
+    expect(v.bitsFor(meshes.wall, camera)).toBe(1);
+    // The wall in front of its chest fades; at its knees it stays (the capsule's half height, 0.9 m).
+    const count = v.fill(camera);
+    const fadeAt = (o: THREE.Object3D, p: readonly number[]): number => fadeAtWorld(camera, v.packed(), count, v.bitsFor(o, camera), p);
+    expect(fadeAt(meshes.wall, onRay(camera, [0, 1.4, 0], 0.6))).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeAt(meshes.wall, [0, 0.5, 4])).toBe(0);
+  });
+
+  it('a prefab root without a controller (the editor preview\'s pick) is sized by what its child entities draw', () => {
+    const { meshes, view } = world();
+    const v = view('crate');
+    v.beforeBatch(camera);
+    v.update(r, camera, 0);
+    expect(v.diagnostics().subjects).toEqual([{ id: 'crate', slot: 0, fade: 1 }]);
+    expect(v.bitsFor(meshes.crate, camera)).toBe(0);
+    // Its circle centres on the child's box (1.2 m: the half-height plane at 0.6 m).
+    const count = v.fill(camera);
+    expect(fadeAtWorld(camera, v.packed(), count, 1, onRay(camera, [3, 0.9, 0], 0.6))).toBeCloseTo(ON.maxFade, 6);
+    // In front of it just under and just over that plane.
+    expect(fadeAtWorld(camera, v.packed(), count, 1, [3, 0.55, 1])).toBe(0);
+    expect(fadeAtWorld(camera, v.packed(), count, 1, [3, 0.65, 1])).toBeGreaterThan(0);
+  });
+
+  it('a child entity given to another parent leaves its old one\'s subject', () => {
+    const { graph, meshes, view } = world();
+    graph.addEntity('sword', 'crate');
+    graph.update();
+    const v = view('hero');
+    v.beforeBatch(camera);
+    v.update(r, camera, 0);
+    expect(graph.subtreeNodes('hero').map((n) => n.entityId)).toEqual(['hero-model']);
+    expect(v.bitsFor(meshes.sword)).toBe(1);
+    graph.removeEntity('hero-model');
+    expect(graph.subtreeNodes('hero')).toEqual([]);
   });
 });
 
@@ -573,7 +695,7 @@ describe('the per-object opt-out', () => {
 /** A renderer armed by a view (its context holds the view; a build reads it). */
 function armed(view?: SeeThroughView): { renderer: ReturnType<typeof wgslRenderer>; view: SeeThroughView } {
   const renderer = wgslRenderer();
-  const v = view ?? new SeeThroughView({ object: () => undefined, components: () => ({}), cameraTarget: () => null }, ON);
+  const v = view ?? new SeeThroughView({ ...plain({}), components: () => ({}), cameraTarget: () => null }, ON);
   v.update(renderer, new THREE.PerspectiveCamera(), 0);
   return { renderer, view: v };
 }
@@ -635,6 +757,21 @@ describe('the see-through programs', () => {
     expect(fragmentOf(wgslOf(renderer, scene, extra['ownMask']!)).match(/discard/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('builds the CPU reference\'s own steps (one set of steps, two sets of operations): each slot\'s circle unrolled once', async () => {
+    const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
+    const { renderer } = armed();
+    const count = (r: ReturnType<typeof wgslRenderer>): number => fragmentOf(wgslOf(r, scene, meshes['standard']!)).match(/smoothstep\(/g)?.length ?? 0;
+    expect(count(renderer) - count(wgslRenderer())).toBe(SEE_THROUGH_SUBJECTS);
+  });
+
+  it('an armed draw refreshes its own uniforms every frame, a classic material\'s too (its subject bits change while it stays still)', () => {
+    const scene = litScene();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial());
+    scene.add(mesh);
+    expect(refreshesEveryFrame(wgslRenderer(), scene, mesh)).toBe(false);
+    expect(refreshesEveryFrame(armed().renderer, scene, mesh)).toBe(true);
+  });
+
   it('builds no mask into the shadow pass, colourless draws or draws over everything', () => {
     const { renderer } = armed();
     const scene = litScene();
@@ -653,7 +790,7 @@ describe('the see-through programs', () => {
   it('subjects and settings are uniforms: changing them builds the same program', async () => {
     const objects: Record<string, THREE.Object3D> = { a: body(0, 0), b: body(2, -3) };
     const camera = perspective([0, 6, 10], [0, 1, 0]);
-    const view = new SeeThroughView({ object: (id) => objects[id], components: () => ({}), cameraTarget: () => 'a' }, ON);
+    const view = new SeeThroughView({ ...plain(objects), components: () => ({}), cameraTarget: () => 'a' }, ON);
     const { renderer } = armed(view);
     const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
     const m = meshes['standard']!;
@@ -666,10 +803,9 @@ describe('the see-through programs', () => {
   it('a prebuilding view arms at its first frame while off, so turning it on later builds no program again', async () => {
     const objects: Record<string, THREE.Object3D> = { a: body(0, 0) };
     const camera = perspective([0, 6, 10], [0, 1, 0]);
-    const deps = { object: (id: string) => objects[id], components: () => ({}), cameraTarget: () => 'a', prebuild: true };
+    const deps = { ...plain(objects), components: () => ({}), cameraTarget: () => 'a', prebuild: true };
     const view = new SeeThroughView(deps);
     const renderer = wgslRenderer();
-    const ctx = (renderer as unknown as { contextNode: { version: number } }).contextNode;
     view.update(renderer, camera, 0);
     expect(view.diagnostics()).toMatchObject({ enabled: false, armed: true, subjects: [] });
     const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
@@ -678,6 +814,7 @@ describe('the see-through programs', () => {
     expect(fragmentOf(off)).toContain('seeThroughFade');
     // Off, nothing fades: no draw takes a subject's bit (the programs skip the mask).
     expect(view.bitsFor(m)).toBe(0);
+    const ctx = (renderer as unknown as { contextNode: { version: number } }).contextNode;
     const version = ctx.version;
     view.set({ enabled: true });
     view.update(renderer, camera, 100);

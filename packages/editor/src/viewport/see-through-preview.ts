@@ -74,14 +74,16 @@ export class SeeThroughPreview {
   /** Hand the adapter the preview when it changed (`fresh`: a new adapter, which starts off). Returns whether it did. */
   apply(adapter: SceneAdapter, selectedId: string | null, entities: readonly ProjectedEntity[], fresh = false): boolean {
     const subject = this.on ? previewSubject(selectedId, entities) : null;
-    const key = JSON.stringify([this.on, this.settings, subject]);
+    // The project's own setting keeps the view armed from load (as Play builds its programs then): on, round no one.
+    const enabled = this.on || this.settings.enabled;
+    const key = JSON.stringify([enabled, this.settings, subject]);
     if (key === this.applied && !fresh) return false;
-    if (fresh && !this.on) {
+    if (fresh && !enabled) {
       this.applied = key;
       return false;
     }
     this.applied = key;
-    adapter.seeThrough?.().set({ ...this.settings, enabled: this.on, subjects: subject === null ? [] : [subject] });
+    adapter.seeThrough?.().set({ ...this.settings, enabled, subjects: subject === null ? [] : [subject] });
     return true;
   }
 
