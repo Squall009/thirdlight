@@ -86,6 +86,13 @@ Future (owner, 2026-10-21), not planned yet:
   to 16 local lights (D204). This is a phase of its own, after 41.
 - **The owner's own dogfood pass**: building a small game from the docs alone
   (deferred from 31.8).
+- **One walk graph for block layers and terrain** (owner, 2026-10-22): the
+  block layers' A* (`ctx.grid.path`) becomes one navigation graph over blocks
+  and terrain (slope and holes from the terrain field, stitched where they
+  meet, cached per tile with streaming). Search is hierarchical A* (a coarse
+  region graph, then local A*), so its cost follows the path, not the map,
+  and the 65,536-node cap goes. Long queries can be time-sliced across steps
+  with a handle.
 - **A performance pass** that revisits occlusion culling on WebGPU (D282,
   D286).
 
