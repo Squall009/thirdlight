@@ -115,3 +115,8 @@ new e2e.
   transform keys, a fresh physics world per run, a throwing hook's earlier
   work stands, late start-up errors don't stop the game, prefab tags, LOD by
   screen size, height in albedo alpha.
+- 2026-10-22 (owner, round 4): confirmed the cutscene walk rules and input
+  hold, one-way/drop-through, axis-aligned planes for 41, terrain collision
+  patches, the scene-list deprecation scope, the `ctx.character` API, script
+  trust and publish retries, run-time decals (256 budget), and the four
+  documented API quirks.
