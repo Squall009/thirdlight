@@ -82,8 +82,13 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 
 Future (owner, 2026-10-21), not planned yet:
-- **Clustered (or tiled) forward lighting**, so scenes are no longer limited
-  to 16 local lights (D204). This is a phase of its own, after 41.
+- **A lighting phase** after 41:
+  - clustered (or tiled) forward lighting, so scenes are no longer limited to
+    16 local lights (D204);
+  - **adaptive probe placement** (owner, 2026-10-22), instead of an even 2 m
+    grid: probes dense near geometry and sparse in open space (bricks
+    subdivided by geometry, Unity APV-style), with invalid probes moved or
+    dropped.
 - **The owner's own dogfood pass**: building a small game from the docs alone
   (deferred from 31.8).
 - **One walk graph for block layers and terrain** (owner, 2026-10-22): the

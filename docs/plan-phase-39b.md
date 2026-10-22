@@ -120,3 +120,8 @@ new e2e.
   patches, the scene-list deprecation scope, the `ctx.character` API, script
   trust and publish retries, run-time decals (256 budget), and the four
   documented API quirks.
+- 2026-10-22 (owner, round 5): confirmed engine bounds, rooms as lighting
+  zones (look at the yard leak), cut-away details, the scatter rule format,
+  projected decals inside the material, light layers, render scale and
+  dynamic resolution, quality levels. Probe placement goes adaptive in the
+  later lighting phase (roadmap).
