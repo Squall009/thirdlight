@@ -49,7 +49,6 @@ import * as THREE from 'three';
 import { type BlockLayerViewDiagnostics } from './block-layers';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
 import { OcclusionCuller } from './occlusion';
-import { markHostDrawing } from './occludees';
 import { TERRAIN_ENTITY_KEY, TerrainView } from './terrain-view';
 import { createScenePreparations } from './scene-preparation';
 import { TerrainTileStore } from './terrain-tile-store';
@@ -87,6 +86,7 @@ import {
 import type { AuthoredSurface } from './lighting';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { createAdapterLevel } from './adapter-level';
+import { AdapterEntities } from './adapter-entities';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import type { EffectComponentLike, EffectRequestLike } from './effects-player';
@@ -226,20 +226,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const envTagBits = envLook.tagBits;
   const effectiveEnvironment = (): EnvironmentLike | null => envLook.effective();
   const applyEnvironmentBlend = (): void => envLook.apply();
-  const fogVolumeIds = new Set<string>();
-  const tmpWorld: number[] = [0, 0, 0];
   const tmpSize = new THREE.Vector2();
-  /** The fog volumes of the loaded scenes, in world space (entities may move). */
-  const fogVolumesNow = (): FogVolumeLike[] => {
-    const out: FogVolumeLike[] = [];
-    for (const id of fogVolumeIds) {
-      const doc = entityDocs.get(id) as { components: { fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number } } } | undefined;
-      const fv = doc?.components.fogVolume;
-      if (fv === undefined || graph.isHidden(id) || !graph.world.position(id, tmpWorld)) continue;
-      out.push({ center: [tmpWorld[0]!, tmpWorld[1]!, tmpWorld[2]!], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
-    }
-    return out;
-  };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   /**
    * The entities' world matrices, and the scene as a flat list of drawables
@@ -321,44 +308,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
 
   // --- scene graph construction (fixed component table; read-only over the
   // --- (deep-frozen, normalized) snapshot) ---------------------------------
-  /** Each entity's own GPU resources (released when its scene unloads). */
-  const entityResources = new Map<string, { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material }>();
   /** The unit box every box is drawn through when batched. */
   const unitBox = unitBoxGeometry(addBoxLightmapUv);
-  /** Box materials by value (shared by every box with the same values; counted). */
-  const boxMaterials = new Map<string, { material: THREE.Material; refs: number }>();
-  const boxMaterialKeys = new Map<THREE.Material, string>();
-  const sharedBoxMaterial = (surface: AuthoredSurface | undefined, color: string): THREE.Material => {
-    const key = surface ? JSON.stringify(['s', surface.color, surface.roughness, surface.metalness, surface.emissive, surface.emissiveIntensity]) : JSON.stringify(['l', color]);
-    let rec = boxMaterials.get(key);
-    if (rec === undefined) {
-      const material: THREE.Material = surface
-        ? new THREE.MeshStandardMaterial({
-            color: new THREE.Color(surface.color),
-            roughness: surface.roughness,
-            metalness: surface.metalness,
-            emissive: new THREE.Color(surface.emissive),
-            emissiveIntensity: surface.emissiveIntensity,
-          })
-        : new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
-      material.userData[SHARED_MATERIAL_KEY] = true;
-      rec = { material, refs: 0 };
-      boxMaterials.set(key, rec);
-      boxMaterialKeys.set(material, key);
-    }
-    rec.refs += 1;
-    return rec.material;
-  };
-  const releaseBoxMaterial = (material: THREE.Material): void => {
-    const key = boxMaterialKeys.get(material);
-    const rec = key === undefined ? undefined : boxMaterials.get(key);
-    if (rec === undefined || key === undefined) return;
-    rec.refs -= 1;
-    if (rec.refs > 0) return;
-    boxMaterials.delete(key);
-    boxMaterialKeys.delete(material);
-    material.dispose();
-  };
   /** Repeated objects drawn instanced (absent when the option turns it off). */
   /** What batches, instance-set chunks and merged cells draw is culled inside against the frame's camera. */
   const viewCull = new ViewCuller();
@@ -387,144 +338,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   const { stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough } = level;
   const authoredBlockTypes = level.blockTypes;
-  /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
-  const docLayers = new Set<string>();
-  /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
-  const overlays = new Map<string, Set<THREE.Object3D>>();
-  /**
-   * The static scope of each realized entity that never moves: its scene (static batching merges per scene, so
-   * an unload drops only that scene's merged cells). None for an object kept loaded across scenes or spawned.
-   */
-  const staticScopes = new Map<string, string>();
-  const realizeEntity = (e: (typeof opts.snapshot.scene.entities)[number], sceneId: string | null = null): void => {
-    const t = e.components.transform;
-    graph.addEntity(e.id, e.parentId ?? null);
-    const flags = e as { static?: boolean; keepLoaded?: boolean };
-    const scope = sceneId !== null && flags.static === true && flags.keepLoaded !== true ? sceneId : null;
-    if (scope !== null) staticScopes.set(e.id, scope);
-    graph.world.setLocal(e.id, t.position, t.rotation, t.scale);
-    entityDocs.set(e.id, e);
-    // Only an entity that shows something (or anchors an effect) gets a node, when it does; the rest is the table row.
-    let boxMesh: THREE.Mesh | null = null;
-    const own: { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material } = { geometries: [], materials: [] };
-    const box = e.components.box;
-    if (box) {
-      // Box primitive: unit-axis geometry sized by `size`; the
-      // transform's `scale` multiplies on top per frame.
-      const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
-      addBoxLightmapUv(geometry);
-      const surface = (e.components as { surface?: AuthoredSurface }).surface;
-      // An entity carrying `surface` gets ONE
-      // material instance created per entity placement — owned by that
-      // entity's mesh instance (value-level independence; the per-placement
-      // instance is by construction). No preset lookup: the values are
-      // taken literally from the `surface` component. No `surface` ⇒ the
-      // plain Lambert path.
-      // Boxes with equal values share one material (a per-object
-      // look — `ctx.look`, a lightmap — copies it first), so
-      // they can be drawn together.
-      const material = sharedBoxMaterial(surface, box.material.color);
-      own.geometries.push(geometry);
-      own.shared = material;
-      boxMesh = new THREE.Mesh(geometry, material);
-      // Drawn through the one unit box scaled by the size when batched.
-      boxMesh.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
-      if (scope !== null) boxMesh.userData[STATIC_KEY] = scope;
-      // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow), in their light layers.
-      applyEntityRenderFlags(boxMesh, e.components);
-      graph.nodeFor(e.id)!.add(boxMesh);
-    } else lights.realize(e);
-    // A block layer (its cells ride on the resolved component).
-    const layer = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
-    if (layer !== undefined) {
-      docLayers.add(e.id);
-      blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
-      architecture.layerChanged(e.id);
-    }
-    const terrain = (e.components as { terrain?: TerrainComponent }).terrain;
-    const spline = (e.components as { spline?: SplineComponent }).spline;
-    if (spline !== undefined) splines.set(e.id, spline, t.position, opts.vertexPaint !== false ? pathPaintOf(e.components) : undefined);
-    const arch = (e.components as { architecture?: ArchitectureComponent }).architecture;
-    if (arch !== undefined) architecture.set(e.id, arch, t.position, opts.vertexPaint !== false ? pathPaintOf(e.components) : undefined);
-    if (terrain !== undefined && opts.terrain !== false) terrains.setTerrain(e.id, terrain, t.position, { components: e.components, materials: effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials) ?? null, overrides: materialParamsOf(e.components) });
-    if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
-    decalPages?.set(e.id, (e.components as { decal?: { material?: string } }).decal?.material ?? null);
-    projectors?.set(e.id, graph.nodeFor(e.id)!, (e.components as { decal?: ProjectedDecalLike }).decal ?? null);
-    clipped?.set(e.id, (e.components as { decal?: ProjectedDecalLike }).decal ?? null, scope);
-    const node = graph.node(e.id);
-    const boxMaterials = effectiveMaterials(e.id, (e.components as { materials?: Record<string, string> }).materials);
-    // With the object's values for its graph materials' public parameters.
-    if (boxMesh !== null && node !== undefined && materialLibrary !== null && boxMaterials !== undefined) materials.undo.set(e.id, materialLibrary.apply(node, boxMaterials, materialParamsOf(e.components)));
-    if (boxMesh !== null && node !== undefined) lightmaps?.apply(e.id, node);
-    if (own.geometries.length > 0) entityResources.set(e.id, own);
-    // An effect component plays from the object (on start unless it waits for a signal or a script).
-    const fx = (e.components as { effect?: EffectComponentLike }).effect;
-    if (effects.player !== null && fx !== undefined) effects.attach(e.id, graph.nodeFor(e.id)!, fx);
-    // What a host hangs on it (back after the entity was realized again), last: the material, look and lightmap paths above never see it.
-    const hung = overlays.get(e.id);
-    if (hung !== undefined) {
-      const holder = graph.nodeFor(e.id)!;
-      for (const o of hung) holder.add(o);
-    }
-  };
-  /** An entity whose vertex paint alone changed: what it draws stays, its paint is swapped once read (vertex-paint-update.ts). */
-  const repaintInPlace = (e: (typeof opts.snapshot.scene.entities)[number]): void => {
-    const before = entityDocs.get(e.id)?.components as { spline?: SplineComponent; architecture?: ArchitectureComponent } | undefined;
-    entityDocs.set(e.id, e);
-    const c = e.components as { spline?: SplineComponent; architecture?: ArchitectureComponent };
-    const at = e.components.transform.position;
-    // The generator's input is the one drawn (equal by value): only the paint is new.
-    if (c.spline !== undefined) splines.set(e.id, before?.spline ?? c.spline, at, pathPaintOf(e.components));
-    if (c.architecture !== undefined) architecture.set(e.id, before?.architecture ?? c.architecture, at, pathPaintOf(e.components));
-    const refs = modelRefsOf([e]);
-    realization?.updatePaint(e.id, { meshes: refs.paints.get(e.id), instances: refs.instances.get(e.id) });
-  };
-  const releaseEntity = (id: string): void => {
-    if (docLayers.delete(id)) blockView.removeLayer(id);
-    terrains.removeTerrain(id);
-    splines.remove(id);
-    architecture.remove(id);
-    materials.runtime?.release(id);
-    effects.detach(id);
-    const obj = graph.node(id);
-    // Per-object looks first (a look override's own copies), then the shared paths undo.
-    if (obj !== undefined) releaseEmissiveLooks(obj);
-    lightmaps?.release(id);
-    fogVolumeIds.delete(id);
-    decalPages?.remove(id);
-    projectors?.remove(id);
-    clipped?.remove(id);
-    // Its light (a directional or ambient light hangs off the scene; one on the node goes with it).
-    lights.release(id);
-    // What a host hangs on it leaves the node first (the host keeps it; it comes back when the entity does).
-    const hung = overlays.get(id);
-    if (hung !== undefined && obj !== undefined) for (const o of hung) obj.remove(o);
-    materials.undo.get(id)?.();
-    materials.undo.delete(id);
-    materials.swaps?.removed(id);
-    // Its drawables leave the scene first (the node's tree is all its own: children have nodes of their own).
-    graph.removeEntity(id);
-    if (obj !== undefined) {
-      // Its render objects (a material that outlives it — a project material, a shared box
-      // material — would keep them) and a light's shadow map.
-      disposeObjectTree(obj);
-    }
-    entityDocs.delete(id);
-    staticScopes.delete(id);
-    const own = entityResources.get(id);
-    if (own !== undefined) {
-      for (const g of own.geometries) g.dispose();
-      for (const m of own.materials) m.dispose();
-      if (own.shared !== undefined) releaseBoxMaterial(own.shared);
-      entityResources.delete(id);
-    }
-  };
+  // What each loaded entity's components make, realized from its document (adapter-entities.ts).
+  const entities = new AdapterEntities(entityDocs, {
+    graph, lights, blockView, terrains, splines, architecture, clipped, effects, materials,
+    lightmaps: () => lightmaps, realization: () => realization, unitBox, vertexPaint: opts.vertexPaint !== false, terrain: opts.terrain !== false,
+  });
   {
     // The start scenes' entities, each with its scene (the snapshot's own scene when the runtime has no scene set).
     const sceneOf = new Map<string, string>();
     for (const b of opts.runtime.sceneSet?.()?.batches ?? []) for (const e of b.entities) sceneOf.set((e as { id: string }).id, b.sceneId);
     const own = (opts.snapshot.scene as { sceneId?: string }).sceneId ?? null;
-    for (const e of opts.snapshot.scene.entities) realizeEntity(e, sceneOf.get(e.id) ?? own);
+    for (const e of opts.snapshot.scene.entities) entities.realize(e, sceneOf.get(e.id) ?? own);
   }
   // The view's camera, posed every frame from the camera brain (`applyResolvedCamera`). Aspect is a viewport
   // property, updated per frame from the canvas size.
@@ -598,7 +422,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         materials.runtime?.reapply(entityId);
         // A model's meshes may be drawn together with other placements' (instance sets already are), or merged when static.
         markBatchable(root);
-        const scope = staticScopes.get(entityId);
+        const scope = entities.staticScopes.get(entityId);
         if (scope !== undefined) {
           markStatic(root, scope);
           // Marked after its meshes came into the scene: the static shadow map takes them now.
@@ -886,7 +710,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization?.removeEntities(ids);
       for (const id of ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
-      for (const id of [...ids].reverse()) releaseEntity(id);
+      for (const id of [...ids].reverse()) entities.release(id);
       realizedScenes.delete(sceneId);
       removed = true;
       scenesRemoved = true;
@@ -894,17 +718,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // A realized scene whose list was replaced in place (an editing host's scene): only the entities
     // whose document changed are realized again, and the ones gone released (all releases first: an
     // entity may move to another scene's list).
-    const edited: { sceneId: string; rec: { ids: Set<string>; list: readonly unknown[] }; entities: readonly (typeof opts.snapshot.scene.entities)[number][] }[] = [];
+    const edited: { sceneId: string; rec: { ids: Set<string>; list: readonly unknown[] }; docs: readonly (typeof opts.snapshot.scene.entities)[number][] }[] = [];
     for (const b of set.batches) {
       const rec = realizedScenes.get(b.sceneId);
       if (rec === undefined || rec.list === b.entities) continue;
-      const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
-      const next = new Map(entities.map((e) => [e.id, e]));
+      const docs = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
+      const next = new Map(docs.map((e) => [e.id, e]));
       const gone = new Set<string>();
       for (const id of rec.ids) {
         const doc = next.get(id);
         if (doc === entityDocs.get(id)) continue;
-        if (doc !== undefined && opts.vertexPaint !== false && paintOnlyChange(entityDocs.get(id), doc)) repaintInPlace(doc);
+        if (doc !== undefined && opts.vertexPaint !== false && paintOnlyChange(entityDocs.get(id), doc)) entities.repaintInPlace(doc);
         else gone.add(id);
       }
       if (gone.size > 0) {
@@ -912,19 +736,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         realization?.removeEntities(gone);
         for (const id of gone) shownLooks.delete(id);
         // Children before parents (reverse document order).
-        for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (gone.has(e.id)) releaseEntity(e.id);
+        for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (gone.has(e.id)) entities.release(e.id);
         for (const id of gone) rec.ids.delete(id);
         removed = true;
       }
       rec.list = b.entities;
-      edited.push({ sceneId: b.sceneId, rec, entities });
+      edited.push({ sceneId: b.sceneId, rec, docs });
     }
     let added = false;
-    for (const { sceneId, rec, entities } of edited) {
-      const fresh = entities.filter((e) => !rec.ids.has(e.id));
+    for (const { sceneId, rec, docs } of edited) {
+      const fresh = docs.filter((e) => !rec.ids.has(e.id));
       if (fresh.length === 0) continue;
       for (const e of fresh) {
-        realizeEntity(e, sceneId);
+        entities.realize(e, sceneId);
         rec.ids.add(e.id);
       }
       realization?.addEntities(modelRefsOf(fresh));
@@ -932,10 +756,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     for (const b of set.batches) {
       if (realizedScenes.has(b.sceneId)) continue;
-      const entities = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
-      for (const e of entities) realizeEntity(e, b.sceneId);
-      realizedScenes.set(b.sceneId, { ids: new Set(entities.map((e) => e.id)), list: b.entities });
-      realization?.addEntities(modelRefsOf(entities));
+      const docs = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
+      for (const e of docs) entities.realize(e, b.sceneId);
+      realizedScenes.set(b.sceneId, { ids: new Set(docs.map((e) => e.id)), list: b.entities });
+      realization?.addEntities(modelRefsOf(docs));
       // Its entities hold what the preparation held.
       preparations.realized(b.sceneId);
       frameRealized.push(b.sceneId);
@@ -957,7 +781,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization?.removeEntities(rec.ids);
       for (const id of rec.ids) shownLooks.delete(id);
       // Children before parents (reverse document order).
-      for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (rec.ids.has(e.id)) releaseEntity(e.id);
+      for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (rec.ids.has(e.id)) entities.release(e.id);
       realizedScenes.delete(sceneId);
     }
     realizedRevision = -1;
@@ -975,7 +799,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const ids = new Set(gone);
       realization?.removeEntities(ids);
       for (const id of gone.reverse()) {
-        releaseEntity(id);
+        entities.release(id);
         realizedSpawned.delete(id);
         shownLooks.delete(id);
       }
@@ -983,7 +807,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const added = spawned.filter((e) => !realizedSpawned.has((e as { id: string }).id)) as unknown as (typeof opts.snapshot.scene.entities)[number][];
     if (added.length === 0) return;
     for (const e of added) {
-      realizeEntity(e);
+      entities.realize(e);
       realizedSpawned.set(e.id, e);
     }
     realization?.addEntities(modelRefsOf(added));
@@ -1080,7 +904,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const before = hiddenIds;
       hiddenIds = graph.setHidden(hiddenOwn);
       // A hidden block layer's chunks leave the scene (they hang on no entity node).
-      for (const id of docLayers) blockView.setHidden(id, hiddenIds.has(id));
+      for (const id of entities.docLayers) blockView.setHidden(id, hiddenIds.has(id));
       for (const id of terrains.ids()) terrains.setHidden(id, hiddenIds.has(id));
       for (const id of splines.ids()) splines.setHidden(id, hiddenIds.has(id));
       for (const id of architecture.ids()) architecture.setHidden(id, hiddenIds.has(id));
@@ -1296,7 +1120,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         renderControl.apply(environmentRenderer);
         const keyDir = lights.keyDirection();
         environmentRenderer.setKeyLightDirection(keyDir !== undefined ? [keyDir[0], keyDir[1], keyDir[2]] : null);
-        environmentRenderer.setFogVolumes(fogVolumesNow());
+        environmentRenderer.setFogVolumes(entities.fogVolumesNow());
         if (environmentSize === null || environmentSize[0] !== w || environmentSize[1] !== h) {
           environmentSize = [w, h];
           environmentRenderer.resize(w, h);
@@ -1501,15 +1325,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     contextListenerReleases.length = 0;
     contextLost = false;
-    for (const own of entityResources.values()) {
-      for (const g of own.geometries) {
-        try { g.dispose(); } catch { /* best effort */ }
-      }
-      for (const m of own.materials) {
-        try { m.dispose(); } catch { /* best effort */ }
-      }
-    }
-    entityResources.clear();
+    entities.dispose();
     batcher?.dispose();
     viewCull.dispose();
     occlusion.dispose();
@@ -1519,9 +1335,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     archHost.dispose();
     scatter.dispose();
     ownTiles?.dispose();
-    for (const rec of boxMaterials.values()) rec.material.dispose();
-    boxMaterials.clear();
-    boxMaterialKeys.clear();
+    entities.disposeBoxMaterials();
     unitBox.dispose();
     entityDocs.clear();
     for (const g of owned.geometries) {
@@ -1680,21 +1494,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return api.entityOf?.(object) ?? null;
     },
     paintChannelView: (channel) => (channelView ??= new PaintChannelView(scene)).set(channel),
-    attachOverlay(entityId, object): void {
-      let hung = overlays.get(entityId);
-      if (hung === undefined) overlays.set(entityId, (hung = new Set()));
-      hung.add(object);
-      // The host's own drawing: occlusion culling never leaves it out.
-      markHostDrawing(object);
-      if (object.parent !== null) object.removeFromParent();
-      graph.nodeFor(entityId)?.add(object);
-    },
-    detachOverlay(entityId, object): void {
-      const hung = overlays.get(entityId);
-      if (hung === undefined || !hung.delete(object)) return;
-      if (hung.size === 0) overlays.delete(entityId);
-      object.removeFromParent();
-    },
+    attachOverlay: (entityId, object): void => entities.attachOverlay(entityId, object),
+    detachOverlay: (entityId, object): void => entities.detachOverlay(entityId, object),
     instanceSet: (entityId) => realization?.instanceSet(entityId) ?? null,
     instanceBuffer: (digest) => realization?.instanceBuffer(digest),
     modelFailures: () => realization?.failures() ?? new Map(),
