@@ -202,6 +202,42 @@ describe('the interior class', () => {
     // The other classes are untouched by it: still only area and landscape by default.
     expect(levelPlan('area').interior).toBeUndefined();
   });
+
+  it('with two storeys stacks every room, opens the upper doorways, climbs stairs through the slab and looks down from above', () => {
+    const U = I.upper;
+    const two = levelInteriorPlan(undefined, 2);
+    const a = two.interior!.architecture as unknown as ArchitectureComponent;
+    // The ground storey is the one-storey plan's: the same doors, the same props first.
+    expect(two.blockEdits).toEqual(p.blockEdits);
+    const models = (q: typeof p): { name?: string; components: Record<string, unknown> }[] => q.batches.flat().filter((e) => e.components['model'] !== undefined);
+    expect(models(two).slice(0, p.counts['props']!)).toEqual(models(p));
+    const ex = expandArchitecture({ ...a, layer: 'ground' }, layerAt, architectureStylesOf([]));
+    expect(ex.problems).toEqual([]);
+    expect(ex.rooms).toHaveLength(80);
+    expect(two.counts).toMatchObject({ storeys: 2, props: 2 * 40 * I.propsPerRoom, upperProps: 40 * I.propsPerRoom, stairs: U.stairRooms.length });
+    // Every opening but the way out repeats upstairs.
+    const listed = (o: { openings?: { storey?: number }[] }, s: number): number => (o.openings ?? []).filter((x) => (x.storey ?? 0) === s).length;
+    expect(a.outlines!.reduce((n, o) => n + listed(o, 1), 0)).toBe(a.outlines!.reduce((n, o) => n + listed(o, 0), 0) - 1);
+    // Upstairs props stand one storey up, clear of the stairs' run along the north wall.
+    const floor = 0.51;
+    const upper = models(two).slice(p.counts['props']!);
+    for (const m of upper) {
+      const [x, y, z] = (m.components['transform'] as { position: number[] }).position as [number, number, number];
+      expect(y).toBeCloseTo(floor + U.storeyHeight, 3);
+      const room = roomOf(x, z, I.propMargin - 1e-6);
+      expect(room).toBeGreaterThanOrEqual(0);
+      if (U.stairRooms.some(([c, r]) => r * I.grid.cols + c === room)) expect(z - layerAt[2]!).toBeLessThanOrEqual(p.rooms[room]!.box[3] - 1.8 + 1e-6);
+    }
+    // Above the top storey's ceiling, south of the rooms it looks at, looking +z and down.
+    const [, cy] = two.camera.position;
+    expect(cy).toBeGreaterThan(floor + 2 * U.storeyHeight);
+    const [qx, qy, qz, qw] = two.camera.rotation;
+    // three's −z turned by the quaternion: the view's direction.
+    const dir = [-2 * (qx * qz + qw * qy), -2 * (qy * qz - qw * qx), -(1 - 2 * (qx * qx + qy * qy))];
+    expect(dir[2]).toBeGreaterThan(0);
+    expect(dir[1]).toBeLessThan(-0.5);
+    expect(dir[0]).toBeCloseTo(0, 5);
+  });
 });
 
 const run = (p50: number, p95: number, gpu: number | null, main: number, draws: number): FrameRunResult =>

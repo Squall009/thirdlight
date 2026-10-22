@@ -306,6 +306,8 @@ from the top left, with the aspect of the view the game is drawn in).
 `setSeeThrough({enabled?, subjects?, radius?, softness?, maxFade?,
 depthMargin?, fadeTime?})` changes see-through over the project's Rendering
 settings (`subjects`: entity ids; `null` goes back to the camera's target).
+Turning it on mid-game costs no hitch: Play and the export build their
+shaders ready for it from the start (they skip it while nothing fades).
 Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.

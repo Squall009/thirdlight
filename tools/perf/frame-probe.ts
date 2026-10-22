@@ -251,12 +251,15 @@ export async function probeGpuPasses(ms: number): Promise<GpuTimings> {
   const byLabel = new Map<string, { ms: number; frames: Set<string> }>();
   const frames = new Set<string>();
   let total = 0;
+  // three keeps a resolved frame's entries in its pool until the pool is reused: each is counted once.
+  const seen = new Set<string>();
   // Compute passes (GPU particles, …) are timed in their own pool and count in the frame's GPU time too.
   const read = (type: 'render' | 'compute'): void => {
     const pool = r.backend?.timestampQueryPool?.[type];
     for (const [uid, d] of pool?.timestamps ?? []) {
       const m = /^(.*):f(\d+)$/.exec(uid);
-      if (m === null || !Number.isFinite(d) || d < 0) continue;
+      if (m === null || !Number.isFinite(d) || d < 0 || seen.has(`${type}:${uid}`)) continue;
+      seen.add(`${type}:${uid}`);
       const label = type === 'compute' ? 'compute' : (P.labels.get(m[1]!) ?? `context ${m[1]}`);
       const row = byLabel.get(label) ?? { ms: 0, frames: new Set<string>() };
       row.ms += d;

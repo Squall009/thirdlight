@@ -45,6 +45,10 @@
  *                                both with the occlusion oracle (implies --oracle); `--switches` are measured there too
  *   --oracle                     after each export run, count what the view drew that no pixel showed (three-adapter
  *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
+ *   --see-through N              N figures nearest the camera's line of sight named see-through's subjects by a script:
+ *                                the export measured again with it on, then switched on mid-run (see-through-run.ts);
+ *                                measure with --vsync
+ *   --see-through-fade F         with --see-through: the subjects' max fade (0: the mask runs, nothing thinned: its own cost)
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/<village or the project folder's name>-<time>.json
@@ -65,7 +69,8 @@ import { bakeProbesInEditor } from './probe-bake-run';
 import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
-import { addVillageLamps, buildVillage, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
+import { addVillageLamps, buildVillage, villagePlan, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
+import { addSeeThroughSubjects, candidatesOf, measureSwitch, SEE_THROUGH_ON, seeThroughLine, subjectsInView, switchLine, type SeeThroughReport } from './see-through-run';
 
 /**
  * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
@@ -109,6 +114,8 @@ export interface VillageReport {
   switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>;
   /** `--view`: the export seen from that view instead of the open one; `switches` as above, at the view. */
   views?: Partial<Record<VillageView, { camera: VillagePlan['camera']; export: Partial<Record<FrameRenderer, FrameRunResult>>; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> }>>;
+  /** `--see-through N`: the export with see-through on round N subjects, and switched on mid-run. */
+  seeThrough?: SeeThroughReport;
   errors: string[];
 }
 
@@ -276,6 +283,11 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   if (view !== undefined && (gate || projectFolder !== undefined)) throw new Error('--view: the village class, not with --gate or --project');
   const viewCamera = view === undefined ? null : villageViewCamera(view);
   const oracle = has('oracle') || view !== undefined;
+  const seeThroughN = gate ? 0 : Number(get('see-through') ?? 0);
+  if (!Number.isInteger(seeThroughN) || seeThroughN < 0) throw new Error(`--see-through: a number of subjects, not ${get('see-through')}`);
+  const seeThroughFade = get('see-through-fade') === undefined ? undefined : Number(get('see-through-fade'));
+  if (seeThroughFade !== undefined && !(seeThroughFade >= 0 && seeThroughFade <= 0.95)) throw new Error(`--see-through-fade: a max fade 0-0.95, not ${get('see-through-fade')}`);
+  if (seeThroughN > 0 && projectFolder !== undefined) throw new Error('--see-through: the village class, not --project');
 
   const startedAt = new Date().toISOString();
   const stamp = startedAt.replace(/[:.]/g, '-');
@@ -318,6 +330,13 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       const reg = await be.post('/api/v1/admin/projects/register', { folder: resolve(projectFolder) });
       if (typeof reg.json['projectId'] !== 'string') throw new Error(`register failed: ${JSON.stringify(reg.json).slice(0, 400)}`);
       projectId = reg.json['projectId'];
+    }
+    if (seeThroughN > 0) {
+      const plan = villagePlan();
+      const subjects = subjectsInView(candidatesOf(plan.batches.flat(), (e) => e.id.startsWith('figure-')), plan.camera, seeThroughN);
+      await addSeeThroughSubjects(be, projectId, subjects, seeThroughFade);
+      report.seeThrough = { subjects, byRenderer: {} };
+      log(`village: see-through subjects ${subjects.join(', ')}`);
     }
     if (has('probes')) report.probes = await bakeProbesInEditor(be, projectId, log);
     if (get('synthetic-probes') !== undefined) report.probes = { synthetic: await addSyntheticProbes(be, projectId, 'scene-main', Number(get('synthetic-probes')), log) };
@@ -370,6 +389,14 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
           log(frameLine(`export ${r} ${sw}`, off));
           if (off.busy !== undefined) log(busyLine(`busy ${r} ${sw}`, off));
           log(`switch ${r} ${sw}: ${off.frames.fps} fps (on ${res.frames.fps}), p50 ${off.frames.p50} ms (on ${res.frames.p50}), main thread ${off.mainThread.taskMsPerFrame} ms (on ${res.mainThread.taskMsPerFrame}), draws ${off.draws.p50} (on ${res.draws.p50})`);
+        }
+        if (report.seeThrough !== undefined) {
+          const on = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${SEE_THROUGH_ON}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-see-through.png`), busyMs });
+          log(frameLine(`export ${r} see-through on`, on));
+          log(seeThroughLine(`see-through ${r} off → on`, res, on));
+          const sw = await measureSwitch(browser, `${site!.url}?renderer=${r}${query}`);
+          log(switchLine(`see-through ${r} switched on`, sw));
+          report.seeThrough.byRenderer[r] = { on, switch: sw };
         }
       }
     } finally {

@@ -11,6 +11,15 @@
  *                                `interior`: 40 generated rooms on a block layer, half the doorways closed by a door, half open, the
  *                                camera inside looking along a row through the doorways — level-interior.ts; the
  *                                options below that shape rooms, roofs, terrain or a flight leave it as it is)
+ *   --storeys N                  the interior's rooms stacked N storeys high (open doorways upstairs, stairs up in a few
+ *                                rooms, props on every storey), seen from above and behind as a follow camera sees a
+ *                                player inside (level-interior.ts; default 1: the class as recorded)
+ *   --see-through N              N props nearest the camera's line of sight (the interior's: on its ground storey) named
+ *                                see-through's subjects by a script: each export measured again with it on, then
+ *                                switched on mid-run (see-through-run.ts); measure with --vsync
+ *   --see-through-fade F         with --see-through: the subjects' max fade (0: the mask runs, nothing thinned: its own cost)
+ *   --busy N                     also trace N ms of each run for busy time per second (the GPU process's: WebGL 2's GPU
+ *                                work, which has no pass timestamps)
  *   --live N                     N live door cells in each class (default 0: the classes as recorded)
  *   --edge-walls                 the rooms' walls as edge pieces (default: cell walls, as recorded)
  *   --wall-paint                 the layer with wall paint, the rooms' front walls painted (default: none, as recorded)
@@ -106,7 +115,8 @@ import { editModeRuns, maskedDabRuns, type DabRun, type EditModeRun } from './le
 import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
 import { parseLayeredWalls, type LayeredWallsOptions } from './level-walls';
-import { frameLine, oracleLine } from './village-run';
+import { busyLine, frameLine, oracleLine } from './village-run';
+import { addSeeThroughSubjects, candidatesOf, measureSwitch, SEE_THROUGH_ON, seeThroughLine, subjectsInView, switchLine, type SeeThroughReport } from './see-through-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
@@ -222,6 +232,10 @@ export interface LevelReport {
   switches?: Partial<Record<LevelKind, Record<string, Partial<Record<FrameRenderer, FrameRunResult>>>>>;
   /** `--view`: each class seen from each view that fits it instead of its open view. */
   views?: Partial<Record<LevelKind, Partial<Record<LevelView, { camera: LevelPlan['camera']; byRenderer: Partial<Record<FrameRenderer, FrameRunResult>>; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> }>>>>;
+  /** The interior's storeys (absent: one). */
+  storeys?: number;
+  /** `--see-through N`: per class, each export with see-through on round N subjects, and switched on mid-run. */
+  seeThrough?: Partial<Record<LevelKind, SeeThroughReport>>;
   errors: string[];
 }
 
@@ -319,6 +333,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const viewsOf = (kind: LevelKind): LevelView[] => views.filter((v) => kind !== 'interior' && (v === 'street' || kind === 'landscape' || kind === 'world'));
   if (anyLevelMarks(marks) && kinds.includes('interior')) throw new Error('--decals, --mesh-decals, --clipped-decals and --painted mark the outdoor classes\' area, not the interior');
   const walls = parseLayeredWalls(get);
+  const storeys = Number(get('storeys') ?? 1);
+  if (!Number.isInteger(storeys) || storeys < 1) throw new Error(`--storeys: a whole number of storeys, not ${get('storeys')}`);
+  if (storeys > 1 && !kinds.includes('interior')) throw new Error('--storeys stacks the interior class\'s rooms: add --classes interior');
+  const seeThroughN = Number(get('see-through') ?? 0);
+  if (!Number.isInteger(seeThroughN) || seeThroughN < 0) throw new Error(`--see-through: a number of subjects, not ${get('see-through')}`);
+  const seeThroughFade = get('see-through-fade') === undefined ? undefined : Number(get('see-through-fade'));
+  if (seeThroughFade !== undefined && !(seeThroughFade >= 0 && seeThroughFade <= 0.95)) throw new Error(`--see-through-fade: a max fade 0-0.95, not ${get('see-through-fade')}`);
+  const busyMs = Number(get('busy') ?? 0);
   if (walls.buildings > 0 && kinds.includes('interior')) throw new Error('--layered-walls builds on the outdoor classes\' area, not the interior');
 
   const startedAt = new Date().toISOString();
@@ -333,7 +355,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), ...(has('day-cycle') ? { dayCycle: true } : {}), ...(anyLevelMarks(marks) ? { marks } : {}), ...(walls.buildings > 0 ? { layeredWalls: walls } : {}), query, builds: {}, classes: {}, errors: [] };
+  const report: LevelReport = { reportVersion: 1, startedAt, commit, machine: { cpu: cpus()[0]?.model ?? 'unknown', cores: cpus().length }, version: LEVEL_VERSION, seed: LEVEL_SEED, ...(liveDoors > 0 ? { liveDoors } : {}), ...(has('edge-walls') ? { edgeWalls: true } : {}), ...(has('wall-paint') ? { wallPaint: true } : {}), ...(roofs !== 'none' ? { roofs } : {}), ...(has('kit-swap') ? { kitSwap: true } : {}), ...(has('vertex-ao') ? { vertexAO: LEVEL_VERTEX_AO } : {}), ...(has('rules') ? { rules: true } : {}), ...(projection > 0 ? { projection } : {}), ...(macro > 0 ? { macro } : {}), ...(foliage === 'off' ? { foliage: 'off' as const } : {}), ...(flight ? { flight: true } : {}), ...(impostorSize > 0 ? { impostorSize } : {}), ...(splines === 'off' ? { splines: 'off' as const } : {}), ...(has('blocks-seam') ? { blocksSeam: true } : {}), ...(has('height-fog') ? { heightFog: true } : {}), ...(has('day-cycle') ? { dayCycle: true } : {}), ...(anyLevelMarks(marks) ? { marks } : {}), ...(walls.buildings > 0 ? { layeredWalls: walls } : {}), ...(storeys > 1 ? { storeys } : {}), query, builds: {}, classes: {}, errors: [] };
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
@@ -341,8 +363,17 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     for (const kind of kinds) {
-      const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'), marks, walls);
+      const plan = kind === 'interior' ? levelInteriorPlan(LEVEL_SEED, storeys) : levelPlan(kind, LEVEL_SEED, liveDoors, has('edge-walls'), has('wall-paint'), roofs, has('kit-swap'), has('vertex-ao') ? LEVEL_VERTEX_AO : 0, has('rules'), projection, macro, foliage, flight, impostorSize, splines === 'on', !has('flight-plain'), has('blocks-seam'), marks, walls);
       const b = await buildLevel(be, `level-${kind}`, plan, log);
+      if (seeThroughN > 0) {
+        // Props of the class (the interior's on its ground storey: what a player walks on, seen through what is above).
+        const props = plan.batches.flat().filter((e) => e.components['model'] !== undefined && e.id.startsWith('prop-'));
+        const lowest = Math.min(...props.map((e) => (e.components['transform'] as { position: number[] }).position[1]!));
+        const subjects = subjectsInView(candidatesOf(props, (e) => kind !== 'interior' || (e.components['transform'] as { position: number[] }).position[1]! < lowest + 1), plan.camera, seeThroughN);
+        await addSeeThroughSubjects(be, b.projectId, subjects, seeThroughFade);
+        (report.seeThrough ??= {})[kind] = { subjects, byRenderer: {} };
+        log(`level ${kind}: see-through subjects ${subjects.join(', ')}`);
+      }
       if (has('height-fog')) await be.project(b.projectId).command('setEnvironment', { sceneId: 'scene-main', environment: { ...LEVEL_LOOK, heightFog: LEVEL_HEIGHT_FOG } });
       if (has('day-cycle')) await dayCycle(be, b.projectId);
       if (has('spline-edit') && kind === 'landscape' && splines === 'on') report.splineEdit = await editWindows(be, b.projectId, renderers, 'spline', log, has('edit-profile'));
@@ -382,9 +413,10 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs[kind]!);
       try {
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), oracle, oracleCull: oracle, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, busyMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), oracle, oracleCull: oracle, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
           (report.classes[kind] ??= {})[r] = res;
           log(frameLine(`level ${kind} ${r}`, res) + roomsNote(res));
+          if (res.busy !== undefined) log(busyLine(`level ${kind} ${r} busy`, res));
           if (oracle) log(oracleLine(`level ${kind} ${r}`, res));
           // Each restyle (a kit swapped) the page timed: its chunks, how long they took to arrive, its frames and long frames.
           const restyles = (res.marks ?? []).filter((m) => m.name === 'tl:blocks:restyle').map((m) => m.detail as { ms: number; chunks: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number });
@@ -416,6 +448,16 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
             const off = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });
             (((report.switches ??= {})[kind] ??= {})[sw] ??= {})[r] = off;
             log(frameLine(`level ${kind} ${r} ${sw}`, off) + roomsNote(off));
+          }
+          const seen = report.seeThrough?.[kind];
+          if (seen !== undefined) {
+            const on = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${SEE_THROUGH_ON}`, warmupMs, recordMs, gpuMs, profileMs: 0, busyMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}-see-through.png`) });
+            log(frameLine(`level ${kind} ${r} see-through on`, on) + roomsNote(on));
+            if (on.busy !== undefined) log(busyLine(`level ${kind} ${r} see-through on busy`, on));
+            log(seeThroughLine(`level ${kind} see-through ${r} off → on`, res, on));
+            const sw = await measureSwitch(browser, `${site.url}?renderer=${r}${query}`);
+            log(switchLine(`level ${kind} see-through ${r} switched on`, sw));
+            seen.byRenderer[r] = { on, switch: sw };
           }
         }
       } finally {

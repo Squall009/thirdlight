@@ -20,7 +20,7 @@ import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
-import { applyObjectSeeThrough, emptyPack, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { applyObjectSeeThrough, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
 const ON: SeeThroughSettings = { ...SEE_THROUGH_DEFAULTS, enabled: true };
@@ -194,6 +194,60 @@ function body(x: number, z: number): THREE.Object3D {
   g.updateMatrixWorld(true);
   return g;
 }
+
+describe('which draws a subject may fade', () => {
+  it('never rules out a sphere any of whose points the mask fades (perspective and side views, random spheres)', () => {
+    let seed = 7;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const ortho = new THREE.OrthographicCamera(-8, 8, 4.5, -4.5, 0.1, 100);
+    ortho.position.set(0, 1, 20);
+    ortho.updateMatrixWorld(true);
+    let ruledOut = 0;
+    for (const camera of [perspective([0, 3, 8], [0, 0.9, 0]), perspective([6, 9, 6], [0, 0, 0]), ortho]) {
+      const pack = emptyPack();
+      packSubject(camera, standing([0, 0, 0], 1.8), ON, ON.maxFade, pack);
+      for (let n = 0; n < 400; n++) {
+        const centre = new THREE.Vector3((rnd() - 0.5) * 12, rnd() * 6 - 1, (rnd() - 0.5) * 12);
+        const r = 0.2 + rnd() * 3;
+        const v = centre.clone().applyMatrix4(camera.matrixWorldInverse);
+        const may = mayFade(v, r, pack);
+        if (!may) ruledOut += 1;
+        // Points through the sphere: any that fades proves the sphere may.
+        for (let k = 0; k < 300 && !may; k++) {
+          const d = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize().multiplyScalar(r * Math.cbrt(rnd()));
+          expect(fadeAtWorld(camera, [pack], 1, 1, centre.clone().add(d).toArray())).toBe(0);
+        }
+      }
+    }
+    // The test rules out a good share (it saves the mask's work there), not nothing.
+    expect(ruledOut).toBeGreaterThan(300);
+  });
+
+  it('a draw far from every circle takes no subject; a wall in front of one takes it', () => {
+    const objects: Record<string, THREE.Object3D> = { a: body(0, 0) };
+    const camera = perspective([0, 6, 10], [0, 1, 0]);
+    const view = new SeeThroughView({ object: (id) => objects[id], components: () => ({}), cameraTarget: () => 'a' }, { ...ON, fadeTime: 0 });
+    view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 0);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 0.2));
+    wall.position.set(0, 1.5, 4);
+    const far = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    far.position.set(14, 0.5, -6);
+    const behind = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 0.2));
+    behind.position.set(0, 1.5, -4);
+    for (const m of [wall, far, behind]) m.updateMatrixWorld(true);
+    expect(view.bitsFor(wall, camera)).toBe(1);
+    expect(view.bitsFor(far, camera)).toBe(0);
+    expect(view.bitsFor(behind, camera)).toBe(0);
+    // Without the camera (or for another one) the bits stay whole: nothing narrowed on a guess.
+    expect(view.bitsFor(far)).toBe(1);
+    expect(view.bitsFor(far, perspective([0, 1, 1], [0, 0, 0]))).toBe(1);
+    // Instanced draws keep theirs (their geometry's bounds are one copy's).
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+    inst.position.copy(far.position);
+    inst.updateMatrixWorld(true);
+    expect(view.bitsFor(inst, camera)).toBe(1);
+  });
+});
 
 describe('a view\'s subjects', () => {
   const camera = perspective([0, 6, 10], [0, 1, 0]);
@@ -559,5 +613,32 @@ describe('the see-through programs', () => {
     view.set({ subjects: ['a', 'b'], radius: 0.5, softness: 0.1, maxFade: 0.5, depthMargin: 1 });
     view.update(renderer, camera, 100);
     expect(wgslOf(renderer, scene, m)).toBe(before);
+  });
+
+  it('a prebuilding view arms at its first frame while off, so turning it on later builds no program again', async () => {
+    const objects: Record<string, THREE.Object3D> = { a: body(0, 0) };
+    const camera = perspective([0, 6, 10], [0, 1, 0]);
+    const deps = { object: (id: string) => objects[id], components: () => ({}), cameraTarget: () => 'a', prebuild: true };
+    const view = new SeeThroughView(deps);
+    const renderer = wgslRenderer();
+    const ctx = (renderer as unknown as { contextNode: { version: number } }).contextNode;
+    view.update(renderer, camera, 0);
+    expect(view.diagnostics()).toMatchObject({ enabled: false, armed: true, subjects: [] });
+    const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
+    const m = meshes['standard']!;
+    const off = wgslOf(renderer, scene, m);
+    expect(fragmentOf(off)).toContain('seeThroughFade');
+    // Off, nothing fades: no draw takes a subject's bit (the programs skip the mask).
+    expect(view.bitsFor(m)).toBe(0);
+    const version = ctx.version;
+    view.set({ enabled: true });
+    view.update(renderer, camera, 100);
+    expect(ctx.version).toBe(version);
+    expect(wgslOf(renderer, scene, m)).toBe(off);
+    expect(view.bitsFor(m)).not.toBe(0);
+    // A page pinned off never arms, prebuilt or not.
+    const pinned = new SeeThroughView({ ...deps, pinned: false });
+    pinned.update(wgslRenderer(), camera, 0);
+    expect(pinned.diagnostics().armed).toBe(false);
   });
 });

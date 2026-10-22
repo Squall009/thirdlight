@@ -247,14 +247,16 @@ export interface SceneAdapterOptions {
   /**
    * See-through round the subjects (`see-through.ts`): the project's
    * settings (absent: the defaults, off) and where more subjects than a view
-   * draws are reported (`see_through_subjects`). Off, the renderer builds and
-   * draws exactly as without it; the host turns it on or changes it with
+   * draws are reported (`see_through_subjects`). Off and never on, the
+   * renderer builds and draws exactly as without it, unless `prebuild`: then
+   * its programs carry the mask from the first frame (skipped while nothing
+   * fades), so turning it on later rebuilds nothing; the host turns it on or changes it with
    * `seeThrough().set(…)`, and the game's scripts through the runtime's view
    * (`ctx.camera.setSeeThrough`, which then stands over the host's).
    * `pinned`: on or off whatever the project, the host or a script says (a
    * page's `?seethrough=on|off`, a look and cost comparison).
    */
-  seeThrough?: { readonly settings?: Partial<import('@thirdlight/runtime').SeeThroughSettings>; readonly pinned?: boolean; readonly onProblem?: (code: string, message: string) => void };
+  seeThrough?: { readonly settings?: Partial<import('@thirdlight/runtime').SeeThroughSettings>; readonly pinned?: boolean; readonly prebuild?: boolean; readonly onProblem?: (code: string, message: string) => void };
   /**
    * The key light's shadow as a cached static map (static casters, drawn
    * only when they change) with a dynamic map on top (`cached-shadow.ts`;

@@ -19,6 +19,14 @@
  * looking along its row through the doorways: an open doorway shows the room
  * beyond, a closed door hides it.
  *
+ * With more storeys (`--storeys N`) every room is stacked that many times: the
+ * upper storeys' doorways and windows repeat the ground storey's, all open (a
+ * closed door is a block edge, and the layer's door rows stand on the slab), a
+ * flight of stairs climbs to each next storey in a few rooms, and every storey
+ * has its props. The camera then looks down on the building from above and
+ * behind, as a follow camera over a player inside it does: the top storey's
+ * ceilings and every storey's walls stand between it and the ground storey.
+ *
  * Pure: a function of the seed, so the measured content is the same every run.
  */
 import { ARCHITECTURE_FLOOR_ON_CELLS, architectureOpeningEdges, MAX_LOCAL_LIGHTS, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
@@ -51,6 +59,13 @@ export const LEVEL_INTERIOR_SPEC = {
   cameraRoom: [3, 2] as const,
   /** Whether each doorway ahead of the camera along its row is open, nearest first. */
   cameraDoors: [true, true, false, true],
+  /**
+   * More than one storey: metres from one storey's floor to the next (the starter room's walls), the rooms
+   * (column, row) with stairs up along their north wall, and the camera's height over the ground storey's
+   * floor and its distance south of the middle of the four rooms from the camera room to the north-east, which
+   * it looks at.
+   */
+  upper: { storeyHeight: 3, stairRooms: [[3, 2], [5, 1], [1, 3]], viewHeight: 10, viewBack: 9 },
 } as const;
 
 /** Rows of the soil slab the building stands on. */
@@ -65,6 +80,7 @@ const DOOR_BLOCK = 'room-door';
 const WINDOW = { bottom: 1, top: 2 };
 
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 
 /** A doorway: the room that lists it, the opening, and whether it is open (no door) or holds a closed door (null: a window). */
 export interface InteriorDoorway {
@@ -97,8 +113,14 @@ function shuffle<T>(xs: T[], rnd: () => number): T[] {
   return xs;
 }
 
-export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
+/** A stair's run along its room's north wall: from this far off the west wall to this far off the east one, this far off the north one (m). */
+const STAIR = { west: 0.8, east: 1.2, north: 0.8, width: 1 };
+
+export function levelInteriorPlan(seed = LEVEL_SEED, storeys = 1): LevelPlan {
+  if (!Number.isInteger(storeys) || storeys < 1) throw new Error(`interior: storeys is a whole number from 1, not ${storeys}`);
   const S = LEVEL_INTERIOR_SPEC;
+  const U = S.upper;
+  const stairRoom = (c: number, r: number): boolean => storeys > 1 && U.stairRooms.some(([sc, sr]) => sc === c && sr === r);
   const L = S.layer;
   const { cols, rows } = S.grid;
   const side = S.room;
@@ -143,13 +165,20 @@ export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
 
   // The outlines, each with the openings it lists.
   const outlines: ArchitectureOutline[] = [];
+  let upperOpenings = 0;
   const rooms: LevelRoom[] = [];
   for (let r = 0; r < rows; r += 1) {
     for (let c = 0; c < cols; c += 1) {
       const i = index(c, r);
       const [x0, z0] = roomAt(c, r);
-      const openings = doorways.filter((d) => d.room === i).map((d) => d.opening);
-      outlines.push({ id: `room-${i + 1}`, path: { points: roomPoints(x0, z0, side), closed: true }, preset: PRESET, ...(openings.length > 0 ? { openings } : {}) });
+      const own = doorways.filter((d) => d.room === i);
+      // The upper storeys repeat the ground storey's openings, the way out excepted (all open: see the header).
+      const upper = Array.from({ length: storeys - 1 }, (_, k) => own.filter((d) => !(d.exterior && d.open !== null)).map((d) => ({ ...d.opening, id: `${d.opening.id}-s${k + 1}`, storey: k + 1 }))).flat();
+      upperOpenings += upper.length;
+      const openings = [...own.map((d) => d.opening), ...upper];
+      // Stairs up to each next storey along the north wall, rising west to east.
+      const stairs = stairRoom(c, r) ? Array.from({ length: storeys - 1 }, (_, k) => ({ id: `up-${k}`, from: [x0 + STAIR.west, FLOOR_Y + k * U.storeyHeight, z0 + side - STAIR.north] as [number, number, number], to: [x0 + side - STAIR.east, FLOOR_Y + (k + 1) * U.storeyHeight, z0 + side - STAIR.north] as [number, number, number], width: STAIR.width })) : [];
+      outlines.push({ id: `room-${i + 1}`, path: { points: roomPoints(x0, z0, side), closed: true }, preset: PRESET, ...(openings.length > 0 ? { openings } : {}), ...(storeys > 1 ? { storeys, storeyHeight: U.storeyHeight } : {}), ...(stairs.length > 0 ? { stairs } : {}) });
       // The walls are generated, not cells: the layer's top row bounds them.
       rooms.push({ box: [x0, z0, x0 + side, z0 + side], top: L.rows });
     }
@@ -191,6 +220,30 @@ export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
       propCount += 1;
     }
   }
+  // The upper storeys' props, the same way (after the ground storey's: a one-storey plan draws as before), and in a
+  // room with stairs clear of their run along the north wall.
+  const groundProps = propCount;
+  for (let k = 1; k < storeys; k += 1) {
+    for (let i = 0; i < cols * rows; i += 1) {
+      const [c, r] = [i % cols, Math.floor(i / cols)];
+      const [x0, z0] = roomAt(c, r);
+      const zHi = stairRoom(c, r) ? side - STAIR.north - STAIR.width : hi;
+      for (let n = 0; n < S.propsPerRoom; n += 1) {
+        let x = 0;
+        let z = 0;
+        do {
+          x = lo + rnd() * (hi - lo);
+          z = lo + rnd() * (zHi - lo);
+        } while (!clear(x) || !clear(z));
+        const file = props[Math.floor(rnd() * props.length)]!;
+        const s = 0.7 + rnd() * 0.6;
+        const [wx, wy, wz] = world(x0 + x, FLOOR_Y + k * U.storeyHeight, z0 + z);
+        entities.push(levelProp(propCount, file.assetId, wx, wy, wz, rnd() * Math.PI * 2, s, propCount % 2 === 0));
+        if (propCount % 2 === 0) propColliders += 1;
+        propCount += 1;
+      }
+    }
+  }
 
   // Lamps: every room of the camera's row (what it sees), then rooms drawn by the seed, within the local-light budget;
   // the spots (shadowed, pointing down) in the camera's room and the next one ahead.
@@ -214,9 +267,18 @@ export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
   }
 
   // The camera: by the camera room's west wall on its doorway line, eye high, looking +x (three cameras look down −z).
+  // With more storeys: above and south of the four rooms from the camera room to the north-east, looking +z down at their middle.
   const [cx0, cz0] = roomAt(cc, cr);
-  const eye = world(cx0 + S.propMargin, FLOOR_Y + S.eye, cz0 + mid);
-  const camera: LevelPlan['camera'] = { position: [r3(eye[0]), r3(eye[1]), r3(eye[2])], rotation: levelYaw(-Math.PI / 2) };
+  let camera: LevelPlan['camera'];
+  if (storeys > 1) {
+    const at = world(cx0 + side, FLOOR_Y + U.viewHeight, cz0 + side - U.viewBack);
+    const pitch = -Math.atan2(U.viewHeight, U.viewBack);
+    // Yaw half a turn (to +z), then the pitch about the camera's own x.
+    camera = { position: [r3(at[0]), r3(at[1]), r3(at[2])], rotation: [0, r6(Math.cos(pitch / 2)), r6(-Math.sin(pitch / 2)), 0] };
+  } else {
+    const eye = world(cx0 + S.propMargin, FLOOR_Y + S.eye, cz0 + mid);
+    camera = { position: [r3(eye[0]), r3(eye[1]), r3(eye[2])], rotation: levelYaw(-Math.PI / 2) };
+  }
 
   const batches: EntityValue[][] = [];
   for (let i = 0; i < entities.length; i += 256) batches.push(entities.slice(i, i + 256));
@@ -231,6 +293,7 @@ export function levelInteriorPlan(seed = LEVEL_SEED): LevelPlan {
     doorEdges: closedAt.length / 4,
     props: propCount,
     propColliders,
+    ...(storeys > 1 ? { storeys, upperProps: propCount - groundProps, upperOpenings, stairs: outlines.reduce((n, o) => n + (o.stairs?.length ?? 0), 0) } : {}),
     lamps: pointLights + spotLights,
     pointLights,
     spotLights,
