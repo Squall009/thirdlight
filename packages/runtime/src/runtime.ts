@@ -22,14 +22,13 @@ import { RuntimeGrid, worldStreamSources, type GridCutawayState, type GridRender
 import type { TerrainSimData } from './scatter-copies';
 import { fail } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
-import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
-import { rideOnFrame } from './frame-queues';
+import { RuntimeAssetHandles, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { PresentationRequests } from './presentation-requests';
 import { saveSectionsPort } from './save-sections';
-import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
+import { RuntimeSaves, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { projectFrameRateCap, seeThroughSettingsOfProject, type SaveSchema } from '@thirdlight/project-model';
 
-import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
+import { type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   ENGINE_TIMING_DEFAULTS,
@@ -39,26 +38,22 @@ import {
 } from '@thirdlight/project-model';
 import {
   neutralFrame,
-  validateActionFrame,
   InputFrameError,
-  MAX_FRAME_COMMANDS,
   type ActionFrame,
   type ActionSource,
   type DebugCommandCall,
-  type PointerSample,
-} from './actions';
+  } from './actions';
 
 import { clipMessage, type RuntimeError } from './errors';
 import { RuntimeSim, cloneCurr, messageOf, type ModuleEntry } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { RuntimeScenes } from './runtime-scenes';
 import { RuntimeEntities } from './runtime-entities';
+import { RuntimeInput, type HeldPointer } from './runtime-input';
 import { RuntimePhases } from './runtime-phases';
 import { ScriptContext } from './script-context';
 import { blockControls, saveStoreControl, socketControlOf, timelineControlOf } from './script-controls';
-import { DebugCommands } from './debug-commands';
-import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
-import { queueUiEventChecked } from './ui-control';
+import { UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { EngineStatsHolder } from './engine-stats';
 import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
@@ -75,7 +70,7 @@ import { AnimatorSystem } from './animator-system';
 import { randomSeedOf } from './random';
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { createScriptAudio, type ScriptAudioControl } from './script-audio';
-import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
+import { DialogueRunner, type DialogueInputRecord } from './dialogue';
 import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
@@ -88,7 +83,7 @@ import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { blocksCharacterOf, GameplayBlocks } from './blocks';
 import { createGameControl } from './game-control';
-import { createShellControl, deprecatedEngineActionLine } from './scene-list';
+import { createShellControl } from './scene-list';
 import { LIFECYCLE_RESTART_DEPRECATED, loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { FrameClock } from './frame-clock';
@@ -121,12 +116,7 @@ import {
   type DebugCommandState,
   } from './types';
 
-/** The pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
-export interface HeldPointer extends PointerSample {
-  readonly entered?: boolean;
-
-  readonly left?: boolean;
-}
+export type { HeldPointer } from './runtime-input';
 
 export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
@@ -150,18 +140,12 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
     dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
   };
 }
-/** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
-const DIALOGUE_FRAME_INPUTS = 8;
 
 export interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
   stopped?: (moduleId: string, stop: ScriptStop) => void;
 }
 
-/** An `ActionSource.sample()` throw (module_error, reason `input_source_threw`). */
-class InputSourceError extends Error {
-  readonly reason = 'input_source_threw';
-}
 
 /** What the runtime is made of: `instantiateRuntime`'s validated, resolved inputs. */
 export interface RuntimeArgs {
@@ -271,7 +255,6 @@ export class RuntimeInstance implements Runtime {
   private readonly controllers: PlayerControllers;
   /** The frame clock: the steps a frame owes, the bounded catch-up and the interpolation alpha. */
   private readonly frameClock = new FrameClock();
-  private inputSamples = 0;
   private physicsSteps = 0;
   private settleSteps = 0;
   /** The engine timing in steps. */
@@ -279,20 +262,6 @@ export class RuntimeInstance implements Runtime {
   /** The settle pre-roll is initialization: cancellable before the first frame. */
   private prerollDone = false;
   private needsPreroll = false;
-  /** The last validated input frame (its frozen action values are reused when equal). */
-  private lastInputFrame: ActionFrame | null = null;
-  /** The pointer state after the last sampled step (null before the first pointer sample). */
-  private heldPointer: HeldPointer | null = null;
-  /** The cursor a script asked for (null: the active input map decides). */
-  private cursorMode: 'free' | 'locked' | null = null;
-  /** What the host last sent about bindings and devices, this step's rebind events, the scripts' requests. */
-  private readonly inputStatus = new RuntimeInputStatus();
-  /** `ctx.input.setCursor` (the StepContext's cursor channel). */
-  private readonly cursorControl = Object.freeze({
-    request: (mode: 'free' | 'locked' | 'auto'): void => {
-      this.cursorMode = mode === 'auto' ? null : mode;
-    },
-  });
   /** The scripts' saved values (ctx.save; kept across restarts). */
   private readonly saveStore = new Map<string, unknown>();
   /** `ctx.save` over the store. */
@@ -303,6 +272,8 @@ export class RuntimeInstance implements Runtime {
   private readonly phases: RuntimePhases;
   /** The step contexts' engine members and which behaviors tick. */
   private readonly script: ScriptContext;
+  /** The sampled input frame, what the host queues onto it, the pointer and the cursor. */
+  private readonly input: RuntimeInput;
   /** Paused — frames render and call onFrame, no steps run. */
   private paused = false;
   /**
@@ -336,11 +307,8 @@ export class RuntimeInstance implements Runtime {
   private readonly socketControl: import('./types').BehaviorSockets;
   // ---- The project UI (view model, shown documents, UI events) ----
   private readonly ui: UiState;
-  /** UI events the host queued for the next sampled frame. */
-  private uiQueue: UiEventRecord[] = [];
   /** The dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
   private readonly dialogue: DialogueRunner;
-  private dialogueQueue: DialogueInputRecord[] = [];
   private readonly engineStats = new EngineStatsHolder();
   /** The rAF driver's loop, paced by the game's frame-rate cap, and `ctx.display` over it. */
   private readonly loop: FrameLoop;
@@ -384,7 +352,7 @@ export class RuntimeInstance implements Runtime {
     get views() { return rt.views; },
     get grid() { return rt.grid; },
     get tags() { return rt.queryTags; },
-    pointer: () => rt.heldPointer,
+    pointer: () => rt.input.pointer(),
     stepIndex: () => rt.sim.stepIndex,
     warn: (m) => rt.faults.log('thirdlight.runtime:physics', 'warn', m),
   }))(this));
@@ -398,16 +366,8 @@ export class RuntimeInstance implements Runtime {
   });
   /** The audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
-  /** Debug commands: declared ones, calls waiting for the next step, this step's calls. */
-  private readonly debugCommands = new DebugCommands({
-    emitSignal: (name) => this.blocks?.emit(name),
-    dropped: (problem, stepIndex) => this.faults.record({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex, reason: 'debug_command_invalid' }),
-  });
-  /** Storage answers queued by the host for the next sampled step. */
-  private saveQueue: SaveEvent[] = [];
   /** Scripts' asset handles (`ctx.assets`) and the host's answers waiting for the next sampled step. */
   private readonly assetHandles = new RuntimeAssetHandles((message) => this.faults.log('thirdlight.runtime:assets', 'warn', message));
-  private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
   /** Effect and decal requests for the renderer (presentation only, never part of the simulation). */
   private readonly presentation = new PresentationRequests({ stepIndex: () => this.sim.stepIndex, prefab: (id) => this.entities.prefabs.get(id), problem: (code, message) => this.faults.problem(code, message) });
@@ -486,6 +446,16 @@ export class RuntimeInstance implements Runtime {
       removeSpawned: (ids) => rt.entities.removeSpawnedIds(ids),
       copiesOf: (sceneId) => rt.entities.copiesOf(sceneId),
     }, args.sceneRows, args.startBatches, args.sceneList ?? []);
+    this.input = new RuntimeInput(this.sim, this.faults, args.actions, {
+      get saves() { return rt.saves; },
+      get assetHandles() { return rt.assetHandles; },
+      get ui() { return rt.ui; },
+      get dialogue() { return rt.dialogue; },
+      get modes() { return rt.modes; },
+      scenes: this.scenes,
+      get blocks() { return rt.blocks; },
+      requestRestart: () => void (rt.pendingRestart = true),
+    });
     this.entities = new RuntimeEntities(this.sim, this.faults, {
       kept: this.kept,
       get colliders() { return rt.colliders; },
@@ -640,9 +610,9 @@ export class RuntimeInstance implements Runtime {
       spawnerOwned: this.entities.spawnerOwned,
       views: this.views,
       sockets: this.socketControl,
-      cursor: this.cursorControl,
-      inputStatus: this.inputStatus,
-      debugCommands: this.debugCommands,
+      cursor: this.input.cursorControl,
+      inputStatus: this.input.status,
+      debugCommands: this.input.debugCommands,
       grid: this.grid,
       materials: this.materials,
       entityAccess: this.entityAccess,
@@ -776,23 +746,6 @@ export class RuntimeInstance implements Runtime {
     return this.saves.takeRequests();
   }
 
-  /**
-   * Queue one storage answer (the slot list, a save/delete
-   * outcome, a loaded document) for the next sampled step — it rides on that
-   * step's input frame, so a recording replays it and the worker applies it
-   * at the same step. Refused for a project without a save schema, a bad
-   * entry, or when 64 are already waiting.
-   */
-  queueSaveEvent(event: SaveEvent): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
-    const checked = validateSaveEvents([event]);
-    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
-    if (this.saveQueue.length >= 64) return { ok: false, error: fail('game_command_invalid', 'at most 64 storage answers may wait for the next step', { reason: 'pending' }) };
-    this.saveQueue.push(checked.events[0]!);
-    return { ok: true };
-  }
-
   /** The project saves state as digest text (null without a save schema or before any save activity). */
   savesState(): string | null {
     return this.saves.digestText();
@@ -801,16 +754,6 @@ export class RuntimeInstance implements Runtime {
   /** The scripts' asset loads and releases since the last call; the host (the resource owner) carries them out. */
   takeAssetRequests(): AssetHandleRequest[] {
     return this.assetHandles.takeRequests();
-  }
-
-  /** Queue the host's answer to one asset load for the next sampled step (it rides on that step's input frame). */
-  queueAssetAnswer(answer: AssetHandleAnswer): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const checked = validateAssetAnswers([answer]);
-    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `assets answer: ${checked.message}`, { reason: 'assets' }) };
-    // A recorded input replays the answers at the steps they arrived when it was recorded; a live one is not added.
-    if (this.actions.recorded !== true) this.assetAnswerQueue.push(checked.answers[0]!);
-    return { ok: true };
   }
 
   /** The scripts' asset handles as digest text (null before any was used). */
@@ -1462,7 +1405,7 @@ export class RuntimeInstance implements Runtime {
     // input exercise counts its frames by the steps that sample it (without it a game without scripts
     // never answered one).
     try {
-      this.sampleAction(this.sim.stepIndex);
+      this.input.sample(this.sim.stepIndex);
     } catch (e) {
       this.faults.record({ code: 'module_error', message: `input frame refused: ${messageOf(e)}`, stepIndex: this.sim.stepIndex + 1 });
     }
@@ -1599,12 +1542,10 @@ export class RuntimeInstance implements Runtime {
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
-      this.debugCommands.clearStep();
-      this.ui.deliver(undefined);
-      this.dialogue.deliver(undefined);
+      this.input.skipDelivery();
     } else {
       try {
-        action = this.sampleAction(stepIndex);
+        action = this.input.sample(stepIndex);
       } catch (e) {
         if (e instanceof InputFrameError) {
           this.faults.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex);
@@ -1735,29 +1676,6 @@ export class RuntimeInstance implements Runtime {
     return this.loop.pacer.stats();
   }
 
-  /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
-  queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const queued = queueUiEventChecked(this.ui, this.uiQueue, event);
-    return queued.ok ? queued : { ok: false, error: fail('game_command_invalid', queued.message, { reason: queued.reason, ...(queued.path !== undefined ? { path: queued.path } : {}) }) };
-  }
-
-  /**
-   * Queue a dialogue input (advance, choose, skip, auto,
-   * backlog — the dialogue UI's buttons) for the next sampled step; it rides
-   * on that step's input frame (`ActionFrame.dialogue`), so a recording
-   * replays it and the worker applies it at the same step.
-   */
-  queueDialogueInput(input: DialogueInputRecord): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (!this.dialogue.enabled) return { ok: false, error: fail('game_command_invalid', 'this game has no conversations', { reason: 'dialogue' }) };
-    const checked = validateDialogueInput(input);
-    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `dialogue input: ${checked.message}`, { reason: 'dialogue', path: `/${checked.field}` }) };
-    if (this.dialogueQueue.length >= DIALOGUE_FRAME_INPUTS * 4) return { ok: false, error: fail('game_command_invalid', `at most ${DIALOGUE_FRAME_INPUTS * 4} dialogue inputs may wait for the next step`, { reason: 'pending' }) };
-    this.dialogueQueue.push(checked.input);
-    return { ok: true };
-  }
-
   /** The dialogue runner's state as digest text (null while nothing used dialogue). */
   dialogueState(): string | null {
     return this.dialogue.digestText();
@@ -1872,7 +1790,7 @@ export class RuntimeInstance implements Runtime {
     this.timelines.reset();
     // The look starts over too: the first start scene's, no preset (a replay sees what the first run saw).
     this.environment.reset();
-    this.cursorMode = null;
+    this.input.newRun();
     this.animators.reset();
     this.sockets.reset();
     this.settleSockets();
@@ -2080,114 +1998,11 @@ export class RuntimeInstance implements Runtime {
     };
   }
 
-  private sampleAction(stepIndex: number): ActionFrame {
-    let raw: unknown;
-    try {
-      raw = this.actions.sample(stepIndex);
-    } catch (e) {
-      throw new InputSourceError(messageOf(e));
-    }
-    // What the host queued rides on this step's frame (so a recording keeps it): storage's answers,
-    // debug commands, UI events, dialogue inputs and the answers to asset loads.
-    raw = rideOnFrame(raw, 'saves', this.saveQueue.length, (n) => this.saveQueue.splice(0, n), MAX_FRAME_SAVE_EVENTS);
-    raw = rideOnFrame(raw, 'commands', this.debugCommands.pending ? 1 : 0, (n) => this.debugCommands.take(n), MAX_FRAME_COMMANDS);
-    raw = rideOnFrame(raw, 'ui', this.uiQueue.length, (n) => this.uiQueue.splice(0, n), MAX_FRAME_UI_EVENTS);
-    raw = rideOnFrame(raw, 'dialogue', this.dialogueQueue.length, (n) => this.dialogueQueue.splice(0, n), DIALOGUE_FRAME_INPUTS);
-    raw = rideOnFrame(raw, 'assets', this.assetAnswerQueue.length, (n) => this.assetAnswerQueue.splice(0, n), MAX_FRAME_ASSET_ANSWERS);
-    // Equal action values of the last frame are shared (immutable).
-    const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
-    if (!check.ok) throw new InputFrameError(check.field, check.message);
-    this.lastInputFrame = check.frame;
-    this.inputSamples += 1;
-    this.debugCommands.deliver(check.frame);
-    // storage's answers (the slot list, outcomes, a loaded document).
-    if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
-    // The answers to asset loads (a script sees ready in this step).
-    this.assetHandles.deliver(check.frame.assets);
-    // The host's input status (device, bindings, rebind events).
-    this.inputStatus.apply(check.frame.input);
-    this.deliverUiEvents(check.frame.ui, stepIndex);
-    // The frame's dialogue inputs (applied at the end of the step).
-    this.dialogue.deliver(check.frame.dialogue);
-    return this.withHeldPointer(check.frame);
-  }
-
-  /**
-   * A step's UI events: show/hide entries apply before any script runs, a mode action switches now
-   * (before the scripts), a restart and a move along the shell's scene list apply at the next boundary.
-   */
-  private deliverUiEvents(events: readonly UiEventRecord[] | undefined, stepIndex: number): void {
-    this.ui.deliver(events);
-    if (events === undefined) return;
-    this.modes.deliver(events, stepIndex + 1);
-    for (const e of events) {
-      if (e.kind === 'restart') {
-        this.pendingRestart = true;
-        // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
-        const line = deprecatedEngineActionLine(e.name);
-        if (line !== null) this.faults.problem(line.code, line.message);
-      } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.scenes.opFromUi(e.kind, e.value);
-      else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
-    }
-    // The scene list move comes after a restart of the same frame; the nextScene action's says it is deprecated (a new game's has its restart's line).
-    for (const e of events) {
-      if (e.kind !== 'scene' || typeof e.value !== 'number') continue;
-      this.scenes.requestListed(e.value);
-      const line = deprecatedEngineActionLine(e.name);
-      if (line !== null) this.faults.problem(line.code, line.message);
-    }
-  }
-
-  /**
-   * The frame modules see carries the complete pointer state —
-   * the sample's own values, or (a frame without a sample) the last
-   * position, buttons and over/locked state with no movement — and its edges:
-   * a button pressed/released when the held mask changed (or the sample says
-   * so: a click between two samples), `entered`/`left` when `over` changed.
-   * Before the first sample there is no pointer (the frame is unchanged, so
-   * every recorded replay without pointer samples plays exactly as before).
-   */
-  private withHeldPointer(frame: ActionFrame): ActionFrame {
-    const sample = frame.pointer;
-    const prev = this.heldPointer;
-    if (sample === undefined && prev === null) return frame;
-    const prevButtons = prev?.buttons ?? 0;
-    const prevOver = prev === null ? false : prev.over !== false;
-    let next: HeldPointer;
-    if (sample === undefined) {
-      const p = prev!;
-      // No new sample: the same state without this step's movement and edges (reused when it had none).
-      if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined && p.entered === undefined && p.left === undefined) return { ...frame, pointer: p };
-      next = { x: p.x, y: p.y, buttons: prevButtons, over: prevOver, locked: p.locked === true, ...(p.overUi === true ? { overUi: true } : {}) };
-    } else {
-      const buttons = sample.buttons ?? 0;
-      const over = sample.over !== false;
-      const pressed = (sample.pressed ?? 0) | (buttons & ~prevButtons);
-      const released = (sample.released ?? 0) | (prevButtons & ~buttons);
-      next = {
-        x: sample.x,
-        y: sample.y,
-        buttons,
-        over,
-        locked: sample.locked === true,
-        // Over a UI element (absent false, so every recording without it is unchanged).
-        ...(sample.overUi === true ? { overUi: true } : {}),
-        ...(sample.dx !== undefined && sample.dx !== 0 ? { dx: sample.dx } : {}),
-        ...(sample.dy !== undefined && sample.dy !== 0 ? { dy: sample.dy } : {}),
-        ...(sample.wheel !== undefined && sample.wheel !== 0 ? { wheel: sample.wheel } : {}),
-        ...(pressed !== 0 ? { pressed } : {}),
-        ...(released !== 0 ? { released } : {}),
-        ...(over && !prevOver ? { entered: true } : {}),
-        ...(!over && prevOver ? { left: true } : {}),
-      };
-    }
-    this.heldPointer = Object.freeze(next);
-    return { ...frame, pointer: this.heldPointer };
-  }
+  // ---- Input and what the host queues for the next sampled step ---------------
 
   /** The pointer state as of the last step (null before the first sample; observers, the host). */
   readPointer(): Readonly<HeldPointer> | null {
-    return this.heldPointer;
+    return this.input.pointer();
   }
 
   /**
@@ -2196,24 +2011,53 @@ export class RuntimeInstance implements Runtime {
    * run starts with none.
    */
   cursorRequest(): 'free' | 'locked' | null {
-    return this.cursorMode;
+    return this.input.cursor();
   }
 
   /** The binding requests scripts made since the last call (see `Runtime.takeBindingRequests`). */
   takeBindingRequests(): { readonly requests: readonly InputBindingRequest[]; readonly dropped: number } {
-    return this.inputStatus.take();
+    return this.input.takeBindingRequests();
   }
 
   /** The declared debug commands (the engine's `signal` first) and the calls run (newest last). */
   debugCommandState(): DebugCommandState {
-    return this.debugCommands.state();
+    return this.input.debugCommandState();
   }
 
   /** Queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
   queueDebugCommand(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError } {
-    if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const r = this.debugCommands.enqueue(call);
-    return r.ok ? r : { ok: false, error: fail('game_command_invalid', r.message, { reason: r.reason, ...(r.path !== undefined ? { path: r.path } : {}) }) };
+    return this.input.queueDebugCommand(call);
+  }
+
+  /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
+  queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
+    return this.input.queueUiEvent(event);
+  }
+
+  /**
+   * Queue a dialogue input (advance, choose, skip, auto,
+   * backlog — the dialogue UI's buttons) for the next sampled step; it rides
+   * on that step's input frame (`ActionFrame.dialogue`), so a recording
+   * replays it and the worker applies it at the same step.
+   */
+  queueDialogueInput(input: DialogueInputRecord): { ok: true } | { ok: false; error: RuntimeError } {
+    return this.input.queueDialogueInput(input);
+  }
+
+  /**
+   * Queue one storage answer (the slot list, a save/delete
+   * outcome, a loaded document) for the next sampled step — it rides on that
+   * step's input frame, so a recording replays it and the worker applies it
+   * at the same step. Refused for a project without a save schema, a bad
+   * entry, or when 64 are already waiting.
+   */
+  queueSaveEvent(event: SaveEvent): { ok: true } | { ok: false; error: RuntimeError } {
+    return this.input.queueSaveEvent(event);
+  }
+
+  /** Queue the host's answer to one asset load for the next sampled step (it rides on that step's input frame). */
+  queueAssetAnswer(answer: AssetHandleAnswer): { ok: true } | { ok: false; error: RuntimeError } {
+    return this.input.queueAssetAnswer(answer);
   }
 
   /** A run's start at a step boundary, the first run's and every restart's alike (the physics world, the bodies); false after a fail-stop. */
@@ -2311,7 +2155,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.isM2) return base;
     const m2: RuntimeDiagnostics = {
       ...base,
-      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.inputSamples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.phases.commitCount }),
+      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.input.samples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.phases.commitCount }),
     };
     // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
