@@ -1,8 +1,6 @@
 {
   "entries": [
     {"file":"packages/asset-pipeline/src/inspect.ts","kind":"file","unit":"(file)","size":2876},
-    {"file":"packages/backend/src/backend.ts","kind":"function","unit":"createBackend","size":975},
-    {"file":"packages/backend/src/backend.ts","kind":"function","unit":"createBackend > dispatch","size":509},
     {"file":"packages/backend/src/play-routes.ts","kind":"function","unit":"makePlayRoutes","size":849},
     {"file":"packages/commands/src/apply.ts","kind":"function","unit":"applyMutation","size":535},
     {"file":"packages/commands/src/history.ts","kind":"function","unit":"applyForward","size":518},
