@@ -49,9 +49,10 @@ import {
 } from './actions';
 
 import { clipMessage, type RuntimeError } from './errors';
-import { RuntimeSim, cloneCurr, cloneTransform, messageOf, ownerSetOf, type ModuleEntry, type PhaseViews } from './runtime-sim';
+import { RuntimeSim, cloneCurr, messageOf, ownerSetOf, type ModuleEntry, type PhaseViews } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { RuntimeScenes } from './runtime-scenes';
+import { RuntimeEntities } from './runtime-entities';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
@@ -75,7 +76,6 @@ import {
   type IntentSet,
 } from './intents';
 import { frozenContext, liveScopedState, phaseScopedState } from './guard';
-import { deepFreeze } from './snapshot';
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
 import { randomSeedOf } from './random';
@@ -95,13 +95,10 @@ import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME } from './blocks';
-import { playersArrive } from './arriving-players';
 import { createGameControl } from './game-control';
-import { SpawnScenes } from './spawn-scenes';
 import { createShellControl, deprecatedEngineActionLine } from './scene-list';
 import { LIFECYCLE_RESTART_DEPRECATED, loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
-import { SpawnRequests } from './spawn-requests';
 import { FrameClock } from './frame-clock';
 import { StepReads, type DrawnSteps } from './step-reads';
 import { CharacterPlacement, ControllerPlacements } from './character-placement';
@@ -110,7 +107,6 @@ import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
   type BehaviorMessage,
-  type BehaviorSpawnControl,
   type CameraInfo,
   type RuntimeSceneRow,
   type SceneLoadOptions,
@@ -137,6 +133,7 @@ import {
   type DebugCommandState,
   type BehaviorUi,
 } from './types';
+
 
 
 
@@ -271,6 +268,8 @@ export class RuntimeInstance implements Runtime {
   private readonly faults: RuntimeFaults;
   /** The loaded scene set, scene requests, transitions and the scene list. */
   private readonly scenes: RuntimeScenes;
+  /** How objects come into the simulation and leave it; spawned copies. */
+  private readonly entities: RuntimeEntities;
   /** The step's transforms (integration tests that follow a run step by step read them off the instance). */
   get curr(): ReadonlyMap<string, TransformState> {
     return this.sim.curr;
@@ -353,7 +352,6 @@ export class RuntimeInstance implements Runtime {
   /** Restarts applied in this play (a tool tells the restarted run from the one it asked to restart). */
   private runNumber = 0;
   private runSpawnBase = 0;
-  private readonly liveTags: LiveTagIndex | null;
   /** The tag index 3D queries filter by. */
   private readonly queryTags: LiveTagIndex | null;
   // ---- Animators ----
@@ -377,8 +375,6 @@ export class RuntimeInstance implements Runtime {
   // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
-  /** The behavior group of each loaded entity that carries one (`behaviorGroup` component). */
-  private readonly behaviorGroupOf = new Map<string, string>();
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
   private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
@@ -526,26 +522,10 @@ export class RuntimeInstance implements Runtime {
   private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: ScriptAudioControl;
   /** Effect and decal requests for the renderer (presentation only, never part of the simulation). */
-  private readonly presentation = new PresentationRequests({ stepIndex: () => this.sim.stepIndex, prefab: (id) => this.prefabs.get(id), problem: (code, message) => this.faults.problem(code, message) });
+  private readonly presentation = new PresentationRequests({ stepIndex: () => this.sim.stepIndex, prefab: (id) => this.entities.prefabs.get(id), problem: (code, message) => this.faults.problem(code, message) });
 
   /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
   private readonly kept = new KeptObjects();
-  // ---- Spawned prefab copies ----
-  private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
-  /** The live spawned entities, in spawn order (parents before children). */
-  private readonly spawnedEntities = new Map<string, EntityV3>();
-  /** `ctx.spawn` / `ctx.destroy` requests waiting for the next step boundary, and the saved copies. */
-  private readonly spawnRequests: SpawnRequests;
-  private readonly spawnControl: BehaviorSpawnControl;
-  /** Each script object's own `ctx.spawn` (its copies are spawned in its scene). */
-  private readonly spawnControls = new Map<string, BehaviorSpawnControl>();
-  /** The scene each spawned copy was spawned in (a scene reload removes them). */
-  private readonly spawnScenes = new SpawnScenes();
-  private readonly spawnerOwned = (entityId: string): BehaviorSpawnControl => {
-    let c = this.spawnControls.get(entityId);
-    if (c === undefined) this.spawnControls.set(entityId, (c = this.spawnRequests.control(entityId)));
-    return c;
-  };
 
   constructor(args: RuntimeArgs) {
     this.sim = new RuntimeSim({ hz: args.hz, settings: args.settings, physics: args.physics, physics3d: args.physics3d, entries: args.entries, order: args.order, entities: args.entities, prev: args.prev, curr: args.curr });
@@ -592,7 +572,6 @@ export class RuntimeInstance implements Runtime {
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.faults.log(moduleId, level, message, at);
     args.logSink.stopped = (moduleId, stop) => this.faults.scriptStopped(moduleId, stop);
-    this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
     this.kept.add(args.initialEntities);
     this.scenes = new RuntimeScenes(this.sim, this.faults, {
@@ -603,27 +582,32 @@ export class RuntimeInstance implements Runtime {
       get placement() { return rt.placement; },
       get environment() { return rt.environment; },
       sceneSoundsGone: (sceneId) => rt.audio.sceneGone(sceneId),
-      spawned: () => rt.spawnedEntities,
-      attach: (frozen) => rt.attachEntities(frozen),
-      detach: (ids, colliderIds, what, how) => rt.detachEntities(ids, colliderIds, what, how),
-      playersArrive: (frozen, placeReturning) => rt.playersArrive(frozen, placeReturning),
-      notifyLoaded: (frozen) => rt.notifyLoaded(frozen),
-      removeSpawned: (ids) => rt.removeSpawnedIds(ids),
-      copiesOf: (sceneId) => rt.spawnScenes.copiesOf(sceneId, (id) => rt.kept.has(id)),
+      spawned: () => rt.entities.spawned,
+      attach: (frozen) => rt.entities.attach(frozen),
+      detach: (ids, colliderIds, what, how) => rt.entities.detach(ids, colliderIds, what, how),
+      playersArrive: (frozen, placeReturning) => rt.entities.playersArrive(frozen, placeReturning),
+      notifyLoaded: (frozen) => rt.entities.notifyLoaded(frozen),
+      removeSpawned: (ids) => rt.entities.removeSpawnedIds(ids),
+      copiesOf: (sceneId) => rt.entities.copiesOf(sceneId),
     }, args.sceneRows, args.startBatches, args.sceneList ?? []);
-    this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
-    this.spawnRequests = new SpawnRequests({
-      prefabs: this.prefabs,
-      spawned: () => this.spawnedEntities,
-      live: (id) => this.grid.isLive(id),
-      liveCount: () => this.grid.liveCount,
-      inGame: (id) => this.sim.entities.has(id),
-      transformOf: (id) => this.sim.curr.get(id),
-      entityRefKeysOf: (b) => this.entityRefKeysOf(b),
-      valuesProblem: (b, values) => this.behaviorValuesProblem(b, values),
-      refused: (message) => this.faults.record({ code: 'spawn_refused', message: clipMessage(message), stepIndex: this.sim.stepIndex }),
-    });
-    this.spawnControl = this.spawnRequests.control();
+    this.entities = new RuntimeEntities(this.sim, this.faults, {
+      kept: this.kept,
+      get colliders() { return rt.colliders; },
+      get grid() { return rt.grid; },
+      get controllers() { return rt.controllers; },
+      get placement() { return rt.placement; },
+      get materials() { return rt.materials; },
+      get animators() { return rt.animators; },
+      get blocks() { return rt.blocks; },
+      get views() { return rt.views; },
+      get sockets() { return rt.sockets; },
+      get entityAccess() { return rt.entityAccess; },
+      get audio() { return rt.audio; },
+      liveTags: args.liveTags,
+      intentAxes: () => rt.intents.axes,
+      sceneOf: (id) => rt.scenes.sceneOf(id),
+      sceneSetChanged: () => rt.scenes.changed(),
+    }, args.prefabs);
     // The start scenes' block layers; their chunks collide (on the 2D plane, cut at the layer's play plane).
     this.grid = new RuntimeGrid(
       args.blockTypes,
@@ -631,7 +615,7 @@ export class RuntimeInstance implements Runtime {
       args.physics3d !== undefined,
       args.settings.max_slope_climb_deg,
       args.materialIds,
-      this.prefabs,
+      this.entities.prefabs,
       args.modelColliders,
       () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.sim.curr.get(id)?.position),
       args.architectureStyles,
@@ -706,7 +690,7 @@ export class RuntimeInstance implements Runtime {
     this.modes.setStartMode(args.startMode);
     this.modes.beginRun(1);
     this.frameClock.scale = this.modes.active ? this.modes.timeScale() : 1;
-    this.noteBehaviorGroups(args.initialEntities);
+    this.entities.noteBehaviorGroups(args.initialEntities);
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
@@ -946,10 +930,10 @@ export class RuntimeInstance implements Runtime {
       sceneLoaded: (sceneId) => rt.scenes.isLoaded(sceneId),
       get entityAccess() { return rt.entityAccess; },
       blocks: () => rt.blocks,
-      spawnedCopies: () => rt.spawnRequests.savedCopies(),
-      spawnedCopiesProblem: (value) => rt.spawnRequests.savedCopiesProblem(value),
-      restoreSpawnedCopies: (copies) => rt.spawnRequests.restore(copies),
-      syncLive: () => void rt.syncLiveBlocks(),
+      spawnedCopies: () => rt.entities.spawnRequests.savedCopies(),
+      spawnedCopiesProblem: (value) => rt.entities.spawnRequests.savedCopiesProblem(value),
+      restoreSpawnedCopies: (copies) => rt.entities.spawnRequests.restore(copies),
+      syncLive: () => void rt.entities.syncLiveBlocks(),
       captureWorld: () => rt.captureWorld(),
       worldProblem: (world) => rt.scenes.worldProblem(world),
       // The saved scenes and spawn; the character is placed once the scenes are in and gets its saved velocity back.
@@ -1094,8 +1078,8 @@ export class RuntimeInstance implements Runtime {
       },
       isPhysicsBody: (id) => rt.controllers.has(id) || rt.sim.entities.get(id)?.hasCollider === true,
       isKept: (id) => rt.kept.has(id),
-      keepProblem: (id, keep) => rt.keepProblem(id, keep),
-      setKept: (id, keep) => rt.setKept(id, keep),
+      keepProblem: (id, keep) => rt.entities.keepProblem(id, keep),
+      setKept: (id, keep) => rt.entities.setKept(id, keep),
       transformIntentWrote: (id) => {
         const stored = rt.intents.axes.get(id);
         const tag = rt.intents.axesTag * 64;
@@ -1136,24 +1120,6 @@ export class RuntimeInstance implements Runtime {
     if (leaving.length === 0 && coming.length === 0) return;
     const failed = this.colliders.activeChanged(leaving, coming);
     if (failed !== null) this.faults.failStop('physics_port_error', 'entity_active', failed, this.sim.stepIndex);
-  }
-
-  /**
-   * A behavior's `entityRef` property keys (its module's
-   * declaration), for the typed remap of prefab-local references in spawned
-   * copies; undefined for a behavior this game has no module for.
-   */
-  private readonly entityRefKeysOf = (behaviorId: string): readonly string[] | undefined => {
-    const entry = this.sim.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
-    const probe = entry?.instance as { behaviorEntityRefKeys?: () => readonly string[] } | undefined;
-    return typeof probe?.behaviorEntityRefKeys === 'function' ? probe.behaviorEntityRefKeys() : undefined;
-  };
-
-  /** Why values cannot be a spawned copy's own for a behavior (its module's declaration; null: they can, or no module checks them). */
-  private behaviorValuesProblem(behaviorId: string, values: Readonly<Record<string, unknown>>): string | null {
-    const entry = this.sim.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
-    const probe = entry?.instance as { behaviorValuesProblem?: (v: Readonly<Record<string, unknown>>) => string | null } | undefined;
-    return typeof probe?.behaviorValuesProblem === 'function' ? probe.behaviorValuesProblem(values) : null;
   }
 
   /** The run's named counters and the character's health. */
@@ -1580,7 +1546,7 @@ export class RuntimeInstance implements Runtime {
     if (this.pendingRestart && !this.restartRun(this.sim.stepIndex + 1)) return false;
     if (this.runStartDue && !this.startRun()) return false;
     this.scenes.goToListed();
-    if (!this.syncLiveBlocks()) return false;
+    if (!this.entities.syncLiveBlocks()) return false;
     this.modes.beginStep(this.sim.stepIndex + 1);
     this.grid.beginStep(this.sim.stepIndex + 1);
     this.materials.beginStep(this.sim.stepIndex + 1);
@@ -1691,7 +1657,7 @@ export class RuntimeInstance implements Runtime {
     this.stepSockets(null);
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
     this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
-    if (!this.syncLiveBlocks()) return false;
+    if (!this.entities.syncLiveBlocks()) return false;
     return true;
   }
 
@@ -1708,14 +1674,14 @@ export class RuntimeInstance implements Runtime {
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
     if (!this.placement.atBoundary(ordinal)) return false;
     // The spawns and destroys the last step requested, in order.
-    if (!this.applySpawnOps()) return false;
-    this.spawnRequests.stepBoundary();
+    if (!this.entities.applySpawnOps()) return false;
+    this.entities.spawnRequests.stepBoundary();
     // A restart asked for last step, then the game mode's step start
     // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.runStartDue && !this.startRun()) return false;
     this.scenes.goToListed();
-    if (!this.syncLiveBlocks()) return false;
+    if (!this.entities.syncLiveBlocks()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
     if (!this.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
@@ -1823,7 +1789,7 @@ export class RuntimeInstance implements Runtime {
     this.sim.simTime = this.sim.stepIndex / this.sim.hz;
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
     this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
-    if (!this.syncLiveBlocks()) return false;
+    if (!this.entities.syncLiveBlocks()) return false;
     this.sim.committedMirror.copyFrom(this.sim.curr, this.sim.currShape);
     this.sim.committed = this.sim.committedMirror.map;
     this.animators.step();
@@ -1913,14 +1879,6 @@ export class RuntimeInstance implements Runtime {
     return this.modes.active ? this.modes.view() : null;
   }
 
-  /** The behavior groups of entities that came in. */
-  private noteBehaviorGroups(entities: readonly EntityV3[]): void {
-    for (const e of entities) {
-      const g = (e.components as { behaviorGroup?: { group?: unknown } }).behaviorGroup?.group;
-      if (typeof g === 'string') this.behaviorGroupOf.set(e.id, g);
-    }
-  }
-
   /**
    * `StepContext.behaviorTicks`: whether an entity's behavior runs this step
    * (undefined — every behavior runs — without modes or while the mode ticks
@@ -1934,7 +1892,7 @@ export class RuntimeInstance implements Runtime {
       if (this.behaviorTicksOff === null || this.behaviorTicksOff.set !== off) this.behaviorTicksOff = { set: off, fn: (entityId: string): boolean => !off.has(entityId) };
       return this.behaviorTicksOff.fn;
     }
-    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => !this.entityAccess.inactive().has(entityId) && this.modes.ticks(this.behaviorGroupOf.get(entityId));
+    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => !this.entityAccess.inactive().has(entityId) && this.modes.ticks(this.entities.behaviorGroupOf.get(entityId));
     return this.behaviorTicksFn;
   }
   private behaviorTicksOff: { set: ReadonlySet<string>; fn: (entityId: string) => boolean } | null = null;
@@ -2028,8 +1986,8 @@ export class RuntimeInstance implements Runtime {
     this.placement.restartRun();
     this.director.reset();
     this.controllers.clearImpulses();
-    this.clearSpawned();
-    this.runSpawnBase = this.spawnRequests.serial;
+    this.entities.clearSpawned();
+    this.runSpawnBase = this.entities.spawnRequests.serial;
     // Every sound scripts started stops, every decal they spawned goes: the new run's scripts hold no handle to them.
     this.audio.reset();
     this.presentation.restartRun();
@@ -2055,7 +2013,7 @@ export class RuntimeInstance implements Runtime {
     // Every field scripts wrote back as authored (switched-off objects come back, colliders included).
     this.entityAccess.reset();
     // The live blocks start over as fresh objects at the next boundary.
-    this.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.spawnedEntities.has(id))));
+    this.entities.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.entities.spawned.has(id))));
     this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
@@ -2448,288 +2406,9 @@ export class RuntimeInstance implements Runtime {
     });
   }
 
-  /** Why a script cannot switch an object's keep flag now (null: it can). */
-  private keepProblem(id: string, keep: boolean): string | null {
-    const parent = this.sim.entities.get(id)?.parentId ?? null;
-    if (parent !== null && this.kept.has(parent)) return keep ? null : `its parent "${parent}" keeps it loaded`;
-    if (keep && parent !== null) return `its parent "${parent}" is not kept loaded (the object would go with it)`;
-    if (!keep && this.kept.orphan(id) !== undefined) return 'its scene is not loaded: it would have nowhere to be';
-    return null;
-  }
-
-  /** Keep (or stop keeping) an object and everything under it (a script's write, at the end of the step). */
-  private setKept(id: string, keep: boolean): void {
-    const subtree = new Set([id]);
-    for (const other of this.sim.order) {
-      const p = this.sim.entities.get(other)?.parentId;
-      if (p !== null && p !== undefined && subtree.has(p)) subtree.add(other);
-    }
-    this.kept.set([...subtree], keep);
-  }
-
   /** The problems since the last call (the host relays them). */
   takeProblems(): { code: string; message: string }[] {
     return this.faults.takeProblems();
-  }
-
-  /**
-   * Put resolved, frozen entities into the simulation: state, draw order,
-   * tags, animators and gameplay blocks (a loaded scene, a spawned copy).
-   */
-  private attachEntities(frozen: readonly EntityV3[]): void {
-    this.materials.addEntities(frozen);
-    for (const e of frozen) {
-      const t = e.components.transform;
-      const data: SimEntityData = { id: e.id, parentId: e.parentId ?? null, transform: cloneTransform(t) };
-      if (e.name !== undefined) data.name = e.name;
-      data.componentKinds = Object.freeze(Object.keys(e.components));
-      const box = e.components.box;
-      if (box) data.box = { size: [box.size[0], box.size[1], box.size[2]], material: { color: box.material.color } };
-      if ((e.components as { collider?: unknown }).collider !== undefined) data.hasCollider = true;
-      this.sim.entities.set(e.id, data);
-      this.sim.prev.set(e.id, cloneTransform(t));
-      this.sim.curr.set(e.id, cloneTransform(t));
-      this.sim.currShape += 1;
-      this.sim.committed?.set(e.id, cloneTransform(t));
-    }
-    this.colliders.track(frozen);
-    this.sim.order = [...this.sim.order, ...frozen.map((e) => e.id)];
-    this.sim.entityCount = this.sim.order.length;
-    // Their behavior groups (game modes tick groups).
-    this.noteBehaviorGroups(frozen);
-    this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
-    this.animators.add(frozen);
-    this.blocks?.add(frozen);
-    this.views.add(frozen);
-    // Their models and authored sockets (resolved at the end of the step).
-    this.sockets.add(frozen);
-    // Children of a switched-off object arrive switched off.
-    this.entityAccess.added();
-  }
-
-  /** The player controllers among attached entities (`playersArrive`). Returns false after a fail-stop. */
-  private playersArrive(frozen: readonly EntityV3[], placeReturning: boolean): boolean {
-    try {
-      playersArrive(frozen, { controllers: this.controllers, placement: this.placement, blocks: this.blocks, threeD: this.sim.physics3d !== undefined, transform: (id) => this.sim.curr.get(id) }, placeReturning);
-    } catch (e) {
-      this.faults.failStopFromError(e, this.sim.stepIndex);
-      return false;
-    }
-    return true;
-  }
-
-  /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
-  private notifyLoaded(frozen: readonly EntityV3[]): boolean {
-    for (const entry of this.sim.entries) {
-      const instance = entry.instance as SimulationPhaseModule;
-      if (!entry.phased || typeof instance.sceneLoaded !== 'function') continue;
-      this.sim.currentModuleId = entry.id;
-      this.sim.currentPhase = undefined;
-      try {
-        instance.sceneLoaded(frozen);
-      } catch (e) {
-        this.faults.failStopFromError(e, this.sim.stepIndex);
-        return false;
-      }
-      if (!this.refreshOwners(entry)) return false;
-    }
-    return true;
-  }
-
-  /**
-   * Re-read a module's transform owners after entities came or
-   * went (a behavior that owns "@self" owns each carrier, spawned copies
-   * included). A new owner gets the instantiate-time checks: claimed by no
-   * other module, not the camera, not a physics body. Returns false after a
-   * fail-stop.
-   */
-  private refreshOwners(entry: ModuleEntry): boolean {
-    if (!entry.phased) return true;
-    const next = (entry.instance as SimulationPhaseModule).transformOwners;
-    if (next === entry.owners || !Array.isArray(next)) return true;
-    const before = new Set(entry.owners);
-    for (const id of next) {
-      if (before.has(id)) continue;
-      const other = this.sim.entries.find((en) => en !== entry && en.owners.includes(id));
-      if (other !== undefined) {
-        this.faults.failStop('transform_owner_conflict', id, `entity "${id}" is claimed by "${other.id}" and "${entry.id}"`, this.sim.stepIndex, entry.id);
-        return false;
-      }
-      const data = this.sim.entities.get(id);
-      // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
-      const drivable = this.sim.physics3d !== undefined && this.colliders.drivableId(id);
-      const physicsBody = (data?.hasCollider === true && !drivable) || this.controllers.has(id);
-      if (physicsBody && !entry.phases.includes('controller')) {
-        const what = 'physics_entity';
-        this.faults.failStop('transform_owner_forbidden', what, `module "${entry.id}" claims physics entity "${id}"`, this.sim.stepIndex, entry.id, undefined, what);
-        return false;
-      }
-    }
-    entry.owners = [...next];
-    this.colliders.markDirty();
-    return true;
-  }
-
-  /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
-  private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string, how: 'unload' | 'reload' = 'unload'): void {
-    this.kept.removed(ids);
-    // Sockets of (and on) these entities let go.
-    this.sockets.remove(ids);
-    this.materials.removeEntities(ids);
-    for (const id of ids) {
-      this.spawnControls.delete(id);
-      this.behaviorGroupOf.delete(id);
-    }
-    this.colliders.forget(ids);
-    for (const entry of this.sim.entries) {
-      const instance = entry.instance as SimulationPhaseModule;
-      if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;
-      try {
-        instance.sceneUnloaded(ids, how);
-      } catch (e) {
-        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload', moduleId: entry.id });
-      }
-      // Owners that left ("@self" carriers) are released.
-      const owners = instance.transformOwners;
-      if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
-    }
-    // Unloaded block layers take their chunk colliders and their live blocks' objects along.
-    const gridColliders = this.grid.removeLayers(ids);
-    this.removeSpawnedIds(new Set(this.grid.takeGoneLive().filter((id) => this.spawnedEntities.has(id))));
-    if (gridColliders.length > 0 && typeof (this.sim.physics3d ?? this.sim.physics)?.removeStaticColliders === 'function') {
-      try {
-        (this.sim.physics3d ?? this.sim.physics)?.removeStaticColliders?.(gridColliders);
-      } catch (e) {
-        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
-      }
-    }
-    if (colliderIds.length > 0 && typeof this.sim.physics3d?.removeStaticColliders === 'function') {
-      try {
-        this.sim.physics3d.removeStaticColliders(colliderIds);
-      } catch (e) {
-        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
-      }
-    }
-    if (colliderIds.length > 0 && typeof this.sim.physics?.removeStaticColliders === 'function') {
-      try {
-        this.sim.physics.removeStaticColliders(colliderIds);
-      } catch (e) {
-        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
-      }
-    }
-    for (const id of ids) {
-      this.sim.entities.delete(id);
-      this.sim.prev.delete(id);
-      this.sim.curr.delete(id);
-      this.sim.currShape += 1;
-      this.sim.committed?.delete(id);
-      this.intents.axes.delete(id);
-    }
-    this.sim.order = this.sim.order.filter((id) => !ids.has(id));
-    this.sim.entityCount = this.sim.order.length;
-    this.liveTags?.remove(ids);
-    this.animators.remove(ids);
-    this.blocks?.remove(ids);
-    this.views.remove(ids);
-    // Their written fields go with them.
-    this.entityAccess.removed(ids);
-    // So do the sounds they own.
-    this.audio.entitiesGone(ids);
-  }
-
-  // ---- Spawned prefab copies ------------------------------------
-
-
-  /** The queued spawns and destroys, in request order. Returns false after a fail-stop. */
-  private applySpawnOps(): boolean {
-    const ops = this.spawnRequests.take();
-    for (const op of ops) {
-      if (op.op === 'destroy') {
-        this.spawnRequests.destroyApplied(op.entityId);
-        this.removeSpawned(op.entityId);
-        continue;
-      }
-      this.spawnRequests.spawnApplied(op);
-      if (!this.addSpawned(op.entities)) return false;
-      if (!this.spawnedEntities.has(op.entities[0]!.id)) continue;
-      this.spawnRequests.copyArrived(op);
-      // Spawned in the spawner's scene (a kept or scene-less spawner: none).
-      const origin = op.origin;
-      if (origin !== undefined && !this.kept.has(origin)) {
-        this.spawnScenes.record(op.entities.map((e) => e.id), this.scenes.sceneOf(origin) ?? this.spawnScenes.sceneOf(origin));
-      }
-    }
-    return true;
-  }
-
-  /**
-   * The live blocks' objects follow their cells: those of the cells changed
-   * since the last call go and come through the spawned-copy path. Returns
-   * false after a fail-stop.
-   */
-  private syncLiveBlocks(): boolean {
-    const d = this.grid.takeLive((id) => this.sim.entities.has(id), (b) => this.entityRefKeysOf(b));
-    if (d === null) return true;
-    this.removeSpawnedIds(new Set(d.remove.filter((id) => this.spawnedEntities.has(id))));
-    if (d.refused.length > 0) {
-      const message = clipMessage(`live blocks not spawned: objects of the game already have the ids ${d.refused.slice(0, 4).join(', ')}`);
-      this.faults.record({ code: 'spawn_refused', message, stepIndex: this.sim.stepIndex });
-    }
-    return d.add.length === 0 || this.addSpawned(d.add, true);
-  }
-
-  /** Add one spawned copy (colliders, state, blocks, scripts; `owned`: made for this call, not copied again). Returns false after a fail-stop. */
-  private addSpawned(entities: readonly EntityV3[], owned = false): boolean {
-    const root = entities[0]!;
-    const clash = entities.find((e) => this.sim.entities.has(e.id));
-    if (clash !== undefined) {
-      this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.sim.stepIndex });
-      return true;
-    }
-    const frozen = deepFreeze(owned ? [...entities] : entities.map((e) => structuredClone(e)));
-    const added = this.colliders.add(frozen, `spawn "${root.id}"`);
-    if (!added.ok && 'refused' in added) {
-      this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${added.refused}`), stepIndex: this.sim.stepIndex });
-      return true;
-    }
-    if (!added.ok && 'failed' in added) {
-      this.faults.failStop('physics_port_error', 'spawn_colliders', added.failed, this.sim.stepIndex);
-      return false;
-    }
-    this.kept.add(frozen);
-    this.attachEntities(frozen);
-    for (const e of frozen) this.spawnedEntities.set(e.id, e);
-    this.scenes.changed();
-    return this.notifyLoaded(frozen);
-  }
-
-  /** Remove a spawned entity and every spawned entity below it. */
-  private removeSpawned(entityId: string): void {
-    if (!this.spawnedEntities.has(entityId)) return;
-    const ids = new Set<string>([entityId]);
-    // Spawn order puts parents before children: one pass collects the subtree.
-    for (const e of this.spawnedEntities.values()) if (e.parentId !== undefined && ids.has(e.parentId)) ids.add(e.id);
-    this.removeSpawnedIds(ids);
-  }
-
-  private removeSpawnedIds(ids: ReadonlySet<string>): void {
-    if (ids.size === 0) return;
-    const colliderIds = [...ids].filter((id) => (this.spawnedEntities.get(id)?.components as { collider?: unknown } | undefined)?.collider !== undefined);
-    this.detachEntities(ids, colliderIds, `spawned "${[...ids][0]}"`);
-    for (const id of ids) this.spawnedEntities.delete(id);
-    this.spawnScenes.removed(ids);
-    this.spawnRequests.removed(ids);
-    this.scenes.changed();
-  }
-
-  /**
-   * A new run: every spawned entity goes and pending requests are dropped. Ids
-   * keep counting (never reused in one game), so an id a script kept from the
-   * last run cannot name a new copy.
-   */
-  private clearSpawned(): void {
-    this.removeSpawnedIds(new Set(this.spawnedEntities.keys()));
-    this.spawnRequests.clear();
   }
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
@@ -2825,8 +2504,8 @@ export class RuntimeInstance implements Runtime {
       fields['effects'] = { value: this.presentation.effects, enumerable: true };
       fields['decals'] = { value: this.presentation.decals, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
-      fields['spawner'] = { value: this.spawnControl, enumerable: true };
-      fields['spawnerOwned'] = { value: this.spawnerOwned, enumerable: true };
+      fields['spawner'] = { value: this.entities.spawnControl, enumerable: true };
+      fields['spawnerOwned'] = { value: this.entities.spawnerOwned, enumerable: true };
       // The virtual cameras (ctx.camera).
       fields['camera'] = { value: this.views.control, enumerable: true };
       // Sockets (ctx.sockets).
