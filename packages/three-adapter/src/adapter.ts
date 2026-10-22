@@ -88,6 +88,7 @@ import { applyEntityRenderFlags } from './entity-render-flags';
 import { createAdapterLevel } from './adapter-level';
 import { AdapterEntities } from './adapter-entities';
 import { AdapterModels } from './adapter-models';
+import { AdapterScenes } from './adapter-scenes';
 import { createSceneLights, type LightValueOverride, type SceneLights } from './lights-shadows';
 import { STATIC_CASTER_KEY, StaticShadowRevision } from './shadow-casters';
 import type { EffectComponentLike, EffectRequestLike } from './effects-player';
@@ -537,27 +538,14 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
 
   // --- Follow the runtime's scene set --------------------------------------
-  /** Scenes realized so far (the start scenes came with the snapshot): their entities, and the list they came in. */
-  const realizedScenes = new Map<string, { ids: Set<string>; list: readonly unknown[] }>();
-  let realizedRevision = -1;
-  {
-    const set = opts.runtime.sceneSet?.();
-    if (set !== undefined) {
-      // A batch counts as realized when the snapshot brought its entities (the others are realized at the first sync).
-      for (const b of set.batches) if (b.entities.every((e) => entityDocs.has(e.id))) realizedScenes.set(b.sceneId, { ids: new Set(b.entities.map((e) => e.id)), list: b.entities });
-      // Batches the snapshot did not bring are realized at the first sync.
-      if (realizedScenes.size === set.batches.length) realizedRevision = set.revision;
-    }
-  }
-  /** The load rank of an entity's scene (higher: loaded later; -1: in none). */
-  const sceneRankOf = (id: string): number => {
-    let i = 0;
-    for (const rec of realizedScenes.values()) {
-      if (rec.ids.has(id)) return i;
-      i += 1;
-    }
-    return -1;
-  };
+  /** Scenes prepared ahead of their load (released once realized). */
+  const preparations = createScenePreparations({ disposed: () => disposed, realization: () => models.realization, materialLibrary, architecture });
+  // The scene set followed: scenes realized as they load and released as they unload, spawned copies (adapter-scenes.ts).
+  const scenes = new AdapterScenes({
+    runtime: opts.runtime, entities, realization: () => models.realization, lightmaps: () => lightmaps, forgetLook: (id) => shownLooks.delete(id), preparations,
+    requestPrecompile: () => precompile.want(), selectLights, followProbes: (ids) => probes.follow(ids), v3: isV3, vertexPaint: opts.vertexPaint !== false,
+    ownScene: (opts.snapshot.scene as { sceneId?: string }).sceneId,
+  });
   /**
    * Switch the loaded scenes' lights: the most recently loaded
    * scene's directional, ambient and hemisphere light (each kind on its own),
@@ -565,7 +553,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    * decides the shadow state.
    */
   function selectLights(): void {
-    lights.select(sceneRankOf, hiddenIds);
+    lights.select(scenes.rankOf, hiddenIds);
   }
   selectLights();
   /** The quality level drawn and its renderer settings (quality-control.ts). */
@@ -586,141 +574,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     { project: envLook.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
   );
-  /** The probe tiles follow the realized scenes (a host without a scene set draws its snapshot's scene). */
-  function followProbeScenes(): void {
-    const own = (opts.snapshot.scene as { sceneId?: string }).sceneId;
-    probes.follow(realizedScenes.size > 0 ? realizedScenes.keys() : own !== undefined ? [own] : []);
-  }
-  followProbeScenes();
-  /** The scenes realized since the last drawn frame (for `onFrameDrawn`). */
-  const frameRealized: string[] = [];
-  /** Scenes prepared ahead of their load (released once realized). */
-  const preparations = createScenePreparations({ disposed: () => disposed, realization: () => models.realization, materialLibrary, architecture });
-  /** The scene set revision the last presented frame drew. */
-  let presentedRevision = -1;
-  function syncSceneSet(): void {
-    const set = opts.runtime.sceneSet?.();
-    if (set === undefined || set.revision === realizedRevision) return;
-    realizedRevision = set.revision;
-    const live = new Set(set.batches.map((b) => b.sceneId));
-    // Objects that stay when their scene goes (kept loaded) move to the scene-less list as they are drawn.
-    const staying = new Map<string, unknown>();
-    for (const e of (set as { spawned?: readonly unknown[] }).spawned ?? []) staying.set((e as { id: string }).id, e);
-    let removed = false;
-    let scenesRemoved = false;
-    for (const [sceneId, rec] of [...realizedScenes]) {
-      if (live.has(sceneId)) continue;
-      const ids = new Set([...rec.ids].filter((id) => {
-        if (!staying.has(id) || realizedSpawned.has(id)) return true;
-        realizedSpawned.set(id, staying.get(id));
-        return false;
-      }));
-      for (const id of ids) lightmaps?.release(id);
-      models.realization?.removeEntities(ids);
-      for (const id of ids) shownLooks.delete(id);
-      // Children before parents (reverse document order).
-      for (const id of [...ids].reverse()) entities.release(id);
-      realizedScenes.delete(sceneId);
-      removed = true;
-      scenesRemoved = true;
-    }
-    // A realized scene whose list was replaced in place (an editing host's scene): only the entities
-    // whose document changed are realized again, and the ones gone released (all releases first: an
-    // entity may move to another scene's list).
-    const edited: { sceneId: string; rec: { ids: Set<string>; list: readonly unknown[] }; docs: readonly (typeof opts.snapshot.scene.entities)[number][] }[] = [];
-    for (const b of set.batches) {
-      const rec = realizedScenes.get(b.sceneId);
-      if (rec === undefined || rec.list === b.entities) continue;
-      const docs = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
-      const next = new Map(docs.map((e) => [e.id, e]));
-      const gone = new Set<string>();
-      for (const id of rec.ids) {
-        const doc = next.get(id);
-        if (doc === entityDocs.get(id)) continue;
-        if (doc !== undefined && opts.vertexPaint !== false && paintOnlyChange(entityDocs.get(id), doc)) entities.repaintInPlace(doc);
-        else gone.add(id);
-      }
-      if (gone.size > 0) {
-        for (const id of gone) lightmaps?.release(id);
-        models.realization?.removeEntities(gone);
-        for (const id of gone) shownLooks.delete(id);
-        // Children before parents (reverse document order).
-        for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (gone.has(e.id)) entities.release(e.id);
-        for (const id of gone) rec.ids.delete(id);
-        removed = true;
-      }
-      rec.list = b.entities;
-      edited.push({ sceneId: b.sceneId, rec, docs });
-    }
-    let added = false;
-    for (const { sceneId, rec, docs } of edited) {
-      const fresh = docs.filter((e) => !rec.ids.has(e.id));
-      if (fresh.length === 0) continue;
-      for (const e of fresh) {
-        entities.realize(e, sceneId);
-        rec.ids.add(e.id);
-      }
-      models.realization?.addEntities(modelRefsOf(fresh));
-      added = true;
-    }
-    for (const b of set.batches) {
-      if (realizedScenes.has(b.sceneId)) continue;
-      const docs = b.entities as unknown as (typeof opts.snapshot.scene.entities)[number][];
-      for (const e of docs) entities.realize(e, b.sceneId);
-      realizedScenes.set(b.sceneId, { ids: new Set(docs.map((e) => e.id)), list: b.entities });
-      models.realization?.addEntities(modelRefsOf(docs));
-      // Its entities hold what the preparation held.
-      preparations.realized(b.sceneId);
-      frameRealized.push(b.sceneId);
-      // The attached scene's programs are built before it is presented.
-      precompile.want();
-      added = true;
-    }
-    // The lights follow the scene set (a light switched on or off changes the shading programs too).
-    if (added || removed) selectLights();
-    if (added || removed) followProbeScenes();
-    if (scenesRemoved && !added && isV3) precompile.want();
-    syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
-  }
-
-  /** Release every realized scene; the next sync realizes the scene set again (new bakes). */
-  function releaseScenes(): void {
-    for (const [sceneId, rec] of [...realizedScenes]) {
-      for (const id of rec.ids) lightmaps?.release(id);
-      models.realization?.removeEntities(rec.ids);
-      for (const id of rec.ids) shownLooks.delete(id);
-      // Children before parents (reverse document order).
-      for (const e of [...(rec.list as readonly { id: string }[])].reverse()) if (rec.ids.has(e.id)) entities.release(e.id);
-      realizedScenes.delete(sceneId);
-    }
-    realizedRevision = -1;
-  }
-
-  // --- Spawned prefab copies (ctx.spawn / ctx.destroy) ------------
-  /** The realized spawned entities: id → the runtime's (frozen) entity object. */
-  const realizedSpawned = new Map<string, unknown>();
-  function syncSpawned(spawned: readonly unknown[]): void {
-    const live = new Map<string, unknown>();
-    for (const e of spawned) live.set((e as { id: string }).id, e);
-    // Gone, or the same id spawned again in a new run (a new object): release, children first.
-    const gone = [...realizedSpawned].filter(([id, e]) => live.get(id) !== e).map(([id]) => id);
-    if (gone.length > 0) {
-      const ids = new Set(gone);
-      models.realization?.removeEntities(ids);
-      for (const id of gone.reverse()) {
-        entities.release(id);
-        realizedSpawned.delete(id);
-        shownLooks.delete(id);
-      }
-    }
-    const added = spawned.filter((e) => !realizedSpawned.has((e as { id: string }).id)) as unknown as (typeof opts.snapshot.scene.entities)[number][];
-    if (added.length === 0) return;
-    for (const e of added) {
-      entities.realize(e);
-      realizedSpawned.set(e.id, e);
-    }
-    models.realization?.addEntities(modelRefsOf(added));
-  }
+  scenes.followProbes();
 
   /**
    * The light values scripts wrote (`ctx.entity(id).set('light',
@@ -784,7 +638,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // A runtime that hands out its interpolated transforms in
     // reused arrays is read without a per-frame copy of every transform.
     if (opts.runtime.forEachInterpolated !== undefined) {
-      syncSceneSet();
+      scenes.sync();
       // Only the entities that moved (a runtime that tracks them); every one when entities came or went,
       // as a newly realized entity starts from its authored transform. Unchanged values change nothing.
       const moved = opts.runtime.forEachMoved?.(applyInterpolated);
@@ -798,7 +652,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (!st.ok) {
         return adapterError('render_failed', `runtime state unavailable: ${st.error.message}`);
       }
-      syncSceneSet();
+      scenes.sync();
       // Transform synchronization: the interpolated values into the world table.
       for (const tr of st.state.transforms) graph.world.setLocal(tr.id, tr.position, tr.rotation, tr.scale);
     }
@@ -1069,12 +923,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     gpuTiming.afterFrame(renderer);
     const drawnAt = performance.now();
     renderControl.frameDrawn(environmentRenderer, drawnAt, drawnAt - frameStart, gpuTiming);
-    presentedRevision = realizedRevision;
+    scenes.presentedRevision = scenes.realizedRevision;
     if (opts.onFrameDrawn !== undefined) {
-      const realized = frameRealized.splice(0);
+      const realized = scenes.frameRealized.splice(0);
       try {
         const pre = precompile.takeSettled();
-        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: lastFrameCounts.drawCalls, sceneRevision: realizedRevision });
+        opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: lastFrameCounts.drawCalls, sceneRevision: scenes.realizedRevision });
       } catch {
         /* a timing hook never breaks a frame */
       }
@@ -1294,7 +1148,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       return preparations.hold(models, textures);
     },
     presentedSceneRevision(): number {
-      return presentedRevision;
+      return scenes.presentedRevision;
     },
     setEnvironment(value: EnvironmentLike | null): void {
       if (disposed) return;
@@ -1314,7 +1168,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (disposed) return;
       // Every scene is realized again with the new bakes (the lights they hold leave realtime, the objects take
       // their lightmaps), and every block chunk is re-meshed to take its own.
-      releaseScenes();
+      scenes.releaseAll();
       lightmaps?.dispose();
       lightmaps = lightmapSetOf(bakes);
       lightmapsLive = lightmaps;
