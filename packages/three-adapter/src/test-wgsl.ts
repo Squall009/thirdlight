@@ -39,9 +39,9 @@ export function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE
   return `${b.vertexShader}\n${b.fragmentShader}`;
 }
 
-/** Whether three refreshes `mesh`'s own uniforms every frame (its observer says its material has nodes). */
-export function refreshesEveryFrame(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): boolean {
-  return (builtFor(renderer, scene, mesh) as unknown as { observer: { hasNode: boolean } }).observer.hasNode;
+/** The observer three decides each frame by whether `mesh`'s draw is refreshed (`needsRefresh`). */
+export function observerOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): { needsRefresh(renderObject: unknown, frame: unknown): number } {
+  return (builtFor(renderer, scene, mesh) as unknown as { observer: { needsRefresh(renderObject: unknown, frame: unknown): number } }).observer;
 }
 
 function builtFor(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): Builder {

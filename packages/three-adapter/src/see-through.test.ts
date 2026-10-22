@@ -22,7 +22,7 @@ import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
 import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { RenderGraph } from './render-graph';
-import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, refreshesEveryFrame, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
+import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, observerOf, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
 const ON: SeeThroughSettings = { ...SEE_THROUGH_DEFAULTS, enabled: true };
 
@@ -764,12 +764,41 @@ describe('the see-through programs', () => {
     expect(count(renderer) - count(wgslRenderer())).toBe(SEE_THROUGH_SUBJECTS);
   });
 
-  it('an armed draw refreshes its own uniforms every frame, a classic material\'s too (its subject bits change while it stays still)', () => {
+  it('a still draw of a classic material is refreshed in the frames its subject bits change, and only then', () => {
     const scene = litScene();
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshLambertMaterial());
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshLambertMaterial());
+    mesh.position.set(0, 1.4, 4);
+    mesh.updateMatrixWorld(true);
     scene.add(mesh);
-    expect(refreshesEveryFrame(wgslRenderer(), scene, mesh)).toBe(false);
-    expect(refreshesEveryFrame(armed().renderer, scene, mesh)).toBe(true);
+    const objects: Record<string, THREE.Object3D> = { a: body(0, 0) };
+    const camera = perspective([0, 6, 10], [0, 1, 0]);
+    const view = new SeeThroughView({ ...plain(objects), components: () => ({}), cameraTarget: () => 'a', prebuild: true }, { ...ON, enabled: false, fadeTime: 0 });
+    const { renderer } = armed(view);
+    // Three's own answer for a still draw of a material without nodes after its first frame: nothing to refresh.
+    const proto = Object.getPrototypeOf(observerOf(wgslRenderer(), scene, mesh)) as { needsRefresh: unknown };
+    const real = proto.needsRefresh;
+    proto.needsRefresh = (): number => 0;
+    const observer = observerOf(renderer, scene, mesh);
+    const draw = { object: mesh, camera };
+    const refresh = (): number => observer.needsRefresh(draw, {});
+    try {
+      view.update(renderer, camera, 0);
+      expect(refresh()).toBe(2);
+      expect(refresh()).toBe(0);
+      // A subject arrives: its bits change once.
+      view.set({ enabled: true });
+      view.update(renderer, camera, 16);
+      expect(view.bitsFor(mesh, camera)).toBe(1);
+      expect(refresh()).toBe(2);
+      view.update(renderer, camera, 32);
+      expect(refresh()).toBe(0);
+      view.set({ enabled: false });
+      view.update(renderer, camera, 48);
+      expect(refresh()).toBe(2);
+      expect(refresh()).toBe(0);
+    } finally {
+      proto.needsRefresh = real;
+    }
   });
 
   it('builds no mask into the shadow pass, colourless draws or draws over everything', () => {

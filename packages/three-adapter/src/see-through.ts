@@ -530,6 +530,8 @@ export class SeeThroughView implements SeeThroughControl {
   private readonly alone = new Map<string, readonly THREE.Object3D[]>();
   /** What belongs to a subject this frame, and to which slots' (it never fades for them). Kept here, not on the object, so nothing of the view rides along when an object is cloned or saved. */
   private readonly self = new WeakMap<THREE.Object3D, { frame: number; bits: number }>();
+  /** The bits each draw (render object) was last refreshed with. */
+  private readonly uploaded = new WeakMap<object, number>();
 
   constructor(
     private readonly d: SeeThroughDeps,
@@ -750,6 +752,14 @@ export class SeeThroughView implements SeeThroughControl {
     return bits;
   }
 
+  /** Whether the bits `bitsFor` gives a draw (one render object: an object for a camera) differ from those it last uploaded. */
+  bitsChanged(draw: object, object: THREE.Object3D, camera: THREE.Camera): boolean {
+    const bits = this.bitsFor(object, camera);
+    if (this.uploaded.get(draw) === bits) return false;
+    this.uploaded.set(draw, bits);
+    return true;
+  }
+
   /** The packs filled once per frame for the view's camera (whichever uniform or draw asks first); the slots in use. */
   private ensureFilled(camera: THREE.Camera): number {
     if (camera !== this.camera || this.live === 0) return 0;
@@ -873,7 +883,9 @@ export function installSeeThroughStep(): void {
   installed = true;
   type Builder = { context: Record<string, unknown> };
   type Step = (this: THREE.NodeMaterial, builder: Builder) => unknown;
-  const proto = THREE.NodeMaterial.prototype as unknown as { setupDiffuseColor: Step; setupObserver: (this: THREE.NodeMaterial, builder: Builder) => { hasNode: boolean } };
+  type Draw = { readonly object: THREE.Object3D; readonly camera: THREE.Camera };
+  type Observer = { needsRefresh(renderObject: Draw, frame: unknown): number };
+  const proto = THREE.NodeMaterial.prototype as unknown as { setupDiffuseColor: Step; setupObserver: (this: THREE.NodeMaterial, builder: Builder) => Observer };
   const diffuse = proto.setupDiffuseColor;
   proto.setupDiffuseColor = function setupDiffuseColorWithSeeThrough(builder) {
     const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
@@ -884,10 +896,17 @@ export function installSeeThroughStep(): void {
   const observe = proto.setupObserver;
   proto.setupObserver = function setupObserverWithSeeThrough(builder) {
     const observer = observe.call(this, builder);
-    // A draw's subject bits change while the object, its material and its lights stay as they are, and three
-    // uploads such an unchanged draw's own uniforms only when its material has nodes of its own (a classic material
-    // three converts has none): with the mask, it counts as one, so the bits reach the GPU every frame.
-    if (builder.context[CONTEXT_KEY] !== undefined && takesPart(this)) observer.hasNode = true;
+    const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
+    if (view === undefined || !takesPart(this)) return observer;
+    // A draw's subject bits change while its object, material and lights stay as they are, and three refreshes such
+    // an unchanged draw's own uniforms only when its material has nodes of its own (a classic material three
+    // converts has none): such a draw is refreshed in the frames its bits change, not every frame.
+    const needs = observer.needsRefresh.bind(observer);
+    observer.needsRefresh = (renderObject, frame) => {
+      const kind = needs(renderObject, frame);
+      if (kind === THREE.RenderObjectRefreshType.FULL) return kind;
+      return view.bitsChanged(renderObject, renderObject.object, renderObject.camera) ? THREE.RenderObjectRefreshType.FULL : kind;
+    };
     return observer;
   };
 }
