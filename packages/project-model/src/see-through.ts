@@ -14,6 +14,8 @@
  * Pure data: the settings, their defaults and limits, and the fixed number
  * of subjects one view draws.
  */
+import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
+import type { GameplaySettings } from './types-v2';
 
 /**
  * Subjects one view fades round at once: the size of the renderer's subject
@@ -21,9 +23,6 @@
  * keeps the nearest to the camera.
  */
 export const SEE_THROUGH_SUBJECTS = 4;
-
-/** Seconds a subject's fade takes to ease in or out (a subject appearing, leaving, or the feature turned on). */
-export const SEE_THROUGH_FADE_SECONDS = 0.25;
 
 export interface SeeThroughSettings {
   /** Fade round the subjects (off: the materials build without the mask, at no cost). */
@@ -47,8 +46,14 @@ export const SEE_THROUGH_DEFAULTS: Readonly<SeeThroughSettings> = Object.freeze(
   softness: 0.4,
   maxFade: 0.75,
   depthMargin: 0.25,
-  fadeTime: SEE_THROUGH_FADE_SECONDS,
+  // The cut-away's ease: a subject's circle and a cut roof come and go together.
+  fadeTime: CUTAWAY_FADE_SECONDS,
 });
+
+/** The numeric settings (every field but `enabled`), in the order they are listed everywhere. */
+export const SEE_THROUGH_NUMBER_FIELDS = Object.freeze(['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const);
+/** Every setting. */
+export const SEE_THROUGH_FIELDS = Object.freeze(['enabled', ...SEE_THROUGH_NUMBER_FIELDS] as const);
 
 /** The range of each number (max fade stays below 1: what is in front never vanishes). */
 export const SEE_THROUGH_LIMITS = Object.freeze({
@@ -56,7 +61,7 @@ export const SEE_THROUGH_LIMITS = Object.freeze({
   softness: Object.freeze({ min: 0, max: 1 }),
   maxFade: Object.freeze({ min: 0, max: 0.95 }),
   depthMargin: Object.freeze({ min: 0, max: 100 }),
-  fadeTime: Object.freeze({ min: 0, max: 10 }),
+  fadeTime: CUTAWAY_FADE_RANGE,
 });
 
 /** `base` with the valid fields of `patch` over it (numbers clamped to their limits; anything else ignored). */
@@ -65,7 +70,7 @@ export function seeThroughSettingsOf(patch: unknown, base: Readonly<SeeThroughSe
   if (patch === null || typeof patch !== 'object') return out;
   const p = patch as Record<string, unknown>;
   if (typeof p['enabled'] === 'boolean') out.enabled = p['enabled'];
-  for (const k of ['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const) {
+  for (const k of SEE_THROUGH_NUMBER_FIELDS) {
     const v = p[k];
     if (typeof v !== 'number' || !Number.isFinite(v)) continue;
     out[k] = Math.min(SEE_THROUGH_LIMITS[k].max, Math.max(SEE_THROUGH_LIMITS[k].min, v));
@@ -73,7 +78,7 @@ export function seeThroughSettingsOf(patch: unknown, base: Readonly<SeeThroughSe
   return out;
 }
 
-/** The project setting each field is stored in (`content.settings`; absent: its default). */
+/** The project setting each field is stored in (`content.settings`, a field of `GameplaySettings`; absent: its default). */
 export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   enabled: 'see_through',
   radius: 'see_through_radius',
@@ -81,12 +86,12 @@ export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   maxFade: 'see_through_max_fade',
   depthMargin: 'see_through_depth_margin_m',
   fadeTime: 'see_through_fade_s',
-} as const satisfies Record<keyof SeeThroughSettings, string>);
+} as const satisfies Record<keyof SeeThroughSettings, keyof GameplaySettings>);
 
 /** A project's see-through from its settings (`see_through` 1 turns it on; the rest as set, else their defaults). */
 export function seeThroughSettingsOfProject(settings: unknown): SeeThroughSettings {
   const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};
   const patch: Record<string, unknown> = { enabled: s[SEE_THROUGH_SETTING_KEYS.enabled] === 1 };
-  for (const k of ['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const) patch[k] = s[SEE_THROUGH_SETTING_KEYS[k]];
+  for (const k of SEE_THROUGH_NUMBER_FIELDS) patch[k] = s[SEE_THROUGH_SETTING_KEYS[k]];
   return seeThroughSettingsOf(patch);
 }

@@ -34,6 +34,8 @@ export default {
     if (s === 120) answer('c', cam.setSeeThrough({ radius: 'big' }));
     if (s === 121) answer('d', cam.setSeeThrough({ subjects: 'player-0001' }));
     if (s === 122) answer('e', cam.setSeeThrough(null));
+    if (s === 123) answer('e2', cam.setSeeThrough({}));
+    if (s === 124) answer('e3', cam.setSeeThrough({ radious: 0.5 }));
     if (s === 160) answer('f', cam.setSeeThrough({ subjects: null, enabled: false }));
     if (s === 200) answer('g', cam.setSeeThrough({ subjects: [] , enabled: true }));
   },
@@ -102,14 +104,14 @@ describe('ctx.camera.setSeeThrough (page and worker)', () => {
       expect(clamped.settings.fadeTime).toBe(SEE_THROUGH_LIMITS.fadeTime.min);
       expect(clamped.subjects).toEqual(['crate-0001', 'player-0001']);
       // Wrong arguments change nothing.
-      expect(near(124, 159)).toEqual(clamped);
+      expect(near(126, 159)).toEqual(clamped);
       // null: back to the camera's target; off.
       const back = near(162, 199);
       expect(back.subjects).toBeNull();
       expect(back.settings.enabled).toBe(false);
       // An empty list is the camera's target too.
       expect(near(202, 240).subjects).toBeNull();
-      expect((a.h.rt as Any).uiView().model.st).toEqual({ a: true, b: true, c: false, d: false, e: false, f: true, g: true });
+      expect((a.h.rt as Any).uiView().model.st).toEqual({ a: true, b: true, c: false, d: false, e: false, e2: false, e3: false, f: true, g: true });
     } finally {
       await a.h.dispose();
       await w.h.dispose();

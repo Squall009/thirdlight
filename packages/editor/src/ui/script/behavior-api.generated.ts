@@ -4281,42 +4281,42 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts)."
+      "doc": "See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits)."
     },
     {
       "name": "see_through_radius",
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "The see-through circle's radius, a share of the view's height (absent: 0.2)."
+      "doc": "The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`)."
     },
     {
       "name": "see_through_softness",
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "The share of the see-through radius its edge softens over (absent: 0.4)."
+      "doc": "The share of the see-through radius its edge softens over (absent: `SEE_THROUGH_DEFAULTS.softness`)."
     },
     {
       "name": "see_through_max_fade",
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "How far see-through thins what is in front at most (below 1; absent: 0.75)."
+      "doc": "How far see-through thins what is in front at most (below 1; absent: `SEE_THROUGH_DEFAULTS.maxFade`)."
     },
     {
       "name": "see_through_depth_margin_m",
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "Metres a surface must be nearer the camera than the subject to fade (absent: 0.25)."
+      "doc": "Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`)."
     },
     {
       "name": "see_through_fade_s",
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "Seconds see-through eases in or out round a subject (absent: 0.25)."
+      "doc": "Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`)."
     }
   ],
   "Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number]; }>": [

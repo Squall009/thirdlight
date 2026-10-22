@@ -9,7 +9,10 @@
  * calls, the view carries nothing and the renderer keeps the project's own
  * settings (so a game that never calls draws, and digests, as before).
  */
-import { seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/project-model';
+import { SEE_THROUGH_FIELDS, SEE_THROUGH_NUMBER_FIELDS, seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/project-model';
+
+/** The fields a call may carry. */
+const KNOWN: ReadonlySet<string> = new Set<string>([...SEE_THROUGH_FIELDS, 'subjects']);
 
 /** What a script set: the settings now and the subjects. */
 export interface SeeThroughScriptState {
@@ -31,14 +34,17 @@ export class SeeThroughScript {
 
   /**
    * Apply a script's call. False (nothing changed) for an argument that is
-   * not an object, a field of the wrong type, or subjects that are neither
-   * null nor a list of ids; numbers are kept within their limits.
+   * not an object, carries no field or one it does not know (a typo), a
+   * field of the wrong type, or subjects that are neither null nor a list of
+   * ids; numbers are kept within their limits.
    */
   set(patch: unknown): boolean {
     if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return false;
     const p = patch as Record<string, unknown>;
+    const keys = Object.keys(p);
+    if (keys.length === 0 || keys.some((k) => !KNOWN.has(k))) return false;
     if (p['enabled'] !== undefined && typeof p['enabled'] !== 'boolean') return false;
-    for (const k of ['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const) {
+    for (const k of SEE_THROUGH_NUMBER_FIELDS) {
       const v = p[k];
       if (v !== undefined && (typeof v !== 'number' || !Number.isFinite(v))) return false;
     }

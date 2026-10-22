@@ -938,12 +938,12 @@ Fields:
 - Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - Settings streaming budget mb (`api.settings.streaming_budget_mb`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - Settings architecture ship meshes (`api.settings.architecture_ship_meshes`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
-- Settings see through (`api.settings.see_through`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts).
-- Settings see through radius (`api.settings.see_through_radius`): The see-through circle's radius, a share of the view's height (absent: 0.2).
-- Settings see through softness (`api.settings.see_through_softness`): The share of the see-through radius its edge softens over (absent: 0.4).
-- Settings see through max fade (`api.settings.see_through_max_fade`): How far see-through thins what is in front at most (below 1; absent: 0.75).
-- Settings see through depth margin m (`api.settings.see_through_depth_margin_m`): Metres a surface must be nearer the camera than the subject to fade (absent: 0.25).
-- Settings see through fade s (`api.settings.see_through_fade_s`): Seconds see-through eases in or out round a subject (absent: 0.25).
+- Settings see through (`api.settings.see_through`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
+- Settings see through radius (`api.settings.see_through_radius`): The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`).
+- Settings see through softness (`api.settings.see_through_softness`): The share of the see-through radius its edge softens over (absent: `SEE_THROUGH_DEFAULTS.softness`).
+- Settings see through max fade (`api.settings.see_through_max_fade`): How far see-through thins what is in front at most (below 1; absent: `SEE_THROUGH_DEFAULTS.maxFade`).
+- Settings see through depth margin m (`api.settings.see_through_depth_margin_m`): Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
+- Settings see through fade s (`api.settings.see_through_fade_s`): Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`).
 
 <a id="node-behavior--api-settings-gravity-y"></a>
 ### Settings gravity y (`api.settings.gravity_y`)
@@ -1142,7 +1142,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through"></a>
 ### Settings see through (`api.settings.see_through`)
 
-See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off; see-through.ts).
+See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
 
 Outputs:
 
@@ -1152,7 +1152,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-radius"></a>
 ### Settings see through radius (`api.settings.see_through_radius`)
 
-The see-through circle's radius, a share of the view's height (absent: 0.2).
+The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`).
 
 Outputs:
 
@@ -1162,7 +1162,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-softness"></a>
 ### Settings see through softness (`api.settings.see_through_softness`)
 
-The share of the see-through radius its edge softens over (absent: 0.4).
+The share of the see-through radius its edge softens over (absent: `SEE_THROUGH_DEFAULTS.softness`).
 
 Outputs:
 
@@ -1172,7 +1172,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-max-fade"></a>
 ### Settings see through max fade (`api.settings.see_through_max_fade`)
 
-How far see-through thins what is in front at most (below 1; absent: 0.75).
+How far see-through thins what is in front at most (below 1; absent: `SEE_THROUGH_DEFAULTS.maxFade`).
 
 Outputs:
 
@@ -1182,7 +1182,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-depth-margin-m"></a>
 ### Settings see through depth margin m (`api.settings.see_through_depth_margin_m`)
 
-Metres a surface must be nearer the camera than the subject to fade (absent: 0.25).
+Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
 
 Outputs:
 
@@ -1192,7 +1192,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-fade-s"></a>
 ### Settings see through fade s (`api.settings.see_through_fade_s`)
 
-Seconds see-through eases in or out round a subject (absent: 0.25).
+Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`).
 
 Outputs:
 
@@ -1535,11 +1535,3 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |
-
-<a id="graph-behavior--tags"></a>
-## Tags
-
-- Tag mask (`api.tags.mask`): The mask of the named tags (names ignore case). Throws on an unknown name.
-- Tags of (`api.tags.of`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
-- Has tags (`api.tags.has`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
-- Find by tags (`api.tags.query`): The entities carrying any (default) or all of the mask's bits, in scene order.

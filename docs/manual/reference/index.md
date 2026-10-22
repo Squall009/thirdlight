@@ -42,8 +42,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
-| [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics, Tags |
-| [Graph: Visual script (part 3, from Tag mask (`api.tags.mask`))](graph-behavior-3.md) | World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health, Patrol, Hitbox, Collectible |
+| [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics |
+| [Graph: Visual script (part 3, from Tags)](graph-behavior-3.md) | 85 sections |
 | [Graph: Visual script (part 4, from Character)](graph-behavior-4.md) | Character, Look, Audio, Effects, Decals, Save, Grid |
 | [Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves |
 | [Graph: Visual script (part 6, from Save storage (`api.saves.storage`))](graph-behavior-6.md) | Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |

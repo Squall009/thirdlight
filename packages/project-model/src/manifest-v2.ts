@@ -67,6 +67,7 @@ import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabD
 import { collectAssetRefsV3 } from './capture';
 import { knownSceneEntities, rememberSceneEntities, viewDigestOf, viewRowOf } from './view-memo';
 import { loadableRowsProblem, type LoadableRow } from './loadable';
+import { SEE_THROUGH_SETTING_KEYS } from './see-through';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
   AssetKind,
@@ -507,7 +508,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution', 'occlusion_culling', 'streaming_budget_mb', 'architecture_ship_meshes', 'see_through', 'see_through_radius', 'see_through_softness', 'see_through_max_fade', 'see_through_depth_margin_m', 'see_through_fade_s'] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution', 'occlusion_culling', 'streaming_budget_mb', 'architecture_ship_meshes', SEE_THROUGH_SETTING_KEYS.enabled, SEE_THROUGH_SETTING_KEYS.radius, SEE_THROUGH_SETTING_KEYS.softness, SEE_THROUGH_SETTING_KEYS.maxFade, SEE_THROUGH_SETTING_KEYS.depthMargin, SEE_THROUGH_SETTING_KEYS.fadeTime] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (`media`)

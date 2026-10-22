@@ -1,8 +1,16 @@
-# Graph: Visual script (part 3, from Tag mask (`api.tags.mask`))
+# Graph: Visual script (part 3, from Tags)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--tags"></a>
+## Tags
+
+- Tag mask (`api.tags.mask`): The mask of the named tags (names ignore case). Throws on an unknown name.
+- Tags of (`api.tags.of`): The entity's effective tag mask (0 for an unknown entity). An empty entity means this object.
+- Has tags (`api.tags.has`): Whether the entity carries any (default) or all of the mask's bits. An empty entity means this object.
+- Find by tags (`api.tags.query`): The entities carrying any (default) or all of the mask's bits, in scene order.
 
 <a id="node-behavior--api-tags-mask"></a>
 ### Tag mask (`api.tags.mask`)
