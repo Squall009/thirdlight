@@ -93,7 +93,7 @@ new e2e.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 39b.0 | Done 2026-10-22: three.js 0.186.1 still latest; Rapier 0.21.0 (minor) stays planned for 41. Start numbers at 28701f1d (`node tools/check-size.mjs --near`): 50 units over the limits (2 files: `runtime.ts` 3,988, `inspect.ts` 2,876; 39 functions, largest `createSceneAdapter` 1,802, `createBackend` 1,709, `EditorApp` 1,307; 9 classes, `RuntimeInstance` 330, `Viewport` 190, `SessionClientCore` 159 members) and 12 files at 1,800–1,999 lines. Phase 39 full gate: 27 min, e2e 22.1 min wall (43.4 min summed over 182 files; the slowest 30 are 21.8 min: terrain-cdlod 204 s, rendering 129 s, layered-material 117 s, memory 115 s, lightmaps 56 s …). D-rows: 299, ~139 open by text heuristic (C 8, H 13, M 31, L 87; 22 watch). At the 60 Hz cap (`--vsync`) village export, its Scene view and the level area/landscape/interior classes: p95 16.7–16.8 ms, 0 missed frames on both renderers; main thread 2.4–4.6 ms (Scene view 8.3/8.7), WebGPU GPU 9.2–9.9 ms; the fast gate's village check (its own uncapped frame check) p50 5.7 / 4.7 ms (WebGPU / WebGL 2). Full lists: `~/.cache/thirdlight-phase39b/baseline.md`. |
 
 ## 5. Decision log
 
