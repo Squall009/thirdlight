@@ -112,7 +112,7 @@ where possible). The editor surface is one step in an existing e2e file.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 39.0 | Done 2026-10-22: three.js 0.186.1 is still the latest on npm (no update; `@types/three` 0.186.0 likewise). Rapier 0.21.0 (2026-09-25) is out; the pinned 0.20.0 stays (a minor release, nothing in phase 39 needs it; phase 41's one-backend move is where to plan it). |
 
 ## 5. Decision log
 
