@@ -44,11 +44,12 @@ import {
   type DebugCommandCall,
   } from './actions';
 
-import { clipMessage, type RuntimeError } from './errors';
+import { type RuntimeError } from './errors';
 import { RuntimeSim, cloneCurr, messageOf, type ModuleEntry } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { RuntimeScenes } from './runtime-scenes';
 import { RuntimeEntities } from './runtime-entities';
+import { RuntimeCharacters } from './runtime-characters';
 import { RuntimeInput, type HeldPointer } from './runtime-input';
 import { RuntimePhases } from './runtime-phases';
 import { ScriptContext } from './script-context';
@@ -60,10 +61,8 @@ import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import type { BehaviorDebugView, BehaviorPropertyView } from './behavior';
 import { type LiveTagIndex } from './scene-set';
-import { ColliderSystem } from './collider-system';
 import type { BehaviorLogLevel } from './intents';
 
-import { phaseScopedState } from './guard';
 
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
@@ -75,7 +74,6 @@ import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector } from './environment-director';
-import { PhysicsQueries, type PhysicsQueryHost } from './physics-queries';
 import { type EnvironmentBlendView } from './environment-blend';
 import type { ScriptStop } from './types';
 import { SocketSystem } from './sockets';
@@ -84,12 +82,10 @@ import type { TimelineAsset } from '@thirdlight/project-model';
 import { blocksCharacterOf, GameplayBlocks } from './blocks';
 import { createGameControl } from './game-control';
 import { createShellControl } from './scene-list';
-import { LIFECYCLE_RESTART_DEPRECATED, loadOp } from './scene-control';
+import { loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { FrameClock } from './frame-clock';
 import { StepReads, type DrawnSteps } from './step-reads';
-import { CharacterPlacement, ControllerPlacements } from './character-placement';
-import { CharacterDirector } from './character-director';
 import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
@@ -105,7 +101,6 @@ import {
   type InterpolatedVisitor,
   type StepPairVisitor,
   type ModelBounds,
-  type ModuleResetContext,
   type Runtime,
   type RuntimeDiagnostics,
   type SimEntityData,
@@ -249,13 +244,10 @@ export class RuntimeInstance implements Runtime {
   private readonly actions: ActionSource;
   /** Where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
   private cameraYawSource: (() => number | undefined) | null = null;
-  /** The colliders in the physics world: placed where their objects are, and those that follow a moving object. */
-  private readonly colliders: ColliderSystem;
   /** The player controllers (several share the view in local co-op; the first is what a call naming none means). */
   private readonly controllers: PlayerControllers;
   /** The frame clock: the steps a frame owes, the bounded catch-up and the interpolation alpha. */
   private readonly frameClock = new FrameClock();
-  private physicsSteps = 0;
   private settleSteps = 0;
   /** The engine timing in steps. */
   private readonly timing: { settleSteps: number; dropThroughSteps: number };
@@ -272,6 +264,8 @@ export class RuntimeInstance implements Runtime {
   private readonly phases: RuntimePhases;
   /** The step contexts' engine members and which behaviors tick. */
   private readonly script: ScriptContext;
+  /** The physics bridge: colliders, player controllers, placements, queries and `ctx.lifecycle`. */
+  private readonly chars: RuntimeCharacters;
   /** The sampled input frame, what the host queues onto it, the pointer and the cursor. */
   private readonly input: RuntimeInput;
   /** Paused — frames render and call onFrame, no steps run. */
@@ -296,8 +290,6 @@ export class RuntimeInstance implements Runtime {
   /** Restarts applied in this play (a tool tells the restarted run from the one it asked to restart). */
   private runNumber = 0;
   private runSpawnBase = 0;
-  /** The tag index 3D queries filter by. */
-  private readonly queryTags: LiveTagIndex | null;
   // ---- Animators ----
   private readonly animators: AnimatorSystem;
   // ---- The views (each owned by a camera brain) ----
@@ -314,17 +306,12 @@ export class RuntimeInstance implements Runtime {
   private readonly loop: FrameLoop;
   // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
-  /** The player spawn respawns use (null: the first one loaded, else where the player started). */
-  private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
   /** A run's start waiting for this step boundary: the first run's, and a restart's after its module resets. */
   private runStartDue = true;
-  /** Respawns, arrivals, a save's placement and script placements of each player controller, and the way it faces. */
-  private readonly placement: ControllerPlacements;
   /** The event → cue table (empty: no event sounds). */
   private readonly eventCues: readonly import('./types').RuntimeEventCue[];
-  private readonly lifecycleControl: import('./types').BehaviorLifecycle;
   // ---- The sequencer (inert without timelines) ----
   private readonly timelines: TimelineSystem;
   private readonly timelineControl: import('./types').BehaviorTimeline;
@@ -344,26 +331,7 @@ export class RuntimeInstance implements Runtime {
   private readonly saves: RuntimeSaves;
   /** The environment preset blend (`ctx.environment`; inert until a script uses it). */
   private readonly environment: EnvironmentDirector;
-  /** `ctx.physics` (and the engine modules' queries) with the step's query budget. */
-  private readonly queries: PhysicsQueries = new PhysicsQueries(((rt: RuntimeInstance): PhysicsQueryHost => ({
-    get physics() { return rt.sim.physics; },
-    get physics3d() { return rt.sim.physics3d; },
-    get controllers() { return rt.controllers; },
-    get views() { return rt.views; },
-    get grid() { return rt.grid; },
-    get tags() { return rt.queryTags; },
-    pointer: () => rt.input.pointer(),
-    stepIndex: () => rt.sim.stepIndex,
-    warn: (m) => rt.faults.log('thirdlight.runtime:physics', 'warn', m),
-  }))(this));
   private readonly gameControl = createGameControl({ blocks: () => this.blocks, has: (id) => this.sim.curr.has(id), warn: (message) => this.faults.log('thirdlight.runtime:counters', 'warn', message) });
-  /** Placements, walks, turns, impulses and a cutscene's hold on the player controllers (`ctx.character`, the character track). */
-  private readonly director = new CharacterDirector({
-    is3D: () => this.sim.physics3d !== undefined, hz: () => this.sim.hz, settings: () => this.sim.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.sim.curr.get(id), entityDocument: (id) => this.scenes.entityDocument(id),
-    channels: (id) => this.phases.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
-    canPlace: () => this.sim.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
-    intentsChanged: () => this.phases.changed(), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => this.scenes.anyLoading(), moveAction: (id) => this.controllers.actionsOf(id)?.move,
-  });
   /** The audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
   /** Scripts' asset handles (`ctx.assets`) and the host's answers waiting for the next sampled step. */
@@ -398,44 +366,40 @@ export class RuntimeInstance implements Runtime {
     this.startVariables = args.variables;
     this.applyStartVariables();
     const rt = this;
-    this.colliders = new ColliderSystem({
-      get physics() {
-        return rt.sim.physics;
-      },
-      get physics3d() {
-        return rt.sim.physics3d;
-      },
-      curr: () => rt.sim.curr,
-      parentOf: (id) => rt.sim.parentOf(id),
-      inactive: () => rt.entityAccess.inactive(),
-      ownedIds: () => rt.sim.entries.flatMap((entry) => entry.owners),
-      componentsOf: (id) => rt.scenes.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
-      warn: (message) => rt.faults.log('thirdlight.runtime:colliders', 'warn', message),
-    }, args.modelColliders);
-    if (args.physics3d !== undefined) this.colliders.track(args.initialEntities);
     const loopHost = { running: () => this.sim.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
     this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
-    this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
-    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.scenes.isLoading(sceneId));
+    this.chars = new RuntimeCharacters(this.sim, this.faults, {
+      get blocks() { return rt.blocks; },
+      get grid() { return rt.grid; },
+      get views() { return rt.views; },
+      kept: this.kept,
+      get scenes() { return rt.scenes; },
+      get phases() { return rt.phases; },
+      get entityAccess() { return rt.entityAccess; },
+      get input() { return rt.input; },
+      queryTags: args.queryTags,
+      requestRestart: () => void (rt.pendingRestart = true),
+      yawSource: () => rt.cameraYawSource,
+    }, { controllerEntityIds: args.controllerEntityIds, initialEntities: args.initialEntities, ...(args.modelColliders !== undefined ? { modelColliders: args.modelColliders } : {}) });
+    this.controllers = this.chars.controllers;
     this.phases = new RuntimePhases(this.sim, {
       controllers: this.controllers,
-      placement: this.placement,
-      director: this.director,
-      get lifecycle() { return rt.lifecycleControl; },
-      physicsQueries: this.queries.client,
+      placement: this.chars.placement,
+      director: this.chars.director,
+      lifecycle: this.chars.lifecycle,
+      physicsQueries: this.chars.queries.client,
       contextFields: (phase) => rt.script.fields(phase),
     });
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.faults.log(moduleId, level, message, at);
     args.logSink.stopped = (moduleId, stop) => this.faults.scriptStopped(moduleId, stop);
-    this.queryTags = args.queryTags;
     this.kept.add(args.initialEntities);
     this.scenes = new RuntimeScenes(this.sim, this.faults, {
       kept: this.kept,
-      get colliders() { return rt.colliders; },
+      get colliders() { return rt.chars.colliders; },
       get grid() { return rt.grid; },
       get controllers() { return rt.controllers; },
-      get placement() { return rt.placement; },
+      get placement() { return rt.chars.placement; },
       get environment() { return rt.environment; },
       sceneSoundsGone: (sceneId) => rt.audio.sceneGone(sceneId),
       spawned: () => rt.entities.spawned,
@@ -458,10 +422,10 @@ export class RuntimeInstance implements Runtime {
     });
     this.entities = new RuntimeEntities(this.sim, this.faults, {
       kept: this.kept,
-      get colliders() { return rt.colliders; },
+      get colliders() { return rt.chars.colliders; },
       get grid() { return rt.grid; },
       get controllers() { return rt.controllers; },
-      get placement() { return rt.placement; },
+      get placement() { return rt.chars.placement; },
       get materials() { return rt.materials; },
       get animators() { return rt.animators; },
       get blocks() { return rt.blocks; },
@@ -557,7 +521,6 @@ export class RuntimeInstance implements Runtime {
     this.modes.beginRun(1);
     this.frameClock.scale = this.modes.active ? this.modes.timeScale() : 1;
     this.entities.noteBehaviorGroups(args.initialEntities);
-    this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
     // (the characters are the player controllers' objects in both dimensions).
@@ -572,7 +535,7 @@ export class RuntimeInstance implements Runtime {
         maxFallSpeed: this.sim.settings.max_fall_speed,
         groundEntityId: (id) => rt.controllers.groundEntityId(id),
         // The 3D world (movers posed on it, triggers in 3D).
-        ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.colliders.poses() } : {}),
+        ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.chars.colliders.poses() } : {}),
         // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.scenes.beginTransition(triggerId, t),
         effect: (r) => void rt.presentation.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
@@ -602,7 +565,7 @@ export class RuntimeInstance implements Runtime {
       animators: this.animators,
       blockControls: this.blockCtl,
       game: this.gameControl,
-      director: this.director,
+      director: this.chars.director,
       audioControl: this.audioControl,
       presentation: this.presentation,
       save: this.saveControl,
@@ -624,13 +587,13 @@ export class RuntimeInstance implements Runtime {
       loop: this.loop,
       dialogue: this.dialogue,
       modes: this.modes,
-      lifecycle: this.lifecycleControl,
+      lifecycle: this.chars.lifecycle,
       timeline: this.timelineControl,
       environment: this.environment,
       blocks: this.blocks,
       behaviorGroupOf: this.entities.behaviorGroupOf,
       stepIndex: () => this.sim.stepIndex,
-      cameraYaw: this.sim.physics3d !== undefined ? () => this.cameraYaw3D() : null,
+      cameraYaw: this.sim.physics3d !== undefined ? () => this.chars.cameraYaw3D() : null,
     });
   }
 
@@ -769,7 +732,7 @@ export class RuntimeInstance implements Runtime {
   /** Where the play stands in a save: the loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
   private captureWorld(): WorldSave {
     const at = this.scenes.capture();
-    return { scenes: at.scenes, activeSpawn: this.activeSpawn, listedScene: at.listedScene, ...this.placement.capture() };
+    return { scenes: at.scenes, activeSpawn: this.chars.activeSpawn, listedScene: at.listedScene, ...this.chars.placement.capture() };
   }
 
   /** The engine state a save document's sections capture and restore (read when a save is made: the parts exist by then). */
@@ -793,9 +756,9 @@ export class RuntimeInstance implements Runtime {
       // The saved scenes and spawn; the character is placed once the scenes are in and gets its saved velocity back.
       applyWorld: (world) => {
         rt.scenes.restore(world);
-        rt.activeSpawn = world.activeSpawn;
-        rt.placement.restoreFrom(world);
-        rt.director.saveLoaded();
+        rt.chars.activeSpawn = world.activeSpawn;
+        rt.chars.placement.restoreFrom(world);
+        rt.chars.director.saveLoaded();
       },
     });
   }
@@ -964,13 +927,9 @@ export class RuntimeInstance implements Runtime {
     this.blocks?.setInactive(set);
     // Their scripts stop or start ticking.
     if (this.script !== undefined) this.script.ticks.invalidate();
-    const colliderOf = (id: string): boolean => !this.controllers.has(id) && this.sim.entities.get(id)?.hasCollider === true;
-    const leaving = off.filter(colliderOf);
-    const coming = on.filter(colliderOf);
-    if (leaving.length === 0 && coming.length === 0) return;
-    const failed = this.colliders.activeChanged(leaving, coming);
-    if (failed !== null) this.faults.failStop('physics_port_error', 'entity_active', failed, this.sim.stepIndex);
+    this.chars.activeChanged(off, on);
   }
+
 
   /** The run's named counters and the character's health. */
   gameCounters(): { counters: Record<string, number>; health: { current: number; max: number } | null } {
@@ -1248,7 +1207,7 @@ export class RuntimeInstance implements Runtime {
   requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (!this.scenes.known(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
-    this.placement.arriveAt(spawnId, sceneId);
+    this.chars.placement.arriveAt(spawnId, sceneId);
     return { ok: true };
   }
 
@@ -1391,7 +1350,7 @@ export class RuntimeInstance implements Runtime {
     // Scene loads/unloads requested by the host apply here too.
     if (!this.scenes.applyOps()) return true;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
-    if (!this.placement.atBoundary(this.sim.stepIndex + 1)) return false;
+    if (!this.chars.placement.atBoundary(this.sim.stepIndex + 1)) return false;
     // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.sim.stepIndex + 1)) return false;
     if (this.runStartDue && !this.startRun()) return false;
@@ -1459,7 +1418,7 @@ export class RuntimeInstance implements Runtime {
     if (this.sim.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
     // A respawn places the character (a plain step has no intent phase).
     try {
-      this.placement.respawn3DNow();
+      this.chars.placement.respawn3DNow();
     } catch (e) {
       this.sim.curr = cloneCurr(backup);
       this.faults.failStopFromError(e, stepOrdinal);
@@ -1472,12 +1431,12 @@ export class RuntimeInstance implements Runtime {
       // physics step.
       // Movers advance and are posed (script-driven colliders too), then after physics
       // the triggers test the player (a scene has no run state: always "playing").
-      if (this.colliders.needsSync && !this.syncColliders()) {
+      if (this.chars.colliders.needsSync && !this.chars.syncColliders()) {
         this.sim.curr = cloneCurr(backup);
         return false;
       }
       try {
-        this.queries.beginStep();
+        this.chars.queries.beginStep();
         this.blocks?.beforeStep(stepOrdinal);
         this.controllers.runPhysics3D(this.sim.physics3d);
         this.blocks?.afterPhysics(neutralFrame(stepOrdinal - 1));
@@ -1522,7 +1481,7 @@ export class RuntimeInstance implements Runtime {
     // before the arrivals (a spawn may be in a scene that just loaded).
     if (!this.scenes.applyOps()) return false;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
-    if (!this.placement.atBoundary(ordinal)) return false;
+    if (!this.chars.placement.atBoundary(ordinal)) return false;
     // The spawns and destroys the last step requested, in order.
     if (!this.entities.applySpawnOps()) return false;
     this.entities.spawnRequests.stepBoundary();
@@ -1533,7 +1492,7 @@ export class RuntimeInstance implements Runtime {
     this.scenes.goToListed();
     if (!this.entities.syncLiveBlocks()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
-    if (!this.placement.respawn2DAtBoundary(ordinal)) return false;
+    if (!this.chars.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
     this.scenes.beginStep();
     this.grid.beginStep(ordinal);
@@ -1560,15 +1519,15 @@ export class RuntimeInstance implements Runtime {
     if (this.modes.active) action = this.modes.mask(action, this.controllers.actionNames);
     // Movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
-    this.queries.beginStep();
+    this.chars.queries.beginStep();
     // The colliders scripts drive become kinematic bodies before they are first posed.
-    if (this.sim.physics3d !== undefined && this.colliders.needsSync && !this.syncColliders()) return false;
+    if (this.sim.physics3d !== undefined && this.chars.colliders.needsSync && !this.chars.syncColliders()) return false;
     // A game mode may hold physics (the controller, physics, movers and triggers stand still);
     // signals, trigger events and script messages turn over all the same.
     const held = this.modes.physicsHeld;
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
-    this.placement.beginStep();
+    this.chars.placement.beginStep();
     action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || this.grid.isOneWayCollider(id), this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.sim.stepMirrors[this.sim.stepMirrors[0].map === this.sim.prev ? 1 : 0];
@@ -1586,8 +1545,8 @@ export class RuntimeInstance implements Runtime {
     try {
       this.phases.run('intent', action);
       // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
-      this.director.afterIntentPhase(held, action);
-      this.placement.afterIntentPhase(ordinal);
+      this.chars.director.afterIntentPhase(held, action);
+      this.chars.placement.afterIntentPhase(ordinal);
       if (!held) {
         this.phases.run('controller', action);
         // The impulses reached the controllers (a held step keeps them for the next one).
@@ -1703,50 +1662,6 @@ export class RuntimeInstance implements Runtime {
     return this.modes.active ? this.modes.view() : null;
   }
 
-  /** The player spawns loaded now, in entity order. */
-  private playerSpawnIds(): string[] {
-    const out: string[] = [];
-    for (const id of this.sim.order) if (this.sim.entities.get(id)?.componentKinds?.includes('playerSpawn') === true) out.push(id);
-    return out;
-  }
-
-  /** Where a respawn puts a player controller: the spawn's position, else where it started (null: no such controller). */
-  private respawnTarget(spawnId: string | null, player: string): [number, number, number] | null {
-    const id = spawnId ?? this.activeSpawn ?? this.playerSpawnIds()[0] ?? null;
-    const t = id !== null ? this.sim.curr.get(id) : undefined;
-    if (t !== undefined) return [t.position[0], t.position[1], t.position[2]];
-    const data = this.sim.entities.get(player);
-    return data === undefined ? null : [data.transform.position[0], data.transform.position[1], data.transform.position[2]];
-  }
-
-  /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
-  private buildLifecycleControl(): import('./types').BehaviorLifecycle {
-    const spawnOk = (id: unknown): id is string => typeof id === 'string' && this.sim.entities.get(id)?.componentKinds?.includes('playerSpawn') === true;
-    return Object.freeze({
-      respawn: (spawnId?: string, entityId?: string): boolean => {
-        const player = typeof entityId === 'string' || entityId === undefined ? this.controllers.resolve(entityId) : undefined;
-        if (player === undefined) return false;
-        if (spawnId !== undefined && spawnId !== '' && !spawnOk(spawnId)) return false;
-        if (spawnId !== undefined && spawnId !== '') this.activeSpawn = spawnId;
-        const target = this.respawnTarget(null, player);
-        if (target === null) return false;
-        this.placement.of(player)?.requestRespawn(target);
-        return true;
-      },
-      setSpawn: (spawnId: string): boolean => {
-        if (!spawnOk(spawnId)) return false;
-        this.activeSpawn = spawnId;
-        return true;
-      },
-      spawnPoint: (): string => this.activeSpawn ?? this.playerSpawnIds()[0] ?? '',
-      restart: (): boolean => {
-        this.pendingRestart = true;
-        this.faults.problem(LIFECYCLE_RESTART_DEPRECATED.code, `ctx.lifecycle.restart() is deprecated and will be removed (it restarts the whole run); use ${LIFECYCLE_RESTART_DEPRECATED.replacement} — see the migration notes`);
-        return true;
-      },
-    });
-  }
-
   /** The start's injected variables into ctx.save (at the start and at every restart). */
   private applyStartVariables(): void {
     if (this.startVariables !== undefined) for (const [k, v] of Object.entries(this.startVariables)) this.saveControl.set(k, v);
@@ -1768,8 +1683,8 @@ export class RuntimeInstance implements Runtime {
     this.runNumber += 1;
     this.scenes.newRun();
     // A save's placement, scripts' impulses and a spawn facing do not outlive the run.
-    this.placement.restartRun();
-    this.director.reset();
+    this.chars.placement.restartRun();
+    this.chars.director.reset();
     this.controllers.clearImpulses();
     this.entities.clearSpawned();
     this.runSpawnBase = this.entities.spawnRequests.serial;
@@ -1807,7 +1722,7 @@ export class RuntimeInstance implements Runtime {
     this.saves.reset();
     this.ui.resetRun();
     this.modes.beginRun(ordinal);
-    this.activeSpawn = null;
+    this.chars.activeSpawn = null;
     // Every module's run reset brings the controllers back in the state they were created in (not a placement's,
     // which starts a character from rest mid-run); right after, the run starts as the first did (`startRun`).
     this.runStartDue = true;
@@ -1819,7 +1734,7 @@ export class RuntimeInstance implements Runtime {
       if (typeof instance.reset !== 'function') continue;
       this.sim.currentModuleId = entry.id;
       try {
-        instance.reset(this.buildResetContext('replay', ordinal, start, new Set(entry.owners)));
+        instance.reset(this.chars.resetContext('replay', ordinal, start, new Set(entry.owners)));
       } catch (e) {
         this.faults.failStopFromError(e, this.sim.stepIndex);
         return false;
@@ -1830,77 +1745,6 @@ export class RuntimeInstance implements Runtime {
     prevMirror.copyFrom(this.sim.curr, this.sim.currShape);
     this.sim.prev = prevMirror.map;
     return true;
-  }
-
-  /** The player controllers, the physics phase's view of the runtime. */
-  private buildPlayerControllers(ids: readonly string[], entities: readonly EntityV3[]): PlayerControllers {
-    const rt = this;
-    return new PlayerControllers({
-      hz: rt.sim.hz,
-      settings: rt.sim.settings,
-      physics: rt.sim.physics,
-      physics3d: rt.sim.physics3d,
-      curr: () => rt.sim.curr,
-      currentPhase: () => rt.sim.currentPhase,
-      carry2D: (id) => rt.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
-      carry3D: (id) => rt.blocks?.carryDelta3(id) ?? [0, 0, 0],
-      flushCollision: () => rt.grid.flushCollision(rt.sim.physics3d, rt.sim.physics),
-      countStep: () => void (rt.physicsSteps += 1),
-      status3D: (id) => {
-        for (const entry of rt.sim.entries) {
-          const probe = entry.instance as { character3DStatus?: (id?: string) => { enabled: boolean; climbing: boolean; yaw: number } | null };
-          if (typeof probe.character3DStatus === 'function') return probe.character3DStatus(id);
-        }
-        return null;
-      },
-      placed: (id) => rt.blocks?.placed(id),
-    }, ids, entities);
-  }
-
-  /** A player controller's placement view of the runtime (placements go through the ports here, where a failure fail-stops). */
-  private buildCharacterPlacement(controllerId: string): CharacterPlacement {
-    const rt = this;
-    return new CharacterPlacement({
-      is3D: () => rt.sim.physics3d !== undefined,
-      controllerId: () => controllerId,
-      transform: (id) => rt.sim.curr.get(id),
-      entityDocument: (id) => rt.scenes.entityDocument(id),
-      sceneLoading: (sceneId) => rt.scenes.isLoading(sceneId),
-      setActiveSpawn: (spawnId) => {
-        rt.activeSpawn = spawnId;
-      },
-      arrivalMissed: (message) => rt.faults.record({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.sim.stepIndex, reason: 'transfer' }),
-      isKept: (id) => rt.kept.has(id),
-      listedSpawnOf: (sceneId) => rt.scenes.listedSpawnOf(sceneId),
-      place3D: (x, y, z) => rt.controllers.place3D(controllerId, x, y, z),
-      place2D: (x, y, ordinal) => rt.placeCharacter2D(controllerId, x, y, ordinal),
-      faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
-      failStop: (e) => rt.faults.failStopFromError(e, rt.sim.stepIndex),
-      intents: () => rt.phases.channelsOf(controllerId),
-      intentsChanged: () => rt.phases.changed(),
-      setImpulse: (v) => rt.controllers.setImpulse(controllerId, v),
-      // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
-      lastMotion: () => rt.controllers.lastMotion(controllerId),
-      hz: () => rt.sim.hz,
-    });
-  }
-
-  /**
-   * Put a 2D-plane player controller at an origin, from rest: the
-   * port's character is cleared and placed, its transform set, and its
-   * controller module's windows and velocity reset (its reset hook, as a
-   * transfer naming the controller).
-   */
-  private placeCharacter2D(id: string, x: number, y: number, ordinal: number): void {
-    if (!this.controllers.place2D(id, x, y)) return;
-    const target: Vec2 = { x, y };
-    for (const entry of this.sim.entries) {
-      if (!entry.phased || !entry.owners.includes(id)) continue;
-      const instance = entry.instance as SimulationPhaseModule;
-      if (typeof instance.reset !== 'function') continue;
-      this.sim.currentModuleId = entry.id;
-      instance.reset(this.buildResetContext('transfer', ordinal, target, new Set(entry.owners), id));
-    }
   }
 
   // ---- The event → cue table -----------------------------------------------
@@ -1949,12 +1793,12 @@ export class RuntimeInstance implements Runtime {
       writeTransform: (id, pose) => {
         const t = rt.sim.curr.get(id);
         // A player character turns with a rotation key (its controller too); on the 2D plane the director places it.
-        if (t === undefined || rt.director.timelinePose(id, pose)) return t !== undefined;
+        if (t === undefined || rt.chars.director.timelinePose(id, pose)) return t !== undefined;
         if (rt.sim.physics3d !== undefined && pose.position !== undefined && rt.controllers.moveWithTimeline3D(id, pose.position)) {
           // A 3D player controller's body moves with it (as a script's character_place does).
         }
         // Its colliders (and its children's) follow it from the next step.
-        rt.colliders.timelineMove(id);
+        rt.chars.colliders.timelineMove(id);
         if (pose.position !== undefined) for (let k = 0; k < 3; k += 1) t.position[k] = pose.position[k]!;
         if (pose.rotation !== undefined) for (let k = 0; k < 4; k += 1) t.rotation[k] = pose.rotation[k]!;
         if (pose.scale !== undefined) for (let k = 0; k < 3; k += 1) t.scale[k] = pose.scale[k]!;
@@ -1993,7 +1837,7 @@ export class RuntimeInstance implements Runtime {
       environment: { apply: (presetId, blendSeconds) => rt.environment.api.set(presetId, blendSeconds > 0 ? { blend: blendSeconds } : {}) },
       // The dialogue track runs a node through the dialogue runner and waits while it runs.
       ...(rt.dialogue.enabled ? { dialogue: rt.dialogue.timelinePort() } : {}),
-      character: rt.director.timelinePort,
+      character: rt.chars.director.timelinePort,
       warn,
     };
   }
@@ -2063,66 +1907,13 @@ export class RuntimeInstance implements Runtime {
   /** A run's start at a step boundary, the first run's and every restart's alike (the physics world, the bodies); false after a fail-stop. */
   private startRun(): boolean {
     this.runStartDue = false;
-    try {
-      this.controllers.startRun();
-    } catch (e) {
-      this.faults.failStopFromError(e, this.sim.stepIndex);
-    }
-    return this.sim.stateName !== 'failed';
+    return this.chars.startRun();
   }
 
-  /** Build one `ModuleResetContext` (the character was placed). */
-  private buildResetContext(
-    reset: 'replay' | 'transfer',
-    ordinal: number,
-    target: Vec2,
-    writableOwners: ReadonlySet<string>,
-    characterId?: string,
-  ): ModuleResetContext {
-    return Object.freeze({
-      reason: reset,
-      stepIndex: ordinal,
-      playerCenter: Object.freeze({ ...target }),
-      ...(characterId !== undefined ? { characterId } : {}),
-      state: phaseScopedState({
-        order: this.sim.order,
-        entities: this.sim.entities,
-        stepIndex: this.sim.stepIndex,
-        simTime: this.sim.simTime,
-        prev: this.sim.prev,
-        curr: this.sim.curr,
-        writableOwners,
-      }),
-    });
-  }
 
   /** The problems since the last call (the host relays them). */
   takeProblems(): { code: string; message: string }[] {
     return this.faults.takeProblems();
-  }
-
-  /**
-   * The active camera's yaw for the 3D character's move input —
-   * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
-   * the camera brain's committed view (resolved in the simulation at the
-   * end of the previous step, so a replay reads the same yaw); without virtual cameras the character moves along world axes. An
-   * injected source (`cameraYawSource`) takes precedence.
-   */
-  private cameraYaw3D(): number | undefined {
-    const source = this.cameraYawSource;
-    if (source !== null) {
-      const v = source();
-      return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-    }
-    return this.views.yaw();
-  }
-
-  /** Bring the moving colliders up to date at a step boundary (false after a fail-stop). */
-  private syncColliders(): boolean {
-    const failed = this.colliders.sync();
-    if (failed === null) return true;
-    this.faults.failStop('physics_port_error', 'script_colliders', failed, this.sim.stepIndex);
-    return false;
   }
 
   /** Play debugging: what the running behavior instances expose for a debugger (`behaviorDebugOf`). */
@@ -2155,7 +1946,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.isM2) return base;
     const m2: RuntimeDiagnostics = {
       ...base,
-      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.input.samples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.phases.commitCount }),
+      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.input.samples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.chars.physicsSteps, intentCommitCount: this.phases.commitCount }),
     };
     // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
