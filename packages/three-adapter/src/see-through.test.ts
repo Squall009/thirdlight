@@ -20,7 +20,7 @@ import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
-import { applyObjectSeeThrough, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
 const ON: SeeThroughSettings = { ...SEE_THROUGH_DEFAULTS, enabled: true };
@@ -221,6 +221,54 @@ describe('which draws a subject may fade', () => {
     }
     // The test rules out a good share (it saves the mask's work there), not nothing.
     expect(ruledOut).toBeGreaterThan(300);
+  });
+
+  it('the box a pixel is tested against first holds every pixel that fades (two subjects, perspective and side views)', () => {
+    let seed = 11;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const ortho = new THREE.OrthographicCamera(-8, 8, 4.5, -4.5, 0.1, 100);
+    ortho.position.set(0, 1, 20);
+    ortho.updateMatrixWorld(true);
+    for (const camera of [perspective([0, 3, 8], [0, 0.9, 0]), ortho]) {
+      const packs = [emptyPack(), emptyPack()];
+      packSubject(camera, standing([0, 0, 0], 1.8), ON, ON.maxFade, packs[0]!);
+      packSubject(camera, standing([3, 0, -2], 1.8), ON, 0.4, packs[1]!);
+      const rect = new THREE.Vector4();
+      const persp = circleRect(packs, 2, rect);
+      expect(persp).toBe(camera === ortho ? false : true);
+      let faded = 0;
+      for (let n = 0; n < 20000; n++) {
+        const v = new THREE.Vector3((rnd() - 0.5) * 12, rnd() * 5, (rnd() - 0.5) * 12).applyMatrix4(camera.matrixWorldInverse);
+        if (seeThroughFadeAt([v.x, v.y, v.z], packs, 2, 0b11) <= 0) continue;
+        faded += 1;
+        const k = persp ? 1 / Math.max(-v.z, 1e-4) : 1;
+        const [x, y] = [v.x * k, v.y * k];
+        expect(x >= rect.x && x <= rect.z && y >= rect.y && y <= rect.w).toBe(true);
+      }
+      expect(faded).toBeGreaterThan(100);
+    }
+    // Nothing fading: an empty box.
+    const none = new THREE.Vector4();
+    const faded = emptyPack();
+    faded.shape.w = 0;
+    circleRect([faded], 1, none);
+    expect(none.x).toBeGreaterThan(none.z);
+  });
+
+  it('a script turning see-through on in a page that built no mask ahead says so once; a prebuilt page does not', () => {
+    const camera = perspective([0, 6, 10], [0, 1, 0]);
+    for (const prebuild of [false, true]) {
+      const problems: string[] = [];
+      let scripted: SeeThroughScripted | null = null;
+      const view = new SeeThroughView({ object: () => body(0, 0), components: () => ({}), cameraTarget: () => 'a', scripted: () => scripted, prebuild, onProblem: (code) => problems.push(code) });
+      const r = { contextNode: { value: {}, needsUpdate: false } };
+      view.update(r, camera, 0);
+      scripted = { settings: { ...ON }, subjects: null };
+      view.update(r, camera, 16);
+      view.update(r, camera, 32);
+      expect(view.diagnostics().armed).toBe(true);
+      expect(problems).toEqual(prebuild ? [] : ['see_through_rebuild']);
+    }
   });
 
   it('a draw far from every circle takes no subject; a wall in front of one takes it', () => {

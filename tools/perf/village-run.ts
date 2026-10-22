@@ -70,7 +70,7 @@ import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
 import { addVillageLamps, buildVillage, villagePlan, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
-import { addSeeThroughSubjects, candidatesOf, measureSwitch, SEE_THROUGH_ON, seeThroughLine, subjectsInView, switchLine, type SeeThroughReport } from './see-through-run';
+import { addSeeThroughSubjects, candidatesOf, exportPrebuilt, seeThroughRuns, subjectsInView, type SeeThroughReport } from './see-through-run';
 
 /**
  * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
@@ -317,6 +317,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   let exportDir: string | null = null;
   let viewDir: string | null = null;
+  let prebuiltDir: string | null = null;
   try {
     let projectId = 'village';
     if (projectFolder === undefined) {
@@ -358,6 +359,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
       report.subject.exportMs = Math.round(performance.now() - t);
       exportDir = join(be.exportRoot, String(res.json['outputDir']));
+      if (report.seeThrough !== undefined) prebuiltDir = await exportPrebuilt(be, projectId);
       if (viewCamera !== null) {
         // The same build seen from the view: the camera moved, exported again.
         await be.project(projectId).command('setTransform', { entityId: 'cam-main', transform: { position: viewCamera.position, rotation: viewCamera.rotation } });
@@ -390,13 +392,14 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
           if (off.busy !== undefined) log(busyLine(`busy ${r} ${sw}`, off));
           log(`switch ${r} ${sw}: ${off.frames.fps} fps (on ${res.frames.fps}), p50 ${off.frames.p50} ms (on ${res.frames.p50}), main thread ${off.mainThread.taskMsPerFrame} ms (on ${res.mainThread.taskMsPerFrame}), draws ${off.draws.p50} (on ${res.draws.p50})`);
         }
-        if (report.seeThrough !== undefined) {
-          const on = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${SEE_THROUGH_ON}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-see-through.png`), busyMs });
-          log(frameLine(`export ${r} see-through on`, on));
-          log(seeThroughLine(`see-through ${r} off → on`, res, on));
-          const sw = await measureSwitch(browser, `${site!.url}?renderer=${r}${query}`);
-          log(switchLine(`see-through ${r} switched on`, sw));
-          report.seeThrough.byRenderer[r] = { on, switch: sw };
+        if (report.seeThrough !== undefined && prebuiltDir !== null) {
+          const pre = await serveStatic(prebuiltDir);
+          try {
+            const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), busyMs });
+            report.seeThrough.byRenderer[r] = await seeThroughRuns(browser, `${site!.url}?renderer=${r}${query}`, `${pre.url}?renderer=${r}${query}`, res, page, `see-through ${r}`, log);
+          } finally {
+            await pre.close();
+          }
         }
       }
     } finally {

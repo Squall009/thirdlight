@@ -166,7 +166,7 @@ on an export's URL they apply directly):
   generated walls and roads as if unpainted);
 - `?seethrough=on|off` — see-through round the camera's target on or off
   over the project's setting (its look and cost, by comparison; `off` also
-  builds the shaders without it, as a game that never used it);
+  builds the shaders without it, as a project with the setting off);
 - `?quality=<id>` — pins a quality level;
 - `?ao=off|ssao|gtao`, `?renderScale=0.5…1`, `?dynamicResolution=on|off` —
   pin the render settings over the project's (an export's URL; the perf

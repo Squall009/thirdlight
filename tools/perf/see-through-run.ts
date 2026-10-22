@@ -9,12 +9,18 @@
  * Space) and the frames round that moment are read: the longest, the missed
  * refreshes, when the renderer was armed and the next frame was drawn, and
  * the programs the page made by then and later (none should be made once it
- * settled).
+ * settled). The project measured has see-through's setting off (the
+ * mask not built at load: the switch rebuilds every program, the picture
+ * held meanwhile); it is exported again with the setting on
+ * (`exportPrebuilt`), where the script turns it off at its first step: that
+ * page's idle cost and its switch, which rebuilds nothing.
  *
  * Measure it at the display's rate (`--vsync`): see-through's added GPU time
  * comes from three's timestamps (WebGPU), the frames from a capped page as a
  * player's browser draws it.
  */
+import { join } from 'node:path';
+
 import type { Browser } from '@playwright/test';
 
 import { installFrameProbe } from './frame-probe';
@@ -75,7 +81,8 @@ export function seeThroughBehavior(subjects: readonly string[], maxFade?: number
       "    if (ctx.phase !== 'intent') return;",
       '    if (!state.named) {',
       '      state.named = true;',
-      `      ctx.camera.setSeeThrough({ subjects: ${JSON.stringify(subjects)}${maxFade !== undefined ? `, maxFade: ${maxFade}` : ''} });`,
+      // Off at the start whatever the project says: a project with the setting on builds the mask at load and waits.
+      `      ctx.camera.setSeeThrough({ enabled: false, subjects: ${JSON.stringify(subjects)}${maxFade !== undefined ? `, maxFade: ${maxFade}` : ''} });`,
       '    }',
       "    if (ctx.input.pressed('jump')) {",
       '      state.on = !state.on;',
@@ -251,8 +258,35 @@ export function candidatesOf(entities: readonly EntityValue[], take: (e: EntityV
   return out;
 }
 
-/** What a see-through measurement adds to a report: the subjects named, and per renderer the run with it on and the switch. */
+/**
+ * What a see-through measurement adds to a report: the subjects named, and per renderer the run with it on, the
+ * switch with the setting off (a rebuild), and with the setting on: the page idle (built, off) and its switch.
+ */
 export interface SeeThroughReport {
   subjects: string[];
-  byRenderer: Partial<Record<FrameRenderer, { on: FrameRunResult; switch: SwitchRun }>>;
+  byRenderer: Partial<Record<FrameRenderer, { on: FrameRunResult; switch: SwitchRun; prebuiltIdle?: FrameRunResult; prebuiltSwitch?: SwitchRun }>>;
+}
+
+/** The project exported again with see-through's setting on (the mask built at load); returns the export's folder. */
+export async function exportPrebuilt(be: PerfBackend, projectId: string): Promise<string> {
+  await be.project(projectId).command('setSettings', { settings: { see_through: 1 } });
+  const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
+  if (res.status !== 200) throw new Error(`see-through export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
+  // Back off: later exports of the run (a view's) are the class as built.
+  await be.project(projectId).command('setSettings', { settings: { see_through: 0 } });
+  return join(be.exportRoot, String(res.json['outputDir']));
+}
+
+/** The measurements on one renderer: `site` the export as built (setting off), `prebuilt` the one with it on. */
+export async function seeThroughRuns(browser: Browser, siteUrl: string, prebuiltUrl: string, base: FrameRunResult, page: (url: string) => Promise<FrameRunResult>, what: string, log: (s: string) => void): Promise<NonNullable<SeeThroughReport['byRenderer'][FrameRenderer]>> {
+  const on = await page(`${siteUrl}&${SEE_THROUGH_ON}`);
+  log(seeThroughLine(`${what} off → on`, base, on));
+  const sw = await measureSwitch(browser, siteUrl);
+  log(switchLine(`${what} switched on, setting off (rebuilt)`, sw));
+  const prebuiltIdle = await page(prebuiltUrl);
+  log(seeThroughLine(`${what} off → setting on, idle`, base, prebuiltIdle));
+  log(seeThroughLine(`${what} setting on, idle → on`, prebuiltIdle, on));
+  const prebuiltSwitch = await measureSwitch(browser, prebuiltUrl);
+  log(switchLine(`${what} switched on, setting on`, prebuiltSwitch));
+  return { on, switch: sw, prebuiltIdle, prebuiltSwitch };
 }

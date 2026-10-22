@@ -116,7 +116,7 @@ import { levelInteriorPlan } from './level-interior';
 import { anyLevelMarks, parseLevelMarks, type LevelMarksOptions } from './level-marks';
 import { parseLayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { busyLine, frameLine, oracleLine } from './village-run';
-import { addSeeThroughSubjects, candidatesOf, measureSwitch, SEE_THROUGH_ON, seeThroughLine, subjectsInView, switchLine, type SeeThroughReport } from './see-through-run';
+import { addSeeThroughSubjects, candidatesOf, exportPrebuilt, seeThroughRuns, subjectsInView, type SeeThroughReport } from './see-through-run';
 import { hitches, installFrameClock, pageNow, rafTimes, type HitchWindow } from './blocks-run';
 import { FRAME_VIEWPORT } from './frame-run';
 import type { PerfBackend } from './backend';
@@ -359,6 +359,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
 
   // Every class built and exported by one backend, then measured with it stopped (one backend or one browser at a time).
   const exportDirs: Partial<Record<LevelKind, string>> = {};
+  const prebuiltDirs: Partial<Record<LevelKind, string>> = {};
   const viewDirs: Partial<Record<LevelKind, Partial<Record<LevelView, { dir: string; camera: LevelPlan['camera'] }>>>> = {};
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
@@ -391,6 +392,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
       report.builds[kind] = { ...b, exportMs: Math.round(performance.now() - t) };
       exportDirs[kind] = join(be.exportRoot, String(res.json['outputDir']));
+      if (report.seeThrough?.[kind] !== undefined) prebuiltDirs[kind] = await exportPrebuilt(be, b.projectId);
       log(`level ${kind}: built in ${b.ms} ms (${b.commands} commands), exported in ${report.builds[kind]!.exportMs} ms`);
       for (const v of viewsOf(kind)) {
         // The same build seen from the view: the camera moved, exported again.
@@ -450,14 +452,14 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
             log(frameLine(`level ${kind} ${r} ${sw}`, off) + roomsNote(off));
           }
           const seen = report.seeThrough?.[kind];
-          if (seen !== undefined) {
-            const on = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${SEE_THROUGH_ON}`, warmupMs, recordMs, gpuMs, profileMs: 0, busyMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}-see-through.png`) });
-            log(frameLine(`level ${kind} ${r} see-through on`, on) + roomsNote(on));
-            if (on.busy !== undefined) log(busyLine(`level ${kind} ${r} see-through on busy`, on));
-            log(seeThroughLine(`level ${kind} see-through ${r} off → on`, res, on));
-            const sw = await measureSwitch(browser, `${site.url}?renderer=${r}${query}`);
-            log(switchLine(`level ${kind} see-through ${r} switched on`, sw));
-            seen.byRenderer[r] = { on, switch: sw };
+          if (seen !== undefined && prebuiltDirs[kind] !== undefined) {
+            const pre = await serveStatic(prebuiltDirs[kind]!);
+            try {
+              const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs: 0, busyMs, sourceOf: sourcesOf(site) });
+              seen.byRenderer[r] = await seeThroughRuns(browser, `${site.url}?renderer=${r}${query}`, `${pre.url}?renderer=${r}${query}`, res, page, `level ${kind} see-through ${r}`, log);
+            } finally {
+              await pre.close();
+            }
           }
         }
       } finally {

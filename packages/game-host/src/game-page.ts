@@ -911,8 +911,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Vertex paint drawn unless the page says ?paint=off (a diagnostic comparison).
           vertexPaint: paintFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // See-through as the project sets it (scripts change it through the view); ?seethrough=on|off pins it (a look and cost comparison).
-          // Prebuilt: a script may turn it on at any step, and that must not rebuild every program mid-game.
-          seeThrough: ((on) => ({ settings: seeThroughSettingsOfProject(settings), prebuild: true, ...(on !== null ? { pinned: on } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch())),
+          // With the setting on the mask is built at load (a script turning it off and on rebuilds nothing); off, nothing is built
+          // and a script that turns it on anyway rebuilds every program then (reported).
+          seeThrough: ((on, st) => ({ settings: st, prebuild: st.enabled, ...(on !== null ? { pinned: on } : {}), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) }))(seeThroughFromUrl(pageSearch()), seeThroughSettingsOfProject(settings)),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.

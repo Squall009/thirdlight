@@ -30,10 +30,12 @@
  * their own bit, so a subject never fades itself, yet still fades for
  * another subject it stands in front of.
  *
- * A host that may turn see-through on in the middle of a run (a game: its
- * scripts can) arms ahead (`prebuild`): the programs are built with the mask
- * before the first present and skip it while nothing fades (one branch on a
- * per-draw uniform), so the switch rebuilds nothing.
+ * A host that may turn see-through on in the middle of a run (a game whose
+ * project setting is on: its scripts can turn it off and on) arms ahead
+ * (`prebuild`): the programs are built with the mask before the first
+ * present and skip it while nothing fades (one branch on a per-draw
+ * uniform), so the switch rebuilds nothing. A project with the setting off
+ * builds without it and pays nothing.
  *
  * Because the bits are per draw, a subject is drawn on its own while it is
  * one ({@link SUBJECT_DRAW_KEY}): a batch or a merged cell is one draw for
@@ -243,6 +245,25 @@ export function mayFade(c: THREE.Vector3, r: number, p: SubjectPack): boolean {
   return Math.hypot(ax + dx * t, ay + dy * t) < shape.y + r * kn;
 }
 
+/**
+ * The screen box round every live subject's outer circle, in the coordinates the mask tests a pixel in first:
+ * a perspective view's `x / −z, y / −z` (the pixel's view position, its depth clamped as the mask clamps it), an
+ * orthographic view's `x, y`. Empty (min past max) when nothing fades. Returns whether the view is perspective.
+ */
+export function circleRect(packs: readonly SubjectPack[], count: number, out: THREE.Vector4): boolean {
+  out.set(Infinity, Infinity, -Infinity, -Infinity);
+  let perspective = true;
+  for (let i = 0; i < count; i++) {
+    const { centre: c, shape } = packs[i]!;
+    if (shape.w <= 0) continue;
+    perspective = c.w !== 0;
+    const k = perspective ? 1 / Math.max(-c.z, -NEAR_Z) : 1;
+    const r = shape.y * k;
+    out.set(Math.min(out.x, c.x * k - r), Math.min(out.y, c.y * k - r), Math.max(out.z, c.x * k + r), Math.max(out.w, c.y * k + r));
+  }
+  return perspective;
+}
+
 /** Diagnostics of a view's see-through. */
 export interface SeeThroughDiagnostics {
   readonly enabled: boolean;
@@ -299,7 +320,9 @@ export interface SeeThroughDeps {
   /**
    * Arm the renderer from the first frame, while off too: its programs are built with the mask (skipped
    * per draw while nothing fades) before the first present, so turning see-through on later changes only
-   * uniforms and never rebuilds a program in the middle of a game. Absent: armed when first turned on.
+   * uniforms and never rebuilds a program in the middle of a game (a game page: when the project's setting
+   * is on). Absent: armed when first turned on, every program built again then (a script doing that is
+   * reported, `see_through_rebuild`).
    */
   readonly prebuild?: boolean;
   /** Programs will be built again (the renderer armed): build them ahead of the next present. */
@@ -338,6 +361,9 @@ export class SeeThroughView implements SeeThroughControl {
   private script: SeeThroughScripted | null = null;
   private readonly slots: (Slot | null)[] = new Array<Slot | null>(SEE_THROUGH_SUBJECTS).fill(null);
   private readonly packs: SubjectPack[] = Array.from({ length: SEE_THROUGH_SUBJECTS }, emptyPack);
+  /** The box round the circles (`circleRect`) and whether the view is perspective (1) or not (0). */
+  private readonly rect = new THREE.Vector4();
+  private perspective = 1;
   private armed: ArmedRenderer | null = null;
   private camera: THREE.Camera | null = null;
   private frame = 0;
@@ -448,7 +474,13 @@ export class SeeThroughView implements SeeThroughControl {
     this.followScript();
     const ahead = this.d.prebuild === true && this.d.pinned !== false;
     if (!this.s.enabled && this.armed === null && !ahead) return;
-    if ((this.s.enabled || ahead) && this.armed !== r && r.contextNode !== undefined) this.arm(r as ArmedRenderer);
+    if ((this.s.enabled || ahead) && this.armed !== r && r.contextNode !== undefined) {
+      // A script turned it on in a page that did not build the mask ahead: every program is built again now.
+      if (!ahead && this.armed === null && this.script?.settings.enabled === true && this.d.pinned === undefined) {
+        this.d.onProblem?.('see_through_rebuild', 'A script turned see-through on while the project\'s Rendering → See-through setting is off, so every shader was built again in the middle of the game (the picture holds until they are ready). Turn on Rendering → See-through so the mask is built at load, and turn it off from a script at the start if the game wants it only in places.');
+      }
+      this.arm(r as ArmedRenderer);
+    }
     this.camera = camera;
     const dt = this.at === null ? 0 : Math.min(0.1, Math.max(0, (now - this.at) / 1000));
     this.at = now;
@@ -575,6 +607,7 @@ export class SeeThroughView implements SeeThroughControl {
       const t = sl.fade;
       packSubject(camera, sl.ext, this.s, t * t * (3 - 2 * t) * this.s.maxFade, p);
     }
+    this.perspective = circleRect(this.packs, this.count, this.rect) ? 1 : 0;
     return this.count;
   }
 
@@ -592,6 +625,9 @@ export class SeeThroughView implements SeeThroughControl {
     const count = uniform(0, 'int')
       .setGroup(renderGroup)
       .onRenderUpdate(({ camera }: { camera: THREE.Camera }) => this.fill(camera));
+    // Filled with the packs (the count's update runs first in the group).
+    const rect = uniform(this.rect, 'vec4').setGroup(renderGroup);
+    const perspective = uniform(0).setGroup(renderGroup).onRenderUpdate(() => this.perspective);
     const bits = uniform(0, 'int').onObjectUpdate(({ object, camera }: { object: THREE.Object3D; camera: THREE.Camera }) => this.bitsFor(object, camera));
     // Built inside each program's build (a loop and a branch need the build's stack).
     const mask = Fn(() => {
@@ -601,24 +637,28 @@ export class SeeThroughView implements SeeThroughControl {
       If(bits.notEqual(int(0)), () => {
         const p = positionView;
         const invZ = float(1).div(min(p.z, float(NEAR_Z))).toVar();
-        // Unrolled over the fixed slots with constant indices (a dynamic index into the array cost three times as
-        // much on an Iris Xe), each skipped unless the draw takes its subject, and its circle worked out only for
-        // pixels in front of the subject and above half its height, and inside its outer radius.
-        for (let k = 0; k < SEE_THROUGH_SUBJECTS; k++) {
-          If(bits.bitAnd(int(1 << k)).notEqual(int(0)).and(count.greaterThan(int(k))), () => {
-            const s = packed.element(int(k * 3 + 1));
-            const pl = packed.element(int(k * 3 + 2));
-            If(p.z.greaterThanEqual(s.z).and(pl.xyz.dot(p).add(pl.w).greaterThanEqual(float(0))), () => {
-              const c = packed.element(int(k * 3));
-              const q = p.xy.mul(mix(float(1), c.z.mul(invZ), c.w)).sub(c.xy);
-              const d2 = q.dot(q);
-              If(d2.lessThan(s.y.mul(s.y)), () => {
-                fade.assign(max(fade, s.w.mul(float(1).sub(smoothstep(s.x, s.y, d2.sqrt())))));
+        // A pixel outside the box round every circle (most of the view) is done after four comparisons.
+        const at = p.xy.mul(mix(float(1), invZ.negate(), perspective));
+        If(at.x.greaterThanEqual(rect.x).and(at.y.greaterThanEqual(rect.y)).and(at.x.lessThanEqual(rect.z)).and(at.y.lessThanEqual(rect.w)), () => {
+          // Unrolled over the fixed slots with constant indices (a dynamic index into the array cost three times as
+          // much on an Iris Xe), each skipped unless the draw takes its subject, and its circle worked out only for
+          // pixels in front of the subject and above half its height, and inside its outer radius.
+          for (let k = 0; k < SEE_THROUGH_SUBJECTS; k++) {
+            If(bits.bitAnd(int(1 << k)).notEqual(int(0)).and(count.greaterThan(int(k))), () => {
+              const s = packed.element(int(k * 3 + 1));
+              const pl = packed.element(int(k * 3 + 2));
+              If(p.z.greaterThanEqual(s.z).and(pl.xyz.dot(p).add(pl.w).greaterThanEqual(float(0))), () => {
+                const c = packed.element(int(k * 3));
+                const q = p.xy.mul(mix(float(1), c.z.mul(invZ), c.w)).sub(c.xy);
+                const d2 = q.dot(q);
+                If(d2.lessThan(s.y.mul(s.y)), () => {
+                  fade.assign(max(fade, s.w.mul(float(1).sub(smoothstep(s.x, s.y, d2.sqrt())))));
+                });
               });
             });
-          });
-        }
-        keep.assign(ditherKeep(fade));
+          }
+          keep.assign(ditherKeep(fade));
+        });
       });
       return keep;
     });
