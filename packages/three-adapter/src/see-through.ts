@@ -29,6 +29,13 @@
  * has none (no program of its own); a subject and everything under it drop
  * their own bit, so a subject never fades itself, yet still fades for
  * another subject it stands in front of.
+ *
+ * Because the bits are per draw, a subject is drawn on its own while it is
+ * one ({@link SUBJECT_DRAW_KEY}): a batch or a merged cell is one draw for
+ * many objects and would fade the subject with its neighbours. Subjects are
+ * few and usually move (static batching leaves them out in other engines
+ * too), so this costs a draw or two, where telling instances or merged
+ * vertices apart would cost every batch an attribute and its program.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -45,6 +52,8 @@ const { Fn, If, Loop, float, int, max, min, mix, positionView, renderGroup, smoo
 export const SEE_THROUGH_KEY = '__tlSeeThrough';
 /** `object.userData[SELF_KEY]`: the subjects it belongs to this frame (it never fades for them). */
 const SELF_KEY = '__tlSeeThroughSelf';
+/** `mesh.userData[SUBJECT_DRAW_KEY] === true`: its object is a see-through subject now, drawn out of batches and merged cells. */
+export const SUBJECT_DRAW_KEY = '__tlSeeThroughSubject';
 /** The key a view arms a renderer's context with. */
 const CONTEXT_KEY = 'tlSeeThrough';
 
@@ -247,6 +256,8 @@ export interface SeeThroughDeps {
   onChange?(): void;
   /** More subjects than the arrays hold (once until it fits again). */
   onProblem?(code: string, message: string): void;
+  /** The meshes under `root` became or stopped being a subject's: group them again (the batcher's `touch`). */
+  regroup?(root: THREE.Object3D): void;
 }
 
 interface Slot {
@@ -285,6 +296,8 @@ export class SeeThroughView implements SeeThroughControl {
   private reported = false;
   private at: number | null = null;
   private nodes: { mask: N } | null = null;
+  /** The subjects' objects whose meshes are marked to draw on their own. */
+  private readonly alone = new Map<string, THREE.Object3D>();
 
   constructor(
     private readonly d: SeeThroughDeps,
@@ -332,6 +345,43 @@ export class SeeThroughView implements SeeThroughControl {
       if (sl !== null) subjects.push({ id: sl.id, slot: i, fade: sl.fade });
     });
     return { enabled: this.s.enabled, armed: this.armed !== null, subjects, leftOut: this.leftOut };
+  }
+
+  /**
+   * Before the frame's batches are grouped: the objects of the subjects asked
+   * for (and those still fading out) draw on their own, the others go back.
+   * Every mesh is checked, so one loaded under a subject later follows.
+   */
+  beforeBatch(): void {
+    this.followScript();
+    const want = new Set<string>();
+    if (this.s.enabled) {
+      const target = this.d.cameraTarget();
+      for (const id of this.named ?? (target !== null ? [target] : [])) want.add(id);
+    }
+    for (const sl of this.slots) if (sl !== null) want.add(sl.id);
+    for (const [id, node] of this.alone) {
+      if (want.has(id) && this.d.object(id) === node) continue;
+      this.drawAlone(node, false);
+      this.alone.delete(id);
+    }
+    for (const id of want) {
+      const node = this.d.object(id);
+      if (node === undefined) continue;
+      this.drawAlone(node, true);
+      this.alone.set(id, node);
+    }
+  }
+
+  private drawAlone(root: THREE.Object3D, on: boolean): void {
+    let changed = false;
+    root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh !== true || (o.userData[SUBJECT_DRAW_KEY] === true) === on) return;
+      changed = true;
+      if (on) o.userData[SUBJECT_DRAW_KEY] = true;
+      else delete o.userData[SUBJECT_DRAW_KEY];
+    });
+    if (changed) this.d.regroup?.(root);
   }
 
   /**
@@ -514,6 +564,8 @@ export class SeeThroughView implements SeeThroughControl {
   /** The view goes (its renderer, if alive, builds without the mask again). */
   dispose(): void {
     this.disarm();
+    for (const node of this.alone.values()) this.drawAlone(node, false);
+    this.alone.clear();
     this.slots.fill(null);
     this.live = 0;
   }

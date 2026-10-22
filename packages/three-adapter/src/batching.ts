@@ -24,7 +24,8 @@
  * skinned or morphed, several materials, a custom `onBeforeRender`, a render
  * order, other layers, per-object material parameters (a graph material's
  * `materialParams` are per-object uniforms, as are the values scripts set
- * while the game runs), or no partner. A per-object
+ * while the game runs), a see-through subject's (`see-through.ts`), or no
+ * partner. A per-object
  * override that gives a mesh its own material copy (the selection highlight,
  * a look override, a lightmap) takes it out of its group by
  * itself — the material is part of the key.
@@ -60,7 +61,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
-import { objectSeeThrough, SEE_THROUGH_KEY } from './see-through';
+import { objectSeeThrough, SEE_THROUGH_KEY, SUBJECT_DRAW_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
 import { meshDecalRenderOrder } from './mesh-decals';
 import { occluderMarksOf, setOccluderMarks } from './occluders';
@@ -153,6 +154,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mesh.userData[PAINT_PREVIEW_KEY] === true) return 'vertex paint preview';
   // Batches and merged cells draw for several objects: isolation hides them whole.
   if (mesh.userData[ISOLATED_DRAW_KEY] === true) return 'isolated';
+  // A see-through subject never fades itself, which only a draw of its own can tell.
+  if (mesh.userData[SUBJECT_DRAW_KEY] === true) return 'see-through subject';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;

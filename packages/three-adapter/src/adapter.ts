@@ -545,7 +545,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   });
   // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
   const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
-  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
+  const seeThrough = new SeeThroughView({ object: (id) => graph.node(id), components: (id) => entityDocs.get(id)?.components, cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(opts.seeThrough?.pinned !== undefined ? { pinned: opts.seeThrough.pinned } : {}), requestPrecompile: () => precompile.want(), onChange: () => opts.onChange?.(), regroup: (o) => batcher?.touch(o), ...(opts.seeThrough?.onProblem !== undefined ? { onProblem: opts.seeThrough.onProblem } : {}) }, opts.seeThrough?.settings);
   /** The block layers realized from their documents (a host may drive layers of its own through `blockLayers()`). */
   const docLayers = new Set<string>();
   /** What a host hangs on entities (the editor's icons and outlines): it rides on the entity's node. */
@@ -1456,6 +1456,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     graph.updateLods(camera!);
     // Regroup the repeated objects and copy their matrices (after every transform and look change).
     isolation.beforeBatch();
+    seeThrough.beforeBatch();
     if (batcher !== null) batcher.update(camera!);
     else {
       scene.updateMatrixWorld();

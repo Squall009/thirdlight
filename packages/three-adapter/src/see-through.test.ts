@@ -5,7 +5,10 @@
  * three builds: an unarmed renderer keeps every program it had (digests
  * recorded before see-through existed), an armed one carries the mask in
  * every material kind and none in the shadow pass or colourless draws, and
- * changing subjects or settings builds nothing.
+ * changing subjects or settings builds nothing. The correctness cases run a
+ * view's own packs and per-draw bits through the reference (two subjects, a
+ * subject in front of another), and a subject drawn in a batch or merged
+ * cell leaves it while it is one.
  */
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
@@ -14,8 +17,9 @@ import { describe, expect, it } from 'vitest';
 import { SEE_THROUGH_DEFAULTS, SEE_THROUGH_SUBJECTS, type SeeThroughSettings } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh } from './attribute-instancing';
-import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
+import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
+import { STATIC_KEY } from './static-merge';
 import { applyObjectSeeThrough, emptyPack, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
@@ -126,6 +130,11 @@ describe('the see-through mask (CPU reference)', () => {
     const up = emptyPack();
     packSubject(cam, standing([0, 3, 0], 1.8), ON, ON.maxFade, up);
     expect(fadeAtWorld(cam, [up], 1, 1, [0, 3, 1])).toBe(0);
+    expect(fadeAtWorld(cam, [up], 1, 1, onRay(cam, [0, 3.9, 0], (9 - 3) / (9 - 3.9)))).toBe(0);
+    // ... and the next storey's slab (6 m) is the one that fades now.
+    const next = (y: number): number[] => onRay(cam, [0, 3.9, 0], (9 - y) / (9 - 3.9));
+    expect(fadeAtWorld(cam, [up], 1, 1, next(6))).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeAtWorld(cam, [p], 1, 1, onRay(cam, c, t(6)))).toBeCloseTo(ON.maxFade, 6);
   });
 
   it('works for an orthographic camera (a side view): the near prop by the floor stays solid', () => {
@@ -318,6 +327,128 @@ describe('a view\'s subjects', () => {
     view.set({ subjects: ['b'] });
     view.update(r, camera, 16);
     expect(view.bitsFor(a.children[0]!)).toBe(1 << slotOf('b'));
+  });
+});
+
+describe('a view\'s fades end to end (its packs and per-draw bits through the CPU reference)', () => {
+  const r = (): { contextNode: { value: Record<string, unknown>; needsUpdate: boolean } } => ({ contextNode: { value: {}, needsUpdate: false } });
+  /** The fade `view` gives the pixel of drawable `o` at world point `p`. */
+  const fadeOf = (view: SeeThroughView, camera: THREE.Camera, o: THREE.Object3D, p: readonly number[]): number => fadeAtWorld(camera, view.packed(), view.fill(camera), view.bitsFor(o), p);
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(10, 4, 0.2));
+
+  it('two subjects in one view: what is in front of each fades round each, and nothing between their circles', () => {
+    const camera = perspective([0, 5, 12], [0, 1, -2]);
+    const objects = { a: body(-4, 0), b: body(4, -4) };
+    const { view } = viewOf(objects, null, { ...ON, fadeTime: 0 });
+    view.set({ subjects: ['a', 'b'] });
+    view.update(r(), camera, 0);
+    expect(fadeOf(view, camera, wall, onRay(camera, [-4, 1.2, 0], 0.5))).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeOf(view, camera, wall, onRay(camera, [4, 1.2, -4], 0.5))).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeOf(view, camera, wall, onRay(camera, [0, 1.2, -2], 0.5))).toBe(0);
+    // Behind either: solid.
+    expect(fadeOf(view, camera, wall, onRay(camera, [-4, 1.2, 0], 1.1))).toBe(0);
+    expect(fadeOf(view, camera, wall, onRay(camera, [4, 1.2, -4], 1.1))).toBe(0);
+  });
+
+  it('a subject in front of another fades for the one behind, never for itself; the one behind stays solid', () => {
+    const camera = perspective([0, 4, 12], [0, 1, -3]);
+    const objects = { a: body(0, 2), b: body(0, -3) };
+    const { view } = viewOf(objects, null, { ...ON, fadeTime: 0 });
+    view.set({ subjects: ['a', 'b'] });
+    view.update(r(), camera, 0);
+    const aMesh = objects.a.children[0]!;
+    const bMesh = objects.b.children[0]!;
+    // A's chest covers B on screen: it thins for B.
+    expect(fadeOf(view, camera, aMesh, [0, 1.2, 2])).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeOf(view, camera, bMesh, [0, 1.2, -3])).toBe(0);
+    // A alone as the subject: A never fades.
+    view.set({ subjects: ['a'] });
+    view.update(r(), camera, 16);
+    expect(fadeOf(view, camera, aMesh, [0, 1.2, 2])).toBe(0);
+  });
+});
+
+describe('a subject drawn in a batch or a merged cell', () => {
+  const r = { contextNode: { value: {} as Record<string, unknown>, needsUpdate: false } };
+  const camera = perspective([0, 6, 12], [0, 1, 0]);
+  const drawnAlone = (m: THREE.Object3D): boolean => m.layers.mask === 1;
+
+  /** One frame as the adapter runs it: subjects marked, batches grouped, the view followed. */
+  const frame = (view: SeeThroughView, b: ReturnType<typeof createAutoBatcher>, t: number): void => {
+    view.beforeBatch();
+    b.update(camera);
+    view.update(r, camera, t);
+  };
+
+  it('leaves its batch while it is a subject (so it never fades itself) and goes back after', () => {
+    const scene = new THREE.Scene();
+    const geo = new THREE.BoxGeometry(0.6, 1.8, 0.6);
+    const mat = new THREE.MeshStandardMaterial();
+    const boxes: Record<string, THREE.Mesh> = {};
+    for (let i = 0; i < 6; i++) {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(i * 2 - 5, 0.9, 0);
+      m.userData[BATCH_KEY] = true;
+      scene.add(m);
+      boxes[`s${i}`] = m;
+    }
+    const b = createAutoBatcher(scene);
+    for (const m of Object.values(boxes)) b.listed(m);
+    const view = new SeeThroughView({ object: (id) => boxes[id], components: () => ({}), cameraTarget: () => 's0', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
+    frame(view, b, 0);
+    const s0 = boxes['s0']!;
+    expect(batchRefusal(s0)).toBe('see-through subject');
+    expect(drawnAlone(s0)).toBe(true);
+    expect(Object.values(boxes).filter(drawnAlone)).toEqual([s0]);
+    expect(view.bitsFor(s0)).toBe(0);
+    const batch = b.drawOf(boxes['s1']!)!;
+    expect(view.bitsFor(batch)).toBe(1);
+    // Off: it fades out, its slot frees, then it rejoins its batch.
+    view.set({ enabled: false });
+    frame(view, b, 16);
+    frame(view, b, 32);
+    expect(batchRefusal(s0)).toBeNull();
+    expect(drawnAlone(s0)).toBe(false);
+    expect(b.drawOf(s0)).toBe(batch);
+    view.dispose();
+    b.dispose();
+  });
+
+  it('leaves its merged cell while it is a subject; a mesh loaded under it later follows; dispose gives it back', () => {
+    const scene = new THREE.Scene();
+    const mat = new THREE.MeshLambertMaterial();
+    const props: THREE.Mesh[] = [];
+    for (let i = 0; i < 3; i++) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1 + i * 0.1, 1), mat);
+      m.position.set(i * 2, 0.5, 0);
+      m.userData[BATCH_KEY] = true;
+      m.userData[STATIC_KEY] = 'scene-a';
+      m.updateMatrixWorld(true);
+      scene.add(m);
+      props.push(m);
+    }
+    const b = createAutoBatcher(scene);
+    for (const m of props) b.listed(m);
+    b.update(camera);
+    expect(props.filter(drawnAlone)).toEqual([]);
+    const subject = props[0]!;
+    const view = new SeeThroughView({ object: (id) => (id === 'p' ? subject : undefined), components: () => ({}), cameraTarget: () => 'p', regroup: (o) => b.touch(o) }, { ...ON, fadeTime: 0 });
+    frame(view, b, 0);
+    expect(props.filter(drawnAlone)).toEqual([subject]);
+    expect(view.bitsFor(subject)).toBe(0);
+    const cell = b.drawOf(props[1]!)!;
+    expect(cell).not.toBeNull();
+    expect(view.bitsFor(cell)).toBe(1);
+    // A part attached under the subject later (a model that finished loading) is marked too.
+    const part = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), mat);
+    part.userData[BATCH_KEY] = true;
+    subject.add(part);
+    frame(view, b, 16);
+    expect(batchRefusal(part)).toBe('see-through subject');
+    view.dispose();
+    expect(batchRefusal(subject)).toBeNull();
+    expect(batchRefusal(part)).toBeNull();
+    b.dispose();
   });
 });
 
