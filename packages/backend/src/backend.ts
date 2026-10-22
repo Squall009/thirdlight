@@ -19,11 +19,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { WebSocketServer, type WebSocket } from 'ws';
 import { listTemplates } from './templates';
 import { createPackInstaller, listPacks } from './packs';
 import { isExportDirOf, listExports, zipDirectory } from './exports';
-import { makeAttached, makeErrorEvent, makePong, parseStrictJsonBytes, parseInboundEvent, encodeBinaryFreeStateFrame, sessionError, statusFor, WS_OUT_FRAME_MAX, WS_SCREENSHOT_ACK_MAX, PLAY_PROBLEM_KINDS_MAX, enforceDefaultFrameBound, validateGameControlResult, validateGameObservation, toWireChange, type SessionError } from '@thirdlight/protocol';
+import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
 import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
@@ -31,6 +30,8 @@ import { loadMeshSimplifier, type MeshSimplifier } from '@thirdlight/asset-pipel
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
 import { makeMissingFilesRoute } from './missing-files';
 import { createProblemLog, createProjectChecks } from './problems';
+import { createWsChannel } from './ws-channel';
+import { createExternalEdits } from './external-edits';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
@@ -179,22 +180,7 @@ export function createBackend(
   const playContent = new PlayContentStore({ now: nowMs, ttlMs: timeouts.playContentTtlSeconds * 1000, graceMs: timeouts.playContentGraceSeconds * 1000 });
 
   const plays = new PlayManager({
-    sendToOwner: (ownerSessionId, payload) => {
-      const s = sessions.sessionForSessionId(ownerSessionId);
-      if (!s || !s.connected || !s.socket) return false;
-      if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
-        // Never silent — the owner's project shows a problem (the relay then fails or times out visibly).
-        logStartup(`outbound frame exceeds the 1 MiB bound (play=${ownerSessionId}); dropped`);
-        recordProblem(s.projectId, 'play', 'ws_frame_too_large', `A ${utf8Len(payload)}-byte message to the editor exceeds the 1 MiB WebSocket frame bound and was not sent.`);
-        return false;
-      }
-      try {
-        s.socket.send(payload);
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    sendToOwner: (ownerSessionId, payload) => channel.sendToOwner(ownerSessionId, payload),
     logPlay: (ownerSessionId, ref, code) => {
       const s = sessions.sessionForSessionId(ownerSessionId);
       if (s) sessions.record(s, 'play', ref, undefined, nowMs(), code);
@@ -236,10 +222,9 @@ export function createBackend(
     now: nowMs,
   });
 
-  const wss = new WebSocketServer({ noServer: true });  const authoringServer = createServer();
+  const authoringServer = createServer();
   const previewServer = createServer();
   let closed = false;
-  let sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   const auth = createAuth(config);
   const { tokenScope, requireAuth, originRejected, trustedRequest } = auth;
@@ -418,7 +403,7 @@ export function createBackend(
     });
 
   // ---------- project problems log (editor Problems tab + MCP) and the checks that fill it ----------
-  const problemLog = createProblemLog({ nowMs, sendToProject: (projectId, frame) => sendToProject(projectId, frame) });
+  const problemLog = createProblemLog({ nowMs, sendToProject: (projectId, frame) => channel.sendToProject(projectId, frame) });
   const recordProblem = problemLog.record;
   const checks = createProjectChecks({ service, recordProblem, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles });
   const { missingFiles } = checks;
@@ -442,268 +427,14 @@ export function createBackend(
     sceneId?: string,
   ): void => {
     checks.changed(projectId, change);
-    const s = sessions.sessionForProject(projectId);
-    if (!s || !s.connected || !s.socket) return;
-    // A full-state/change frame never carries GLB or source bytes.
-    // `sceneId` names the scene a v4 edit touched.
-    // The change without its previous side, keyed lists as deltas (protocol wire-change.ts).
-    const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change: toWireChange(change as Parameters<typeof toWireChange>[0]), ...(sceneId !== undefined ? { sceneId } : {}) }, WS_OUT_FRAME_MAX);
-    if (payload === null) {
-      // An oversized change record is not dropped silently: the
-      // editor is told to re-read the project over HTTP (the authoritative
-      // full state), and the project shows why.
-      logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; sent workspace.resync');
-      recordProblem(projectId, 'workspace', 'ws_frame_too_large', `The change at revision ${revision} is larger than one WebSocket message (1 MiB); the editor re-read the project instead.`);
-      try {
-        s.socket.send(JSON.stringify({ type: 'workspace.resync' }));
-      } catch {
-        // best-effort: the next change's revision gap resyncs the editor
-      }
-      return;
-    }
-    try {
-      s.socket.send(payload);
-    } catch {
-      // best-effort: the authoritative result went to the caller over HTTP
-    }
+    channel.sendMutationApplied(projectId, requestId, revision, origin, change, sceneId);
   };
 
-  // ---------- WS handling ----------
-
-  const attachSocket = (ws: WebSocket, session: SessionRecord): void => {
-    const state = fullState(session.projectId);
-    if (!state.ok) {
-      ws.close(1011, 'backend_error');
-      sessions.record(session, 'error', session.sessionId, undefined, nowMs(), 'attach_failed');
-      return;
-    }
-    sessions.bindSocket(session, ws);
-    ws.send(makeAttached(session.connId, state.revision));
-    // One-shot `play.started` delivery.
-    if (session.pendingPlayStarted !== null) {
-      const held = session.pendingPlayStarted;
-      session.pendingPlayStarted = null;
-      const rec = plays.get(held.playSessionId);
-      if (rec !== undefined && (rec.state === 'active' || rec.state === 'presented')) {
-        ws.send(held.payload);
-        sessions.record(session, 'play', held.playSessionId, rec.revision, nowMs(), 'started_delivered');
-      }
-    }
-    ws.on('message', (data: Uint8Array) => {
-      sessions.touch(session, nowMs());
-      handleMessage(ws, session, data);
-    });
-    let detached = false;
-    const onDetach = (): void => {
-      if (detached) return;
-      const s = sessions.sessionForSessionId(session.sessionId);
-      // Only the connection currently bound to the session detaches it —
-      // a re-attach race may leave a stale socket closing after the new
-      // one bound.
-      if (!s || s.socket !== ws) return;
-      detached = true;
-      const replaced = sessions.isReplaced(ws);
-      sessions.detachSocket(session, nowMs());
-      // A replaced socket (closed by a re-attach) is not an owner loss —
-      // the owner is binding a fresh connection.
-      if (!replaced) plays.onOwnerDisconnected(session.sessionId);
-    };
-    ws.on('close', onDetach);
-    ws.on('error', onDetach);
-  };
-
-  /** Count a protocol error; close 1008 at the 10/60 s bound. */
-  const countProtocolError = (ws: WebSocket, session: SessionRecord): void => {
-    const count = sessions.noteProtocolError(session, nowMs(), timeouts.protocolErrorWindowSeconds * 1000);
-    if (count >= timeouts.protocolErrorLimit) {
-      ws.close(1008, 'protocol_error');
-    }
-  };
-
-  const handleMessage = (ws: WebSocket, session: SessionRecord, data: Uint8Array): void => {
-    // Frame bounds: hard cap 1.5 MiB (the screenshot.ack
-    // bound); the 64 KiB default applies to everything else.
-    if (data.length > WS_SCREENSHOT_ACK_MAX) {
-      ws.close(1009, 'frame_too_big');
-      return;
-    }
-    const parsed = parseStrictJsonBytes(data);
-    if (!parsed.ok) {
-      sessions.record(session, 'error', 'protocol_error', undefined, nowMs(), parsed.error.message.slice(0, 128));
-      countProtocolError(ws, session);
-      ws.send(makeErrorEvent('protocol_error', parsed.error.message));
-      return;
-    }
-    if (!enforceDefaultFrameBound(data.length, parsed.value)) {
-      ws.close(1009, 'frame_too_big');
-      return;
-    }
-    // Re-validate as a catalog event (the strict shape check; unknown
-    // types are a distinct, survivable outcome).
-    const verdict = parseInboundEvent(parsed.value);
-    if (!verdict.ok) {
-      if (verdict.kind === 'unknown_event') {
-        sessions.record(session, 'error', verdict.type, undefined, nowMs(), 'unknown_event');
-        countProtocolError(ws, session);
-        ws.send(makeErrorEvent('unknown_event', verdict.type));
-        return;
-      }
-      sessions.record(session, 'error', 'protocol_error', undefined, nowMs(), verdict.error.message.slice(0, 128));
-      countProtocolError(ws, session);
-      ws.send(makeErrorEvent('protocol_error', verdict.error.message));
-      return;
-    }
-    const inbound = verdict.event;
-    switch (inbound.type) {
-      case 'ping':
-        ws.send(makePong());
-        return;
-      case 'selection.changed':
-        session.selection = [...inbound.entityIds];
-        return;
-      case 'play.preview.ready':
-      case 'play.preview.progress':
-      case 'play.preview.failed':
-      case 'play.stopped.ack': {
-        const rec = plays.get(inbound.playSessionId);
-        if (rec === undefined || rec.ownerSessionId !== session.sessionId) {
-          sessions.record(session, 'error', inbound.playSessionId, undefined, nowMs(), 'event for unknown play');
-          return;
-        }
-        // The preview is still starting and moving: the present timeout counts from now.
-        if (inbound.type === 'play.preview.progress') {
-          plays.progressed(rec.playSessionId);
-          return;
-        }
-        if (inbound.type === 'play.preview.ready') {
-          plays.markPresented(rec.playSessionId);
-          sessions.record(session, 'play', rec.playSessionId, rec.revision, nowMs(), 'presented');
-          return;
-        }
-        if (inbound.type === 'play.preview.failed') {
-          recordProblem(session.projectId, 'play', inbound.code, `Play failed: ${inbound.message ?? inbound.code}`);
-          plays.previewFailed(rec.playSessionId, inbound.code, inbound.message);
-          return;
-        }
-        plays.onStoppedAck(rec.playSessionId);
-        return;
-      }
-      case 'play.problem': {
-        const rec = plays.get(inbound.playSessionId);
-        if (rec === undefined || rec.ownerSessionId !== session.sessionId) {
-          sessions.record(session, 'error', inbound.playSessionId, undefined, nowMs(), 'problem for unknown play');
-          return;
-        }
-        // One line per kind and play; a page reporting new kinds without end is bounded.
-        const kinds = (rec.problemKinds ??= new Set());
-        if (kinds.has(inbound.code) || kinds.size >= PLAY_PROBLEM_KINDS_MAX) return;
-        kinds.add(inbound.code);
-        recordProblem(session.projectId, 'play', inbound.code, inbound.message);
-        return;
-      }
-      case 'screenshot.ack':
-      case 'play.diagnostics.ack': {
-        const kind = inbound.type === 'screenshot.ack' ? 'screenshot' : 'diagnostics';
-        // The ack carries the relayId; the relay map is authoritative for
-        // routing.
-        const target = plays.findRelay(inbound.relayId);
-        if (target === undefined || target.ownerSessionId !== session.sessionId) {
-          sessions.record(session, kind, inbound.relayId, undefined, nowMs(), 'unknown_relay');
-          return;
-        }
-        plays.resolveRelay(target.playSessionId, inbound.relayId, inbound);
-        sessions.record(session, kind, inbound.relayId, target.revision, nowMs(), inbound.ok ? 'ok' : 'failed');
-        return;
-      }
-      case 'input.result': {
-        const target = plays.findRelayByInput(inbound.requestId);
-        if (target === undefined || target.ownerSessionId !== session.sessionId) {
-          sessions.record(session, 'play', inbound.requestId, undefined, nowMs(), 'unknown_input_relay');
-          return;
-        }
-        plays.resolveInputRelay(target.playSessionId, inbound.requestId, inbound);
-        sessions.record(session, 'play', inbound.requestId, target.revision, nowMs(), inbound.ok ? 'input_ok' : 'input_failed');
-        return;
-      }
-      case 'game.control.ack':
-      case 'game.observe.ack': {
-        // The editor relays the preview's EXACT result (never fabricates).
-        // The relay map is authoritative for routing by relayId; an
-        // unknown/wrong-session ack is dropped and counted (it never resolves a
-        // pending relay owned by another session).
-        const target = plays.findGameRelay(inbound.relayId);
-        if (target === undefined || target.ownerSessionId !== session.sessionId) {
-          sessions.record(session, 'play', inbound.relayId, undefined, nowMs(), inbound.type === 'game.control.ack' ? 'unknown_game_relay' : 'unknown_game_observe_relay');
-          return;
-        }
-        const validate =
-          inbound.type === 'game.control.ack'
-            ? (r: unknown): boolean => validateGameControlResult(r).ok
-            : (r: unknown): boolean => validateGameObservation(r).ok;
-        plays.resolveGameRelay(target.playSessionId, inbound.relayId, inbound, validate);
-        sessions.record(session, 'play', inbound.relayId, target.revision, nowMs(), inbound.ok ? 'game_ok' : 'game_failed');
-        return;
-      }
-      default:
-        return;
-    }
-  };
-
-  // The upgrade path: the token is verified at upgrade;
-  // any failure ⇒ close 1008 with the reason code.
-  authoringServer.on('upgrade', (req: IncomingMessage, socket: Parameters<WebSocketServer['handleUpgrade']>[1], head: Buffer) => {
-    const sock = socket;
-    const qIdx = (req.url ?? '').indexOf('?');
-    const p = qIdx === -1 ? (req.url ?? '') : (req.url ?? '').slice(0, qIdx);
-    const query = qIdx === -1 ? '' : (req.url ?? '').slice(qIdx + 1);
-    if (p !== '/api/v1/ws') {
-      const body = JSON.stringify({ ok: false, error: sessionError('invalid_request', 'validation', 'unknown route') });
-      sock.write(`HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\ncontent-length: ${utf8Len(body)}\r\nconnection: close\r\n\r\n${body}`);
-      sock.destroy();
-      return;
-    }
-    // Upgrade first, then verify and close 1008 with the reason code on
-    // failure (the contract's failure shape).
-    const closeAfter = (reason: string): void => {
-      wss.handleUpgrade(req, socket, head, (ws) => ws.close(1008, reason));
-    };
-    const found = originRejected(req);
-    if (found !== null) {
-      logStartup(`ws upgrade rejected: bad_origin`);
-      closeAfter('bad_origin');
-      return;
-    }
-    const q = parseQuery(query);
-    const sessionId = q.get('sessionId');
-    const wsToken = q.get('wsToken');
-    if (typeof sessionId !== 'string' || sessionId.length === 0 || typeof wsToken !== 'string' || wsToken.length === 0) {
-      closeAfter('ws_token_invalid');
-      return;
-    }
-    const outcome = sessions.consumeWsToken(wsToken, sessionId, nowMs());
-    if (!outcome.ok) {
-      logStartup(`ws upgrade rejected: ${outcome.code}`);
-      closeAfter(outcome.code);
-      return;
-    }
-    const session = outcome.session;
-    const oldSocket = session.socket;
-    if (oldSocket !== null) {
-      // Re-attach: the old connection, if still open, is closed and
-      // logged (1000, reason `detached`). Mark it replaced so its
-      // onDetach does NOT treat this as an owner loss (the owner is
-      // re-attaching, not gone).
-      sessions.markReplaced(oldSocket);
-      try {
-        oldSocket.close(1000, 'detached');
-      } catch {
-        // already gone
-      }
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      attachSocket(ws, session);
-    });
-  });
+  // ---------- the editor's WebSocket channel ----------
+  const channel = createWsChannel({ timeouts, nowMs, sessions, plays: () => plays, originRejected, logStartup, recordProblem, attachRevision: (projectId) => fullState(projectId) });
+  authoringServer.on('upgrade', channel.handleUpgrade);
+  // External edits: while an editor is connected, its project's files are compared with what this backend wrote.
+  const external = createExternalEdits({ service, sessions, recordProblem, sendToProject: channel.sendToProject, requireAuth });
 
   // ---------- routes ----------
 
@@ -1279,7 +1010,7 @@ export function createBackend(
         // POST /api/v1/projects/:projectId/external/(accept|discard)
         if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'external' && (parts[5] === 'accept' || parts[5] === 'discard')) {
           if (method === 'POST') {
-            await externalResolveRoute(req, res, parts[3]!, parts[5]);
+            await external.resolveRoute(req, res, parts[3]!, parts[5]);
             return;
           }
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
@@ -1396,69 +1127,6 @@ export function createBackend(
     serveStatic(res, config.editorStaticDir, p);
   };
 
-  const sendToProject = (projectId: string, frame: Record<string, unknown>): void => {
-    const s = sessions.sessionForProject(projectId);
-    if (!s || !s.connected || !s.socket) return;
-    try {
-      s.socket.send(JSON.stringify(frame));
-    } catch {
-      // best effort: the next full state carries the same facts
-    }
-  };
-  const externalTimer = setInterval(() => {
-    for (const s of sessions.all()) {
-      if (!s.connected) continue;
-      const r = service.checkExternal(s.projectId);
-      if (!r.ok || !r.pending) {
-        externalAnnounced.delete(s.projectId);
-        continue;
-      }
-      if (externalAnnounced.has(s.projectId)) continue;
-      externalAnnounced.add(s.projectId);
-      const q = service.query({ op: 'queryProject', projectId: s.projectId }) as { ok: boolean; workspace?: unknown };
-      const valid = (q.workspace as { pendingChange?: { externalValid?: boolean | null } } | undefined)?.pendingChange?.externalValid;
-      recordProblem(
-        s.projectId,
-        'workspace',
-        'external_change',
-        valid === false ? 'The scene file was changed on disk and is invalid; editing is paused.' : 'The scene file was changed on disk; editing is paused.',
-      );
-      sendToProject(s.projectId, { type: 'workspace.externalChange', workspace: q.ok ? q.workspace : null });
-    }
-  }, 1500);
-
-  /** POST /api/v1/projects/:projectId/external/(accept|discard) — resolve an external edit. */
-  const externalResolveRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string, action: string): Promise<void> => {
-    const authError = requireAuth(req, projectId, false);
-    if (authError !== null) {
-      sendError(res, authError);
-      return;
-    }
-    const result = action === 'accept' ? service.acceptExternalState(projectId) : service.discardExternalState(projectId);
-    if (!result.ok) {
-      sendError(res, workspaceError(result.error), statusFor(result.error.cls));
-      return;
-    }
-    externalAnnounced.delete(projectId);
-    sendToProject(projectId, { type: 'workspace.resync' });
-    sendJson(res, 200, result);
-  };
-
-  // The silent-drop sweeper (60 s ⇒ close 1000 `heartbeat_timeout`).
-  const sweepIntervalMs = Math.max(250, (timeouts.silentDropSeconds * 1000) / 4);
-  sweepTimer = setInterval(() => {
-    const now = nowMs();
-    for (const s of sessions.all()) {
-      if (s.connected && s.socket !== null && now - s.lastActivityAt > timeouts.silentDropSeconds * 1000) {
-        try {
-          s.socket.close(1000, 'heartbeat_timeout');
-        } catch {
-          // already gone
-        }
-      }
-    }
-  }, sweepIntervalMs);
-
   // The prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
   const playBuild = createPlayBuildCache(config.previewStaticDir);
   const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay: warmPlayBuild } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported, textureSlots });
@@ -1485,12 +1153,6 @@ export function createBackend(
   previewServer.on('request', (req, res) => {
     dispatchPreview(req, res);
   });
-
-  // External edits: while an editor is connected, compare its project's
-  // envelope on disk with what this backend wrote. A change pauses writes and
-  // is announced once; the editor resolves it (accept / discard).
-  const externalAnnounced = new Set<string>();
-
 
   const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
 
@@ -1528,21 +1190,12 @@ export function createBackend(
         closed = true;
         checks.dispose();
         void headless.dispose();
-        if (sweepTimer !== undefined) clearInterval(sweepTimer);
-        clearInterval(externalTimer);
+        channel.stopSweep();
+        external.dispose();
         plays.dispose();
         contentRoutes.dispose();
         playContent.dispose();
-        for (const s of sessions.all()) {
-          if (s.connected && s.socket !== null) {
-            try {
-              s.socket.close(1001, 'server_closing');
-            } catch {
-              // already gone
-            }
-          }
-        }
-        wss.close(() => {
+        channel.close(() => {
           authoringServer.close(() => {
             previewServer.close(() => {
               service.close();
