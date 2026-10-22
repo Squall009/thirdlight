@@ -1,6 +1,6 @@
 # Phase 39 — See-through around subjects
 
-Status: planned 2026-10-21.
+Status: **done 2026-10-22, owner look pending** (full gate GREEN at `bc7edff0`, review fixed in 39.9; D297 open).
 
 Goal: anything between the camera and a subject (a player, a unit) dithers
 away in a soft circle around that subject. The rest of the scene stays drawn,
