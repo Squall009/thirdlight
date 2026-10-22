@@ -36,7 +36,6 @@ import {
   type EntityV3,
   type PrefabDefinition,
   type RuntimeUiDocumentRow,
-  MAX_TRANSITION_FADE,
 } from '@thirdlight/project-model';
 import {
   neutralFrame,
@@ -52,6 +51,7 @@ import {
 import { clipMessage, type RuntimeError } from './errors';
 import { RuntimeSim, cloneCurr, cloneTransform, messageOf, ownerSetOf, type ModuleEntry, type PhaseViews } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
+import { RuntimeScenes } from './runtime-scenes';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { queueUiEventChecked, uiControlOf } from './ui-control';
@@ -60,7 +60,7 @@ import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
 import { ModeState, type ModeView } from './modes';
 import type { BehaviorDebugView, BehaviorPropertyView } from './behavior';
-import { offsetEntities, type LiveTagIndex } from './scene-set';
+import { type LiveTagIndex } from './scene-set';
 import { ColliderSystem } from './collider-system';
 import {
   BehaviorIntentError,
@@ -94,12 +94,12 @@ import type { ClimbQuery, ScriptStop } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
-import { arrivalProblem, playersArrive } from './arriving-players';
+import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME } from './blocks';
+import { playersArrive } from './arriving-players';
 import { createGameControl } from './game-control';
 import { SpawnScenes } from './spawn-scenes';
 import { createShellControl, deprecatedEngineActionLine } from './scene-list';
-import { createSceneControl, FADE_COLOR_RE, LIFECYCLE_RESTART_DEPRECATED, loadOp, sceneRequestProblem, type SceneOp, type SceneRequestHost, type TransitionSpec } from './scene-control';
+import { LIFECYCLE_RESTART_DEPRECATED, loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { SpawnRequests } from './spawn-requests';
 import { FrameClock } from './frame-clock';
@@ -110,15 +110,12 @@ import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
   type BehaviorMessage,
-  type BehaviorSceneControl,
   type BehaviorSpawnControl,
   type CameraInfo,
-  type DiagnosticErrorEntry,
   type RuntimeSceneRow,
   type SceneLoadOptions,
   type SceneLoadRequest,
   type SceneSetView,
-  type SceneStatus,
   type EffectRequest,
   type DecalRequest,
   type GameplaySettings,
@@ -129,7 +126,6 @@ import {
   type ModuleResetContext,
   type Runtime,
   type RuntimeDiagnostics,
-  type RuntimeStateName,
   type SimEntityData,
   type SimState,
   type SimulationModule,
@@ -141,6 +137,10 @@ import {
   type DebugCommandState,
   type BehaviorUi,
 } from './types';
+
+
+
+
 
 /** The pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
 export interface HeldPointer extends PointerSample {
@@ -262,29 +262,6 @@ export interface RuntimeArgs {
   environmentPresets: readonly string[];
 }
 
-/** One loaded scene inside the runtime. */
-interface SceneBatchState {
-  sceneId: string;
-  start: boolean;
-  entities: readonly EntityV3[];
-  ids: ReadonlySet<string>;
-  /** Its objects that put a collider in the physics world (the player's excluded). */
-  colliderIds: readonly string[];
-}
-
-/** The objects of a list that put a collider in the physics world (the player's excluded). */
-function colliderIdsOf(entities: readonly EntityV3[]): string[] {
-  return entities.filter((e) => (e.components as unknown as Record<string, unknown>)['collider'] !== undefined && (e.components as unknown as Record<string, unknown>)['controller'] === undefined).map((e) => e.id);
-}
-
-/**
- * The time a step boundary spends preparing loaded scenes'
- * entities (copying and freezing them) before it attaches them; a large
- * scene is prepared over several steps and attached in one.
- */
-const SCENE_PREP_BUDGET_MS = 4;
-const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 
 export class RuntimeInstance implements Runtime {
@@ -292,6 +269,8 @@ export class RuntimeInstance implements Runtime {
   private readonly sim: RuntimeSim;
   /** Errors, Problems lines and the fail-stop. */
   private readonly faults: RuntimeFaults;
+  /** The loaded scene set, scene requests, transitions and the scene list. */
+  private readonly scenes: RuntimeScenes;
   /** The step's transforms (integration tests that follow a run step by step read them off the instance). */
   get curr(): ReadonlyMap<string, TransformState> {
     return this.sim.curr;
@@ -350,12 +329,6 @@ export class RuntimeInstance implements Runtime {
   private frozenOrderCopy: readonly string[] = Object.freeze([]);
   /** Accepted intents committed in this runtime instance. */
   private intentCommitCount = 0;
-  /** The behavior-log ring sink bound to this instance. */
-  private readonly logSink: BehaviorLogSink;
-  // ---- Scene set ---------------------------------------------------------
-  /** Every scene of the project (null: one fixed scene, no scene API). */
-  private readonly sceneRows: readonly RuntimeSceneRow[] | null;
-  private startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
   /** The scripts' saved values (ctx.save; kept across restarts). */
   private readonly saveStore = new Map<string, unknown>();
   /** Paused — frames render and call onFrame, no steps run. */
@@ -380,33 +353,6 @@ export class RuntimeInstance implements Runtime {
   /** Restarts applied in this play (a tool tells the restarted run from the one it asked to restart). */
   private runNumber = 0;
   private runSpawnBase = 0;
-  /** Loaded scenes, in load order. */
-  private batches = new Map<string, SceneBatchState>();
-  private sceneStatus = new Map<string, SceneStatus>();
-  /** Loads requested and not yet handed to the host. */
-  private requestedLoads = new Map<string, { at?: readonly [number, number, number] }>();
-  /** Loads the host is fetching. */
-  private fetchingLoads = new Map<string, { at?: readonly [number, number, number] }>();
-  /** Fetched scenes waiting for the next step boundary. */
-  private readyLoads = new Map<string, readonly EntityV3[]>();
-  /** Fetched scenes being prepared (copied and frozen, a budget per step boundary) before they attach. */
-  private preparedLoads = new Map<string, { readonly out: EntityV3[]; next: number }>();
-  private pendingUnloads = new Set<string>();
-  /** Loaded scenes whose objects return as authored at the next boundary (`ctx.scenes.reload`). */
-  private readonly pendingReloads = new Set<string>();
-  /**
-   * Transitions waiting for their scene (keyed by it): the
-   * scenes they unload stay loaded (and drawn) until it is in, then both
-   * happen at one step boundary. `outLeft`: steps of fade-out still to go.
-   */
-  private transitions = new Map<string, TransitionSpec & { readonly fadeSteps: number; outLeft: number }>();
-  /** The last swap a transition made (the page fades back in once it drew that revision). */
-  private lastSwap: { readonly scene: string; readonly revision: number; readonly seconds: number; readonly color: string } | null = null;
-  private loadingViewCache: { key: string; view: import('./types').SceneLoadingView } | null = null;
-  /** Scene ops issued during the running step (committed with it). */
-  private stepSceneOps: SceneOp[] = [];
-  private sceneRevision = 0;
-  private sceneSetCache: SceneSetView | null = null;
   private readonly liveTags: LiveTagIndex | null;
   /** The tag index 3D queries filter by. */
   private readonly queryTags: LiveTagIndex | null;
@@ -441,10 +387,6 @@ export class RuntimeInstance implements Runtime {
   private runStartDue = true;
   /** Respawns, arrivals, a save's placement and script placements of each player controller, and the way it faces. */
   private readonly placement: ControllerPlacements;
-  /** The shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
-  private readonly sceneList: readonly import('./types').ListedScene[];
-  private listedScene: number | null = null;
-  private pendingListedScene: number | null = null;
   /** The event → cue table (empty: no event sounds). */
   private readonly eventCues: readonly import('./types').RuntimeEventCue[];
   private readonly lifecycleControl: import('./types').BehaviorLifecycle;
@@ -539,10 +481,10 @@ export class RuntimeInstance implements Runtime {
   private readonly climbQuery: ClimbQuery = Object.freeze({ volume: (entityId?: string) => this.blocks?.climbVolume(entityId) ?? null });
   /** Placements, walks, turns, impulses and a cutscene's hold on the player controllers (`ctx.character`, the character track). */
   private readonly director = new CharacterDirector({
-    is3D: () => this.sim.physics3d !== undefined, hz: () => this.sim.hz, settings: () => this.sim.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.sim.curr.get(id), entityDocument: (id) => this.entityDocument(id),
+    is3D: () => this.sim.physics3d !== undefined, hz: () => this.sim.hz, settings: () => this.sim.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.sim.curr.get(id), entityDocument: (id) => this.scenes.entityDocument(id),
     channels: (id) => this.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
     canPlace: () => this.sim.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
-    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => [...this.sceneStatus.values()].includes('loading') || this.stepSceneOps.some((op) => op.op === 'load' || op.op === 'reload'), moveAction: (id) => this.controllers.actionsOf(id)?.move,
+    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => this.scenes.anyLoading(), moveAction: (id) => this.controllers.actionsOf(id)?.move,
   });
   /** Per-object look overrides (`ctx.look`; the renderer applies them). */
   private readonly lookControl = Object.freeze({
@@ -588,8 +530,6 @@ export class RuntimeInstance implements Runtime {
 
   /** Kept objects (`keepLoaded`): they survive their scene's unload, reload and a save's scene changes. */
   private readonly kept = new KeptObjects();
-  private readonly sceneControl: BehaviorSceneControl;
-  private readonly sceneControlHost: SceneRequestHost;
   // ---- Spawned prefab copies ----
   private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
   /** The live spawned entities, in spawn order (parents before children). */
@@ -641,39 +581,36 @@ export class RuntimeInstance implements Runtime {
       parentOf: (id) => rt.sim.parentOf(id),
       inactive: () => rt.entityAccess.inactive(),
       ownedIds: () => rt.sim.entries.flatMap((entry) => entry.owners),
-      componentsOf: (id) => rt.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
+      componentsOf: (id) => rt.scenes.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
       warn: (message) => rt.faults.log('thirdlight.runtime:colliders', 'warn', message),
     }, args.modelColliders);
     if (args.physics3d !== undefined) this.colliders.track(args.initialEntities);
     const loopHost = { running: () => this.sim.stateName === 'running', clock: () => this.clock(), runFrame: (t: number) => this.runFrame(t) };
     this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
     this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
-    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.sceneStatus.get(sceneId) === 'loading');
-    this.logSink = args.logSink;
+    this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.scenes.isLoading(sceneId));
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.faults.log(moduleId, level, message, at);
     args.logSink.stopped = (moduleId, stop) => this.faults.scriptStopped(moduleId, stop);
-    this.sceneRows = args.sceneRows;
     this.liveTags = args.liveTags;
     this.queryTags = args.queryTags;
-    this.startBatchSource = new Map(args.startBatches.map((b) => [b.sceneId, b.entities]));
     this.kept.add(args.initialEntities);
-    if (args.sceneRows !== null) {
-      for (const row of args.sceneRows) this.sceneStatus.set(row.sceneId, 'unloaded');
-      for (const b of args.startBatches) {
-        this.batches.set(b.sceneId, { sceneId: b.sceneId, start: true, entities: Object.freeze(b.entities), ids: new Set(b.entities.map((e) => e.id)), colliderIds: colliderIdsOf(b.entities) });
-        this.sceneStatus.set(b.sceneId, 'loaded');
-      }
-    }
-    this.sceneControlHost = {
-      hasCatalog: () => this.sceneRows !== null,
-      status: (sceneId) => this.sceneStatus.get(sceneId),
-      loaded: () => [...this.batches.keys()],
-      loadingView: () => this.sceneLoadingView(),
-      activeScene: () => this.environment.activeScene(),
-      push: (op) => void this.stepSceneOps.push(op),
-    };
-    this.sceneControl = createSceneControl(this.sceneControlHost);
+    this.scenes = new RuntimeScenes(this.sim, this.faults, {
+      kept: this.kept,
+      get colliders() { return rt.colliders; },
+      get grid() { return rt.grid; },
+      get controllers() { return rt.controllers; },
+      get placement() { return rt.placement; },
+      get environment() { return rt.environment; },
+      sceneSoundsGone: (sceneId) => rt.audio.sceneGone(sceneId),
+      spawned: () => rt.spawnedEntities,
+      attach: (frozen) => rt.attachEntities(frozen),
+      detach: (ids, colliderIds, what, how) => rt.detachEntities(ids, colliderIds, what, how),
+      playersArrive: (frozen, placeReturning) => rt.playersArrive(frozen, placeReturning),
+      notifyLoaded: (frozen) => rt.notifyLoaded(frozen),
+      removeSpawned: (ids) => rt.removeSpawnedIds(ids),
+      copiesOf: (sceneId) => rt.spawnScenes.copiesOf(sceneId, (id) => rt.kept.has(id)),
+    }, args.sceneRows, args.startBatches, args.sceneList ?? []);
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnRequests = new SpawnRequests({
       prefabs: this.prefabs,
@@ -698,7 +635,7 @@ export class RuntimeInstance implements Runtime {
       args.modelColliders,
       () => worldStreamSources(this.views.main.hasView() ? this.views.main.view() : null, this.controllers.ids, (id) => this.sim.curr.get(id)?.position),
       args.architectureStyles,
-      (id) => this.sceneOfEntity(id),
+      (id) => this.scenes.sceneOf(id),
     );
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d, args.physics);
@@ -706,7 +643,7 @@ export class RuntimeInstance implements Runtime {
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
     this.entityAccess = this.buildEntityAccess();
-    this.shellControl = createShellControl({ listedIndex: () => rt.listedSceneIndex(), count: () => rt.sceneList.length, goTo: (i) => void (rt.pendingListedScene = i), problem: (code, message) => rt.faults.problem(code, message) });
+    this.shellControl = createShellControl({ listedIndex: () => rt.scenes.listedIndex(), count: () => rt.scenes.list.length, goTo: (i) => rt.scenes.requestListed(i), problem: (code, message) => rt.faults.problem(code, message) });
     this.materials.addEntities(args.initialEntities);
     // The environment preset blend (before the saves, whose sections read it).
     // The first start scene is the active one (its look is the base look).
@@ -729,7 +666,7 @@ export class RuntimeInstance implements Runtime {
     this.animators.add(args.initialEntities);
     // The audio intent log (clip lengths from the snapshot's recorded durations).
     this.audio = new AudioMixer(this.sim.hz, args.audioDurations, () => this.sim.stepIndex);
-    this.audioControl = createScriptAudio(this.audio, (id) => this.sceneOfEntity(id));
+    this.audioControl = createScriptAudio(this.audio, (id) => this.scenes.sceneOf(id));
     // The views and the start set's shots.
     this.views = new RuntimeViews(this.sim.hz, args.viewLens, {
       worldOf: (id, position, rotation) => this.worldTransformOf(id, position, rotation),
@@ -772,7 +709,6 @@ export class RuntimeInstance implements Runtime {
     this.noteBehaviorGroups(args.initialEntities);
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
-    this.sceneList = args.sceneList ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
     // (the characters are the player controllers' objects in both dimensions).
     this.blocks = new GameplayBlocks(
@@ -788,7 +724,7 @@ export class RuntimeInstance implements Runtime {
         // The 3D world (movers posed on it, triggers in 3D).
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.colliders.poses() } : {}),
         // A trigger's scene transition.
-        sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
+        sceneTransition: (triggerId, t) => rt.scenes.beginTransition(triggerId, t),
         effect: (r) => void rt.presentation.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
       },
       args.initialEntities,
@@ -992,6 +928,12 @@ export class RuntimeInstance implements Runtime {
     return this.saves.settingsNow();
   }
 
+  /** Where the play stands in a save: the loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
+  private captureWorld(): WorldSave {
+    const at = this.scenes.capture();
+    return { scenes: at.scenes, activeSpawn: this.activeSpawn, listedScene: at.listedScene, ...this.placement.capture() };
+  }
+
   /** The engine state a save document's sections capture and restore (read when a save is made: the parts exist by then). */
   private buildSaveSections(): SaveSectionsPort {
     const rt = this;
@@ -1001,7 +943,7 @@ export class RuntimeInstance implements Runtime {
       get saveStore() { return rt.saveStore; },
       get dialogue() { return rt.dialogue; },
       get environment() { return rt.environment; },
-      sceneLoaded: (sceneId) => rt.batches.has(sceneId),
+      sceneLoaded: (sceneId) => rt.scenes.isLoaded(sceneId),
       get entityAccess() { return rt.entityAccess; },
       blocks: () => rt.blocks,
       spawnedCopies: () => rt.spawnRequests.savedCopies(),
@@ -1009,8 +951,14 @@ export class RuntimeInstance implements Runtime {
       restoreSpawnedCopies: (copies) => rt.spawnRequests.restore(copies),
       syncLive: () => void rt.syncLiveBlocks(),
       captureWorld: () => rt.captureWorld(),
-      worldProblem: (world) => rt.worldProblem(world),
-      applyWorld: (world) => rt.applyWorld(world),
+      worldProblem: (world) => rt.scenes.worldProblem(world),
+      // The saved scenes and spawn; the character is placed once the scenes are in and gets its saved velocity back.
+      applyWorld: (world) => {
+        rt.scenes.restore(world);
+        rt.activeSpawn = world.activeSpawn;
+        rt.placement.restoreFrom(world);
+        rt.director.saveLoaded();
+      },
     });
   }
 
@@ -1134,7 +1082,7 @@ export class RuntimeInstance implements Runtime {
   private buildEntityAccess(): EntityAccess {
     const rt = this;
     return new EntityAccess({
-      doc: (id) => rt.entityDocument(id),
+      doc: (id) => rt.scenes.entityDocument(id),
       stepStartTransform: (id) => rt.sim.stepStart?.get(id) ?? rt.sim.curr.get(id),
       get curr() {
         return rt.sim.curr;
@@ -1162,7 +1110,7 @@ export class RuntimeInstance implements Runtime {
       },
       materialIds: () => rt.materialIds,
       materialsSwapped: (id, swap) => {
-        const doc = rt.entityDocument(id);
+        const doc = rt.scenes.entityDocument(id);
         if (doc !== undefined) rt.materials.remap(doc, swap);
       },
       inactiveChanged: (off, on) => rt.onInactiveChanged(off, on),
@@ -1424,12 +1372,6 @@ export class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** The loaded scene holding an object (undefined: none — a spawned copy). */
-  private sceneOfEntity(entityId: string): string | undefined {
-    for (const b of this.batches.values()) if (b.ids.has(entityId)) return b.sceneId;
-    return undefined;
-  }
-
   getCamera(): { ok: true; camera: CameraInfo } | { ok: false; error: RuntimeError } {
     if (this.sim.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
@@ -1441,26 +1383,11 @@ export class RuntimeInstance implements Runtime {
   // ---- Scene set ---------------------------------------------------------
 
   sceneSet(): SceneSetView {
-    if (this.sceneSetCache === null) {
-      this.sceneSetCache = Object.freeze({
-        revision: this.sceneRevision,
-        batches: Object.freeze([...this.batches.values()].map((b) => Object.freeze({ sceneId: b.sceneId, start: b.start, entities: b.entities }))),
-        status: Object.freeze(Object.fromEntries(this.sceneStatus)),
-        // Kept objects whose scene went are scene-less, as spawned copies are.
-        spawned: Object.freeze([...this.spawnedEntities.values(), ...this.kept.orphanList()]),
-      });
-    }
-    return this.sceneSetCache;
+    return this.scenes.view();
   }
 
   takeSceneRequests(): SceneLoadRequest[] {
-    const out: SceneLoadRequest[] = [];
-    for (const [sceneId, req] of this.requestedLoads) {
-      this.fetchingLoads.set(sceneId, req);
-      out.push(Object.freeze({ sceneId, ...(req.at !== undefined ? { at: req.at } : {}) }));
-    }
-    this.requestedLoads.clear();
-    return out;
+    return this.scenes.takeRequests();
   }
 
   provideScene(
@@ -1468,45 +1395,32 @@ export class RuntimeInstance implements Runtime {
     result: { ok: true; entities: readonly EntityV3[] } | { ok: false; message: string },
   ): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    // A load cancelled while it was fetched (an unload, a replay) is dropped.
-    if (!this.fetchingLoads.has(sceneId)) return { ok: true };
-    if (!result.ok) {
-      this.fetchingLoads.delete(sceneId);
-      // A transition to a scene that could not be read keeps the world it has.
-      this.transitions.delete(sceneId);
-      this.setSceneStatus(sceneId, 'unloaded');
-      this.faults.record({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.sim.stepIndex, reason: 'fetch' });
-      return { ok: true };
-    }
-    this.readyLoads.set(sceneId, result.entities);
+    this.scenes.provide(sceneId, result);
     return { ok: true };
   }
 
   requestScene(op: 'load' | 'unload', sceneId: string, options?: SceneLoadOptions): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const problem = this.sceneOpProblem(op, sceneId, options);
+    const problem = this.scenes.opProblem(op, sceneId, options);
     if (problem !== null) return { ok: false, error: fail('scene_invalid', problem, { reason: op }) };
-    this.enqueueSceneOp(op === 'load' ? loadOp(sceneId, options) : { op, sceneId });
+    this.scenes.enqueue(op === 'load' ? loadOp(sceneId, options) : { op, sceneId });
     return { ok: true };
   }
 
+  /** Why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
+  sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
+    if (this.sim.stateName === 'disposed') return 'runtime is disposed';
+    return this.scenes.opProblem(op, sceneId);
+  }
 
   /** The scenes being loaded, the transition waiting and the last swap (unchanged views are the same object). */
   sceneLoadingView(): import('./types').SceneLoadingView {
-    const loading: string[] = [];
-    for (const [id, st] of this.sceneStatus) if (st === 'loading') loading.push(id);
-    let transition: import('./types').SceneTransitionView | null = null;
-    for (const [scene, t] of this.transitions) {
-      if (this.sceneStatus.get(scene) !== 'loading') continue;
-      const fade = t.fadeSteps === 0 ? 1 : Math.round((1 - t.outLeft / t.fadeSteps) * 1000) / 1000;
-      transition = { scene, phase: t.outLeft > 0 ? 'out' : 'loading', fade, seconds: t.fade, color: t.color, unload: t.unload };
-      break;
-    }
-    const key = `${loading.join(',')}|${transition === null ? '' : `${transition.scene}:${transition.phase}:${transition.fade}`}|${this.lastSwap?.revision ?? -1}`;
-    if (this.loadingViewCache !== null && this.loadingViewCache.key === key) return this.loadingViewCache.view;
-    const view = deepFreeze({ loading, transition, swap: this.lastSwap === null ? null : { ...this.lastSwap } });
-    this.loadingViewCache = { key, view };
-    return view;
+    return this.scenes.loadingView();
+  }
+
+  /** The shell's scene list entry the run is at (-1: none). */
+  listedSceneIndex(): number {
+    return this.scenes.listedIndex();
   }
 
   /**
@@ -1517,7 +1431,7 @@ export class RuntimeInstance implements Runtime {
    */
   requestArrival(sceneId: string, spawnId: string): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.sim.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    if (!this.sceneStatus.has(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
+    if (!this.scenes.known(sceneId)) return { ok: false, error: fail('scene_invalid', `unknown scene ${JSON.stringify(String(sceneId).slice(0, 64))}`, { reason: 'transfer' }) };
     this.placement.arriveAt(spawnId, sceneId);
     return { ok: true };
   }
@@ -1620,7 +1534,7 @@ export class RuntimeInstance implements Runtime {
       // Scene loads/unloads still apply (a paused game's menu may
       // show another scene — the title background); this is the same step
       // boundary the next step would apply them at, so runs replay alike.
-      if (!this.applySceneOps(false)) return;
+      if (!this.scenes.applyOps(false)) return;
       clock.anchorAt(t, this.sim.simTime);
       this.onFrame?.();
       return;
@@ -1659,13 +1573,13 @@ export class RuntimeInstance implements Runtime {
   /** One fixed M1 step (with module isolation). */
   private stepOnce(): boolean {
     // Scene loads/unloads requested by the host apply here too.
-    if (!this.applySceneOps()) return true;
+    if (!this.scenes.applyOps()) return true;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
     if (!this.placement.atBoundary(this.sim.stepIndex + 1)) return false;
     // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.sim.stepIndex + 1)) return false;
     if (this.runStartDue && !this.startRun()) return false;
-    if (this.pendingListedScene !== null) this.goToListedScene();
+    this.scenes.goToListed();
     if (!this.syncLiveBlocks()) return false;
     this.modes.beginStep(this.sim.stepIndex + 1);
     this.grid.beginStep(this.sim.stepIndex + 1);
@@ -1790,7 +1704,7 @@ export class RuntimeInstance implements Runtime {
     const ordinal = stepIndex + 1; // the 1-based executed-step index (fixtures)
     // Scene unloads/loads take effect at the step boundary,
     // before the arrivals (a spawn may be in a scene that just loaded).
-    if (!this.applySceneOps()) return false;
+    if (!this.scenes.applyOps()) return false;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
     if (!this.placement.atBoundary(ordinal)) return false;
     // The spawns and destroys the last step requested, in order.
@@ -1800,12 +1714,12 @@ export class RuntimeInstance implements Runtime {
     // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.runStartDue && !this.startRun()) return false;
-    if (this.pendingListedScene !== null) this.goToListedScene();
+    this.scenes.goToListed();
     if (!this.syncLiveBlocks()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
     if (!this.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
-    if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
+    this.scenes.beginStep();
     this.grid.beginStep(ordinal);
     this.materials.beginStep(ordinal);
     this.saves.beginStep();
@@ -1916,10 +1830,7 @@ export class RuntimeInstance implements Runtime {
     // Attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
     this.stepSockets(this.sim.committed);
     // The step's scene requests commit with it.
-    if (this.stepSceneOps.length > 0) {
-      for (const op of this.stepSceneOps) this.enqueueSceneOp(op);
-      this.stepSceneOps = [];
-    }
+    this.scenes.commitStep();
     return true;
   }
 
@@ -2112,7 +2023,7 @@ export class RuntimeInstance implements Runtime {
     // A new run — its steps count from here (tools compare a run with its replay by run step).
     this.runStartStep = ordinal - 1;
     this.runNumber += 1;
-    this.listedScene = null;
+    this.scenes.newRun();
     // A save's placement, scripts' impulses and a spawn facing do not outlive the run.
     this.placement.restartRun();
     this.director.reset();
@@ -2124,7 +2035,7 @@ export class RuntimeInstance implements Runtime {
     this.presentation.restartRun();
     // The scripts start over knowing no handle: those still open are released (and reported).
     this.assetHandles.endRun();
-    if (!this.restoreStartSet()) return false;
+    if (!this.scenes.restoreStartSet()) return false;
     for (const [id, data] of this.sim.entities) {
       const t = this.sim.curr.get(id);
       if (t === undefined) continue;
@@ -2178,112 +2089,6 @@ export class RuntimeInstance implements Runtime {
     return true;
   }
 
-  // ---- Scene transitions -------------------------------------------------
-
-  /**
-   * A trigger's scene transition (the character entered it): its unloads and
-   * its load are queued like `ctx.scenes` calls, and the character moves to
-   * the spawn once the scene is loaded, at the next step boundary after the
-   * load (the character placement's arrival).
-   */
-  private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
-    // The unloads wait for the scene (they leave in the step it arrives), so the view is never empty.
-    const unload: string[] = [];
-    for (const sceneId of t.unload) {
-      const problem = sceneId === t.scene ? `it unloads the scene it loads (${JSON.stringify(sceneId)})` : this.sceneOpProblem('unload', sceneId);
-      if (problem !== null) {
-        this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.sim.stepIndex, reason: 'unload' });
-        continue;
-      }
-      unload.push(sceneId);
-    }
-    const problem = this.sceneOpProblem('load', t.scene);
-    if (problem !== null) {
-      this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene transition "${triggerId}": ${problem}`), stepIndex: this.sim.stepIndex, reason: 'load' });
-      // Nothing to wait for: the unloads go as before.
-      for (const sceneId of unload) this.enqueueSceneOp({ op: 'unload', sceneId });
-      return;
-    }
-    const fade = t.fade !== undefined && Number.isFinite(t.fade) ? Math.max(0, Math.min(MAX_TRANSITION_FADE, t.fade)) : 0;
-    const color = t.fadeColor !== undefined && FADE_COLOR_RE.test(t.fadeColor) ? t.fadeColor : '#000000';
-    this.enqueueSceneOp({ op: 'load', sceneId: t.scene, transition: Object.freeze({ unload: Object.freeze(unload), fade, color }) });
-    if (t.spawn === null) return;
-    this.placement.arriveAt(t.spawn, t.scene);
-  }
-
-  /**
-   * Move to an entry of the shell's scene list (a `scene` UI
-   * event, at a step boundary): the previous listed scene is unloaded unless
-   * it is a start scene or the same scene; the entry's scene is loaded when
-   * it is not; the character moves to the entry's spawn once it is (as a
-   * trigger's scene transition). At a new run the run is at the first entry
-   * whose scene is a start scene (else none).
-   */
-  private goToListedScene(): void {
-    const index = this.pendingListedScene!;
-    this.pendingListedScene = null;
-    const entry = Number.isInteger(index) ? this.sceneList[index] : undefined;
-    if (entry === undefined) {
-      this.faults.record({ code: 'scene_invalid', message: clipMessage(`the scene list has no entry ${String(index)}`), stepIndex: this.sim.stepIndex, reason: 'load' });
-      return;
-    }
-    if (this.listedScene === null) this.listedScene = this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
-    const prev = this.listedScene >= 0 ? this.sceneList[this.listedScene] : undefined;
-    this.listedScene = index;
-    const unload = prev !== undefined && prev.scene !== entry.scene && !this.startBatchSource.has(prev.scene) && this.batches.has(prev.scene) ? [prev.scene] : [];
-    if (!this.batches.has(entry.scene) && this.sceneStatus.get(entry.scene) !== 'loading') {
-      this.beginSceneTransition(`scene list ${index}`, { scene: entry.scene, spawn: entry.spawn ?? null, unload, ...(entry.fade !== undefined ? { fade: entry.fade } : {}), ...(entry.fadeColor !== undefined ? { fadeColor: entry.fadeColor } : {}) });
-      return;
-    }
-    for (const sceneId of unload) {
-      const problem = this.sceneOpProblem('unload', sceneId);
-      if (problem === null) this.enqueueSceneOp({ op: 'unload', sceneId });
-    }
-    if (entry.spawn !== undefined) this.placement.arriveAt(entry.spawn, entry.scene);
-  }
-
-  /** The shell's scene list entry the run is at (-1: none). */
-  listedSceneIndex(): number {
-    return this.listedScene ?? this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
-  }
-
-  // ---- Where the play stands in a save --------------------------------
-
-  /** The loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
-  private captureWorld(): WorldSave {
-    return { scenes: [...this.batches.keys()], activeSpawn: this.activeSpawn, listedScene: this.listedSceneIndex(), ...this.placement.capture() };
-  }
-
-  /** Why a saved world cannot be restored in this game (null: it can). */
-  private worldProblem(world: WorldSave): string | null {
-    if (this.sceneRows === null) return null;
-    for (const sceneId of world.scenes) if (!this.sceneStatus.has(sceneId)) return `the save names scene "${sceneId}", which this game does not have`;
-    if (world.listedScene >= this.sceneList.length) return `the save is at scene list entry ${world.listedScene}; the list has ${this.sceneList.length}`;
-    return null;
-  }
-
-  /**
-   * Restore where the play stood: scenes not in the save are unloaded (the
-   * start set's pinned ones stay), the saved ones loaded; the spawn and the
-   * scene list entry are the saved ones; the character is placed at its saved
-   * position once the scenes are in and gets its saved velocity back (as an
-   * impulse for its next controller phase).
-   */
-  private applyWorld(world: WorldSave): void {
-    if (this.sceneRows !== null) {
-      const want = new Set(world.scenes);
-      for (const sceneId of [...this.batches.keys()]) {
-        if (want.has(sceneId) || this.sceneOpProblem('unload', sceneId) !== null) continue;
-        this.enqueueSceneOp({ op: 'unload', sceneId });
-      }
-      for (const sceneId of world.scenes) if (!this.batches.has(sceneId) && this.sceneOpProblem('load', sceneId) === null) this.enqueueSceneOp({ op: 'load', sceneId });
-    }
-    this.activeSpawn = world.activeSpawn;
-    this.listedScene = world.listedScene >= 0 ? world.listedScene : null;
-    this.placement.restoreFrom(world);
-    this.director.saveLoaded();
-  }
-
   /** The player controllers, the physics phase's view of the runtime. */
   private buildPlayerControllers(ids: readonly string[], entities: readonly EntityV3[]): PlayerControllers {
     const rt = this;
@@ -2316,14 +2121,14 @@ export class RuntimeInstance implements Runtime {
       is3D: () => rt.sim.physics3d !== undefined,
       controllerId: () => controllerId,
       transform: (id) => rt.sim.curr.get(id),
-      entityDocument: (id) => rt.entityDocument(id),
-      sceneLoading: (sceneId) => rt.sceneStatus.get(sceneId) === 'loading',
+      entityDocument: (id) => rt.scenes.entityDocument(id),
+      sceneLoading: (sceneId) => rt.scenes.isLoading(sceneId),
       setActiveSpawn: (spawnId) => {
         rt.activeSpawn = spawnId;
       },
       arrivalMissed: (message) => rt.faults.record({ code: 'scene_invalid', message: clipMessage(message), stepIndex: rt.sim.stepIndex, reason: 'transfer' }),
       isKept: (id) => rt.kept.has(id),
-      listedSpawnOf: (sceneId) => rt.sceneList.find((x) => x.scene === sceneId && x.spawn !== undefined)?.spawn,
+      listedSpawnOf: (sceneId) => rt.scenes.listedSpawnOf(sceneId),
       place3D: (x, y, z) => rt.controllers.place3D(controllerId, x, y, z),
       place2D: (x, y, ordinal) => rt.placeCharacter2D(controllerId, x, y, ordinal),
       faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
@@ -2337,15 +2142,6 @@ export class RuntimeInstance implements Runtime {
       lastMotion: () => rt.controllers.lastMotion(controllerId),
       hz: () => rt.sim.hz,
     });
-  }
-
-  /** A loaded entity's document (its components), or undefined. */
-  private entityDocument(id: string): EntityV3 | undefined {
-    for (const b of this.batches.values()) {
-      if (!b.ids.has(id)) continue;
-      return b.entities.find((e) => e.id === id);
-    }
-    return this.spawnedEntities.get(id) ?? this.kept.orphan(id);
   }
 
   /**
@@ -2526,13 +2322,13 @@ export class RuntimeInstance implements Runtime {
         // The run restart is a deprecated way to restart a level or start a new game: said once per Play.
         const line = deprecatedEngineActionLine(e.name);
         if (line !== null) this.faults.problem(line.code, line.message);
-      } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.sceneOpFromUi(e.kind, e.value);
+      } else if (e.kind === 'reload' || e.kind === 'load' || e.kind === 'unload') this.scenes.opFromUi(e.kind, e.value);
       else if (e.kind === 'hold') this.modes.setScreenHold(e.value === true);
     }
     // The scene list move comes after a restart of the same frame; the nextScene action's says it is deprecated (a new game's has its restart's line).
     for (const e of events) {
       if (e.kind !== 'scene' || typeof e.value !== 'number') continue;
-      this.pendingListedScene = e.value;
+      this.scenes.requestListed(e.value);
       const line = deprecatedEngineActionLine(e.name);
       if (line !== null) this.faults.problem(line.code, line.message);
     }
@@ -2650,187 +2446,6 @@ export class RuntimeInstance implements Runtime {
         writableOwners,
       }),
     });
-  }
-
-  // ---- Scene set internals ------------------------------------------------
-
-  private setSceneStatus(sceneId: string, status: SceneStatus): void {
-    this.sceneStatus.set(sceneId, status);
-    this.sceneSetCache = null;
-  }
-
-  /** Why a scene op cannot be requested (null: it can). */
-  /** Why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
-  sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
-    if (this.sim.stateName === 'disposed') return 'runtime is disposed';
-    return this.sceneOpProblem(op, sceneId);
-  }
-
-  private sceneOpProblem(op: 'load' | 'unload' | 'reload', sceneId: unknown, options?: SceneLoadOptions): string | null {
-    return sceneRequestProblem(this.sceneControlHost, op, sceneId, options);
-  }
-
-  /** Queue a validated op: loads go to the host, unloads and reloads wait for the next boundary; an activation applies now. */
-  private enqueueSceneOp(op: SceneOp): void {
-    const status = this.sceneStatus.get(op.sceneId);
-    if (op.op === 'reload') {
-      // A scene being loaded arrives as authored anyway; one not loaded loads; the last of unload and reload in a step wins.
-      if (status === 'loaded') {
-        this.pendingUnloads.delete(op.sceneId);
-        this.pendingReloads.add(op.sceneId);
-      } else if (status === 'unloaded') this.enqueueSceneOp({ op: 'load', sceneId: op.sceneId });
-      return;
-    }
-    if (op.op === 'activate') {
-      // Still loaded when the step commits (an unload earlier in the step wins).
-      if (status === 'loaded' && !this.pendingUnloads.has(op.sceneId)) this.environment.activate(op.sceneId, op.blend, op.easing);
-      return;
-    }
-    if (op.op === 'load') {
-      if (status === 'loaded') {
-        this.pendingUnloads.delete(op.sceneId); // load after unload in one step: stays loaded
-        // A transition to a scene that is in: its unloads go now (nothing to wait for).
-        for (const u of op.transition?.unload ?? []) if (u !== op.sceneId && this.sceneOpProblem('unload', u) === null) this.enqueueSceneOp({ op: 'unload', sceneId: u });
-        return;
-      }
-      // A transition waits for its scene (a later one for the same scene replaces it).
-      if (op.transition !== undefined) {
-        const fadeSteps = Math.round(op.transition.fade * this.sim.hz);
-        this.transitions.set(op.sceneId, { ...op.transition, fadeSteps, outLeft: fadeSteps });
-        this.loadingViewCache = null;
-      }
-      if (status === 'loading') return;
-      this.requestedLoads.set(op.sceneId, op.at !== undefined ? { at: op.at } : {});
-      this.setSceneStatus(op.sceneId, 'loading');
-      return;
-    }
-    if (status === 'loaded') {
-      this.pendingUnloads.add(op.sceneId);
-      this.pendingReloads.delete(op.sceneId);
-      return;
-    }
-    if (status === 'loading') {
-      this.requestedLoads.delete(op.sceneId);
-      this.fetchingLoads.delete(op.sceneId);
-      this.readyLoads.delete(op.sceneId);
-      this.preparedLoads.delete(op.sceneId);
-      this.transitions.delete(op.sceneId);
-      this.setSceneStatus(op.sceneId, 'unloaded');
-    }
-  }
-
-
-  /**
-   * The step boundary for scenes: pending unloads, then fetched loads.
-   * Returns `false` after a fail-stop (a module refused a loaded scene).
-   */
-  private applySceneOps(stepped = true): boolean {
-    if (this.sceneRows === null) return true;
-    if (this.pendingUnloads.size > 0) {
-      for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
-      this.pendingUnloads.clear();
-      // The active scene unloaded on its own: the first scene still loaded (in load order) is active, at once.
-      this.reactivateIfGone();
-    }
-    if (this.pendingReloads.size > 0) {
-      const reloads = [...this.pendingReloads];
-      this.pendingReloads.clear();
-      for (const sceneId of reloads) if (!this.reloadBatch(sceneId)) return false;
-    }
-    // Fade-outs advance one step per step (a paused game draws no fade: it is done at once).
-    for (const t of this.transitions.values()) {
-      if (t.outLeft === 0) continue;
-      t.outLeft = stepped ? t.outLeft - 1 : 0;
-      this.loadingViewCache = null;
-    }
-    if (this.readyLoads.size === 0) return true;
-    const deadline = nowMs() + SCENE_PREP_BUDGET_MS;
-    for (const [sceneId, entities] of [...this.readyLoads]) {
-      // Copy and freeze its entities within the step's budget (a large scene over several steps).
-      let prep = this.preparedLoads.get(sceneId);
-      if (prep === undefined) this.preparedLoads.set(sceneId, (prep = { out: [], next: 0 }));
-      while (prep.next < entities.length) {
-        prep.out.push(deepFreeze(structuredClone(entities[prep.next]!)));
-        prep.next += 1;
-        if ((prep.next & 63) === 0 && nowMs() > deadline) break;
-      }
-      if (prep.next < entities.length) continue;
-      const t = this.transitions.get(sceneId);
-      if (t !== undefined && t.outLeft > 0) continue; // the view fades out first
-      this.readyLoads.delete(sceneId);
-      this.preparedLoads.delete(sceneId);
-      const at = this.fetchingLoads.get(sceneId)?.at;
-      this.fetchingLoads.delete(sceneId);
-      // A transition's unloads leave in the step its scene arrives (never an empty world between).
-      let takesActive = false;
-      if (t !== undefined) {
-        this.transitions.delete(sceneId);
-        for (const u of t.unload) {
-          if (u === sceneId || !this.batches.has(u) || this.sceneOpProblem('unload', u) !== null) continue;
-          if (u === this.environment.activeScene()) takesActive = true;
-          this.removeBatch(u);
-        }
-      }
-      if (!this.addBatch(sceneId, offsetEntities(prep.out, at), false, at === undefined)) return false;
-      // The scene loaded in place of the active one is active: its look blends in over the transition's fade.
-      if (takesActive) {
-        if (this.batches.has(sceneId)) this.environment.activate(sceneId, t!.fade);
-        else this.reactivateIfGone();
-      }
-      if (t !== undefined) {
-        this.lastSwap = { scene: sceneId, revision: this.sceneRevision, seconds: t.fade, color: t.color };
-        this.loadingViewCache = null;
-      }
-    }
-    return true;
-  }
-
-  /**
-   * Add one scene. A scene that does not fit (duplicate ids, a start-only
-   * entity, colliders without a capable port) is refused: logged, left
-   * unloaded, the run continues. Returns `false` only after a fail-stop.
-   */
-  private addBatch(sceneId: string, all: readonly EntityV3[], start: boolean, prepared = false, placeReturning = !start): boolean {
-    const refuse = (why: string): boolean => {
-      this.setSceneStatus(sceneId, 'unloaded');
-      this.faults.record({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" was not loaded: ${why}`), stepIndex: this.sim.stepIndex, reason: 'refused' });
-      return true;
-    };
-    // A kept object of this scene that is still alive (the scene loaded again) is not brought a second time.
-    const { entities, skipped } = this.kept.arriving(all, (id) => this.sim.entities.has(id));
-    for (const e of entities) {
-      if (this.sim.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
-    }
-    const players = arrivalProblem(entities, this.controllers, this.sim.physics3d ?? this.sim.physics);
-    if (players !== null) return refuse(players);
-    // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
-    const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
-    const added = this.colliders.add(frozen, `scene "${sceneId}"`);
-    if (!added.ok && 'refused' in added) return refuse(added.refused);
-    if (!added.ok && 'failed' in added) {
-      this.faults.failStop('physics_port_error', 'scene_colliders', added.failed, this.sim.stepIndex);
-      return false;
-    }
-    const ids = new Set(frozen.map((e) => e.id));
-    this.kept.add(frozen);
-    this.attachEntities(frozen);
-    // The scene's block layers and their colliders (at this step boundary).
-    if (this.grid.addLayers(frozen).length > 0) {
-      try {
-        this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
-      } catch (e) {
-        this.faults.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.sim.stepIndex);
-        return false;
-      }
-    }
-    // Its kept objects that waited scene-less belong to it again (a restart keeping the scene keeps them).
-    const adopted = skipped.length > 0 ? this.kept.adopt(skipped) : [];
-    for (const e of adopted) ids.add(e.id);
-    this.batches.set(sceneId, { sceneId, start, entities: adopted.length > 0 ? Object.freeze([...frozen, ...adopted]) : frozen, ids, colliderIds: colliderIdsOf(frozen) });
-    this.setSceneStatus(sceneId, 'loaded');
-    this.sceneRevision += 1;
-    if (!start) this.placement.arriveAtListedSpawn(sceneId);
-    return this.playersArrive(frozen, placeReturning) && this.notifyLoaded(frozen);
   }
 
   /** Why a script cannot switch an object's keep flag now (null: it can). */
@@ -3022,70 +2637,6 @@ export class RuntimeInstance implements Runtime {
     this.audio.entitiesGone(ids);
   }
 
-  /** Remove one scene and release what belongs to it. */
-  /** The active scene is no longer loaded: the first scene still loaded (in load order) becomes active at once; none loaded keeps the look. */
-  private reactivateIfGone(): void {
-    const active = this.environment.activeScene();
-    if (active === null || this.batches.has(active)) return;
-    const next = this.batches.keys().next();
-    if (next.done !== true) this.environment.activate(next.value);
-  }
-
-  private removeBatch(sceneId: string, reloading = false): void {
-    const batch = this.batches.get(sceneId);
-    if (batch === undefined) return;
-    // Its kept objects stay (scene-less); the rest goes.
-    const ids = this.kept.leave(batch.entities);
-    this.detachEntities(ids, batch.colliderIds.filter((id) => ids.has(id)), `scene "${sceneId}"`, reloading ? 'reload' : 'unload');
-    // What a kept object named in the scene now reads as empty: said once (a reload brings it straight back).
-    const refs = reloading ? [] : this.kept.referencesTo(ids, (id) => this.entityDocument(id));
-    if (refs.length > 0) {
-      const list = refs.slice(0, 4).map((r) => `"${r.from}" → "${r.to}"`).join(', ');
-      const message = `kept objects name objects of the unloaded scene "${sceneId}" (${list}${refs.length > 4 ? ', …' : ''}): those references read as empty until something with the id is loaded again`;
-      this.faults.log('thirdlight.runtime:scenes', 'warn', message);
-      this.faults.problem('kept_reference_unloaded', message);
-    }
-    this.audio.sceneGone(sceneId);
-    // A pending arrival at a spawn of the unloaded scene is dropped.
-    this.placement.dropArrivalAt(ids);
-    this.batches.delete(sceneId);
-    this.setSceneStatus(sceneId, 'unloaded');
-    this.sceneRevision += 1;
-  }
-
-  /** The scene engine actions (reloadScene without a scene: the active one), checked like `ctx.scenes`, at the next boundary; a refusal is logged. */
-  private sceneOpFromUi(op: 'load' | 'unload' | 'reload', value: unknown): void {
-    const id = op === 'reload' && (value === undefined || value === '') ? this.environment.activeScene() : value;
-    const problem = id === null ? 'no scene is active' : this.sceneOpProblem(op, id);
-    if (problem !== null) return void this.faults.record({ code: 'scene_invalid', message: clipMessage(`${op}Scene: ${problem}`), stepIndex: this.sim.stepIndex, reason: op });
-    this.enqueueSceneOp({ op, sceneId: id as string });
-  }
-
-  /**
-   * `ctx.scenes.reload` at the boundary: the scene's objects leave and come
-   * back as authored (where it was loaded), their scripts start over from
-   * their reset hook (disposed and made again, no leave callbacks), the
-   * copies its objects spawned go and its sounds stop. Kept objects, other
-   * scenes, `ctx.save` and the counters are left as they are; a kept player
-   * arrives at the scene's listed spawn as on a load. Returns false after a
-   * fail-stop.
-   */
-  private reloadBatch(sceneId: string): boolean {
-    const batch = this.batches.get(sceneId);
-    if (batch === undefined) return true;
-    const problem = this.sceneOpProblem('reload', sceneId);
-    if (problem !== null) {
-      this.faults.record({ code: 'scene_invalid', message: clipMessage(`scene "${sceneId}" was not reloaded: ${problem}`), stepIndex: this.sim.stepIndex, reason: 'reload' });
-      return true;
-    }
-    this.removeSpawnedIds(this.spawnScenes.copiesOf(sceneId, (id) => this.kept.has(id)));
-    this.removeBatch(sceneId, true);
-    // Its players come back where it puts them.
-    if (!this.addBatch(sceneId, batch.entities, batch.start, true, true)) return false;
-    if (batch.start) this.placement.arriveAtListedSpawn(sceneId);
-    return true;
-  }
-
   // ---- Spawned prefab copies ------------------------------------
 
 
@@ -3105,7 +2656,7 @@ export class RuntimeInstance implements Runtime {
       // Spawned in the spawner's scene (a kept or scene-less spawner: none).
       const origin = op.origin;
       if (origin !== undefined && !this.kept.has(origin)) {
-        this.spawnScenes.record(op.entities.map((e) => e.id), this.sceneOfEntity(origin) ?? this.spawnScenes.sceneOf(origin));
+        this.spawnScenes.record(op.entities.map((e) => e.id), this.scenes.sceneOf(origin) ?? this.spawnScenes.sceneOf(origin));
       }
     }
     return true;
@@ -3148,8 +2699,7 @@ export class RuntimeInstance implements Runtime {
     this.kept.add(frozen);
     this.attachEntities(frozen);
     for (const e of frozen) this.spawnedEntities.set(e.id, e);
-    this.sceneRevision += 1;
-    this.sceneSetCache = null;
+    this.scenes.changed();
     return this.notifyLoaded(frozen);
   }
 
@@ -3169,8 +2719,7 @@ export class RuntimeInstance implements Runtime {
     for (const id of ids) this.spawnedEntities.delete(id);
     this.spawnScenes.removed(ids);
     this.spawnRequests.removed(ids);
-    this.sceneRevision += 1;
-    this.sceneSetCache = null;
+    this.scenes.changed();
   }
 
   /**
@@ -3181,41 +2730,6 @@ export class RuntimeInstance implements Runtime {
   private clearSpawned(): void {
     this.removeSpawnedIds(new Set(this.spawnedEntities.keys()));
     this.spawnRequests.clear();
-  }
-
-  /** A replay starts from the start scenes again: others unloaded, unloaded start scenes restored. */
-  private restoreStartSet(): boolean {
-    if (this.sceneRows === null) return true;
-    for (const b of [...this.batches.values()]) if (!b.start) this.removeBatch(b.sceneId);
-    // The kept objects whose scene went go too: their start scenes bring them back.
-    const orphans = this.kept.takeOrphans();
-    if (orphans.size > 0) {
-      const colliders = [...orphans].filter((id) => this.colliders.has(id) || this.sim.entities.get(id)?.hasCollider === true);
-      this.detachEntities(orphans, colliders, 'kept objects');
-      this.sceneRevision += 1;
-      this.sceneSetCache = null;
-    }
-    for (const sceneId of [...this.requestedLoads.keys(), ...this.fetchingLoads.keys(), ...this.readyLoads.keys()]) {
-      if (!this.startBatchSource.has(sceneId)) this.setSceneStatus(sceneId, 'unloaded');
-    }
-    this.requestedLoads.clear();
-    this.fetchingLoads.clear();
-    this.readyLoads.clear();
-    this.preparedLoads.clear();
-    this.pendingUnloads.clear();
-    this.pendingReloads.clear();
-    // Transitions and their fades do not outlive the run.
-    this.transitions.clear();
-    this.lastSwap = null;
-    this.loadingViewCache = null;
-    // A scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
-    this.placement.startSetRestored();
-    this.controllers.clearImpulses();
-    for (const [sceneId, entities] of this.startBatchSource) {
-      if (this.batches.has(sceneId)) continue;
-      if (!this.addBatch(sceneId, entities, true)) return false;
-    }
-    return true;
   }
 
   private runPhase(phase: SimulationPhase, action: ActionFrame): void {
@@ -3292,7 +2806,7 @@ export class RuntimeInstance implements Runtime {
         intents: { get: () => views.intents, enumerable: true },
         emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
       };
-      if (this.sceneRows !== null) fields['scenes'] = { value: this.sceneControl, enumerable: true };
+      if (this.scenes.rows !== null) fields['scenes'] = { value: this.scenes.control, enumerable: true };
       fields['animators'] = { value: this.animators.control, enumerable: true };
       fields['animatorEvents'] = { get: () => rt.animators.events, enumerable: true };
       fields['signals'] = { value: this.signalControl, enumerable: true };
