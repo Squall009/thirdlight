@@ -51,6 +51,10 @@
  * the last chunk is in, not once a frame. A restyle is timed (its frames over
  * a 60 Hz frame counted) for diagnostics and a `tl:blocks:restyle` mark.
  *
+ * Scenes prepared ahead (`prepared`, `block-layer-prepare.ts`): the layers
+ * of a scene about to load are meshed before the simulation gets the scene,
+ * and the layer arriving builds its chunks from those meshes at once.
+ *
  * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
  * square layout per chunk, `chunkLightmapLayout`), and the host puts each
  * chunk's lightmap on when the chunk's layout is the one the bake was made
@@ -87,6 +91,7 @@ import {
 import { keepMetreUv, syncCellUv } from './block-cell-uv';
 import { CUTAWAY_COPY_KEY, CutawayDrawing, splitByCutaway, type CutawayDiagnostics } from './block-cutaway-view';
 import { chunkModelKey, meshChunkForDrawing, StandInShapes, variantModelOf, type ChunkLooks, type ChunkMeshResult, type ChunkModelRef } from './block-chunk-mesh';
+import { PreparedBlockLayers } from './block-layer-prepare';
 import { MeshWorkerPool, meshWorkerCount, type MeshWorkerFactory } from './block-mesh-pool';
 import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
@@ -396,6 +401,11 @@ function mergeMeshes(meshes: readonly THREE.Mesh[], inv: THREE.Matrix4, material
   return { positions: new Float32Array(positions), normals: new Float32Array(normals), uvs: new Float32Array(uvs), indices: new Uint32Array(indices), groups };
 }
 
+/** A layer's running average of the time one of its chunks takes to mesh. */
+function measured(layer: LayerState, ms: number): void {
+  layer.meshMs = layer.meshMs < 0 ? ms : layer.meshMs * 0.75 + ms * 0.25;
+}
+
 /** Marks a chunk mesh of a coarser level of detail (its level): bakes, picks and counts use the detailed ones. */
 const COARSE_LEVEL = 'tlBlockLodLevel';
 
@@ -449,6 +459,25 @@ export class BlockLayerView {
   /** The restyle under way (null: none): when it began, its chunks, the last update's time and its frames. */
   private restyle: { startedAt: number; chunks: number; lastFrameAt: number; frames: number; longFrames: number; longestFrameMs: number; longestFrameAt: number; longestUpdateMs: number } | null = null;
   private restyles = { count: 0, last: null as BlockRestyleTiming | null };
+  /** Layers of scenes prepared ahead of their load (a scene preparation's `prepare`). */
+  readonly prepared: PreparedBlockLayers = new PreparedBlockLayers({
+    skip: (id, component) => this.disposed || component.metadataOnly === true || this.layers.has(id) || (this.deps.stream != null && resolveStreamingRings(component.streaming)?.render != null),
+    viewOf: (grid, component) => {
+      const view = blockKitView(grid, component.kits, this.types);
+      // The models it shows go to the workers before its chunks.
+      this.askLooks(view, 0, null);
+      return view;
+    },
+    pool: () => (this.startPool() ? this.pool : null),
+    meshHere: (view, component, cx, cz, uv, origin) => meshChunkForDrawing(view, component, this.types, this.pageLooks, this.standIns, { cx, cz, uv, ...(origin !== undefined ? { origin } : {}) }),
+    modelMissing: (ref) => void this.modelLook(ref, null),
+    uvFor: (id) => this.uvFor(id),
+    serial: () => ++this.serials,
+    waitStarts: () => {
+      if (this.waitingChunks() === 0) this.workersHeardAt = this.now();
+    },
+    now: () => this.now(),
+  });
   private disposed = false;
 
   constructor(deps: BlockLayerViewDeps = {}) {
@@ -459,6 +488,7 @@ export class BlockLayerView {
     // A trim material redefined (its rows, or whether they draw at their real height): the walls it dresses are cut again.
     this.stopWallRows = deps.onWallRowsChanged?.(() => {
       if (this.disposed || !this.updateWallRows()) return;
+      this.prepared.forget();
       this.sendTypes();
       for (const layer of this.layers.values()) this.restyleLayer(layer);
     });
@@ -482,6 +512,8 @@ export class BlockLayerView {
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
     this.types = next;
     this.updateWallRows();
+    // Prepared chunks were meshed with the old types.
+    this.prepared.forget();
     this.sendTypes();
     this.deps.scatter?.setTypes?.(types);
     for (const layer of this.layers.values()) {
@@ -563,6 +595,7 @@ export class BlockLayerView {
   /** Show (or replace) a layer: its component, origin and stored cells. */
   setLayer(entityId: string, component: BlockLayerComponent, origin: readonly number[], data: BlockLayerData | null): void {
     let layer = this.layers.get(entityId);
+    const fresh = layer === undefined;
     if (layer === undefined) {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
@@ -597,6 +630,14 @@ export class BlockLayerView {
     this.deps.scatter?.setBlockLayer(entityId, component, origin, data?.chunks ?? []);
     // The workers mesh with the kits it shows (the game's, when a script set them).
     if (component.metadataOnly !== true && this.startPool()) this.pool!.broadcast({ t: 'layer', entityId, serial: layer.serial, component: layer.gameKits === null ? component : { ...component, kits: [...layer.gameKits] }, data });
+    // A layer of a scene prepared ahead builds the chunks meshed then, in this frame (a chunk that lacked a model meshes again).
+    if (fresh && layer.ring === null) {
+      for (const [ck, { result, again }] of this.prepared.take(entityId, component, data, origin)) {
+        const [cx, cz] = ck.split(',').map(Number) as [number, number];
+        this.buildChunk(entityId, layer, ck, cx, cz, result);
+        if (!again) layer.dirty.delete(ck);
+      }
+    }
   }
 
   /** Move a layer (its entity moved in the editor). */
@@ -695,6 +736,7 @@ export class BlockLayerView {
   update(eye: ArrayLike<number> | null = null): boolean {
     if (this.disposed) return false;
     const t0 = performance.now();
+    this.prepared.expire();
     // Streamed layers: the chunks round the eye are meshed, those past their ring go.
     if (eye !== null && this.deps.stream != null) {
       for (const [entityId, layer] of this.layers) if (layer.ring !== null) this.streamChunks(entityId, layer, eye);
@@ -956,6 +998,7 @@ export class BlockLayerView {
     this.pool?.dispose();
     this.pool = null;
     this.results.length = 0;
+    this.prepared.forget();
     for (const id of [...this.layers.keys()]) this.removeLayer(id);
     if (this.restyle !== null) {
       this.restyle = null;
@@ -980,6 +1023,7 @@ export class BlockLayerView {
       meshWorkerCount(cores),
       (reply) => {
         this.workersHeardAt = this.now();
+        if (this.prepared.reply(reply)) return;
         this.results.push(reply);
         if (this.results.length === 1) this.deps.meshed?.();
       },
@@ -1006,6 +1050,7 @@ export class BlockLayerView {
       for (const ck of layer.pending.keys()) layer.dirty.add(ck);
       layer.pending.clear();
     }
+    this.prepared.workersFailed();
   }
 
   private sendTypes(): void {
@@ -1044,14 +1089,15 @@ export class BlockLayerView {
   }
 
   /**
-   * Ask for the models of the layer's cells not asked for yet, so a worker has
-   * every loaded one before it meshes (and a chunk is not meshed twice).
+   * Ask for the models of a view's palette from `from` on (those not asked for
+   * yet), so a worker has every loaded one before it meshes (and a chunk is
+   * not meshed twice); returns how far it got.
    */
-  private askLooks(entityId: string, layer: LayerState): void {
+  private askLooks(view: BlockGridReader, from: number, entityId: string | null): number {
     // The view's palette: the looks its kits swap in are asked for too.
-    const cells = layer.view.paletteCells();
-    for (; layer.looksAsked < cells.length; layer.looksAsked++) {
-      const cell = cells[layer.looksAsked]!;
+    const cells = view.paletteCells();
+    for (let at = from; at < cells.length; at++) {
+      const cell = cells[at]!;
       const type = cell.block === undefined ? undefined : this.types.get(cell.block);
       if (type === undefined) continue;
       const variants = cell.variant !== undefined ? [cell.variant] : type.variants.map((_, i) => i);
@@ -1060,6 +1106,7 @@ export class BlockLayerView {
         if (model !== null) this.modelLook(model, entityId);
       }
     }
+    return cells.length;
   }
 
   private now(): number {
@@ -1069,7 +1116,7 @@ export class BlockLayerView {
   private waitingChunks(): number {
     let n = 0;
     for (const layer of this.layers.values()) n += layer.pending.size;
-    return n;
+    return n + this.prepared.waiting();
   }
 
   /** Chunks wait and no worker has answered for `MESH_WORKER_STALL_MS`: the workers are hung, the page meshes. */
@@ -1091,7 +1138,7 @@ export class BlockLayerView {
 
   /** Ask a worker for a chunk; its old meshes stay until the result comes. */
   private request(entityId: string, layer: LayerState, ck: string): void {
-    this.askLooks(entityId, layer);
+    layer.looksAsked = this.askLooks(layer.view, layer.looksAsked, entityId);
     if (this.waitingChunks() === 0) this.workersHeardAt = this.now();
     const gen = this.nextGen(layer, ck);
     layer.pending.set(ck, gen);
@@ -1126,12 +1173,8 @@ export class BlockLayerView {
     } finally {
       this.meshingLayer = null;
     }
-    this.measured(layer, performance.now() - t0);
+    measured(layer, performance.now() - t0);
     this.buildChunk(entityId, layer, ck, cx, cz, result);
-  }
-
-  private measured(layer: LayerState, ms: number): void {
-    layer.meshMs = layer.meshMs < 0 ? ms : layer.meshMs * 0.75 + ms * 0.25;
   }
 
   /** Swap in a worker's chunk if it is still the one wanted. */
@@ -1141,7 +1184,7 @@ export class BlockLayerView {
     const ck = `${r.cx},${r.cz}`;
     if (layer.pending.get(ck) !== r.gen) return false;
     layer.pending.delete(ck);
-    this.measured(layer, r.ms);
+    measured(layer, r.ms);
     // Models the worker did not have: found now (sent to it), the chunk is asked again; still loading, it re-meshes when ready.
     let again = false;
     for (const ref of r.result.missing) if (this.modelLook(ref, r.entityId) !== null) again = true;

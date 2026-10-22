@@ -249,7 +249,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
   const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderer.backend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderer.backend === 'webgpu' ? renderer.current() : null), webgl: () => (renderer.backend === 'webgl2' ? renderer.current() : null), computeMs: () => gpuTiming.computeMs(), canvas: renderer.canvas, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => surface.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null }, fades: (o, c) => level.seeThrough.bitsFor(o, c) !== 0 });
   /** Scenes prepared ahead of their load (released once realized). */
-  const preparations = createScenePreparations({ disposed: () => state.disposed, realization: () => models.realization, materialLibrary, architecture: level.architecture });
+  const preparations = createScenePreparations({ disposed: () => state.disposed, realization: () => models.realization, materialLibrary, architecture: level.architecture, blocks: level.blockView.prepared });
   const scenes: AdapterScenes = new AdapterScenes({
     runtime: opts.runtime, entities, realization: () => models.realization, lightmaps: () => state.lightmaps, forgetLook: (id) => frame.forgetLook(id), preparations,
     requestPrecompile: () => precompile.want(), selectLights, followProbes: (ids) => probes.follow(ids), v3: isV3, vertexPaint: opts.vertexPaint !== false,

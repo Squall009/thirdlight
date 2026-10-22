@@ -225,7 +225,9 @@ unique across the whole project. One command edits one scene.
 
 A scene loaded during play is prepared before it appears:
 its file, models, textures and instance buffers are read and parsed first,
-so the frame that shows it shows all of it. The scenes a game is likely to
+and its block layers are meshed, so the frame that shows it shows all of it
+(its status stays `loading` until then). A block layer that streams meshes
+the chunks round the camera once the scene is in. The scenes a game is likely to
 load next — the targets of the scene transitions in its loaded scenes and
 the shell's next listed scene — are read ahead in the background (at most
 four). A scene transition (a trigger's, the deprecated move along the shell's scene list,
@@ -240,7 +242,8 @@ entry. Scripts read the loading state with `ctx.scenes.loading()` and
 `tl_game_observe` shows `scenes.transition`, `preloading` and `preloaded`.
 Each scene load in `startTimings.sceneLoads` also says whether it was read
 ahead, when it was prepared, and the draw calls before it, of the frame that
-attached it and the fewest in between.
+attached it and the fewest in between, and whether block chunks were still
+meshing in the frame that attached it (`attachBlocksMeshing`).
 
 ## Cameras (virtual cameras)
 

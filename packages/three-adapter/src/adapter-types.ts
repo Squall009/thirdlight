@@ -307,6 +307,8 @@ export interface FrameDrawnInfo {
   /** The frame's draw calls, and the scene set revision it drew (the runtime's; -1 without scenes). */
   readonly draws?: number;
   readonly sceneRevision?: number;
+  /** Block layer chunks still waited to be meshed or swapped in when it was drawn (a scene's floor popping in after it). */
+  readonly blocksMeshing?: boolean;
 }
 
 /** Adapter diagnostics block (runtime.md, separate block; the shadow

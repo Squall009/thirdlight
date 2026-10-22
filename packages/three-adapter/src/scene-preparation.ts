@@ -1,15 +1,17 @@
 /**
  * Scenes prepared ahead of their load (a scene read ahead, a transition's
  * target): their models parsed and instance buffers decoded, their textures
- * decoded, and their generated architecture made into the generator's
- * cache, so the frame the scene arrives in draws it whole. Each scene's
+ * decoded, their generated architecture made into the generator's
+ * cache and their block layers meshed (once the models they show are
+ * parsed), so the frame the scene arrives in draws it whole. Each scene's
  * preparation is held until the scene is realized (its objects then hold
  * what it held) or let go; assets a game page holds by name (its loading
  * screen's) are held the same way.
  */
-import type { ArchitectureComponent } from '@thirdlight/runtime';
+import type { ArchitectureComponent, BlockLayerComponent, BlockLayerData } from '@thirdlight/runtime';
 
 import type { ArchitectureView } from './architecture-view';
+import type { PreparedBlockLayers } from './block-layer-prepare';
 import { modelRefsOf } from './entity-refs';
 import type { MaterialLibrary } from './material-library';
 import type { ModelsRealization } from './models';
@@ -22,6 +24,7 @@ export interface ScenePreparationDeps {
   realization(): ModelsRealization | null;
   materialLibrary: MaterialLibrary | null;
   architecture: ArchitectureView;
+  blocks: Pick<PreparedBlockLayers, 'prepare'>;
 }
 
 export interface ScenePreparations {
@@ -68,15 +71,30 @@ export function createScenePreparations(d: ScenePreparationDeps): ScenePreparati
         objects.push({ id: e.id, component: c.architecture, origin: c.transform?.position ?? [0, 0, 0], ...(c.materials !== undefined ? { materials: c.materials } : {}) });
       }
       const made = objects.length > 0 ? d.architecture.prepare(objects) : null;
+      // Block layers: meshed once the models their cells show are parsed (a chunk meshed before would lack them).
+      const layers: { id: string; component: BlockLayerComponent; origin: readonly number[]; data: BlockLayerData | null }[] = [];
+      for (const e of entities) {
+        const c = e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData }; transform?: { position?: number[] } };
+        if (c.blockLayer !== undefined) layers.push({ id: e.id, component: c.blockLayer, origin: c.transform?.position ?? [0, 0, 0], data: c.blockLayer.data ?? null });
+      }
+      let released = false;
+      let meshed: Handle | null = null;
+      const blocks = layers.length === 0 ? null : assets.ready.then(() => {
+        if (released || d.disposed()) return;
+        meshed = d.blocks.prepare(layers);
+        return meshed.ready;
+      });
       const handle = {
         release: (): void => {
+          released = true;
           assets.release();
           made?.release();
+          meshed?.release();
           if (holds.get(sceneId) === handle) holds.delete(sceneId);
         },
       };
       holds.set(sceneId, handle);
-      return { ready: Promise.all([assets.ready, made?.ready]).then(() => undefined), release: handle.release };
+      return { ready: Promise.all([assets.ready, made?.ready, blocks]).then(() => undefined), release: handle.release };
     },
     hold(models, textures) {
       if (d.disposed()) return none;

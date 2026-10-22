@@ -70,6 +70,8 @@ export interface SceneLoadTiming {
    */
   drawsBefore?: number | null;
   attachDraws?: number | null;
+  /** Block layer chunks were still meshing when the frame that attached it was drawn (they popped in after). */
+  attachBlocksMeshing?: boolean | null;
   drawsMin?: number | null;
   loadingFrames?: number;
   loadingWorstMs?: number;
@@ -107,7 +109,7 @@ export interface StartTimings {
    * frame adds the stages `rendererInit` (first call → the first drawn
    * frame's call) and `firstRender` (that call).
    */
-  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number }; readonly draws?: number }): void;
+  frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number }; readonly draws?: number; readonly blocksMeshing?: boolean }): void;
   /** The game asked for a scene (`preloaded` when it was read ahead) / its file is read / prepared / the read failed. */
   sceneRequested(sceneId: string, preloaded?: boolean): void;
   sceneRead(sceneId: string, entities: number): void;
@@ -210,6 +212,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
           l.attachFrameMs = round1(gap);
           l.precompileMs = info?.precompile !== undefined ? round1(info.precompile.ms) : null;
           l.attachDraws = draws ?? null;
+          l.attachBlocksMeshing = info?.blocksMeshing ?? null;
         }
       }
     },

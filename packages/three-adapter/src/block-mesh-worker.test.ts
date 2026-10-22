@@ -7,11 +7,14 @@
  * worker that fails hands its chunks back to the page, and so does one that
  * stops answering; a model the worker did not have is sent to it and the
  * chunk meshed again; a layer dropped leaves nothing behind in the worker.
+ * A layer of a scene prepared ahead of its load is meshed before its object
+ * arrives and builds every chunk in the update it arrives in.
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyBlockEdits, BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
 
+import { PREPARED_KEEP_MS } from './block-layer-prepare';
 import { BlockLayerView, blockLookFromObject, MESH_WORKER_STALL_MS, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { runBlockMeshWorker } from './block-mesh-worker';
@@ -479,6 +482,92 @@ describe('block view: meshing in workers', () => {
     ready!();
     await settle(v);
     expect(v.diagnostics().lods?.chunks).toBeGreaterThan(0);
+    v.dispose();
+  });
+});
+
+describe('block view: layers of a scene prepared ahead', () => {
+  const prepareGround = (v: BlockLayerView, layer = LAYER) => v.prepared.prepare([{ id: 'ground', component: layer, origin: [0, 0, 0], data: groundData() as never }]);
+
+  it('the preparation is ready only once every chunk is meshed; the layer arriving draws them all at once, byte for byte what the page meshes', async () => {
+    const page = makeView();
+    page.setTypes(TYPES);
+    page.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    page.update();
+    const v = makeView({ meshWorkers: () => portWorker() });
+    v.setTypes(TYPES);
+    let ready = false;
+    const prep = prepareGround(v);
+    void prep.ready.then(() => (ready = true));
+    // The chunks are meshing in the workers: not ready, nothing drawn.
+    await tick();
+    expect(ready).toBe(false);
+    expect(v.diagnostics().chunks).toBe(0);
+    await prep.ready;
+    expect(v.diagnostics().chunks).toBe(0);
+    // The layer arrives (the scene attached): every chunk is drawn in the same update, none waits for a worker.
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    prep.release();
+    v.update();
+    expect(v.diagnostics()).toMatchObject({ chunks: 4, meshing: { queued: 0, meshedHere: 0 } });
+    expect(v.meshing()).toBe(false);
+    expect(drawn(v)).toEqual(drawn(page));
+    v.dispose();
+    page.dispose();
+  });
+
+  it('without workers the preparation meshes on the page and is ready at once', async () => {
+    const v = makeView();
+    v.setTypes(TYPES);
+    const prep = prepareGround(v);
+    await prep.ready;
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    expect(v.diagnostics().chunks).toBe(4);
+    v.update();
+    expect(v.diagnostics().meshing.meshedHere).toBe(0);
+    v.dispose();
+  });
+
+  it('a layer arriving other than prepared (other settings, other block types) is meshed as usual', async () => {
+    const v = makeView({ meshWorkers: () => portWorker() });
+    v.setTypes(TYPES);
+    await prepareGround(v).ready;
+    v.setLayer('ground', { ...LAYER, smoothAngle: 10 } as BlockLayerComponent, [0, 0, 0], groundData() as never);
+    expect(v.diagnostics().chunks).toBe(0);
+    await settle(v);
+    expect(v.diagnostics().chunks).toBe(4);
+    v.removeLayer('ground');
+    // Prepared, then the types change: what was meshed with the old ones is let go.
+    await prepareGround(v).ready;
+    v.setTypes(TYPES.map((t) => (t.blockId === 'grass' ? { ...t, variants: [{ color: '#000000' }] } : t)));
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    expect(v.diagnostics().chunks).toBe(0);
+    v.dispose();
+  });
+
+  it('a preparation let go keeps its meshes a moment for the layer arriving, then frees them; one let go while meshing is ready at once', async () => {
+    let now = 0;
+    const v = makeView({ meshWorkers: () => portWorker(), now: () => now });
+    v.setTypes(TYPES);
+    const prep = prepareGround(v);
+    await prep.ready;
+    prep.release();
+    v.update();
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    expect(v.diagnostics().chunks).toBe(4);
+    v.removeLayer('ground');
+    const late = prepareGround(v);
+    await late.ready;
+    late.release();
+    now += PREPARED_KEEP_MS + 1;
+    v.update();
+    v.setLayer('ground', LAYER, [0, 0, 0], groundData() as never);
+    expect(v.diagnostics().chunks).toBe(0);
+    v.removeLayer('ground');
+    // Let go before its chunks are in: its preparation is done (a scene load cancelled never waits on it).
+    const cancelled = prepareGround(v);
+    cancelled.release();
+    await cancelled.ready;
     v.dispose();
   });
 });

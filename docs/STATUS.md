@@ -60,6 +60,7 @@ has looked at it where it is visual/audible.
 | 41 | One physics backend — `docs/plan-phase-41.md`: Rapier 3D only; 2D becomes a plane constraint any object can switch on or off at any time (the Mario-pipe case); 2D shapes as thin 3D shapes, one controller, one query surface; `physics_dimension` retired with an upgrade; the 2D backend and the dimension branches removed | — | planned 2026-10-21 |
 | — | Found in the owner's first real run | D32 | fixed 2026-09-23 — digests fall back to pure SHA-256 outside secure contexts; the editor no longer hashes uploads (the backend's digest is used). `tests/e2e/insecure-context.e2e.ts` plays without WebCrypto and runs an export served on the LAN address |
 | — | Debt, only when touching the files anyway | D21 | ongoing |
+| — | Owner report: a scene loaded in play read as loaded before its block layers were drawn (chunks popped in after the fade) | D300 | fixed 2026-10-22 — a scene's preparation meshes its block layers, so it stays loading until they are; `scene-loads.e2e.ts` checks no chunk is still meshing in the frame it attaches |
 | — | Engine audit and keep-or-leave verdict (owner request) | D151–D159 | 2026-10-04 — `docs/verdict-2026-10-04.md`: keep, but a stabilization month first (formats frozen, games in CI, render overhead: 55 vs 110–150 fps in bare three.js, owner builds a level by hand), then a go/no-go; phases 28b onward wait for the owner's decision |
 
 ## Notes

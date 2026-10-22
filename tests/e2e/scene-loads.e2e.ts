@@ -4,7 +4,8 @@
  *
  * The starter template plus two scenes that do not start: "A" (a red wall
  * behind the character and a door around it whose scene transition loads "B"
- * and unloads "A") and "B" (a green-textured wall and a model file). The
+ * and unloads "A") and "B" (a green-textured wall, a model file and a
+ * block-layer floor of 12 chunks under the camera). The
  * door's fade is set in the Inspector. In Play the relay loads "A" (a plain
  * load, as a script's `ctx.scenes.load`); the door fires at once, the view
  * fades out (the host's overlay, `scenes.transition` in the observation),
@@ -15,7 +16,9 @@
  * after "B" attached drew fewer calls than the start scene alone plus one
  * wall — an empty world would draw only the start scene; the frame that
  * attached "B" drew as many calls as "B" draws later (its model and texture
- * were prepared before, not streamed in after); "B" was prepared before it
+ * were prepared before, not streamed in after; no chunk of its floor was
+ * still meshing: they were meshed before, not popping in after the fade);
+ * "B" was prepared before it
  * attached. The final picture is green (pixels). The editor
  * sends the preview's load progress to the backend before it is ready (the
  * present timeout counts from the last). Runs on the product's own renderer
@@ -90,6 +93,7 @@ interface SceneLoad {
   preloaded?: boolean;
   drawsBefore?: number | null;
   attachDraws?: number | null;
+  attachBlocksMeshing?: boolean | null;
   drawsMin?: number | null;
   loadingFrames?: number;
   loadingWorstMs?: number;
@@ -114,6 +118,11 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   const door = String((await cmd('createEntity', { sceneId: 'scene-a', parentId: null, kind: 'group', name: 'Door', transform: { position: [3, 1, 0] }, components: { trigger: { size: [4, 4], signal: 'door', sceneTransition: { scene: 'scene-b', unload: ['scene-a'] } } } }))['createdId']);
   await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'box', name: 'Green wall', transform: { position: [4, 3, -4] }, box: { size: [60, 40, 1], material: { color: '#ffffff' } }, components: { materials: { '*': 'mat-green' } } });
   await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'model', name: 'Orb', transform: { position: [6, 3, 0] }, model: { asset: { assetId: 'model-orb' } } });
+  // B's floor: a block layer over 4 × 3 chunks (meshed while B is prepared, drawn whole in the frame B attaches).
+  await cmd('setBlockType', { block: { blockId: 'turf', name: 'Turf', variants: [{ color: '#30c040' }], shape: 'full' } });
+  const floor = String((await cmd('createEntity', { sceneId: 'scene-b', parentId: null, kind: 'group', name: 'Floor', transform: { position: [-28, -2, -28] } }))['createdId']);
+  await cmd('setComponent', { entityId: floor, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 4, 48] } } });
+  await cmd('editBlocks', { entityId: floor, edits: [{ kind: 'fill', box: [0, 0, 0, 64, 2, 48], cell: { block: 'turf' } }] });
 
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message}`));
   // The editor passes the preview's load progress on to the backend (its present timeout counts from the last).
@@ -201,7 +210,10 @@ for (const variant of VARIANTS) test(`a scene transition shows no empty frame: t
   expect(b!.preparedMs).not.toBeNull();
   expect(b!.preparedMs!).toBeLessThanOrEqual(b!.attachedMs!);
   const steady = await frame.locator('canvas').first().getAttribute('data-tl-draws');
-  expect(b!.attachDraws, 'the attach frame drew what B draws once settled').toBe(Number(steady));
+  // At least as many: the attach frame also draws the floor into the cached static shadow, which later frames reuse.
+  expect(b!.attachDraws, 'the attach frame drew what B draws once settled').toBeGreaterThanOrEqual(Number(steady));
+  // Its floor's chunks were all in that frame: none was still meshing (they were meshed while B was prepared).
+  expect(b!.attachBlocksMeshing, 'block chunks still meshing in the frame B attached').toBe(false);
   expect(b!.after.over250).toBe(0);
   // The fade went out and came back in (0.4 s each way).
   expect(Math.max(...fades)).toBeGreaterThan(0.5);

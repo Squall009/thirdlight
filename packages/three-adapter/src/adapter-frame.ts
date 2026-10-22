@@ -449,7 +449,7 @@ export class AdapterFrame {
       const realized = scenes.frameRealized.splice(0);
       try {
         const pre = p.precompile.takeSettled();
-        p.opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: this.firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: this.counts.drawCalls, sceneRevision: scenes.realizedRevision });
+        p.opts.onFrameDrawn({ realizedScenes: realized, renderMs: performance.now() - renderStart, firstCallAt: this.firstRenderCallAt ?? renderStart, ...(pre !== null ? { precompile: { startedAt: pre.startedAt, ms: pre.ms } } : {}), draws: this.counts.drawCalls, sceneRevision: scenes.realizedRevision, blocksMeshing: p.level.blockView.meshing() });
       } catch {
         /* a timing hook never breaks a frame */
       }
