@@ -25,7 +25,7 @@ import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalo
 import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
 import { rideOnFrame } from './frame-queues';
 import { PresentationRequests } from './presentation-requests';
-import { SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort } from './save-sections';
+import { saveSectionsPort } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import { projectFrameRateCap, seeThroughSettingsOfProject, type SaveSchema } from '@thirdlight/project-model';
 
@@ -49,13 +49,16 @@ import {
 } from './actions';
 
 import { clipMessage, type RuntimeError } from './errors';
-import { RuntimeSim, cloneCurr, messageOf, ownerSetOf, type ModuleEntry, type PhaseViews } from './runtime-sim';
+import { RuntimeSim, cloneCurr, messageOf, type ModuleEntry } from './runtime-sim';
 import { RuntimeFaults, behaviorDebugOf, behaviorPropertiesOf } from './runtime-faults';
 import { RuntimeScenes } from './runtime-scenes';
 import { RuntimeEntities } from './runtime-entities';
+import { RuntimePhases } from './runtime-phases';
+import { ScriptContext } from './script-context';
+import { blockControls, saveStoreControl, socketControlOf, timelineControlOf } from './script-controls';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
-import { queueUiEventChecked, uiControlOf } from './ui-control';
+import { queueUiEventChecked } from './ui-control';
 import { EngineStatsHolder } from './engine-stats';
 import type { FramePacingStats } from './frame-pacing';
 import { FrameLoop } from './frame-loop';
@@ -63,19 +66,10 @@ import { ModeState, type ModeView } from './modes';
 import type { BehaviorDebugView, BehaviorPropertyView } from './behavior';
 import { type LiveTagIndex } from './scene-set';
 import { ColliderSystem } from './collider-system';
-import {
-  BehaviorIntentError,
-  INTENT_LIMITS,
-  quantizeIntentMove,
-  writeRotationForm,
-  validateIntentPhase,
-  validateIntentShape,
-  validateIntentValue,
-  type BehaviorIntent,
-  type BehaviorLogLevel,
-  type IntentSet,
-} from './intents';
-import { frozenContext, liveScopedState, phaseScopedState } from './guard';
+import type { BehaviorLogLevel } from './intents';
+
+import { phaseScopedState } from './guard';
+
 import { type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { AnimatorSystem } from './animator-system';
 import { randomSeedOf } from './random';
@@ -86,15 +80,13 @@ import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector } from './environment-director';
-import type { ControllerIntents } from './intents';
-import { emptyControllerChannels, emptyMutableIntents, resetMutableIntents, type MutableControllerChannels, type MutableIntentSet } from './mutable-intents';
 import { PhysicsQueries, type PhysicsQueryHost } from './physics-queries';
 import { type EnvironmentBlendView } from './environment-blend';
-import type { ClimbQuery, ScriptStop } from './types';
+import type { ScriptStop } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
-import { blocksCharacterOf, GameplayBlocks, MAX_SIGNAL_NAME } from './blocks';
+import { blocksCharacterOf, GameplayBlocks } from './blocks';
 import { createGameControl } from './game-control';
 import { createShellControl, deprecatedEngineActionLine } from './scene-list';
 import { LIFECYCLE_RESTART_DEPRECATED, loadOp } from './scene-control';
@@ -106,7 +98,6 @@ import { CharacterDirector } from './character-director';
 import { PlayerControllers } from './player-controllers';
 import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import {
-  type BehaviorMessage,
   type CameraInfo,
   type RuntimeSceneRow,
   type SceneLoadOptions,
@@ -125,31 +116,20 @@ import {
   type SimEntityData,
   type SimState,
   type SimulationModule,
-  type SimulationPhase,
   type SimulationPhaseModule,
-  type StepContext,
   type TransformState,
-  type DebugCommandOptions,
   type DebugCommandState,
-  type BehaviorUi,
-} from './types';
-
-
-
-
-
+  } from './types';
 
 /** The pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
 export interface HeldPointer extends PointerSample {
   readonly entered?: boolean;
+
   readonly left?: boolean;
 }
 
-
 export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
-/** A script message name (the timer-name syntax). */
-const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 export { EFFECT_MAX_QUEUED_REQUESTS } from './presentation-requests';
 export { catchUpSteps, MAX_CATCHUP_SECONDS } from './frame-clock';
 /**
@@ -299,17 +279,6 @@ export class RuntimeInstance implements Runtime {
   /** The settle pre-roll is initialization: cancellable before the first frame. */
   private prerollDone = false;
   private needsPreroll = false;
-  /** The runtime's per-step intent set. */
-  private intents: MutableIntentSet = emptyMutableIntents(-1);
-  /** Bumped at every commit and step start; the intents view is remade only when it moved. */
-  private intentsVersion = 0;
-  private intentViewVersion = -1;
-  private intentViewCache: IntentSet | null = null;
-  /** The per-step intent cap for the current entity order (`intentStepLimit`). */
-  private intentLimit: number = INTENT_LIMITS.perStep;
-  private intentLimitOrder: readonly string[] | null = null;
-  /** The frame the current phase runs with (read by the reused step contexts). */
-  private phaseAction: ActionFrame = neutralFrame(0);
   /** The last validated input frame (its frozen action values are reused when equal). */
   private lastInputFrame: ActionFrame | null = null;
   /** The pointer state after the last sampled step (null before the first pointer sample). */
@@ -324,12 +293,16 @@ export class RuntimeInstance implements Runtime {
       this.cursorMode = mode === 'auto' ? null : mode;
     },
   });
-  private frozenOrderSource: readonly string[] | null = null;
-  private frozenOrderCopy: readonly string[] = Object.freeze([]);
-  /** Accepted intents committed in this runtime instance. */
-  private intentCommitCount = 0;
   /** The scripts' saved values (ctx.save; kept across restarts). */
   private readonly saveStore = new Map<string, unknown>();
+  /** `ctx.save` over the store. */
+  private readonly saveControl = saveStoreControl(this.saveStore);
+  /** The controls scripts reach the gameplay blocks through (signals, messages, the primitives, the climb volume, looks). */
+  private readonly blockCtl = blockControls(() => this.blocks, () => this.sim.stepIndex);
+  /** The module phases and the intents they commit. */
+  private readonly phases: RuntimePhases;
+  /** The step contexts' engine members and which behaviors tick. */
+  private readonly script: ScriptContext;
   /** Paused — frames render and call onFrame, no steps run. */
   private paused = false;
   /**
@@ -368,13 +341,11 @@ export class RuntimeInstance implements Runtime {
   /** The dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
   private readonly dialogue: DialogueRunner;
   private dialogueQueue: DialogueInputRecord[] = [];
-  private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
   private readonly engineStats = new EngineStatsHolder();
   /** The rAF driver's loop, paced by the game's frame-rate cap, and `ctx.display` over it. */
   private readonly loop: FrameLoop;
   // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
-  private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
   private activeSpawn: string | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
@@ -386,7 +357,6 @@ export class RuntimeInstance implements Runtime {
   /** The event → cue table (empty: no event sounds). */
   private readonly eventCues: readonly import('./types').RuntimeEventCue[];
   private readonly lifecycleControl: import('./types').BehaviorLifecycle;
-  private behaviorTicksFn: ((entityId: string) => boolean) | undefined = undefined;
   // ---- The sequencer (inert without timelines) ----
   private readonly timelines: TimelineSystem;
   private readonly timelineControl: import('./types').BehaviorTimeline;
@@ -418,98 +388,16 @@ export class RuntimeInstance implements Runtime {
     stepIndex: () => rt.sim.stepIndex,
     warn: (m) => rt.faults.log('thirdlight.runtime:physics', 'warn', m),
   }))(this));
-  private readonly signalControl = Object.freeze({
-    emit: (name: string): void => {
-      if (typeof name === 'string' && name.length > 0 && name.length <= MAX_SIGNAL_NAME) this.blocks?.emit(name);
-    },
-    on: (name: string): boolean => this.blocks?.signaled(String(name)) ?? false,
-  });
-  /** Script messages (`ctx.messages`; the behavior host passes sender and receiver). */
-  private readonly messageControl = Object.freeze({
-    send: (from: string, name: unknown, value: unknown, target: unknown): boolean => {
-      if (typeof name !== 'string' || !MESSAGE_NAME_RE.test(name)) return false;
-      let v: number | string | boolean | null;
-      if (value === undefined || value === null) v = null;
-      else if (typeof value === 'number') {
-        if (!Number.isFinite(value)) return false;
-        v = value;
-      } else if (typeof value === 'string') {
-        if (value.length > 256) return false;
-        v = value;
-      } else if (typeof value === 'boolean') v = value;
-      else return false;
-      let to: string | null = null;
-      if (target !== undefined && target !== null && target !== '') {
-        if (typeof target !== 'string' || target.length > 128) return false;
-        to = target;
-      }
-      return this.blocks?.sendMessage({ name, value: v, from, stepIndex: this.sim.stepIndex }, to) ?? false;
-    },
-    received: (to: string, name: unknown): readonly BehaviorMessage[] => (typeof name === 'string' ? (this.blocks?.messagesFor(to, name) ?? []) : []),
-    all: (to: string): readonly BehaviorMessage[] => this.blocks?.messagesTo(to) ?? [],
-  });
   private readonly gameControl = createGameControl({ blocks: () => this.blocks, has: (id) => this.sim.curr.has(id), warn: (message) => this.faults.log('thirdlight.runtime:counters', 'warn', message) });
-  /** Any object's health (`ctx.health`; changes apply at once, events are seen next step). */
-  private readonly healthControl = Object.freeze({
-    get: (entityId: string): { current: number; max: number } | null => (typeof entityId === 'string' ? (this.blocks?.primitives.healthOf(entityId) ?? null) : null),
-    damage: (entityId: string, amount: number, source?: string): boolean =>
-      typeof entityId === 'string' && typeof amount === 'number' && (source === undefined || (typeof source === 'string' && source.length <= 128)) ? (this.blocks?.primitives.damage(entityId, amount, source ?? '') ?? false) : false,
-    heal: (entityId: string, amount: number): boolean => (typeof entityId === 'string' && typeof amount === 'number' ? (this.blocks?.primitives.heal(entityId, amount) ?? false) : false),
-    events: () => this.blocks?.primitives.healthEvents() ?? [],
-  });
-  /** Patrollers (`ctx.patrol`). */
-  private readonly patrolControl = Object.freeze({
-    get: (entityId: string) => (typeof entityId === 'string' ? (this.blocks?.primitives.patrolOf(entityId) ?? null) : null),
-    setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setPatrolActive(entityId, active === true) ?? false) : false),
-    turn: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.turnPatrol(entityId) ?? false) : false),
-  });
-  /** Hitboxes (`ctx.hitbox`). */
-  private readonly hitboxControl = Object.freeze({
-    setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setHitboxActive(entityId, active === true) ?? false) : false),
-    touching: (entityId: string): readonly string[] => (typeof entityId === 'string' ? (this.blocks?.primitives.touching(entityId) ?? []) : []),
-  });
-  /** Collectibles (`ctx.collectible`). */
-  private readonly collectibleControl = Object.freeze({
-    collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
-    restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
-  });
-  /** The climb volume a player controller's capsule centre is in (read by the character controllers in the controller phase). */
-  private readonly climbQuery: ClimbQuery = Object.freeze({ volume: (entityId?: string) => this.blocks?.climbVolume(entityId) ?? null });
   /** Placements, walks, turns, impulses and a cutscene's hold on the player controllers (`ctx.character`, the character track). */
   private readonly director = new CharacterDirector({
     is3D: () => this.sim.physics3d !== undefined, hz: () => this.sim.hz, settings: () => this.sim.settings, resolve: (id) => this.controllers.resolve(id), transform: (id) => this.sim.curr.get(id), entityDocument: (id) => this.scenes.entityDocument(id),
-    channels: (id) => this.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
+    channels: (id) => this.phases.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
     canPlace: () => this.sim.physics3d !== undefined || this.controllers.resetPort2D() !== null, addImpulse: (id, v) => this.controllers.addImpulse(id, v),
-    intentsChanged: () => void (this.intentsVersion += 1), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => this.scenes.anyLoading(), moveAction: (id) => this.controllers.actionsOf(id)?.move,
-  });
-  /** Per-object look overrides (`ctx.look`; the renderer applies them). */
-  private readonly lookControl = Object.freeze({
-    set: (entityId: string, look: unknown): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setLook(entityId, look) ?? false) : false),
-    clear: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.clearLook(entityId) ?? false) : false),
-    get: (entityId: string): import('./primitives').EntityLook | null => (typeof entityId === 'string' ? (this.blocks?.primitives.lookOf(entityId) ?? null) : null),
+    intentsChanged: () => this.phases.changed(), warn: (message) => this.faults.log('thirdlight.runtime:character', 'warn', message), loading: () => this.scenes.anyLoading(), moveAction: (id) => this.controllers.actionsOf(id)?.move,
   });
   /** The audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
-  private readonly saveControl = Object.freeze({
-    get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
-    set: (key: string, value: unknown): boolean => {
-      if (typeof key !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(key)) return false;
-      if (!this.saveStore.has(key) && this.saveStore.size >= SAVE_MAX_KEYS) return false;
-      let text: string | undefined;
-      try {
-        text = JSON.stringify(value);
-      } catch {
-        return false;
-      }
-      if (text === undefined || text.length > SAVE_MAX_VALUE_CHARS) return false;
-      this.saveStore.set(key, JSON.parse(text) as unknown);
-      return true;
-    },
-    remove: (key: string): void => {
-      this.saveStore.delete(String(key));
-    },
-    keys: (): string[] => [...this.saveStore.keys()].sort(),
-  });
   /** Debug commands: declared ones, calls waiting for the next step, this step's calls. */
   private readonly debugCommands = new DebugCommands({
     emitSignal: (name) => this.blocks?.emit(name),
@@ -569,6 +457,14 @@ export class RuntimeInstance implements Runtime {
     this.loop = new FrameLoop(projectFrameRateCap(args.settings), loopHost);
     this.controllers = this.buildPlayerControllers(args.controllerEntityIds, args.initialEntities);
     this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildCharacterPlacement(id), (sceneId) => this.scenes.isLoading(sceneId));
+    this.phases = new RuntimePhases(this.sim, {
+      controllers: this.controllers,
+      placement: this.placement,
+      director: this.director,
+      get lifecycle() { return rt.lifecycleControl; },
+      physicsQueries: this.queries.client,
+      contextFields: (phase) => rt.script.fields(phase),
+    });
     args.logSink.handler = (moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void =>
       this.faults.log(moduleId, level, message, at);
     args.logSink.stopped = (moduleId, stop) => this.faults.scriptStopped(moduleId, stop);
@@ -604,7 +500,7 @@ export class RuntimeInstance implements Runtime {
       get entityAccess() { return rt.entityAccess; },
       get audio() { return rt.audio; },
       liveTags: args.liveTags,
-      intentAxes: () => rt.intents.axes,
+      intentAxes: () => rt.phases.intents.axes,
       sceneOf: (id) => rt.scenes.sceneOf(id),
       sceneSetChanged: () => rt.scenes.changed(),
     }, args.prefabs);
@@ -725,12 +621,47 @@ export class RuntimeInstance implements Runtime {
     });
     this.sockets.add(args.initialEntities);
     this.settleSockets();
-    this.socketControl = this.buildSocketControl();
+    this.socketControl = socketControlOf(this.sockets);
     // The timelines (inert while the project has none).
     this.timelines = new TimelineSystem(args.timelines ?? [], this.sim.hz, this.buildTimelineHost());
-    this.timelineControl = this.buildTimelineControl();
+    this.timelineControl = timelineControlOf(this.timelines);
     // The event → cue table listens to the blocks' signals and events.
     if (this.eventCues.length > 0) this.blocks?.enableCueLog();
+    this.script = new ScriptContext({
+      scenes: this.scenes.rows !== null ? this.scenes.control : null,
+      animators: this.animators,
+      blockControls: this.blockCtl,
+      game: this.gameControl,
+      director: this.director,
+      audioControl: this.audioControl,
+      presentation: this.presentation,
+      save: this.saveControl,
+      spawnControl: this.entities.spawnControl,
+      spawnerOwned: this.entities.spawnerOwned,
+      views: this.views,
+      sockets: this.socketControl,
+      cursor: this.cursorControl,
+      inputStatus: this.inputStatus,
+      debugCommands: this.debugCommands,
+      grid: this.grid,
+      materials: this.materials,
+      entityAccess: this.entityAccess,
+      shell: this.shellControl,
+      saves: this.saves,
+      assetHandles: this.assetHandles,
+      ui: this.ui,
+      engineStats: this.engineStats,
+      loop: this.loop,
+      dialogue: this.dialogue,
+      modes: this.modes,
+      lifecycle: this.lifecycleControl,
+      timeline: this.timelineControl,
+      environment: this.environment,
+      blocks: this.blocks,
+      behaviorGroupOf: this.entities.behaviorGroupOf,
+      stepIndex: () => this.sim.stepIndex,
+      cameraYaw: this.sim.physics3d !== undefined ? () => this.cameraYaw3D() : null,
+    });
   }
 
   // ---- Sockets ---------------------------------------------------------
@@ -760,26 +691,6 @@ export class RuntimeInstance implements Runtime {
 
   socketAttachments(): readonly { readonly entityId: string; readonly target: string; readonly node: string }[] {
     return this.sockets.list();
-  }
-
-  private buildSocketControl(): import('./types').BehaviorSockets {
-    const sockets = this.sockets;
-    const vec = (v: unknown): readonly number[] | undefined => (Array.isArray(v) ? (v as number[]) : undefined);
-    return Object.freeze({
-      attach: (entityId: string, targetId?: string, node?: string, position?: readonly number[], rotation?: readonly number[], scale?: readonly number[]): boolean =>
-        sockets.attach(String(entityId), targetId === undefined || targetId === null ? undefined : String(targetId), node === undefined || node === null ? undefined : String(node), vec(position), vec(rotation), vec(scale)),
-      detach: (entityId: string, keepWorld?: boolean): boolean => sockets.detach(String(entityId), keepWorld !== false),
-      attachedTo: (entityId: string) => {
-        const a = sockets.attachedTo(String(entityId));
-        return a === null ? null : Object.freeze({ target: a.target, nodeName: a.node });
-      },
-      nodePose: (targetId: string, node: string) => {
-        const p: number[] = [0, 0, 0];
-        const r: number[] = [0, 0, 0, 1];
-        if (!sockets.nodeWorld(String(targetId), String(node), p, r)) return null;
-        return Object.freeze({ position: Object.freeze([p[0]!, p[1]!, p[2]!] as const), rotation: Object.freeze([r[0]!, r[1]!, r[2]!, r[3]!] as const) });
-      },
-    });
   }
 
   /**
@@ -1080,11 +991,7 @@ export class RuntimeInstance implements Runtime {
       isKept: (id) => rt.kept.has(id),
       keepProblem: (id, keep) => rt.entities.keepProblem(id, keep),
       setKept: (id, keep) => rt.entities.setKept(id, keep),
-      transformIntentWrote: (id) => {
-        const stored = rt.intents.axes.get(id);
-        const tag = rt.intents.axesTag * 64;
-        return stored !== undefined && stored >= tag && stored < tag + 64 && stored !== tag;
-      },
+      transformIntentWrote: (id) => rt.phases.transformIntentWrote(id),
       hiddenAtStepStart: (id) => rt.blocks?.hiddenAtStepStart(id) ?? false,
       setVisible: (id, visible) => rt.blocks?.setVisible(id, visible),
       moverState: (id) => rt.blocks?.moverState(id) ?? null,
@@ -1112,8 +1019,8 @@ export class RuntimeInstance implements Runtime {
   private onInactiveChanged(off: readonly string[], on: readonly string[]): void {
     const set = this.entityAccess.inactive();
     this.blocks?.setInactive(set);
-    this.behaviorTicksFn = undefined;
-    this.behaviorTicksOff = null;
+    // Their scripts stop or start ticking.
+    if (this.script !== undefined) this.script.ticks.invalidate();
     const colliderOf = (id: string): boolean => !this.controllers.has(id) && this.sim.entities.get(id)?.hasCollider === true;
     const leaving = off.filter(colliderOf);
     const coming = on.filter(colliderOf);
@@ -1734,20 +1641,19 @@ export class RuntimeInstance implements Runtime {
     this.sim.currentModuleId = undefined;
     // The intent set is cleared at the start of every fixed step.
     // Reset in place (the committed writes are frozen copies, never handed out mutable).
-    resetMutableIntents(this.intents, stepIndex);
-    this.intentsVersion += 1;
+    this.phases.beginStep(stepIndex);
     try {
-      this.runPhase('intent', action);
+      this.phases.run('intent', action);
       // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
       this.director.afterIntentPhase(held, action);
       this.placement.afterIntentPhase(ordinal);
       if (!held) {
-        this.runPhase('controller', action);
+        this.phases.run('controller', action);
         // The impulses reached the controllers (a held step keeps them for the next one).
-        if (this.controllers.clearImpulses()) this.intentsVersion += 1;
+        if (this.controllers.clearImpulses()) this.phases.changed();
         this.controllers.runPhysics();
       }
-      this.runPhase('transform', action);
+      this.phases.run('transform', action);
       // After the transform phase the blocks test the character (triggers,
       // switches, the primitives; not while a game mode holds physics).
       if (!held) this.blocks?.afterPhysics(action);
@@ -1877,45 +1783,6 @@ export class RuntimeInstance implements Runtime {
   /** The game modes as of the last step (null without modes). */
   modeView(): ModeView | null {
     return this.modes.active ? this.modes.view() : null;
-  }
-
-  /**
-   * `StepContext.behaviorTicks`: whether an entity's behavior runs this step
-   * (undefined — every behavior runs — without modes or while the mode ticks
-   * every group; one function per runtime).
-   */
-  private behaviorTicks(): ((entityId: string) => boolean) | undefined {
-    // A switched-off object's scripts do not tick.
-    const off = this.entityAccess.inactive();
-    if (this.modes.ticksAll) {
-      if (off.size === 0) return undefined;
-      if (this.behaviorTicksOff === null || this.behaviorTicksOff.set !== off) this.behaviorTicksOff = { set: off, fn: (entityId: string): boolean => !off.has(entityId) };
-      return this.behaviorTicksOff.fn;
-    }
-    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => !this.entityAccess.inactive().has(entityId) && this.modes.ticks(this.entities.behaviorGroupOf.get(entityId));
-    return this.behaviorTicksFn;
-  }
-  private behaviorTicksOff: { set: ReadonlySet<string>; fn: (entityId: string) => boolean } | null = null;
-
-  /** `ctx.modes` for one phase (the enter/exit events are read in the intent phase only, once per step). */
-  private modeControlFor(phase: SimulationPhase): import('./types').BehaviorModes {
-    let c = this.modeControls.get(phase);
-    if (c !== undefined) return c;
-    const modes = this.modes;
-    const none: readonly import('./modes').ModeEventRecord[] = Object.freeze([]);
-    const events = (): readonly import('./modes').ModeEventRecord[] => (phase === 'intent' ? modes.events(this.sim.stepIndex + 1) : none);
-    c = Object.freeze({
-      current: (): string => modes.current ?? '',
-      previous: (): string => modes.previous ?? '',
-      is: (modeId: string): boolean => modes.current !== null && modes.current === modeId,
-      switch: (modeId: string, transition?: import('./types').BehaviorModeTransition): boolean => modes.request(modeId, transition),
-      events,
-      entered: (modeId?: string): boolean => events().some((e) => e.kind === 'enter' && (modeId === undefined || modeId === '' || e.mode === modeId)),
-      exited: (modeId?: string): boolean => events().some((e) => e.kind === 'exit' && (modeId === undefined || modeId === '' || e.mode === modeId)),
-      time: (): number => modes.secondsIn(this.sim.stepIndex + 1),
-    });
-    this.modeControls.set(phase, c);
-    return c;
   }
 
   /** The player spawns loaded now, in entity order. */
@@ -2091,10 +1958,8 @@ export class RuntimeInstance implements Runtime {
       place2D: (x, y, ordinal) => rt.placeCharacter2D(controllerId, x, y, ordinal),
       faceSpawn2D: (id, yaw) => rt.blocks?.faceSpawn(id, yaw),
       failStop: (e) => rt.faults.failStopFromError(e, rt.sim.stepIndex),
-      intents: () => rt.channelsOf(controllerId),
-      intentsChanged: () => {
-        rt.intentsVersion += 1;
-      },
+      intents: () => rt.phases.channelsOf(controllerId),
+      intentsChanged: () => rt.phases.changed(),
       setImpulse: (v) => rt.controllers.setImpulse(controllerId, v),
       // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
       lastMotion: () => rt.controllers.lastMotion(controllerId),
@@ -2200,8 +2065,8 @@ export class RuntimeInstance implements Runtime {
       setVisible: (id, visible) => {
         if (rt.sim.curr.has(id)) rt.blocks?.setVisible(id, visible);
       },
-      emitSignal: (name) => rt.signalControl.emit(name),
-      signaled: (name) => rt.signalControl.on(name),
+      emitSignal: (name) => rt.blockCtl.signals.emit(name),
+      signaled: (name) => rt.blockCtl.signals.on(name),
       setMaterial: (id, param, value, materialId) => rt.materials.api.set(id, param, value, materialId),
       swapMaterials: (id, materials) => rt.entityAccess.swapNow(id, materials),
       // The same path as ctx.modes.switch (applies at the next step boundary).
@@ -2213,25 +2078,6 @@ export class RuntimeInstance implements Runtime {
       character: rt.director.timelinePort,
       warn,
     };
-  }
-
-  /** `ctx.timeline` (arguments checked by the system; requests apply at the end of the step). */
-  private buildTimelineControl(): import('./types').BehaviorTimeline {
-    const t = this.timelines;
-    return Object.freeze({
-      play: (timelineId: string, bindings?: Readonly<Record<string, string>>): number => t.play(timelineId, bindings),
-      pause: (handle: number): boolean => t.pause(handle),
-      resume: (handle: number): boolean => t.resume(handle),
-      stop: (handle: number): boolean => t.stop(handle),
-      skip: (handle: number): boolean => t.skip(handle),
-      seek: (handle: number, seconds: number): boolean => t.seek(handle, seconds),
-      state: (handle: number) => t.state(handle),
-      time: (handle: number): number => t.time(handle),
-      isPlaying: (timelineId: string): boolean => t.isPlaying(timelineId),
-      events: () => t.events(),
-      ended: (handle: number): boolean => t.events().some((e) => e.kind === 'ended' && e.handle === handle),
-      marker: (name: string, handle?: number): boolean => t.events().some((e) => e.kind === 'marker' && e.name === name && (handle === undefined || handle === 0 || e.handle === handle)),
-    });
   }
 
   private sampleAction(stepIndex: number): ActionFrame {
@@ -2411,435 +2257,6 @@ export class RuntimeInstance implements Runtime {
     return this.faults.takeProblems();
   }
 
-  private runPhase(phase: SimulationPhase, action: ActionFrame): void {
-    this.phaseAction = action;
-    for (const entry of this.sim.entries) {
-      if (!entry.phases.includes(phase)) continue;
-      this.sim.currentPhase = phase;
-      this.sim.currentModuleId = entry.id;
-      const views = this.phaseViewsOf(entry, phase);
-      if (entry.phased) {
-        // The intents committed before this module runs (it does not see its own in `ctx.intents`).
-        views.intents = this.intentView();
-        (entry.instance as SimulationPhaseModule).step(phase, views.ctx!);
-      } else {
-        // Accepted M1 module participating in an M2 set (implicit
-        // transform phase): the M1 `(state, stepIndex)` call is preserved.
-        (entry.instance as SimulationModule).step(views.state, this.sim.stepIndex + 1);
-      }
-    }
-  }
-
-  /** The frozen copy of the entity order modules see (remade only when the order changes). */
-  private frozenOrder(): readonly string[] {
-    if (this.frozenOrderSource !== this.sim.order) {
-      this.frozenOrderSource = this.sim.order;
-      this.frozenOrderCopy = Object.freeze([...this.sim.order]);
-    }
-    return this.frozenOrderCopy;
-  }
-
-  /**
-   * A module's state view and step context for one phase, made
-   * once and reused every step. They read the step's values when accessed
-   * (step index, time, transforms, the frame, the events) — what a context
-   * made at the call would hold, since the runtime changes none of them while
-   * a module runs.
-   */
-  private phaseViewsOf(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
-    let byPhase = entry.views;
-    if (byPhase === undefined) {
-      byPhase = new Map();
-      entry.views = byPhase;
-    }
-    const cached = byPhase.get(phase);
-    if (cached !== undefined) return cached;
-    // The closures live in another function: V8 would allocate their scope at every call, cache hits included.
-    const made = this.makePhaseViews(entry, phase);
-    byPhase.set(phase, made);
-    return made;
-  }
-
-  private makePhaseViews(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
-    const rt = this;
-    // The accepted rule: the transform phase writes the declared owners.
-    const writablePhase = phase === 'transform';
-    const state = liveScopedState({
-      order: () => rt.frozenOrder(),
-      entities: () => rt.sim.entities,
-      stepIndex: () => rt.sim.stepIndex,
-      simTime: () => rt.sim.simTime,
-      prev: () => rt.sim.prev,
-      curr: () => rt.sim.curr,
-      writableOwners: () => (writablePhase ? ownerSetOf(entry) : null),
-    });
-    const views: PhaseViews = { state, ctx: null, intents: null };
-    if (entry.phased) {
-      const fields: PropertyDescriptorMap = {
-        stepIndex: { get: () => rt.sim.stepIndex, enumerable: true },
-        phase: { value: phase, enumerable: true },
-        action: { get: () => rt.phaseAction, enumerable: true },
-        settings: { value: this.sim.settings, enumerable: true },
-        physics: { value: this.queries.client, enumerable: true },
-        state: { value: state, enumerable: true },
-        intents: { get: () => views.intents, enumerable: true },
-        emit: { value: (intent: BehaviorIntent): void => rt.commitIntent(entry, phase, intent), enumerable: true },
-      };
-      if (this.scenes.rows !== null) fields['scenes'] = { value: this.scenes.control, enumerable: true };
-      fields['animators'] = { value: this.animators.control, enumerable: true };
-      fields['animatorEvents'] = { get: () => rt.animators.events, enumerable: true };
-      fields['signals'] = { value: this.signalControl, enumerable: true };
-      fields['messages'] = { value: this.messageControl, enumerable: true };
-      fields['game'] = { value: this.gameControl, enumerable: true };
-      // The generic primitives.
-      fields['health'] = { value: this.healthControl, enumerable: true };
-      fields['patrol'] = { value: this.patrolControl, enumerable: true };
-      fields['hitbox'] = { value: this.hitboxControl, enumerable: true };
-      fields['collectible'] = { value: this.collectibleControl, enumerable: true };
-      // The character's impulse and the per-object look overrides.
-      fields['character'] = { value: this.director.control, enumerable: true };
-      fields['look'] = { value: this.lookControl, enumerable: true };
-      fields['audio'] = { value: this.audioControl.control, enumerable: true };
-      fields['audioOwned'] = { value: this.audioControl.owned, enumerable: true };
-      fields['effects'] = { value: this.presentation.effects, enumerable: true };
-      fields['decals'] = { value: this.presentation.decals, enumerable: true };
-      fields['save'] = { value: this.saveControl, enumerable: true };
-      fields['spawner'] = { value: this.entities.spawnControl, enumerable: true };
-      fields['spawnerOwned'] = { value: this.entities.spawnerOwned, enumerable: true };
-      // The virtual cameras (ctx.camera).
-      fields['camera'] = { value: this.views.control, enumerable: true };
-      // Sockets (ctx.sockets).
-      fields['sockets'] = { value: this.socketControl, enumerable: true };
-      // The cursor channel (ctx.input.setCursor).
-      fields['cursor'] = { value: this.cursorControl, enumerable: true };
-      // Bindings, the device in use and rebinding (ctx.input).
-      fields['inputStatus'] = { value: this.inputStatus.view, enumerable: true };
-      // Debug commands (this phase's calls; the behavior host adds the handler).
-      const debugCommands = this.debugCommands;
-      fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
-      // The block layers, the terrains' and layers' scatter copies, the splines, and the ground of both.
-      fields['grid'] = { value: this.grid.api, enumerable: true };
-      fields['scatter'] = { value: this.grid.scatter.api, enumerable: true };
-      fields['splines'] = { value: this.grid.splines.api, enumerable: true };
-      fields['surface'] = { value: this.grid.surface.api, enumerable: true };
-      // Graph-material parameters per object.
-      fields['materials'] = { value: this.materials.api, enumerable: true };
-      // Generic component access (the behavior host names the writing script) and the shell's scene list.
-      fields['entities'] = { value: this.entityAccess.control, enumerable: true };
-      fields['shell'] = { value: this.shellControl, enumerable: true };
-      // Project saves (ctx.saves).
-      fields['saves'] = { value: this.saves.api, enumerable: true };
-      fields['assets'] = { value: this.assetHandles.api, enumerable: true };
-      // The project UI (the step's UI events in the intent phase).
-      fields['ui'] = { value: uiControlOf(this.uiControls, this.ui, phase), enumerable: true };
-      fields['stats'] = { get: () => rt.engineStats.now(), enumerable: true };
-      fields['display'] = { value: this.loop.display, enumerable: true };
-      // Conversations (ctx.dialogue; calls apply at the end of the step).
-      fields['dialogue'] = { value: this.dialogue.api, enumerable: true };
-      // The game modes, the run lifecycle, and which behaviors tick in the current mode.
-      fields['modes'] = { value: this.modeControlFor(phase), enumerable: true };
-      fields['lifecycle'] = { value: this.lifecycleControl, enumerable: true };
-      fields['behaviorTicks'] = { get: () => rt.behaviorTicks(), enumerable: true };
-      // The switched-off objects (the behavior host's onEnable/onDisable).
-      fields['inactiveEntities'] = { get: () => rt.entityAccess.inactive(), enumerable: true };
-      // Timelines (ctx.timeline).
-      fields['timeline'] = { value: this.timelineControl, enumerable: true };
-      // The environment presets (ctx.environment).
-      fields['environment'] = { value: this.environment.api, enumerable: true };
-      // Last step's trigger enter/exit events (each script gets those it owns).
-      const blocks = this.blocks;
-      if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
-      // The primitives' events of the last step (each script gets those of the objects it owns).
-      if (blocks !== null) fields['primitiveEvents'] = { get: () => blocks.primitiveEvents(), enumerable: true };
-      // The climb volume the character is in (the character controllers read it).
-      if (blocks !== null) fields['climb'] = { value: this.climbQuery, enumerable: true };
-      // 3D: the active camera's yaw for the character's move input (absent: world axes).
-      if (this.sim.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
-      views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
-    }
-    return views;
-  }
-
-  /**
-   * A frozen read-only view of the intents committed so far this step (phase
-   * The same object until the next commit or step).
-   */
-  private intentView(): IntentSet {
-    if (this.intentViewCache !== null && this.intentViewVersion === this.intentsVersion) return this.intentViewCache;
-    const s = this.intents;
-    const view: IntentSet = Object.freeze({
-      stepIndex: s.stepIndex,
-      move: s.move,
-      jump: s.jump,
-      moveWriter: s.moveWriter,
-      jumpWriter: s.jumpWriter,
-      // The writes are frozen when committed.
-      transformWrites: Object.freeze(s.transformWrites.slice()),
-      // Present only when committed (a 2D step's view has no such field).
-      ...(s.moveY !== null ? { moveY: s.moveY } : {}),
-      ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
-      ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
-      ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
-      // scripts' impulses for the controller, and the yaw a placement faces (present only when set).
-      ...this.controllerExtras(this.controllers.first),
-      ...this.furtherControllerIntents(),
-    });
-    this.intentViewCache = view;
-    this.intentViewVersion = this.intentsVersion;
-    return view;
-  }
-
-  /** A controller's impulse and placement yaw this step, as intent fields (present only when set). */
-  private controllerExtras(id: string | undefined): { impulse?: { x: number; y: number; z: number }; characterYaw?: number; inputHeld?: boolean } {
-    if (id === undefined) return {};
-    const i = this.controllers.impulseOf(id);
-    const yaw = this.placement.of(id)?.stepFacing ?? null;
-    const held = (id === this.controllers.first ? this.intents : this.intents.further.get(id))?.inputHeld === true;
-    return { ...(i !== null ? { impulse: Object.freeze({ x: i[0], y: i[1], z: i[2] }) } : {}), ...(yaw !== null ? { characterYaw: yaw } : {}), ...(held ? { inputHeld: true } : {}) };
-  }
-
-  /** The further player controllers' channels this step (`IntentSet.controllers`; absent when none was named). */
-  private furtherControllerIntents(): { controllers?: Readonly<Record<string, ControllerIntents>> } {
-    const out: Record<string, ControllerIntents> = {};
-    for (let i = 1; i < this.controllers.ids.length; i += 1) {
-      const id = this.controllers.ids[i]!;
-      const c = this.intents.further.get(id);
-      const extras = this.controllerExtras(id);
-      if (c === undefined && extras.impulse === undefined && extras.characterYaw === undefined) continue;
-      out[id] = Object.freeze({
-        move: c?.move ?? null,
-        jump: c?.jump ?? null,
-        ...(c !== undefined && c.moveY !== null ? { moveY: c.moveY } : {}),
-        ...(c?.characterMove != null ? { characterMove: Object.freeze({ ...c.characterMove }) } : {}),
-        ...(c?.characterPlace != null ? { characterPlace: Object.freeze({ ...c.characterPlace }) } : {}),
-        ...(c !== undefined && c.characterEnabled !== null ? { characterEnabled: c.characterEnabled } : {}),
-        ...extras,
-      });
-    }
-    return Object.keys(out).length > 0 ? { controllers: Object.freeze(out) } : {};
-  }
-
-  /** A player controller's intent channels this step (the first's are the set's own; a further one's are made when named). */
-  private channelsOf(id: string): MutableControllerChannels {
-    if (id === this.controllers.first) return this.intents;
-    let c = this.intents.further.get(id);
-    if (c === undefined) {
-      c = emptyControllerChannels();
-      this.intents.further.set(id, c);
-    }
-    return c;
-  }
-
-  /**
-   * Commit one intent (steps 1–7). The runtime owns the
-   * cross-module duplicate-writer check and the per-step cap; the transform
-   * write is applied here (position axes only) so one step has at most one
-   * writer per `(entityId, axis)`. Every rejection is a fail-stop.
-   */
-  private commitIntent(entry: ModuleEntry, phase: SimulationPhase, raw: unknown): void {
-    const shape = validateIntentShape(raw);
-    if (!shape.ok) throw shape.error;
-    const intent = shape.intent;
-    const phaseError = validateIntentPhase(intent, phase);
-    if (phaseError !== null) throw phaseError;
-    const valueError = validateIntentValue(intent);
-    if (valueError !== null) throw valueError;
-
-    // A player controller's intents name their controller (absent: the first).
-    let channels: MutableControllerChannels | null = null;
-    let player: string | undefined;
-    if (intent.kind !== 'transform' && intent.kind !== 'pose') {
-      player = this.controllers.resolve(intent.entityId);
-      if (intent.entityId !== undefined && player === undefined) {
-        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `${intent.kind}.entityId "${intent.entityId}" is not a player controller`);
-      }
-      channels = player !== undefined ? this.channelsOf(player) : this.intents;
-    }
-    if (intent.kind === 'control_move') {
-      const c = channels!;
-      if (c.move !== null) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_move already committed by "${c.moveWriter}" and "${entry.id}"`);
-      }
-      this.bumpIntentCount();
-      c.move = quantizeIntentMove(intent.value);
-      c.moveWriter = entry.id;
-      // The second axis (a 3D character's forward input).
-      if (intent.y !== undefined) c.moveY = quantizeIntentMove(intent.y);
-      return;
-    }
-    if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
-      // The character controller's channels (one writer each per controller and step); character_move is 3D only,
-      // character_place on the 2D plane needs a character with a physics port, character_enable a character.
-      if (this.sim.physics3d === undefined && (intent.kind === 'character_move' || player === undefined || (intent.kind === 'character_place' && this.controllers.resetPort2D() === null))) {
-        throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_move' ? 'a character_move intent needs a 3D project (physics_dimension 3)' : `a ${intent.kind} intent needs a character (a controller)${intent.kind === 'character_place' ? ' with physics' : ''}`);
-      }
-      const c = channels!;
-      const writer = c.characterWriters.get(intent.kind);
-      if (writer !== undefined) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `${intent.kind} already committed by "${writer}" and "${entry.id}"`);
-      }
-      this.bumpIntentCount();
-      c.characterWriters.set(intent.kind, entry.id);
-      if (intent.kind === 'character_move') c.characterMove = { x: intent.x, z: intent.z, run: intent.run === true };
-      else if (intent.kind === 'character_place') {
-        c.characterPlace = { x: intent.position[0], y: intent.position[1], z: intent.position[2] };
-        if (player !== undefined) this.placement.of(player)?.placeFacing(intent.facing);
-      }
-      else this.director.noteEnabled(player, (c.characterEnabled = intent.enabled));
-      return;
-    }
-    if (intent.kind === 'respawn') {
-      // The respawn intent is ctx.lifecycle's respawn (at the active spawn, else where the character started).
-      this.bumpIntentCount();
-      this.lifecycleControl.respawn(undefined, player);
-      return;
-    }
-    if (intent.kind === 'control_jump') {
-      const c = channels!;
-      if (c.jump !== null) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_jump already committed by "${c.jumpWriter}" and "${entry.id}"`);
-      }
-      this.bumpIntentCount();
-      c.jump = intent.value;
-      c.jumpWriter = entry.id;
-      return;
-    }
-    if (!ownerSetOf(entry).has(intent.entityId)) {
-      throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not owned by module "${entry.id}"`);
-    }
-    const transform = this.sim.curr.get(intent.entityId);
-    if (transform === undefined) {
-      throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" does not exist`);
-    }
-    // The written channels of an entity are bits in one map entry
-    // tagged with the step (x/y/z 1/2/4, rotation 8, scale 16): no key strings per intent.
-    const axes = this.intents.axes;
-    const tag = this.intents.axesTag * 64;
-    const stored = axes.get(intent.entityId);
-    const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
-    // A quaternion or a facing is a rotation write too (one form per intent).
-    const turns = intent.quaternion !== undefined || intent.facing !== undefined;
-    if (intent.kind === 'pose') {
-      if ((intent.rotation !== undefined || turns) && (have & 8) !== 0) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
-      }
-      if (intent.scale !== undefined && (have & 16) !== 0) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a scale write to "${intent.entityId}" in this step`);
-      }
-      this.bumpIntentCount();
-      let bits = 0;
-      if (intent.rotation !== undefined) {
-        const rad = Math.PI / 360; // half-angle per degree
-        const y = (intent.rotation.yaw ?? 0) * rad;
-        const x = (intent.rotation.pitch ?? 0) * rad;
-        const z = (intent.rotation.roll ?? 0) * rad;
-        // q = qYaw · qPitch · qRoll
-        const cy = Math.cos(y);
-        const sy = Math.sin(y);
-        const cx = Math.cos(x);
-        const sx = Math.sin(x);
-        const cz = Math.cos(z);
-        const sz = Math.sin(z);
-        // qYaw · qPitch as [x, y, z, w]
-        const qx = cy * sx;
-        const qy = sy * cx;
-        const qz = -sy * sx;
-        const qw = cy * cx;
-        transform.rotation[0] = qx * cz + qy * sz;
-        transform.rotation[1] = qy * cz - qx * sz;
-        transform.rotation[2] = qw * sz + qz * cz;
-        transform.rotation[3] = qw * cz - qz * sz;
-        bits |= 8;
-      } else if (turns) {
-        writeRotationForm(transform.rotation, intent);
-        bits |= 8;
-      }
-      if (intent.scale !== undefined) {
-        const sc = intent.scale;
-        if (typeof sc === 'number') {
-          transform.scale[0] = sc;
-          transform.scale[1] = sc;
-          transform.scale[2] = sc;
-        } else {
-          transform.scale[0] = sc[0];
-          transform.scale[1] = sc[1];
-          transform.scale[2] = sc[2];
-        }
-        bits |= 16;
-      }
-      axes.set(intent.entityId, tag + (have | bits));
-      return;
-    }
-    const position = intent.position;
-    let bits = 0;
-    for (const axis in position) {
-      const bit = axis === 'x' ? 1 : axis === 'y' ? 2 : axis === 'z' ? 4 : 0;
-      if (bit === 0) continue;
-      if ((have & bit) !== 0) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a write to "${intent.entityId}".${axis} in this step`);
-      }
-      bits |= bit;
-    }
-    if (turns) {
-      if ((have & 8) !== 0) {
-        throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_intent', `module "${entry.id}" already committed a rotation write to "${intent.entityId}" in this step`);
-      }
-      bits |= 8;
-    }
-    this.bumpIntentCount();
-    if ((bits & 1) !== 0) transform.position[0] = position.x as number;
-    if ((bits & 2) !== 0) transform.position[1] = position.y as number;
-    if ((bits & 4) !== 0) transform.position[2] = position.z as number;
-    if (turns) writeRotationForm(transform.rotation, intent);
-    axes.set(intent.entityId, tag + (have | bits));
-    // Frozen once here; every `ctx.intents` view shares it.
-    this.intents.transformWrites.push(Object.freeze({
-      moduleId: entry.id,
-      entityId: intent.entityId,
-      position: Object.freeze({ ...intent.position }),
-    }));
-  }
-
-  /** The per-step intent cap, then the cumulative count. */
-  private bumpIntentCount(): void {
-    if (this.intents.count + 1 > INTENT_LIMITS.perStep) {
-      const limit = this.intentStepLimit();
-      if (this.intents.count + 1 > limit) {
-        throw new BehaviorIntentError('behavior_intent_limit', 'per_step', `more than ${limit} intents were committed in one step`);
-      }
-    }
-    this.intents.count += 1;
-    this.intentCommitCount += 1;
-    this.intentsVersion += 1;
-  }
-
-  /**
-   * The per-step intent cap scales with the live behavior
-   * instances — `max(INTENT_LIMITS.perStep, perInstancePerStep × instances)` —
-   * so every instance may use its own bound in the same step (hundreds of
-   * moving objects), while the floor keeps every run the fixed cap of 64
-   * accepted valid. Instances come and go only with entities, so the count is
-   * re-read when the entity order changes.
-   */
-  private intentStepLimit(): number {
-    if (this.intentLimitOrder !== this.sim.order) {
-      let instances = 0;
-      for (const entry of this.sim.entries) {
-        const probe = entry.instance as { behaviorDiagnostics?: () => { instanceCount?: number } };
-        if (typeof probe.behaviorDiagnostics !== 'function') continue;
-        try {
-          const n = probe.behaviorDiagnostics().instanceCount;
-          if (typeof n === 'number' && Number.isInteger(n) && n > 0) instances += n;
-        } catch {
-          /* a failing diagnostics read counts no instances */
-        }
-      }
-      this.intentLimit = Math.max(INTENT_LIMITS.perStep, INTENT_LIMITS.perInstancePerStep * instances);
-      this.intentLimitOrder = this.sim.order;
-    }
-    return this.intentLimit;
-  }
-
   /**
    * The active camera's yaw for the 3D character's move input —
    * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
@@ -2894,7 +2311,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.isM2) return base;
     const m2: RuntimeDiagnostics = {
       ...base,
-      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.inputSamples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.intentCommitCount }),
+      ...this.faults.phasedFields(this.actions, this.controllers.first, { inputSamples: this.inputSamples, droppedInputSteps: this.frameClock.droppedInputSteps, settleSteps: this.settleSteps, physicsSteps: this.physicsSteps, intentCommitCount: this.phases.commitCount }),
     };
     // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
