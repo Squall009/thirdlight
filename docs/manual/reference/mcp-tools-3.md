@@ -58,7 +58,7 @@ Without playSessionId: the project's recent problems (failed commands, import/co
 <a id="tool-tl_docs"></a>
 ## `tl_docs`
 
-The Thirdlight manual and the generated engine reference of the running build. No topic: the contents. topic: a page ("guides/terrain", "concepts/game-flow", "reference/ops", "deployment"), a section ("guides/terrain#sculpting"; a link from a page works as written) or a reference topic ("op.editBlocks", "component.light", "ctx.grid", "node.material.pbr", "limit.MAX_TAGS", "tool.tl_command"). query: matching topic names. A long page comes in parts: the answer names the next part to ask for. Look an op, component or script call up here before using it.
+The Thirdlight manual and the generated engine reference of the running build. No topic: the contents. topic: a page ("guides/terrain", "concepts/game-flow", "reference/ops", "deployment"), a section ("guides/terrain#sculpting"; a link from a page works as written) or a reference topic ("op.editBlocks", "component.light", "ctx.grid", "node.material.pbr", "limit.MAX_TAGS", "tool.tl_command"). query: matching topic names. A long page comes in parts: the answer names the next part to ask for. Look an op, component or script call up here before using it. Answers without a project.
 
 <a id="tool-tl_game_control"></a>
 ## `tl_game_control`

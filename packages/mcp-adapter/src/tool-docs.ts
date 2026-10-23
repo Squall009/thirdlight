@@ -651,7 +651,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'The Thirdlight manual and the generated engine reference of the running build. No topic: the contents. topic: a page ("guides/terrain", ' +
     '"concepts/game-flow", "reference/ops", "deployment"), a section ("guides/terrain#sculpting"; a link from a page works as written) or a reference ' +
     'topic ("op.editBlocks", "component.light", "ctx.grid", "node.material.pbr", "limit.MAX_TAGS", "tool.tl_command"). query: matching topic names. ' +
-    'A long page comes in parts: the answer names the next part to ask for. Look an op, component or script call up here before using it.',
+    'A long page comes in parts: the answer names the next part to ask for. Look an op, component or script call up here before using it. Answers without a project.',
   tl_inspect:
     'Bounded, read-only inspection. target="project": counts, ids, scenes and start scenes; "entity": one object (includeSubtree for its children); ' +
     '"entities": a paged list; "selection": what the connected editor has selected; "engine": the engine version, commit and build the backend runs ' +

@@ -500,6 +500,21 @@ function surfaceBackendError(res: { status: number; body: unknown }): CallToolRe
   return { content: [{ type: 'text', text: JSON.stringify({ ...body, __httpStatus: res.status }) }], isError: true };
 }
 
+/**
+ * The calls that read the engine, not a project: the manual and the build.
+ * They answer before a project is picked (or when the harness's folder holds
+ * none), so an agent can learn the engine first; everything else needs one.
+ */
+export async function handleProjectFreeCall(
+  client: BackendClient,
+  name: string,
+  args: unknown,
+): Promise<CallToolResult | null> {
+  const a = isObj(args) ? args : {};
+  if (name !== 'tl_docs' && !(name === 'tl_inspect' && a.target === 'engine')) return null;
+  return handleToolCall({ client, projectId: '', clientId: '' }, name, a);
+}
+
 const MUTATION_SET = new Set<string>(MUTATION_OPS);
 const QUERY_SET = new Set<string>(QUERY_OPS);
 /** Dispatch one `tools/call` to the backend services. Never throws. */

@@ -7,6 +7,8 @@
  * - tl_docs answers the contents, a page, a section, a reference topic and a
  *   search, every answer bounded and a long page in parts;
  * - tl_inspect target="engine" names the build and the manual it serves;
+ * - tl_docs and the engine answer from a folder that holds no project (an
+ *   agent reads the manual before it picks one); project tools refuse there;
  * - tl_script_publish publishes TypeScript through the editor's source route
  *   (compile and type check, the trust refusal, acknowledgment, publication;
  *   a type error refuses the check but not a publish);
@@ -19,6 +21,7 @@ import type { Backend } from '@thirdlight/backend/services';
 import { createTestBackend } from '@thirdlight/backend/testing';
 
 import { BackendClient } from './backend-client';
+import { folderContextProvider } from './index';
 import { createMcpServer } from './server';
 
 /** The engine checkout (no Node path module in this package: a URL resolves it). */
@@ -98,6 +101,26 @@ describe('MCP onboarding (real client, real backend)', () => {
     const unknown = await call('tl_docs', { topic: 'op.noSuchOp' });
     expect(unknown.isError).toBe(true);
     expect(JSON.stringify(unknown.body)).toContain('docs_topic_not_found');
+  });
+
+  it('reads the manual and the engine before a project is picked; project tools say why they cannot', async () => {
+    // The checked-in docs folder holds no thirdlight.json, and neither do its parents.
+    const auth = new BackendClient({ authoringOrigin: `http://127.0.0.1:${backend.portAuthoring}`, token: TOKEN });
+    const server = createMcpServer(folderContextProvider(auth, { origin: 'test', cwd: `${REPO}/docs`, clientId: 'mcp-no-project' }));
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const bare = new Client({ name: 'thirdlight-no-project', version: '0.0.0' });
+    await bare.connect(ct);
+    closers.push(() => ct.close(), () => server.close());
+    const first = (await bare.callTool({ name: 'tl_docs', arguments: { topic: 'getting-started/first-project' } })) as Result;
+    expect(first.isError, first.content[0]!.text).not.toBe(true);
+    expect(first.content[1]!.text.startsWith('# ')).toBe(true);
+    const engine = (await bare.callTool({ name: 'tl_inspect', arguments: { target: 'engine' } })) as Result;
+    expect(engine.content[0]!.text).toContain('"manual"');
+    const project = (await bare.callTool({ name: 'tl_inspect', arguments: { target: 'project' } })) as Result;
+    expect(project.isError).toBe(true);
+    expect(project.content[0]!.text).toContain('project_not_resolved');
+    expect(project.content[0]!.text).toContain('no thirdlight.json');
   });
 
   it('bounds a long page: one part per call, the next named', async () => {

@@ -22,7 +22,7 @@
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { BackendClient } from './backend-client';
-import { createMcpServer } from './server';
+import { createMcpServer, type McpContextProvider } from './server';
 import type { McpContext } from './tools';
 
 function log(msg: string): void {
@@ -52,23 +52,24 @@ export interface McpEntryOptions {
   readonly timeoutMs?: number;
 }
 
-/** Build the connected stdio MCP server from options (used by `main`). */
-export async function startStdioMcpServer(opts: McpEntryOptions): Promise<() => Promise<void>> {
-  const client = new BackendClient({
-    authoringOrigin: opts.authoringOrigin,
-    token: opts.token,
-    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-  });
-  const clientId = opts.clientId ?? 'mcp-harness';
-  const cwd = opts.cwd ?? process.cwd();
-  let resolved: McpContext | null = opts.projectId !== undefined ? { client, projectId: opts.projectId, clientId } : null;
-  const provider = async (): Promise<{ ok: true; ctx: McpContext } | { ok: false; message: string }> => {
+/**
+ * The project of the folder the harness runs in, worked out on the first call
+ * that needs it (or the given id). A failure keeps the client, so the calls
+ * that read only the engine still answer.
+ */
+export function folderContextProvider(
+  client: BackendClient,
+  where: { readonly origin: string; readonly cwd: string; readonly clientId: string; readonly projectId?: string },
+): McpContextProvider {
+  const { origin, cwd, clientId, projectId } = where;
+  let resolved: McpContext | null = projectId !== undefined ? { client, projectId, clientId } : null;
+  const provider: McpContextProvider = async () => {
     if (resolved !== null) return { ok: true, ctx: resolved };
     let res;
     try {
       res = await client.resolveFolder(cwd);
     } catch (e) {
-      return { ok: false, message: `the Thirdlight backend at ${opts.authoringOrigin} is not reachable (${e instanceof Error ? e.message : String(e)})` };
+      return { ok: false, client, message: `the Thirdlight backend at ${origin} is not reachable (${e instanceof Error ? e.message : String(e)})` };
     }
     const body = res.body as { ok?: boolean; projectId?: string; error?: { message?: string; reason?: string; folder?: string; markerProjectId?: string } } | null;
     if (body?.ok === true && typeof body.projectId === 'string') {
@@ -78,13 +79,26 @@ export async function startStdioMcpServer(opts: McpEntryOptions): Promise<() => 
     }
     const e = body?.error;
     if (e?.reason === 'not_registered') {
-      return { ok: false, message: `${e.folder ?? cwd}/thirdlight.json (project "${e.markerProjectId ?? '?'}") is not registered with the backend. Open it in the editor's project picker ("Open project folder…"), or run: node tools/project.mjs register ${e.folder ?? cwd}` };
+      return { ok: false, client, message: `${e.folder ?? cwd}/thirdlight.json (project "${e.markerProjectId ?? '?'}") is not registered with the backend. Open it in the editor's project picker ("Open project folder…"), or run: node tools/project.mjs register ${e.folder ?? cwd}` };
     }
     if (e?.reason === 'no_marker') {
-      return { ok: false, message: `no thirdlight.json in ${cwd} or any parent folder. Run the harness inside a Thirdlight project folder, or set THIRDLIGHT_PROJECT_ID.` };
+      return { ok: false, client, message: `no thirdlight.json in ${cwd} or any parent folder. Run the harness inside a Thirdlight project folder, or set THIRDLIGHT_PROJECT_ID.` };
     }
-    return { ok: false, message: e?.message ?? `could not resolve the project for ${cwd} (status ${res.status})` };
+    return { ok: false, client, message: e?.message ?? `could not resolve the project for ${cwd} (status ${res.status})` };
   };
+  return provider;
+}
+
+/** Build the connected stdio MCP server from options (used by `main`). */
+export async function startStdioMcpServer(opts: McpEntryOptions): Promise<() => Promise<void>> {
+  const client = new BackendClient({
+    authoringOrigin: opts.authoringOrigin,
+    token: opts.token,
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+  });
+  const clientId = opts.clientId ?? 'mcp-harness';
+  const cwd = opts.cwd ?? process.cwd();
+  const provider = folderContextProvider(client, { origin: opts.authoringOrigin, cwd, clientId, ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}) });
   const server = createMcpServer(provider);
   const transport = new StdioServerTransport();
   await server.connect(transport);

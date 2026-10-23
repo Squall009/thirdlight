@@ -19,7 +19,8 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { TOOL_DEFINITIONS, handleToolCall, type McpContext } from './tools';
+import { TOOL_DEFINITIONS, handleProjectFreeCall, handleToolCall, type McpContext } from './tools';
+import type { BackendClient } from './backend-client';
 
 /**
  * The server instructions (the protocol's `instructions`, which a client
@@ -42,7 +43,10 @@ export interface McpServerInfo {
 }
 
 /** Resolves the project context lazily (the project is worked out from the harness's folder). */
-export type McpContextProvider = () => Promise<{ ok: true; ctx: McpContext } | { ok: false; message: string }>;
+export type McpContextProvider = () => Promise<
+  // An unresolved project still carries the backend client: the manual and the build answer without a project.
+  { ok: true; ctx: McpContext } | { ok: false; message: string; client?: BackendClient }
+>;
 
 /**
  * Build the Thirdlight MCP server with the charter's tool surface. The
@@ -66,6 +70,8 @@ export function createMcpServer(ctx: McpContext | McpContextProvider, info?: Mcp
     if (typeof ctx !== 'function') return handleToolCall(ctx, name, args);
     const resolved = await ctx();
     if (!resolved.ok) {
+      const free = resolved.client !== undefined ? await handleProjectFreeCall(resolved.client, name, args) : null;
+      if (free !== null) return free;
       return { isError: true, content: [{ type: 'text', text: JSON.stringify({ ok: false, error: { code: 'project_not_resolved', message: resolved.message } }) }] };
     }
     return handleToolCall(resolved.ctx, name, args);

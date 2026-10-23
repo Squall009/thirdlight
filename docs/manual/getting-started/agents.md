@@ -63,5 +63,10 @@ A project in the data root has no game folder: set `THIRDLIGHT_PROJECT_ID`
 for the MCP server and run `project.mjs skill` on the folder the agent works
 in.
 
+`tl_docs` and `tl_inspect target="engine"` answer without a project: an
+agent started outside a project folder (or in one not yet registered) reads
+the manual first; the other tools say which project is missing and how to
+open it.
+
 Next: [concepts](../index.md#concepts), or the
 [play-testing guide](../guides/playtesting.md) an agent follows to test.
