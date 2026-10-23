@@ -8,6 +8,7 @@
     "revision": 6,
     "environment": {
       "sky": {
+        "environmentIntensity": 0.1,
         "mode": "procedural"
       }
     },

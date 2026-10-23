@@ -132,7 +132,7 @@ function defaultEntities() {
 
 // A new project's first scene has the physical sky (project-model NEW_PROJECT_ENVIRONMENT).
 function defaultScene() {
-  return { schemaVersion: 4, sceneId: SCENE_ID, revision: 0, environment: { sky: { mode: "procedural" } }, entities: defaultEntities() };
+  return { schemaVersion: 4, sceneId: SCENE_ID, revision: 0, environment: { sky: { environmentIntensity: 0.1, mode: "procedural" } }, entities: defaultEntities() };
 }
 
 function defaultContent() {

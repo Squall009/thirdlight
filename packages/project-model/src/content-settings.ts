@@ -226,10 +226,13 @@ export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.fre
 /**
  * The look a new project's first scene is made with (an empty project's, and
  * a template's that sets none of its own): the physical sky — atmosphere and
- * a sun placed opposite the scene's directional light — at its defaults, so
- * no new scene opens on a black background.
+ * a sun placed opposite the scene's directional light — so no new scene opens
+ * on a black background. Its sky lighting is low because new scenes also have
+ * a sun and fill light: at the sky's own default (1) the ground and characters
+ * wash out and the sun's shadows fade. Only new scenes get this; a stored sky
+ * without a value keeps the sky's default.
  */
-export const NEW_PROJECT_ENVIRONMENT: Readonly<SceneEnvironment> = Object.freeze({ sky: Object.freeze({ mode: 'procedural' as const }) });
+export const NEW_PROJECT_ENVIRONMENT: Readonly<SceneEnvironment> = Object.freeze({ sky: Object.freeze({ environmentIntensity: 0.1, mode: 'procedural' as const }) });
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */
 export type PhysicsDimension = 2 | 3;

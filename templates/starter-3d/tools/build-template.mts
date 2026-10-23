@@ -34,7 +34,7 @@ import { join, resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
 import * as ktx2 from 'ktx2-encoder';
-import { LAYERED_TEXTURES, layeredMaterial, type MaterialDef } from '@thirdlight/project-model';
+import { LAYERED_TEXTURES, layeredMaterial, NEW_PROJECT_ENVIRONMENT, type MaterialDef } from '@thirdlight/project-model';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
 import { capture, newAuthor, run } from '../../tools/author.mts';
@@ -156,13 +156,13 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
   const half = n / 2;
   const cell = (block: string): Record<string, unknown> => ({ block });
   return [
-    // The physical sky every new project starts with; its lighting kept low beside the sun and the fill, and a light haze.
+    // The physical sky every new project starts with, and a light haze.
     {
       op: 'setEnvironment',
       args: {
         sceneId: 'scene-main',
         environment: {
-          sky: { mode: 'procedural', environmentIntensity: 0.1 },
+          sky: { ...NEW_PROJECT_ENVIRONMENT.sky },
           fog: { mode: 'exp2', color: '#9fbfe3', density: 0.0015 },
         },
       },

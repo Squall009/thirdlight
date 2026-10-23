@@ -131,7 +131,7 @@ describe('template dependencies at creation', () => {
     expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
   });
 
-  it('every new project has the physical sky: the 2D starter and an empty project', async () => {
+  it('every new project has the physical sky, its lighting low: the 2D starter and an empty project', async () => {
     const look = async (projectId: string): Promise<unknown> => {
       const q = await fetch(`${base}/api/v1/projects/${projectId}/commands`, {
         method: 'POST',
@@ -140,10 +140,10 @@ describe('template dependencies at creation', () => {
       });
       return ((await q.json()) as { scenes: { environment?: unknown }[] }).scenes[0]?.environment;
     };
-    expect(await look('t3')).toEqual({ sky: { mode: 'procedural' } });
+    expect(await look('t3')).toEqual({ sky: { mode: 'procedural', environmentIntensity: 0.1 } });
     const empty = await fetch(`${base}/api/v1/admin/projects`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 't4', name: 'Empty' }) });
     expect(empty.status, (await empty.clone().text()).slice(0, 300)).toBe(201);
-    expect(await look('t4')).toEqual({ sky: { mode: 'procedural' } });
+    expect(await look('t4')).toEqual({ sky: { mode: 'procedural', environmentIntensity: 0.1 } });
   });
 });
 
