@@ -97,6 +97,7 @@ import type { MeshWorkerReply } from './block-mesh-worker';
 import { LIGHT_LAYERS_KEY } from './light-layers';
 import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './projected-decals';
 import { SEE_THROUGH_KEY } from './see-through';
+import { SEE_THROUGH_PIECES_KEY, type OccluderLayer } from './see-through-occluders';
 import { ROOM_TAG_KEY } from './room-culling';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
@@ -236,6 +237,8 @@ interface LayerState {
   view: BlockGridReader;
   /** This version of the layer's cells (a worker's result for an older one is dropped). */
   serial: number;
+  /** Bumped whenever its cells, kits or block types change after it was set (see-through finds its occluders again). */
+  cells: number;
   readonly chunks: Map<string, THREE.Group>;
   readonly dirty: Set<string>;
   /** Dirty chunks whose change was an edit (they may mesh on the page within the budget). */
@@ -419,6 +422,14 @@ function detailedMeshes(group: THREE.Object3D): THREE.Mesh[] {
   return out;
 }
 
+/** A layer's regions with the rooms drawn on it (a stored region of the same id wins). */
+function regionsWithRooms(rooms: ReadonlyMap<string, readonly BlockRegion[]> | undefined, layer: LayerState): ReadonlyMap<string, readonly (readonly number[])[]> {
+  if (rooms === undefined) return layer.grid.regions;
+  const out = new Map<string, readonly (readonly number[])[]>(layer.grid.regions);
+  for (const list of rooms.values()) for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
+  return out;
+}
+
 export class BlockLayerView {
   readonly root = new THREE.Group();
   private readonly deps: BlockLayerViewDeps;
@@ -510,6 +521,7 @@ export class BlockLayerView {
   setTypes(types: readonly BlockType[]): void {
     const next = new Map(types.map((t) => [t.blockId, t]));
     if (JSON.stringify([...next.entries()]) === JSON.stringify([...this.types.entries()])) return;
+    for (const layer of this.layers.values()) layer.cells += 1;
     this.types = next;
     this.updateWallRows();
     // Prepared chunks were meshed with the old types.
@@ -531,6 +543,7 @@ export class BlockLayerView {
   setGameKits(entityId: string, kits: readonly BlockLayerKit[] | null): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
+    layer.cells += 1;
     const before = kitKey(this.kitsOf(layer));
     layer.gameKits = kits;
     const now = this.kitsOf(layer);
@@ -602,7 +615,7 @@ export class BlockLayerView {
       group.userData[VIEW_OWNER_KEY] = entityId;
       this.root.add(group);
       const grid = BlockGrid.from(component, data);
-      layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false, ring: null, held: new Set(), outside: new Set(), bytes: new Map(), streamAt: null, streamDirty: true, chunkList: null };
+      layer = { group, component, grid, gameKits: null, view: blockKitView(grid, component.kits, this.types), serial: ++this.serials, cells: 0, chunks: new Map(), dirty: new Set(), edited: new Set(), gens: new Map(), pending: new Map(), meshMs: -1, looksAsked: 0, lightmapLayouts: new Map(), hidden: false, ring: null, held: new Set(), outside: new Set(), bytes: new Map(), streamAt: null, streamDirty: true, chunkList: null };
       this.layers.set(entityId, layer);
     } else {
       // Another kit or other material rules on drawn chunks is a restyle (the shadow held until they are in).
@@ -623,7 +636,7 @@ export class BlockLayerView {
     layer.group.updateMatrixWorld(true);
     // Its cut-away zones (the chunks are split by them when they are meshed again, below).
     const zonesBefore = JSON.stringify(this.cut.zonesOf(entityId));
-    this.cut.setLayer(entityId, component, this.regionsOf(entityId, layer), origin);
+    this.cut.setLayer(entityId, component, regionsWithRooms(this.roomRegions.get(entityId), layer), origin);
     if (JSON.stringify(this.cut.zonesOf(entityId)) !== zonesBefore) for (const fn of this.zoneListeners) fn(entityId);
     for (const ck of layer.grid.chunkKeys()) layer.dirty.add(ck);
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
@@ -681,6 +694,7 @@ export class BlockLayerView {
     if (layer === undefined) return;
     const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
+    layer.cells += 1;
     // A chunk written where there was none (or emptied) changes what there is to stream.
     layer.streamDirty = true;
     layer.chunkList = null;
@@ -863,7 +877,7 @@ export class BlockLayerView {
     if (layer === undefined || layer.component.cutaway === undefined) return;
     const before = JSON.stringify(this.cut.zonesOf(layerId));
     const g = layer.group.position;
-    this.cut.setLayer(layerId, layer.component, this.regionsOf(layerId, layer), [g.x, g.y, g.z]);
+    this.cut.setLayer(layerId, layer.component, regionsWithRooms(this.roomRegions.get(layerId), layer), [g.x, g.y, g.z]);
     if (JSON.stringify(this.cut.zonesOf(layerId)) === before) return;
     // Other zones: every chunk is split again.
     for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
@@ -874,6 +888,17 @@ export class BlockLayerView {
   onCutawayZones(fn: (layerId: string) => void): () => void {
     this.zoneListeners.add(fn);
     return () => void this.zoneListeners.delete(fn);
+  }
+
+  /** The layers drawn, as see-through's occluder search reads them (a hidden layer, or one that opts out, is none). */
+  occluderLayers(): OccluderLayer[] {
+    const out: OccluderLayer[] = [];
+    for (const [id, layer] of this.layers) {
+      if (layer.hidden || layer.component.metadataOnly === true || (layer.component as { seeThrough?: unknown }).seeThrough === false) continue;
+      const g = layer.group.position;
+      out.push({ id, origin: [g.x, g.y, g.z], cellSize: layer.grid.cellSize, grid: layer.view, version: layer.serial * 1e6 + layer.cells });
+    }
+    return out;
   }
 
   /** A layer's cut-away zones and where its cells are (null: it has none): what other meshes on it are split by. */
@@ -894,14 +919,7 @@ export class BlockLayerView {
     this.cut.drop(layerId, key);
   }
 
-  /** A layer's regions with the rooms drawn on it (a stored region of the same id wins). */
-  private regionsOf(layerId: string, layer: LayerState): ReadonlyMap<string, readonly (readonly number[])[]> {
-    const rooms = this.roomRegions.get(layerId);
-    if (rooms === undefined) return layer.grid.regions;
-    const out = new Map<string, readonly (readonly number[])[]>(layer.grid.regions);
-    for (const list of rooms.values()) for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
-    return out;
-  }
+
 
   /** Whether a closed piece that blocks passage stands on a layer's cell edge (a shut door: rooms are not seen through it). */
   edgeClosed(entityId: string, x: number, y: number, z: number, axis: number): boolean {
@@ -1279,6 +1297,8 @@ export class BlockLayerView {
       if (decalLayers !== undefined) m.userData[DECAL_LAYERS_KEY] = decalLayers;
       // Whether it fades round see-through subjects (see-through.ts; absent: it does).
       if ((layer.component as { seeThrough?: unknown }).seeThrough === false) m.userData[SEE_THROUGH_KEY] = false;
+      // Its cells fade by their pieces' boxes, never the chunk as a whole.
+      else m.userData[SEE_THROUGH_PIECES_KEY] = true;
       // Clipped decals may be cut from it (clipped-decals.ts).
       m.userData[DECAL_SURFACE_KEY] = true;
       m.matrixAutoUpdate = false;

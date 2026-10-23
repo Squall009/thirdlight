@@ -25,6 +25,7 @@ import { attribute, Fn, instanceIndex, mat4, normalLocal, positionLocal, positio
 import { NodeMaterial, StorageBufferAttribute, type NodeBuilder } from 'three/webgpu';
 import { disposeSharingGeometry } from './dispose';
 import { instanceSphereBounds } from './instance-prepare';
+import { SEE_THROUGH_MEMBERS_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 
 /** The name prefix of the four instance-matrix columns (`…0` to `…3`, `vec4` each). */
@@ -428,6 +429,32 @@ const sphereOut = new Float64Array(4);
  * instance-matrix columns. The source geometry's attributes, index, groups
  * and draw range are shared, not copied.
  */
+/**
+ * A group's instances as see-through members (the source's bounds at each instance's matrix, in world space), so
+ * see-through fades the instances in front of a subject, not the whole group.
+ */
+function withInstanceMembers(handle: AttributeInstancedMesh, source: THREE.BufferGeometry): AttributeInstancedMesh {
+  const m = new THREE.Matrix4();
+  const members: SeeThroughMembers = {
+    count: () => handle.count,
+    box: (i, out) => {
+      if (source.boundingBox === null) source.computeBoundingBox();
+      const b = source.boundingBox;
+      if (b === null || b.isEmpty()) return false;
+      out.copy(b).applyMatrix4(m.fromArray(handle.array, i * INSTANCE_MATRIX_FLOATS).premultiply(handle.mesh.matrixWorld));
+      return true;
+    },
+    sphere: (i, out) => {
+      const b = source.boundingSphere;
+      if (b === null) return false;
+      out.copy(b).applyMatrix4(m.fromArray(handle.array, i * INSTANCE_MATRIX_FLOATS).premultiply(handle.mesh.matrixWorld));
+      return true;
+    },
+  };
+  handle.mesh.userData[SEE_THROUGH_MEMBERS_KEY] = members;
+  return handle;
+}
+
 export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: {
     readonly raycast?: boolean;
     readonly filter?: InstanceFilter;
@@ -842,5 +869,5 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       }
     };
   }
-  return handle;
+  return withInstanceMembers(handle, source);
 }

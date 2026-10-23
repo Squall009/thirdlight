@@ -14,13 +14,14 @@ import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import { SEE_THROUGH_DEFAULTS, SEE_THROUGH_SUBJECTS, type SeeThroughSettings } from '@thirdlight/runtime';
+import { BlockGrid, SEE_THROUGH_DEFAULTS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, type BlockLayerComponent, type SeeThroughSettings } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
-import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughBoxBit, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
+import { mergeToFit, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
 import { RenderGraph } from './render-graph';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, observerOf, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
@@ -47,9 +48,9 @@ function perspective(eye: readonly number[], at: readonly number[]): THREE.Persp
   return c;
 }
 
-/** A subject standing at `feet` (x, y, z), `height` tall. */
+/** A subject standing at `feet` (x, y, z), `height` tall, 0.3 m round. */
 function standing(feet: readonly number[], height: number): SubjectExtent {
-  return { centre: new THREE.Vector3(feet[0]!, feet[1]! + height / 2, feet[2]!), feet: feet[1]!, height };
+  return { centre: new THREE.Vector3(feet[0]!, feet[1]! + height / 2, feet[2]!), feet: feet[1]!, height, radius: 0.3 };
 }
 
 /** The fade at a world point (its view position through `camera`). */
@@ -177,11 +178,11 @@ describe('a subject\'s extent', () => {
     const o = new THREE.Object3D();
     o.position.set(2, 5, 1);
     o.updateMatrixWorld(true);
-    const out: SubjectExtent = { centre: new THREE.Vector3(), feet: 0, height: 0 };
+    const out: SubjectExtent = { centre: new THREE.Vector3(), feet: 0, height: 0, radius: 0 };
     subjectExtent(o.matrixWorld, [o], { controller: { capsule: { radius: 0.3, height: 1.6, offset: [0, 0.8, 0.5] } } }, out);
-    expect([out.feet, out.height, out.centre.y, out.centre.z]).toEqual([5, 1.6, 5.8, 1.5]);
+    expect([out.feet, out.height, out.centre.y, out.centre.z, out.radius]).toEqual([5, 1.6, 5.8, 1.5, 0.3]);
     subjectExtent(o.matrixWorld, [o], {}, out);
-    expect([out.feet, out.height]).toEqual([5, 0]);
+    expect([out.feet, out.height, out.radius]).toEqual([5, 0, 0]);
     const box = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1));
     box.position.y = 1;
     o.add(box);
@@ -192,7 +193,7 @@ describe('a subject\'s extent', () => {
     o.add(line, hidden);
     o.updateMatrixWorld(true);
     subjectExtent(o.matrixWorld, [o], {}, out);
-    expect([out.feet, out.height]).toEqual([5, 2]);
+    expect([out.feet, out.height, out.radius]).toEqual([5, 2, 0.5]);
   });
 });
 
@@ -222,16 +223,15 @@ describe('which draws a subject may fade', () => {
     ortho.position.set(0, 1, 20);
     ortho.updateMatrixWorld(true);
     let ruledOut = 0;
-    for (const camera of [perspective([0, 3, 8], [0, 0.9, 0]), perspective([6, 9, 6], [0, 0, 0]), ortho]) {
+    for (const camera of [perspective([0, 3, 8], [0, 0.9, 0]), perspective([6, 9, 6], [0, 0, 0]), pitched([0, 0.9, 0]), ortho]) {
       const pack = emptyPack();
       packSubject(camera, standing([0, 0, 0], 1.8), ON, ON.maxFade, pack);
       for (let n = 0; n < 400; n++) {
         const centre = new THREE.Vector3((rnd() - 0.5) * 12, rnd() * 6 - 1, (rnd() - 0.5) * 12);
         const r = 0.2 + rnd() * 3;
-        const v = centre.clone().applyMatrix4(camera.matrixWorldInverse);
-        const may = mayFade(v, r, pack);
+        const may = mayFade(centre.clone().applyMatrix4(camera.matrixWorldInverse), r, pack);
         if (!may) ruledOut += 1;
-        // Points through the sphere: any that fades proves the sphere may.
+        // Points through the sphere, as the subject's occluder as a whole: any that fades proves the sphere may.
         for (let k = 0; k < 300 && !may; k++) {
           const d = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize().multiplyScalar(r * Math.cbrt(rnd()));
           expect(fadeAtWorld(camera, [pack], 1, 1, centre.clone().add(d).toArray())).toBe(0);
@@ -239,7 +239,7 @@ describe('which draws a subject may fade', () => {
       }
     }
     // The test rules out a good share (it saves the mask's work there), not nothing.
-    expect(ruledOut).toBeGreaterThan(300);
+    expect(ruledOut).toBeGreaterThan(400);
   });
 
   it('the box a pixel is tested against first holds every pixel that fades (two subjects, perspective and side views)', () => {
@@ -316,6 +316,211 @@ describe('which draws a subject may fade', () => {
   });
 });
 
+/** A follow camera `dist` metres from `at`, pitched `pitch` degrees down, looking along −z. */
+function pitched(at: readonly number[], pitch = 52, dist = 9): THREE.PerspectiveCamera {
+  const a = THREE.MathUtils.degToRad(pitch);
+  return perspective([at[0]!, at[1]! + dist * Math.sin(a), at[2]! + dist * Math.cos(a)], at);
+}
+
+/** A block layer of filled cell boxes (`[x0, y0, z0, x1, y1, z1]`, max exclusive), its cell (0, 0, 0) at `origin`. */
+function blocks(origin: readonly number[], boxes: readonly (readonly number[])[], cell = 1): OccluderLayer {
+  const grid = new BlockGrid({ bounds: { min: [-64, -8, -64], max: [64, 40, 64] }, cellSize: [cell, cell, cell] } as unknown as BlockLayerComponent);
+  for (const b of boxes) for (let x = b[0]!; x < b[3]!; x++) for (let y = b[1]!; y < b[4]!; y++) for (let z = b[2]!; z < b[5]!; z++) grid.set(x, y, z, { block: 'wall' });
+  return { id: 'walls', origin, cellSize: [cell, cell, cell], grid, version: 1 };
+}
+
+/** A character 1.8 m tall, 0.3 m round, standing at the origin. */
+const HERO = { controller: { capsule: { radius: 0.3, height: 1.8, offset: [0, 0.9] } } };
+
+/**
+ * A view round the character at the origin over block layers, after one frame: the fade of a world point on a
+ * draw (default: a layer's chunk, which fades only by its pieces), its face's normal toward the camera.
+ */
+function occluderView(layers: readonly OccluderLayer[], camera: THREE.Camera = pitched([0, 0.9, 0]), settings: Partial<SeeThroughSettings> = {}) {
+  const hero = new THREE.Object3D();
+  hero.updateMatrixWorld(true);
+  const view = new SeeThroughView({ ...plain({ hero }), components: () => HERO, cameraTarget: () => 'hero', occluderLayers: () => layers }, { ...ON, fadeTime: 0, ...settings });
+  view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 0);
+  const count = view.fill(camera);
+  const chunk = new THREE.Mesh(new THREE.BoxGeometry(32, 12, 32));
+  chunk.position.set(0, 4, 0);
+  chunk.userData[SEE_THROUGH_PIECES_KEY] = true;
+  chunk.updateMatrixWorld(true);
+  const fadeAt = (world: readonly number[], normal: readonly number[], draw: THREE.Object3D = chunk, bits = view.bitsFor(draw, camera)): number => {
+    const v = new THREE.Vector3(world[0]!, world[1]!, world[2]!).applyMatrix4(camera.matrixWorldInverse);
+    const w = view.wholeFadesFor(draw, camera);
+    return seeThroughFadeAt([v.x, v.y, v.z], view.packed(), count, bits, { world: [world[0]!, world[1]!, world[2]!], normal: [normal[0]!, normal[1]!, normal[2]!], whole: [w.x, w.y, w.z, w.w], boxes: view.packedBoxes() });
+  };
+  return { view, camera, chunk, fadeAt, occluders: () => view.diagnostics().subjects[0]?.occluders ?? 0 };
+}
+
+/** Points on a wall face `z` (facing +z, toward the camera), across `xs` and from just above half the hero's height up to `top`. */
+function faceZ(z: number, xs: readonly number[], top: number): number[][] {
+  const out: number[][] = [];
+  for (const x of xs) for (let y = 0.95; y < top; y += 0.25) out.push([x, y, z]);
+  return out;
+}
+
+describe('see-through fades only true occluders (a 52° follow camera)', () => {
+  const UP = [0, 1, 0];
+  const FRONT = [0, 0, 1];
+
+  it('never fades a wall 0.3 m or 1 m behind the subject (its face or its top), where the old depth plane faded both', () => {
+    for (const gap of [0.3, 1]) {
+      // A wall along x, 3 m tall, its front face `gap` metres behind the hero's centre.
+      const { fadeAt, occluders } = occluderView([blocks([0, 0, -gap - 1], [[-4, 0, 0, 4, 3, 1]])]);
+      expect(occluders()).toBe(0);
+      for (const p of faceZ(-gap, [-0.6, 0, 0.6], 3)) expect(fadeAt(p, FRONT)).toBe(0);
+      for (const x of [-0.6, 0, 0.6]) expect(fadeAt([x, 3, -gap - 0.5], UP)).toBe(0);
+      // The same pixels as a whole-draw occluder (a placed wall model) stay solid too: the depth along the ray guards them.
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(8, 3, 1));
+      wall.position.set(0, 1.5, -gap - 0.5);
+      wall.updateMatrixWorld(true);
+      for (const p of faceZ(-gap, [-0.6, 0, 0.6], 3)) expect(fadeAt(p, FRONT, wall, 1)).toBe(0);
+    }
+  });
+
+  it('never fades a side wall in front of the subject but beside it', () => {
+    // A wall running toward the camera 1 m to the hero's right, from his middle to 3 m in front.
+    const { fadeAt, occluders } = occluderView([blocks([0, 0, 0], [[1, 0, 0, 2, 3, 3]])]);
+    expect(occluders()).toBe(0);
+    for (const z of [0.5, 1.5, 2.5]) for (const y of [1, 1.6, 2.4]) expect(fadeAt([1, y, z], [-1, 0, 0])).toBe(0);
+  });
+
+  it('fades a wall in front over the waist with the default margin, as a whole piece', () => {
+    // A wall along x half a metre in front of the hero's body, 3 m tall.
+    const { fadeAt, occluders } = occluderView([blocks([0, 0, 0.8], [[-4, 0, 0, 4, 3, 1]])]);
+    expect(occluders()).toBe(1);
+    // Its front face where the view ray to the hero's waist crosses it, and its top.
+    expect(fadeAt([0, 2.6, 1.8], FRONT)).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeAt([0.4, 3, 1.3], UP)).toBeCloseTo(ON.maxFade, 6);
+    // The whole run fades, past where any ray crossed it (as far as the circle reaches).
+    expect(fadeAt([0.8, 2.3, 1.8], FRONT)).toBeGreaterThan(0);
+    // The floor in front of it never does.
+    expect(fadeAt([0, 0, 2.2], UP)).toBe(0);
+  });
+
+  it('an L-shaped piece fades its arm in front and keeps its arm behind', () => {
+    // A run in front (x −3 … 3) and an arm from its right end back past the hero (z −3 … 1.8).
+    const { fadeAt, occluders } = occluderView([blocks([0, 0, 0], [[-3, 0, 1, 3, 3, 2], [2, 0, -3, 3, 3, 1]])]);
+    expect(occluders()).toBe(1);
+    expect(fadeAt([0, 2.8, 2], FRONT)).toBeCloseTo(ON.maxFade, 6);
+    // The arm's inner face (toward −x), beside and behind the hero.
+    for (const z of [-2.5, -1.5, -0.5, 0.5]) for (const y of [1, 1.8, 2.6]) expect(fadeAt([2, y, z], [-1, 0, 0])).toBe(0);
+  });
+
+  it('under a camera straight above, fades the slab over the subject and nothing beside or under it', () => {
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
+    camera.up.set(0, 0, -1);
+    camera.position.set(0, 10, 0);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+    // A slab 3 m up over the hero, a low wall 1 m to his side, the floor under him.
+    const { fadeAt, occluders } = occluderView([blocks([0, 0, 0], [[-4, 3, -4, 4, 4, 4], [1, 0, -3, 2, 1, 3], [-6, -1, -6, 6, 0, 6]])], camera);
+    expect(occluders()).toBe(1);
+    expect(fadeAt([0.2, 4, 0.1], UP)).toBeCloseTo(ON.maxFade, 6);
+    expect(fadeAt([1.5, 1, 0], UP)).toBe(0);
+    expect(fadeAt([0.5, 0, 0.5], UP)).toBe(0);
+  });
+
+  it('never fades the floor round the subject, on any storey', () => {
+    // The hero on the ground; a wall in front of him; the floor under both.
+    const { fadeAt } = occluderView([blocks([0, 0, 0], [[-6, -1, -6, 6, 0, 6], [-4, 0, 1, 4, 3, 2]])]);
+    expect(fadeAt([0, 2.5, 2], FRONT)).toBeGreaterThan(0);
+    for (const z of [-1, 0.5, 2.5, 4]) expect(fadeAt([0, 0, z], UP)).toBe(0);
+  });
+
+  it('the padding widens what counts as in front: a pillar beside the line of sight joins with more padding', () => {
+    const pillar = blocks([0, 0, 0], [[1, 0, 0, 2, 3, 1]]);
+    const face = [1, 2, 0.6];
+    const narrow = occluderView([pillar]);
+    expect(narrow.occluders()).toBe(0);
+    expect(narrow.fadeAt(face, [-1, 0, 0])).toBe(0);
+    const wide = occluderView([pillar], undefined, { padding: 1 });
+    expect(wide.occluders()).toBe(1);
+    expect(wide.fadeAt(face, [-1, 0, 0])).toBeGreaterThan(0);
+  });
+
+  it('more occluders than the boxes hold are merged, never dropped: every one still fades', () => {
+    const camera = pitched([0, 0.9, 0]);
+    const eye = camera.position;
+    // A lone quarter-metre block on each ray to the hero (at his three heights and five places across), each a different way along.
+    const cells: number[][] = [];
+    const points: number[][] = [];
+    let i = 0;
+    for (const h of [0.9, 1.35, 1.8])
+      for (const s of [-0.6, -0.3, 0, 0.3, 0.6]) {
+        const f = 0.15 + 0.05 * i++;
+        const p = [eye.x + (s - eye.x) * f, eye.y + (h - eye.y) * f, eye.z + (0 - eye.z) * f];
+        const c = p.map((v) => Math.floor(v / 0.25));
+        if (cells.some((d) => Math.abs(d[0]! - c[0]!) + Math.abs(d[1]! - c[1]!) + Math.abs(d[2]! - c[2]!) <= 1)) continue;
+        cells.push(c);
+        points.push(p);
+      }
+    const { fadeAt, occluders } = occluderView([blocks([0, 0, 0], cells.map((c) => [c[0]!, c[1]!, c[2]!, c[0]! + 1, c[1]! + 1, c[2]! + 1]), 0.25)]);
+    expect(occluders()).toBe(cells.length);
+    expect(cells.length).toBeGreaterThan(SEE_THROUGH_OCCLUDERS);
+    // Points inside each block (no nudge: a point in its middle, not on a face).
+    for (const p of points) expect(fadeAt(p, [0, 0, 0])).toBeGreaterThan(0);
+    // Merging joins the pair that adds the least: the boxes hold every one of the boxes merged.
+    const boxes: PackedBox[] = cells.map((c) => ({ min: new THREE.Vector3(c[0], c[1], c[2]), max: new THREE.Vector3(c[0]! + 1, c[1]! + 1, c[2]! + 1), nudge: 0.25, fade: 1 }));
+    const all = boxes.map((b) => ({ min: b.min.clone(), max: b.max.clone() }));
+    mergeToFit(boxes, SEE_THROUGH_OCCLUDERS);
+    expect(boxes).toHaveLength(SEE_THROUGH_OCCLUDERS);
+    for (const a of all) expect(boxes.some((b) => b.min.x <= a.min.x && b.min.y <= a.min.y && b.min.z <= a.min.z && b.max.x >= a.max.x && b.max.y >= a.max.y && b.max.z >= a.max.z)).toBe(true);
+  });
+
+  it('a draw of many members fades only the members in front, by their own bounds', () => {
+    const { view, camera, fadeAt } = occluderView([]);
+    // Two crates in one merged draw: one in front of the hero, one beside the line of sight.
+    const crates = [new THREE.Box3(new THREE.Vector3(-0.5, 0, 1), new THREE.Vector3(0.5, 3, 2)), new THREE.Box3(new THREE.Vector3(2, 0, 1), new THREE.Vector3(3, 3, 2))];
+    const draw = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 1));
+    draw.position.set(1.25, 1.5, 1.5);
+    draw.updateMatrixWorld(true);
+    draw.userData[SEE_THROUGH_MEMBERS_KEY] = { count: () => crates.length, box: (i, out) => (out.copy(crates[i]!), true) } satisfies SeeThroughMembers;
+    // Seen once, its members are searched from the next frame.
+    view.bitsFor(draw, camera);
+    view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 16);
+    view.fill(camera);
+    expect(view.diagnostics().subjects[0]?.occluders).toBe(1);
+    expect(fadeAt([0, 2.8, 2], FRONT, draw)).toBeGreaterThan(0);
+    expect(fadeAt([2, 2.4, 1.5], [-1, 0, 0], draw)).toBe(0);
+  });
+
+  it('the CPU reference and the per-draw test agree: a draw\'s bits never leave out a pixel the view\'s boxes fade', () => {
+    let seed = 7;
+    const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const camera = pitched([0, 0.9, 0]);
+    // A room's front wall, a pillar and a slab overhead, in front of the hero.
+    const { view, fadeAt } = occluderView([blocks([0, 0, 0], [[-4, 0, 1, 4, 2, 2], [-1, 2, 2, 0, 4, 3], [-3, 4, -1, 3, 5, 4]])], camera, { padding: 0.6 });
+    expect(view.diagnostics().subjects[0]!.occluders).toBeGreaterThan(1);
+    let all = 0;
+    for (let j = 0; j < SEE_THROUGH_OCCLUDERS; j++) all |= seeThroughBoxBit(0, j);
+    let ruledOut = 0;
+    let faded = 0;
+    for (let n = 0; n < 300; n++) {
+      const draw = new THREE.Mesh(new THREE.SphereGeometry(0.2 + rnd() * 2));
+      draw.position.set((rnd() - 0.5) * 10, rnd() * 6, (rnd() - 0.5) * 10);
+      draw.userData[SEE_THROUGH_PIECES_KEY] = true;
+      draw.updateMatrixWorld(true);
+      const bits = view.bitsFor(draw, camera);
+      if ((bits & all) !== all) ruledOut += 1;
+      const r = (draw.geometry as THREE.SphereGeometry).parameters.radius;
+      for (let k = 0; k < 40; k++) {
+        const d = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+        const p = draw.position.clone().addScaledVector(d, r * Math.cbrt(rnd()));
+        const nrm = [[1, 0, 0], [0, 1, 0], [0, 0, 1]][Math.floor(rnd() * 3)]!;
+        const full = fadeAt(p.toArray(), nrm, draw, all);
+        if (full > 0) faded += 1;
+        expect(fadeAt(p.toArray(), nrm, draw)).toBe(full);
+      }
+    }
+    // The test rules out a good share of the boxes (it saves the mask's work there), and the points cover fading ones.
+    expect(ruledOut).toBeGreaterThan(100);
+    expect(faded).toBeGreaterThan(20);
+  });
+});
+
 describe('a view\'s subjects', () => {
   const camera = perspective([0, 6, 10], [0, 1, 0]);
   const renderer = (): { contextNode: { value: Record<string, unknown>; needsUpdate: boolean; version: number } } => {
@@ -329,7 +534,7 @@ describe('a view\'s subjects', () => {
     view.update(r, camera, 0);
     expect(r.contextNode.version).toBe(0);
     expect(Object.keys(r.contextNode.value)).toEqual([]);
-    expect(view.diagnostics()).toEqual({ enabled: false, armed: false, subjects: [], leftOut: 0 });
+    expect(view.diagnostics()).toEqual({ enabled: false, armed: false, subjects: [], leftOut: 0, searchMs: 0 });
   });
 
   it('on: arms the renderer once (programs built ahead), follows the camera target and eases its fade in and out', () => {
@@ -342,7 +547,7 @@ describe('a view\'s subjects', () => {
     // Not faded in yet: no subject drawn.
     expect(view.fill(camera)).toBe(0);
     view.update(r, camera, (fadeTime / 2) * 1000);
-    expect(view.diagnostics().subjects).toEqual([{ id: 'p', slot: 0, fade: 0.5 }]);
+    expect(view.diagnostics().subjects).toEqual([{ id: 'p', slot: 0, fade: 0.5, occluders: 0 }]);
     expect(view.fill(camera)).toBe(1);
     expect(view.packed()[0]!.shape.w).toBeCloseTo(0.5 * ON.maxFade, 6);
     view.update(r, camera, fadeTime * 1000);
@@ -636,7 +841,7 @@ describe('subjects in the engine\'s entity hierarchy (the render graph)', () => 
     const v = view('hero');
     v.beforeBatch(camera);
     v.update(r, camera, 0);
-    expect(v.diagnostics().subjects).toEqual([{ id: 'hero', slot: 0, fade: 1 }]);
+    expect(v.diagnostics().subjects).toEqual([{ id: 'hero', slot: 0, fade: 1, occluders: 0 }]);
     expect(v.bitsFor(meshes.model, camera)).toBe(0);
     expect(v.bitsFor(meshes.sword, camera)).toBe(0);
     expect(v.bitsFor(meshes.wall, camera)).toBe(1);
@@ -652,7 +857,7 @@ describe('subjects in the engine\'s entity hierarchy (the render graph)', () => 
     const v = view('crate');
     v.beforeBatch(camera);
     v.update(r, camera, 0);
-    expect(v.diagnostics().subjects).toEqual([{ id: 'crate', slot: 0, fade: 1 }]);
+    expect(v.diagnostics().subjects).toEqual([{ id: 'crate', slot: 0, fade: 1, occluders: 0 }]);
     expect(v.bitsFor(meshes.crate, camera)).toBe(0);
     // Its circle centres on the child's box (1.2 m: the half-height plane at 0.6 m).
     const count = v.fill(camera);
@@ -823,6 +1028,8 @@ describe('the see-through programs', () => {
     const { renderer } = armed(view);
     const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
     const m = meshes['standard']!;
+    // The first build also builds the boxes' shader function and numbers the uniforms from there; every build after is the same.
+    wgslOf(renderer, scene, m);
     const before = wgslOf(renderer, scene, m);
     view.set({ subjects: ['a', 'b'], radius: 0.5, softness: 0.1, maxFade: 0.5, depthMargin: 1 });
     view.update(renderer, camera, 100);
@@ -839,6 +1046,8 @@ describe('the see-through programs', () => {
     expect(view.diagnostics()).toMatchObject({ enabled: false, armed: true, subjects: [] });
     const { scene, meshes } = await libraryScene(SHADER_TYPE_MATERIALS.slice(0, 1));
     const m = meshes['standard']!;
+    // As above: the first build also builds the boxes' function.
+    wgslOf(renderer, scene, m);
     const off = wgslOf(renderer, scene, m);
     expect(fragmentOf(off)).toContain('seeThroughFade');
     // Off, nothing fades: no draw takes a subject's bit (the programs skip the mask).

@@ -5,11 +5,14 @@
  * feature on every kind of drawn object; objects opt out with
  * `seeThrough: false`.
  *
- * A pixel fades for a subject when it is inside the subject's circle, nearer
- * the camera than the subject by more than the depth margin, and higher than
- * half the subject's height above its feet: floors and anything low round
- * the subject never fade, on any storey. It fades as the largest over the
- * subjects, never past `maxFade` (a dither, never gone).
+ * A pixel fades for a subject when it belongs to one of the subject's
+ * occluders (what stands in the volume from the camera to the subject's body,
+ * widened by the padding: a whole wall run, pillar or slab, a placed model),
+ * is inside the subject's circle, nearer the camera than the body along its
+ * own view ray by more than the depth margin, and higher than half the
+ * subject's height above its feet: walls behind or beside the subject,
+ * floors and anything low round it never fade, on any storey. It fades as
+ * the largest over the subjects, never past `maxFade` (a dither, never gone).
  *
  * Pure data: the settings, their defaults and limits, and the fixed number
  * of subjects one view draws.
@@ -24,6 +27,13 @@ import type { GameplaySettings } from './types-v2';
  */
 export const SEE_THROUGH_SUBJECTS = 4;
 
+/**
+ * Occluder boxes the renderer holds per subject (a GPU array is a fixed
+ * size), not a content cap: when more pieces stand in front of a subject, the
+ * nearest boxes are merged into one, so none is ever left out.
+ */
+export const SEE_THROUGH_OCCLUDERS = 6;
+
 export interface SeeThroughSettings {
   /** Fade round the subjects (off: the materials build without the mask, at no cost). */
   enabled: boolean;
@@ -37,6 +47,8 @@ export interface SeeThroughSettings {
   depthMargin: number;
   /** Seconds a subject's fade eases in or out. */
   fadeTime: number;
+  /** Metres the volume from the camera to a subject's body is widened by when its occluders are found. */
+  padding: number;
 }
 
 /** The settings a project starts with: off; a circle of radius a fifth of the view's height, soft over 40 % of it, thinning to a 75 % dither. */
@@ -48,6 +60,7 @@ export const SEE_THROUGH_DEFAULTS: Readonly<SeeThroughSettings> = Object.freeze(
   depthMargin: 0.25,
   // The cut-away's ease: a subject's circle and a cut roof come and go together.
   fadeTime: CUTAWAY_FADE_SECONDS,
+  padding: 0.3,
 });
 
 /** The numeric settings (every field but `enabled`), in the order they are listed everywhere. */
@@ -62,6 +75,7 @@ export const SEE_THROUGH_LIMITS = Object.freeze({
   maxFade: Object.freeze({ min: 0, max: 0.95 }),
   depthMargin: Object.freeze({ min: 0, max: 100 }),
   fadeTime: CUTAWAY_FADE_RANGE,
+  padding: Object.freeze({ min: 0, max: 10 }),
 });
 
 /** `base` with the valid fields of `patch` over it (numbers clamped to their limits; anything else ignored). */
@@ -75,10 +89,13 @@ export function seeThroughSettingsOf(patch: unknown, base: Readonly<SeeThroughSe
     if (typeof v !== 'number' || !Number.isFinite(v)) continue;
     out[k] = Math.min(SEE_THROUGH_LIMITS[k].max, Math.max(SEE_THROUGH_LIMITS[k].min, v));
   }
+  // Not a listed setting yet (no project key): a host may still pass it.
+  const pad = p['padding'];
+  if (typeof pad === 'number' && Number.isFinite(pad)) out.padding = Math.min(SEE_THROUGH_LIMITS.padding.max, Math.max(SEE_THROUGH_LIMITS.padding.min, pad));
   return out;
 }
 
-/** The project setting each field is stored in (`content.settings`, a field of `GameplaySettings`; absent: its default). */
+/** The project setting each field is stored in (`content.settings`, a field of `GameplaySettings`; absent: its default). The padding is not stored yet: its default stands. */
 export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   enabled: 'see_through',
   radius: 'see_through_radius',
@@ -86,7 +103,7 @@ export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   maxFade: 'see_through_max_fade',
   depthMargin: 'see_through_depth_margin_m',
   fadeTime: 'see_through_fade_s',
-} as const satisfies Record<keyof SeeThroughSettings, keyof GameplaySettings>);
+} as const satisfies Record<Exclude<keyof SeeThroughSettings, 'padding'>, keyof GameplaySettings>);
 
 /** A project's see-through from its settings (`see_through` 1 turns it on; the rest as set, else their defaults). */
 export function seeThroughSettingsOfProject(settings: unknown): SeeThroughSettings {

@@ -152,7 +152,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
   const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
   const st = opts.seeThrough;
-  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
+  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), occluderLayers: () => blockView.occluderLayers(), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(blockTypes);
   return {

@@ -18,20 +18,34 @@
  * whole shadow. So do colourless draws (depth-only stand-ins) and draws over
  * everything (no depth test): they hide nothing.
  *
+ * Only true occluders fade (`see-through-occluders.ts`): per subject, the
+ * CPU finds what stands in the volume from the camera to its body (again only
+ * when the camera or the subject moved): block pieces as world boxes, placed
+ * models by their bounds (a merged or instanced draw by its members'). Each
+ * occluder eases in and out over the fade time. A pixel fades for a subject
+ * when its draw is an occluder as a whole, or its point (moved a quarter cell
+ * against its face's normal) is inside one of the subject's boxes; when it is
+ * inside the subject's circle; above half its height; and nearer the camera
+ * along its own view ray than the body (the closest point of the ray to the
+ * body's axis) by the depth margin. So a wall behind or beside the subject
+ * never fades, under any camera pitch.
+ *
  * Per view (render-group uniforms written once per render, for the view's
  * camera only; any other camera — a bake, a thumbnail — sees no subject): a
  * fixed array of subjects (`SEE_THROUGH_SUBJECTS`), each its circle's centre
- * and radii in view space at its depth, the depth a pixel must be nearer
- * than, the plane half its height above its feet, and its fade.
+ * and radii in view space at its depth, the plane half its height above its
+ * feet, its axis, the depth margin and its fade; and each subject's boxes
+ * (`SEE_THROUGH_OCCLUDERS`, merged when more are found, never dropped).
  *
- * Per drawn object (a uniform written per draw, like light layers): the
- * subjects that may fade it, as bits. An object with `seeThrough: false`
- * has none (no program of its own); a subject and everything under it in
- * the entity hierarchy (its model, a held item) drop their own bit, so a
- * subject never fades itself, yet still fades for another subject it stands
- * in front of. A subject is an entity, drawn or not: a controller root whose
- * model is a child entity is sized by its capsule, else by what its
- * descendants draw.
+ * Per drawn object (uniforms written per draw, like light layers): as bits,
+ * the subjects it is an occluder of as a whole and the boxes its bounds
+ * reach, and its own fade as each subject's occluder. An object with
+ * `seeThrough: false` has none (no program of its own); a draw with no bit
+ * skips the mask. A subject and everything under it in the entity hierarchy
+ * (its model, a held item) drop their own subject's bits, so a subject never
+ * fades itself, yet still fades for another subject it stands in front of. A
+ * subject is an entity, drawn or not: a controller root whose model is a
+ * child entity is sized by its capsule, else by what its descendants draw.
  *
  * A host that may turn see-through on in the middle of a run (a game whose
  * project setting is on: its scripts can turn it off and on) arms ahead
@@ -49,15 +63,16 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SEE_THROUGH_FIELDS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/runtime';
+import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SEE_THROUGH_FIELDS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/runtime';
 
 import { ditherKeep } from './dither-fade';
 import type { N } from './effects-tsl';
 import type { RenderGraph } from './render-graph';
+import { layerOccluders, memberOccluders, mergeToFit, PieceCache, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, sphereMeetsBox, SubjectVolume, type OccluderBox, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, If, float, int, max, min, mix, positionView, renderGroup, smoothstep, uniform, uniformArray } = TSL;
+const { Fn, If, all, cameraWorldMatrix, float, int, max, min, mix, normalViewGeometry, positionView, renderGroup, smoothstep, uniform, uniformArray, vec3, vec4 } = TSL;
 
 /** `object.userData[SEE_THROUGH_KEY] === false`: the drawable never fades (absent: it takes part). */
 export const SEE_THROUGH_KEY = '__tlSeeThrough';
@@ -95,12 +110,25 @@ export function seeThroughOfComponents(components: unknown): boolean {
   return part?.seeThrough !== false;
 }
 
-/** Where a subject stands: the middle of its body (world), its feet's height and its height. */
+/** Where a subject stands: the middle of its body (world), its feet's height, its height and its body's radius. */
 export interface SubjectExtent {
   readonly centre: THREE.Vector3;
   feet: number;
   height: number;
+  radius: number;
 }
+
+/**
+ * A draw's bits: bit `k` (below `SEE_THROUGH_SUBJECTS`) says the draw is slot `k`'s occluder as a whole; the bits
+ * after them are each slot's boxes in turn, those the draw's bounds reach. One 32-bit integer holds them all, and
+ * a draw's own fade as each slot's occluder rides in one vec4.
+ */
+const BOX_BIT0 = SEE_THROUGH_SUBJECTS;
+if (BOX_BIT0 + SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS > 31 || SEE_THROUGH_SUBJECTS > 4) throw new Error('see-through: the subjects and their boxes must fit one signed 32-bit mask and one vec4');
+/** The bit of slot `k`'s box `j`. */
+export const seeThroughBoxBit = (k: number, j: number): number => 1 << (BOX_BIT0 + k * SEE_THROUGH_OCCLUDERS + j);
+/** Every bit of slot `k` (its whole-draw bit and its boxes'). */
+const slotBits = (k: number): number => (1 << k) | (((1 << SEE_THROUGH_OCCLUDERS) - 1) << (BOX_BIT0 + k * SEE_THROUGH_OCCLUDERS));
 
 const _box = new THREE.Box3();
 const _part = new THREE.Box3();
@@ -125,6 +153,7 @@ export function subjectExtent(matrix: THREE.Matrix4, drawn: readonly THREE.Objec
     out.centre.set(cap.offset[0], cap.offset[1], controllerCapsuleOffsetZ(controller)).applyMatrix4(matrix);
     out.feet = out.centre.y - h / 2;
     out.height = h;
+    out.radius = cap.radius * Math.max(Math.abs(_s.x), Math.abs(_s.z));
     return;
   }
   _box.makeEmpty();
@@ -141,25 +170,32 @@ export function subjectExtent(matrix: THREE.Matrix4, drawn: readonly THREE.Objec
     out.centre.setFromMatrixPosition(matrix);
     out.feet = out.centre.y;
     out.height = 0;
+    out.radius = 0;
     return;
   }
   _box.getCenter(out.centre);
   out.feet = _box.min.y;
   out.height = _box.max.y - _box.min.y;
+  out.radius = Math.max(_box.max.x - _box.min.x, _box.max.z - _box.min.z) / 2;
 }
 
 /** One subject packed for the shader (view space of one camera). */
 export interface SubjectPack {
   /** The circle's centre (view space, at the subject's depth) and whether the camera is a perspective one (1) or not (0). */
   readonly centre: THREE.Vector4;
-  /** Inner and outer radius (metres at the subject's depth), the view z a pixel must be above to be in front, the fade. */
+  /** Inner and outer radius (metres at the subject's depth), unused, the fade. */
   readonly shape: THREE.Vector4;
-  /** World up in view space and the offset that makes `dot(plane.xyz, p) + plane.w` a pixel's height over half the subject's height. */
+  /** World up in view space (the body's axis runs along it through the centre) and the offset that makes `dot(plane.xyz, p) + plane.w` a pixel's height over half the subject's height. */
   readonly plane: THREE.Vector4;
+  /** Half the body's height (its axis reaches that far either side of the centre), the metres a pixel must be nearer along its view ray, and the farthest a pixel may lie along its ray and still fade (view depth past it: never). */
+  readonly body: THREE.Vector4;
 }
 
+/** Vec4s per subject in the packed array (centre, shape, plane, body). */
+const PACK_VEC4S = 4;
+
 export function emptyPack(): SubjectPack {
-  return { centre: new THREE.Vector4(), shape: new THREE.Vector4(), plane: new THREE.Vector4() };
+  return { centre: new THREE.Vector4(), shape: new THREE.Vector4(), plane: new THREE.Vector4(), body: new THREE.Vector4() };
 }
 
 /** The view's height (metres) at view distance `d` from `camera`. */
@@ -180,7 +216,10 @@ export function packSubject(camera: THREE.Camera, ext: SubjectExtent, s: Readonl
   // A subject behind a perspective camera has no circle on screen.
   const f = perspective && d <= 0 ? 0 : fade;
   out.centre.set(_v.x, _v.y, _v.z, perspective ? 1 : 0);
-  out.shape.set(inner, outer, _v.z + s.depthMargin, f);
+  out.shape.set(inner, outer, 0, f);
+  // Along any ray the body is no farther than its centre's distance plus the axis's reach (half its height and the circle).
+  const far = (perspective ? _v.length() : -_v.z) + ext.height / 2 + outer - s.depthMargin;
+  out.body.set(ext.height / 2, s.depthMargin, far, 0);
   // A pixel's world height is row 1 of the camera's world matrix applied to its view position.
   const e = camera.matrixWorld.elements;
   out.plane.set(e[1]!, e[5]!, e[9]!, e[13]! - (ext.feet + ext.height / 2));
@@ -201,11 +240,13 @@ interface FadeOps<F, B> {
   neg(a: F): F;
   min(a: F, b: F): F;
   max(a: F, b: F): F;
+  sign(a: F): F;
   /** `a·(1−t) + b·t`. */
   mix(a: F, b: F, t: F): F;
   smoothstep(e0: F, e1: F, x: F): F;
   sqrt(a: F): F;
   ge(a: F, b: F): B;
+  gt(a: F, b: F): B;
   le(a: F, b: F): B;
   lt(a: F, b: F): B;
   and(a: B, b: B): B;
@@ -213,52 +254,126 @@ interface FadeOps<F, B> {
   once(a: F): F;
   /** Run `body` only where `c` holds (a branch in the shader). */
   when(c: B, body: () => void): void;
-  variable(init: F): { read(): F; write(v: F): void };
+  /** A variable (`name`: its name in the shader, unique per variable). */
+  variable(init: F, name: string): { read(): F; write(v: F): void };
+  /** Whether point `p` moved `lo[3]` against normal `n` lies in the box from `lo` to `hi` (xyz). */
+  inBox(p: readonly [F, F, F], n: readonly [F, F, F], lo: readonly [F, F, F, F], hi: readonly [F, F, F, F]): B;
 }
 
 type Four<F> = readonly [F, F, F, F];
+type Three<F> = readonly [F, F, F];
 
 /** What the steps read: the pixel's view position, the box round the circles, and each slot. */
 interface FadeInputs<F, B> {
-  readonly p: readonly [F, F, F];
+  readonly p: Three<F>;
   /** The box (`circleRect`) and whether the view is perspective (1) or not (0). */
   readonly rect: Four<F>;
   readonly perspective: F;
-  /** Whether the draw takes slot `k`'s subject and the slot is in use. */
+  /** Whether the draw takes any of slot `k`'s bits and the slot is in use. */
   taken(k: number): B;
-  /** Slot `k`'s pack: centre, shape, plane. */
-  slot(k: number): { readonly c: Four<F>; readonly s: Four<F>; readonly pl: Four<F> };
+  /** Slot `k`'s pack: centre, shape, plane, body. */
+  slot(k: number): { readonly c: Four<F>; readonly s: Four<F>; readonly pl: Four<F>; readonly body: Four<F> };
+  /** Whether the draw is slot `k`'s occluder as a whole, and its fade as one. */
+  whole(k: number): B;
+  wholeFade(k: number): F;
+  /** The largest fade of slot `k`'s boxes the pixel is in ({@link boxSteps}). */
+  boxes(k: number): F;
+}
+
+/** What one slot's box steps read: the pixel, whether the draw takes box `j` and the box (min xyz and nudge, max xyz and fade). */
+interface BoxInputs<F, B> {
+  readonly world: Three<F>;
+  readonly normal: Three<F>;
+  taken(j: number): B;
+  box(j: number): { readonly lo: Four<F>; readonly hi: Four<F> };
 }
 
 /**
+ * The largest fade of one slot's boxes the draw takes that hold the pixel's point (moved by each box's nudge
+ * against its face's normal). In the shader it is one function, built once and called per slot with the slot's
+ * boxes as its arguments, so its body reads them with constant indices (a loop over the array cost the mask
+ * twice as much on an Iris Xe) and is built once (unrolled per slot, it made every program's build several
+ * times slower).
+ */
+function boxSteps<F, B>(o: FadeOps<F, B>, i: BoxInputs<F, B>, out: { read(): F; write(v: F): void }): void {
+  for (let j = 0; j < SEE_THROUGH_OCCLUDERS; j++) {
+    o.when(i.taken(j), () => {
+      const { lo, hi } = i.box(j);
+      o.when(o.inBox(i.world, i.normal, lo, hi), () => out.write(o.max(out.read(), hi[3])));
+    });
+  }
+}
+
+/** Below this, a view ray runs along the body's axis (a camera straight above): its nearest point is the axis's top. */
+const PARALLEL = 1e-4;
+
+/**
  * The fade of a pixel (the largest over the slots the draw takes of circle ×
- * in front × above half height × the subject's fade), handed to `done` for
- * a pixel inside the box round the circles; a pixel outside it (most of the
- * view) is left after four comparisons. The slots are unrolled with
- * constant indices (a dynamic index into the array cost three times as much
- * on an Iris Xe), and a slot's circle is worked out only for pixels in front
- * of its subject, above half its height and inside its outer radius.
+ * occluder × the subject's fade, where the pixel is above half the subject's
+ * height and nearer along its view ray than the body by the depth margin),
+ * handed to `done` for a pixel inside the box round the circles; a pixel
+ * outside it (most of the view) is left after four comparisons. The slots
+ * are unrolled with constant indices (a dynamic index into the array cost
+ * three times as much on an Iris Xe); a slot's circle is worked out only for
+ * pixels it may fade, and its boxes ({@link boxSteps}) only for those inside
+ * the circle.
+ *
+ * The body's depth along the pixel's ray: the ray's point nearest the body's
+ * axis (the line along world up through the centre): the line-line closest
+ * point, the axis parameter kept within the circle's reach past the body's
+ * ends; a ray along the axis (a camera straight above) meets it at the top.
  */
 function fadeSteps<F, B>(o: FadeOps<F, B>, i: FadeInputs<F, B>, done: (fade: F) => void): void {
   const [px, py, pz] = i.p;
   const [rx0, ry0, rx1, ry1] = i.rect;
-  const fade = o.variable(o.num(0));
+  const fade = o.variable(o.num(0), 'seeThroughFade');
   const invZ = o.once(o.div(o.num(1), o.min(pz, o.num(NEAR_Z))));
   const k = o.mix(o.num(1), o.neg(invZ), i.perspective);
   const ax = o.mul(px, k);
   const ay = o.mul(py, k);
   o.when(o.and(o.and(o.ge(ax, rx0), o.ge(ay, ry0)), o.and(o.le(ax, rx1), o.le(ay, ry1))), () => {
+    // The pixel's view ray: from the eye (perspective) or from its own place on the view plane (orthographic), and
+    // how far along it the pixel lies.
+    const len = o.once(o.sqrt(o.add(o.add(o.mul(px, px), o.mul(py, py)), o.mul(pz, pz))));
+    const flat = o.sub(o.num(1), i.perspective);
+    const reach = o.once(o.mix(o.neg(pz), len, i.perspective));
+    const dx = o.once(o.mul(o.div(px, len), i.perspective));
+    const dy = o.once(o.mul(o.div(py, len), i.perspective));
+    const dz = o.once(o.mix(o.num(-1), o.div(pz, len), i.perspective));
+    const ox = o.once(o.mul(px, flat));
+    const oy = o.once(o.mul(py, flat));
     for (let n = 0; n < SEE_THROUGH_SUBJECTS; n++) {
       o.when(i.taken(n), () => {
-        const { c, s, pl } = i.slot(n);
+        const { c, s, pl, body } = i.slot(n);
         const height = o.add(o.add(o.add(o.mul(pl[0], px), o.mul(pl[1], py)), o.mul(pl[2], pz)), pl[3]);
-        o.when(o.and(o.ge(pz, s[2]), o.ge(height, o.num(0))), () => {
-          const m = o.mix(o.num(1), o.mul(c[2], invZ), c[3]);
-          const qx = o.sub(o.mul(px, m), c[0]);
-          const qy = o.sub(o.mul(py, m), c[1]);
-          const d2 = o.add(o.mul(qx, qx), o.mul(qy, qy));
-          o.when(o.lt(d2, o.mul(s[1], s[1])), () => {
-            fade.write(o.max(fade.read(), o.mul(s[3], o.sub(o.num(1), o.smoothstep(s[0], s[1], o.sqrt(d2))))));
+        const m = o.mix(o.num(1), o.mul(c[2], invZ), c[3]);
+        const qx = o.sub(o.mul(px, m), c[0]);
+        const qy = o.sub(o.mul(py, m), c[1]);
+        const d2 = o.once(o.add(o.mul(qx, qx), o.mul(qy, qy)));
+        // The cheap tests first (above half height, not past the body's farthest reach, inside the circle), then the
+        // depth along the ray.
+        o.when(o.and(o.and(o.ge(height, o.num(0)), o.le(o.neg(pz), body[2])), o.lt(d2, o.mul(s[1], s[1]))), () => {
+          // From the body's centre to the ray's origin; the ray and the axis (world up in view space).
+          const wx = o.sub(ox, c[0]);
+          const wy = o.sub(oy, c[1]);
+          const wz = o.neg(c[2]);
+          const b = o.once(o.add(o.add(o.mul(dx, pl[0]), o.mul(dy, pl[1])), o.mul(dz, pl[2])));
+          const dd = o.once(o.add(o.add(o.mul(dx, wx), o.mul(dy, wy)), o.mul(dz, wz)));
+          const e = o.add(o.add(o.mul(pl[0], wx), o.mul(pl[1], wy)), o.mul(pl[2], wz));
+          const det = o.once(o.sub(o.num(1), o.mul(b, b)));
+          const along = o.variable(o.mul(o.neg(o.sign(b)), body[0]), `seeThroughAxis${n}`);
+          o.when(o.gt(det, o.num(PARALLEL)), () => along.write(o.div(o.sub(e, o.mul(b, dd)), det)));
+          // Along the axis line as far as the circle reaches past the body's ends: a ray over the head passes the
+          // subject where it crosses the line, not where it is nearest the top of the head.
+          const lim = o.add(body[0], s[1]);
+          const t = o.min(o.max(along.read(), o.neg(lim)), lim);
+          // How far along the ray the body is.
+          const bodyAt = o.sub(o.mul(t, b), dd);
+          o.when(o.le(reach, o.sub(bodyAt, body[1])), () => {
+            // As an occluder: the draw as a whole, or the boxes its point is in.
+            const occ = o.variable(i.boxes(n), `seeThroughOccluder${n}`);
+            o.when(i.whole(n), () => occ.write(o.max(occ.read(), i.wholeFade(n))));
+            fade.write(o.max(fade.read(), o.mul(o.mul(s[3], occ.read()), o.sub(o.num(1), o.smoothstep(s[0], s[1], o.sqrt(d2))))));
           });
         });
       });
@@ -276,6 +391,7 @@ const CPU_OPS: FadeOps<number, boolean> = {
   neg: (a) => -a,
   min: Math.min,
   max: Math.max,
+  sign: Math.sign,
   mix: (a, b, t) => a * (1 - t) + b * t,
   smoothstep: (e0, e1, x) => {
     const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
@@ -283,6 +399,7 @@ const CPU_OPS: FadeOps<number, boolean> = {
   },
   sqrt: Math.sqrt,
   ge: (a, b) => a >= b,
+  gt: (a, b) => a > b,
   le: (a, b) => a <= b,
   lt: (a, b) => a < b,
   and: (a, b) => a && b,
@@ -293,6 +410,13 @@ const CPU_OPS: FadeOps<number, boolean> = {
   variable: (init) => {
     let v = init;
     return { read: () => v, write: (x) => void (v = x) };
+  },
+  inBox: (p, n, lo, hi) => {
+    for (let a = 0; a < 3; a++) {
+      const q = p[a]! - n[a]! * lo[3];
+      if (q < lo[a]! || q > hi[a]!) return false;
+    }
+    return true;
   },
 };
 
@@ -305,34 +429,83 @@ const TSL_OPS: FadeOps<N, N> = {
   neg: (a) => a.negate(),
   min: (a, b) => min(a, b),
   max: (a, b) => max(a, b),
+  sign: (a) => a.sign(),
   mix: (a, b, t) => mix(a, b, t),
   smoothstep: (e0, e1, x) => smoothstep(e0, e1, x),
   sqrt: (a) => a.sqrt(),
   ge: (a, b) => a.greaterThanEqual(b),
+  gt: (a, b) => a.greaterThan(b),
   le: (a, b) => a.lessThanEqual(b),
   lt: (a, b) => a.lessThan(b),
   and: (a, b) => a.and(b),
   once: (a) => a.toVar(),
   when: (c, body) => void If(c, body),
-  variable: (init) => {
-    const v = init.toVar('seeThroughFade');
+  variable: (init, name) => {
+    const v = init.toVar(name);
     return { read: () => v, write: (x) => void v.assign(x) };
+  },
+  // One vector test (a handful of nodes): the boxes are unrolled for every slot, and node count is build time.
+  inBox: (p, n, lo, hi) => {
+    const q = vec3(p[0], p[1], p[2]).sub(vec3(n[0], n[1], n[2]).mul(lo[3]));
+    return all(q.greaterThanEqual(vec3(lo[0], lo[1], lo[2]))).and(all(q.lessThanEqual(vec3(hi[0], hi[1], hi[2]))));
   },
 };
 
 const _rect = new THREE.Vector4();
+const _lo = new THREE.Vector3();
+const _hi = new THREE.Vector3();
+/** A draw that is no subject's occluder as a whole. */
+const NO_FADES = new THREE.Vector4();
+/** Metres the eye or a subject must move (or a subject's size change) before its occluders are searched again. */
+const SEARCH_GRAIN = 0.02;
+/** Frames a draw of many members stays searched after it was last drawn. */
+const MEMBER_DRAW_FRAMES = 30;
 const four = (v: THREE.Vector4): Four<number> => [v.x, v.y, v.z, v.w];
+
+/** What a draw takes beside its bits, for the CPU reference: the pixel's world place and face normal, its whole-draw fades and the slots' boxes. */
+export interface SeeThroughDrawInputs {
+  /** The pixel's world position and its face's normal toward the camera (only read for boxes). */
+  readonly world?: readonly [number, number, number];
+  readonly normal?: readonly [number, number, number];
+  /** The draw's fade as each slot's occluder as a whole (absent: 1). */
+  readonly whole?: readonly number[];
+  /** The view's boxes as packed (`SeeThroughView.packedBoxes`). */
+  readonly boxes?: readonly THREE.Vector4[];
+}
+
+const ZERO3 = [0, 0, 0] as const;
 
 /**
  * The fade of a pixel at view position `p`: the shader's own steps
- * ({@link fadeSteps}) run on numbers, for the first `count` subjects whose
- * bit `bits` has.
+ * ({@link fadeSteps}) run on numbers, for the first `count` subjects, with
+ * the draw's bits `bits` (bit `k`: slot `k`'s occluder as a whole; then the
+ * boxes, {@link seeThroughBoxBit}).
  */
-export function seeThroughFadeAt(p: readonly [number, number, number], packs: readonly SubjectPack[], count: number, bits: number): number {
+export function seeThroughFadeAt(p: readonly [number, number, number], packs: readonly SubjectPack[], count: number, bits: number, draw: SeeThroughDrawInputs = {}): number {
   if (bits === 0) return 0;
   const perspective = circleRect(packs, count, _rect) ? 1 : 0;
   let out = 0;
-  fadeSteps(CPU_OPS, { p, rect: four(_rect), perspective, taken: (k) => ((bits >> k) & 1) === 1 && k < count, slot: (k) => ({ c: four(packs[k]!.centre), s: four(packs[k]!.shape), pl: four(packs[k]!.plane) }) }, (f) => (out = f));
+  const box = (k: number, j: number): THREE.Vector4 => draw.boxes?.[(k * SEE_THROUGH_OCCLUDERS + j) * 2] ?? new THREE.Vector4();
+  const boxHi = (k: number, j: number): THREE.Vector4 => draw.boxes?.[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1] ?? new THREE.Vector4();
+  const boxes = (k: number): number => {
+    const v = CPU_OPS.variable(0, '');
+    boxSteps(CPU_OPS, { world: draw.world ?? ZERO3, normal: draw.normal ?? ZERO3, taken: (j) => (bits & seeThroughBoxBit(k, j)) !== 0, box: (j) => ({ lo: four(box(k, j)), hi: four(boxHi(k, j)) }) }, v);
+    return v.read();
+  };
+  fadeSteps(
+    CPU_OPS,
+    {
+      p,
+      rect: four(_rect),
+      perspective,
+      taken: (k) => (bits & slotBits(k)) !== 0 && k < count,
+      slot: (k) => ({ c: four(packs[k]!.centre), s: four(packs[k]!.shape), pl: four(packs[k]!.plane), body: four(packs[k]!.body) }),
+      whole: (k) => ((bits >> k) & 1) === 1,
+      wholeFade: (k) => draw.whole?.[k] ?? 1,
+      boxes,
+    },
+    (f) => (out = f),
+  );
   return out;
 }
 
@@ -340,26 +513,17 @@ export function seeThroughFadeAt(p: readonly [number, number, number], packs: re
 const BOUNDS_MARGIN = 0.5;
 const _sphere = new THREE.Sphere();
 
-/** The bounds a draw is culled by, when they are its geometry's (null: an instanced, batched or skinned draw, or one never culled). */
-function drawBounds(o: THREE.Object3D): THREE.Sphere | null {
-  const m = o as THREE.Mesh & { isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean };
-  if (m.isMesh !== true || m.frustumCulled === false || m.isInstancedMesh === true || m.isBatchedMesh === true || m.isSkinnedMesh === true) return null;
-  const g = m.geometry;
-  if (g === undefined || g === null) return null;
-  if (g.boundingSphere === null) g.computeBoundingSphere();
-  const b = g.boundingSphere;
-  return b !== null && Number.isFinite(b.radius) ? b : null;
-}
+const _c = new THREE.Vector3();
 
 /**
- * Whether any point of a sphere (centre in view space, radius) may be faded by one subject: some of it in
- * front of the subject's depth limit, above its half-height plane and, projected to the subject's depth, inside
- * its outer circle. Conservative: a sphere reaching the camera plane always may.
+ * Whether any point of a sphere (centre in view space, radius) may be faded by one subject: some of it not past
+ * the subject's depth reach, above its half-height plane and, projected to the subject's depth, inside its outer
+ * circle. Conservative: a sphere reaching the camera plane always may.
  */
 export function mayFade(c: THREE.Vector3, r: number, p: SubjectPack): boolean {
-  const { centre, shape, plane } = p;
+  const { centre, shape, plane, body } = p;
   if (shape.w <= 0) return false;
-  if (c.z + r < shape.z) return false;
+  if (-(c.z + r) > body.z) return false;
   if (plane.x * c.x + plane.y * c.y + plane.z * c.z + plane.w + r < 0) return false;
   if (centre.w === 0) return Math.hypot(c.x - centre.x, c.y - centre.y) < shape.y + r;
   const near = c.z + r;
@@ -375,6 +539,23 @@ export function mayFade(c: THREE.Vector3, r: number, p: SubjectPack): boolean {
   const len2 = dx * dx + dy * dy;
   const t = len2 > 0 ? Math.min(1, Math.max(0, -(ax * dx + ay * dy) / len2)) : 0;
   return Math.hypot(ax + dx * t, ay + dy * t) < shape.y + r * kn;
+}
+
+/** A draw's culling bounds in world space (null: it has none, {@link drawBounds}); one shared sphere, valid until the next call. */
+function drawSphere(o: THREE.Object3D): THREE.Sphere | null {
+  const b = drawBounds(o);
+  return b === null ? null : _sphere.copy(b).applyMatrix4(o.matrixWorld);
+}
+
+/** The bounds a draw is culled by, when they are its geometry's (null: an instanced, batched or skinned draw, or one never culled). */
+function drawBounds(o: THREE.Object3D): THREE.Sphere | null {
+  const m = o as THREE.Mesh & { isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean };
+  if (m.isMesh !== true || m.frustumCulled === false || m.isInstancedMesh === true || m.isBatchedMesh === true || m.isSkinnedMesh === true) return null;
+  const g = m.geometry;
+  if (g === undefined || g === null) return null;
+  if (g.boundingSphere === null) g.computeBoundingSphere();
+  const b = g.boundingSphere;
+  return b !== null && Number.isFinite(b.radius) ? b : null;
 }
 
 /**
@@ -401,10 +582,12 @@ export interface SeeThroughDiagnostics {
   readonly enabled: boolean;
   /** Whether the view's renderer builds the mask. */
   readonly armed: boolean;
-  /** The subjects in its slots and how far each has faded in (0 … 1, before the max fade). */
-  readonly subjects: readonly { readonly id: string; readonly slot: number; readonly fade: number }[];
+  /** The subjects in its slots, how far each has faded in (0 … 1, before the max fade) and its occluder boxes (found, fading out too). */
+  readonly subjects: readonly { readonly id: string; readonly slot: number; readonly fade: number; readonly occluders: number }[];
   /** Subjects asked for past the array size, last frame (the farthest left out). */
   readonly leftOut: number;
+  /** Main-thread milliseconds the occluder search took last frame (0: nothing moved). */
+  readonly searchMs: number;
 }
 
 /**
@@ -478,6 +661,14 @@ export interface SeeThroughDeps extends SeeThroughEntities {
   onProblem?(code: string, message: string): void;
   /** The meshes under `root` became or stopped being a subject's: group them again (the batcher's `touch`). */
   regroup?(root: THREE.Object3D): void;
+  /** The block layers drawn (their pieces are occluders). */
+  occluderLayers?(): readonly OccluderLayer[];
+}
+
+/** A subject's occluder box as it eases in and out. */
+interface TrackedBox extends PackedBox {
+  /** Found by the last search. */
+  wanted: boolean;
 }
 
 interface Slot {
@@ -487,6 +678,18 @@ interface Slot {
   /** Whether it was asked for this frame. */
   wanted: boolean;
   readonly ext: SubjectExtent;
+  /** The volume from the camera to its body, and what it was searched for last (the search runs again when that changes). */
+  readonly vol: SubjectVolume;
+  searched: string | null;
+  /** Its occluder boxes by key. */
+  readonly boxes: Map<string, TrackedBox>;
+}
+
+/** A draw's bits and its fade as each slot's occluder as a whole, worked out once a frame. */
+interface DrawState {
+  frame: number;
+  bits: number;
+  readonly whole: THREE.Vector4;
 }
 
 interface ArmedRenderer {
@@ -508,6 +711,20 @@ export class SeeThroughView implements SeeThroughControl {
   private script: SeeThroughScripted | null = null;
   private readonly slots: (Slot | null)[] = new Array<Slot | null>(SEE_THROUGH_SUBJECTS).fill(null);
   private readonly packs: SubjectPack[] = Array.from({ length: SEE_THROUGH_SUBJECTS }, emptyPack);
+  /** Each slot's boxes as packed for the shader (min xyz + nudge, max xyz + fade), and how many each holds. */
+  private readonly boxes: THREE.Vector4[] = Array.from({ length: SEE_THROUGH_SUBJECTS * SEE_THROUGH_OCCLUDERS * 2 }, () => new THREE.Vector4());
+  private readonly boxCount: number[] = new Array<number>(SEE_THROUGH_SUBJECTS).fill(0);
+  /** The step a fade eases by this frame (0 … 1). */
+  private step = 1;
+  /** Each draw's bits and whole-draw fades this frame. */
+  private readonly draws = new WeakMap<THREE.Object3D, DrawState>();
+  /** Draws of many members seen lately (their members are searched), by the frame they were last drawn. */
+  private readonly memberDraws = new Map<THREE.Object3D, number>();
+  private membersChanged = false;
+  /** The block layers' pieces found so far (shared by the slots and kept across frames). */
+  private readonly pieces = new PieceCache();
+  /** The time the search took last frame (ms, main thread). */
+  private searchMs = 0;
   /** The box round the circles (`circleRect`) and whether the view is perspective (1) or not (0). */
   private readonly rect = new THREE.Vector4();
   private perspective = 1;
@@ -530,8 +747,8 @@ export class SeeThroughView implements SeeThroughControl {
   private readonly alone = new Map<string, readonly THREE.Object3D[]>();
   /** What belongs to a subject this frame, and to which slots' (it never fades for them). Kept here, not on the object, so nothing of the view rides along when an object is cloned or saved. */
   private readonly self = new WeakMap<THREE.Object3D, { frame: number; bits: number }>();
-  /** The bits each draw (render object) was last refreshed with. */
-  private readonly uploaded = new WeakMap<object, number>();
+  /** The bits and whole-draw fades each draw (render object) was last refreshed with. */
+  private readonly uploaded = new WeakMap<object, { bits: number; whole: THREE.Vector4 }>();
 
   constructor(
     private readonly d: SeeThroughDeps,
@@ -575,11 +792,11 @@ export class SeeThroughView implements SeeThroughControl {
   }
 
   diagnostics(): SeeThroughDiagnostics {
-    const subjects: { id: string; slot: number; fade: number }[] = [];
+    const subjects: { id: string; slot: number; fade: number; occluders: number }[] = [];
     this.slots.forEach((sl, i) => {
-      if (sl !== null) subjects.push({ id: sl.id, slot: i, fade: sl.fade });
+      if (sl !== null) subjects.push({ id: sl.id, slot: i, fade: sl.fade, occluders: sl.boxes.size });
     });
-    return { enabled: this.s.enabled, armed: this.armed !== null, subjects, leftOut: this.leftOut };
+    return { enabled: this.s.enabled, armed: this.armed !== null, subjects, leftOut: this.leftOut, searchMs: this.searchMs };
   }
 
   /**
@@ -653,7 +870,14 @@ export class SeeThroughView implements SeeThroughControl {
     // A host that groups no batches (or a frame before its first) chooses the slots here.
     if (!followed) this.follow(camera);
     const step = this.s.fadeTime > 0 ? dt / this.s.fadeTime : 1;
+    this.step = step;
     let easing = false;
+    const t0 = performance.now();
+    let searched = false;
+    _eye.setFromMatrixPosition(camera.matrixWorld);
+    const layers = this.d.occluderLayers?.() ?? [];
+    this.pieces.keep(new Set(layers.map((l) => l.id)));
+    this.pruneMemberDraws();
     this.live = 0;
     this.count = 0;
     for (let i = 0; i < this.slots.length; i++) {
@@ -672,8 +896,89 @@ export class SeeThroughView implements SeeThroughControl {
       const drawn = this.d.drawn(sl.id);
       if (this.d.matrix(sl.id, _m)) subjectExtent(_m, drawn, this.d.components(sl.id), sl.ext);
       for (const o of drawn) this.markSelf(o, i);
+      if (this.search(sl, layers)) searched = true;
+      if (this.easeBoxes(sl, i, step)) easing = true;
     }
+    this.membersChanged = false;
+    this.searchMs = searched ? performance.now() - t0 : 0;
     if (easing) this.d.onChange?.();
+  }
+
+  /** Drop the member draws not drawn for a while (gone, or out of view). */
+  private pruneMemberDraws(): void {
+    for (const [o, at] of this.memberDraws) {
+      if (this.frame - at <= MEMBER_DRAW_FRAMES) continue;
+      this.memberDraws.delete(o);
+      this.membersChanged = true;
+    }
+  }
+
+  /**
+   * Find a slot's occluders again when the eye, its body, the padding, a block layer or the draws of many members
+   * changed since the last search (true: it ran). Boxes found keep their fade by their key; a box new where one of
+   * the slot's stood (a piece found from another cell) starts at that one's fade, so nothing flickers.
+   */
+  private search(sl: Slot, layers: readonly OccluderLayer[]): boolean {
+    const e = sl.ext;
+    // To the search's grain: an animated body's bounds or a camera's settling that move less than that find the same occluders.
+    const q = (v: number): number => Math.round(v / SEARCH_GRAIN);
+    let key = `${q(_eye.x)},${q(_eye.y)},${q(_eye.z)}|${q(e.centre.x)},${q(e.centre.y)},${q(e.centre.z)},${q(e.height)},${q(e.radius)}|${this.s.padding}`;
+    for (const l of layers) key += `|${l.id}:${l.version}:${l.origin.join(',')}`;
+    if (key === sl.searched && !this.membersChanged) return false;
+    const fresh = sl.searched === null;
+    sl.searched = key;
+    const vol = sl.vol.set(_eye, e, this.s.padding);
+    const found: OccluderBox[] = [];
+    for (const l of layers) layerOccluders(l, vol, found, this.pieces.of(l));
+    for (const draw of this.memberDraws.keys()) {
+      const sphere = draw.userData[SEE_THROUGH_MEMBERS_KEY] !== undefined ? drawSphere(draw) : null;
+      if (sphere !== null && !vol.meetsSphere(sphere.center, sphere.radius + BOUNDS_MARGIN)) continue;
+      memberOccluders(draw, draw.userData[SEE_THROUGH_MEMBERS_KEY] as SeeThroughMembers, vol, found);
+    }
+    for (const b of sl.boxes.values()) b.wanted = false;
+    for (const f of found) {
+      const had = sl.boxes.get(f.key);
+      if (had !== undefined) {
+        had.wanted = true;
+        continue;
+      }
+      // A slot's first boxes come in with the slot's own fade; a box where others stand starts at theirs.
+      let start = fresh ? 1 : 0;
+      for (const b of sl.boxes.values()) if (b.fade > start && f.min.x <= b.max.x && f.max.x >= b.min.x && f.min.y <= b.max.y && f.max.y >= b.min.y && f.min.z <= b.max.z && f.max.z >= b.min.z) start = b.fade;
+      sl.boxes.set(f.key, { min: f.min, max: f.max, nudge: f.nudge, fade: start, wanted: true });
+    }
+    return true;
+  }
+
+  /** Ease a slot's boxes toward found or gone and pack them for the shader (merged when more than fit); true while one eases. */
+  private easeBoxes(sl: Slot, k: number, step: number): boolean {
+    let easing = false;
+    const live: PackedBox[] = [];
+    for (const [key, b] of sl.boxes) {
+      const target = b.wanted ? 1 : 0;
+      b.fade = target > b.fade ? Math.min(target, b.fade + step) : Math.max(target, b.fade - step);
+      if (b.fade !== target) easing = true;
+      if (b.fade <= 0 && !b.wanted) {
+        sl.boxes.delete(key);
+        continue;
+      }
+      if (b.fade > 0) live.push({ min: b.min.clone(), max: b.max.clone(), nudge: b.nudge, fade: b.fade });
+    }
+    mergeToFit(live, SEE_THROUGH_OCCLUDERS);
+    for (let j = 0; j < SEE_THROUGH_OCCLUDERS; j++) {
+      const lo = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!;
+      const hi = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!;
+      const b = live[j];
+      if (b === undefined) {
+        lo.set(0, 0, 0, 0);
+        hi.set(0, 0, 0, 0);
+        continue;
+      }
+      lo.set(b.min.x, b.min.y, b.min.z, b.nudge);
+      hi.set(b.max.x, b.max.y, b.max.z, b.fade);
+    }
+    this.boxCount[k] = live.length;
+    return easing;
   }
 
   /** The subjects asked for this frame into slots (the nearest to the camera kept when there are more than slots). */
@@ -713,7 +1018,7 @@ export class SeeThroughView implements SeeThroughControl {
           });
         }
         if (at < 0) continue;
-        sl = { id: f.id, fade: 0, wanted: false, ext: { centre: new THREE.Vector3(), feet: 0, height: 0 } };
+        sl = { id: f.id, fade: 0, wanted: false, ext: { centre: new THREE.Vector3(), feet: 0, height: 0, radius: 0 }, vol: new SubjectVolume(), searched: null, boxes: new Map() };
         this.slots[at] = sl;
       }
       sl.wanted = true;
@@ -733,31 +1038,93 @@ export class SeeThroughView implements SeeThroughControl {
   }
 
   /**
-   * The subjects that may fade `object` in this frame's draw: not its own, and (a draw with bounds three culls
-   * by) only those whose circle its bounds reach in front of them and above half their height. A draw left
-   * with none skips the mask, so a draw pays only for the circles near it.
+   * A draw's bits this frame (see {@link seeThroughBoxBit}): for each slot whose subject is not its own, whether it
+   * is that subject's occluder as a whole (its bounds meet the subject's volume: a draw of block pieces or of
+   * many members never is), and the slot's boxes its bounds reach. A draw left with none skips the mask, so a
+   * draw pays only for the occluders near it. A draw three does not cull by bounds is every live slot's
+   * occluder as a whole (the depth guard still keeps what is behind).
    */
   bitsFor(object: THREE.Object3D, camera?: THREE.Camera): number {
     if (this.live === 0 || !objectSeeThrough(object)) return 0;
     const m = this.self.get(object);
-    let bits = m !== undefined && m.frame === this.frame ? this.live & ~m.bits : this.live;
-    if (bits === 0 || camera === undefined || camera !== this.camera) return bits;
-    const sphere = drawBounds(object);
-    if (sphere === null) return bits;
-    this.ensureFilled(camera);
-    _sphere.copy(sphere).applyMatrix4(object.matrixWorld);
-    _v.copy(_sphere.center).applyMatrix4(camera.matrixWorldInverse);
-    const r = _sphere.radius + BOUNDS_MARGIN;
-    for (let i = 0; i < this.count; i++) if ((bits >> i) & 1 && !mayFade(_v, r, this.packs[i]!)) bits &= ~(1 << i);
-    return bits;
+    const mine = m !== undefined && m.frame === this.frame ? this.live & ~m.bits : this.live;
+    if (mine === 0) return 0;
+    if (camera === undefined || camera !== this.camera) return mine;
+    return this.drawState(object, mine).bits;
   }
 
-  /** Whether the bits `bitsFor` gives a draw (one render object: an object for a camera) differ from those it last uploaded. */
+  /** A draw's bits and whole-draw fades, worked out once a frame for the view's camera (the fades eased then). */
+  private drawState(object: THREE.Object3D, slots: number): DrawState {
+    let st = this.draws.get(object);
+    if (st !== undefined && st.frame === this.frame) return st;
+    // A draw not drawn last frame takes its fades as they stand now: nothing eased while it was out of view.
+    const fresh = st === undefined || st.frame !== this.frame - 1;
+    if (st === undefined) {
+      st = { frame: this.frame, bits: 0, whole: new THREE.Vector4() };
+      this.draws.set(object, st);
+    }
+    st.frame = this.frame;
+    const members = object.userData[SEE_THROUGH_MEMBERS_KEY] as SeeThroughMembers | undefined;
+    if (members !== undefined && !this.memberDraws.has(object)) this.membersChanged = true;
+    if (members !== undefined) this.memberDraws.set(object, this.frame);
+    const pieces = members !== undefined || object.userData[SEE_THROUGH_PIECES_KEY] === true;
+    const sphere = drawSphere(object);
+    let bits = 0;
+    for (let k = 0; k < this.count; k++) {
+      const sl = this.slots[k];
+      let target = 0;
+      if (((slots >> k) & 1) === 1 && sl !== null && sl !== undefined) {
+        if (sphere === null) target = pieces ? 0 : 1;
+        else if (this.mayFadeSphere(sphere, k)) {
+          const r = sphere.radius + BOUNDS_MARGIN;
+          if (!pieces && sl.vol.meetsSphere(sphere.center, r)) target = 1;
+          for (let j = 0; j < this.boxCount[k]!; j++) {
+            const lo = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2]!;
+            const hi = this.boxes[(k * SEE_THROUGH_OCCLUDERS + j) * 2 + 1]!;
+            _lo.set(lo.x, lo.y, lo.z);
+            _hi.set(hi.x, hi.y, hi.z);
+            if (sphereMeetsBox(sphere.center, r + lo.w, _lo, _hi)) bits |= seeThroughBoxBit(k, j);
+          }
+        }
+      }
+      const f = st.whole.getComponent(k);
+      const next = fresh ? target : target > f ? Math.min(target, f + this.step) : Math.max(target, f - this.step);
+      st.whole.setComponent(k, next);
+      if (next > 0) bits |= 1 << k;
+    }
+    for (let k = this.count; k < SEE_THROUGH_SUBJECTS; k++) st.whole.setComponent(k, 0);
+    st.bits = bits;
+    return st;
+  }
+
+  /** Whether any point of a world sphere may fade for slot `k` at all (its circle, depth reach and half height; the packs filled for the view's camera). */
+  private mayFadeSphere(sphere: THREE.Sphere, k: number): boolean {
+    if (this.camera === null || this.ensureFilled(this.camera) <= k) return true;
+    _c.copy(sphere.center).applyMatrix4(this.camera.matrixWorldInverse);
+    return mayFade(_c, sphere.radius + BOUNDS_MARGIN, this.packs[k]!);
+  }
+
+  /** A draw's fade as each slot's occluder as a whole (its bits worked out first). */
+  wholeFadesFor(object: THREE.Object3D, camera: THREE.Camera): THREE.Vector4 {
+    if (this.bitsFor(object, camera) === 0) return NO_FADES;
+    return this.draws.get(object)?.whole ?? NO_FADES;
+  }
+
+  /** Whether the bits or whole-draw fades `bitsFor` gives a draw (one render object: an object for a camera) differ from those it last uploaded. */
   bitsChanged(draw: object, object: THREE.Object3D, camera: THREE.Camera): boolean {
     const bits = this.bitsFor(object, camera);
-    if (this.uploaded.get(draw) === bits) return false;
-    this.uploaded.set(draw, bits);
+    const w = bits === 0 ? NO_FADES : (this.draws.get(object)?.whole ?? NO_FADES);
+    let up = this.uploaded.get(draw);
+    if (up !== undefined && up.bits === bits && up.whole.equals(w)) return false;
+    if (up === undefined) this.uploaded.set(draw, (up = { bits, whole: new THREE.Vector4() }));
+    up.bits = bits;
+    up.whole.copy(w);
     return true;
+  }
+
+  /** The view's boxes as packed for the shader (tests run them through the CPU reference). */
+  packedBoxes(): readonly THREE.Vector4[] {
+    return this.boxes;
   }
 
   /** The packs filled once per frame for the view's camera (whichever uniform or draw asks first); the slots in use. */
@@ -794,10 +1161,11 @@ export class SeeThroughView implements SeeThroughControl {
     if (this.nodes !== null) return this.nodes.mask;
     // Each render-group uniform fills the packs for the render's camera when it is updated, whichever three updates first.
     const filled = ({ camera }: { camera: THREE.Camera }): number => this.ensureFilled(camera);
-    // One array (each subject's centre, shape and plane in turn): one uniform buffer bound per draw, not three.
-    const packed = uniformArray(this.packs.flatMap((p) => [p.centre, p.shape, p.plane]), 'vec4')
+    // One array (each subject's centre, shape, plane and body in turn, then every slot's boxes): one uniform buffer bound per draw.
+    const packed = uniformArray([...this.packs.flatMap((p) => [p.centre, p.shape, p.plane, p.body]), ...this.boxes], 'vec4')
       .setGroup(renderGroup)
       .onRenderUpdate((f: { camera: THREE.Camera }) => void filled(f));
+    const boxAt = SEE_THROUGH_SUBJECTS * PACK_VEC4S;
     const count = uniform(0, 'int').setGroup(renderGroup).onRenderUpdate(filled);
     const rect = uniform(this.rect, 'vec4')
       .setGroup(renderGroup)
@@ -806,21 +1174,57 @@ export class SeeThroughView implements SeeThroughControl {
       .setGroup(renderGroup)
       .onRenderUpdate((f: { camera: THREE.Camera }) => (filled(f), this.perspective));
     const bits = uniform(0, 'int').onObjectUpdate(({ object, camera }: { object: THREE.Object3D; camera: THREE.Camera }) => this.bitsFor(object, camera));
+    const whole = uniform(new THREE.Vector4()).onObjectUpdate(({ object, camera }: { object: THREE.Object3D; camera: THREE.Camera }) => this.wholeFadesFor(object, camera));
     const vec = (v: N): Four<N> => [v.x, v.y, v.z, v.w];
+    const at = (k: number): N => int(k);
+    // One slot's boxes as one shader function (built once per program, called per slot with the slot's boxes).
+    // Everything it reads comes in as arguments: a uniform named inside a function's own build need not match the program's.
+    const boxInputs = [{ name: 'taken', type: 'int' }, { name: 'pv', type: 'vec3' }, { name: 'face', type: 'vec3' }, { name: 'cw', type: 'mat4' }, { name: 'persp', type: 'float' }, ...Array.from({ length: SEE_THROUGH_OCCLUDERS * 2 }, (_, k) => ({ name: `b${k}`, type: 'vec4' }))];
+    const slotBoxesFn = Fn(([taken, pv, face, cw, persp, ...b]: N[]) => {
+      const out = float(0).toVar('seeThroughBoxFade');
+      // The pixel in the world and its face's normal turned toward the camera (along the view ray: from the origin
+      // in a perspective view, along −z in an orthographic one).
+      const nv = face.toVar('seeThroughNormal');
+      nv.assign(nv.div(max(nv.length(), float(1e-12))).mul(nv.dot(mix(vec3(0, 0, -1), pv, persp)).sign().negate()));
+      const wp = cw.mul(vec4(pv, 1)).xyz.toVar('seeThroughWorld');
+      const wn = cw.mul(vec4(nv, 0)).xyz.toVar('seeThroughWorldNormal');
+      boxSteps(
+        TSL_OPS,
+        {
+          world: [wp.x, wp.y, wp.z],
+          normal: [wn.x, wn.y, wn.z],
+          taken: (j) => taken.bitAnd(int(1 << j)).notEqual(int(0)),
+          box: (j) => ({ lo: vec(b[j * 2]!), hi: vec(b[j * 2 + 1]!) }),
+        },
+        { read: () => out, write: (v) => void out.assign(v) },
+      );
+      return out;
+    }).setLayout({ name: 'seeThroughBoxes', type: 'float', inputs: boxInputs });
+    const slotBoxes = (k: number, pv: N, face: N): N =>
+      slotBoxesFn(bits.shiftRight(int(BOX_BIT0 + k * SEE_THROUGH_OCCLUDERS)), pv, face, cameraWorldMatrix, perspective, ...Array.from({ length: SEE_THROUGH_OCCLUDERS * 2 }, (_, e) => packed.element(at(boxAt + k * SEE_THROUGH_OCCLUDERS * 2 + e))));
     // Built inside each program's build (a loop and a branch need the build's stack).
-    const mask = Fn(() => {
+    const mask = Fn((builder: { geometry?: { hasAttribute?(name: string): boolean } | null; isFlatShading(): boolean }) => {
       // Kept unless a subject fades it: a draw without a subject's bit never reads the dither.
       const keep = TSL.bool(true).toVar('seeThroughKeep');
       If(bits.notEqual(int(0)), () => {
         const p = positionView;
+        // The face's normal (view space, toward either side): the geometry's own where it has one; else the cross of
+        // the view position's screen derivatives, taken here, in control flow uniform per draw, as derivatives must
+        // be. Everything else about the face is worked out only inside the boxes.
+        const own = builder.geometry?.hasAttribute?.('normal') === true && !builder.isFlatShading();
+        const faceNormal = own ? normalViewGeometry : p.dFdx().cross(p.dFdy()).toVar('seeThroughFace');
+        const words = [whole.x, whole.y, whole.z, whole.w];
         fadeSteps(
           TSL_OPS,
           {
             p: [p.x, p.y, p.z],
             rect: vec(rect),
             perspective,
-            taken: (k) => bits.bitAnd(int(1 << k)).notEqual(int(0)).and(count.greaterThan(int(k))),
-            slot: (k) => ({ c: vec(packed.element(int(k * 3))), s: vec(packed.element(int(k * 3 + 1))), pl: vec(packed.element(int(k * 3 + 2))) }),
+            taken: (k) => bits.bitAnd(int(slotBits(k))).notEqual(int(0)).and(count.greaterThan(int(k))),
+            slot: (k) => ({ c: vec(packed.element(at(k * PACK_VEC4S))), s: vec(packed.element(at(k * PACK_VEC4S + 1))), pl: vec(packed.element(at(k * PACK_VEC4S + 2))), body: vec(packed.element(at(k * PACK_VEC4S + 3))) }),
+            whole: (k) => bits.bitAnd(int(1 << k)).notEqual(int(0)),
+            wholeFade: (k) => words[k]!,
+            boxes: (k) => slotBoxes(k, p, faceNormal),
           },
           (fade) => keep.assign(ditherKeep(fade)),
         );

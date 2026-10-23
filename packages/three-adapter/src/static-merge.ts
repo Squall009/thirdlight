@@ -45,6 +45,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { SEE_THROUGH_KEY } from './see-through';
+import { SEE_THROUGH_MEMBERS_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { OCCLUDER_EARLY_RENDER_ORDER, setOccluderMarks } from './occluders';
@@ -755,6 +756,21 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     if (cell.built !== null) releaseBuilt(cell.built);
     const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });
     cell.built = built;
+    // See-through fades the members in front of a subject, by each one's own bounds (where its vertices were written), not the whole cell.
+    const memberMatrix = new THREE.Matrix4();
+    const members: SeeThroughMembers = {
+      count: () => built.drawnSlots.length,
+      box: (i, out) => {
+        const slot = built.drawnSlots[i];
+        const g = slot?.mesh.geometry;
+        if (g === undefined) return false;
+        if (g.boundingBox === null) g.computeBoundingBox();
+        if (g.boundingBox === null || g.boundingBox.isEmpty()) return false;
+        out.copy(g.boundingBox).applyMatrix4(memberMatrix.fromArray(slot!.matrix));
+        return true;
+      },
+    };
+    mesh.userData[SEE_THROUGH_MEMBERS_KEY] = members;
     builtOf.set(mesh, built);
     options.viewCull?.add(built);
     cell.dead = 0;

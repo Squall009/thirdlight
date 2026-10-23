@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOfProject } from '@thirdlight/project-model/limits';
+import { SEE_THROUGH_DEFAULTS, SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOfProject } from '@thirdlight/project-model/limits';
 
 import { FakeEditor } from './test-editor';
 import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
@@ -53,7 +53,7 @@ describe('see-through settings and the object flag (real backend)', () => {
     const settings = { [s.enabled]: 1, [s.radius]: 0.35, [s.softness]: 0.25, [s.maxFade]: 0.6, [s.depthMargin]: 0.5, [s.fadeTime]: 0.4 };
     // setSettings merges into the project's settings (the editor's Rendering fields and MCP send the same).
     const set = await ok('setSettings', { settings });
-    expect(seeThroughSettingsOfProject(set.change.next)).toEqual({ enabled: true, radius: 0.35, softness: 0.25, maxFade: 0.6, depthMargin: 0.5, fadeTime: 0.4 });
+    expect(seeThroughSettingsOfProject(set.change.next)).toEqual({ enabled: true, radius: 0.35, softness: 0.25, maxFade: 0.6, depthMargin: 0.5, fadeTime: 0.4, padding: SEE_THROUGH_DEFAULTS.padding });
     // Out of range or not one of the values: refused.
     expect(await refused('setSettings', { settings: { [s.maxFade]: SEE_THROUGH_LIMITS.maxFade.max + 0.01 } })).toBe('field_value');
     expect(await refused('setSettings', { settings: { [s.enabled]: 2 } })).toBe('field_value');
@@ -92,7 +92,7 @@ describe('see-through settings and the object flag (real backend)', () => {
       const psid = (r.json as { playSessionId: string }).playSessionId;
       const started = await editor.waitForEvent('play.started');
       const content = playContentOf(tb, psid);
-      expect(seeThroughSettingsOfProject(content.settings)).toEqual({ enabled: true, radius: 0.35, softness: 0.25, maxFade: 0.6, depthMargin: 0.5, fadeTime: 0.4 });
+      expect(seeThroughSettingsOfProject(content.settings)).toEqual({ enabled: true, radius: 0.35, softness: 0.25, maxFade: 0.6, depthMargin: 0.5, fadeTime: 0.4, padding: SEE_THROUGH_DEFAULTS.padding });
       const played = (id: string): Any => ((started.snapshot as Any).scene.entities as Any[]).find((e) => e.id === id).components;
       expect(played(box).box.seeThrough).toBe(false);
       expect(played(arch).architecture.seeThrough).toBe(false);
