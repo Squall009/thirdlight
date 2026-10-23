@@ -206,7 +206,11 @@ fields from its preset or default and drops the old ones, in the same edit.
 
 Every edit is one command and one undo step (Edit → Undo, Ctrl+Z); a
 refused edit says why under the section (e.g. "a block layer is its own
-level geometry") and changes nothing. Rules about what a game needs to
+level geometry") and changes nothing. The history is the project's, shared
+with MCP and other tools: an undo pressed before the view shows another
+tool's latest edit is refused (the status bar says "undo refused … press
+Ctrl+Z again") and not sent again, so it never takes back an edit you have
+not seen; press it again once the view shows the edit. Rules about what a game needs to
 start (a camera live, one player) are not checked per edit: Play and the
 export check them (see [The view, cameras and kept objects](scenes-and-cameras.md#the-view-cameras-and-kept-objects)).
 

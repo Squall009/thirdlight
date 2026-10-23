@@ -918,7 +918,7 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   if (process.env['TL_SHOTS'] !== undefined) await layers.screenshot({ path: `${process.env['TL_SHOTS']}/palette-no-height.png` });
 }
 
-test('an editor command right after MCP edits is applied once the change feed brings them, not refused', async ({ page }) => {
+test('an editor command right after MCP edits is applied once the change feed brings them, not refused; an undo made on the older view is refused, not resent', async ({ page }) => {
   test.setTimeout(90_000);
   const crate = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] } }))['createdId']);
   // The MCP edits' change-feed events reach the page late (held for a while, or until released), as on a busy
@@ -958,4 +958,21 @@ test('an editor command right after MCP edits is applied once the change feed br
   hold = 'none';
   for (const send of stalled.splice(0)) send();
   await expect(page.locator('.tl-hierarchy__list li[data-entity-id]')).toHaveCount(rows + 2);
+
+  // An undo pressed before the view shows an MCP edit is refused and said so, never sent again (it would take that
+  // edit back unseen); pressed again once the view shows it, it undoes the latest step, the MCP edit.
+  const crateName = async (): Promise<string> => String(((await query('queryEntity', { entityId: crate }))['entity'] as { name?: string }).name);
+  await page.locator('canvas.tl-viewport').hover();
+  hold = 'late';
+  await cmd('updateEntity', { entityId: crate, name: 'Crate by MCP' });
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.tl-statusbar')).toContainText('undo refused', { timeout: 10_000 });
+  await expect(row(page, crate)).toContainText('Crate by MCP');
+  expect(await crateName()).toBe('Crate by MCP');
+  expect(await boxes()).toBe(before + 2);
+  hold = 'none';
+  await page.keyboard.press('Control+z');
+  await expect.poll(crateName).toBe('Crate again');
+  await expect(page.locator('.tl-statusbar')).not.toContainText('refused');
+  expect(await boxes()).toBe(before + 2);
 });

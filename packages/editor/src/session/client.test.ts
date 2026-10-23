@@ -157,4 +157,26 @@ describe('SessionClient.grouped', () => {
     expect(r.ok).toBe(false);
     expect(be.log).toEqual(['a', 'b', 'mcp', 'group', 'undo refused']);
   });
+
+  it('a plain undo pressed before the view shows another client\'s command is refused once, said so, and not sent again', async () => {
+    const be = fakeBackend();
+    vi.stubGlobal('fetch', be.fetchStub);
+    const states: { conflict: { refused?: string; message: string } | null; save: string }[] = [];
+    const c = new SessionClient(
+      { projectId: 'p', authoringOrigin: 'http://authoring.test', previewOrigin: 'http://preview.test', authoringToken: 't' },
+      { onState: (s) => void states.push({ conflict: s.conflict, save: s.save }), onSceneChanged: () => undefined, onPlayStarted: () => undefined, onPlayStopped: () => undefined },
+      'sess-' + '0'.repeat(32),
+    );
+    c.projection.hydrate({ revision: 1, entities: [] });
+    await edit(c, 'a');
+    // An MCP client stores a command the view has not been told of yet.
+    be.foreign('mcp');
+    const r = await c.command('undo', {}, c.projection.revision);
+    expect(r.ok).toBe(false);
+    expect(be.log).toEqual(['a', 'mcp', 'undo refused']);
+    const last = states[states.length - 1]!;
+    expect(last.conflict?.refused).toBe('undo');
+    expect(last.conflict?.message).toContain('press it again');
+    expect(last.save).toBe('saved');
+  });
 });

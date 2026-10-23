@@ -32,11 +32,20 @@ export type CommandResult = CommandResultOk | { ok: false; response: MutationRes
 
 type SaveStatus = 'idle' | 'pending' | 'saved' | 'error';
 
+/** A command refused because the project moved on since the view it was made on. */
+export interface CommandConflict {
+  currentRevision: number;
+  expectedRevision: number;
+  message: string;
+  /** An undo or redo refused so: never sent again, the user presses it again once the view shows the change. */
+  refused?: 'undo' | 'redo';
+}
+
 /** What a command's answer does to the client's save status, error and conflict (a key left out stays). */
 export interface CommandStatus {
   save: SaveStatus;
   error?: { code: string; message: string } | null;
-  conflict?: { currentRevision: number; expectedRevision: number; message: string } | null;
+  conflict?: CommandConflict | null;
 }
 
 export interface CommandSenderHost {
@@ -78,7 +87,7 @@ export class CommandSender {
       if (first.ok || first.response.ok || first.response.code !== 'revision_conflict' || !resends) return first;
       const behind = first.response.currentRevision;
       if (!(await this.rebaseAfterFeed(typeof behind === 'number' ? behind : projection.revision + 1))) {
-        return this.finish({ status: 'response', response: first.response }, expected);
+        return this.finish({ status: 'response', response: first.response }, expected, op);
       }
       return this.send(op, lazy ? (args as () => unknown)() : args, projection.revision, requestId, origin, true);
     });
@@ -129,7 +138,7 @@ export class CommandSender {
     if (outcome.status === 'response' && outcome.response.ok) this.applyOwnAck(rid, outcome.response);
     // A conflict that may still be sent again is not shown until it is the answer.
     if (!final && outcome.status === 'response' && !outcome.response.ok && outcome.response.code === 'revision_conflict') return { ok: false, response: outcome.response };
-    return this.finish(outcome, expectedRevision);
+    return this.finish(outcome, expectedRevision, op);
   }
 
   /**
@@ -147,7 +156,7 @@ export class CommandSender {
     this.host.applyAcked({ requestId, revision: r.revision, change: r.change, ...(typeof sceneId === 'string' ? { sceneId } : {}) });
   }
 
-  private finish(outcome: CommandOutcome, expectedRevision: number): CommandResult {
+  private finish(outcome: CommandOutcome, expectedRevision: number, op: string): CommandResult {
     if (outcome.status === 'response') {
       const r = outcome.response;
       if (r.ok) {
@@ -164,12 +173,18 @@ export class CommandSender {
       }
       if (r.code === 'revision_conflict') {
         const current = r.currentRevision ?? -1;
+        const refused = op === 'undo' || op === 'redo' ? op : undefined;
         this.host.report({
-          save: 'error',
+          // A refused undo lost nothing: the project is as saved as before.
+          save: refused !== undefined ? 'saved' : 'error',
           conflict: {
             currentRevision: current,
             expectedRevision,
-            message: `revision conflict — the scene changed since this edit began (the backend is now at revision ${current})`,
+            message:
+              refused !== undefined
+                ? `${refused} refused: the project changed (another tool's edit, revision ${current}) before this view showed it, and ${refused === 'undo' ? 'an undo' : 'a redo'} now would take back that change unseen; press it again to ${refused} the latest step`
+                : `revision conflict — the scene changed since this edit began (the backend is now at revision ${current})`,
+            ...(refused !== undefined ? { refused } : {}),
           },
         });
         return { ok: false, response: r };

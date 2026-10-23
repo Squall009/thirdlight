@@ -37,13 +37,18 @@ export function StatusBar({ state, onResync, renderer }: Props): JSX.Element {
           error {state.error.code}
         </span>
       )}
-      {state.conflict && (
+      {state.conflict && state.conflict.refused !== undefined && (
+        <span className="tl-statusbar__conflict" role="status" title={state.conflict.message}>
+          {state.conflict.refused} refused — another tool changed the project first; press {state.conflict.refused === 'undo' ? 'Ctrl+Z' : 'Ctrl+Shift+Z'} again
+        </span>
+      )}
+      {state.conflict && state.conflict.refused === undefined && (
         <span className="tl-statusbar__conflict" title={state.conflict.message}>
           conflict — the scene moved to revision {state.conflict.currentRevision}
         </span>
       )}
       <span className="tl-statusbar__spacer" />
-      {state.conflict && (
+      {state.conflict && state.conflict.refused === undefined && (
         <button className="tl-btn tl-btn--small" onClick={onResync} title="Re-read the current scene from the backend">
           re-sync scene
         </button>

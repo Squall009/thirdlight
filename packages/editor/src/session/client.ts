@@ -108,10 +108,13 @@ export class SessionClient extends SessionClientCore {
   private readonly groupsUnderWay = new Set<Promise<void>>();
 
   override command(op: string, args: unknown, expectedRevision: number, requestId?: string, origin?: Origin): Promise<CommandResult> {
-    if ((op !== 'undo' && op !== 'redo') || this.groupsUnderWay.size === 0) return super.command(op, args, expectedRevision, requestId, origin);
+    if (op !== 'undo' && op !== 'redo') return super.command(op, args, expectedRevision, requestId, origin);
+    // The history is shared with MCP and other tools: an undo or redo goes against the revision the user saw. This
+    // editor's own commands since then move it on (own commands); a command anyone else stored meanwhile makes the
+    // backend refuse it, and it is not sent again (it would take that command back, unseen): the user presses it
+    // again once the view shows the change.
+    if (this.groupsUnderWay.size === 0) return this.commandAsSeen(op, args, expectedRevision, requestId, origin);
     const waiting = [...this.groupsUnderWay];
-    // Sent against the revision the user saw: the action's own commands since then move it on (own commands), and a
-    // command anyone else stored meanwhile makes the backend refuse it rather than take that command back.
     return Promise.allSettled(waiting).then(() => this.commandAsSeen(op, args, expectedRevision, requestId, origin));
   }
 

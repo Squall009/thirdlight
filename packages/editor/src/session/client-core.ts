@@ -38,12 +38,12 @@ import type { BehaviorRecord, DialogueDocument, PrefabDefinition, TrustEntry } f
 import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 import { SessionProjectState, type BlockLayerView } from './project-state';
 import { SessionSocket } from './session-socket';
-import { CommandSender, type CommandResult, type CommandStatus } from './command-sender';
+import { CommandSender, type CommandConflict, type CommandResult, type CommandStatus } from './command-sender';
 import { PlayLink, type ActivePlay, type PlayStartResult, type PlayStartedFrame } from './play-link';
 import { OpenScenes } from './open-scenes';
 
 export type { BlockLayerView } from './project-state';
-export type { CommandResult, CommandResultOk } from './command-sender';
+export type { CommandConflict, CommandResult, CommandResultOk } from './command-sender';
 export type { PlayStartResult } from './play-link';
 
 export interface ClientConfig {
@@ -65,7 +65,7 @@ export interface ClientUiState {
   /** The structured error, when the last operation failed (explained, not silent). */
   error: { code: string; message: string } | null;
   /** A revision_conflict to surface in the UI (with currentRevision). */
-  conflict: { currentRevision: number; expectedRevision: number; message: string } | null;
+  conflict: CommandConflict | null;
   revision: number;
   /** The backend's authoring history depths (undo/redo availability). */
   undoDepth: number;
@@ -241,7 +241,7 @@ export class SessionClientCore extends SessionProjectState {
   private connection: ConnectionStatus = 'idle';
   private save: SaveStatus = 'idle';
   private error: { code: string; message: string } | null = null;
-  private conflict: { currentRevision: number; expectedRevision: number; message: string } | null = null;
+  private conflict: CommandConflict | null = null;
   private disposed = false;
   private history = { undoDepth: 0, redoDepth: 0 };
   private external: ClientUiState['external'] = null;
