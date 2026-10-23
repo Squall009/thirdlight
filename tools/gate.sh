@@ -97,6 +97,12 @@ esac
 
 exec 9> "$LOGS/gate.lock"
 flock -n 9 || { echo "another gate is running (lock $LOGS/gate.lock)"; exit 1; }
+# /tmp is RAM on this host (tmpfs) and doesn't show as used memory, so a gate's test projects, exports and caches
+# there pushed the host into the OOM killer. Every temp file of the run goes to disk instead and is removed at the end.
+GATE_TMP=$HOME/.cache/thirdlight-tmp/gate-$$
+rm -rf "$GATE_TMP" && mkdir -p "$GATE_TMP" && chmod 700 "$GATE_TMP"
+export TMPDIR=$GATE_TMP TMP=$GATE_TMP TEMP=$GATE_TMP
+trap 'rm -rf "$GATE_TMP"' EXIT
 L=${TL_GATE_LOGS:-$HOME/.cache/thirdlight-logs/gate-$mode-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$L"
 t0=$(date +%s)
