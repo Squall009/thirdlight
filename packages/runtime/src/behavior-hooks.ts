@@ -26,7 +26,7 @@ import { TimerCallError, type InstanceTimers } from './timers';
 import { BehaviorIntentError, type BehaviorLogLevel } from './intents';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, FrozenPreparedError, GRAPH_DETAIL_RE, graphNodeIdOf, isThenable, messageOf } from './behavior-errors';
 import { takeEngineFailure, type ErrorCode } from './errors';
-import { hookEnded, hookStarted } from './ctx-guard';
+import { CTX_LATER_FIX, hookEnded, hookStarted } from './ctx-guard';
 import type { BehaviorCallbackName, BehaviorContext, BehaviorProperties, LoadedBehaviorSpec } from './behavior';
 import type { AnimatorEventRecord, BehaviorMessages, ModuleConfig, PrimitiveEventRecord, SimulationPhase, StepContext, TriggerEventRecord } from './types';
 
@@ -147,7 +147,7 @@ export function createHookRunner(input: HookRunnerInput): HookRunner {
   };
   const resultFailure = (result: unknown, what: string): BehaviorHostError =>
     isThenable(result)
-      ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what} is async (it returned a promise): hooks must not be async, and ctx works only during the call`)
+      ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what} is async (it returned a promise): hooks must not be async, and ctx works only during the call. ${CTX_LATER_FIX}`)
       : new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a value (${what} must return undefined)`);
 
   const disposeInstance = (instance: BehaviorInstance): void => {

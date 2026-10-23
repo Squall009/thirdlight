@@ -88,7 +88,8 @@ In each step every script runs, in phases: first `intent`, then
   promise callback or a timer) runs at a moment the step order does not
   fix, so any `ctx` call it makes is refused: it throws, and the script's
   first refused call is logged. Keep what must happen later in `state`, and
-  do it in a later step (`ctx.timers` counts steps).
+  do it in a later step (`ctx.timers` counts steps); both Problems lines end
+  with that fix.
 
 ## Determinism and replays
 

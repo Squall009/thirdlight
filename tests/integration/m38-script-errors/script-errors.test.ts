@@ -85,7 +85,7 @@ const LATE = `export default {
       s.refused = undefined;
     }
     if (ctx.stepIndex === 5) Promise.resolve().then(() => {
-      try { ctx.save.set('late', ctx.stepIndex); } catch (e) { s.refused = String(e.message).slice(0, 80); }
+      try { ctx.save.set('late', ctx.stepIndex); } catch (e) { s.refused = String(e.message).slice(0, 400); }
     });
   },
 };
@@ -188,12 +188,14 @@ describe('a script error stops only that script (page and worker)', () => {
       expect(a.state).toBe('running');
       // Both async hooks are listed once, as async; nothing they did after their await happened.
       expect(a.errors.map((e: Any) => `${e.moduleId} ${e.reason}`).sort()).toEqual(['thirdlight.behavior:async behavior_step_async', 'thirdlight.behavior:rejecter behavior_step_async']);
-      for (const e of a.errors) expect(e.message).toContain('must not be async');
+      // The line says how to fix it.
+      for (const e of a.errors) expect(e.message).toContain('must not be async, and ctx works only during the call. To fix it, keep work for later in `state` and act on it in a later step.');
       expect(typeof a.storage['async-before']).toBe('number');
       expect(a.storage['async-after']).toBeUndefined();
       // The promise left behind by a synchronous step was refused; that script runs on.
       expect(a.storage['late']).toBeUndefined();
       expect(String(a.storage['refused'])).toContain('ctx.save.set was called after its hook returned');
+      expect(String(a.storage['refused'])).toContain('keep work for later in `state` and act on it in a later step');
       expect(a.storage['last:late-1']).toBeGreaterThan(50);
       // The page and the worker play the same game.
       expect(w.state).toBe('running');

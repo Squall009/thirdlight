@@ -48,7 +48,7 @@ import type { PhysicsStepClient } from './ports';
 import { clipMessage } from './errors';
 import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, FrozenPreparedError, messageOf, withFrames } from './behavior-errors';
 import { createHookRunner, type BehaviorInstance } from './behavior-hooks';
-import { createCtxGuard } from './ctx-guard';
+import { createCtxGuard, CTX_LATER_FIX } from './ctx-guard';
 import { InstanceRandom, randomSeedOf } from './random';
 import { DebugCallError } from './debug-commands';
 import { LiveTagIndex } from './scene-set';
@@ -854,7 +854,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       // ctx works only during a hook: a call from code that outlived it (after an await, in a timer) is refused.
       let lateLogged = false;
       const ctxGuard = createCtxGuard((path) => {
-        const text = `behavior "${behaviorId}": ${path} was called after its hook returned (after an await, in a promise or a timer): hooks must be synchronous, so the call is refused`;
+        const text = `behavior "${behaviorId}": ${path} was called after its hook returned (after an await, in a promise or a timer): hooks must be synchronous, so the call is refused. ${CTX_LATER_FIX}`;
         if (!lateLogged) cfg.behaviorLog?.('warn', text);
         lateLogged = true;
         return new BehaviorHostError('module_error', 'behavior_ctx_late', text);

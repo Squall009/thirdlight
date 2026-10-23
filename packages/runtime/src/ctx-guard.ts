@@ -66,6 +66,9 @@ export interface CtxGuard {
   live<T>(get: () => T, path: string): () => T;
 }
 
+/** How a script fixes work it meant to do after its hook (said in the Problems line of an async hook or a late ctx call). */
+export const CTX_LATER_FIX = 'To fix it, keep work for later in `state` and act on it in a later step.';
+
 /**
  * The facades of one script module. `late(path)` makes the error a refused
  * call throws (the module logs it once); `path` names the call (`ctx.audio.play`).
