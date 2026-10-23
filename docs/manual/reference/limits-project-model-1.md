@@ -14,13 +14,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-blend-ground-speed"></a>`MAX_BLEND_GROUND_SPEED` | `1000` | A blend clip's ground speed bound (m/s): well past any running or driving clip. |
 | <a id="limit-max-layer-mask"></a>`MAX_LAYER_MASK` | `128` | Bone names in one layer mask (the import cap on joints per skin). |
 
-<a id="limits-project-model--arch-plan-kinds"></a>
-## `arch-plan-kinds.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-floor-plan-count-max"></a>`FLOOR_PLAN_COUNT_MAX` | `64` | The most rooms of one type on a storey and the most copies of one prop in a room (a request cannot ask for unbounded work). |
-
 <a id="limits-project-model--architecture"></a>
 ## `architecture.ts`
 

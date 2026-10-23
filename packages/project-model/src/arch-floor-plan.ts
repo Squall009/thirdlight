@@ -325,16 +325,25 @@ function splitStorey(zones: readonly PlanRect[], wants: readonly Want[], input: 
   return best!;
 }
 
-/** The rooms one storey holds (the stair room aside), each with its share as given. */
-function wantsOn(P: RoomProgramDef, storey: number, storeys: number): Want[] {
+/**
+ * The rooms one storey holds (the stair room aside), each with its share as
+ * given. A room is at least one grid cell, so no storey holds more rooms than
+ * its floor has cells: the rooms past that are counted (by type) instead of
+ * split, so a large count costs the work of the rooms that can fit.
+ */
+function wantsOn(P: RoomProgramDef, storey: number, storeys: number, floorArea: number): { wants: Want[]; over: Map<string, number> } {
   const out: Want[] = [];
+  const over = new Map<string, number>();
+  const cells = Math.max(1, Math.floor(floorArea / (P.grid * P.grid) + EPS));
   for (const t of P.rooms) {
     if (t.stairs && storeys > 1) continue;
     const on = t.storeys === 'every' || (t.storeys === 'ground' ? storey === 0 : storey > 0 || storeys === 1);
     if (!on) continue;
-    for (let k = 0; k < t.count; k++) out.push({ type: t, target: t.area });
+    const fit = Math.max(0, Math.min(t.count, cells - out.length));
+    for (let k = 0; k < fit; k++) out.push({ type: t, target: t.area });
+    if (t.count > fit) over.set(t.type, (over.get(t.type) ?? 0) + t.count - fit);
   }
-  return out;
+  return { wants: out, over };
 }
 
 /** Shares scaled to fill a floor area. */
@@ -373,10 +382,14 @@ export function splitFloorPlan(input: FloorPlanInput): FloorPlan {
   const rest = stairRect !== null ? (footprintZones(input.footprint, [stairRect]) ?? zones) : zones;
   for (let s = 0; s < storeys; s++) {
     const fixed = stairRect !== null ? { rect: stairRect, want: { type: stairType!, target: area(stairRect) } } : null;
-    const wants = scaled(wantsOn(P, s, storeys), floorArea - (stairRect !== null ? area(stairRect) : 0));
+    const storeyArea = floorArea - (stairRect !== null ? area(stairRect) : 0);
+    const asked = wantsOn(P, s, storeys, storeyArea);
+    const wants = scaled(asked.wants, storeyArea);
     if (wants.length === 0 && fixed === null) continue;
     const got = splitStorey(rest, wants, input, s, fixed);
-    for (const u of got.unplaced) problems.push(`building ${input.id}: a ${u.type.type} does not fit storey ${s}`);
+    const unfit = new Map(asked.over);
+    for (const u of got.unplaced) unfit.set(u.type.type, (unfit.get(u.type.type) ?? 0) + 1);
+    for (const [type, k] of unfit) problems.push(k === 1 ? `building ${input.id}: a ${type} does not fit storey ${s}` : `building ${input.id}: ${k} rooms of type ${type} do not fit storey ${s}`);
     const here: FloorPlanRoom[] = [];
     for (const p of got.placed) {
       if (fixed !== null && p === fixed) {

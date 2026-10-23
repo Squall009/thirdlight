@@ -422,6 +422,7 @@ function placeProps(room: FurnishRoom, set: FurnishingSetDef, seed: number, pins
       const rng = seededRandom(hashString(`${id}`, seed >>> 0));
       const order = places.map((c, i) => ({ c, k: p.place === 'centre' ? i + rng() * 0.5 : rng() }));
       order.sort((u, v) => u.k - v.k);
+      let stood = false;
       for (const { c } of order) {
         const body = boxOf(c.x, c.z, p.width, p.depth, c.facing);
         const spaced = boxOf(c.x, c.z, p.width, p.depth, c.facing, p.spacing);
@@ -437,8 +438,11 @@ function placeProps(room: FurnishRoom, set: FurnishingSetDef, seed: number, pins
         stand(body, boxOf(c.x, c.z, p.width, p.depth, c.facing, reachR));
         const model = p.piece !== '' ? { assetId: p.model, piece: p.piece } : { assetId: p.model };
         out.push({ id, room: room.id, model, position: [r6(c.x), y, r6(c.z)], facing: r3(c.facing), size: [p.width, p.depth], pinned: false });
+        stood = true;
         break;
       }
+      // The room only fills up: a copy that found no place leaves none for the next, so a large count costs no more.
+      if (!stood) break;
     }
   }
   return out;

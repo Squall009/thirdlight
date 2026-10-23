@@ -65,7 +65,7 @@ Fields:
 |---|---|---|---|---|
 | `type` | Type | string | `"room"` | ≤ 64 chars; matches `[a-z0-9][a-z0-9_-]{0,63}` |
 | `area` | Share | number | `1` | 0.01 – 1000 |
-| `count` | Count | number | `1` | 0 – 64 |
+| `count` | Count | number | `1` | 0 – |
 | `storeys` | Storeys | enum | `"ground"` | `ground`, `upper`, `every` |
 | `stairs` | Holds the stairs | boolean | `false` |  |
 | `preset` | Inside preset | string | `""` | ≤ 64 chars; matches `\|[a-z0-9][a-z0-9_-]{0,63}` |

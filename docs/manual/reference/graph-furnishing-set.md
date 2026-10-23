@@ -57,7 +57,7 @@ Fields:
 | `width` | Width | number | `1` | 0.05 – 1000 |
 | `depth` | Depth | number | `0.6` | 0.05 – 1000 |
 | `height` | Height | number | `1` | 0.01 – 1000 |
-| `count` | Count | number | `1` | 0 – 64 |
+| `count` | Count | number | `1` | 0 – |
 | `spacing` | Space round it | number | `0.2` | 0 – 10 |
 
 <a id="node-furnishing-set--light"></a>

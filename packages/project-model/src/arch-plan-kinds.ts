@@ -30,8 +30,6 @@ export const FURNISHING_SET_KIND = 'furnishing-set';
 
 /** Engine limits of one program or set graph (not tuning values): a house program has a dozen nodes. */
 export const FLOOR_PLAN_GRAPH_NODES = 256;
-/** The most rooms of one type on a storey and the most copies of one prop in a room (a request cannot ask for unbounded work). */
-export const FLOOR_PLAN_COUNT_MAX = 64;
 
 /** Which storeys a room type is on. */
 export const ROOM_STOREYS = ['ground', 'upper', 'every'] as const;
@@ -43,7 +41,9 @@ export type PropPlace = (typeof PROP_PLACES)[number];
 const L = ARCHITECTURE_LIMITS;
 const ID_PATTERN = '[a-z0-9][a-z0-9_-]{0,63}';
 const ID_OR_EMPTY = `|${ID_PATTERN}`;
-const num = (key: string, label: string, def: number, min: number, max: number): GraphFieldDef => ({ key, label, type: 'number', default: def, min, max });
+const num = (key: string, label: string, def: number, min: number, max?: number): GraphFieldDef => ({ key, label, type: 'number', default: def, min, ...(max !== undefined ? { max } : {}) });
+/** A count: as many as asked; the splitter and the placer stop where the floor or the room is full. */
+const count = (key: string, label: string): GraphFieldDef => ({ key, label, type: 'number', default: 1, min: 0 });
 const id = (key: string, label: string, def: string): GraphFieldDef => ({ key, label, type: 'string', default: def, maxLength: 64, pattern: ID_OR_EMPTY });
 
 export const ROOM_PROGRAM_GRAPH_KIND: GraphKindDef = {
@@ -81,7 +81,7 @@ export const ROOM_PROGRAM_GRAPH_KIND: GraphKindDef = {
       fields: [
         { key: 'type', label: 'Type', type: 'string', default: 'room', maxLength: 64, pattern: ID_PATTERN },
         num('area', 'Share', 1, 0.01, 1000),
-        num('count', 'Count', 1, 0, FLOOR_PLAN_COUNT_MAX),
+        count('count', 'Count'),
         { key: 'storeys', label: 'Storeys', type: 'enum', options: ROOM_STOREYS, default: 'ground' },
         { key: 'stairs', label: 'Holds the stairs', type: 'boolean', default: false },
         id('preset', 'Inside preset', ''),
@@ -126,7 +126,7 @@ export const FURNISHING_SET_GRAPH_KIND: GraphKindDef = {
         num('width', 'Width', 1, 0.05, L.distanceMax),
         num('depth', 'Depth', 0.6, 0.05, L.distanceMax),
         num('height', 'Height', 1, 0.01, L.distanceMax),
-        num('count', 'Count', 1, 0, FLOOR_PLAN_COUNT_MAX),
+        count('count', 'Count'),
         num('spacing', 'Space round it', 0.2, 0, 10),
       ],
       titleField: 'room',

@@ -1567,7 +1567,6 @@ export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STO
 export { samplePath as sampleArchitecturePath, type PathSamples as ArchitecturePathSamples } from './arch-path';
 // Floor plans and furnishing: room programs and furnishing sets (games' graphs), the splitter and the placer.
 export {
-  FLOOR_PLAN_COUNT_MAX,
   FLOOR_PLAN_GRAPH_NODES,
   FURNISHING_SET_GRAPH_KIND,
   FURNISHING_SET_KIND,

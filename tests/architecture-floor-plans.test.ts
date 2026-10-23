@@ -32,7 +32,7 @@ import { validateArchitectureComponent, type ArchitectureBuilding, type Architec
 import type { ModelErrorV2 } from '../packages/project-model/src/errors';
 import { defaultTrimSheet } from '../packages/project-model/src/trim-sheet';
 
-import { at, building, graphs, L_SHAPE, programGraph, RECT } from './arch-plan-fixtures';
+import { at, building, furnishingGraph, graphs, L_SHAPE, programGraph, RECT } from './arch-plan-fixtures';
 
 const SHEETS = { '*': defaultTrimSheet() };
 
@@ -208,6 +208,34 @@ describe('a building split into rooms and furnished', () => {
     const locked = expandArchitecture(lockedC, [0, 0, 0], table);
     const generated = expandArchitecture(comp(b), [0, 0, 0], table);
     expect(locked.rooms.map((r) => [r.id, r.type, r.points])).toEqual(generated.rooms.map((r) => [r.id, r.type, r.points]));
+  });
+
+  it('takes any count of rooms and props: the rooms past what the floor holds are reported by type, a room fills up and the rest stop', () => {
+    const many = 1_000_000;
+    const program = programGraph();
+    program.nodes = program.nodes.map((n) => (n.id === 'c' ? { ...n, data: { ...n.data, count: many } } : n));
+    const furnishing = furnishingGraph();
+    furnishing.nodes = furnishing.nodes.map((n) => (n.id === 'crate' ? { ...n, data: { ...n.data, count: many } } : n));
+    const styles = (p: typeof program): ReturnType<typeof architectureStylesOf> =>
+      architectureStylesOf([
+        { graphId: 'test-program', kind: ROOM_PROGRAM_KIND, graph: p },
+        { graphId: 'test-furnishing', kind: FURNISHING_SET_KIND, graph: furnishing },
+      ]);
+    const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing' });
+    const t0 = performance.now();
+    const x = expandArchitecture(comp(b), [0, 0, 0], styles(program));
+    // A 12 × 8 m storey on a 1 m grid holds 96 rooms at most: a million asked costs that, not a million.
+    expect(performance.now() - t0).toBeLessThan(10_000);
+    const over = x.problems.filter((p) => p.includes('rooms of type small do not fit storey 0'));
+    expect(over).toHaveLength(1);
+    expect(Number(/: (\d+) rooms of type small/.exec(over[0]!)?.[1])).toBeGreaterThan(many - 96);
+    // The program's own four rooms: each takes crates until it is full, more than the one a room took before.
+    const t1 = performance.now();
+    const y = expandArchitecture(comp(b), [0, 0, 0], styles(programGraph()));
+    expect(performance.now() - t1).toBeLessThan(10_000);
+    const crates = (y.props ?? []).filter((p) => p.model.assetId === 'kit-crate');
+    expect(crates.length).toBeGreaterThan(y.rooms.length);
+    expect(crates.length).toBeLessThan(many);
   });
 
   it('makes the furnishing lights into the scene as light objects within its budget of point and spot lights', () => {
