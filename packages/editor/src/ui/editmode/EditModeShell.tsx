@@ -13,7 +13,7 @@
  * too, not pickable) — a scene's mode draws the whole scene with only its
  * objects pickable — and the keys of the one key map (`edit-keys.ts`) work:
  * Esc leaves a field typed in, then (after a stroke in flight is cancelled)
- * clears the mode's selection, drops the tool, and only then leaves; Space
+ * drops the tool, clears the mode's selection, and only then leaves; Space
  * arms the last tool, C toggles Context, Home frames the object,
  * Shift+number picks a mode; other keys go to the mode's Scene-view tools.
  *
@@ -201,7 +201,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
       }
       e.preventDefault();
       if (action.kind === 'escape') {
-        const step = escapeStep({ selection: t.hasSelection(), armed: t.isArmed() });
+        const step = escapeStep({ selection: t.hasSelection(), armed: t.isArmed() && t.hasTools() });
         if (step === 'deselect') t.clearSelection();
         else if (step === 'drop') t.api.drop();
         else mode.leave();
@@ -229,7 +229,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const objectView = scene ? null : { entity: entity!, mode: rail.id, host: p.host };
   const navigate = tool.tools && !tool.api.armed;
   const selected = tool.selected[0] ?? null;
-  const escLeaves = escapeStep({ selection: selected !== null, armed: tool.api.armed }) === 'leave';
+  const escLeaves = escapeStep({ selection: selected !== null, armed: tool.api.armed && tool.tools }) === 'leave';
   const shared = sharedKeyHints({ modes: kind.rail.length, tools: tool.tools, armed: tool.api.armed, selection: selected !== null, lastTool: tool.lastTool }).filter((h) => !scene || (h.label !== 'Context' && h.label !== 'Frame'));
   const ownKeys = [...(status?.keys ?? []), ...(rail.keys ?? [])];
   const hintText = navigate ? (selected !== null ? `${selected} selected. A drag orbits; a click selects another.` : (rail.navigate ?? NAVIGATE_HINT)) : (status?.text ?? rail.hint);

@@ -5,12 +5,12 @@
  * first room), snapped to cell corners on the slice's floor.
  *
  * - Rectangle: press a corner, drag to the other, release.
- * - With a drawing tool (rectangle, polygon, path, building) and nothing
- *   drawn yet, a click without a drag on a room, building or path selects
- *   it (it is outlined under the pointer first); a drag from there still
- *   draws, so a room inside a building is drawn by dragging.
+ * - Every click of a tool is the tool's: no tool selects on a click (a
+ *   room inside a building is drawn over it like anywhere else).
  * - Navigate (no tool): the outline under the pointer is lit and a click
- *   selects it. The selected one is outlined in the selection colour.
+ *   selects it; a double-click goes into a building (the room or path drawn
+ *   inside it under the pointer). The selected one is outlined in the
+ *   selection colour.
  * - Polygon / path / building: click corners (each click a corner; the Arc
  *   bulge makes the next segment an arc); click the first corner,
  *   double-click or press Enter to finish (a polygon or a building's
@@ -22,7 +22,7 @@
  * - Walls: drag a straight side across itself by whole cells (a wall the
  *   room beside it shares moves with it); the Scene view draws the moved
  *   room while dragging (only its chunks are made again), the release
- *   stores it. A click without a drag picks the room for the column.
+ *   stores it (the room whose wall moved is picked for the column).
  * - Wall piece / corner piece: the wall segment or corner under the pointer
  *   is lit; a click puts the picked kit piece there (an override of the
  *   generated wall), Ctrl+click takes the piece there off.
@@ -74,12 +74,6 @@ const GHOST = 0x9ad7ff;
 const PICK = 0xffc857;
 /** How near (cells) the pointer must be to a wall to put an opening on it or drag it, or to a path to pick it. */
 const WALL_REACH_CELLS = 0.6;
-/**
- * The tools whose click on an existing outline selects it (a drag draws). Only Rect: it draws by dragging, so a click
- * is free to select. Polygon, Path and Building place a corner with each click, the first one too, wherever it is.
- */
-const SELECTING_MODES: readonly string[] = ['rect'];
-
 /** Outline lines drawn over everything (an outline picked or under the pointer shows through the walls). */
 function frameLines(material: THREE.LineBasicMaterial): THREE.LineSegments {
   const l = new THREE.LineSegments(new THREE.BufferGeometry(), material);
@@ -100,8 +94,6 @@ export class RoomTool {
   private hover: Point3 | null = null;
   /** A press the tool took and whose release has not come yet. */
   private pressed = false;
-  /** A drawing tool's press on an existing outline: a release here selects it, a drag draws from its corner. */
-  private pending: { x: number; y: number; corner: Point3; id: string } | null = null;
   /** The outline picked (the column's) and the one under the pointer (null: none). */
   private selectedId: string | null = null;
   private hoverId: string | null = null;
@@ -168,21 +160,21 @@ export class RoomTool {
     return { min: box.min.toArray(), max: box.max.toArray() };
   }
 
-  /** The outline under a client point (null: none). */
-  outlineAt(clientX: number, clientY: number): string | null {
+  /** The outline under a client point (null: none); `goIn`: inside the building there (a double-click). */
+  outlineAt(clientX: number, clientY: number, goIn = false): string | null {
     const l = this.host.layer();
     if (l === null || this.target.component === null) return null;
     const r = this.host.ray(clientX, clientY);
     const o = this.target.origin;
     const cs = l.component.cellSize;
-    const hit = outlineUnderRay(this.target.component, [r.origin.x - (o[0] ?? 0), r.origin.y - (o[1] ?? 0), r.origin.z - (o[2] ?? 0)], [r.direction.x, r.direction.y, r.direction.z], this.target.rises, cs[1]!, WALL_REACH_CELLS * cs[0]!, this.selectedId);
+    const hit = outlineUnderRay(this.target.component, [r.origin.x - (o[0] ?? 0), r.origin.y - (o[1] ?? 0), r.origin.z - (o[2] ?? 0)], [r.direction.x, r.direction.y, r.direction.z], this.target.rises, cs[1]!, WALL_REACH_CELLS * cs[0]!, goIn);
     return hit?.id ?? null;
   }
 
   /** Outline what is under the pointer as what a click would select, with its name by the pointer (null: the pointer left). */
   hoverAt(at: { x: number; y: number } | null): void {
     const id = at === null ? null : this.outlineAt(at.x, at.y);
-    if (at !== null && id !== null) this.tip.show(at, `${this.kindOf(id)} ${id}`, id === this.selectedId ? 'selected · Esc deselects' : 'click to select');
+    if (at !== null && id !== null) this.tip.show(at, `${this.kindOf(id)} ${id}`, id === this.selectedId ? 'selected · Esc deselects' : isBuilding(this.target.component, id) ? 'click to select · double-click goes in' : 'click to select');
     else this.tip.hide();
     if (id === this.hoverId) return;
     this.hoverId = id;
@@ -191,9 +183,9 @@ export class RoomTool {
     this.host.requestRender();
   }
 
-  /** A click that selects: the outline under the pointer, or none. */
-  pickAt(clientX: number, clientY: number): void {
-    this.cb.onPickRoom(this.outlineAt(clientX, clientY));
+  /** A click that selects: the outline under the pointer, or none; `goIn` (a double-click): the one inside the building there. */
+  pickAt(clientX: number, clientY: number, goIn = false): void {
+    this.cb.onPickRoom(this.outlineAt(clientX, clientY, goIn));
   }
 
   /** "Building", "Room" or "Path" for an outline id. */
@@ -251,16 +243,7 @@ export class RoomTool {
     const at = this.under(e.clientX, e.clientY);
     if (l === null || at === null) return true;
     const cs = l.component.cellSize;
-    const m = this.opts.mode;
-    // Rect, nothing drawn yet and the press is on an existing outline: a click selects it, a drag draws.
-    if (SELECTING_MODES.includes(m) && !this.inFlight()) {
-      const id = this.outlineAt(e.clientX, e.clientY);
-      if (id !== null) {
-        this.pending = { x: e.clientX, y: e.clientY, corner: at.corner, id };
-        return true;
-      }
-    }
-    return this.press(m, at, e, l.entityId, cs);
+    return this.press(this.opts.mode, at, e, l.entityId, cs);
   }
 
   /** A press that draws, opens, drags a wall or puts a piece. */
@@ -294,10 +277,7 @@ export class RoomTool {
     }
     const near = nearestSide(this.target.component, at.x, at.z, WALL_REACH_CELLS * cs[0]!, m !== 'walls');
     if (m === 'walls') {
-      if (near === null) {
-        this.cb.onPickRoom(null);
-        return true;
-      }
+      if (near === null) return true;
       this.drag = { side: near.side, from: [at.x, at.z], press: [e.clientX, e.clientY], offset: 0, steps: 0, t0: performance.now() };
       return true;
     }
@@ -322,17 +302,8 @@ export class RoomTool {
   pointerMove(e: PointerEvent): boolean {
     const at = this.under(e.clientX, e.clientY);
     this.hover = at?.corner ?? null;
-    const p = this.pending;
-    if (p !== null) {
-      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) <= this.host.slopPx) return true;
-      // A drag from an existing outline draws after all, from the corner it was pressed at.
-      this.pending = null;
-      const l = this.host.layer();
-      if (l !== null) this.press(this.opts.mode, { x: 0, z: 0, corner: p.corner }, { clientX: p.x, clientY: p.y, ctrlKey: false, metaKey: false }, l.entityId, l.component.cellSize);
-    }
-    // Before anything is drawn, Rect outlines what a click would select.
-    if (SELECTING_MODES.includes(this.opts.mode) && !this.inFlight() && e.buttons === 0) this.hoverAt({ x: e.clientX, y: e.clientY });
-    else this.hoverAt(null);
+    // A tool's click never selects, so nothing is outlined as what it would select.
+    this.hoverAt(null);
     const d = this.drag;
     if (d !== null && at !== null) {
       const l = this.host.layer()!;
@@ -355,12 +326,6 @@ export class RoomTool {
     // Every press the tool took ends here, a click as much as a drag: the view's orbit comes back on its release.
     const pressed = this.pressed;
     this.pressed = false;
-    const p = this.pending;
-    if (p !== null) {
-      this.pending = null;
-      this.cb.onPickRoom(p.id);
-      return true;
-    }
     const l = this.host.layer();
     if (this.rectStart !== null) {
       const a = this.rectStart;
@@ -380,7 +345,6 @@ export class RoomTool {
       const moved = Math.hypot(e.clientX - d.press[0], e.clientY - d.press[1]) > this.host.slopPx;
       if (!moved || d.offset === 0 || l === null || this.target.component === null) {
         if (this.target.entityId !== null && d.steps > 0) this.cb.onPreview(this.target.entityId, null);
-        this.cb.onPickRoom(d.side.outline.id);
         return true;
       }
       const next = moveWall(this.target.component, d.side.outline.id, d.side.index, d.offset);
@@ -413,8 +377,7 @@ export class RoomTool {
 
   /** Drop the drawing or drag in flight (true: there was one). */
   cancel(): boolean {
-    const had = this.corners.length > 0 || this.rectStart !== null || this.drag !== null || this.pending !== null;
-    this.pending = null;
+    const had = this.corners.length > 0 || this.rectStart !== null || this.drag !== null;
     if (this.drag !== null && this.drag.steps > 0 && this.target.entityId !== null) this.cb.onPreview(this.target.entityId, null);
     this.corners = [];
     this.bulges = [];
@@ -425,7 +388,7 @@ export class RoomTool {
   }
 
   inFlight(): boolean {
-    return this.corners.length > 0 || this.rectStart !== null || this.drag !== null || this.pending !== null;
+    return this.corners.length > 0 || this.rectStart !== null || this.drag !== null;
   }
 
   private async finishOutline(): Promise<void> {

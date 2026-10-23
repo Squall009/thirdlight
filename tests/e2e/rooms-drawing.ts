@@ -10,8 +10,9 @@
  * in the wall the rooms share, lined up so the camera looks through both
  * into the back room; a fence path (posts and a rail, blue) drawn with the
  * Path mode in front of them, below the sight lines. Selecting: with Rect armed a click (no drag) on a room
- * selects it and draws nothing, Esc lets it go, a second Esc drops the tool; with no tool (Navigate) the room
- * under the pointer is outlined and named, a click selects it, and Space arms Rect again. Panels: the
+ * is the tool's (it selects nothing and draws nothing), Esc drops the tool and a second Esc lets the drawn room
+ * go; with no tool (Navigate) the room under the pointer is outlined and named, a click selects it, and Space
+ * arms Rect again. Panels: the
  * Rooms list collapses and opens by its title bar (a click, Enter) and is dragged to the top left (kept there
  * for the building's editor, which resets the layout); a press, drag or wheel on a panel never reaches the tool
  * or the view. The picked room's panel edits the door; Move
@@ -231,21 +232,22 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   await expect(view(page)).toHaveAttribute('data-room-hover', corner(192, -38).join(','));
   await page.mouse.up();
   await expect.poll(async () => (await roomsObject())?.architecture.outlines?.map((o) => `${o.id}:${o.preset}`), { timeout: 15_000 }).toEqual(['room-1:e2e-room-a', 'room-2:e2e-room-b']);
-  // Selecting rooms in the view. With Rect armed, a click (no drag) on room A (its top, nearest the camera) selects it
-  // and draws nothing; Esc lets it go, a second Esc drops the tool.
+  // Selecting rooms in the view. With Rect armed, a click (no drag) on room A (its top, nearest the camera) is the
+  // tool's: nothing outlined to select, the drawn room B stays picked, nothing drawn. Esc drops the tool (the pick
+  // kept), a second Esc lets the room go.
   const roomTop = async (z: number): Promise<{ x: number; y: number }> => (await screen(page, [187, 3, z]))!;
   const onA = await roomTop(-36);
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-2');
   await page.mouse.move(onA.x, onA.y);
-  await expect(view(page)).toHaveAttribute('data-room-hover-outline', 'room-1');
+  await expect.poll(async () => (await view(page).getAttribute('data-room-hover-outline')) ?? '').toBe('');
   await page.mouse.click(onA.x, onA.y);
-  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-1');
-  await expect(rooms.getByLabel('room room-1 inspector')).toBeVisible();
-  expect((await roomsObject())?.architecture.outlines?.length, 'a click on a room draws nothing').toBe(2);
-  await page.keyboard.press('Escape');
-  await expect(view(page)).toHaveAttribute('data-room-selected', '');
-  await expect(view(page)).toHaveAttribute('data-block-tool', 'room');
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-2');
+  expect((await roomsObject())?.architecture.outlines?.length, 'a Rect click on a room draws nothing').toBe(2);
   await page.keyboard.press('Escape');
   await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+  await expect(view(page)).toHaveAttribute('data-room-selected', 'room-2');
+  await page.keyboard.press('Escape');
+  await expect(view(page)).toHaveAttribute('data-room-selected', '');
   await expect(blocks).toBeVisible();
   // No tool: the room under the pointer is outlined and named; a click selects it; Space arms Rect again.
   const onB = await roomTop(-40);

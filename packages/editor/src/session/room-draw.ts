@@ -577,14 +577,14 @@ export function storeyRiseOf(o: ArchitectureOutline, rises: OutlineRises | undef
  * need not be unit length), and the ray's parameter there. A room or
  * building is its footprint stood up to its storeys (`rises`: each one's
  * storey height); a path, its line stood up `runHeight` metres and, seen from
- * above, a ribbon `reach` metres either side of it. The nearest wins — but a
- * click on the `selected` room or building goes in: it picks what is drawn
- * inside its footprint under the pointer (a room or path in a building),
- * each stood up to the outer one's top, since the building's walls and roof
- * hide it. So a first click selects a building, a second one the room in it
- * under the pointer, and a click there again the building.
+ * above, a ribbon `reach` metres either side of it. The nearest wins — but
+ * `goIn` (a double-click) goes into the nearest room or building: it picks
+ * what is drawn inside its footprint under the pointer (a room or path in a
+ * building), each stood up to the outer one's top, since the building's
+ * walls and roof hide it. So a click selects a building, a double-click the
+ * room in it under the pointer, and a click there again the building.
  */
-export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonly number[], dir: readonly number[], rises: OutlineRises | undefined, runHeight: number, reach: number, selected: string | null = null): { id: string; t: number } | null {
+export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonly number[], dir: readonly number[], rises: OutlineRises | undefined, runHeight: number, reach: number, goIn = false): { id: string; t: number } | null {
   const [ox, oy, oz] = [origin[0]!, origin[1]!, origin[2]!];
   const [dx, dy, dz] = [dir[0]!, dir[1]!, dir[2]!];
   /** Where the ray crosses the level y (null: never, or behind). */
@@ -646,7 +646,7 @@ export function outlineUnderRay(c: ArchitectureComponent | null, origin: readonl
     if (t !== null && (best === null || t < best.t)) best = { o, t };
   }
   const outer = best?.o;
-  if (outer !== undefined && outer.id === selected && outer.path.closed === true && outer.path.points.length >= 3) {
+  if (goIn && outer !== undefined && outer.path.closed === true && outer.path.points.length >= 3) {
     const top = topOf(outer);
     let inner: { o: ArchitectureOutline; t: number } | null = null;
     for (const o of all) {

@@ -666,11 +666,20 @@ export class BlockEditor {
     return true;
   }
 
-  /** Navigate: a release near its press selects what is under the pointer (true: it was such a click). */
-  click(e: PointerEvent): boolean {
+  /**
+   * Navigate: a release near its press selects what is under the pointer (true: it was such a click); `goIn`, a
+   * double-click in Rooms & buildings, selects the room or path inside the building there.
+   */
+  click(e: MouseEvent, goIn = false): boolean {
     const press = this.navPress;
     this.navPress = null;
-    if (!this.active || !this.navigate || e.button !== 0 || press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.host.slopPx) return false;
+    if (!this.active || !this.navigate || e.button !== 0) return false;
+    if (goIn) {
+      if (this.opts.tool !== 'room') return false;
+      this.rooms.pickAt(e.clientX, e.clientY, true);
+      return true;
+    }
+    if (press === null || Math.hypot(e.clientX - press.x, e.clientY - press.y) > this.host.slopPx) return false;
     if (this.opts.tool === 'room') {
       this.rooms.pickAt(e.clientX, e.clientY);
       return true;

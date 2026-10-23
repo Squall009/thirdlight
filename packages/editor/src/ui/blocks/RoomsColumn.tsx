@@ -16,9 +16,8 @@
  * - **Rooms** (top right, collapsed): the list, and Presets in use — every
  *   room wearing one preset swapped to another, the outlines kept
  *   (`PresetSwap`). The view is where rooms are mostly picked: with no tool
- *   a click selects one, and with Rect a click on it (no drag) does (the
- *   click-placed tools place a corner); it is outlined there, and Esc lets
- *   it go.
+ *   a click selects one and a double-click goes into a building (a tool's
+ *   click is always the tool's); it is outlined there, and Esc lets it go.
  * - **The picked room, building or path** (right edge, while one is picked):
  *   its properties (`RoomInspector`).
  * - **Layer** (bottom left, collapsed): the layer's lock.

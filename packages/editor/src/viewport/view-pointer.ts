@@ -69,8 +69,9 @@ export class ViewPointer {
 
   private onContextMenu = (e: Event): void => e.preventDefault();
 
-  /** A double-click on an object opens its edit mode (never while a tool owns the clicks or a mode is open). */
+  /** A double-click a tool takes (going into a building); else one on an object opens its edit mode (never while a tool owns the clicks or a mode is open). */
   private onDoubleClick = (e: MouseEvent): void => {
+    if (this.host.tools.router.doubleClick(e)) return;
     if (e.button !== 0 || this.host.isolation.active || this.host.tools.router.anyArmed(this.host.selectedId())) return;
     const id = this.host.queries.pick(e.clientX, e.clientY);
     if (id !== null) this.host.doublePicked(id);

@@ -31,20 +31,21 @@ each tool grid.
 
 - A **drag** orbits the view; Shift + drag or a right drag pans; the wheel
   zooms.
-- A **click** selects what the editor edits: a room, building or path, a
-  block, a decal, a terrain stamp or tile. What a click would select is
-  outlined under the pointer; the selection's settings open in a panel.
+- With no tool (**Navigate**), a **click** selects what the editor edits: a
+  room, building or path, a block, a decal, a terrain stamp or tile. What a
+  click would select is outlined under the pointer; the selection's settings
+  open in a panel. With a tool armed, every click is the tool's (the first
+  Esc drops the tool, back to Navigate).
 - Pick a tool by its tile or its letter. A click on the lit tile drops it
   (back to Navigate). **Space** arms the last tool again; its tile has a
   small *last* mark.
-- With **Rect** armed, a click without a drag on a room or building
-  selects it; a drag still draws, so a room can be drawn inside a building.
-  Polygon, Path and Building place a corner with every click, the first one
-  too, even over a building.
-- A click on a building selects the building; with it selected, a click
-  goes in and selects the room or path drawn inside it under the pointer
-  (through its walls or roof), and a click there again selects the
-  building.
+- No tool selects on a click, Rect included: Rect draws, also over a
+  building (a room inside it); Polygon, Path and Building place a corner
+  with every click, the first one too.
+- In Navigate a click on a building selects the building; a
+  **double-click** goes in and selects the room or path drawn inside it
+  under the pointer (through its walls or roof), and a click there again
+  selects the building.
 - With a tool armed, Alt + drag orbits.
 
 ## Esc
@@ -54,8 +55,8 @@ Each press does the first of these that applies:
 1. a field you type in: Esc leaves the field;
 2. a panel being dragged: the move is cancelled;
 3. a stroke or a drawing in progress (a polygon's corners, a drag): cancelled;
-4. a selection: cleared;
-5. a tool armed: dropped (Navigate);
+4. a tool armed: dropped (Navigate, the selection kept);
+5. a selection: cleared;
 6. otherwise: the editor is left, as **Done**.
 
 The status line says what the next Esc does (`Esc Deselect`, `Esc Drop the
@@ -144,7 +145,7 @@ atlas** panel says "Preview in … ms · composing the pages…" meanwhile, and
 | `Home` | Frame the selection, else the edited object |
 | `C` | Context |
 | Ctrl + `Z` | Undo |
-| `Esc` | The first that applies: leave a field; cancel a panel drag; cancel the stroke or drawing; clear the selection; drop the tool; then **Done** |
+| `Esc` | The first that applies: leave a field; cancel a panel drag; cancel the stroke or drawing; drop the tool; clear the selection; then **Done** |
 
 The brushes share their settings (size, strength, opacity, falloff,
 spacing, the noise mask), their cursor and their sliders: see

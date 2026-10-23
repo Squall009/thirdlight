@@ -246,6 +246,44 @@ export async function drawBuilding(page: Page, cmd: Cmd, query: Query, trimId: s
     for (const [x, y, z] of [[219, 0, -44], [229, 0, -44], [219, 0, -34], [229, 0, -34], [219, 6, -44], [229, 6, -44], [219, 6, -34], [229, 6, -34]] as const) xs.push((await screen(page, [x, y, z]))?.x ?? Number.NaN);
     return xs.every((x) => x > viewBox.x && x < column.x);
   }, { message: 'Home on the building: beside the panels, not under them' }).toBe(true);
+  // Every tool click is the tool's: Rect draws a room inside the building by dragging over it, and a click on the
+  // building with Rect selects nothing (the new room stays picked). Only Navigate selects: a click picks the
+  // building, a double-click goes in to the room under the pointer, a click again comes back out to the building.
+  const innerRooms = async (): Promise<number> => {
+    const ents = ((await query('queryEntities', { limit: 500, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
+    return ((ents.find((x) => x.id === roomsId)?.components['architecture'] as { outlines?: unknown[] } | undefined)?.outlines ?? []).length;
+  };
+  const view = page.locator('canvas.tl-viewport');
+  await tool('Rect');
+  const r0 = await aimCorner(page, [221, 0, -42], corner(221, -42));
+  await page.mouse.down();
+  await page.mouse.move(r0.x + 5, r0.y + 5, { steps: 2 });
+  const r1 = (await screen(page, [224, 0, -38]))!;
+  await page.mouse.move(r1.x, r1.y, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(innerRooms, { timeout: 15_000 }).toBe(1);
+  await expect(view).toHaveAttribute('data-room-selected', 'room-1');
+  const overRoom = (await screen(page, [222.5, 6, -40]))!;
+  await page.mouse.move(overRoom.x, overRoom.y);
+  await expect.poll(async () => (await view.getAttribute('data-room-hover-outline')) ?? '').toBe('');
+  await page.mouse.click(overRoom.x, overRoom.y);
+  await expect(view).toHaveAttribute('data-room-selected', 'room-1');
+  expect(await innerRooms(), 'a Rect click draws nothing').toBe(1);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(view).toHaveAttribute('data-block-tool', 'navigate');
+  await page.mouse.move(overRoom.x - 3, overRoom.y);
+  await page.mouse.move(overRoom.x, overRoom.y);
+  await expect(view).toHaveAttribute('data-room-hover-outline', 'building-1');
+  await page.mouse.click(overRoom.x, overRoom.y);
+  await expect(view).toHaveAttribute('data-room-selected', 'building-1');
+  await page.mouse.dblclick(overRoom.x, overRoom.y);
+  await expect(view).toHaveAttribute('data-room-selected', 'room-1');
+  await expect(blocks, 'a double-click in an edit mode opens no other mode').toHaveAttribute('data-edit-mode', 'blocks');
+  await page.mouse.click(overRoom.x, overRoom.y);
+  await expect(view).toHaveAttribute('data-room-selected', 'building-1');
+  await page.keyboard.press('Control+z');
+  await expect.poll(innerRooms, { timeout: 15_000 }).toBe(0);
   await leaveEditMode(page);
   // Vertex paint on the building's object: entering frames what it generates (its chunks, drawn apart from the
   // object's node), not the object's origin at the layer's corner.

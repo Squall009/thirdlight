@@ -35,8 +35,8 @@ describe('editKeyAction', () => {
 });
 
 describe('escapeStep', () => {
-  it('clears the selection first, then drops the tool, then leaves', () => {
-    expect(escapeStep({ selection: true, armed: true })).toBe('deselect');
+  it('drops the tool first, then clears the selection, then leaves', () => {
+    expect(escapeStep({ selection: true, armed: true })).toBe('drop');
     expect(escapeStep({ selection: true, armed: false })).toBe('deselect');
     expect(escapeStep({ selection: false, armed: true })).toBe('drop');
     expect(escapeStep({ selection: false, armed: false })).toBe('leave');
@@ -54,12 +54,13 @@ describe('sharedKeyHints', () => {
     expect(esc(h)).toBe('Leave');
   });
 
-  it('with a tool armed: Alt+drag orbits, Esc drops the tool; with a selection Esc deselects', () => {
+  it('with a tool armed: Alt+drag orbits, Esc drops the tool, a selection or not', () => {
     const h = sharedKeyHints(st({ armed: true }));
     expect(h[0]).toEqual({ keys: ['Alt', 'Drag'], label: 'Orbit' });
     expect(h.some((x) => x.keys[0] === 'Space')).toBe(false);
     expect(esc(h)).toBe('Drop the tool');
-    expect(esc(sharedKeyHints(st({ armed: true, selection: true })))).toBe('Deselect');
+    expect(esc(sharedKeyHints(st({ armed: true, selection: true })))).toBe('Drop the tool');
+    expect(esc(sharedKeyHints(st({ selection: true })))).toBe('Deselect');
   });
 
   it('a mode without tools has no tool to drop or bring back', () => {

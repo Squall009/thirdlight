@@ -281,22 +281,22 @@ describe('picking a room, building or path in the view', () => {
     expect(outlineUnderRay(tall, [-10, 7, 2], [1, 0, 0], undefined, 1, 0.6)).toBeNull();
   });
 
-  it('picks the building first; with it selected, a click goes in to the room or path under the pointer, and out again', () => {
+  it('picks the building first; a double-click goes in to the room or path under the pointer, and a click out again', () => {
     const inside: ArchitectureComponent = {
       elements: [],
       buildings: [{ id: 'building-1', preset: 'starter-room', storeys: 2, storeyHeight: 3, path: rectPath([0, 0, 0], [8, 0, 8])! }],
       outlines: [{ id: 'room-1', preset: 'starter-room', path: rectPath([1, 0, 1], [4, 0, 4])! }, { id: 'run-1', preset: 'starter-fence', path: { points: [[5, 0, 6], [7, 0, 6]] } }],
     };
-    const pick = (o: number[], d: number[], selected: string | null = null): string | undefined => outlineUnderRay(inside, o, d, undefined, 1, 0.6, selected)?.id;
+    const pick = (o: number[], d: number[], goIn = false): string | undefined => outlineUnderRay(inside, o, d, undefined, 1, 0.6, goIn)?.id;
     expect(pick([2, 20, 2], [0, -1, 0])).toBe('building-1');
-    expect(pick([2, 20, 2], [0, -1, 0], 'building-1')).toBe('room-1');
-    expect(pick([6, 20, 6.2], [0, -1, 0], 'building-1')).toBe('run-1');
+    expect(pick([2, 20, 2], [0, -1, 0], true)).toBe('room-1');
+    expect(pick([6, 20, 6.2], [0, -1, 0], true)).toBe('run-1');
     // A low view through the building's wall: the room behind it (its 3 m walls under the building's 6 m).
-    expect(pick([-10, 2, 2.5], [1, 0, 0], 'building-1')).toBe('room-1');
+    expect(pick([-10, 2, 2.5], [1, 0, 0], true)).toBe('room-1');
     // An oblique view onto the building's top above the room: the room stood up to the building's top is met.
-    expect(pick([2.5 + 12, 6 + 6, 2.5], [-12, -6, 0], 'building-1')).toBe('room-1');
-    // Nothing inside under the pointer: the building stays; the room selected, the same click picks the building again.
-    expect(pick([6, 20, 2], [0, -1, 0], 'building-1')).toBe('building-1');
-    expect(pick([2, 20, 2], [0, -1, 0], 'room-1')).toBe('building-1');
+    expect(pick([2.5 + 12, 6 + 6, 2.5], [-12, -6, 0], true)).toBe('room-1');
+    // Nothing inside under the pointer: the building stays; a plain click over the room picks the building again.
+    expect(pick([6, 20, 2], [0, -1, 0], true)).toBe('building-1');
+    expect(pick([2, 20, 2], [0, -1, 0])).toBe('building-1');
   });
 });

@@ -57,6 +57,8 @@ export interface SceneTool {
   pointerUp(e: PointerEvent): ToolRelease;
   /** A release no tool's gesture claimed (a click a tool acts on, as the Decal tool places). */
   click?(e: PointerEvent): ToolRelease;
+  /** A double-click (after its two clicks went through `click`); true when the tool took it. */
+  doubleClick?(e: MouseEvent): boolean;
   /** The pointer left the view (cursors and previews hide). */
   leave?(): void;
   /** Esc: drop the gesture in flight; true when there was one. */
@@ -132,6 +134,11 @@ export class ToolRouter {
     if (r === 'stop') e.stopImmediatePropagation();
     this.host.setOrbit(true);
     return true;
+  }
+
+  /** A double-click for the tools; true when one took it (it then opens no edit mode). */
+  doubleClick(e: MouseEvent): boolean {
+    return this.tools.some((t) => t.doubleClick?.(e) === true);
   }
 
   leave(): void {
@@ -313,6 +320,11 @@ export class ViewportTools {
       pointerUp: (e) => (live()?.pointerUp(e) === true ? 'stop' : null),
       // Navigate: a click selects; its press also went to the orbit controls.
       click: (e) => (live()?.click(e) === true ? 'pass' : null),
+      // Navigate in Rooms & buildings: a double-click goes into the building.
+      doubleClick: (e) => {
+        const x = live();
+        return x instanceof BlockEditor && x.click(e, true);
+      },
       cancel: () => ed()?.cancel() === true,
       leave: () => {
         const x = ed();

@@ -68,12 +68,14 @@ export interface EscapeState {
 
 /**
  * What Esc does once no field is typed in and no stroke or drawing is in
- * flight (those come first, before the editor's key map sees the key).
+ * flight (those come first, before the editor's key map sees the key). The
+ * tool goes before the selection: only Navigate selects, so the first Esc
+ * takes you there with what is selected kept.
  */
 export type EscapeStep = 'deselect' | 'drop' | 'leave';
 
 export function escapeStep(s: EscapeState): EscapeStep {
-  return s.selection ? 'deselect' : s.armed ? 'drop' : 'leave';
+  return s.armed ? 'drop' : s.selection ? 'deselect' : 'leave';
 }
 
 /** What the status line calls each Esc step. */

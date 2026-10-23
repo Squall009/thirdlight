@@ -283,6 +283,10 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await page.mouse.up();
     await expect.poll(() => blockAt(layer, 10, 8, 11)).toBe('grass');
     expect(await blockAt(layer, 8, 8, 11)).toBe('grass');
+    // Esc drops the tool first (the selection kept), then lets the selection go.
+    await page.keyboard.press('Escape');
+    await expect(view(page)).toHaveAttribute('data-block-tool', 'navigate');
+    await expect(view(page)).toHaveAttribute('data-block-selection', '8,8,8,11,9,9');
     await page.keyboard.press('Escape');
     await expect(view(page)).toHaveAttribute('data-block-selection', '');
     await expect(editMode(page)).toBeVisible();
