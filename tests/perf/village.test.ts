@@ -1,8 +1,8 @@
 /**
  * The village perf class's plan and the checks its measurement makes,
  * without a browser: the plan is deterministic and has the class's shape,
- * the gate's frame-time comparison fails only beyond its tolerance (and when
- * a renderer was not measured), the ablation's per-draw cost is the added
+ * the gate's check at the cap fails only beyond its margins (and when a
+ * renderer was not measured), the ablation's per-draw cost is the added
  * frame time over the plain page's draws, and a profile sample is
  * attributed to the package its bundle line belongs to.
  */
@@ -13,7 +13,7 @@ import { build } from 'esbuild';
 import { moduleIndex, packageOf, sourceAt, sourceMapIndex } from '../../tools/perf/profile';
 import { propGlb, figureGlb } from '../../tools/perf/village-assets';
 import { villagePlan, VILLAGE_SPEC } from '../../tools/perf/village';
-import { ablationRows, frameRegressions, FRAME_P95_REGRESSION, FRAME_REGRESSION, plainPageRows, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
+import { ablationRows, CAP_HZ, CAP_MAIN_REGRESSION, CAP_MISSED_SHARE, frameRegressions, plainPageRows, type FrameBaseline, type VillageReport } from '../../tools/perf/village-run';
 import type { FrameRunResult } from '../../tools/perf/frame-run';
 
 const run = (mean: number, draws = 500, p95 = mean): FrameRunResult =>
@@ -60,29 +60,24 @@ describe('the village class', () => {
   });
 });
 
-describe('the frame-time check', () => {
-  const base: FrameBaseline = { note: '', recordedAt: '', commit: '', machine: { cpu: '', cores: 1, gpu: '' }, subject: 'village', version: 1, frameMeanMs: { webgpu: 18, webgl2: 17 } };
-  it('passes within the tolerance and fails beyond it', () => {
-    expect(frameRegressions(base, { export: { webgpu: run(18 * (1 + FRAME_REGRESSION) - 0.01), webgl2: run(10) } })).toEqual([]);
-    const bad = frameRegressions(base, { export: { webgpu: run(20), webgl2: run(17) } });
-    expect(bad.map((b) => b.renderer)).toEqual(['webgpu']);
-    expect(bad[0]!.limit).toBe(19.8);
+describe('the frame check at the cap', () => {
+  const base: FrameBaseline = { note: '', recordedAt: '', commit: '', machine: { cpu: '', cores: 1, gpu: '' }, subject: 'village', version: 1, capHz: CAP_HZ, mainCpuMsPerFrame: { webgpu: 5, webgl2: 4 } };
+  const at = (cpuMs: number, missed = 0, n = 360): FrameRunResult => ({ ...run(16.7), frames: { n, fps: 60, p50: 16.7, p95: 16.8, p99: 16.8, mean: 16.7, missed }, mainThread: { taskMsPerFrame: cpuMs, cpuMsPerFrame: cpuMs, busyShare: 0.3 } }) as FrameRunResult;
+  it('passes a busy host: main thread CPU within its margin, a few refreshes missed', () => {
+    expect(frameRegressions(base, { export: { webgpu: at(5 * (1 + CAP_MAIN_REGRESSION) - 0.01, Math.floor(360 * CAP_MISSED_SHARE)), webgl2: at(4) } })).toEqual([]);
   });
-  it('checks the p95 with its own tolerance when the baseline has one', () => {
-    const withTail: FrameBaseline = { ...base, frameP95Ms: { webgpu: 20 } };
-    expect(frameRegressions(withTail, { export: { webgpu: run(18, 1000, 20 * (1 + FRAME_P95_REGRESSION) - 0.01), webgl2: run(17) } })).toEqual([]);
-    const bad = frameRegressions(withTail, { export: { webgpu: run(18, 1000, 31), webgl2: run(17) } });
-    expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgpu', 'p95', 30]]);
+  it('fails a frame whose main-thread work grew past the margin', () => {
+    const bad = frameRegressions(base, { export: { webgpu: at(5), webgl2: at(6.5) } });
+    expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgl2', 'main', 6.4]]);
   });
-  it('checks the median instead of the mean when the baseline has one (stalls move the mean run to run)', () => {
-    const withMedian: FrameBaseline = { ...base, frameP50Ms: { webgpu: 7, webgl2: 4 } };
-    const stalled = { ...run(7.2), frames: { n: 100, fps: 139, p50: 4, p95: 7.8, p99: 120, mean: 7.2 } } as FrameRunResult;
-    expect(frameRegressions(withMedian, { export: { webgpu: run(7.6), webgl2: stalled } })).toEqual([]);
-    const bad = frameRegressions(withMedian, { export: { webgpu: run(7.8), webgl2: stalled } });
-    expect(bad.map((b) => [b.renderer, b.metric, b.limit])).toEqual([['webgpu', 'p50', 7.7]]);
+  it('fails a frame over budget: more than the missed share of refreshes missed', () => {
+    const bad = frameRegressions(base, { export: { webgpu: at(5, 180), webgl2: at(4) } });
+    expect(bad.map((b) => [b.renderer, b.metric, b.value, b.limit])).toEqual([['webgpu', 'missed', 180, 36]]);
   });
-  it('fails a renderer the run did not measure', () => {
-    expect(frameRegressions(base, { export: { webgpu: run(18) } }).map((b) => b.renderer)).toEqual(['webgl2']);
+  it('fails a renderer the run did not measure, and refuses a baseline recorded uncapped', () => {
+    expect(frameRegressions(base, { export: { webgpu: at(5) } }).map((b) => b.renderer)).toEqual(['webgl2', 'webgl2']);
+    const { capHz: _cap, ...uncapped } = base;
+    expect(() => frameRegressions(uncapped, { export: { webgpu: at(5), webgl2: at(4) } })).toThrow(/uncapped/);
   });
 });
 

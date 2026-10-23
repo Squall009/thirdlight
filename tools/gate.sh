@@ -3,7 +3,7 @@
 #
 #   tools/gate.sh fast [e2e files or dirs…]   per commit: build + lint + vitest + the smoke set + the
 #                                             e2e files named (the ones for the area you changed) + on a
-#                                             GPU host the village perf class against its frame baseline
+#                                             GPU host the village perf class at the 60 Hz cap against its baseline
 #   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
 #                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1). On a GPU one pass in the
@@ -43,9 +43,8 @@ cd "$(dirname "$0")/.."
 # The fast gate's smoke set: open and start, the authoring loop, Play and the export, scenes, the Inspector and
 # menus, rendering, MCP, a script in Play, and one project at scale (count-caps). Kept to ~2 min on 2 workers.
 SMOKE=(tests/e2e/start.e2e.ts tests/e2e/authoring-loop.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/mcp.e2e.ts tests/e2e/script-api.e2e.ts tests/e2e/count-caps.e2e.ts)
-# The phase-end full gate's budget (both renderers, on the GPU host, FULL_WORKERS): a run over it says so in its
-# summary; a phase that adds e2e time extends or replaces tests to stay inside it (AGENTS.md).
-FULL_BUDGET_MIN=15
+# The full gate has no fixed time budget (AGENTS.md): its summary gives its time beside the previous green full
+# gate's (the previous phase's end), so a phase's growth is seen and questioned in its review.
 FULL_WORKERS=3
 FULL_WORKERS_BOTH=2
 # A worker count the caller set wins in every mode.
@@ -106,10 +105,18 @@ peak() { # the memory peak of this run's cgroup (the detached unit's, or the cal
   local f=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.peak
   [ -r "$f" ] && awk '{printf "memory peak %.1f GB", $1 / 1073741824}' "$f"
 }
+prev_full() { # the last green full gate before this one, from its summary: "<n> min on <its folder's time>"
+  local d m
+  for d in $(ls -d "$LOGS"/gate-full-* 2> /dev/null | sort -r); do
+    [ "$d" = "$L" ] && continue
+    m=$(grep -E '^GREEN' "$d/summary.txt" 2> /dev/null | tail -1 | grep -oE '\([0-9]+ min' | head -1 | tr -dc '0-9')
+    [ -n "$m" ] && { echo "$m min on ${d##*/gate-full-}"; return; }
+  done
+}
 done_() {
-  local min=$(( ($(date +%s) - t0) / 60 )) over=''
-  [ "$mode" = full ] && [ "$min" -gt "$FULL_BUDGET_MIN" ] && over=", OVER BUDGET (${FULL_BUDGET_MIN} min)"
-  say "$1 (${min} min${over}, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac
+  local min=$(( ($(date +%s) - t0) / 60 )) prev=''
+  [ "$mode" = full ] && prev=$(prev_full) && prev=", previous green full gate ${prev:-not recorded}"
+  say "$1 (${min} min${prev}, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac
 }
 
 build_and_unit() {
@@ -146,10 +153,10 @@ e2e() { # e2e <log> [playwright args…]
   grep -qE '^\s+[0-9]+ passed' "$L/$log" && ! grep -qE '^\s+[0-9]+ failed' "$L/$log"
 }
 
-# The village perf class's export frame time against its recorded baseline (tests/perf/village-baseline.json;
-# against the plain three.js page of the same content too, reported only),
-# both renderers, alone after the e2e step (a loaded host measures nothing). Only on a GPU host: SwiftShader
-# frame times say nothing about the product. Re-record: docs/deployment.md "Performance".
+# The village perf class's export at the display's 60 Hz cap against its recorded baseline
+# (tests/perf/village-baseline.json): refreshes missed and the main thread's CPU time per frame, both renderers,
+# alone after the e2e step. Never uncapped: uncapped frame times read the host's load. Only on a GPU host:
+# SwiftShader frame times say nothing about the product. Re-record: docs/manual/features/performance.md.
 perf_check() {
   if ! node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
     say "perf: skipped (no usable GPU)"; return 0
@@ -157,7 +164,7 @@ perf_check() {
   local t=$(date +%s) rc
   node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
   rc=$?
-  say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline|plain page)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
+  say "perf: $(grep -E '^village: (REGRESSION|webgpu|webgl2|the baseline)' "$L/perf.log" | sed 's/^village: //' | tr '\n' ';') ($(( $(date +%s) - t )) s)"
   return $rc
 }
 
@@ -166,7 +173,7 @@ case "$mode" in
     build_and_unit
     e2e e2e.log --project=default "${SMOKE[@]}" "$@" || done_ "RED e2e (fix, then: tools/gate.sh rerun)"
     rm -f "$LOGS/perf-failed"
-    perf_check || { touch "$LOGS/perf-failed"; done_ "RED perf (the village class's frame time; fix, then: tools/gate.sh rerun)"; }
+    perf_check || { touch "$LOGS/perf-failed"; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
     done_ GREEN ;;
   full)
     # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).

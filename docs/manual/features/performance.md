@@ -110,17 +110,19 @@ gets registered, never the game's folder).
 **The frame-time gate.** On a host with a usable GPU (`gpuAvailable()` in
 `tests/e2e/browser-env.mjs`), `tools/gate.sh fast` ends with
 `node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json`
-(about 40 s): it fails when the export's median frame time on either renderer
-is more than 10 % (`FRAME_REGRESSION` in `tools/perf/village-run.ts`) above
-the baseline's (the median, not the mean: uncapped on WebGL 2 the GPU process
-stalls for 100–300 ms every ~2 s once frames are fast, so the mean counts the
-stalls that fell in the window; a baseline without a median is checked on its
-mean), when its 95th-percentile frame time is more than 50 %
-(`FRAME_P95_REGRESSION`) above the baseline's (generous: uncapped, WebGPU's
-GPU-bound frames are bimodal, a few % of them near twice the median, on the
-plain three.js page too), or when a renderer was not measured; `tools/gate.sh rerun`
-repeats a failed check alone. Without a GPU it is skipped. The baseline holds
-absolute times for this host's GPU, so it is re-recorded when the class
+(about 45 s). `--gate` measures the export at the display's 60 Hz cap (vsync),
+never uncapped: uncapped frame times read how hard this host's shared CPU/GPU
+power budget was pushed, and by what else. At the cap every frame is one
+refresh, so the check reads what a player sees and the work behind a frame. It
+fails when more than 10 % of a renderer's frames missed a refresh
+(`CAP_MISSED_SHARE` in `tools/perf/village-run.ts`: a frame over budget misses
+most refreshes, a busy host a few percent), when the main thread's CPU time per
+frame (CDP `ThreadTime`; not task wall time, which grows with the time the
+thread waited for a core) is more than 60 % above the baseline's
+(`CAP_MAIN_REGRESSION`: generous, as a busy neighbour still slows the thread by
+up to half), or when a renderer was not measured. `tools/gate.sh rerun` repeats
+a failed check alone. Without a GPU it is skipped. The baseline holds this
+host's main-thread times, so it is re-recorded (on an idle host) when the class
 changes (`VILLAGE_VERSION`), on another machine, or when a change makes the
 village faster on purpose:
 
@@ -149,7 +151,7 @@ defined once, in the package named, and imported wherever else it is used:
 | Cached sun shadow (`STATIC_SHADOW_STEP`, `STATIC_SHADOW_TURN_DEGREES`) | The static map follows the camera in steps of half the shadow square's half side (1,288² texels at the default 1,024² map); drawn again at a step, a turn of more than 0.05°, or a change within its reach | `three-adapter/src/cached-shadow.ts` | Static casters are drawn once, not every frame; texels line up with the dynamic map |
 | Effect lights (`EFFECT_LIGHT_LIMIT`) | 16 slots in one light node | `project-model/src/effect-graph-kinds.ts` | A fixed shader: a new effect light never recompiles, a dark slot costs nothing |
 | See-through subjects (`SEE_THROUGH_SUBJECTS`) | 4 per view, the nearest to the camera kept | `project-model/src/see-through.ts` | One fixed uniform array in every shader that carries the mask: more subjects never recompile; what it costs is in [Rendering → See-through](rendering.md#see-through) |
-| Perf check (`FRAME_REGRESSION`, `FRAME_P95_REGRESSION`) | Export median frame time +10 %, p95 +50 % over `tests/perf/village-baseline.json`, either renderer | `tools/perf/village-run.ts` | See [the frame-time gate](#performance) above; re-record with the command there |
+| Perf check (`CAP_MISSED_SHARE`, `CAP_MAIN_REGRESSION`) | At the 60 Hz cap: at most 10 % of the frames miss a refresh, main-thread CPU per frame at most +60 % over `tests/perf/village-baseline.json`, either renderer | `tools/perf/village-run.ts` | See [the frame-time gate](#performance) above; re-record with the command there |
 
 Switches, for comparisons (on the editor's URL they are passed on to Play;
 on an export's URL they apply directly):

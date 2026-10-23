@@ -34,12 +34,12 @@
  *   --synthetic-probes N         record about N synthetic probe tiles (probe-synthetic.ts: a 2 m grid over a square
  *                                around the village, ~2 km a side for 512) as the scene's probe bake: probe streaming
  *                                at world scale (its frame time against --switches probes=off, the tiles' arrival)
- *   --gate                       the fast gate's check: frames only (no GPU passes or profile); the plain page is
- *                                measured too and the class's frame reported against it (`plainPageRows`), not gated
- *   --check FILE                 compare the export's frame time with a recorded baseline: exit 1 when the median (the
- *                                mean, for a baseline without one) is worse than FRAME_REGRESSION or the p95 than
- *                                FRAME_P95_REGRESSION (fractions) on any renderer
- *   --write-baseline FILE        record this run's frame times as the baseline
+ *   --gate                       the fast gate's check: the export only, at the display's cap (implies --vsync; no GPU
+ *                                passes, profile or plain page)
+ *   --check FILE                 compare the export at the cap with a recorded baseline: exit 1 when more than
+ *                                CAP_MISSED_SHARE of the frames missed a refresh or the main thread's CPU time per
+ *                                frame is worse than CAP_MAIN_REGRESSION (a fraction) on any renderer
+ *   --write-baseline FILE        record this run's main-thread times at the cap as the baseline
  *   --view street                also export the village seen from the street (village.ts villageViewCamera: eye height,
  *                                level, the props in front hiding much of the rest) and measure it after the open view,
  *                                both with the occlusion oracle (implies --oracle); `--switches` are measured there too
@@ -73,19 +73,22 @@ import { addVillageLamps, buildVillage, villagePlan, villageViewCamera, VILLAGE_
 import { addSeeThroughSubjects, candidatesOf, exportPrebuilt, seeThroughRuns, subjectsInView, type SeeThroughReport } from './see-through-run';
 
 /**
- * A median frame time worse than the baseline by more than this fraction fails the check. The median, not the
- * mean: uncapped on WebGL 2 the GPU process stalls 100–300 ms every ~2 s once the frame is fast (about 2 % of
- * the frames, at the display's rate none), so the mean measures how many stalls fell in the window (WebGL 2:
- * mean 7.0–7.2 ms over a 4.0 ms median, run to run) rather than the frame the code costs.
+ * The fast gate's check measures at the display's 60 Hz cap (vsync), never uncapped: uncapped, frame times read how
+ * hard this mobile chip's CPU and iGPU (one power budget) were pushed and by what else, run to run, so a check
+ * on them missed on host state on most commits. At the cap every frame is one refresh, so the check reads what a
+ * player sees (refreshes missed) and the work behind a frame (the main thread's CPU time).
+ *
+ * A run fails when more than this share of its frames missed a refresh: a frame over budget misses most
+ * refreshes, while a busy host (another session's Blender on 5 cores) costs a few percent.
  */
-export const FRAME_REGRESSION = 0.1;
+export const CAP_MISSED_SHARE = 0.1;
 /**
- * A 95th-percentile frame time worse than the baseline by more than this fraction fails the check too: the
- * tail catches hitches the mean hides (a compile, a stall every few frames). Generous because, uncapped, the
- * GPU-bound frames on WebGPU are bimodal (a slow mode of a few % around twice the median, on the plain page
- * too), so the p95 moves more between runs than the mean.
+ * A run fails when the main thread's CPU time per frame (CDP `ThreadTime`, not task wall time, which grows with
+ * the time the thread waited for a core) is worse than the baseline's by more than this fraction. Generous: on
+ * this host a busy neighbour still costs the thread up to ~50 % (shared cores run slower), so the check catches
+ * a frame's work growing by more than half, and a frame over budget through the missed share.
  */
-export const FRAME_P95_REGRESSION = 0.5;
+export const CAP_MAIN_REGRESSION = 0.6;
 
 /** The plain page's variants: the default, and the ablation's additions one at a time. */
 export const BARE_VARIANTS = {
@@ -126,40 +129,48 @@ export interface FrameBaseline {
   machine: VillageReport['machine'];
   subject: string;
   version: number;
-  /** Export frame time (mean interval, ms) per renderer: checked only when the baseline has no median. */
-  frameMeanMs: Partial<Record<FrameRenderer, number>>;
-  /** Export median frame time (ms) per renderer (absent in older baselines: the mean is checked). */
-  frameP50Ms?: Partial<Record<FrameRenderer, number>>;
-  /** Export 95th-percentile frame time (ms) per renderer (absent in older baselines: not checked). */
-  frameP95Ms?: Partial<Record<FrameRenderer, number>>;
+  /** The display rate the baseline was measured at (vsync); a baseline without one was measured uncapped. */
+  capHz?: number;
+  /** The export's main-thread CPU ms per drawn frame, per renderer: the checked number. */
+  mainCpuMsPerFrame?: Partial<Record<FrameRenderer, number>>;
+  /** The same frames' main-thread task wall time (reported beside the CPU time, not checked). */
+  mainTaskMsPerFrame?: Partial<Record<FrameRenderer, number>>;
 }
+
+/** The display rate the gate's check measures at. */
+export const CAP_HZ = 60;
 
 export interface FrameRegression {
   renderer: FrameRenderer;
-  metric: 'mean' | 'p50' | 'p95';
+  metric: 'main' | 'missed';
   baseline: number;
   value: number;
   limit: number;
 }
 
-/** The comparison the gate makes: renderers whose mean (or p95) frame time is worse than the baseline by more than the tolerance. */
-export function frameRegressions(base: FrameBaseline, report: Pick<VillageReport, 'export'>, tolerance = FRAME_REGRESSION, p95Tolerance = FRAME_P95_REGRESSION): FrameRegression[] {
+/**
+ * The comparison the gate makes on a run at the cap: renderers that missed more than {@link CAP_MISSED_SHARE} of
+ * their refreshes, or whose main-thread CPU per frame is over the baseline by more than {@link CAP_MAIN_REGRESSION}.
+ * A renderer the baseline names that the run did not measure (or that drew nothing) fails too: the check proves
+ * nothing then. A baseline recorded uncapped is refused: it must be re-recorded at the cap.
+ */
+export function frameRegressions(base: FrameBaseline, report: Pick<VillageReport, 'export'>, mainTolerance = CAP_MAIN_REGRESSION, missedShare = CAP_MISSED_SHARE): FrameRegression[] {
   const out: FrameRegression[] = [];
-  const check = (metric: FrameRegression['metric'], values: FrameBaseline['frameMeanMs'], tol: number): void => {
-    for (const [r, b] of Object.entries(values) as [FrameRenderer, number][]) {
-      const got = report.export[r]?.frames[metric];
-      const limit = frameLimit(b, tol);
-      // A renderer the run did not measure (or that drew nothing) is a failure too: the check proves nothing then.
-      if (got === undefined || got <= 0 || got > limit) out.push({ renderer: r, metric, baseline: b, value: got ?? -1, limit });
-    }
-  };
-  if (base.frameP50Ms !== undefined) check('p50', base.frameP50Ms, tolerance);
-  else check('mean', base.frameMeanMs, tolerance);
-  if (base.frameP95Ms !== undefined) check('p95', base.frameP95Ms, p95Tolerance);
+  if (base.capHz !== CAP_HZ || base.mainCpuMsPerFrame === undefined) throw new Error('the baseline was recorded uncapped: re-record it at the cap');
+  for (const [r, b] of Object.entries(base.mainCpuMsPerFrame) as [FrameRenderer, number][]) {
+    const res = report.export[r];
+    const n = res?.frames.n ?? 0;
+    const missedLimit = Math.floor(n * missedShare);
+    const missed = res?.frames.missed;
+    if (res === undefined || n === 0 || missed === undefined || missed > missedLimit) out.push({ renderer: r, metric: 'missed', baseline: 0, value: missed ?? -1, limit: missedLimit });
+    const cpu = res?.mainThread.cpuMsPerFrame;
+    const limit = frameLimit(b, mainTolerance);
+    if (cpu === undefined || cpu <= 0 || cpu > limit) out.push({ renderer: r, metric: 'main', baseline: b, value: cpu ?? -1, limit });
+  }
   return out;
 }
 
-const frameLimit = (baseline: number, tolerance: number): number => Math.round(baseline * (1 + tolerance) * 1000) / 1000;
+const frameLimit = (baseline: number, tolerance: number): number => Math.round(baseline * (1 + tolerance) * 100) / 100;
 
 export interface AblationRow {
   renderer: FrameRenderer;
@@ -232,7 +243,7 @@ const hist = (h: readonly number[] | undefined): string => {
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}${r.scene.lod !== undefined ? `, ${r.scene.lod.copiesInView} instance copies drawn, LOD switches ${r.scene.lod.switches} models/${r.scene.lod.copySwitches} copies last frame` : ''}${r.scene.effectsMs != null ? `, effects ${r.scene.effectsMs} ms/frame main thread` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%)${r.rendererChoice?.occlusion !== undefined ? `, occlusion ${r.rendererChoice.occlusion} (path|occludees|tested|culled)` : ''}${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}${r.scene.lod !== undefined ? `, ${r.scene.lod.copiesInView} instance copies drawn, LOD switches ${r.scene.lod.switches} models/${r.scene.lod.copySwitches} copies last frame` : ''}${r.scene.effectsMs != null ? `, effects ${r.scene.effectsMs} ms/frame main thread` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%${r.mainThread.cpuMsPerFrame !== undefined ? `, CPU ${r.mainThread.cpuMsPerFrame} ms` : ''})${r.rendererChoice?.occlusion !== undefined ? `, occlusion ${r.rendererChoice.occlusion} (path|occludees|tested|culled)` : ''}${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 /** The occlusion oracle's count for the log: what the view drew that no pixel showed, in all and by kind. */
@@ -274,7 +285,9 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const steps = JSON.parse(get('steps') ?? '[]') as PageStep[];
   const sceneView = !gate && has('scene-view');
   const exporting = !has('no-export');
-  const bare = exporting && !has('no-bare');
+  // The gate measures at the display's cap; the plain page then draws every refresh like the class and says nothing.
+  const capped = gate || has('vsync');
+  const bare = exporting && !gate && !has('no-bare');
   const ablation = !gate && has('ablation');
   const query = get('query') !== undefined ? `&${get('query')}` : '';
   const switches = gate ? [] : (get('switches') ?? '').split(',').filter((x) => x !== '');
@@ -342,7 +355,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     if (has('probes')) report.probes = await bakeProbesInEditor(be, projectId, log);
     if (get('synthetic-probes') !== undefined) report.probes = { synthetic: await addSyntheticProbes(be, projectId, 'scene-main', Number(get('synthetic-probes')), log) };
     if (sceneView) {
-      const browser = await launchGpuBrowser({ vsync: has('vsync') });
+      const browser = await launchGpuBrowser({ vsync: capped });
       try {
         for (const r of renderers) {
           const res = await measureSceneView(browser, be, projectId, r, { warmupMs, recordMs, query, shot: join(runDir, `scene-view-${r}.png`), ...(get('orbit') !== undefined ? { orbit: Number(get('orbit')) } : {}) });
@@ -372,7 +385,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     await be.stop();
   }
 
-  const browser = await launchGpuBrowser({ vsync: has('vsync') });
+  const browser = await launchGpuBrowser({ vsync: capped });
   const dumpDir = join(runDir, 'dump');
   try {
     report.machine.gpu = await gpuName(browser);
@@ -467,16 +480,16 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
 
   const write = get('write-baseline');
   if (write !== undefined) {
-    const frameMeanMs: FrameBaseline['frameMeanMs'] = {};
-    const frameP50Ms: NonNullable<FrameBaseline['frameP50Ms']> = {};
-    const frameP95Ms: NonNullable<FrameBaseline['frameP95Ms']> = {};
+    if (!capped) throw new Error('--write-baseline: the baseline is measured at the display\'s cap (--gate or --vsync)');
+    const mainCpuMsPerFrame: NonNullable<FrameBaseline['mainCpuMsPerFrame']> = {};
+    const mainTaskMsPerFrame: NonNullable<FrameBaseline['mainTaskMsPerFrame']> = {};
     for (const r of renderers) {
-      if (report.export[r] === undefined) continue;
-      frameMeanMs[r] = report.export[r]!.frames.mean;
-      frameP50Ms[r] = report.export[r]!.frames.p50;
-      frameP95Ms[r] = report.export[r]!.frames.p95;
+      const m = report.export[r]?.mainThread;
+      if (m?.cpuMsPerFrame === undefined) continue;
+      mainCpuMsPerFrame[r] = m.cpuMsPerFrame;
+      mainTaskMsPerFrame[r] = m.taskMsPerFrame;
     }
-    const base: FrameBaseline = { note: 'export frame time of the village class (tools/perf/village.ts) on this host\'s GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>', recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, frameMeanMs, frameP50Ms, frameP95Ms };
+    const base: FrameBaseline = { note: `the village class's export (tools/perf/village.ts) at the display's ${CAP_HZ} Hz cap on this host's GPU: main-thread ms per frame; re-record with tools/perf/run.mjs village --gate --write-baseline <this file>`, recordedAt: new Date().toISOString(), commit, machine: report.machine, subject: report.subject.name, version: VILLAGE_VERSION, capHz: CAP_HZ, mainCpuMsPerFrame, mainTaskMsPerFrame };
     writeFileSync(write, `${JSON.stringify(base, null, 1)}\n`);
     log(`village: baseline written to ${write}`);
   }
@@ -485,17 +498,17 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const base = JSON.parse(readFileSync(check, 'utf8')) as FrameBaseline;
     if (base.version !== VILLAGE_VERSION) log(`village: the baseline is for village version ${base.version}, this is ${VILLAGE_VERSION}: re-record it`);
     if (base.machine.gpu !== report.machine.gpu) log(`village: the baseline was recorded on ${base.machine.gpu}, this host has ${report.machine.gpu}`);
-    const bad = frameRegressions(base, report);
-    for (const b of bad) log(`village: REGRESSION ${b.renderer} frame ${b.metric} ${b.value} ms > ${b.limit} ms (baseline ${b.baseline} ms + ${(b.metric === 'p95' ? FRAME_P95_REGRESSION : FRAME_REGRESSION) * 100} %)`);
-    const median = base.frameP50Ms !== undefined;
+    const atCap = capped && base.capHz === CAP_HZ && base.mainCpuMsPerFrame !== undefined;
+    if (!atCap) log(`village: REGRESSION check not made: ${capped ? 'the baseline was recorded uncapped; re-record it at the cap' : 'the check measures at the display\'s cap (--gate or --vsync)'}`);
+    const bad = atCap ? frameRegressions(base, report) : [];
+    for (const b of bad) log(`village: REGRESSION ${b.renderer} ${b.metric === 'missed' ? `missed ${b.value} refreshes of ${report.export[b.renderer]?.frames.n ?? 0} frames > ${b.limit} (${CAP_MISSED_SHARE * 100} %)` : `main thread CPU ${b.value} ms/frame > ${b.limit} ms (baseline ${b.baseline} ms + ${CAP_MAIN_REGRESSION * 100} %)`}`);
     for (const r of renderers) {
-      const b = median ? base.frameP50Ms![r] : base.frameMeanMs[r];
-      if (bad.some((x) => x.renderer === r) || b === undefined) continue;
-      const p95 = base.frameP95Ms?.[r];
-      const f = report.export[r]?.frames;
-      log(`village: ${r} frame ${median ? 'p50' : 'mean'} ${median ? f?.p50 : f?.mean} ms (baseline ${b} ms, limit ${frameLimit(b, FRAME_REGRESSION)} ms; mean ${f?.mean} ms)${p95 !== undefined ? `, p95 ${f?.p95} ms (baseline ${p95} ms, limit ${frameLimit(p95, FRAME_P95_REGRESSION)} ms)` : ''}`);
+      const b = base.mainCpuMsPerFrame?.[r];
+      const res = report.export[r];
+      if (b === undefined || res === undefined) continue;
+      log(`village: ${r} at ${CAP_HZ} Hz: frame p50/p95/max ${res.frames.p50}/${res.frames.p95}/${res.frames.max ?? '-'} ms, missed ${res.frames.missed ?? '-'} of ${res.frames.n} (limit ${Math.floor(res.frames.n * CAP_MISSED_SHARE)}), main thread CPU ${res.mainThread.cpuMsPerFrame ?? '-'} ms/frame (baseline ${b} ms, limit ${frameLimit(b, CAP_MAIN_REGRESSION)} ms; task ${res.mainThread.taskMsPerFrame} ms, baseline ${base.mainTaskMsPerFrame?.[r] ?? '-'} ms)`);
     }
-    if (bad.length > 0 || base.version !== VILLAGE_VERSION) process.exitCode = 1;
+    if (!atCap || bad.length > 0 || base.version !== VILLAGE_VERSION) process.exitCode = 1;
   }
   for (const row of plainPageRows(report)) log(`village: plain page ${row.renderer}: class p50 ${row.classP50Ms} ms (${row.classFps} fps) vs plain three.js ${row.plainP50Ms} ms (${row.plainFps} fps): class ${row.aheadPercent >= 0 ? `${row.aheadPercent} % ahead` : `${-row.aheadPercent} % behind`} (reported, not gated)`);
   for (const e of report.errors) log(`village: error: ${e}`);

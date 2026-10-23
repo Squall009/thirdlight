@@ -114,7 +114,12 @@ export interface FrameRunResult {
   frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number; max?: number; /** Share of frames per `FRAME_HISTOGRAM_EDGES_MS` bucket. */ histogram?: number[]; /** Frames longer than a 60 Hz frame ({@link LONG_FRAME_MS}), and those that missed a 60 Hz display's next refresh (half a frame longer: a vsync interval's jitter is not a miss). */ long?: number; missed?: number; /** When (page ms) the missed ones ended (at most 100). */ missedAt?: number[] };
   draws: Summary;
   tris: Summary;
-  mainThread: { taskMsPerFrame: number; busyShare: number };
+  /**
+   * The page's main thread per drawn frame: its tasks' wall time (`taskMsPerFrame`) and the CPU time the thread
+   * actually ran (`cpuMsPerFrame`, CDP `ThreadTime`). Under host load a task's wall time grows with the time the
+   * thread waited for a core; its CPU time does not, so a check that must not read host load uses the CPU time.
+   */
+  mainThread: { taskMsPerFrame: number; cpuMsPerFrame?: number; busyShare: number };
   scene: SceneCounts;
   live: PageSample['live'];
   /** WebGPU calls per frame (passes, pipeline and bind-group switches, buffer writes, texture uploads, submits). */
@@ -255,6 +260,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const b = await metrics();
     const wall = performance.now() - t0;
     const taskMs = ((b['TaskDuration'] ?? 0) - (a['TaskDuration'] ?? 0)) * 1000;
+    const cpuMs = b['ThreadTime'] === undefined ? undefined : (b['ThreadTime'] - (a['ThreadTime'] ?? 0)) * 1000;
     const nFrames = Math.max(1, sample.frames.length);
     const s = summarize(sample.frames);
     const scene = await page.evaluate(probeSceneCounts);
@@ -277,7 +283,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean, max: s.max, histogram: histogram(sample.frames), long: sample.frames.filter((f) => f > LONG_FRAME_MS).length, missed: sample.frames.filter((f) => f > LONG_FRAME_MS * 1.5).length, ...(sample.missedAt.length > 0 ? { missedAt: sample.missedAt.slice(0, 100) } : {}) },
       draws: summarize(sample.frameDraws),
       tris: summarize(sample.frameTris),
-      mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },
+      mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, ...(cpuMs !== undefined ? { cpuMsPerFrame: Math.round((cpuMs / nFrames) * 100) / 100 } : {}), busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },
       scene,
       live: sample.live,
       gpuCalls: sample.gpuCallsPerFrame,

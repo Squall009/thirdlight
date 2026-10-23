@@ -1,7 +1,7 @@
 {
- "note": "export frame time of the village class (tools/perf/village.ts) on this host's GPU: re-record with tools/perf/run.mjs village --gate --write-baseline <this file>",
- "recordedAt": "2026-10-06T23:18:34.717Z",
- "commit": "df70dca1",
+ "note": "the village class's export (tools/perf/village.ts) at the display's 60 Hz cap on this host's GPU: main-thread ms per frame; re-record with tools/perf/run.mjs village --gate --write-baseline <this file>",
+ "recordedAt": "2026-10-23T00:04:22.429Z",
+ "commit": "3f068750",
  "machine": {
   "cpu": "12th Gen Intel(R) Core(TM) i5-12600H",
   "cores": 10,
@@ -9,16 +9,13 @@
  },
  "subject": "village",
  "version": 2,
- "frameMeanMs": {
-  "webgpu": 5.998,
-  "webgl2": 6.091
+ "capHz": 60,
+ "mainCpuMsPerFrame": {
+  "webgpu": 5.64,
+  "webgl2": 4.9
  },
- "frameP50Ms": {
-  "webgpu": 5.6,
-  "webgl2": 4.4
- },
- "frameP95Ms": {
-  "webgpu": 7.4,
-  "webgl2": 6.4
+ "mainTaskMsPerFrame": {
+  "webgpu": 5.45,
+  "webgl2": 4.89
  }
 }
