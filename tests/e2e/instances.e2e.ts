@@ -156,11 +156,11 @@ test('a set is chunked by extent (the project default, overridden per set in the
   await f.press('Enter');
   await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { chunkSize?: number } } }).components.instances.chunkSize).toBe(10);
   await expect(chunks).toHaveAttribute('data-chunks', '10');
-  // How local lights reach the copies: absent (— : the instance-set default), set to per vertex here.
+  // Whether local lights reach the copies: absent (— : as the material says, else per pixel), set to none here.
   const localLights = page.locator('.tl-inspector').getByLabel('instances localLights', { exact: true });
   await expect(localLights).toHaveValue('');
-  await localLights.selectOption('vertex');
-  await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { localLights?: string } } }).components.instances.localLights).toBe('vertex');
+  await localLights.selectOption('none');
+  await expect.poll(async () => ((await query('queryEntity', { entityId: id })).entity as { components: { instances: { localLights?: string } } }).components.instances.localLights).toBe('none');
 
   // Back to the project default, then the project's own size (setSettings instance_chunk_m) rebuilds it: 50 m → 2 chunks.
   const current = (await query('queryEntity', { entityId: id })).entity as { components: { instances: Record<string, unknown> } };

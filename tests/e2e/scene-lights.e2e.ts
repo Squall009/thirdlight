@@ -23,14 +23,13 @@
  * blue; Dusk unloaded, Level's night comes back (not the start scene's red
  * sun); Level unloaded, red. The renderer diagnostics name the directional
  * light that is on at each point and count the local lights and cookies.
- * Then "Vertex" (local lights per vertex): three one-copy instance sets of a
- * coarse slab (each face one quad), each with a white lamp 2 m in front of
- * its middle — the first set to per vertex, the second in the instance-set
- * default (per pixel), the third to none — and a script making the first
- * lamp flicker. Per pixel the slab is bright in the middle and dark at
- * its edges; per vertex the four corners carry all the light, so the face
- * is evenly lit (and lit, unlike the third, which shows only the ambient
- * light); the flicker changes the per-vertex slab's light.
+ * Then "Modes" (local-light modes): three one-copy instance sets of a coarse
+ * slab (each face one quad), each with a white lamp 2 m in front of its
+ * middle — the first set to per pixel, the second unset (per pixel), the
+ * third to none — and a script making the first lamp flicker. Per pixel a
+ * slab is bright in the middle and dark at its edges even on one quad (the
+ * light is not read at the corners); the third shows only the ambient
+ * light; the flicker changes the first slab's light.
  * Then the export (Level a second start scene, so its night sun wins over
  * the start scene's), served statically with the backend stopped: night, 11
  * lit patches and the cookie in its own pixels.
@@ -121,7 +120,7 @@ function patch(img: Image, x: number, y: number): number {
 }
 type Slab = { cx: number; cy: number; w: number; h: number };
 /**
- * The "Vertex" scene's slabs in a picture: the two lit ones (per vertex on the left, per pixel in the middle) are the
+ * The "Modes" scene's slabs in a picture: the two lit ones (set per pixel on the left, unset in the middle) are the
  * runs above the background along the row crossing most lit pixels; the third (no local light, dark) is as far right
  * of the middle one as the left one is left of it. Null while the two do not both show.
  */
@@ -161,7 +160,7 @@ function slabLight(img: Image, s: Slab): { middle: number; ratio: number } {
   const edge = (patch(img, s.cx - k * s.w, s.cy) + patch(img, s.cx + k * s.w, s.cy) + patch(img, s.cx, s.cy - k * s.h) + patch(img, s.cx, s.cy + k * s.h)) / 4;
   return { middle: m, ratio: m / Math.max(edge, 1) };
 }
-/** The "Vertex" scene's slabs: their middles (x) and the face's plane; a lamp 2 m in front of each middle. */
+/** The "Modes" scene's slabs: their middles (x) and the face's plane; a lamp 2 m in front of each middle. */
 const SLAB_X = [0, 4, 8] as const;
 const SLAB_Y = 4;
 const SLAB_FACE_Z = -2.4;
@@ -232,26 +231,26 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   ]);
   const nightSun = String((await cmd('createEntity', { sceneId: 'scene-level', parentId: null, kind: 'group', name: 'Night sun', transform: { position: [0, 0, 0] }, components: { light: { type: 'directional', color: '#ffffff', intensity: 0, direction: [0, -0.2, -1] } } }))['createdId']);
 
-  // Vertex: a night sun, a dim fill and three one-copy instance sets of a white 3 × 3 m slab (one quad a face), per
-  // vertex, per pixel (the instance-set default) and none, each with a white lamp 2 m in front of its middle (its
-  // range keeps it off the other slabs); a script flickers the first lamp.
+  // Modes: a night sun, a dim fill and three one-copy instance sets of a white 3 × 3 m slab (one quad a face), set per
+  // pixel, unset (per pixel) and none, each with a white lamp 2 m in front of its middle (its range keeps it off the
+  // other slabs); a script flickers the first lamp.
   await publishBytes(be, multiPieceGlb([{ name: 'slab', lods: [[3, 3, 0.2]], colors: [[1, 1, 1]], vertexColor: [1, 1, 1, 1] }]), 'model', 'slabs', 'Slabs');
-  await cmd('createScene', { sceneId: 'scene-vertex', name: 'Vertex' });
-  const vertexEntity = async (name: string, components: Record<string, unknown>): Promise<string> => String((await cmd('createEntity', { sceneId: 'scene-vertex', parentId: null, kind: 'group', name, transform: { position: [0, 0, 0] }, components }))['createdId']);
-  await vertexEntity('Vertex night', { light: { type: 'directional', color: '#ffffff', intensity: 0, direction: [0, -0.2, -1] } });
-  await vertexEntity('Vertex fill', { light: { type: 'ambient', color: '#ffffff', intensity: 0.02 } });
-  const slabModes = ['vertex', undefined, 'none'] as const;
-  const vertexLamps: string[] = [];
+  await cmd('createScene', { sceneId: 'scene-modes', name: 'Modes' });
+  const modesEntity = async (name: string, components: Record<string, unknown>): Promise<string> => String((await cmd('createEntity', { sceneId: 'scene-modes', parentId: null, kind: 'group', name, transform: { position: [0, 0, 0] }, components }))['createdId']);
+  await modesEntity('Modes night', { light: { type: 'directional', color: '#ffffff', intensity: 0, direction: [0, -0.2, -1] } });
+  await modesEntity('Modes fill', { light: { type: 'ambient', color: '#ffffff', intensity: 0.02 } });
+  const slabModes = ['pixel', undefined, 'none'] as const;
+  const modesLamps: string[] = [];
   for (let i = 0; i < SLAB_X.length; i += 1) {
     const cx = SLAB_X[i]!;
     const buf = await api('content/buffers', { transforms: [cx - 1.5, SLAB_Y - 1.5, SLAB_FACE_Z - 0.1, 0, 0, 0, 1, 1, 1, 1] });
     expect(buf.status, JSON.stringify(buf.json)).toBe(200);
     const mode = slabModes[i];
-    await vertexEntity(`Slab ${mode ?? 'default'}`, { instances: { asset: { assetId: 'slabs', piece: 'slab' }, buffer: buf.json['digest'], count: 1, ...(mode !== undefined ? { localLights: mode } : {}) } });
-    const lamp = String((await cmd('createEntity', { sceneId: 'scene-vertex', parentId: null, kind: 'group', name: `Slab lamp ${i + 1}`, transform: { position: [cx, SLAB_Y, SLAB_FACE_Z + 2] }, components: { light: { type: 'point', color: '#ffffff', intensity: 10, range: 3.5, decay: 2 } } }))['createdId']);
-    vertexLamps.push(lamp);
+    await modesEntity(`Slab ${mode ?? 'default'}`, { instances: { asset: { assetId: 'slabs', piece: 'slab' }, buffer: buf.json['digest'], count: 1, ...(mode !== undefined ? { localLights: mode } : {}) } });
+    const lamp = String((await cmd('createEntity', { sceneId: 'scene-modes', parentId: null, kind: 'group', name: `Slab lamp ${i + 1}`, transform: { position: [cx, SLAB_Y, SLAB_FACE_Z + 2] }, components: { light: { type: 'point', color: '#ffffff', intensity: 10, range: 3.5, decay: 2 } } }))['createdId']);
+    modesLamps.push(lamp);
   }
-  await publishScript(be, 'flicker', FLICKER(vertexLamps[0]!), vertexLamps[0]!);
+  await publishScript(be, 'flicker', FLICKER(modesLamps[0]!), modesLamps[0]!);
 
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message}`));
   await page.goto(editorUrlFor(be.editorUrl, variant));
@@ -340,10 +339,10 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   await expect.poll(async () => share(await shot(), red), { timeout: 20_000 }).toBeGreaterThan(0.3);
   expect(share(await log('level unloaded'), green)).toBeLessThan(0.01);
 
-  // Vertex loaded: the per-pixel slab is bright in its middle and dark at its edges; the per-vertex one evenly lit,
-  // brighter than the one without local lights; the flicker shows on the per-vertex slab (seen bright and dim).
-  await control('loadScene', 'scene-vertex');
-  await loaded(['scene-main', 'scene-vertex']);
+  // Modes loaded: both per-pixel slabs are bright in their middle and dark at their edges, brighter than the one
+  // without local lights; the flicker shows on the first slab (seen bright and dim).
+  await control('loadScene', 'scene-modes');
+  await loaded(['scene-main', 'scene-modes']);
   await expect.poll(async () => (await lights())?.local, { timeout: 30_000 }).toBe(3);
   let seen = { bright: 0, dim: 255 };
   await expect
@@ -352,17 +351,17 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
         const img = await shot();
         const slabs = findSlabs(img);
         if (slabs === null) return 'slabs not found';
-        const [vertex, pixel, none] = slabs.map((sl) => slabLight(img, sl));
-        seen = { bright: Math.max(seen.bright, vertex!.middle), dim: Math.min(seen.dim, vertex!.middle) };
+        const [set, unset, none] = slabs.map((sl) => slabLight(img, sl));
+        seen = { bright: Math.max(seen.bright, set!.middle), dim: Math.min(seen.dim, set!.middle) };
         const at = (l: { middle: number; ratio: number }): string => `${l.middle.toFixed(0)}/${l.ratio.toFixed(2)}`;
-        console.log(`vertex lights (${variant}): middle/ratio vertex ${at(vertex!)} pixel ${at(pixel!)} none ${at(none!)}; vertex seen ${seen.dim.toFixed(0)}..${seen.bright.toFixed(0)}`);
-        return [pixel!.ratio > 1.25, vertex!.ratio < 1.1 && vertex!.ratio > 0.9, vertex!.middle > none!.middle + 15, none!.middle < 30, seen.bright > 1.2 * seen.dim + 5].join(' ');
+        console.log(`local-light modes (${variant}): middle/ratio pixel ${at(set!)} unset ${at(unset!)} none ${at(none!)}; pixel seen ${seen.dim.toFixed(0)}..${seen.bright.toFixed(0)}`);
+        return [unset!.ratio > 1.25, set!.ratio > 1.25, set!.middle > none!.middle + 15, none!.middle < 30, seen.bright > 1.2 * seen.dim + 5].join(' ');
       },
       { timeout: 30_000, intervals: [250] },
     )
     .toBe('true true true true true')
-    .finally(() => writeFileSync(`test-results/scene-lights-vertex-${variant}.png`, lastShot));
-  await control('unloadScene', 'scene-vertex');
+    .finally(() => writeFileSync(`test-results/scene-lights-modes-${variant}.png`, lastShot));
+  await control('unloadScene', 'scene-modes');
   await loaded(['scene-main']);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 

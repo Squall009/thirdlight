@@ -28,7 +28,7 @@
  *                                workers and the GPU process (with --vsync and --switches 'frameRateCap=60,frameRateCap=30':
  *                                what a frame-rate cap saves)
  *   --point-lights N             add N point lights over the scatter (village.ts addVillageLamps; not in the baseline):
- *                                local lights over foliage, per pixel against per vertex with --switches vertexLights=off
+ *                                what local lights over foliage cost
  *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
  *                                draws with probe lighting (its cost against a run without)
  *   --synthetic-probes N         record about N synthetic probe tiles (probe-synthetic.ts: a 2 m grid over a square

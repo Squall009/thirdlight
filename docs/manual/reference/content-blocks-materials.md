@@ -32,7 +32,7 @@ Project materials.
 | `materials[].params.offset` | vec2 [x, y] | `[0,0]` | -1000 – 1000, step 0.01 | **Offset.** The standard shader's offset (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.normalScale` | number | `1` | 0 – 4, step 0.1 | **Normal Scale.** The standard shader's normal scale (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.aoIntensity` | number | `1` | 0 – 2, step 0.1 | **AO Intensity.** The standard shader's ao intensity (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
-| `materials[].params.localLights` | enum: `object`, `pixel`, `vertex`, `none` | `"object"` |  | **Local Lights.** The standard shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
+| `materials[].params.localLights` | enum: `object`, `pixel`, `none` | `"object"` |  | **Local Lights.** The standard shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.paintTint` | bool | `false` |  | **Paint Tint.** The standard shader's paint tint (absent: the file's value or the shader default). (applies when `../shader` is `standard`) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The foliage shader's color (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.roughness` | number | `0.8` | 0 – 1, step 0.01 | **Roughness.** The foliage shader's roughness (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
@@ -47,7 +47,7 @@ Project materials.
 | `materials[].params.offset` | vec2 [x, y] | `[0,0]` | -1000 – 1000, step 0.01 | **Offset.** The foliage shader's offset (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.normalScale` | number | `1` | 0 – 4, step 0.1 | **Normal Scale.** The foliage shader's normal scale (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.aoIntensity` | number | `1` | 0 – 2, step 0.1 | **AO Intensity.** The foliage shader's ao intensity (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
-| `materials[].params.localLights` | enum: `object`, `pixel`, `vertex`, `none` | `"object"` |  | **Local Lights.** The foliage shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
+| `materials[].params.localLights` | enum: `object`, `pixel`, `none` | `"object"` |  | **Local Lights.** The foliage shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.windBend` | number | `1` | 0 – 4, step 0.1 | **Wind Bend.** The foliage shader's wind bend (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.windFlutter` | number | `1` | 0 – 4, step 0.1 | **Wind Flutter.** The foliage shader's wind flutter (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.flutterFrequency` | number | `6` | 0 – 30, step 0.1 | **Flutter Frequency.** The foliage shader's flutter frequency (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
@@ -66,7 +66,7 @@ Project materials.
 | `materials[].params.offset` | vec2 [x, y] | `[0,0]` | -1000 – 1000, step 0.01 | **Offset.** The kit shader's offset (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.normalScale` | number | `1` | 0 – 4, step 0.1 | **Normal Scale.** The kit shader's normal scale (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.aoIntensity` | number | `1` | 0 – 2, step 0.1 | **AO Intensity.** The kit shader's ao intensity (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
-| `materials[].params.localLights` | enum: `object`, `pixel`, `vertex`, `none` | `"object"` |  | **Local Lights.** The kit shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
+| `materials[].params.localLights` | enum: `object`, `pixel`, `none` | `"object"` |  | **Local Lights.** The kit shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.uvPeriod` | number | `4` | 0.25 – 64, step 0.1 | **Uv Period.** The kit shader's uv period (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.macroNormalScale` | number | `1` | 0 – 4, step 0.1 | **Macro Normal Scale.** The kit shader's macro normal scale (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The unlit shader's color (absent: the file's value or the shader default). (applies when `../shader` is `unlit`) |
@@ -99,7 +99,7 @@ Project materials.
 | `materials[].params.alphaMode` | enum: `opaque`, `cutout` | `"opaque"` |  | **Alpha Mode.** The trim shader's alpha mode (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.alphaCutoff` | number | `0.5` | 0 – 1, step 0.01 | **Alpha Cutoff.** The trim shader's alpha cutoff (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.doubleSided` | bool | `false` |  | **Double Sided.** The trim shader's double sided (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
-| `materials[].params.localLights` | enum: `object`, `pixel`, `vertex`, `none` | `"object"` |  | **Local Lights.** The trim shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
+| `materials[].params.localLights` | enum: `object`, `pixel`, `none` | `"object"` |  | **Local Lights.** The trim shader's local lights (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The decal shader's color (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
 | `materials[].params.opacity` | number | `1` | 0 – 1, step 0.01 | **Opacity.** The decal shader's opacity (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |
 | `materials[].params.roughness` | number | `1` | 0 – 1, step 0.01 | **Roughness.** The decal shader's roughness (absent: the file's value or the shader default). (applies when `../shader` is `decal`) |

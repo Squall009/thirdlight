@@ -25,7 +25,7 @@ import type {
   SettingsMap,
 } from './types-v2';
 import type { Vec3 } from './types';
-import type { LightImportance, LocalLightMode } from './local-lights';
+import type { LocalLightMode } from './local-lights';
 
 // ---- scene schemaVersion 3 registry ----------------------------------
 
@@ -67,7 +67,7 @@ export interface InstancesComponent {
   chunkSize?: number;
   /** The light layers the copies are in, a bit mask (light-layers.ts; absent: every layer). */
   lightLayers?: number;
-  /** How local lights reach the copies (local-lights.ts; absent: their material's mode, else `INSTANCES_LOCAL_LIGHTS_DEFAULT`). */
+  /** How local lights reach the copies (local-lights.ts; absent: their material's mode, else per pixel). */
   localLights?: LocalLightMode;
   /** The decal layers projected decals mark the copies in, a bit mask (decals.ts; absent: every layer). */
   decalLayers?: number;
@@ -135,8 +135,6 @@ export interface LightComponent {
   lightMask?: number;
   /** v4, directional, point and spot: only objects in these light layers cast its shadow (absent: every layer). */
   shadowCasterMask?: number;
-  /** v4, point and spot: shaded per pixel, per vertex, or as each object's mode says (local-lights.ts; absent: auto). */
-  importance?: LightImportance;
 }
 
 /** A copied surface value row (never a linked resource). */

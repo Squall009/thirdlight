@@ -7,8 +7,8 @@
  * The game's camera is put where the Scene view's is (its pose and lens, read
  * from `data-view-camera`), the view's own overlays are switched off (icons,
  * light gizmos, gameplay helpers, the grid), and nothing is selected. Both
- * renderers (renderer-variants.ts). The scene uses light layers, per-vertex
- * local lights and ambient occlusion as well, so those agree too.
+ * renderers (renderer-variants.ts). The scene uses light layers, an object
+ * without local lights and ambient occlusion as well, so those agree too.
  *
  * Then the Scene view's See-through preview (view only, never stored): the
  * project's See-through setting is on, so the view built its shaders with
@@ -61,10 +61,10 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   const lamp = await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'lamp', transform: { position: [1.5, 1.2, 1.5] } });
   await command('setComponent', { entityId: String(lamp['createdId']), component: 'light', value: { type: 'point', color: '#ffb060', intensity: 6, range: 6, decay: 2 } });
   // The lighting controls the two must agree on too: the cube is in light layer 2 only, so a magenta lamp masked to
-  // layer 1 lights the floor round it and not the cube; the pillar takes local lights per vertex; ambient occlusion
+  // layer 1 lights the floor round it and not the cube; the pillar takes no local light; ambient occlusion
   // (the look's) darkens the creases' indirect light.
   await command('setComponent', { entityId: String(cube['createdId']), component: 'box', value: { size: [1, 1, 1], material: { color: '#c05030' }, lightLayers: 2 } });
-  await command('setComponent', { entityId: String(tall['createdId']), component: 'box', value: { size: [0.6, 2, 0.6], material: { color: '#3060c0' }, localLights: 'vertex' } });
+  await command('setComponent', { entityId: String(tall['createdId']), component: 'box', value: { size: [0.6, 2, 0.6], material: { color: '#3060c0' }, localLights: 'none' } });
   const masked = await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'masked lamp', transform: { position: [0.9, 0.8, -0.9] } });
   await command('setComponent', { entityId: String(masked['createdId']), component: 'light', value: { type: 'point', color: '#ff40ff', intensity: 5, range: 4, decay: 2, lightMask: 1 } });
   await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#506070' }, fog: { mode: 'linear', color: '#506070', near: 8, far: 40 }, post: { exposure: 1.1, ssao: { enabled: true } } } });

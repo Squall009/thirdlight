@@ -12,7 +12,7 @@
  * - both projects: an effect's light lights a wall while its other system
  *   runs on the GPU (WebGPU; every system on the CPU on WebGL 2 — the
  *   diagnostics name each system's executor); effect lights keep to their
- *   light layers, and one forced per vertex is summed at the vertices.
+ *   light layers.
  */
 import { join, resolve } from 'node:path';
 
@@ -120,7 +120,7 @@ test('the player draws additive and alpha billboards on its backend\'s executor'
   expect(count(img, 0, W / 2, green)).toBeLessThan(20);
 });
 
-test('an effect\'s light lights a wall while its other systems run on the GPU; effect lights keep to their layers and importance', async ({ page }) => {
+test('an effect\'s light lights a wall while its other systems run on the GPU; effect lights keep to their layers', async ({ page }) => {
   test.setTimeout(180_000);
   const backend = isWebGPU() ? 'webgpu' : 'webgl2';
   const { result, errors } = await run(page, 'light', backend);
@@ -154,9 +154,9 @@ test('an effect\'s light lights a wall while its other systems run on the GPU; e
   // Middle wall (layer 2): its light is for layer 1 only, and the others' lights are for layers 1 and 3.
   expect(centre[1]).toBeLessThan(4);
   expect(corner[1]).toBeLessThan(4);
-  // Right wall (layer 3): its per-vertex light is summed at the four corners only, so the quad is evenly lit (no peak).
+  // Right wall (layer 3): lit by its own light, per pixel too — a peak before the light on its one quad.
   expect(centre[2]).toBeGreaterThan(8);
-  expect(Math.abs(centre[2]! - corner[2]!)).toBeLessThan(0.25 * centre[2]! + 3);
+  expect(centre[2]).toBeGreaterThan(1.5 * corner[2]!);
   // The GPU flames draw above the left wall.
   expect(count(img, probes.flames[0] - 20, probes.flames[0] + 20, magenta)).toBeGreaterThan(100);
 });

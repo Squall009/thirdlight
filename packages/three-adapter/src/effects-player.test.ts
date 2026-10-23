@@ -214,38 +214,31 @@ describe('effect player (CPU executor on WebGL 2)', () => {
   });
 });
 
-describe('effect light pool: layers and importance', () => {
+describe('effect light pool: layers', () => {
   const glow = (id: string, data: Record<string, unknown>): EffectDefLike =>
     fx(id, { spawn: [{ type: 'spawn.burst', data: { count: 1 } }], initialize: [{ type: 'init.lifetime', data: { min: 5, max: 5 } }], output: [{ type: 'output.light', data: { maxLights: 1, ...data } }] });
   const poolOf = (scene: THREE.Scene): EffectLights => scene.children.find((o): o is EffectLights => o instanceof EffectLights)!;
 
-  it('keeps the pool\'s abilities off for default lights, so their programs carry no layer test or extra loop', () => {
+  it('keeps the pool\'s abilities off for default lights, so their programs carry no layer test', () => {
     const scene = new THREE.Scene();
     createEffectsPlayer({ scene, defs: [glow('a', {})], loadTexture: async () => null });
-    expect(poolOf(scene).abilities).toEqual({ layered: false, forcedPixel: false, forcedVertex: false });
+    expect(poolOf(scene).abilities).toEqual({ layered: false });
     const key = localLightsCacheKey([poolOf(scene)]);
     expect(key).toBe(0);
   });
 
-  it('fills slots in importance order with each light\'s mask; a light in no layer takes no slot', () => {
+  it('fills slots in play order with each light\'s mask; a light in no layer takes no slot', () => {
     const scene = new THREE.Scene();
-    const defs = [glow('v', { importance: 'vertex', lightMask: 2 }), glow('a', {}), glow('p', { importance: 'pixel' }), glow('none', { lightMask: 0 }), glow('a2', { lightMask: 5 })];
+    const defs = [glow('v', { lightMask: 2 }), glow('a', {}), glow('p', {}), glow('none', { lightMask: 0 }), glow('a2', { lightMask: 5 })];
     const p = createEffectsPlayer({ scene, defs, loadTexture: async () => null });
     const pool = poolOf(scene);
-    expect(pool.abilities).toEqual({ layered: true, forcedPixel: true, forcedVertex: true });
+    expect(pool.abilities).toEqual({ layered: true });
     expect(localLightsCacheKey([pool])).not.toBe(0);
     p.setRenderer(stubRenderer().r, 'webgl2');
     for (const [k, d] of defs.entries()) p.request(play(d.effectId, k + 1), () => undefined);
     p.update(1 / 30, camera());
     expect(pool.count).toBe(4);
-    expect(pool.pixelEnd).toBe(1);
-    expect(pool.autoEnd).toBe(3);
-    expect(pool.slots.slice(0, 4).map((s) => [s.importance, s.mask])).toEqual([
-      ['pixel', 255],
-      ['auto', 255],
-      ['auto', 5],
-      ['vertex', 2],
-    ]);
+    expect(pool.slots.slice(0, 4).map((s) => s.mask)).toEqual([2, 255, 255, 5]);
     expect(p.diagnostics().lights).toBe(4);
     p.dispose();
   });

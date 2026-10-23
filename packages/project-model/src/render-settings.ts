@@ -21,7 +21,7 @@
  * darker and more exact in creases, about twice the cost (what a project that
  * does not set the kind draws, as every project did before the setting
  * existed); `off`: none. Either darkens only the indirect light (ambient, sky
- * and probe light, and per-vertex local light, which joins it), never the
+ * and probe light), never the
  * direct light of the sun and per-pixel lamps, and only where a scene's look
  * turns ambient occlusion on.
  */

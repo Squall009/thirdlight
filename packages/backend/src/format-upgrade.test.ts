@@ -12,7 +12,7 @@
  *   nothing is dropped silently, and the files stay as they were.
  */
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
@@ -585,4 +585,47 @@ describe('a schemaVersion 6 project with a scene camera opened over HTTP', () =>
     expect(notes).not.toContain('camera settings');
     await replay(ID);
   }, 120_000);
+});
+
+/**
+ * Per-vertex local lighting is gone: a project whose scene still stores an
+ * object's `localLights: "vertex"` and a light's `importance` opens with
+ * them shaded per pixel, written back once, and one Problems line counting
+ * them.
+ */
+describe('a project with per-vertex local-light settings opened over HTTP', () => {
+  const REPO = resolve(import.meta.dirname, '..', '..', '..');
+  let tb: TestBackend;
+  // A small project from before; its scene gets the old settings written into it.
+  const ID = 'legacy-v5-music';
+  const sceneFile = (): string => join(tb.root, 'data', 'projects', ID, 'scenes', 'scene-main.json');
+
+  beforeAll(async () => {
+    tb = await startBackend({ tokens: [] });
+    cpSync(join(REPO, 'fixtures', 'phase26', ID), join(tb.root, 'data', 'projects', ID), { recursive: true });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+  });
+
+  it('turns them per pixel, drops the importance, writes the scene back and says so once', async () => {
+    const file = JSON.parse(readFileSync(sceneFile(), 'utf8')) as { scene: { entities: { id: string; components: Record<string, Record<string, unknown>> }[] } };
+    const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
+    file.scene.entities.push(
+      { id: 'vbox-000001', components: { transform: T, box: { size: [1, 1, 1], localLights: 'vertex' } } },
+      { id: 'vlamp-000001', components: { transform: T, light: { type: 'point', color: '#ffffff', intensity: 5, importance: 'vertex' } } },
+      { id: 'vlamp-000002', components: { transform: T, light: { type: 'point', color: '#ffffff', intensity: 5, importance: 'pixel' } } },
+    );
+    writeFileSync(sceneFile(), JSON.stringify(file));
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'vertex-lights-upgrade' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const written = JSON.parse(readFileSync(sceneFile(), 'utf8')) as typeof file;
+    const byId = new Map(written.scene.entities.map((e) => [e.id, e.components]));
+    expect(byId.get('vbox-000001')!['box']!['localLights']).toBe('pixel');
+    expect(byId.get('vlamp-000001')!['light']).not.toHaveProperty('importance');
+    expect(byId.get('vlamp-000002')!['light']).not.toHaveProperty('importance');
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const lines = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded' && p.message.includes('per vertex'));
+    expect(lines.map((p) => p.message)).toEqual([expect.stringContaining('2 local-light settings (objects, materials, lights) shaded per vertex now shade per pixel')]);
+  }, 60_000);
 });

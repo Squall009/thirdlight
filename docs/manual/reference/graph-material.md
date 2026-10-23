@@ -1395,7 +1395,7 @@ Fields:
 | `doubleSided` | Double-sided | boolean | `false` |  |
 | `transparent` | Transparent | boolean | `false` |  |
 | `castShadows` | Casts shadows | boolean | `true` |  |
-| `localLights` | Local lights | enum | `"object"` | `object`, `pixel`, `vertex`, `none` |
+| `localLights` | Local lights | enum | `"object"` | `object`, `pixel`, `none` |
 | `decal` | Decal | enum | `"off"` | `off`, `blend`, `multiply`, `add` |
 | `decalSortOrder` | Decal sort order | number | `0` | -1000 – 1000 |
 
@@ -1444,7 +1444,7 @@ Fields:
 | `doubleSided` | Double-sided | boolean | `false` |  |
 | `transparent` | Transparent | boolean | `false` |  |
 | `castShadows` | Casts shadows | boolean | `true` |  |
-| `localLights` | Local lights | enum | `"object"` | `object`, `pixel`, `vertex`, `none` |
+| `localLights` | Local lights | enum | `"object"` | `object`, `pixel`, `none` |
 | `decal` | Decal | enum | `"off"` | `off`, `blend`, `multiply`, `add` |
 | `decalSortOrder` | Decal sort order | number | `0` | -1000 – 1000 |
 

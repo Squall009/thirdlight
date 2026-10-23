@@ -162,48 +162,26 @@ mask, bit n = layer n + 1, 255 = every layer.
   light's work altogether (a branch on the draw's own test), so layers and
   rooms make lit pixels cheaper, not dearer.
 
-## Local lights per pixel or per vertex
+## Local lights per object
 
-How point, spot and effect lights reach an object (Unity's "Not Important"
-lights, Godot's vertex shading). The sun, ambient light and probes are
-always per pixel.
+Whether point, spot and effect lights reach an object. The sun, ambient
+light and probes reach every object.
 
 - **Objects** — a box, model or instance set has **Local lights** in the
-  Inspector (`localLights`): **Per pixel** (highlights and
-  shadows), **Per vertex** (the lights are evaluated at the mesh's vertices
-  and interpolated: diffuse light only, no highlights or shadows) or
-  **None** (no local light at all). "—" (absent) follows the material, else
-  the default: per pixel for everything, instance sets included
-  (`INSTANCES_LOCAL_LIGHTS_DEFAULT`, project-model `local-lights.ts`).
+  Inspector (`localLights`): **Per pixel** (highlights and shadows) or
+  **None** (no local light at all: a far backdrop, a sky dome, a look lit by
+  the sun and sky alone). "—" (absent) follows the material, else per pixel.
 - **Materials** — standard, foliage and kit materials have a **Local lights**
   parameter (`object` follows the object), graph materials a **Local lights**
   field on their PBR and Custom-lit outputs. An object's own mode wins.
-- **Lights** — a point or spot light has an **Importance**: **Auto** (as each
-  object says), **Per pixel** (always, a hero light) or **Per vertex**
-  (always, a cheap fill light). A spot light with a cookie stays per pixel.
-  An effect's *Lights* block has the same **Importance**.
-- Per-vertex light joins a surface's ambient light (Custom-lit graphs read it
-  in their Ambient input), so ambient occlusion darkens it as it darkens the
-  ambient light (Unity's built-in pipeline does the same with its vertex
-  lights); per-pixel lamps are direct light and are not darkened. Light
-  layers and flicker (a script's or effect's changing intensity) work as per
-  pixel. A transparent double-sided surface is lit per vertex from the side
-  each of its two passes shows. The probe bake ignores every object's and
-  material's mode: a lamp's bounce off a surface set to **None** still
-  reaches the probes.
-- **When it pays** — per vertex costs per vertex instead of per pixel, so it
-  is cheaper where a mesh has fewer vertices than the pixels it covers: big,
-  coarse or close geometry (a grass field at your feet, large leaves, low-poly
-  props in a torch-lit room). Dense scatter far from the camera has about as
-  many vertices as pixels. Measured on this host's Iris Xe at 1920 × 1080:
-  the village perf class with 12 lamps over its scatter
-  (`node tools/perf/run.mjs village --point-lights 12 --switches
-  vertexLights=off`) drew its scene pass in 6.88 ms with the scatter per
-  vertex and 6.78 ms per pixel (frame 8.6 ms either way), so instance sets
-  stay per pixel unless a set or its material asks.
-- **Cost of the feature** — none unless used: the default draws the same
-  shaders as without it (village: 52 shader modules and 34 pipelines). Each mode
-  in use adds one program per material it is used with (light layers add
-  none on top). Changing a light's importance rebuilds the lit shaders once.
-- `?vertexLights=off` on a game page shades every local light per pixel (a
-  diagnostic comparison, like `?probes=off`).
+- The probe bake ignores every object's and material's mode: a lamp's bounce
+  off a surface set to **None** still reaches the probes.
+- **Cost** — none unless used: the default draws the same shaders as without
+  it. **None** adds one program per material it is used with (light layers
+  add none on top).
+- **No per-vertex lights.** Shading local lights at the vertices was measured
+  no cheaper than per pixel (Iris Xe, 1080p, scene pass: the village perf
+  class 2.718 vs 2.705 ms, with 12 lamps over its scatter 6.88 vs 6.78 ms)
+  while it cost shader variants, so the engine does not offer it. A project that stored `localLights:
+  "vertex"` (or a light's or a *Lights* block's `importance`) opens with
+  them per pixel and one Problems line counting them.

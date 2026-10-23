@@ -905,7 +905,7 @@ Fields:
 - Billboard (`output.billboard`): A textured quad per particle: facing the camera, aligned with its velocity, or turning around a fixed axis.
 - Mesh particles (`output.mesh`): A model asset drawn per particle (scaled by its size, turned by its rotation).
 - Ribbon / trail (`output.ribbon`): Trail: each particle draws a strip through its recent positions. Ribbon: one strip joins the particles in birth order.
-- Lights (`output.light`): A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1) and follows its importance like a scene point light.
+- Lights (`output.light`): A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1), per pixel like a scene point light.
 
 <a id="node-effect--output-billboard"></a>
 ### Billboard (`output.billboard`)
@@ -991,7 +991,7 @@ Fields:
 <a id="node-effect--output-light"></a>
 ### Lights (`output.light`)
 
-A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1) and follows its importance like a scene point light.
+A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1), per pixel like a scene point light.
 
 Inputs:
 
@@ -1011,7 +1011,6 @@ Fields:
 | `intensity` | Intensity (cd) | number | `1` | 0 – 1000 |
 | `range` | Range (m) | number | `2` | 0.01 – 1000 |
 | `lightMask` | Light layers (mask) | number | `255` | 0 – 255 |
-| `importance` | Importance | enum | `"auto"` | `auto`, `pixel`, `vertex` |
 
 <a id="graph-effect--values"></a>
 ## Values

@@ -47,7 +47,7 @@ import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';
-import { buildVertexLights, localLightsCacheKey, splitLocalLights } from './local-lights';
+import { localLightsCacheKey, splitLocalLights } from './local-lights';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
 import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS } from './probe-pack';
@@ -372,15 +372,14 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
   static get type(): string {
     return 'LightsNode';
   }
-  /** Lights' importances decide which builds shade them per vertex: a change rebuilds the lit programs. */
+  /** The effect light pool's abilities shape the lit programs: a change rebuilds them. */
   override customCacheKey(): number {
     const own = localLightsCacheKey(this.getLights());
     return own === 0 ? super.customCacheKey() : (Math.imul(super.customCacheKey(), 31) + own) | 0;
   }
   override setupLights(builder: N, all: LightNodeLike[]): void {
-    // Local lights shaded per vertex (or left out) for this build's mode: they add to the irradiance the probes keep.
-    const { pixel: nodes, vertex } = splitLocalLights(builder, all);
-    buildVertexLights(builder, vertex);
+    // Local lights left out of a build in mode none.
+    const nodes = splitLocalLights(builder, all);
     // A block chunk's corner shading darkens the indirect light whatever lights it.
     applyBlockOcclusion(builder);
     const probe = nodes.find((n) => n.isProbeLightingNode === true);

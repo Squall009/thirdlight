@@ -16,7 +16,7 @@
  * - `light`: effect lights on three grey walls (coarse quads, one per light
  *   layer 1, 2, 3): a fire (magenta flames above, a light system) before the
  *   left wall, a light for layer 1 only before the middle wall (layer 2), and
- *   a per-vertex (importance) light for layer 3 before the right wall:
+ *   a light for layer 3 before the right wall:
  *   `window.__fx = { ok, backend, diagnostics, probes }` (probes: screen
  *   points of each wall's centre and corner region, and the flames).
  */
@@ -267,7 +267,7 @@ const LIGHT_FX: EffectDef[] = [
     lightSystem({ lightMask: 1 }),
   ]),
   effect('masked', [lightSystem({ lightMask: 1 })]),
-  effect('vertex', [lightSystem({ lightMask: 4, importance: 'vertex' })]),
+  effect('layer3', [lightSystem({ lightMask: 4 })]),
 ];
 /** The walls' centres (x); each is 2.4 m × 2 m at z = -1, its light 0.5 m before its centre. */
 const WALLS = [-2.6, 0, 2.6];
@@ -303,7 +303,7 @@ const result: Record<string, unknown> = {};
       camera.updateMatrixWorld();
       const material = new THREE.MeshStandardNodeMaterial({ color: '#808080', roughness: 1, metalness: 0 });
       WALLS.forEach((x, i) => {
-        // One segment: a per-vertex light is summed at the four corners only.
+        // One segment: a light shaded per pixel still peaks before its middle.
         const wall = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2, 1, 1), material);
         wall.position.set(x, 0, -1);
         applyObjectLightLayers(wall, 1 << i);
@@ -312,7 +312,7 @@ const result: Record<string, unknown> = {};
       const player = createEffectsPlayer({ scene, defs: LIGHT_FX, loadTexture: async () => null });
       player.setRenderer(r, handle.info().api === 'webgpu' ? 'webgpu' : 'webgl2');
       const objectOf = (): undefined => undefined;
-      ['fire', 'masked', 'vertex'].forEach((id, i) => player.request({ op: 'play', effectId: id, handle: i + 1, entityId: null, position: [WALLS[i]!, 0, -0.5], params: null, source: 'script' }, objectOf));
+      ['fire', 'masked', 'layer3'].forEach((id, i) => player.request({ op: 'play', effectId: id, handle: i + 1, entityId: null, position: [WALLS[i]!, 0, -0.5], params: null, source: 'script' }, objectOf));
       for (let f = 0; f < 6; f++) {
         player.update(1 / 30, camera);
         r.render(scene, camera);

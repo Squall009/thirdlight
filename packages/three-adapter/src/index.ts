@@ -345,9 +345,9 @@ export type { MeshPaintPreview, PaintPreviewMesh, PaintPreviewTarget, PathPaintP
 export { paintOnlyChange } from './vertex-paint-update';
 export { isDecalMark } from './clipped-decals';
 export type { DecalProjectorsObservation } from './decal-projectors';
-// Local lights per vertex: an object's or material's mode, a light's importance.
+// Local lights per object: an object's or material's mode (per pixel or none).
 export { applyObjectLightLayers } from './light-layers';
-export { LIGHT_IMPORTANCE_KEY, LOCAL_LIGHTS_KEY, VERTEX_LIGHTS_URL_PARAM, localLightVariantCount, vertexLightsFromUrl } from './local-lights';
+export { LOCAL_LIGHTS_KEY, localLightVariantCount } from './local-lights';
 export { BUILD_KEEP_URL_PARAM, buildKeepFromUrl, RELEASED_BUILD_KEEP_MS } from './node-builds';
 // The occlusion oracle a measurement runs from the scene (what the view draws that no pixel shows).
 export { OCCLUSION_ORACLE_KEY, type OracleResult } from './occlusion-oracle';

@@ -23,7 +23,7 @@
  *   the light again when it turns plain or layered.
  */
 import * as THREE from 'three';
-import { blendLight, lightImportanceOf, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
+import { blendLight, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
 
 import { CachedShadowNode, snapToLightGrid, type CachedShadowCounts } from './cached-shadow';
 import { shadowSeesCutaways } from './block-cutaway-view';
@@ -33,7 +33,6 @@ import type { StaticShadowRevision } from './shadow-casters';
 import { ShadowBudget, type ShadowBudgetDeps, type ShadowBudgetDiagnostics } from './shadow-budget';
 import { textureHolds } from './texture-holds';
 import { markProbeHeld } from './probe-lighting';
-import { setLightImportance } from './local-lights';
 import {
   isLayeredLight,
   LayeredAmbientLight,
@@ -63,7 +62,6 @@ interface LightLike {
   readonly cookie?: string;
   readonly lightMask?: number;
   readonly shadowCasterMask?: number;
-  readonly importance?: string;
 }
 
 /** A realized entity as the lights read it. */
@@ -265,7 +263,6 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     if (l.type === 'point') {
       const p = new (layered ? LayeredPointLight : THREE.PointLight)(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
       setLightMasks(p, masks);
-      setLightImportance(p, lightImportanceOf(l.importance));
       p.castShadow = l.castShadow === true;
       if (p.castShadow) p.shadow.mapSize.set(capped(POINT_SHADOW_MAP_SIZE), capped(POINT_SHADOW_MAP_SIZE));
       return p;
@@ -273,7 +270,6 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     if (l.type === 'spot') {
       const s = new (layered ? LayeredSpotLight : THREE.SpotLight)(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
       setLightMasks(s, masks);
-      setLightImportance(s, lightImportanceOf(l.importance));
       // Three puts a new SpotLight at (0, 1, 0) (Object3D.DEFAULT_UP); at its entity's origin it shines along `direction`.
       s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];

@@ -26,7 +26,7 @@ import { canonicalSpline, validateSplineComponent, type SplineComponent } from '
 import { canonicalArchitecture, validateArchitectureComponent, type ArchitectureComponent } from './architecture';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
-import { validateLightImportance, validateLocalLightMode, type LightImportance, type LocalLightMode } from './local-lights';
+import { validateLocalLightMode, type LocalLightMode } from './local-lights';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
@@ -407,11 +407,8 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
       errors.push(fieldValue(`${path}/castShadow`, c['castShadow'], 'absent on an ambient light', 'only a directional light casts shadows'));
     }
   }
-  // An importance has no effect on a directional or ambient light (only local lights are shaded per vertex), and
-  // is dropped when the scene is normalized; its value is still checked, as on any light.
-  if (version === 4) validateLightImportance(c['importance'], `${path}/importance`, errors);
   for (const k of Object.keys(c)) {
-    if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask' || k === 'importance')) continue;
+    if (version === 4 && (k === 'mode' || k === 'lightMask' || k === 'shadowCasterMask')) continue;
     if (!KNOWN_LIGHT_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, color, intensity, direction, castShadow, shadowMapSize, shadowBias, shadowNormalBias, shadowExtent'));
   }
 }
@@ -437,10 +434,8 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
   else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask', 'importance'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask', 'importance'];
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask'];
   validateLightMasks(c, type !== 'hemisphere', path, errors);
-  // Whether it is shaded per pixel or per vertex on the objects it lights (local-lights.ts).
-  if (type !== 'hemisphere') validateLightImportance(c['importance'], `${path}/importance`, errors);
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
   }
@@ -1008,7 +1003,6 @@ function canonicalLight(c: unknown): LightComponent {
   // The light layer masks, kept when set (an existing light keeps its exact canonical bytes).
   if (typeof o['lightMask'] === 'number') out.lightMask = o['lightMask'];
   if (typeof o['shadowCasterMask'] === 'number') out.shadowCasterMask = o['shadowCasterMask'];
-  if ((out.type === 'point' || out.type === 'spot') && typeof o['importance'] === 'string') out.importance = o['importance'] as LightImportance;
   return out;
 }
 

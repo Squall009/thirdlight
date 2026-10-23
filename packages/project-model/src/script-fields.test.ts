@@ -82,7 +82,8 @@ describe('script access marks', () => {
   });
 });
 
-const PINNED_V7 = '0c73bda4fa4834e0';
+// Re-pinned for 7 without a bump when a light's importance went (it chose per-vertex shading, which is gone; the load drops it).
+const PINNED_V7 = '122b4a0a71fef3eb';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

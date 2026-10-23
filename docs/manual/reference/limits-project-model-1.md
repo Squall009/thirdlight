@@ -339,7 +339,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-instances-local-lights-default"></a>`INSTANCES_LOCAL_LIGHTS_DEFAULT` | `"pixel"` | The mode of an instance set that sets none (and whose material sets none). Per pixel: measured on this engine's village class with lamps over its scatter, per vertex was no cheaper (scatter far from the camera has about as many vertices as pixels); a set of large, coarse or close foliage opts in. |
 | <a id="limit-max-local-lights"></a>`MAX_LOCAL_LIGHTS` | `16` | Most point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). |
 
 <a id="limits-project-model--manifest"></a>

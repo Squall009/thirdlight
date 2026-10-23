@@ -34,7 +34,7 @@ import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerProbeLighting } from './probe-lighting';
 import { registerProjectedDecals } from './projected-decals';
-import { installLocalLightModes, vertexLightsFromUrl } from './local-lights';
+import { installLocalLightModes } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
 import { setPaintStreamDevice } from './vertex-paint-draw';
@@ -347,8 +347,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerProjectedDecals(r as never);
     // And the screen-space ambient occlusion, a light every lit material takes into its indirect light.
     registerScreenSpaceOcclusion(r as never);
-    // And objects whose local lights are shaded per vertex or not at all (their material's mode variant per draw).
-    installLocalLightModes(r as never, vertexLightsFromUrl(pageSearch()));
+    // And objects that take no local light (their material's mode variant per draw).
+    installLocalLightModes(r as never);
     return r as unknown as NodeRendererLike;
   },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),

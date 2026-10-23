@@ -31,7 +31,7 @@ In full, by area:
 - [Animation: animator controllers](mcp-tools-2.md#tool-tl_command-animation) (`tool.tl_command.animation`)
 - [Input actions and the cursor](mcp-tools-2.md#tool-tl_command-input) (`tool.tl_command.input`)
 - [3D queries and collision layers](mcp-tools-2.md#tool-tl_command-physics-queries) (`tool.tl_command.physics-queries`)
-- [Light layers and per-vertex local lights](mcp-tools-2.md#tool-tl_command-light-layers) (`tool.tl_command.light-layers`)
+- [Light layers and local lights](mcp-tools-2.md#tool-tl_command-light-layers) (`tool.tl_command.light-layers`)
 - [Collider shapes and colliderFromModel](mcp-tools-2.md#tool-tl_command-colliders) (`tool.tl_command.colliders`)
 - [Project saves](mcp-tools-2.md#tool-tl_command-saves) (`tool.tl_command.saves`)
 - [Gameplay blocks: mover, trigger, switch, controller, spawn, audio source](mcp-tools-2.md#tool-tl_command-gameplay-blocks) (`tool.tl_command.gameplay-blocks`)
@@ -44,7 +44,7 @@ In full, by area:
 - [Project UI: documents, widgets, styles, actions](mcp-tools-2.md#tool-tl_command-ui) (`tool.tl_command.ui`)
 - [The game shell](mcp-tools-2.md#tool-tl_command-shell) (`tool.tl_command.shell`)
 - [Dialogue](mcp-tools-2.md#tool-tl_command-dialogue) (`tool.tl_command.dialogue`)
-- [Game modes and behavior groups](mcp-tools-3.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
+- [Game modes and behavior groups](mcp-tools-2.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
 - [Timelines](mcp-tools-3.md#tool-tl_command-timelines) (`tool.tl_command.timelines`)
 - [What it returns](mcp-tools-3.md#tool-tl_command-result) (`tool.tl_command.result`)
 

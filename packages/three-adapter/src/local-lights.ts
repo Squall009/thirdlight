@@ -1,72 +1,38 @@
 /**
- * Local lights per vertex (project-model local-lights.ts has the data rules).
+ * Local lights per object (project-model local-lights.ts has the data rules).
  *
- * three.js shades every point and spot light per pixel on every lit
- * material. Dense foliage pays that for every one of its many small
- * triangles; Unity's "Not Important" lights and Godot's vertex shading
- * evaluate such lights at the vertices instead and interpolate. Here:
+ * three.js shades every point and spot light on every lit material. An
+ * object (or material) in mode `none` takes no local light: a far backdrop,
+ * a sky dome, a look lit by the sun and the sky alone.
  *
  * - **Which build sees which lights.** The renderer's lights node (installed
  *   by `registerProbeLighting`) asks `splitLocalLights` before it builds a
- *   material's lights: per the material build's mode and each light's
- *   importance, a local light is shaded per pixel (three's own light node, as
- *   before), per vertex (summed here), or left out. Per-vertex lights add
- *   their diffuse light (N·L × colour × falloff, at the vertex, interpolated)
- *   to the surface's ambient irradiance — every lighting model (standard,
- *   kit, foliage, water, graph PBR, Custom-lit's Ambient input) takes it
- *   without a hook; there are no highlights and no shadows, as in Unity.
- *   Joined to the ambient light it is darkened by ambient occlusion where a
- *   look has it (as Unity's built-in pipeline adds its vertex lights to the
- *   ambient term), while per-pixel lamps are direct light and are not: a lamp
- *   shaded per vertex is fill light, cheap and soft. The
- *   light's colour uniform still changes every frame (flicker shows) and
- *   carries the light-layer test (light-layers.ts) like a per-pixel light's.
- *   The effect light pool (effect-lights.ts) is a local light too.
+ *   material's lights: a build in mode `none` leaves the local lights (and
+ *   the effect light pool, effect-lights.ts) out; every other build shades
+ *   them per pixel with three's own light nodes.
  * - **Which build an object gets.** A program can't depend on the object
  *   drawn (three keys programs by material, geometry and lights), so an
- *   object whose mode is not per pixel draws with a *mode variant* of its
- *   material: an object made with `Object.create(material)` — it reads every
- *   value of the material through the prototype (a colour, a texture, a
- *   version bump all reach it), carries only its mode and a program key that
- *   says so. `installLocalLightModes` swaps it in for each draw in
+ *   object in mode `none` draws with a *mode variant* of its material: an
+ *   object made with `Object.create(material)` — it reads every value of the
+ *   material through the prototype (a colour, a texture, a version bump all
+ *   reach it), carries only its mode and a program key that says so.
+ *   `installLocalLightModes` swaps it in for each draw in
  *   `renderer.renderObject`; `mesh.material` never changes, so looks,
  *   lightmaps and material swaps keep owning it. Variants of equal materials
- *   share programs (their key is the material's key plus the mode): a mode
- *   adds at most one program per program it modifies, and light layers add
- *   none (they are a per-object uniform), so modes × layers do not multiply.
+ *   share programs (their key is the material's key plus the mode), and
+ *   light layers add none (they are a per-object uniform).
  * - **The default.** An object's `localLights` (`LOCAL_LIGHTS_KEY` in a
- *   drawable's `userData`), else its material's, else
- *   `INSTANCES_LOCAL_LIGHTS_DEFAULT` for an instance set's draws
- *   (`INSTANCE_SET_KEY`) and per pixel for the rest.
+ *   drawable's `userData`), else its material's, else per pixel.
  */
 import * as THREE from 'three/webgpu';
-import * as TSLTyped from 'three/tsl';
-import { INSTANCES_LOCAL_LIGHTS_DEFAULT, lightImportanceOf, localLightModeOf, type LightImportance, type LocalLightMode } from '@thirdlight/runtime';
+import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
 
-import type { N } from './effects-tsl';
-import { INSTANCE_SET_KEY } from './instancing';
-import { isLayeredLight, lightsObject } from './light-layers';
-import { effectLightsVertexIrradiance, setEffectLightsPixelEnd, type EffectLights, type EffectLightsStart } from './effect-lights';
-
-/** TSL untyped: three's typings lag the node API used here. */
-const TSL: N = TSLTyped;
-const { abs, getDistanceAttenuation, max, normalLocal, positionView, renderGroup, smoothstep, transformNormalToView, uniform, varyingProperty, vec3 } = TSL;
+import { type EffectLights } from './effect-lights';
 
 /** `object.userData[LOCAL_LIGHTS_KEY]` / `material.userData[LOCAL_LIGHTS_KEY]`: a set local-light mode. */
 export const LOCAL_LIGHTS_KEY = '__tlLocalLights';
-/** `light.userData[LIGHT_IMPORTANCE_KEY]`: a local light's importance when not auto. */
-export const LIGHT_IMPORTANCE_KEY = '__tlLightImportance';
 /** The own property of a mode variant holding its mode. */
 const VARIANT_MODE = 'tlLocalLightMode';
-
-/** The page flag that shades every local light per pixel (`?vertexLights=off`: modes and importances ignored, a diagnostic comparison). */
-export const VERTEX_LIGHTS_URL_PARAM = 'vertexLights';
-
-/** Whether a page's query string leaves per-vertex lights on (the default) — `vertexLights=off` or `0` turns them off. */
-export function vertexLightsFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(VERTEX_LIGHTS_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 /** Put an object's local-light mode on every mesh under `root` (undefined: not set). Returns whether any changed. */
 export function applyObjectLocalLights(root: THREE.Object3D, mode: LocalLightMode | undefined): boolean {
@@ -91,23 +57,9 @@ export function objectLocalLights(o: THREE.Object3D): LocalLightMode | undefined
   return o.userData[LOCAL_LIGHTS_KEY] as LocalLightMode | undefined;
 }
 
-/** Set (or clear, for auto) a light's importance. */
-export function setLightImportance(light: THREE.Object3D, importance: LightImportance): void {
-  if (importance === 'auto') delete light.userData[LIGHT_IMPORTANCE_KEY];
-  else light.userData[LIGHT_IMPORTANCE_KEY] = importance;
-}
-
-function importanceOf(light: THREE.Object3D | undefined): LightImportance {
-  return light === undefined ? 'auto' : lightImportanceOf(light.userData[LIGHT_IMPORTANCE_KEY]);
-}
-
 /** The mode `object` draws `material` with. */
 export function drawMode(object: THREE.Object3D, material: THREE.Material): LocalLightMode {
-  const own = object.userData[LOCAL_LIGHTS_KEY] as LocalLightMode | undefined;
-  if (own !== undefined) return own;
-  const m = material.userData[LOCAL_LIGHTS_KEY] as LocalLightMode | undefined;
-  if (m !== undefined) return m;
-  return object.userData[INSTANCE_SET_KEY] !== undefined ? INSTANCES_LOCAL_LIGHTS_DEFAULT : 'pixel';
+  return (object.userData[LOCAL_LIGHTS_KEY] as LocalLightMode | undefined) ?? (material.userData[LOCAL_LIGHTS_KEY] as LocalLightMode | undefined) ?? 'pixel';
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -194,9 +146,6 @@ function buildMode(builder: { material?: unknown }): LocalLightMode {
 
 type RenderObjectFn = (object: THREE.Object3D, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, ...rest: unknown[]) => void;
 
-/** Whether vertex lights are on for this renderer (`installLocalLightModes`); off: every build shades per pixel. */
-const enabledRenderers = new WeakSet<object>();
-
 /**
  * `scene.userData[LOCAL_LIGHTS_IGNORED_KEY]`: the scene draws every object
  * with its material as it is, whatever its or the material's mode (the probe
@@ -211,10 +160,7 @@ export const LOCAL_LIGHTS_IGNORED_KEY = 'tlLocalLightsIgnored';
  * have no lights to split; a scene marked {@link LOCAL_LIGHTS_IGNORED_KEY}
  * draws every object per pixel.
  */
-export function installLocalLightModes(renderer: { renderObject: RenderObjectFn }, enabled: boolean): void {
-  if (!enabled) return;
-  enabledRenderers.add(renderer);
-  installVertexLightStage();
+export function installLocalLightModes(renderer: { renderObject: RenderObjectFn }): void {
   const base = renderer.renderObject;
   renderer.renderObject = function renderObjectWithMode(this: unknown, object, scene, camera, geometry, material, ...rest) {
     if (scene.overrideMaterial === null && scene.userData[LOCAL_LIGHTS_IGNORED_KEY] !== true && isLit(material)) {
@@ -235,228 +181,26 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
 // The lights of one build
 
 type LightNodeLike = { readonly light?: THREE.Light; build(builder: unknown): unknown };
-type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean; map?: unknown; colorNode?: unknown };
+type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean };
 
 function isLocal(l: THREE.Light | undefined): boolean {
   const f = l as (THREE.Light & LocalFlags) | undefined;
   return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isEffectLights === true);
 }
 
-/**
- * Whether the light can be shaded per vertex: a projected cookie (a spot
- * light's map or colour node) is a texture read best kept per pixel.
- */
-function canShadePerVertex(l: THREE.Light): boolean {
-  const f = l as THREE.Light & LocalFlags;
-  return !(f.isSpotLight === true && (f.map != null || f.colorNode != null));
-}
-
-/** Whether a build shades `light` per vertex (true), per pixel (false) or not at all (null). */
-function shading(mode: LocalLightMode, light: THREE.Light): boolean | null {
-  if (!isLocal(light)) return false;
-  if (mode === 'none') return null;
-  const imp = importanceOf(light);
-  return (imp === 'auto' ? mode : imp) === 'vertex' && canShadePerVertex(light);
-}
-
 function isPool(l: THREE.Light | undefined): l is EffectLights {
   return (l as (THREE.Light & LocalFlags) | undefined)?.isEffectLights === true;
 }
 
-/**
- * Where a build's per-vertex part of the effect light pool starts (null: no
- * slot per vertex): a per-vertex build shades the auto slots and the forced
- * per-vertex ones per vertex, a per-pixel build only the forced ones — and
- * only when the game has any (else its programs keep no vertex loop).
- */
-function poolVertexStart(mode: LocalLightMode, pool: EffectLights): EffectLightsStart | null {
-  if (mode === 'vertex') return 'pixel';
-  if (mode === 'pixel' && pool.abilities.forcedVertex) return 'auto';
-  return null;
+/** The light nodes a build shades: all of them, or (a build in mode `none`) all but the local lights. */
+export function splitLocalLights<T extends LightNodeLike>(builder: { material?: unknown }, nodes: readonly T[]): T[] {
+  if (buildMode(builder) !== 'none') return [...nodes];
+  return nodes.filter((n) => !isLocal(n.light));
 }
 
-function splitOn(builder: { renderer?: unknown }): boolean {
-  return builder.renderer !== undefined && enabledRenderers.has(builder.renderer as object);
-}
-
-/**
- * How each light node of a build is shaded: the per-pixel ones and the
- * per-vertex ones (the rest are left out). Per-vertex ones count only when
- * the build's vertex stage summed them (`sumVertexLights`).
- */
-export function splitLocalLights<T extends LightNodeLike>(builder: { material?: unknown; renderer?: unknown }, nodes: readonly T[]): { pixel: T[]; vertex: T[] } {
-  if (!splitOn(builder)) return { pixel: [...nodes], vertex: [] };
-  const mode = buildMode(builder);
-  const vertexDone = summed.has(builder);
-  const pixel: T[] = [];
-  const vertex: T[] = [];
-  for (const n of nodes) {
-    if (isPool(n.light)) {
-      // The pool is split by slot ranges (effect-lights.ts): its node shades the per-pixel range, the vertex stage the rest.
-      if (mode === 'none') continue;
-      const from = vertexDone ? poolVertexStart(mode, n.light) : null;
-      if (from !== null) vertex.push(n);
-      setEffectLightsPixelEnd(builder, from ?? 'all');
-      if (from !== 'pixel' || n.light.abilities.forcedPixel) pixel.push(n);
-      continue;
-    }
-    const how = n.light === undefined ? false : shading(mode, n.light);
-    if (how === null) continue;
-    if (how && vertexDone) vertex.push(n);
-    else pixel.push(n);
-  }
-  return { pixel, vertex };
-}
-
-/** The part of a lights node's program key the importances decide (lights shaded per vertex in every build). */
+/** The part of a lights node's program key the effect light pool decides (whether its shaders test layer masks). */
 export function localLightsCacheKey(lights: readonly THREE.Light[]): number {
   let h = 0;
-  for (const l of lights) {
-    if (isPool(l)) {
-      // What the pool's programs must do (layer tests, ranges per vertex or per pixel).
-      const a = l.abilities;
-      const bits = (a.layered ? 1 : 0) | (a.forcedPixel ? 2 : 0) | (a.forcedVertex ? 4 : 0);
-      if (bits !== 0) h = (Math.imul(h, 31) + l.id * 8 + bits) | 0;
-      continue;
-    }
-    const imp = importanceOf(l);
-    if (imp !== 'auto') h = (Math.imul(h, 31) + l.id * 4 + (imp === 'pixel' ? 1 : 2)) | 0;
-  }
+  for (const l of lights) if (isPool(l) && l.abilities.layered) h = (Math.imul(h, 31) + l.id * 8 + 1) | 0;
   return h;
-}
-
-/**
- * A light's values as the vertex stage reads them: uniforms of their own,
- * written from the light every render. Not its per-pixel light node's: that
- * node's colour is swapped for a shadowed one by whichever build set up its
- * shadow last, and it updates only where it is built.
- */
-interface VertexLightUniforms {
-  readonly colour: N;
-  readonly position: N;
-  readonly cutoff: N;
-  readonly decay: N;
-  /** Spot lights: the cone's axis (view space, towards the light) and its cosines. */
-  readonly axis: N;
-  readonly coneCos: N;
-  readonly penumbraCos: N;
-  /** Layered lights: 1 for an object the light lights, else 0 (light-layers.ts), per drawn object. */
-  readonly layer: N | null;
-}
-
-const vertexUniforms = new WeakMap<THREE.Light, VertexLightUniforms>();
-const _p = new THREE.Vector3();
-const _t = new THREE.Vector3();
-
-function vertexUniformsOf(light: THREE.Light): VertexLightUniforms {
-  const seen = vertexUniforms.get(light);
-  if (seen !== undefined) return seen;
-  const l = light as THREE.SpotLight;
-  const u: VertexLightUniforms = {
-    colour: uniform(new THREE.Color()).setGroup(renderGroup).onRenderUpdate((_: unknown, self: { value: THREE.Color }) => {
-      self.value.copy(l.color).multiplyScalar(l.intensity);
-    }),
-    position: uniform(new THREE.Vector3()).setGroup(renderGroup).onRenderUpdate(({ camera }: { camera: THREE.Camera }, self: { value: THREE.Vector3 }) => {
-      self.value.setFromMatrixPosition(l.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
-    }),
-    cutoff: uniform(0).setGroup(renderGroup).onRenderUpdate(() => l.distance),
-    decay: uniform(2).setGroup(renderGroup).onRenderUpdate(() => l.decay),
-    axis: uniform(new THREE.Vector3(0, 1, 0)).setGroup(renderGroup).onRenderUpdate(({ camera }: { camera: THREE.Camera }, self: { value: THREE.Vector3 }) => {
-      if (l.isSpotLight !== true) return;
-      _p.setFromMatrixPosition(l.matrixWorld);
-      _t.setFromMatrixPosition(l.target.matrixWorld);
-      self.value.subVectors(_p, _t).transformDirection(camera.matrixWorldInverse);
-    }),
-    coneCos: uniform(0).setGroup(renderGroup).onRenderUpdate(() => (l.isSpotLight === true ? Math.cos(l.angle) : 0)),
-    penumbraCos: uniform(0).setGroup(renderGroup).onRenderUpdate(() => (l.isSpotLight === true ? Math.cos(l.angle * (1 - l.penumbra)) : 0)),
-    layer: isLayeredLight(light) ? uniform(1).onObjectUpdate(({ object }: { object: THREE.Object3D }) => (lightsObject(light, object) ? 1 : 0)) : null,
-  };
-  vertexUniforms.set(light, u);
-  return u;
-}
-
-/** A point or spot light's diffuse irradiance at a vertex (view space), without its shadow (shadows are per pixel only). */
-function analyticVertexIrradiance(light: THREE.Light, normal: N, position: N, twoSided: boolean): N {
-  const u = vertexUniformsOf(light);
-  const toLight = u.position.sub(position);
-  const distance = toLight.length();
-  const direction = toLight.div(max(distance, 1e-4));
-  let c = u.colour.mul(getDistanceAttenuation({ lightDistance: distance, cutoffDistance: u.cutoff, decayExponent: u.decay }));
-  if ((light as { isSpotLight?: boolean }).isSpotLight === true) c = c.mul(smoothstep(u.coneCos, u.penumbraCos, direction.dot(u.axis)));
-  if (u.layer !== null) c = c.mul(u.layer);
-  const nl = normal.dot(direction);
-  return c.mul(twoSided ? abs(nl) : max(nl, 0));
-}
-
-/** The per-vertex lights' summed irradiance: assigned in the vertex stage, read (interpolated) in the fragment stage. */
-const VERTEX_LIGHTS = varyingProperty('vec3', 'tlVertexLights');
-
-/** Builds whose vertex stage summed their per-vertex lights (the fragment stage reads them only then). */
-const summed = new WeakSet<object>();
-
-/** Record that a build's vertex stage summed its per-vertex lights. */
-export function markVertexLightsSummed(builder: object): void {
-  summed.add(builder);
-}
-
-/**
- * The vertex stage's part: after the vertex position is final (instance
- * columns, skinning, morphs, the material's offset), sum the build's
- * per-vertex lights at the vertex into `VERTEX_LIGHTS`. Statements (the
- * effect light pool loops over the slots in use) can only go in the vertex
- * stage's own flow, which is why this runs here rather than with the lights.
- * Double-sided surfaces (leaves, grass cards) take a light from either side:
- * a vertex can't tell which face the pixel shows. A back-face draw (a
- * transparent double-sided material's first pass, or a back-sided one) is lit
- * from the side it shows.
- */
-function sumVertexLights(builder: N): void {
-  const material = builder.material as THREE.Material | undefined;
-  if (material === undefined || builder.lightsNode == null || !splitOn(builder) || !isLit(material)) return;
-  const mode = buildMode(builder);
-  // The scene's lights (their light nodes are set up with the fragment stage's lighting, later).
-  const lights = (builder.lightsNode.getLights() as THREE.Light[]).filter((l) => (isPool(l) ? mode !== 'none' && poolVertexStart(mode, l) !== null : shading(mode, l) === true));
-  if (lights.length === 0) return;
-  const faces = vertexLightFaces(material.side);
-  const twoSided = faces === 'both';
-  const facing = transformNormalToView(normalLocal).normalize();
-  const normal = (faces === 'back' ? facing.negate() : facing).toVar('tlVertexNormal');
-  const position = positionView.toVar('tlVertexPosition');
-  let total: N = vec3(0);
-  for (const l of lights) {
-    total = total.add(isPool(l) ? effectLightsVertexIrradiance(l, normal, position, twoSided, poolVertexStart(mode, l)!) : analyticVertexIrradiance(l, normal, position, twoSided));
-  }
-  VERTEX_LIGHTS.assign(total);
-  markVertexLightsSummed(builder);
-}
-
-/**
- * Which side of its vertex normals a build's per-vertex light comes from, by
- * `side` as the build draws it: three draws a transparent double-sided
- * material twice, its back faces (side BackSide, a program of its own) then
- * its front faces, and back faces face away from their normals.
- */
-export function vertexLightFaces(side: THREE.Side): 'front' | 'back' | 'both' {
-  return side === THREE.DoubleSide ? 'both' : side === THREE.BackSide ? 'back' : 'front';
-}
-
-let stageInstalled = false;
-
-/** Teach every node material's vertex stage to sum its per-vertex lights (idempotent). */
-function installVertexLightStage(): void {
-  if (stageInstalled) return;
-  stageInstalled = true;
-  const proto = THREE.NodeMaterial.prototype as unknown as { setupPosition(builder: unknown): unknown };
-  const base = proto.setupPosition;
-  proto.setupPosition = function setupPositionWithVertexLights(this: unknown, builder: unknown): unknown {
-    const out = base.call(this, builder);
-    sumVertexLights(builder);
-    return out;
-  };
-}
-
-/** The fragment stage's part: the interpolated per-vertex light joins the surface's ambient irradiance (before the probes take theirs: probes replace only the ambient light they hold). */
-export function buildVertexLights(builder: N, nodes: readonly LightNodeLike[]): void {
-  if (nodes.length === 0 || !summed.has(builder)) return;
-  builder.context.irradiance.addAssign(VERTEX_LIGHTS);
 }

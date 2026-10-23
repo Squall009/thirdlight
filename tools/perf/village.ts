@@ -339,8 +339,8 @@ export async function buildVillage(be: PerfBackend, projectId: string, plan = vi
 
 /**
  * Lamps over the scatter (`node tools/perf/run.mjs village --point-lights N`): N warm point lights 1.5 m up on a ring
- * through the instance sets, reaching 8 m — what local lights over foliage cost (per pixel against per vertex,
- * with `--switches vertexLights=off`). Not part of the class (its baseline has none).
+ * through the instance sets, reaching 8 m — what local lights over foliage cost. Not part of the class (its
+ * baseline has none).
  */
 export async function addVillageLamps(be: PerfBackend, projectId: string, n: number): Promise<void> {
   const p = be.project(projectId);

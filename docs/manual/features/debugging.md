@@ -142,8 +142,7 @@ player may change:
   existing game keeps its look; new
   projects (empty or from a template) are made with SSAO written into their
   settings. It darkens only the *indirect* light — ambient, sky and probe
-  light, reflections, and local lights shaded per vertex (they join the
-  ambient light) — in creases and corners; the sun and per-pixel lamps are
+  light, reflections — in creases and corners; the sun and per-pixel lamps are
   never dimmed. With AO off (the look, a quality level or the setting) no
   lit pixel samples the occlusion; turning it on or off while a game runs
   builds the lit shaders again on the next frame (a short hitch, as a shadow

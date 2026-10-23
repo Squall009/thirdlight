@@ -41,7 +41,6 @@ A light: directional (the sun), ambient, point, spot or hemisphere (sky and grou
 | `mode` | enum: `realtime`, `baked`, `mixed` | `"realtime"` |  | **Mode.** Realtime, baked into lightmaps, or both (mixed). (stored only when not the default; scripts read) |
 | `lightMask` | int (light layer mask) | `255` | 0 – 255, step 1 | **Light mask.** The light layers it lights: an object is lit only when it is in one of them. (stored only when not the default; scripts read and write) |
 | `shadowCasterMask` | int (light layer mask) | `255` | 0 – 255, step 1 | **Shadow caster mask.** Only objects in one of these light layers cast its shadow. (applies when `type` is `directional` or `point` or `spot`; stored only when not the default; scripts read and write) |
-| `importance` | enum: `auto`, `pixel`, `vertex` | `"auto"` |  | **Importance.** Auto: as each lit object says; or always per pixel (a hero light) or per vertex (a cheap fill). (applies when `type` is `point` or `spot`; stored only when not the default; scripts read; choices: `auto` = Auto, `pixel` = Per pixel, `vertex` = Per vertex) |
 
 Scene-view handles:
 

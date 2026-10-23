@@ -24,7 +24,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import { billboardAxes, EFFECT_LIGHT_LIMIT, flipbookFrame, flipbookRect, lightParticles, ribbonOrder, type CompiledNode, type SystemState } from '@thirdlight/effects';
-import { LIGHT_LAYERS_ALL, lightImportanceOf, lightLayerMaskOf, type LightImportance } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 
 import { EffectLights, EffectLightSlot } from './effect-lights';
 import type { GpuSystem } from './effects-gpu';
@@ -638,15 +638,12 @@ export { EFFECT_LIGHT_LIMIT };
 export class LightPool {
   private group: EffectLights | null = null;
   private used = 0;
-  /** This frame's lights in the order taken; `end` writes them to the pool's slots in importance order. */
-  private readonly taken: EffectLightSlot[] = Array.from({ length: EFFECT_LIGHT_LIMIT }, () => new EffectLightSlot());
   constructor(private readonly scene: THREE.Object3D) {}
   /**
    * Add the pool to the scene (once), able to shade what `defs`' light
-   * outputs ask for (layer masks, forced importances). A later call with
-   * definitions asking for more widens the abilities: the lit programs are
-   * built again once (an edit in the editor; a game's definitions are known
-   * before its first frame).
+   * outputs ask for (layer masks). A later call with definitions asking for
+   * more widens the abilities: the lit programs are built again once (an edit
+   * in the editor; a game's definitions are known before its first frame).
    */
   reserve(defs: readonly EffectLightDefLike[] = []): void {
     if (this.group === null) {
@@ -656,10 +653,7 @@ export class LightPool {
     const a = this.group.abilities;
     for (const d of defs) for (const s of d.systems) for (const n of s.graph.nodes) {
       if (n.type !== 'output.light') continue;
-      const { mask, importance } = lightOutputSettings(n.data ?? {});
-      if (mask !== LIGHT_LAYERS_ALL) a.layered = true;
-      if (importance === 'pixel') a.forcedPixel = true;
-      if (importance === 'vertex') a.forcedVertex = true;
+      if (lightOutputSettings(n.data ?? {}).mask !== LIGHT_LAYERS_ALL) a.layered = true;
     }
   }
   /** The pool's object in the scene (null before `reserve`). */
@@ -672,34 +666,13 @@ export class LightPool {
   /** The next free slot (null when the pool is used up, or was never reserved: adding it now would rebuild the shaders). */
   take(): EffectLightSlot | null {
     if (this.group === null || this.used >= this.group.slots.length) return null;
-    const l = this.taken[this.used]!;
+    const l = this.group.slots[this.used]!;
     l.mask = LIGHT_LAYERS_ALL;
-    l.importance = 'auto';
     this.used += 1;
     return l;
   }
   end(): void {
-    const g = this.group;
-    if (g === null) return;
-    // Forced per pixel, auto, forced per vertex: each build shades contiguous ranges (effect-lights.ts).
-    let n = 0;
-    for (const imp of IMPORTANCE_ORDER) {
-      for (let i = 0; i < this.used; i++) {
-        const t = this.taken[i]!;
-        if (t.importance !== imp) continue;
-        const s = g.slots[n++]!;
-        s.position.copy(t.position);
-        s.color.copy(t.color);
-        s.intensity = t.intensity;
-        s.distance = t.distance;
-        s.decay = t.decay;
-        s.mask = t.mask;
-        s.importance = t.importance;
-      }
-      if (imp === 'pixel') g.pixelEnd = n;
-      else if (imp === 'auto') g.autoEnd = n;
-    }
-    g.count = n;
+    if (this.group !== null) this.group.count = this.used;
   }
   get active(): number {
     return this.used;
@@ -716,18 +689,15 @@ export class LightPool {
   }
 }
 
-/** Slot order in the pool. */
-const IMPORTANCE_ORDER: readonly LightImportance[] = ['pixel', 'auto', 'vertex'];
-
 /** What the pool needs of an effect definition (project-model `EffectDef`). */
 export interface EffectLightDefLike {
   readonly systems: readonly { readonly graph: { readonly nodes: readonly { readonly type: string; readonly data?: Readonly<Record<string, unknown>> }[] } }[];
 }
 
-/** A Lights output's layer mask and importance (absent or invalid fields: every layer, auto). */
-export function lightOutputSettings(fields: Readonly<Record<string, unknown>>): { mask: number; importance: LightImportance } {
+/** A Lights output's layer mask (absent or invalid: every layer). */
+export function lightOutputSettings(fields: Readonly<Record<string, unknown>>): { mask: number } {
   const m = fields['lightMask'];
-  return { mask: lightLayerMaskOf(typeof m === 'number' ? Math.round(m) : m), importance: lightImportanceOf(fields['importance']) };
+  return { mask: lightLayerMaskOf(typeof m === 'number' ? Math.round(m) : m) };
 }
 
 /** Lights (CPU particles): the oldest living particles, up to the block's max, coloured by the particle. */
@@ -735,9 +705,8 @@ class LightRenderer implements OutputRenderer {
   readonly object = null;
   readonly sorted = false;
   private readonly mask: number;
-  private readonly importance: LightImportance;
   constructor(private readonly sys: SystemState, private readonly block: CompiledNode, private readonly pool: LightPool) {
-    ({ mask: this.mask, importance: this.importance } = lightOutputSettings(block.fields));
+    ({ mask: this.mask } = lightOutputSettings(block.fields));
   }
   update(frame: FrameInfo): void {
     // A light in no layer lights nothing: it takes no slot.
@@ -756,7 +725,6 @@ class LightRenderer implements OutputRenderer {
       l.intensity = intensity * s.color[i * 4 + 3]!;
       l.distance = range;
       l.mask = this.mask;
-      l.importance = this.importance;
     }
   }
   dispose(): void {}

@@ -164,7 +164,6 @@ on an export's URL they apply directly):
   switch; also a play's `threads` and the `sim_thread` setting);
 - `?frameRateCap=none|30|60|120` — pins the frame-rate cap;
 - `?probes=off` — draws without the probe grids (the flat ambient light);
-- `?vertexLights=off` — every local light per pixel;
 - `?paint=off` — draws without vertex paint (models, instance copies,
   generated walls and roads as if unpainted);
 - `?seethrough=on|off` — see-through round the camera's target on or off

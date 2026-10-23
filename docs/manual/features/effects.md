@@ -182,11 +182,10 @@ block in the Scene view adds them then, once). Past 16 lit particles the
 rest give no light. A *Lights* block has **Light layers (mask)** (bit n is
 layer n + 1; 255, the default, every layer: its lights light only objects
 in those layers, as a scene light's mask; 0 lights nothing and takes no
-slot) and **Importance** (Auto, Per pixel or Per vertex, as a scene point
-light's — see [Local lights per pixel or per vertex](lighting.md#local-lights-per-pixel-or-per-vertex)). A game whose effect
-lights all light every layer at auto importance needs no extra programs;
-one with a narrower mask or a forced importance builds the lit programs
-with the test or range once, before its first frame. A frame longer than
+slot); its lights are shaded per pixel, as a scene point light's (see
+[Local lights per object](lighting.md#local-lights-per-object)). A game whose effect
+lights all light every layer needs no extra programs; one with a narrower
+mask builds the lit programs with the test once, before its first frame. A frame longer than
 1/30 s is split into up to four steps.
 *Collide with scene (depth)* is honoured on WebGPU only (the depth of the
 last frame the player drew); *Soft particles* fade against the scene depth

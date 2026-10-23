@@ -61,6 +61,7 @@ import {
   upgradeSceneEnvironments,
   upgradeSceneModel,
   upgradeAudioAssets,
+  upgradeVertexLocalLights,
   canonicalLoadable,
   type LoadableEntry,
   upgradeProjectDocsV24,
@@ -485,6 +486,16 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     const note = `${audio.upgraded.length} audio asset record${audio.upgraded.length === 1 ? '' : 's'} took the one audio kind (ids kept): ${audio.upgraded.slice(0, 8).join(', ')}${audio.upgraded.length > 8 ? ', …' : ''}`;
     upgraded = { ...(upgraded ?? { notes: [] }), documents: true };
     upgraded.notes = [...upgraded.notes, note];
+  }
+  // Local lights per vertex are gone: what was shaded so is shaded per pixel (one note, the count).
+  const vertexLights = upgradeVertexLocalLights(contentDoc, docs);
+  if (vertexLights.changed) {
+    contentDoc = vertexLights.content;
+    docs = vertexLights.scenes;
+    upgraded = { ...(upgraded ?? { notes: [] }), documents: true };
+    if (vertexLights.upgraded > 0) {
+      upgraded.notes = [...upgraded.notes, `${vertexLights.upgraded} local-light setting${vertexLights.upgraded === 1 ? '' : 's'} (objects, materials, lights) shaded per vertex now shade per pixel: per-vertex local lighting was removed (it was not cheaper)`];
+    }
   }
   // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
   if (isUpgradedProjectSchemaVersion(fromVersion) && fromVersion !== PROJECT_SCHEMA_VERSION_PROJECT_LOOK) {

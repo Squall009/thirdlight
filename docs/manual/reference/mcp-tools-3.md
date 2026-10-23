@@ -1,13 +1,8 @@
-# MCP tools (part 3, from tl_command: Game modes and behavior groups)
+# MCP tools (part 3, from tl_command: Timelines)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 What each tool of the MCP server takes and returns. The descriptions an agent sees in `tools/list` are short summaries pointing here; read a tool with `tl_docs {topic: "tool.<name>"}` and an area of `tl_command` with `tool.tl_command.<area>`. Op argument shapes are on [Command ops](ops.md); component fields on the component pages.
-
-<a id="tool-tl_command-game-modes"></a>
-### `tl_command`: Game modes and behavior groups
-
-Game modes: setModes {modes: [{modeId, name, inputMaps? (gameplay|ui|input.maps names; absent: every map — actions of other maps read as released), camera? (a virtualCamera object, live over priorities while the mode is), ui? (uiDocumentIds shown while active), groups? (behavior groups that tick; absent: all), ungrouped?: tick|pause, pause? (engine pause allowed, default true), pauseScreen? (uiDocumentId drawn while paused; absent: the engine panel), timeScale? (0.1-4), physics?: run|hold, enter? {blend?: cut|linear|eased, blendTime?, fade? (uiDocumentId shown for fadeTime s), fadeTime?}}]} replaces the whole list (the first is the start mode; ≤ 16); setBehaviorGroups {groups: [names]}; an object joins a group with setComponent behaviorGroup {group}; setInput input.maps [names] adds project input maps. A UI action {do: "mode", mode} switches from a button. Scripts: ctx.modes.current/previous/is/switch(id, {blend?, blendTime?, fade?, fadeTime?})/events()/entered(id?)/exited(id?)/time() (a switch applies at the next step; enter/exit events in that step); ctx.lifecycle.respawn(spawnId?)/setSpawn/spawnPoint (restart() is deprecated: ctx.scenes.reload(sceneId) puts a scene back as authored - its copies gone, its scripts started over, its sounds stopped; kept objects, ctx.save and counters stay). tl_game_observe reports mode {current, previous, since, pending, pause, inputMaps, timeScale, physics, modes} and paused.
 
 <a id="tool-tl_command-timelines"></a>
 ### `tl_command`: Timelines
