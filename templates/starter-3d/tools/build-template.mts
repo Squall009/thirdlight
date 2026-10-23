@@ -1,7 +1,7 @@
 /**
  * The 3D starter template: 3D physics, the starter's character with the
- * controller on a spawn point, a follow / orbit camera, a sun and a gradient
- * sky, a ground block layer on the Basic Kit, and a small terrain beside it
+ * controller on a spawn point, a follow / orbit camera, a sun and the
+ * physical sky, a ground block layer on the Basic Kit, and a small terrain beside it
  * wearing a layered ground material (grass, soil, rock by slope). No game
  * rules.
  *
@@ -141,7 +141,7 @@ function captureBase(): string {
     },
   });
   run(author, 'createEntity', { kind: 'group', name: 'Spawn', transform: T(0, 0.91, 0), components: { playerSpawn: {} } });
-  // The sun: the gradient sky's light, low enough for long shadows across the blocks.
+  // The sun: the sky's light (the physical sky draws its sun opposite it), low enough for long shadows across the blocks.
   run(author, 'createEntity', { kind: 'group', name: 'Sun', transform: T(0, 20, 0), components: { light: { type: 'directional', color: '#fff1dc', intensity: 2.2, direction: [-0.45, -0.75, -0.5], castShadow: true } } });
   run(author, 'createEntity', { kind: 'group', name: 'Sky fill', transform: T(0, 0, 0), components: { light: { type: 'ambient', color: '#9fb4d8', intensity: 0.35 } } });
   capture(author, ROOT, 'templates/starter-3d/tools/build-template.mts', IMPORTED_AT);
@@ -156,13 +156,13 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
   const half = n / 2;
   const cell = (block: string): Record<string, unknown> => ({ block });
   return [
-    // A day sky: blue overhead, pale at the horizon, the ground's colour below it.
+    // The physical sky every new project starts with; its lighting kept low beside the sun and the fill, and a light haze.
     {
       op: 'setEnvironment',
       args: {
         sceneId: 'scene-main',
         environment: {
-          sky: { mode: 'gradient', topColor: '#2f63b0', horizonColor: '#9fbfe3', bottomColor: '#6d7563', environmentIntensity: 0.6 },
+          sky: { mode: 'procedural', environmentIntensity: 0.1 },
           fog: { mode: 'exp2', color: '#9fbfe3', density: 0.0015 },
         },
       },

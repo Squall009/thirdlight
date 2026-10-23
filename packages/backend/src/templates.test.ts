@@ -271,8 +271,8 @@ describe('the 3D starter', () => {
     expect(named('Follow camera').components['virtualCamera']).toMatchObject({ rig: 'follow', target: named('Player').id });
     expect(named('Player').components['animator']).toBeDefined();
     expect(named('Spawn').components['playerSpawn']).toBeDefined();
-    // The scene's look: a gradient sky (never black above the horizon).
-    expect((read.read.scenes?.[0] as { environment?: { sky?: { mode: string } } } | undefined)?.environment?.sky?.mode).toBe('gradient');
+    // The scene's look: the physical sky every new project starts with (never black above the horizon).
+    expect((read.read.scenes?.[0] as { environment?: { sky?: { mode: string } } } | undefined)?.environment?.sky?.mode).toBe('procedural');
     // The ground blocks hold cells.
     const blocks = (read.read.scene as unknown as { blocks?: { entityId: string; chunks?: unknown[] }[] }).blocks ?? [];
     expect(blocks.find((b) => b.entityId === named('Ground blocks').id)?.chunks?.length ?? 0).toBeGreaterThan(0);

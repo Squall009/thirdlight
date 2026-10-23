@@ -96,11 +96,8 @@
     "sceneId": "scene-main",
     "environment": {
      "sky": {
-      "mode": "gradient",
-      "topColor": "#2f63b0",
-      "horizonColor": "#9fbfe3",
-      "bottomColor": "#6d7563",
-      "environmentIntensity": 0.6
+      "mode": "procedural",
+      "environmentIntensity": 0.1
      },
      "fog": {
       "mode": "exp2",

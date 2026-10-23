@@ -12,7 +12,8 @@ Two documents hold the look:
   Each scene has its own; the **active** scene's applies (the first start
   scene, unless the game makes another active). A new project's first scene
   (an empty project's, the 2D starter's) starts with the physical sky at its
-  defaults; the 3D starter's sets a day gradient and fog. A scene without a
+  defaults; the 3D starter's has the physical sky too, with its sky lighting
+  turned down to 0.1 beside the sun and fill light, and a light fog. A scene without a
   sky shows a black background.
 - **The project's environment** — the presets every scene can switch to,
   and the quality levels.
