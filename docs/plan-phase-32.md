@@ -54,32 +54,37 @@ No game has asked for decals; nothing here is fitted to one game.
   cost (overlaps a pixel pays for, decal texture memory, transient decals in
   view) are fine, each defined once in the package that owns it.
 
-Defaults this plan chooses, owner to confirm (repeated in §7):
+Defaults this plan chooses, owner to confirm (**all confirmed by the owner 2026-10-22**) (repeated in §7):
 
 - **Default chosen, owner to confirm:** projected decals are found per pixel
   through a world-space grid index (the `probe-index.ts` pattern), not a
   per-frame screen-cluster build and not a per-draw list. Batches and merged
   cells span many objects, so a per-draw list would be the union of all
   their decals.
+  **Confirmed by the owner 2026-10-22.**
 - **Default chosen, owner to confirm:** mesh and clipped decals blend their
   own lit colour over the surface (`blend`, `multiply` for stains, `add` for
   glow). Per-channel blending (normal only, roughness only: wet patches,
   scratches) is for projected decals. A forward renderer can't blend a
   normal into a surface that is already lit (Unreal's mobile forward path
   likewise applies only base colour and emissive to the lit colour, §3).
+  **Confirmed by the owner 2026-10-22.**
 - **Default chosen, owner to confirm:** clipped decals store the projector,
   not the triangles. Their mesh is clipped at load from the receivers'
   current geometry (on a worker, cached by a hash of the inputs), as
   generated architecture is. A "Bake to model" action writes a GLB for hand
   editing.
+  **Confirmed by the owner 2026-10-22.**
 - **Default chosen, owner to confirm:** vertex paint is a separate 4-byte
   stream (`tlPaint`). Absent, it reads (0, 0, 0, 0): no change. It never
   replaces a model's own `COLOR_0`. Generated meshes keep paint in path
   space (distance along the path × height or width), so it survives
   regeneration.
+  **Confirmed by the owner 2026-10-22.**
 - **Default chosen, owner to confirm:** receivers carry a `decalLayers` mask
   (8 layers, absent = all; HDRP decal layers, Godot `cull_mask`). Skinned
   meshes default to none: a world projector does not follow skin.
+  **Confirmed by the owner 2026-10-22.**
 
 ## 2. Where things stand (checked at `a4e4a7fa`, 2026-10-09)
 
@@ -305,7 +310,7 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
 - 2026-10-09: planned from the owner's scope (roadmap row 32, 2026-09-29;
   2026-10-03 and 2026-10-06 notes). Decals moved from phase 30 to 32 on
   2026-10-03. Scene depth was built in 30.14. E63 part 3 is 32.2.
-- 2026-10-09 (projected decals, default chosen, owner to confirm): evaluated
+- 2026-10-09 (projected decals, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): evaluated
   in the receiving material (Godot clustered style, HDRP's path for
   transparent receivers), not as screen-space boxes (URP Screen Space) and
   not with a decal buffer (Unreal and URP DBuffer).
@@ -317,7 +322,7 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - In the material, each decal costs only the pixels under it. Light,
     probes, rooms and shadows stay the receiver's own. Transparent surfaces
     receive decals too.
-- 2026-10-09 (decal index, default chosen, owner to confirm): a world-space
+- 2026-10-09 (decal index, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): a world-space
   grid built on change, not a per-frame camera-cluster build and not
   per-draw lists.
   - Static decals cost no main-thread work per frame.
@@ -327,41 +332,41 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
     list has an overlap budget (`DECAL_CELL_BUDGET`, project-model limits);
     past it, the lowest sort order drops and is reported. That is a cost
     budget per pixel, not a cap on decals in a project.
-- 2026-10-09 (mesh decals, default chosen, owner to confirm): they blend
+- 2026-10-09 (mesh decals, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): they blend
   their own lit colour (`blend`, `multiply`, `add`). Per-channel blending is
   projected decals' only. `*_decal` glTF material names map to a decal
   material on import (a game may rename; the mapping is the asset's
   data).
-- 2026-10-09 (depth offset, default chosen, owner to confirm): a view-space
+- 2026-10-09 (depth offset, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): a view-space
   push in the vertex stage, plus one fixed `polygonOffset` on standard depth.
   Per-material offsets would make one WebGPU pipeline each. Slope offsets
   don't reach a logarithmic depth buffer, which writes depth per fragment.
-- 2026-10-09 (clipped decals, default chosen, owner to confirm): parameters
+- 2026-10-09 (clipped decals, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): parameters
   are stored and the mesh is made at load, as with generated architecture.
   A stored mesh would go stale whenever a chunk re-meshes or a wall
   regenerates. Bake to model is the way out for hand editing. Terrain takes
   projected decals only. Our own clipper, not three's `DecalGeometry` (§2:
   one mesh, objects per vertex, no index, tangents or angle rejection).
-- 2026-10-09 (decal textures, default chosen, owner to confirm): decal pages
+- 2026-10-09 (decal textures, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**; the opacity question went to the art-factory owner as a note: decal sheets use alpha as opacity): decal pages
   (texture arrays of rectangles). Trim sheets' decal cells are the
   first source, so a level restyled by swapping a sheet also swaps its
   decals. Whether trim decal cells carry opacity (an alpha channel or a mask)
   is a Texture Designer question for the art-factory owner. Until then a
   cell without opacity uses its albedo's alpha, or 1.
-- 2026-10-09 (vertex paint, default chosen, owner to confirm): a separate
+- 2026-10-09 (vertex paint, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): a separate
   `tlPaint` stream, 4 bytes a vertex, read by graph materials (`vertexColor`
   set `paint`), trim (grime, wetness), height blend (weights) and an optional
   standard tint. It never overwrites a model's `COLOR_0`, which is wind for
   foliage and AO for trim. Paint on generated meshes is path-space, so it
   survives regeneration. A changed model leaves the paint unused and
   reported; carrying it over by nearest position is a follow-up if games ask.
-- 2026-10-09 (receivers, default chosen, owner to confirm): `decalLayers`,
+- 2026-10-09 (receivers, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): `decalLayers`,
   8 layers, absent = all. Skinned meshes default to none: a world-space
   projector slides over a moving skin. Characters that want marks use mesh
   decals parented to a bone.
 - 2026-10-10 (releases): three.js 0.186.1 is still the latest (GitHub r186 of 2026-09-24); no update. `@dimforge/rapier3d` 0.21.0 exists; the pinned 0.20.0 stays, because nothing in this phase depends on it. Its upgrade is a later item's job.
 - 2026-10-10 (32.13): "the limits and budgets in `docs/deployment.md`" now means the manual. Since phase 31, deployment.md covers only the server. The limits go to `docs/manual/features/decals.md`, `vertex-paint.md` and the manual's limits guide.
-- 2026-10-10 (measure-first switches, default chosen, owner to confirm):
+- 2026-10-10 (measure-first switches, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - The switches mark the area inside every outdoor class (area, landscape, world). The interior refuses them.
   - The area class has no generated architecture, so its decals go on the ground, the block walls (both faces of every room wall, door gaps kept clear) and the props. Projected and clipped decals split 50/30/20 between those three; mesh decals split 60/40 between ground and walls (they are flat).
   - Decals on generated walls are measured in the interior class: 32.6 and 32.8 extend the placement to its outlines.
@@ -371,15 +376,15 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - A kind the engine can't draw yet stops the build with the part it waits for (`--decals`, `--clipped-decals`, and `--painted` past the 300 props). It is never measured as something else.
   - Mesh decals are measured with a stand-in: quads with one blended standard material (`mat-level-mark`), lifted 3 cm off the surface. Today every one is its own draw, because the batcher takes no transparent mesh. That is the "before" 32.5 replaces.
   - Painted props are measured with a stand-in: their files' twins, with a normalised 4-byte `COLOR_0` that no material reads. That gives the memory and vertex layout of a paint stream, not its look. 32.10/32.11 replace both stand-ins with the real thing.
-- 2026-10-10 (specular, default chosen, owner to confirm): the ports are appended to the `pbr` output, defaults 1 and white (the standard surface's F0 0.04). Only a wired port switches the material to three's physical model, so no existing graph changes its program. Nothing maps a model file's `KHR_materials_specular` into a graph automatically: a graph replaces the file's material, so the game wires the values it wants (constants or parameters), as for every other channel. The manual's material-graph page and guide say so.
-- 2026-10-10 (decal data, default chosen, owner to confirm):
+- 2026-10-10 (specular, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): the ports are appended to the `pbr` output, defaults 1 and white (the standard surface's F0 0.04). Only a wired port switches the material to three's physical model, so no existing graph changes its program. Nothing maps a model file's `KHR_materials_specular` into a graph automatically: a graph replaces the file's material, so the game wires the values it wants (constants or parameters), as for every other channel. The manual's material-graph page and guide say so.
+- 2026-10-10 (decal data, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - A decal box is centred on its object and projects along −Z, its image in the XY plane (+Y up); defaults 1 m cube, `normalFade` 90° (faded over the last fifth of the angle), `edgeFade` 0.3 at each end (Godot's), no distance fade, sort order 0, every layer. `fadeDistance` fades over its last fifth, like the foliage wind distance.
   - A decal may sit on any object (no exclusions): a mark on a prop can travel with it. Not in the prefab vocabulary yet: 32.6 (spawned decals) adds it with the transient budget.
   - Decal layers have no project names (light layers do): the Inspector shows "Layer 1–8". Receivers may take 0 (no projected decal); a decal marks at least one layer. A skinned model's absent mask is none, so its field stores every layer when set (no omitted default); the Inspector shows its unset mask as every layer, which is wrong for a skinned model until the Inspector knows the model is skinned (32.9 or later).
   - A decal material draws its own textures or one trim sheet cell, not both (refused); an instance uses its root's cell and may change params only. Factors follow glTF: roughness 1 and metalness 0 multiply the ORM.
   - Trim cells are `{name, rect: [x, y, w, h]}` in pixels from the image's top-left (the Texture Designer's `px_rect`), checked inside the sheet and unique; not checked against the rows (the designer keeps them in their own band). An empty list is not stored, so sheets without cells keep their bytes.
   - Until 32.5 draws mesh decals, a mesh wearing a decal material draws it as a plain see-through surface (no depth write, its own textures, tint and opacity); the manual says so.
-- 2026-10-10 (decal textures, default chosen, owner to confirm):
+- 2026-10-10 (decal textures, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - Pages are UASTC in every set, sRGB for albedo. ETC1S layers cannot be joined into an array (each file has its own codebook), so a page as it is needs a UASTC texture with a full chain; an ETC1S or PNG sheet is copied onto a page and encoded once, from its PNG original when the backend knows it (else transcoded, a second lossy generation, reported per texture). GPU memory is the same either way (1 B a texel as BC7/ASTC).
   - One page size per build: the largest image, rounded up to a power of two, at least 256. Composed pages are at most 2048² (the encoder's 12 Mpix); a larger image is copied at a reduced size and the build says so. Copied rectangles: 8 px gutter repeating the edge, padded box aligned to 16 px; each decal's mip cap is the deepest level whose bilinear reads stay in its box (pages clamp at their edges). A sheet cell on a sheet the page size uses the sheet's padding as its gutter, never past halfway to a neighbouring cell or into a row's padding.
   - ORM + emissive mask: the mask is the largest of the emissive map's R, G and B (a coloured sign keeps its shape), else the ORM's alpha; the glow's colour is the material's `emissive` × `emissiveIntensity`.
@@ -387,7 +392,7 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - No decal page budget of its own: pages count against the project's texture budget like every texture that does not stream. A set is split into several arrays only when one would pass the join limit (256 MiB level 0, 256 layers).
   - Pages are held per decal entity (a projected decal has no mesh), streamed with their scenes through the resource manager, and uploaded with `initTexture` as they arrive. Until 32.5 draws from the pages, Play and the export also keep a decal material's own textures (the interim see-through surface draws them); 32.5 drops them from the runtime material.
   - A skinned model's absent decal layers show as none in the Inspector: the editor reads `skins` from the model's GLB with its node names.
-- 2026-10-10 (mesh decals, default chosen, owner to confirm):
+- 2026-10-10 (mesh decals, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - The push is 2 mm or 1 mm per metre of distance along the view ray (at most half the distance), applied to the object-space position before the view position, so the clip position and the logarithmic depth follow it; a standard depth buffer adds one polygon offset (−1, −1) for every decal (one pipeline state). Without the push a decal exactly in a floor's face is not drawn at all (checked in the e2e). An object within the push of a surface may show through a far decal (8 cm at 80 m).
   - A mesh decal's sort order is its material's `sortOrder` param (new, absent = 0) or a graph's `decalSortOrder` field: one draw has one order, and a mesh has no decal component to carry one. Render order = −4000 + sort order (all below other transparent surfaces' 0). The merge key gains the order, so the "indices follow sort order inside a cell" part of the row is met by construction (one order per cell draw); 32.8's clipped decals add their component's order the same way.
   - `multiply` draws unlit (a basic node material; colour = mix(white, albedo × tint, alpha × opacity), blend dst × src, the scene pass's alpha kept) and without fog (fog over a stain would multiply the fog colour into the surface); a fogged far stain stays full strength — follow-up if a game sees it.
@@ -397,7 +402,7 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - "On import, `*_decal` maps to a decal material by default" is done as a runtime rule, not import data: a model file's material named `*_decal` (any case) draws as a decal with the file's own textures unless the asset or object maps it to another material. No import step writes a mapping, so files and old projects keep their bytes.
   - Mesh decals take the screen-space AO (they lie on the surface the AO history saw); other transparent surfaces still do not.
   - A mesh decal's material holds its page arrays itself and uploads them with its first frame; `renderer.decals` and `data-tl-decal-pages` count only the decal component's holds (32.6 may fold both).
-- 2026-10-11 (projected decals, part A, default chosen, owner to confirm):
+- 2026-10-11 (projected decals, part A, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - The world grid is a **sparse hash grid**, not the probe index's dense one: only cells that list a decal are stored (a slot per cell in a table at most a quarter full, then each list). A level's decals are spread over kilometres while each stays a metre wide; a dense grid over that spread needs cells so coarse that a pixel walks, and the overlap budget counts, decals nowhere near it (the first build here: 130,000 cells, 2 MiB for 7 decals; hashed: 39 cells, 32 KiB). Cells are the decals' median extent, doubled while the decals would reach into more than 16 cells each on average.
   - **Only reached draws change program:** a draw wears its material's decal variant when its world bounds meet a decal's box and share a decal layer (tested on the CPU per draw, kept per object until it or the decals move). Every other draw, and every scene without projected decals, keeps its program. Variants of equal materials share a program; one program per material whatever the decals' count, sizes and images.
   - **A channel without an image is left alone:** a decal changes normal, occlusion and emission only where its material has the image, roughness and metalness also where the material sets the value; so a colour stain keeps the surface's normal map and roughness. The receiving programs build only the channels some decal in the scene changes; the per-pixel layer test is built only while some decal marks fewer than every layer (else the CPU reach test is enough).
@@ -405,20 +410,20 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - **The Scene view** has no build pages: it draws each decal material's own textures (or its sheet cell) into 512² array layers of its own (`decal-view-pages.ts`), so it reads them with the same program as Play.
   - **Moving decals** are followed already (a moved decal rebuilds the whole table and grid that frame); only-its-cells re-indexing, the transient budget and the `decal_overlap` problem are part B. Overlap drops are counted now (`renderer.projectedDecals.dropped`), not in `renderer.decals` (that stays the pages' count).
   - The overlap budget is 16 decals a cell (`DECAL_CELL_BUDGET`, project-model).
-- 2026-10-11 (projected decals, part B, default chosen, owner to confirm):
+- 2026-10-11 (projected decals, part B, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **Spawned decals are presentation requests, not entities:** `ctx.decals.spawn(prefabId, …)` resolves the prefab's decal in the runtime and sends it to the page with the effect requests' path (worker → page), so nothing enters the simulation, its saves or its digests, and a replay is the same with or without a renderer. A prefab may carry `decal` (the prefab vocabulary gains it): `ctx.spawn` of such a prefab is an ordinary decal object (it counts as authored, not transient).
   - **The transient budget counts spawned decals alive**, not those in view: 256 (`DECAL_TRANSIENT_BUDGET`); past it the oldest starts fading (1 s), so at most the budget plus those fading draw. A spawn is never refused for it; the per-step cap is the effects' 32, now one constant for both (`PRESENTATION_REQUESTS_PER_STEP`).
   - Spawn options: position, normal (absent: up), angle about it, scale, lifetime (s; it fades over its last second), entityId (stuck to that object, gone with it). A run restart clears spawned decals (effects still do not, D234).
   - The `decal_overlap` problem is said once per Play, the first time a cell drops a decal.
   - The index changes in place; the table and index are one texture, uploaded whole when anything changed (three r186 has no partial texture upload; 368 KiB for 200 decals).
-- 2026-10-11 (clipper, default chosen, owner to confirm):
+- 2026-10-11 (clipper, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **Receivers are given, not found:** the clipper takes typed arrays and matrices (models' base pose, block chunk parts, architecture chunk meshes, spline pieces); which receivers a box reaches and their geometry hashes are 32.8's (the worker that has the meshes). Interleaved buffers are split by the caller.
   - **Output is in the decal entity's space** (the box's units), so a clipped mesh is the entity's child and a dynamic one follows its parent without re-clipping. UVs default to 0–1 (the mesh decal material maps its uv into the page rectangle itself); a page rect may be passed for a material that does not.
   - **Faces past the normal fade are dropped by their face normal** (winding, not the receiver's vertex normals: what back-face culling sees); the rest keep a per-vertex fade with projected decals' smoothstep and edge terms, so a clipped mark can fade like a projected one (32.8 decides how the material reads it).
   - **Weld is exact** (position and normal bits after rounding to float32), not a distance tolerance: cuts are made from the inside corner, so neighbouring triangles produce the same bits on a shared edge; a tolerance weld would depend on order and grid.
   - **Lift 1 mm** (`DECAL_CLIP_LIFT`) along the vertex normal in world metres; the mesh decal's view-space push does the rest.
   - Determinism is pinned by a sha256 of a fixed case's bytes beside `DECAL_CLIP_VERSION`: a change of the output without a version bump fails the test.
-- 2026-10-11 (clipped decals, default chosen, owner to confirm):
+- 2026-10-11 (clipped decals, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **Receivers are the render graph's surfaces** at full detail, told to the decals as they come, go and move (`onSurfaces`): models and boxes by their batch mark, block, architecture and spline meshes by a surface mark. Instance sets and scatter copies are left out (one draw for thousands of copies; a mark on a copy is a projected decal's job), and so are see-through materials and other decals.
   - **Places are relative to the decal's rigid frame** (its position and rotation; its scale is the projector's), rounded to 2⁻²⁰ before keying: a mark and its surface moving together never re-clip; a decal moving over still surfaces re-clips (one job in flight per key).
   - **A decal waits for its surfaces to settle**: it is clipped once no surface near it changed in the last frame (or 250 ms after its first change), and nothing under it counts as final only 2 s after it was set (a level's surfaces arrive over its first seconds). The plan's "ready before the first frame" is not met (D239).
@@ -426,21 +431,21 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - **Rooms**: a static clipped mesh is in the room its projector looks from (`ROOM_AT_KEY` at the box's +Z face), not its bounds' middle, which lies inside a room for a mark across its outside corner.
   - **The store is generated architecture's** (one IndexedDB, keys prefixed `decal-clip:`), now written in one transaction per batch.
   - **Bake to model** is an editor action over existing commands (import, `setAssetOptions`, two `setComponent`), not a command of its own; the GLB's `_DECAL_FADE` attribute joins the import profile's allowlist. MCP can do the same with a GLB it uploads.
-- 2026-10-11 (Decal tool, default chosen, owner to confirm):
+- 2026-10-11 (Decal tool, default chosen, owner to confirm; **confirmed by the owner 2026-10-22** for the orientation and stamp rules; arming it from a window is moot (phase 35's decal editor)):
   - **Armed by its window**, not a toolbar mode: Window → Decals (or the tool row's **decal** button) floats its settings over the Scene view, and while it is open the left click places decals, ahead of selection and of a selected block layer's or terrain's tools. A reload never reopens it (a tool that takes the click should not come back unasked).
   - **Trim cells by name** in the same picker as decal materials: the decal component names a material, so a cell no decal material draws gets one when picked (one `setMaterial`, its own undo step), and every placement stays one `createEntity`. Picking a cell sizes the decal at the sheet's texel density.
   - **Orientation**: the box's +Z on the face normal (turned toward the camera for a back face); the image's top up the slope on walls and slopes, toward −Z on floors and ceilings (|normal·up| > 0.999), the same as the decals the manual places by hand; then the tool's angle.
   - **Grips** (a ring about the normal with a knob, a corner) instead of the gizmo: the knob turns about the decal's own normal (snapping: 15°), the corner scales width and height together (depth kept). The descriptor's size handles (box3) stay for per-axis edits.
   - **Stamps**: turn ± `stamp turn` (default 180°) and size factor 0.75–1.25 from the seed and the stamp's number (counted from when the tool was armed or the seed changed), so the same clicks with the same seed give the same decals.
   - **Preview**: an object drawn besides the project's through the adapter (the same projected/clipped path as a stored decal); a clipped preview's empty result is final at once (`clippedDecalWaits`), and it does not start the clipped decals' ready clock.
-- 2026-10-11 (vertex paint data, default chosen, owner to confirm):
+- 2026-10-11 (vertex paint data, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **An instance set's paint is a field of `instances`** (`paint`), not of `vertexPaint`: a copy's address is its place in the set's buffer, so the table only means something with that buffer; one `setComponent instances` carries both, and the host makes the table follow the copies whenever the buffer changes (fewer copies: the new buffer is the old with some taken out; more: the old ones first; the same count: copies moved in place). A buffer that is none of these (a new scatter) drops the paint; undo brings it back. A slot freed by erasing a copy's paint is reused; trailing free slots leave the pool.
   - **Meshes are named by node path** (sanitized names from the scene root, `~1`, `~2` for siblings of one name) and `#primitive`; the position hash is the first 16 hex of the SHA-256 of POSITION as stored (float32 LE, the node's matrix not included, so moving a node keeps the paint). Every level of detail is its own mesh (a dab paints the levels under it); `_COL` meshes are not painted.
   - **Stale paint is never mixed with new**: a stroke over a mesh whose paint no longer fits is refused until that paint is removed (`setComponent vertexPaint`), instead of starting over silently.
   - **Channels stand alone** (no weight channels): what R, G, B, A mean is the material's (32.11). The brush is the shared one with its own bounds in metres (`VERTEX_PAINT_BRUSH_LIMITS`: 0.01–64 m, 256 dabs), not the block brush's cells.
   - **Path paint** is kept per path key (`outline:<id>`, `building:<id>`, `element:<id>`, `spline`) and side; a vertex picks its side by its normal (|n.y| ≥ 0.7: top) and takes paint within 2 m of the path across a wall face; where two paths reach one vertex each channel takes the larger; a closed path is painted at both ends of its start. A deleted path's paint is left unused (no problem line). Generated walls have a vertex about every metre along (`ARCHITECTURE_SWEEP_CELL`), so their paint is soft.
   - Scripts do not read `vertexPaint` (bulk data, like instance buffers and terrain tiles). `paintVertices` is API-only in `editor-op-reach` until 32.12's brush sends it.
-- 2026-10-11 (vertex paint drawing, default chosen, owner to confirm):
+- 2026-10-11 (vertex paint drawing, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **The stream is a data texture on both renderers**, not a WebGPU storage buffer: one program text, and a per-object texture three already binds per draw (set by a per-object uniform's update). 4096 texels a row, up to 8192 rows a draw (33.5 M painted vertices); past it the draw goes unpainted.
   - **The slot rides in the matrix**: each instance's paint slot is the drawn copy of its matrix's float 3 (the fourth row, 0 for an affine matrix, never read: products take `.xyz`), so view culling's reorder carries it and the buffer stays 64 B a copy; the page's own matrices keep their affine row (picking, bounds). A painted draw carries a marker attribute over that float so three keys it a program of its own; unpainted draws keep theirs.
   - **Standard `paintTint`** (bool, absent off): albedo × mix(1, paint RGB, paint A). The editor's convert-to-graph writes the same with a Vertex colour (paint) and a Lerp.
@@ -448,19 +453,19 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   - **Generated meshes are painted on the page when drawn**, not on the generator's workers: the chunk keys, caches and shipped meshes stay as they were, a stroke redraws from the made chunk (no regeneration). Far levels of generated meshes have fewer vertices, so their paint is coarser (the e2e paints whole faces for that reason).
   - **A painted object waits for its paint** (blobs read with the scene's buffers) before it is attached, so it never shows unpainted first; in the editor a stroke re-realizes the object and it is gone while its new blob is read (32.12's local preview covers the stroke).
   - The perf switch's painted props and copies wear one paint-tinted standard material (the foliage sets lose their wind); their cost is read against the same scene with `--switches paint=off`.
-- 2026-10-11 (vertex paint editor, default chosen, owner to confirm):
+- 2026-10-11 (vertex paint editor, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **Armed by its window** (Window → Vertex paint, toolbar **paint**), like the Decal tool; a reload never reopens it. A drag that starts on an object that holds no paint (a box, a block layer, terrain) orbits or selects as usual; Alt+drag orbits.
   - **A press fixes the target**: the model's meshes (every mesh within the radius, as the backend paints them), the copy under the pointer, or the generated object's path nearest the point (smallest distance across) and the side its face looks to. Dabs land only on that object (a quarter radius apart, at most 256 a command: a longer drag goes on as the next stroke).
   - **The preview paints the page's copy of the drawn paint** with project-model's `paintVertexDabs`/`paintPathDabs` (the backend's functions), so it shows what will be stored. A painted model mesh is drawn alone while previewed (a batch or merged cell would copy its paint at every dab); a set is built again once with a slot of the copy's own; a path side's grid replaces the stored one. It stays until the object's stored paint changes after the stroke, so the object never shows its old paint or nothing in between; stored paint arriving while a stroke is painted goes under it.
   - **Paint changes are drawn in place** whenever nothing but paint changed (also MCP, undo, redo): the object keeps drawing until its new blobs are read.
   - **Channel view** is one unlit override material over the whole Scene view (white full, black unpainted), not a per-object switch: faint paint (grime, weights) is seen everywhere at once.
   - **Stale paint** (a reimport changed the mesh): the refused stroke's message is shown with **Remove its stale paint** (one `setComponent` taking that mesh's record off); the paint is never mixed or moved automatically.
-- 2026-10-11 (acceptance, default chosen, owner to confirm):
+- 2026-10-11 (acceptance, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**; D239 stays open):
   - **The start waits for clipped decals:** the first present of a page whose start scenes hold clipped decals waits for them (as it waits for the models; at most the precompile's 20 s), so the first picture has them; a level without clipped decals does not wait. Measured cost: the first frame ≈0.9 s later on the 1,000-decal level. A scene loaded later is not held (a running game's picture would freeze); its marks come a moment after it (D239).
   - **An empty clip is final once the surfaces are in:** the 2 s wait now ends as soon as the adapter has no model, block chunk, generated chunk or spline in flight and no surface came or went for 250 ms.
   - **One ring helper** for every Scene view tool ring (instance brush, Decal tool, vertex paint, terrain brush): a closed `Line`, since three refuses `LineLoop` (D240).
   - **The level-acceptance editor strokes repaint two of the API-painted controls blue** (the merged pair's second block, the kerb's west half): the batch's and the set's plain copies stay the unpainted controls.
-- 2026-10-11 (review fixes, 32.14, default chosen, owner to confirm):
+- 2026-10-11 (review fixes, 32.14, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   - **The decal index asks for a whole build when its sizes drift:** cells as before (the exact median extent per axis, doubled by the reach rule, from the decals' corner); the grid keeps per-axis counts of extents by quarter octave and the reach sums at its size and at half of it, and asks for a whole build when the median moves to another quarter octave or the doubling rule would decide otherwise (both directions). A level of large authored decals that then takes many small spawns gets small cells (the review's H-late-1); the in-place grid stays within a quarter octave of a whole build's cells and drops what it drops. Cells in fixed steps from the world's origin (exactly a whole build's) were tried: +0.07–0.09 ms scene pass for the 200-decal area in interleaved runs, so not taken. Cost: a few dozen reads a change (0.006 ms a moved decal of 400).
   - **A projected decal sets only the channels it has an image or a value for:** colour needs a colour image or `color`; roughness and metalness an ORM image or a value; occlusion an ORM image (an emissive mask alone fills the ORM page's R, G, B with white, which is not the decal's). A material without either draws nothing in that channel (it had painted white).
   - **Instance copy paint follows each copy by what it is** (its 16 floats, bit for bit), wherever it moved in the buffer; a changed copy loses its paint, since a moved copy cannot be told from a replaced one; the editor's copy gizmo sends the table with its move, so a moved copy keeps its paint there. Stable copy ids were the alternative (a new buffer field, every writer of buffers changed): not taken.
@@ -473,6 +478,7 @@ is recorded with its cause and a follow-up (owner, 2026-10-03).
   footprints) need an effects-graph output (an effect system that leaves
   decals). The plan gives prefabs and a transient budget only; an effect's
   output could call the same spawn path later.
+  **Owner 2026-10-22: confirmed as deferred:** effects leave decals when a game asks for it.
 - 2026-10-11, phase end: full gate `--both-renderers` (22 min against the
   15 min budget, D181; e2e 15.8 min on 3 workers; memory peak 7.0 GB, at the
   cap) red on four real failures, each failing alone too: a document equal

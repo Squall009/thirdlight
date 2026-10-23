@@ -2170,7 +2170,7 @@ What still grows, and why:
   means the locate trusting the check's stamps, and a file watcher (Unity's
   directory monitoring) needs one inotify watch per folder of the game
   folder (a system limit; a missed event would ship a stale file until the
-  serving hash refuses it). Owner to confirm the two revisions.
+  serving hash refuses it). Owner to confirm the two revisions; **confirmed by the owner 2026-10-22**.
 - 2026-09-30 (26.14): D81. The runtime still refused a game with more than
   64 behavior modules (`INTENT_LIMITS.behaviorModules`), a count of scripts
   26.5's guards missed (its name is no kind, and the e2e guard's scripts
@@ -2350,14 +2350,18 @@ What still grows, and why:
   - Evidence: E1 the in-process row of §6 re-run at HEAD with saved reports;
     E2 the renderer-read wording corrected. E3: Play clicked as the editor
     connects (3.5×) and command p95 (2.6–3.9×) still miss "Done when"; the
-    revised targets wait for the owner.
+    revised targets wait for the owner (**confirmed by the owner 2026-10-22**).
   - Owner decisions: R2 the boundary allowlist grew (the project-model
     `limits` subpath edges and the game-page row; the vocabulary allowlist
     did not); S4, C6; the revised targets (Play ≤ 2 s, backend ≤ 400 MiB);
     the kept limits (16,384 entities per scene, 1,024 dialogue nodes, 16
     local lights, 4,096 lightmap entries, 64 timers per instance); prefabs
     read whole at open. R4 (tests that read the manager's own counters) is
-    D88. R3, R5: nothing to do.
+    D88. R3, R5: nothing to do. **Owner 2026-10-22:** R2 moot (39b.10 reviews every
+    boundary exception); S4, C6 settled before (D83, D84); the revised targets and the prefabs read whole at
+    open confirmed; of the kept limits the 16,384 entities per scene is
+    **reversed → a memory budget (39b.6b)**, the 16 local lights **moved to
+    the lighting phase** (clustered/tiled forward), the rest confirmed.
   - Owner look and listen: all audio (kinds, load types, streaming, late and
     dropped lines, a 500-line dialogue); Safari Ogg and streaming on a Mac;
     texture streaming on screen; the project window (folders, drag, search,

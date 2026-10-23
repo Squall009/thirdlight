@@ -34,7 +34,7 @@ as in 34.0.
   layer of a completely different trim sheet, then moss, then rust, then a
   wetness layer just like the terrain". **One shader layout for both**,
   because the trim sheet's tiling comes from geometry, not the shader.
-- *Proposed, default chosen, owner to confirm:*
+- *Proposed, default chosen, owner to confirm (**confirmed by the owner 2026-10-22**; how trim sits in the layered surface is reworked by 39b.6c):*
   - **Three core material types:**
     - **Layered surface** (terrain, blocks, walls, architecture, painted props);
     - **Standard** (props, models);
@@ -182,7 +182,7 @@ Rules for every item:
   facts changed (listed in §5); the items stand. 35.5 is smaller than
   planned, since `paintVertices` already takes the brush kit's opacity, mask
   and hardness.
-- 2026-10-12 (35.1) — The walls switch. Defaults chosen, owner to confirm:
+- 2026-10-12 (35.1) — The walls switch. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**; its numbers were uncapped, re-baseline at the 60 Hz cap if needed):
   - **"Village-scale" is 24 buildings** on the area class's 100 × 100 m, 39
     storeys between them. The village perf class has no buildings, and the
     area's free ground holds about that many with 2 m between them. The
@@ -203,7 +203,7 @@ Rules for every item:
     512², as §1's per-group sizes say).
   - WebGL 2 gives no per-pass GPU time (three times only the outermost
     pass), so its target is read on frame p50, with host drift in mind.
-- 2026-10-12 (35.2) — Material types. Defaults chosen, owner to confirm:
+- 2026-10-12 (35.2) — Material types. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **`vertexPaint` is its own declaration** besides `layerWeights`: terrain and block ground supply weights through
     COLOR_0, vertex paint through the paint set, so the terrain editor asks one and the vertex paint editor (35.5) the
     other. Today's layered template reads COLOR_0 only (the wiring bug 35.3 fixes), so it declares `layerWeights` but
@@ -228,7 +228,7 @@ Rules for every item:
     that mixes its own layers by the weights gets no warning (paint picks its layers by number).
   - The reference keeps the data key in its per-parameter rows ("The kit shader's …"); only the shader enum's text
     names Atlas surface — the descriptor registry is at its size budget.
-- 2026-10-12 (35.3) — The layered surface. Defaults chosen, owner to confirm:
+- 2026-10-12 (35.3) — The layered surface. Defaults chosen, owner to confirm (**reversed in part by the owner 2026-10-22 → 39b.6c:** trim is just another layer with its own UV source, vertex A = wetness over every layer, and there is no built-in grime):
   - **One layout = one graph**, not a second shader: the layered template (and its graph builder) moved from the
     editor into project-model (`layered-surface.ts`, value subpath for the editor), compiled by the material graph
     compiler like any graph. The `trim` shader draws as that layout (`trimSurfaceMaterial`, made in the material
@@ -278,7 +278,7 @@ Rules for every item:
   - The descriptor registry stays under its 328 000-character budget by a one-line `layerSheets` description.
   - Left for 35.5: a palette gesture to drop a layer (lists keep four slots; a trim material's empty trailing slots are
     simply not read).
-- 2026-10-12 (35.4) — Height in alpha. Defaults chosen, owner to confirm:
+- 2026-10-12 (35.4) — Height in alpha. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Which albedos**: worked out from the graph, not the parameter name: a texture parameter whose alpha reaches a
     Height blend's heights, in a material that reads no alpha as opacity and draws no decal (cut-out, transparent and
     decal materials are never checked or changed). For today's materials that is the layered surface's
@@ -296,7 +296,7 @@ Rules for every item:
   - **The problem names the texture once** (the materials and layers using it in the line), logged when it
     appears or changes, as the other backend checks are. The art-factory preset that packs albedo + height is named
     after a game there; the manual says "a packing preset that puts the height in A" (35.5: engine docs name no game).
-- 2026-10-13 (35.5) — The vertex paint editor. Defaults chosen, owner to confirm:
+- 2026-10-13 (35.5) — The vertex paint editor. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Entered from the Inspector only** (`EditModeKind.activates: false`): every model is paintable, so a double-click
     keeps renaming in the Hierarchy and picking in the Scene view. It frames the object on entering unless the view
     already shows it (`framesOnEnter`, a 5 × 5 pick of the view): a small object shown alone is easily off screen.
@@ -330,7 +330,7 @@ Rules for every item:
     and the seed field. One brush key implementation now (`brush-control.ts`) for terrain, vertex paint and copies.
   - Found, not fixed (pre-existing, not docs): engine source comments name a game ("Skyforge's village") in
     `three-adapter` (render-graph, static-merge, material-library, a test) — for the phase review.
-- 2026-10-13 (35.6) — The decal editor. Defaults chosen, owner to confirm:
+- 2026-10-13 (35.6) — The decal editor. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **A scene's edit mode**, not an object's: `SceneEditModeKind` (scope `scene`, the component whose objects it edits,
     a header icon, a note and the isolation chip's words) beside the object modes; the shell skips framing, Home and
     Context for it (the whole scene is already drawn), and the isolation names a component instead of ids
@@ -366,7 +366,7 @@ Rules for every item:
   - Found, not fixed: D256 (projected decals added in the Scene view after load do not draw on a box floor until a
     reload; terrain and block tops draw them at once). Engine source comments no longer name a game (three-adapter).
 
-- 2026-10-13 (35.7) — The decal atlas. Defaults chosen, owner to confirm:
+- 2026-10-13 (35.7) — The decal atlas. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **A drawer, not a rail mode** (the mockup's decision 5): along the view's bottom in every mode, its head always
     shown, open/folded remembered per browser. The mockup's "Atlas" rail item is not built (the drawer is always
     there). The shell gained a scene mode's `drawer` slot (the view extra sits in the top chip row).
@@ -397,7 +397,7 @@ Rules for every item:
     larger selection goes as more commands. The undone placement's id may come back on the next create (the e2e
     tells decals apart by place).
 
-- 2026-10-13 (35.8) — Acceptance. Defaults chosen, owner to confirm:
+- 2026-10-13 (35.8) — Acceptance. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Real trim sheets from the Studio** (two sheets of one game's set, rendered with the packing that puts height in
     the albedo's A): they come from different layouts, so their row tables differ past the six rows a room uses
     (moss_edge, column, bevel, emissive vs column, bevel, emissive, end_grain, stave at other pixels). The pass deletes
@@ -425,7 +425,7 @@ Rules for every item:
   history-style comment, `modesOf` constants, self-recorded WGSL digests, uncancellable fetch-gate requests.
   **Fixed in 35.9**: every High and Medium except as noted below, and the Lows but the last three (D267). The phase's
   full gate (36 min, 3 failures, each also failing alone) was fixed and its failures rerun green alone.
-  Defaults chosen, owner to confirm:
+  Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, except the two marked reversed below):
   - **The full gate's three failures** were real: `project-items` still typed into Create → Material's old in-place
     name (35.2 put the New material dialog there; the test now names it in the dialog), and `painted-terrain`'s
     per-layer slots drew a cross-fade because 35.4's check called a **constant A** flat and replaced it by the
@@ -454,11 +454,13 @@ Rules for every item:
     0 elsewhere) and the layered template pulls the colour toward `grimeColor` (`GRIME_COLOUR`, the trim material's
     default, now defined once) and the surface toward matte by `grime`. Stored layered materials don't wire it: on
     them the generator's grime simply stops showing.
+    **Reversed by the owner 2026-10-22 → 39b.6c:** no built-in grime; grime is a painted layer like any other.
   - **A converted trim building keeps its look**: the layered template has a base-layer tint (`color`, white), and a
     layered surface whose base layer is a trim sheet takes the tint of the material it is put over, as a trim
     material does (generated architecture's grey stand-in `#9a968c`) — only the base layer, so moss and rust keep
     their own colours. Layered materials made before (no `color`) stay as they are. The alternative — drop the grey
     for trim too, so both are the sheet's own colour (brighter) — changes every trim building's look; owner decides.
+    **Reversed by the owner 2026-10-22 → 39b.6b:** trim sheets draw at their own colour; a material's tint is a visible field, white by default, and nothing inherits the grey stand-in.
   - **Request batches by bytes too**: one chunker (`session/request-batches.ts`) cuts scatter strokes, multi-edits and
     deletes by the op's count and by `MAX_REQUEST_BYTES` (moved to project-model's limits so the editor reads the
     one value; commands re-exports it), keeping 1,024 bytes for the envelope. A long stroke is then several

@@ -29,7 +29,7 @@ reads the game repos; nothing here is fitted to one game.
   work with every kit?
 - **Block layers blend four materials** like terrain. Built in phase 35;
   the block editor's paint uses it here.
-- *Proposed, default chosen, owner to confirm:*
+- *Proposed, default chosen, owner to confirm (**owner 2026-10-22:** confirmed; the read-only Basic Kit with Derive was replaced by 36.4's editable copies):*
   - **"Kit swap" is renamed "Themes"** in the UI and manual. The data key
     `kits` on block types and layers stays, so no format change.
   - **A Kit references its parts.** It doesn't copy them: block types,
@@ -189,6 +189,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   Rapier release is taken when something needs it; nothing in phase 36
   does). §2 brought up to phase 35's outcome. Defaults chosen, owner to
   confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **Block faces stack field rows (added to 36.2).** 35.9 maps one row per
     cell face and stretches a shorter row up it; with the spec's rows that
     is `lower_wall` 2× on every first-storey block. Real height applies to
@@ -200,6 +201,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 
 - 2026-10-13 (36.1) — The trim sheet spec. Defaults chosen, owner to
   confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **`lower_wall` is 0.5 m (256 px), not the planned 0.375 m.** A field row
     stacks a whole number of times; 0.375 m divides neither a 1 m nor a
     0.5 m block cell (2.67×), so block walls and 1 m-modular kits would
@@ -227,9 +229,11 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   - The art-factory changes (service default alignment 16, a Thirdlight
     starter sheet with the spec's rows, the albedo + height packing by
     default, the safe mip level) are a proposal for the owner, not edits.
+    **Owner 2026-10-22:** passed on as a note for the art-factory owner; the proposal is pending there.
 
 - 2026-10-13 (36.2) — Trims at their real height. Defaults chosen, owner to
   confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **Gated per sheet (`trim.realHeight`, additive on schema 7).** Absent:
     every part fitted to whole rows as before, block faces one row each —
     stored sheets keep their pixels. New sheets (Create, a shader switched to
@@ -277,7 +281,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     Inspector) and got shorter: 6.7 + 6.7 → 6.4 + 6.3 s alone (its bump
     reads settle at 250 ms polls instead of 400).
 
-- 2026-10-13 (36.3) — Kit data. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.3) — Kit data. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **A kit is a resource kind** (`kit`, list `kits`, id `kitId`, one file
     each in `assets/kits/`), so the project window, index, search, moves and
     file watching handle it with no kit-specific code. The kind is marked
@@ -326,7 +330,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     reference split the content pages differently (assets and prefabs now on
     `content-blocks-scenes.md`); four manual links were moved with it.
 
-- 2026-10-13 (36.4) — The Basic Kit. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.4) — The Basic Kit. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Added as copies, not read-only engine items (changed from §1).** The
     Basic Kit is engine content in `packs/basic-kit/` (read-only there: the
     engine's files never change); adding it to a project makes its items the
@@ -395,7 +399,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     reads, walls show plaster over concrete, frames dark, glazing bars and
     pane visible. WebGL 2 only through the e2e's reads (SwiftShader).
 
-- 2026-10-13 (36.5) — The kit editor. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.5) — The kit editor. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Layout as the mockup, but the preview lives in the editor window's
     one preview pane** (above the Inspector), not in the document's centre:
     the pane is the shared preview path (one renderer, `usePreview`), so the
@@ -461,6 +465,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   buildings with the kit's piece picker, segment overrides, preset sliders,
   and `RoomsPanel` / `ArchitecturePanels` leaving the Inspector). Defaults
   chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **The rail: Build, Shape, Paint, Regions, Rooms & buildings, Rules.**
     The plan's five groups plus **Rules** (material rules, scatter rules and
     the scatter brush: the old panel's Rules… and Scatter… had to go
@@ -529,6 +534,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
 
 - 2026-10-13 (36.6b) — Rooms & buildings with the kit's pieces. Defaults
   chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **The mode's tools are tiles of the one Rooms tool** (the Scene view's
     `RoomTool`, its mode the tile id): Rect, Polygon, Path, Building, Door,
     Window, Arch, **Move walls** (was "Walls"), **Wall piece**, **Corner
@@ -599,7 +605,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     colours, the Basic Kit pieces unmapped and grey): function, not look;
     36.9's acceptance shoots the Basic Kit flow.
 
-- 2026-10-13 (36.6c, follow-ups) — Defaults chosen, owner to confirm:
+- 2026-10-13 (36.6c, follow-ups) — Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **"Swap the style, keep the plan" is a preset swap, not a sheet swap on
     the rooms.** Rooms name presets and presets name sheets, so the swap
     replaces one preset with another on every outline (inside, outside,
@@ -621,7 +627,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     only — each outline's inside / outside preset, the swap, the used
     presets' sliders with Derive — and says new rooms are drawn on a layer.
 
-- 2026-10-13 (36.7) — The 3D starter. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.7) — The 3D starter. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, except the one marked reversed below):
   - **Templates gain `packs` and a setup pack.** A captured project is v3
     and cannot hold materials, kits, block layers, terrain or a scene's
     look, so a template now names engine packs (`template.json` `packs`)
@@ -648,6 +654,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     from the 2D starter and of most that start empty; that is a look
     change for the owner to approve (a one-command setup pack on the 2D
     starter would do it). The 3D starter has its gradient sky.
+    **Reversed by the owner 2026-10-22 → 39b.6b:** the 2D starter and the empty project get the physical sky; the pixel baselines are re-recorded once.
   - **Pictures** are Play screenshots (SwiftShader, 1920×1080) scaled to
     384×216 WebP by the browser (3.5 KB and 1.1 KB), sent in the template
     list as data URLs (≤ 64 KiB, `TEMPLATE_PICTURE_MAX_BYTES`), since an
@@ -658,7 +665,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     it was captured), so its captured file is left as it was; tests name
     those ids.
 
-- 2026-10-13 (36.8) — The manual. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.8) — The manual. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **One concepts page answers the owner's two questions** (what the
     engine makes vs. what you model, and the sheet everything reads), with
     tables of the generated parts and of the kit slots, and the workflow
@@ -671,7 +678,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   - **"Starter" is "2D starter" everywhere** (the template's name in the
     picker changed with it).
 
-- 2026-10-13 (36.9) — Acceptance. Defaults chosen, owner to confirm:
+- 2026-10-13 (36.9) — Acceptance. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, also unpainted walls taking layer 2, D268):
   - **The swapped sheet is a second spec sheet, not a re-render of the
     Basic Kit's**: `thirdlight/village_trim@1` (shared graphs: planks,
     stucco, rubble, painted wood; the spec's rows exactly), so the swap
@@ -721,7 +728,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
   digest-less sheet cache key, the size check's cell, group undo stopping silently, history/group open to
   anyone's entries, `layerSheetMismatches` and realHeight, floor-row seams at the 720 m UV period,
   self-confirming key tests, the 3D starter character, Basic Kit pieces under the spec's triangle guide.
-  **Fixed in 36.10**: every High and Medium and the Lows but those in D271. Defaults chosen, owner to confirm:
+  **Fixed in 36.10**: every High and Medium and the Lows but those in D271. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, except the one marked reversed below):
   - **Bounds live in Regions → Layer size**, as numbers per axis plus Grow / Shrink every side by a step
     (default 8 cells, across only: up and down are typed). Cells keep their place (the object's position is
     cell 0's corner); a shrink past a block is refused by the backend and said in the column, so a resize
@@ -758,6 +765,7 @@ e2e time (the 35 full gate took 36 min against a 15 min budget).
     at 48 triangles an LOD chain has nothing to remove and a character collides with its controller's
     capsule, not a `_COL` mesh; it is a prototype to replace with a game-ready character, logged (D272),
     not dressed up as one.
+    **Reversed by the owner 2026-10-22 → 39b.6b:** the 3D starter gets a game-ready Blender character with LODs, `_COL` and a report (D272).
   - **D269 (dark preview walls)** not re-measured: the sample's UVs changed, its lighting did not; left
     open for the owner's look.
   - **The trim checker's labels** of thin rows step into up to three lanes across the sheet instead of

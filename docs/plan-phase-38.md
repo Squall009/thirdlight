@@ -108,7 +108,7 @@ budget.
 | 38.11 | Done 2026-10-21: manual made consistent for the phase: stale "a script error stops the game" lines fixed (play-tools' failed run, spawn errors, the visual-script loop cap, first Play, the agent skill); new play-tools section on folded rows, trimming order and `sections`; type check's strictness and skips (guides/scripts, editor); character track details (one step later, held input, blocked walks, skip/stop, 2D x-only and `run`) in timelines, gameplay and a new walk-a-character cutscene in guides/timelines (its script and timeline JSON checked with the 38.3 checker and the timeline validator in a scratch vitest, deleted); later-scene layers and arriving players' Autostep (blocks), 2D block ground (2d-and-3d, which-tool), ETC1S "not judged" (trim-sheets), setActive (environment), a migration list of behaviour changes; skill and traps updated; `ctx.character`/`ctx.scenes`/`ctx.shell` doc comments fixed, reference regenerated. Fast gate green (`script-editor.e2e.ts` 10.7 → 9.8 s; village WebGL 2 p50 4.7 ms). |
 | 38.12 | Acceptance in the browser done 2026-10-21 (the full gate and the review are the lead's): the real editor at 1920×1080 on the Iris Xe, both renderers, fresh projects; 30 screenshots looked at (`~/.cache/thirdlight-phase38/acceptance/INDEX.md`). Seen on WebGPU and WebGL 2: the guide's cutscene walk on the 3D starter (mid-walk, then on its mark turned to the camera), a 2D character track walking along x, a 2D block level (standing on the one-way ledge, on the 1:2 slope, falling into the pit), a script throwing on three copies while another keeps moving a box (one Console row ×3 with its objects). Seen on WebGPU: the one-way switch and *Play plane z*, Apply to prefab and its result, the script editor's `blendTime` type mark, ETC1S "not judged" in the trim table and the kit's Check all (a KTX2 imported twice through the Project window). Fixed: the guide's mark sat inside the starter's raised blocks (the walk ended blocked); a timeline field typed and a control used straight after lost one edit (`revision_conflict`; saves merge onto the stored timeline as materials do); three copies' throws were three rows (the error text named the object; it now says "its object", the Problems line keeps the name, the Console lists the objects and "step N" for one step); the Console said "relay failed" after a stop. E2E: `play-logs.e2e.ts` 11.0 → 11.1 s, `timeline.e2e.ts` editor 2.5 → 2.6 s, Play 10.9 → 10.5 s. Fast gate green (village WebGL 2 p50 4.6 ms, WebGPU 5.6 ms). Unverified: the 2D arrival's left/right facing by eye (the starter's model reads the same both ways), audio, the export. D291–D294 logged. Owner look pending. |
 | 38.13 | Part A (scripts, errors, type check) done 2026-10-21 (`1687cc81`, `472e9d10`): H1 an async hook is switched off once and its promise settled (no unhandled rejection), every `ctx` call made after its hook returned is refused (one log line per script), page = worker in `m38-script-errors`; M1/M2 one Problems line per different script error (kind `script_error_<id>_<hash>`, collision-free), cleared by a restart, at most 32 a run, the export console prints each; M3 a physics port throw in a `ctx` query fails the run (`physics_port_error`) even when caught (physics queries moved to `runtime/physics-queries.ts`: runtime.ts 4,124 → 3,988); M9 the type check on a worker: first check's event-loop stall 615 → 3 ms quiet, 1,852 → 16 ms under the gate (warm 6–40 ms either way); L6 one error-row builder, L7, L11, L12, L13 (trim note within its room), L14 (debugCommands cut gone; sections checked in the playtest e2e). E2E: `playtest.e2e.ts` 16.5 / 15.7 → 16.8 / 15.7 s, `play-logs.e2e.ts` 11.2 → 11.1 s, `script-editor.e2e.ts` 9.8 → 9.8 s. Fast gates green (one `rendering.e2e.ts` dynamic-resolution miss passed on rerun; village WebGL 2 p50 4.6–4.7 ms). Part B done 2026-10-21 (`911dd219` … `43184f6d`): M4 a stopped cutscene gives the input back and switches its characters back to before (one rule, the director's `release`); M5 a cutscene on a character still loading waits for it; L1–L5 (skip faces a later turn, an arrival turn yields to input, no climb while held, a loaded save ends walks, a 2D unplaceable key logs once); M6/M10 3D movers carry a rim rider (footprint support for carry and stilling) and push every character in the step; M7/L9/L10 Apply to prefab takes the nearest copy, nested same-prefab sources refused, `nextLocalNumber`, definition copies keep tags; M8/L8 lifetime test on an exact clock, an expired set stays expired; L15–L18, L21 (exact cut spans, 8.5 vs 7.7 ms on 512 × 64 × 2; `MESH_WELD`; one flush loop; plane rings). New vitest `m38-character-track/director-rules`, rim/push case in `colliders-triggers`, each failing on the old code. E2E unchanged: `timeline.e2e.ts` 2.6 / 10.5 → 2.6 / 10.7 s, `delete-content` 4.8 → 4.9 s, `playtest` 16.8 / 15.7 → 16.8 / 15.9 s, `block-layers` 15.7 → 15.8 s, `physics-3d-colliders` 14.5 → 14.7 s. Fast gate (all five areas): build, lint, vitest 745 files, e2e 37/37 green, village WebGL 2 p50 4.8 ms, WebGPU 5.6 ms. |
-| Phase gate | `full --both-renderers` at `51990a82` (2026-10-21 09:17, 2 workers): build, lint, vitest 742 files passed; e2e **389 passed, 1 failed** (project-settings, passed alone in 7.6 s → watch D295) in 21.9 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak 6.4 GB. Review: `~/.cache/thirdlight-phase38/review.md` (1 High, 10 Medium) → 38.13. |
+| Phase gate | `full --both-renderers` at `51990a82` (2026-10-21 09:17, 2 workers): build, lint, vitest 742 files passed; e2e **389 passed, 1 failed** (project-settings, passed alone in 7.6 s → watch D295) in 21.9 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision; **moot (owner 2026-10-22):** no fixed gate-time budget); memory peak 6.4 GB. Review: `~/.cache/thirdlight-phase38/review.md` (1 High, 10 Medium) → 38.13. |
 
 ## 5. Decision log
 
@@ -120,6 +120,7 @@ budget.
   a placed copy (`instantiatePrefab`) carries them as well as a spawned one,
   and `setTags` refuses to free a bit a prefab object still carries. Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.1): the live tag index is now made for every runtime, not
   only one with a scene catalog, so spawned copies always reach `ctx.tags`.
 - 2026-10-21 (38.1, E21): import declarations are matched in code only
@@ -137,6 +138,7 @@ budget.
   before an exception. The switch-off point is the throw, which the fixed
   step order makes the same in every replay. Default chosen, owner to
   confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.2): only the run's first start fails on an `instantiate`
   that throws (the start scenes' objects). One that throws later (an object
   in a scene loaded mid-run, a spawned copy, a run restart) leaves that
@@ -144,6 +146,7 @@ budget.
   and the load or spawn completes; a later restart tries it again. Every
   Play problem of an exported game now goes to the browser console (script
   errors as errors, the rest as warnings). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.2): `features/debugging.md` and `features/scripting.md`
   said a debug command declared twice and a zero `facing` "stop the game";
   both were already refusals (a log line, no stop), and say so now.
@@ -162,6 +165,7 @@ budget.
   library's own check (its tab) is not type-checked yet; a script check
   reports type errors in the libraries it imports, with the library named.
   Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.4): two rows are copies when everything but the step and
   the object is equal (code, message, script, reason, source position,
   frames); a log line repeated every step folds too, as the Console's
@@ -175,6 +179,7 @@ budget.
   `errors` section), and an observation always carries its header (ids,
   step, state, `error`, `inputMode`, `sound`: the fields its validator
   requires). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.4): the folded-row shape lives in project-model
   (`repeated-rows` subpath, a value subpath for protocol like `limits`),
   since the runtime may not import the protocol; `BEHAVIOR_LOG_CODE` moved
@@ -187,6 +192,7 @@ budget.
   as Unity's Timeline owns what it animates. `enabled` is `character_enable`
   (parked: no input, no gravity), not the hold, since a walk needs the
   controller on. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.5): a walk is its controller's move input toward the mark
   (`character_move` in 3D, `control_move` on the 2D plane), slowing inside
   the braking distance its deceleration needs and arriving within 0.1 m
@@ -197,6 +203,7 @@ budget.
   placement, the way a transform track jumps to its end); a stop leaves the
   character where it is. Arrival facing turns at the controller's turn
   speed in 3D. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.5): the character director writes a character's channels
   once per step right after the intent phase, so a cutscene or a script
   walk has the last word over a script's own move of that step for that
@@ -205,6 +212,7 @@ budget.
   track's rotation key on a player character turns its controller (the
   quaternion's yaw), and on the 2D plane its position key places it
   (before: a warning and nothing). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.5): on the 2D plane a walk goes along x (the mark's y is
   where the ground is), `run` changes nothing (the 2D controller has one
   speed), and a facing turns the character's face-movement models (90
@@ -217,6 +225,7 @@ budget.
   `walkState(handle)` (walking, arrived, blocked, stopped), `stop`, `turn`,
   `setEnabled`; each has a visual-script node. Default chosen, owner to
   confirm.
+  **Confirmed by the owner 2026-10-22** for the API; the 2D walk rules are moot under phase 41 (`run` is re-checked in 41.3).
 - 2026-10-21 (38.6): copies stay copies (no live link, as before): an
   update replaces the definition and rewrites no placed copy; new copies and
   every `ctx.spawn` from the next Play use the new contents. A copy's
@@ -228,11 +237,13 @@ budget.
   keep their local ids, the root keeps the old root's), never a copy of
   another prefab; a definition holds no copies, so a prefab can never
   contain itself. Default chosen, owner to confirm.
+  **Superseded by phase 39c (owner 2026-10-22):** prefabs get their own discussion and linked prefabs; `updatePrefab`'s semantics are decided there.
 - 2026-10-21 (38.7): the play content lives exactly as long as its play
   (renewed whenever the play's own inactivity expiry is), with the 15 min
   TTL kept as its least lifetime and the 60 s grace after the play ends; a
   locator read never renews it, so an open browser tab alone does not keep
   a finished play's files served. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.8): deprecated is the scene list as a *move*: the
   `nextScene` UI engine action and `ctx.shell` (`nextScene`, and its reads
   `sceneIndex` / `sceneCount`, which only follow that move), each with one
@@ -250,6 +261,7 @@ budget.
   `ctx.scenes.setActive` (a load that unloads the active scene hands it
   over; TL-REQ-29 declined); the manual says so. Default chosen, owner to
   confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.9): on the 2D plane a layer's collision is the 3D
   collision shapes (`collisionLooks`, the same per-type shapes, sloped
   corners, footprints and edge pieces) cut at the plane, not per-shape
@@ -266,6 +278,7 @@ budget.
   touching face but drops the solid's, which leaves the union open); only
   faces two neighbours share exactly go. Pieces are split to stay within the
   collider extent (64 m). Default chosen, owner to confirm.
+  **Moot (owner 2026-10-22):** phase 41 deletes the plane cut (one physics backend, 41.6).
 - 2026-10-21 (38.9): the plane is a layer setting `planeZ` (world z,
   default 0, stored only when not 0); the cut takes the cell row holding it
   as `ctx.grid.surface` does (floor), so on a row boundary the row in front
@@ -278,21 +291,25 @@ budget.
   is cut, and only the cells that can reach the plane are meshed. Terrain,
   scatter, splines and architecture still collide in 3D only. Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22** for one-way and drop-through (phase 41 keeps them); `planeZ` is moot (phase 41's scene plane replaces it).
 
 - 2026-10-21 (38.10): an unpainted wall with wall paint is the material's
   second layer (`layer: 1`) also under material rules that name only
   tops: each share of a vertex's unpainted paint takes the rules over its
   own base (a top's layer 0, a wall point's layer 1), as terrain tools
   default cliffs to their second layer. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22** (D268).
 - 2026-10-21 (38.10): an ETC1S KTX2 without a lossless original is too
   lossy to judge a trim sheet's gutters pixel by pixel; gutters that still
   repeat within the transcoded tolerance pass, differing ones are an info
   line ("not judged", with the largest difference), never a warning. A
   UASTC KTX2 is judged as before. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.10): in 3D a mover moving mostly across keeps its
   velocity during the character sweep (Rapier's drag moves the character
   ahead of it, as in 2D); what the character stands on and movers rising
   or sinking stay at rest as before. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.10, E86): Skyforge's frame-time outliers are measured
   uncapped; the engine's area class shows the same WebGL 2 stalls only
   uncapped (GPU-process back-pressure, D235) and none at the display's
@@ -302,11 +319,13 @@ budget.
   missing capability); `concepts/existing-projects.md` says so and the
   migration notes give the opt-out (a *Play plane z* the layer does not
   reach). Owner to confirm.
+  **Confirmed by the owner 2026-10-22**; Problems lines tell game teams what to migrate to the unified system (phase 41 plan).
 - 2026-10-21 (38.12): a script error's play-log row no longer names its
   object in its text (`entityId` / `entityIds` do), so the same throw on
   many copies folds into one row as 38.4 intended; the one Problems line
   per script keeps the first object's name, and the Console lists a row's
   objects. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 
 - 2026-10-21 (38.13): hooks are synchronous by contract (the typings
   already said so), and `ctx` works only while a hook runs: every function
@@ -322,6 +341,7 @@ budget.
   (`ctx.stepIndex`) is not refused. Measured cost: none in a micro
   benchmark (2 ns raw and guarded); the village class within its limits.
   Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22**; 39b.6b adds the fix to the Problems line.
 - 2026-10-21 (38.13): the 38.2 line "every Play problem of an exported
   game goes to the console" was true only for a script's first error. Now
   each *different* script error (different text, source position or
@@ -333,6 +353,7 @@ budget.
   of the exact id and the error>`, so `a-b` and `a_b` (or ids sharing their
   first characters) no longer share a line. Default chosen, owner to
   confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.13): an engine failure inside a `ctx` call fails the run
   as before 38.2: a physics port that throws in a query is a
   `PhysicsPortFailure` (an `EngineFailure`, which records itself, so a
@@ -360,6 +381,7 @@ budget.
   unloads), so there is no scene-unload case; a character whose scene goes
   out while a cutscene holds it is waited for until it comes back or the
   cutscene ends. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.13): a cutscene may name a character that is not in the
   game yet while a scene is loading or asked for in that step (the track
   holds and keys it; it applies once the character arrives); one that never
@@ -371,6 +393,7 @@ budget.
   input (`IntentSet.inputHeld`, read by both controllers). A switch asked in
   a step a game mode holds physics waits for the next running step. Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.13): in 3D what a character stands on is one answer for the
   carry, the sweep's stilling and the re-sweep on a kinematic support: under
   its centre, else under its footprint (a ball 0.9 × its radius at its
@@ -378,6 +401,7 @@ budget.
   side never counts). A stilled mover gets its velocity back after each
   character's sweep, so every character in the step is pushed. Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-21 (38.13): Apply to prefab captures the nearest copy root (the
   object whose provenance names the prefab's root part; an update never
   renames the root part), and `updatePrefab` refuses a source holding
@@ -420,3 +444,4 @@ budget.
   "default chosen, owner to confirm" row above; existing 2D projects'
   block layers now collide; the wall-paint fix changes existing wall-painted
   levels' look; the gate's 26 min against the 15 min budget (D253).
+  **Read by the owner 2026-10-22** in the decision session (marks above; the look items wait for the review page).

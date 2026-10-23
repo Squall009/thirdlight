@@ -40,7 +40,7 @@ expected to need it).
 - **Performance first, with soft targets** (principle 7, §5): each item is
   measured on this host's Iris Xe at 1080p uncapped and records its numbers;
   a miss is a follow-up note, never a reason to drop an item.
-- *Proposed, default chosen, owner to confirm:*
+- *Proposed, default chosen, owner to confirm (**owner 2026-10-22:** confirmed, culling off by default (D282); the WebGL 2 parts are moot, its query path is removed in 39b.10b (D287)):*
   - **On by default for every project** (superseded by the review fixes,
     §7: `auto` and absent cull nothing, `2` turns culling on). The setting is additive: absent
     means `auto`, and `auto` draws the same pixels as before (that is the
@@ -53,6 +53,7 @@ expected to need it).
     out from behind an occluder, hidden by inflating the tested boxes by
     the camera's motion. If 33.1's moving-camera check shows more than that,
     WebGL 2 defaults to off and the owner decides.
+    **Moot (owner 2026-10-22):** the WebGL 2 query path is removed (39b.10b, D287).
   - **Occlusion is presentation only.** The simulation, colliders, scripts,
     animation mixers and streaming residency never see it. Skipping the
     animation of hidden characters is left for later (§5, out of scope).
@@ -301,14 +302,14 @@ animating hidden characters.
 | 33.4 | Done 2026-10-17: on `hiz` the scene pass's render is drawn as two (`occlusion-passes.ts`: occluders and stand-ins, then role `none` opaques and transparents, no clear) with the depth pyramid between them (`occlusion-pyramid.ts`: two dispatches, 16 × 16 tiles in workgroup memory down to level 4, one workgroup for the rest; MSAA depth by its samples); frames on `hiz` always draw through the scene pass; `_OCC` stand-ins record into level 0 only (atomics from their fragments), never into the scene's depth; `?occlusion=pyramid[:level]` debug view; `gpuMs` and `pyramid` in the diagnostics. rendering.e2e's export: culling on vs off bit-identical (worst 0) with AO and glass behind a stand-in, plain MSAA, render scale 0.5 and three poses along a flown camera (a control with the stand-ins in the scene depth: mean 3.6, worst 137), pyramid read back (rule kept level over level), debug view drawn; vitest for the rule. Same hour, load 1.8–3.4, WebGPU on vs `occlusion=off`: village open p50 5.7/5.6 ms, main 6.42/6.21 (+0.21, §5 ≤ +0.2: at the limit); street p50 6.2, main 6.85; landscape open 10.4/10.4, main 10.56/10.51, valley 10.2; WebGL 2 unchanged (4.8/4.7). Pyramid GPU 0.31–0.44 ms (three's compute timestamps, §5 ≤ 0.4: at the limit), main 0.03–0.06 ms, second render 0.13–0.2 ms main; memory 2.76 MB at 1080p (+2.3 MB of stand-in records only in scenes with `_OCC`). Second pass's own GPU time not separable (unverified against ≤ 0.2 ms). Dynamic resolution not checked by pixels (it changes the same scene pass size the render scale does). |
 | 33.5 | Done 2026-10-17: instance-set chunks (scatter, ground cover, kit copies) and automatic batches culled copy by copy on the GPU (`occlusion-instances.ts`; rule and CPU reference in `occlusion-instances-rule.ts`): shared pools (matrices as drawn, paint slot included; world spheres; slots), a dispatch before pass 1 lists last frame's visible copies of occluder draws, one in the pyramid's compute pass tests the rest and lists the newly visible, a workgroup a draw (order kept), indirect draws per pass, the view only (shadows, probes, the static shadow draw every copy from their columns); a draw is culled only when its copies in view draw ≥ `OCCLUSION_MIN_COPIES_TRIANGLES` (2048). WebGPU, on vs `occlusion=off`, same hour, load 2–4: village open p50 5.7/5.6 and 6.1/5.7 ms, main 6.28/6.26 and 6.61/6.20 (two rounds; noise ±0.3), culled 197 of 418 tested (oracle 649 hidden); village street culled 446 (oracle 842 hidden: 53 %), p50 6.5, main 6.93; landscape open p50 10.4/10.4, main 10.47/10.48, scene pass GPU 4.39/9.56 ms, culled 9178 (oracle 15911: 58 %); landscape valley culled 6932 (oracle 10565: 66 %), scene pass 2.83 ms. Pyramid + culling compute 0.44–0.51 ms GPU on landscape (§5 ≤ 0.4 missed), ~0.3 on the village. Frames are main-thread bound here, so frame times barely move (§5's p95 −25 % unmet; "half of the oracle's hidden culled" met in the occluded views). rendering.e2e's export: a 945-copy painted scatter set and batches, 862 of 879 copies culled at the still pose, culling on vs off bit-identical there, along the flown path, with AO, MSAA and render scale; no GPU validation errors. Fast gate green (village p50 5.9 ms, limit 6.16). Terrain nodes (the row's part B) not done: left for 33.6. WebGL 2 unchanged (no marker, no variant). |
 | 33.6 | Done 2026-10-17: block and architecture chunks, merged cells (whole) and models alone culled whole on the GPU as rows of 33.5's table (`occlusion-whole.ts`; pass by the last read-back answer, `instanceCount` 0/1 in pass 2, tested as world boxes, ≥ `OCCLUSION_MIN_COPIES_TRIANGLES`), terrain nodes culled per node (`terrain-node-culling.ts`, boxes); fixed 33.5's rebuilt late kernel reading last frame's pyramid. WebGPU A/B against `00c4eef9`, same hour, load 1.1–3.6 (before the 2048 floor for whole draws): landscape valley triangles 287k → 43k, scene pass GPU 2.96 → 2.54 ms, main 10.16 → 10.05; area street 200k → 190k tris, main 7.33 → 7.36; village street main 7.20 → 6.79; village open on vs off unchanged; pyramid + culling compute on landscape 0.44–0.52 → 0.52–0.54 ms (§5 ≤ 0.4 still missed). Village gate check interleaved (9 rounds, load 2–4): before 6.0–6.1, after 6.0–6.3 ms p50, equal main thread; the fast gate's perf missed 6.2–6.3 ms three times, then passed at 6.1 (limit 6.16, host state: D199). rendering.e2e's export: 2 of 3 models culled whole, 2 of 10 terrain nodes culled, WebGPU on vs off bit-identical at the pose, along the path, with AO, MSAA and render scale. WebGL 2 unverified (unchanged path). |
-| 33.7 | Done 2026-10-18: occlusion queries on boxes (`occlusion-queries.ts`; bookkeeping in `occlusion-queries-rule.ts`, vitest): WebGL's own `ANY_SAMPLES_PASSED_CONSERVATIVE` queries round each box's draw, drawn after the frame into the scene pass's target after the `_OCC` stand-ins (which never reach the depth AO, fog and transparent draws read); a draw is hidden after two answers in a row (the newer ≤ 2 frames old) and shown at the first that sees it; boxes grow by a depth margin and the camera's motion; cuts forget every answer; what is asked is `wholeTestOf` (shared with the GPU path: `occludeeClassOf`, the 2048-triangle floor) and instanced draws by their copies in view, hidden whole. Answers come 2 frames late at 60 Hz and 20–60 frames late uncapped (nothing culled there); box-measured lateness along the flown camera 2 frames: **WebGL 2's auto culls nothing, `?occlusion=queries` pins the queries** (§7, owner to confirm). rendering.e2e's export on WebGL 2 (pinned): on vs off bit-identical at the still pose (AO, glass behind the stand-in, 3 models hidden), in the plain frame and at two poses along the flight. WebGL 2 uncapped, before (`c62483bd`: auto = the no-op queries path) → after (auto = off), load 1–3.5, p50 / main ms: village open 4.7/4.7, 6.18/6.07; street 5.1/4.9, 6.71/6.71; area open 2.6/2.6, 7.02/7.05; landscape open 4.2/4.0, 11.15/11.16; valley 3.2/3.2, 10.77/10.83 (equal). Queries pinned, uncapped: 1–29 boxes a frame, 0 culled, main +0–0.1 ms; capped at 60 (`frameRateCap`): village street 2 culled, 139k → 135k triangles, main 4.70 → 4.80. With a 64-triangle floor (an experiment, not kept): 66 of 112 hidden in the street, but +75 boxes a frame: draws 265 → 275, main +1.5 ms (load 5–7). The oracle still counts 78 % of the street's draws hidden: what WebGL 2 could save stays unclaimed. |
+| 33.7 | Done 2026-10-18: occlusion queries on boxes (`occlusion-queries.ts`; bookkeeping in `occlusion-queries-rule.ts`, vitest): WebGL's own `ANY_SAMPLES_PASSED_CONSERVATIVE` queries round each box's draw, drawn after the frame into the scene pass's target after the `_OCC` stand-ins (which never reach the depth AO, fog and transparent draws read); a draw is hidden after two answers in a row (the newer ≤ 2 frames old) and shown at the first that sees it; boxes grow by a depth margin and the camera's motion; cuts forget every answer; what is asked is `wholeTestOf` (shared with the GPU path: `occludeeClassOf`, the 2048-triangle floor) and instanced draws by their copies in view, hidden whole. Answers come 2 frames late at 60 Hz and 20–60 frames late uncapped (nothing culled there); box-measured lateness along the flown camera 2 frames: **WebGL 2's auto culls nothing, `?occlusion=queries` pins the queries** (§7, owner to confirm; **moot (owner 2026-10-22):** the WebGL 2 query path is removed (39b.10b, D287)). rendering.e2e's export on WebGL 2 (pinned): on vs off bit-identical at the still pose (AO, glass behind the stand-in, 3 models hidden), in the plain frame and at two poses along the flight. WebGL 2 uncapped, before (`c62483bd`: auto = the no-op queries path) → after (auto = off), load 1–3.5, p50 / main ms: village open 4.7/4.7, 6.18/6.07; street 5.1/4.9, 6.71/6.71; area open 2.6/2.6, 7.02/7.05; landscape open 4.2/4.0, 11.15/11.16; valley 3.2/3.2, 10.77/10.83 (equal). Queries pinned, uncapped: 1–29 boxes a frame, 0 culled, main +0–0.1 ms; capped at 60 (`frameRateCap`): village street 2 culled, 139k → 135k triangles, main 4.70 → 4.80. With a 64-triangle floor (an experiment, not kept): 66 of 112 hidden in the street, but +75 boxes a frame: draws 265 → 275, main +1.5 ms (load 5–7). The oracle still counts 78 % of the street's draws hidden: what WebGL 2 could save stays unclaimed. |
 | 33.8 | Done 2026-10-18: one ordering rule for both paths (`occlusionMayTest`, view-hidden.ts: what a cut-away, the rooms or isolation hid is never tested or queried, what occlusion hid is asked again); `_OCC` stand-ins follow their piece's surfaces (`standinFollowsSurfaces`); instanced draws of one copy (kit copies drawn per room often are) were culled by no path on WebGPU (the runtime calls them whole draws) and are now tested as their copy (`copiesWorthCulling`, vitest); the rooms' switch at run time (`scene.userData.tlRooms`). layered-material.e2e's export gained a dense kit copy in the shut room C: hidden by the portals it is not tested (`hiz\|47\|0\|0`, `queries\|47\|0\|0`), with the portals off it is culled by depth (`…\|1\|1`) on both paths, and occlusion on vs off with the portals on and off, and the portals on vs off, are bit-identical (worst 0; WebGL 2 with the queries pinned). WebGPU, before (`94d48bb5`) → after, load 0.5–3, p50 / main ms: interior 9.9/9.9, 9.97/9.98 (`occlusion=off` 9.6/9.6, 9.69/9.73; `portals=off` 10.2/10.2, 10.23/10.22, 384 draws); area open 7.1/7.1, 7.22/7.23; area street 7.2/7.3, 7.31/7.31: equal. The interior tests 0 of its 464 occludees: after the portals what is left is wall chunks taller than half the view and props under the 2048-triangle floor (the oracle's 21 hidden draws hold 7k triangles), and it has no instanced copies; with `portals=off` occlusion culls 1 draw of 2 tested: it does not stand in for the portals (+282 draws). Fast gate green (village p50 6.1 ms, limit 6.16). |
-| 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm). |
+| 33.9 | Dropped by 33.1 (§7, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**). |
 | 33.10 | Done 2026-10-18: the Scene view culls through Play's culler (the project's `occlusion_culling`, the renderer's path; `?occlusion=` and `?portals=off` reach the Scene view and Play); a new View menu: Occlusion culling on/off (this view only), Show culled draws (magenta boxes round draws culled whole or hidden by queries; the view keeps drawing meanwhile), Depth pyramid; the selection's subtree and an edit mode's objects are never culled (a batch or merged cell holding one is drawn whole, untested; nothing regroups), the view's own drawing is no occludee (`markHostDrawing`); Inspector Occluder (box/model) and the asset inspector's model `occluder`. rendering.e2e's Scene view test (WebGPU, then WebGL 2 with the queries pinned): a dense block behind a wall culled and boxed, selected → outlined and drawn, the wall's Occluder off → drawn, vertex-paint mode with Context → never culled, culling on vs off bit-identical (worst 0) on both; +6.4 s (6.7 → 13.1 s, one editor reload). vitest: kept draws, host drawing, the overlay's edges, the menu switches. viewport.ts split first (effect preview, 1,990 → 1,897; now 1,942). The decal atlas flake fixed (§7). Fast gate: e2e green (D201 once, passed on rerun); its village perf check missed (WebGPU p50 7.9–8.2 ms, limit 6.16) with HEAD `b2950862` as slow: interleaved A/B, 4 rounds in both orders, main thread 7.96 (after) / 7.93 (before) ms, p50 7.1–8.2 / 7.0–8.1 ms, the second run of each pair the slower: host state (D199), baseline kept. |
 | 33.11 | Done 2026-10-18: the manual's `features/occlusion.md` (when culling pays and where walls and `_OCC` stand-ins do not, the setting and the quality-level override, WebGPU `hiz` on and WebGL 2 queries off and why, `_OCC` with its import check and the model's `occluder`, an object's `occluder: false`, the View menu, the URL switches, the diagnostics), linked from the manual's and the features' indexes, editor, assets and both performance pages; a `_OCC` section and checklist note in the trim sheet spec (the kit editor's checks list no `_OCC` check: none exists); `occlusion_culling` in the MCP `setSettings` docs (values from `OCCLUSION_CULLING_SETTING_VALUES`); reference regenerated; deployment.md untouched (server-only); the skill names no node suffixes or render settings, unchanged. Export: bundle-scan.test.ts builds the real export page with `occlusion_culling: 0` and checks the manifest's setting reads off, the page links both paths' modules and no editor, backend, MCP, workspace, commands or protocol code (every export also runs `checkBundleGraphM3`); `data-tl-occlusion` with culled draws on both renderers was already covered by rendering.e2e's export (WebGPU auto, WebGL 2 pinned). No drawing change. Fast gate: build, lint, vitest, e2e (rendering.e2e) green; its village perf check missed twice (WebGPU p50 6.3, then 7.1 ms, limit 6.16; the plain three.js page slowed with it, 6.3 → 6.5 ms) while the export page bundle is byte-identical to HEAD's (sha256 compared with and without the change): host state (D199), baseline kept. |
 | 33.12 | Done 2026-10-18: after numbers below (classes split by `occlusion=off`, `portals=off`, WebGPU `hiz` and WebGL 2 `auto` and pinned `queries`; the harness's `--switches` now also run at each view). Village A/B against `60bd1f69` (interleaved `village --gate`, load 3–4, fast host state): WebGPU p50 5.2–5.6 → 6.0–6.3 ms, HEAD with `occlusion=off` 5.6/5.7: a real cost of the hiz path, half from 33.4 and half from 33.5 (33.6 adds none), not host drift (D282); WebGL 2 4.6–4.9 both. One generated level (terrain with scatter and cover, block walls with a live door, generated rooms with a closed door piece, an `_OCC` hedge hiding a dense pillar) through the editor's Play button and File → Export game, both renderers, export at 1920 × 1080: 36 of 36 culling on/off comparisons bit-identical (four poses, a door opened by a script with the portals on and off, three stops after flights), the opened door's room drawn in the first shot after the key; the Scene view's culled boxes and depth pyramid looked at; the hidden pillar's shadow is not told apart by eye (it falls inside the hedge's own), only bit-identical. Not done: `level-acceptance.e2e.ts` not extended (no added e2e time; the driver covered it), the 2048-triangle floor not re-measured on denser content. Fixed: the culled boxes were never drawn on WebGL 2 (counted only; rendering.e2e now checks their pixels); a read-back finishing after Play stopped threw. §5 below: p95 −25 % missed everywhere (−2 to −8 %), half the oracle's hidden items culled in the landscape and world views (64–81 %), not in the village and area streets (45 %, 47 %); open view and draws missed (D282, D285); GPU numbers unverified (D283); D284 for the overlay. Screenshots in `~/.cache/thirdlight-phase33/acceptance/`. |
 | 33.13 | Done 2026-10-18: review fixes (§7): `occlusion_culling` 0 off / 1 auto (culls nothing on either renderer) / 2 on (hiz on WebGPU, queries on WebGL 2), a level's `off`/`auto`/`on`; displaced vertices never culled unless they declare a reach (wind does); pass 2 hides only childless draws; slot-ordered pools (60 s landscape flight, culling on: 1705 → 1250 KiB uploaded a frame, main thread 7.10 → 7.11 ms, off 6.07 / 6.23: unchanged, D282); `_OCC` coverage check along the axes; one 2048-triangle floor; the door (layered-material's rooms export pose: taken away with culling on, C seen, on = off to the pixel) and a culled caster's shadow (rendering.e2e's Scene view, both renderers) as regressions. Village A/B against `60bd1f69`, 3 rounds interleaved, WebGPU p50 base 5.6/5.6/5.6 against after 5.6/5.6/5.7 ms, WebGL 2 4.7/4.7/4.8 against 4.6/4.7/4.8 ms (load 2.9–4.9): equal, inside the gate's limits (6.16 / 4.84 ms) again. Fast gate (rendering, layered-material, engine-stats, project-settings) GREEN: 33 e2e passed (3.2 min), village perf WebGPU p50 5.6 ms (limit 6.16), WebGL 2 4.8 ms (limit 4.84); the first run failed the two new steps (a stale rooms count read, a shadow cast too low to be seen), fixed. D282 updated, D286–D288 logged. |
-| Phase gate | `full --both-renderers` at `7fc09308` (2026-10-18 06:37, 2 workers, before the review fixes): build, lint, vitest 731 files passed; e2e **390 passed** in 22.4 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak **7.0 GB, at the 7G cap** (no OOM). Logs `~/.cache/thirdlight-logs/gate-full-20261018-063740`. Not rerun after 33.13 (fast gates of the touched areas). |
+| Phase gate | `full --both-renderers` at `7fc09308` (2026-10-18 06:37, 2 workers, before the review fixes): build, lint, vitest 731 files passed; e2e **390 passed** in 22.4 min; **26 min — OVER BUDGET** (15 min; D253 is still the owner's decision; **moot (owner 2026-10-22):** no fixed gate-time budget, the gate must just not grow without need); memory peak **7.0 GB, at the 7G cap** (no OOM). Logs `~/.cache/thirdlight-logs/gate-full-20261018-063740`. Not rerun after 33.13 (fast gates of the touched areas). |
 
 **33.1 before numbers** (HEAD `60bd1f69` plus the harness, Iris Xe, 1920 × 1080, DPR 1, uncapped; frame
 p50/p95/p99 ms; GPU = three's pass timestamps per frame, WebGPU only, waits included; main = main-thread
@@ -409,7 +410,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
 - 2026-10-09: single draws are encoded once a frame, in pass 1 or 2 by the
   last read-back, so the CPU does not encode the scene twice; instanced
   draws are encoded in both passes, with the copy visibility kept on the GPU.
-- 2026-10-09 (default chosen, owner to confirm): on by default, absent =
+- 2026-10-09 (default chosen, owner to confirm; **moot (owner 2026-10-22):** reversed by the review fixes (off by default, D282) and the WebGL 2 query path removed (39b.10b)): on by default, absent =
   `auto` (same pixels as before); WebGL 2 with at most one frame of
   lateness; `_OCC` as depth-only stand-ins inside the model; presentation
   only.
@@ -420,7 +421,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   list needs. The WIP branch `wip/33.1-measure` was ported by hand, not
   merged: isolation took bit 4 meanwhile, so `HIDDEN_BY_OCCLUSION` is 8;
   the eye height is defined once in the harness (`generate.ts`).
-- 2026-10-17 (33.1, default chosen, owner to confirm): **the phase goes
+- 2026-10-17 (33.1, default chosen, owner to confirm; **moot (owner 2026-10-22):** built; the lower targets acknowledged): **the phase goes
   ahead.** Every occluded view hides most of its work (76–93 % of draws,
   83–93 % of triangles, 93–98 % of copies), so each class has hidden work
   that matters by count. Its time is small at these class sizes on this
@@ -433,24 +434,24 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   ≤ +0.2 ms main thread), which become the deciding guard: culling must
   cost less than the ≤ 1 ms it can save. The saving grows with denser
   content (a town, a forest behind a hill), which the classes do not have.
-- 2026-10-17 (33.1, default chosen, owner to confirm): **33.9 (terrain
+- 2026-10-17 (33.1, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **33.9 (terrain
   horizon on the CPU) is dropped.** In the valley views the ideal culling
   of every hidden draw saves 0.5–0.7 ms main thread; 33.5–33.7 reach the
   same draws, and a second culling path for that is not worth its code.
-- 2026-10-17 (33.1, default chosen, owner to confirm): **33.6's merged
+- 2026-10-17 (33.1, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **33.6's merged
   cells per member are dropped**; merged cells are culled as whole draws
   (one slot per cell) like block and architecture chunks. Hidden merged
   triangles are 11–18k per view (a few percent of the frame's), and a
   compacted index buffer per cell is the part most likely to need a
   three.js workaround.
-- 2026-10-17 (33.1, default chosen, owner to confirm): **WebGL 2 (33.7)
+- 2026-10-17 (33.1, default chosen, owner to confirm; **moot (owner 2026-10-22):** the WebGL 2 query path is removed (39b.10b, D287)): **WebGL 2 (33.7)
   keeps its place and is where the CPU saving is**: leaving hidden draws
   out drops main thread by 0.4–1.7 ms there (village street p50 5.0 →
   4.0 ms at low load), while WebGPU's indirect draws still encode every
   draw and save GPU time only. 33.5 (instanced copies on the GPU) is the
   WebGPU item with the most to remove: 94–97 % of copies are hidden in
   the street views, more than whole-draw culling can reach.
-- 2026-10-17 (33.2, default chosen, owner to confirm): **the setting is a
+- 2026-10-17 (33.2, default chosen, owner to confirm; **confirmed by the owner 2026-10-22** (the review fixes added `2` = on)): **the setting is a
   project setting plus a quality level field**, layered like ambient
   occlusion through the render control: `occlusion_culling` (Rendering
   group, 0 off / 1 auto, absent auto) and a level's `occlusionCulling:
@@ -463,7 +464,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   scene (`scene.userData.tlOcclusion`: `path()`, `pin()`, `diagnostics()`),
   which the oracle reads; its ideal hiding pins culling off first, since both
   use `HIDDEN_BY_OCCLUSION`.
-- 2026-10-17 (33.2, default chosen, owner to confirm): what is worth testing
+- 2026-10-17 (33.2, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**; D288(2) asks for a re-measure of the shared floor): what is worth testing
   is `occludeeClassOf` in runtime `occlusion.ts`: under
   `OCCLUSION_MIN_TRIANGLES` = 64 a draw costs about what a WebGL 2 query's
   box does; over `OCCLUSION_MAX_SCREEN_SHARE` = 0.5 of the view's height a
@@ -476,7 +477,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   from its three.js type. The editor's Scene view is not wired yet (33.10),
   so `viewport.ts` was not split; editor Play does not forward `?occlusion=`
   (as `?portals=`). The manual page is 33.11's.
-- 2026-10-17 (33.3, default chosen, owner to confirm): **`_OCC` stand-ins draw
+- 2026-10-17 (33.3, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **`_OCC` stand-ins draw
   last among the opaque draws, not first.** The depth the next items read is
   the depth after the opaque draws (33.4's pyramid is built from pass 1's
   depth; 33.7's queries are drawn at the end of the opaque list), so a
@@ -502,7 +503,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   count; batches and merged cells key on the marks, so one draw never mixes
   roles. Where a `none` draw goes (after the queries, pass 2 only) is 33.4's
   and 33.7's.
-- 2026-10-17 (33.3, default chosen, owner to confirm): the import check
+- 2026-10-17 (33.3, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): the import check
   reports through the project's Problems (`model_occluder_ignored`, checked
   at load and after imports), not as an import diagnostic: the importer's
   proposal is a validated protocol whose diagnostics reject a file, and an
@@ -511,7 +512,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   makes the model, so the export and Play never draw it. The object's
   `occluder` reaches the Inspector through its descriptor; the asset
   inspector's import field and the editor test of both are 33.10's.
-- 2026-10-17 (33.4, default chosen, owner to confirm): **`_OCC` stand-ins go
+- 2026-10-17 (33.4, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **`_OCC` stand-ins go
   into the depth pyramid only, not into the scene's depth.** With them in the
   depth, what later reads it changed pixels with culling on: glass behind a
   stand-in disappeared and ambient occlusion darkened a cut-out's gaps
@@ -523,7 +524,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   "the author's promise" for AO, fog and transparent draws on WebGPU; WebGL 2's
   queries (33.7) still need the stand-ins in the depth they test against and
   must restore or avoid it for what reads the depth after them.
-- 2026-10-17 (33.4, default chosen, owner to confirm): **frames on `hiz` always
+- 2026-10-17 (33.4, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **frames on `hiz` always
   draw through the environment renderer's scene pass** (a plain one without
   post effects), not straight to the canvas: three's direct path keeps its
   depth in a private target, the scene pass's depth is a texture the pyramid
@@ -558,7 +559,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   replaced, and its pass was dropped by the GPU (validation errors in the
   landscape class; rendering.e2e now fails on any). Refreshing every draw
   instead cost +0.3 ms main thread on the village.
-- 2026-10-17 (33.5, default chosen, owner to confirm): **instanced occluders are
+- 2026-10-17 (33.5, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **instanced occluders are
   encoded in both passes** (as planned 2026-10-09). Measured: drawing them in the
   second pass only saved no main-thread time on the village and culled a third
   fewer copies, so they stay occluders. What did cost was culling the village's
@@ -578,7 +579,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   off for the page (reported once) instead of leaving the scene pass's targets
   set: a throw inside the pass once left the renderer's MRT on and every later
   frame black.
-- 2026-10-17 (33.6, default chosen, owner to confirm): **draws culled whole are
+- 2026-10-17 (33.6, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **draws culled whole are
   rows of the instanced copies' table** (one copy each, `occlusion-whole.ts`),
   not a second table and kernel: block and architecture chunks, merged cells
   (as whole draws, §7 above) and models drawn alone. Each is encoded once a
@@ -615,7 +616,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   from inside the pyramid's build, before the reduction, so it tested against
   last frame's pyramid (an empty one at the first frame: everything hidden in
   the second pass for one frame). It now runs right after the pyramid's pass.
-- 2026-10-18 (33.7, default chosen, owner to confirm): **WebGL 2 culls nothing by
+- 2026-10-18 (33.7, default chosen, owner to confirm; **reversed by the owner 2026-10-22 → 39b.10b:** the WebGL 2 query pin is removed with the query path (D287); WebGL 2 culls nothing): **WebGL 2 culls nothing by
   default; its occlusion queries are a pin (`?occlusion=queries`).** §1's rule:
   more than one frame of lateness on a moving camera turns WebGL 2 off. The
   answers come 2 frames after their query at 60 Hz, and 20–60 frames after it
@@ -659,7 +660,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   (the queries had their own mask, the GPU path a layer test). A cut-away's
   hidden roof is off the view's layers, so neither path draws it into the depth
   they read; its fading copy draws its dithered depth, which is exact.
-- 2026-10-18 (33.8, default chosen, owner to confirm): **an `_OCC` stand-in
+- 2026-10-18 (33.8, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **an `_OCC` stand-in
   follows its piece's surfaces.** Cut-aways hide only block and generated
   architecture meshes, never models, so no stand-in is under a cut today; the
   rule is general: when every surface of its piece drawn on its own (in the
@@ -694,7 +695,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   slower on the GPU and costs 11 encodes a frame at 1080p). A thread reads 2 × 2
   level-0 texels; a tile's texels past an edge are reduced from clamped reads
   and only repeat the edge's inputs. 33.5 reads the same buffer.
-- 2026-10-18 (33.10, default chosen, owner to confirm): **the Scene view culls as Play does, and its View menu
+- 2026-10-18 (33.10, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **the Scene view culls as Play does, and its View menu
   turns culling off for the view only.** Play follows the project's `occlusion_culling` (Project Settings); the
   menu is a view option like the Gizmos menu (not stored), so a comparison in the editor never changes the game.
   "Show culled draws" boxes what is culled whole (block, architecture and merged cells, models alone) or hidden
@@ -707,7 +708,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   leaving it: a selection never regroups (rendering.e2e: the selected box stays in its batch). Gizmos, outlines,
   handles and brush cursors live in the view's overlay group or hang on objects (`attachOverlay`); both are marked
   a host's own drawing (`markHostDrawing`) and are never occludees.
-- 2026-10-18 (33.10, default chosen, owner to confirm): **editor Play passes `?occlusion=` and `?portals=off` on**,
+- 2026-10-18 (33.10, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **editor Play passes `?occlusion=` and `?portals=off` on**,
   as it does `?batching=off`, `?ao=` and the rest, and the Scene view reads them too: a comparison names one path
   in every view of the page.
 - 2026-10-18 (33.10): the stand-ins' depth in an idle Scene view (33.7's note) is no defect: on a single-sampled
@@ -725,7 +726,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   backend's `decal-pages.test.ts` covers the cold preview every run.
 - 2026-10-18 (33.12): **the village's slower frame is the hiz path, not the host.** Interleaved against the phase's
   start, the gate's WebGPU p50 is 0.6–0.8 ms higher and equal with `?occlusion=off`; 33.4's two-pass frame and 33.5's
-  copy culling each add about half (D282). Default chosen, owner to confirm: the baseline is not re-recorded (the brief
+  copy culling each add about half (D282). Default chosen, owner to confirm (**moot (owner 2026-10-22):** superseded by the review fixes below (`auto` culls nothing, D282 confirmed off)): the baseline is not re-recorded (the brief
   allows that only after a measured speedup) and `auto` stays `hiz`, so the fast gate's perf check misses about half its
   runs until D282 is worked; the owner weighs a cheaper open view against a new baseline.
 - 2026-10-18 (33.12): fixed in 33.10's overlay: on WebGL 2 the culled draws' boxes were counted (`data-occlusion-view`)
@@ -739,15 +740,15 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   file): the editor's Play button, script keys for poses, a flight and a door (`clearEdge`: a piece opened with
   `setEdgeOpen` keeps its look, so the room behind stays hidden by it), the View menu and File → Export game. The level
   has no animated water (a river's water mesh never settles for a strict picture comparison).
-- 2026-10-18 (review fixes, default chosen, owner to confirm): **`occlusion_culling` gains `2` = on, and `auto`
+- 2026-10-18 (review fixes, default chosen, owner to confirm; **confirmed by the owner 2026-10-22** (off by default, D282); `2` on WebGL 2 loses its queries, which are removed → 39b.10b): **`occlusion_culling` gains `2` = on, and `auto`
   (and absent) culls nothing on either renderer** (D282, the review's recommendation). On is the depth pyramid on
   WebGPU and the occlusion queries on WebGL 2; a quality level's `occlusionCulling` is `off | auto | on`. The
   village baseline is not re-recorded. Interleaved `village --gate` against `60bd1f69` (3 rounds): WebGPU p50 base 5.6/5.6/5.6 against after 5.6/5.6/5.7 ms, WebGL 2 4.7/4.7/4.8 against 4.6/4.7/4.8 ms (load 2.9–4.9): equal, inside the gate's limits (6.16 / 4.84 ms) again.
   Adaptive auto is its own follow-up with the review's entry criteria (D286).
-- 2026-10-18 (review fixes, default chosen, owner to confirm): **WebGL 2's occlusion queries stay, off by default**
+- 2026-10-18 (review fixes, default chosen, owner to confirm; **reversed by the owner 2026-10-22 → 39b.10b:** the WebGL 2 occlusion queries are removed (D287)): **WebGL 2's occlusion queries stay, off by default**
   (on with the setting's 2): the owner put them in the phase's scope, so their removal is the owner's call; the
   reviewer's case is D287.
-- 2026-10-18 (review fixes, default chosen, owner to confirm): **the `_OCC` import check is stricter than the LOD0
+- 2026-10-18 (review fixes, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): **the `_OCC` import check is stricter than the LOD0
   bounds**: seen along each axis from both sides on a coarse grid (`OCCLUDER_COVERAGE_TEXELS` = 64 texels along the
   piece's longest side), a stand-in may cover only where the piece's LOD0 triangles are (within a texel) and never
   stand in front of them (`occluderCoverageBreaks`, project-model; the backend's Problems and the adapter's drop use
@@ -782,7 +783,7 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
   three without `NodeMaterial.setupObserver` turns GPU culling off with a diagnostics error instead of drawing with
   stale pools. The editor's view keeps drawing while the queries path hides something. `INSTANCE_MATRIX_FLOATS`
   is the drawn buffer's stride, defined once (`COPY_FLOATS` is it).
-- 2026-10-18 (review fixes, default chosen, owner to confirm): the hidden-caster regression is in rendering.e2e's
+- 2026-10-18 (review fixes, default chosen, owner to confirm; **confirmed by the owner 2026-10-22**): the hidden-caster regression is in rendering.e2e's
   Scene view occlusion test, not the rooms pose: the layered-material rooms scene has no shadow-casting light (its
   sun and lamp cast none) and one would move its lighting reads. There a culled block behind a wall, lit by a low sun
   from the side, shadows a panel beside the wall; its `castShadow` off changes the picture (both renderers; the
@@ -821,4 +822,6 @@ main thread WebGPU 7.06 on / 6.24 off, WebGL 2 5.84 auto / 5.80 off / 6.14 queri
     `?occlusion=`/`?portals=`). Unverified: a hidden caster's shadow by eye, frame-by-frame equality while the
     camera moves on WebGPU (stops only), the GPU ms targets (D283), dynamic resolution's pixels, WebGL 2 `_OCC`
     pixels, the overlay for copies (D284), M1's children by pixels.
+    **Owner 2026-10-22:** D282, D253 and the §7 defaults decided (marked above); D287 removed (39b.10b); the
+    looks wait for the review page.
 

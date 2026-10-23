@@ -275,7 +275,7 @@ cause and a follow-up, never a reason to throw an item away (owner,
 | 30.26 | done 2026-10-08 (layouts and furnishing: owner look pending): room programs and furnishing sets are the game's graphs (kinds `room-program`, `furnishing-set`; `arch-plan-kinds.ts`), the engine the splitter (`arch-floor-plan.ts`: footprint along x/z → rectangle zones, stair room carved first and kept on every storey with switchback flights, seeded treemap tries scored by share, smallest side, aspect, wired types touching, entrance at the front door; doors for wired pairs then until every room is reached) and the placer (`arch-furnish.ts`: by room type, against walls facing in, corners, centre facing the door; door clearance both sides, a flood-filled walkable path joining doors and stairs, windows kept from tall props; pins first; one light per room within the set's count). Buildings: `program`, `furnishing`, `layoutSeed`, `pins`; outlines `building`/`roomType` = a locked plan (additive). Rooms are room outlines inside the building (its walls on the footprint made once, shared partitions, its own floors/trims dropped on filled storeys) → regions, portals, light layers as before; props are kit copies; lights are light objects the build, Play's start snapshot and the Scene view add within `MAX_LOCAL_LIGHTS`. Generated at load (not baked; §7). Editor: program/furnishing pickers, layout seed + New layout, Lock/Unlock/Detach, props list Pin/Unpin. Measured (Node, 64 two-storey L houses, 576 rooms, 1,580 props): split 0.08 ms a building, its rooms' expansion 0.60 ms, furnishing 0.66 ms (25 props); whole object 85 ms cold / 50 ms remembered (5 ms without plans; §5 ≤ 16 ms per edit met only for ~10 furnished buildings an object, follow-up below); 121 chunks: 100 mesh draws (one per chunk per material), 261 prop draws (one instance set per model per chunk). Browser (layered-material e2e, Iris Xe, WebGPU + WebGL 2): new seed moved 5 of 6 props, the pinned one kept; Play + export from above: props where the generator put them facing their rooms, door clearances clear, partitions between rooms; the 6 props one instanced draw; 3 furnishing lights + the scene's lamp = 4 local lights. Unverified: the look of layouts and furnishing (owner), multi-storey stairs and upper rooms by pixels (vitest only), Detach in the editor (Lock/Unlock driven; vitest for the locked plan). |
 | 30.26b | done 2026-10-08: **architecture edits within §5.** `expandArchitecture` expands per group (`project-model/arch-groups.ts`: outlines whose ground boxes touch, a building with its rooms; each group alone makes what they make together), each group remembered per style table by its outlines, the object's place, masks, layer/interior flags, profiles, swaps and (only where it reaches) the preview; groups of several outlines hand back unchanged elements as the objects made before. Chunk keys keep each element's hash, chunks and weight per element object and each chunk's keys per place by its elements' hashes. A chunk weighing over `ARCHITECTURE_PART_WEIGHT_MAX` is made in parts (runs cut where the elements' hashes pick, ≤ the weight): each part a worker job kept by its own key, joined on the page (`joinArchitectureChunkParts`: the same bytes as the chunk made whole, vitest; page = worker; IndexedDB and exports keep whole chunks). Far level: sweep cells along a segment (no opening near) are one quad per row, a fill's row band one fan, over the same vertices (same area in space and in the sheet, vitest); generator version 2. Group order is now group by group (deterministic; old caches miss once). Measured (Node, 16 m chunks; before → after): **64-house village, one house edited**: page expand + keys 101 → 4.8–6.2 ms (expand 57 → 2.4), its jobs 0.6 ms median / 2.2 worst (2.5 ms on 2 workers); nothing remembered 106 → 107 ms. **Shared wall dragged in 64 rooms**: page 8.7–9 → 5–6.5 ms; with its chunks serially 45 / 61 ms (unpainted / painted) → 15 / 18 ms in 14 part jobs, on 2 workers 11 / 13 ms median (worst 16 / 20; §5 ≤ 16 ✓ median). **Rooms chunk**: whole dense chunk 8.4 / 17 ms worst → jobs 0.9 ms median, 4.5–5.9 worst at load (§5 ≤ 5: about met; a part is ≥ one element). **Buildings' worst chunk**: 14.3 ms whole → 90 jobs, 0.67 ms median, 4.9 worst. Triangles: near unchanged (227k for 16 houses, ~14k a building: rows of the trim sheet), far 34k (~2.1k a building). Unverified: browser timings on a cold worker (the e2e scenes are below the part weight), far-level look at distance (owner). |
 | 30.27 | done 2026-10-08 (full gate and phase review pending): **the classes after the phase** split by switching each part off (`level --switches …`, Iris Xe, 1920 × 1080, DPR 1, uncapped, both renderers; the outdoor classes with `--height-fog`): table below, against §5. **Done when 1 + 3** — one level made by commands in `tests/e2e/level-acceptance.e2e.ts` (17 s, one backend, both renderers): a 4 × 4 km terrain (16 tiles of 1 km), a block area it meets (blocks layer, cut), edge walls with a live door (2 live objects), a connected rampart (straight + corner pieces), material rules on both (the terrain's steep ramp and the dais walls magenta), wall paint by hand, rule scatter on both (terrain posts, soil bushes) and ground cover on both (tufts, sprigs), a road (flattened, painted) and a river (water mesh), height fog peach at the horizon under a blue sky; a room, a building with a hip roof and its interior scene, a fence and a pipe as outlines from presets deriving from the starters on trim sheet A, a hand-placed prop: every feature read where the camera sees it in Play and the export on WebGPU and WebGL 2; a key swaps every preset for its twin on sheet B (walls, fence and pipe change colour where they stood, the prop stays, the stored outlines unchanged), a second goes through the door into the interior (its walls on sheet B too). Generation in that level: 5 chunks, the cold page's first 16–33 ms, workers 4–14 ms, first object drawn 87–154 ms (§5 5 ms / 100 ms missed cold: D202). **Done when 2** (the seam): terrain-cdlod e2e's `expectSeam` (no sky round the plaza, colour across the border, Play and export, both renderers) and its walk across; the acceptance level has the same blocks layer but no seam measure of its own. **Requests**: §7 (2026-10-08, acceptance) lists the test of each; gaps D203 (E8 blob autotiling), wetness and side-projected normals by pixels in Play (Scene view only). **Defect found and fixed**: a scatter-only bake on a terrain with splines or edit layers copied the hand-made forms' weights over the baked material rules (the acceptance level's ramp lost its rule colour); vitest `terrain-spline-ops` (rules baked after the road, then trees alone). Limits and settings of the phase: deployment.md's limits table (9 rows). Watch rows D200 (menus Delete stayed disabled), D201 (dynamic resolution width read after a step back down). Unverified: the owner's laptop; the look of everything (owner). |
-| 30.28 | done 2026-10-09 (parts A, B1, B2, C1, C2; phase 30 done, owner look pending). Part A done 2026-10-09: **the full gate's real failures**: every node kind draws (Scene depth reads "far", 10 km, in a vertex offset by design and threw its sphere out of view: the harness feeds pixel-only kinds to the emissive alone); scene lights (a layered light's per-draw branch, added with rooms, left the surface values every later light reads unset on a draw it skipped: all lights after it lit black; its condition now names them, so they are set before the branch: found by bisecting to 30.24, fixed by the e2e, both renderers); D171 recurred (now failed alone too: the script's code editor keeps an early Escape, the test presses until the window closes); lights e2e read the intensity before the slider's command landed (polls now). **Review**: H1 JSON chunk files write and read one key list (`CHUNK_FILE_OPTIONAL_KEYS`): scatter, edges, wall paint and paint reopen (workspace vitest through the service and the files; failed before); H2 a covered room's top is a portal opened while a cut-away over it is cut or fading (`RoomGraph.tops`, `CutawayDrawing.cutsOver`; vitest: a camera above a cut row sees every room, none once the roofs are back; a cut upper floor opens the room below); M1 the simulation tells the page which tiles each terrain's collision ring wants (`GridCollisionRingChange`), the page reads them wherever its camera is (vitest both sides; terrain-cdlod e2e: the camera flown 400 m away keeps the player's 3 tiles, the player stands; deployment.md corrected); M2 a heightmap import's new tile keeps the ground already there on edges past the image (vitest, no seam); M8 `ctx.surface.at` takes terrain only at or below the point (25 cm sink, `SURFACE_SINK_METRES`), higher terrain only when nothing lies below (vitest: a cellar under a hill). Village perf WebGPU 7.7–7.8 ms vs HEAD 7.8 (A/B, D199: host/phase drift, not this item). Interior class (`level --classes interior`, Iris Xe 1080p) with the branch fixed: WebGPU scene pass 5.8 ms (30.24: 6.0 with the branch, 12.7 without: the saving kept), GPU 16.2 ms, main 10.6 ms, 102 draws, 62 mesh–light pairs; frame p50/p95 10.5/28 ms (30.24: 8.8/9.4; not A/B'd, the village shows the same host drift); WebGL 2 6.0/10.1 ms. Unverified: rooms with cut-aways by pixels (vitest only). **Part B1** (review M3, M4): furnishing lights left out past a scene's 16 named in a Problems line (`lights_dropped`; budget per visible set needs light slots, D204); the merged start scene gets its start scenes' interiors and lights (vitest through the closure's derivation); kit copies drawn per room by their foot, copies in walls in none (vitest view + culling; lit-rooms e2e both renderers, Play and export: the L cube's lamp-side face 387 vs its front 408, 633 without the split); lights stay layered when the rooms go: rooms loaded/unloaded in an export (Iris Xe 1080p) built 6/2 programs (41–63/7–14 ms) on every crossing before, 0 from the second crossing after (first rooms still 9, D205), on both renderers; in-place copy writes reach the shadow budget, room culling scans animated drawables only when asked. Village A/B against a4e4a7fa, interleaved: WebGPU 7.3–8.3 vs 7.5–8.2 ms, WebGL 2 4.6–5.4 vs 4.5–5.4 (host state, D199; the fast gate's perf check missed twice on it). D206 found (copies wear the object's `*` material). **Part B2** (review M5, M7, M9; D206): a dragged wall keeps the other walls' openings where they stood and moves a partly shared neighbour wall (vitest; rooms e2e drags the real walls); an outside-only swap, or one in a buildings-only object, drops shipped meshes (vitest; the acceptance export now ships meshes, a shed's facade swap turns its roof sheet B on both renderers); copies keep their own materials (vitest). Blend (Node, 100 m area, 512 m terrain at 1 m): layer added at 32/64 m 6.2/50.7 s → 32/128/256 m 0.35/2.5/7.2 s (same samples). Far ground, landscape `--macro 400 --day-cycle --vsync` 60 s: 332 (WebGPU) / 58 (WebGL 2) missed → 0 / 0 (sunlight alone re-baked, 8 tiles a frame); horizon e2e unchanged (1.21/1.30 darker). Village WebGPU 5.5 ms (within). D207–D209. **Part C2** (review M6, M10–M13, lows): one opening-edge walk (`architectureOpeningEdges`), one copy layout (`INSTANCE_FLOATS`), trim sheets bounded by `MAX_TEXTURE_EDGE` (8k refused at validation), one `INSTANCE_CHUNK_METERS`, `TERRAIN_LAYER_MAX`, heightfield cells, `stepOf`, settings keys and the erosion text read from their owners; §5 misses D210–D213 (30.27's sentence reworded); acceptance e2e needs sheet B inside and counts tufts where only tufts stand (each shown failing on a broken input: dark tufts, no swap), group expansion held to an ungrouped one (fails on split groups); `runtime.ts` 4,602 → 4,216 lines (`runtime-instantiate.ts`, joined lines un-joined); `docs/three-upgrade-checklist.md`; lows: bounded perf marks, cached door links, no per-frame copies, `pathOutcome`, planned rooms in the play check, tile header length checked before inflating; D214–D218 for the rest. **Part C1** (review H3, D181): measured before pruning — per file alone ≈ the gate's time (−5 %), the test process 88 % idle (the time is browser/GPU work), fixed waits ~100 s of 2,411 s and measurement windows, so no assertion was removed or moved (§7). The leak tests waited out the 10 s hold of released programs after each loop (`programs 8 → 54` for 10 s): `?buildKeep=500` (passed on to Play, read in the renderer factory; vitest for the flag) holds them 0.5 s, memory.e2e 163 → 119 s alone with every count checked. Typecheck incremental (warm 66 → 14 s; a changed export still fails its dependants, cached errors still reported). Full gate on 3 workers on a GPU (owner to confirm): the 29 heaviest files 600 → 471–478 s, 4.7 → 5.6 GB anonymous. Projected full gate ~18.7 min (26 measured, ~24 on 2 workers with the failures fixed): still over 15 (D181 open, options there); D219 (a slot pick lost on 3 workers). Fast gate green (before it the village perf check missed twice on a loaded host, D199). |
+| 30.28 | done 2026-10-09 (parts A, B1, B2, C1, C2; phase 30 done, owner look pending). Part A done 2026-10-09: **the full gate's real failures**: every node kind draws (Scene depth reads "far", 10 km, in a vertex offset by design and threw its sphere out of view: the harness feeds pixel-only kinds to the emissive alone); scene lights (a layered light's per-draw branch, added with rooms, left the surface values every later light reads unset on a draw it skipped: all lights after it lit black; its condition now names them, so they are set before the branch: found by bisecting to 30.24, fixed by the e2e, both renderers); D171 recurred (now failed alone too: the script's code editor keeps an early Escape, the test presses until the window closes); lights e2e read the intensity before the slider's command landed (polls now). **Review**: H1 JSON chunk files write and read one key list (`CHUNK_FILE_OPTIONAL_KEYS`): scatter, edges, wall paint and paint reopen (workspace vitest through the service and the files; failed before); H2 a covered room's top is a portal opened while a cut-away over it is cut or fading (`RoomGraph.tops`, `CutawayDrawing.cutsOver`; vitest: a camera above a cut row sees every room, none once the roofs are back; a cut upper floor opens the room below); M1 the simulation tells the page which tiles each terrain's collision ring wants (`GridCollisionRingChange`), the page reads them wherever its camera is (vitest both sides; terrain-cdlod e2e: the camera flown 400 m away keeps the player's 3 tiles, the player stands; deployment.md corrected); M2 a heightmap import's new tile keeps the ground already there on edges past the image (vitest, no seam); M8 `ctx.surface.at` takes terrain only at or below the point (25 cm sink, `SURFACE_SINK_METRES`), higher terrain only when nothing lies below (vitest: a cellar under a hill). Village perf WebGPU 7.7–7.8 ms vs HEAD 7.8 (A/B, D199: host/phase drift, not this item). Interior class (`level --classes interior`, Iris Xe 1080p) with the branch fixed: WebGPU scene pass 5.8 ms (30.24: 6.0 with the branch, 12.7 without: the saving kept), GPU 16.2 ms, main 10.6 ms, 102 draws, 62 mesh–light pairs; frame p50/p95 10.5/28 ms (30.24: 8.8/9.4; not A/B'd, the village shows the same host drift); WebGL 2 6.0/10.1 ms. Unverified: rooms with cut-aways by pixels (vitest only). **Part B1** (review M3, M4): furnishing lights left out past a scene's 16 named in a Problems line (`lights_dropped`; budget per visible set needs light slots, D204); the merged start scene gets its start scenes' interiors and lights (vitest through the closure's derivation); kit copies drawn per room by their foot, copies in walls in none (vitest view + culling; lit-rooms e2e both renderers, Play and export: the L cube's lamp-side face 387 vs its front 408, 633 without the split); lights stay layered when the rooms go: rooms loaded/unloaded in an export (Iris Xe 1080p) built 6/2 programs (41–63/7–14 ms) on every crossing before, 0 from the second crossing after (first rooms still 9, D205), on both renderers; in-place copy writes reach the shadow budget, room culling scans animated drawables only when asked. Village A/B against a4e4a7fa, interleaved: WebGPU 7.3–8.3 vs 7.5–8.2 ms, WebGL 2 4.6–5.4 vs 4.5–5.4 (host state, D199; the fast gate's perf check missed twice on it). D206 found (copies wear the object's `*` material). **Part B2** (review M5, M7, M9; D206): a dragged wall keeps the other walls' openings where they stood and moves a partly shared neighbour wall (vitest; rooms e2e drags the real walls); an outside-only swap, or one in a buildings-only object, drops shipped meshes (vitest; the acceptance export now ships meshes, a shed's facade swap turns its roof sheet B on both renderers); copies keep their own materials (vitest). Blend (Node, 100 m area, 512 m terrain at 1 m): layer added at 32/64 m 6.2/50.7 s → 32/128/256 m 0.35/2.5/7.2 s (same samples). Far ground, landscape `--macro 400 --day-cycle --vsync` 60 s: 332 (WebGPU) / 58 (WebGL 2) missed → 0 / 0 (sunlight alone re-baked, 8 tiles a frame); horizon e2e unchanged (1.21/1.30 darker). Village WebGPU 5.5 ms (within). D207–D209. **Part C2** (review M6, M10–M13, lows): one opening-edge walk (`architectureOpeningEdges`), one copy layout (`INSTANCE_FLOATS`), trim sheets bounded by `MAX_TEXTURE_EDGE` (8k refused at validation), one `INSTANCE_CHUNK_METERS`, `TERRAIN_LAYER_MAX`, heightfield cells, `stepOf`, settings keys and the erosion text read from their owners; §5 misses D210–D213 (30.27's sentence reworded); acceptance e2e needs sheet B inside and counts tufts where only tufts stand (each shown failing on a broken input: dark tufts, no swap), group expansion held to an ungrouped one (fails on split groups); `runtime.ts` 4,602 → 4,216 lines (`runtime-instantiate.ts`, joined lines un-joined); `docs/three-upgrade-checklist.md`; lows: bounded perf marks, cached door links, no per-frame copies, `pathOutcome`, planned rooms in the play check, tile header length checked before inflating; D214–D218 for the rest. **Part C1** (review H3, D181): measured before pruning — per file alone ≈ the gate's time (−5 %), the test process 88 % idle (the time is browser/GPU work), fixed waits ~100 s of 2,411 s and measurement windows, so no assertion was removed or moved (§7). The leak tests waited out the 10 s hold of released programs after each loop (`programs 8 → 54` for 10 s): `?buildKeep=500` (passed on to Play, read in the renderer factory; vitest for the flag) holds them 0.5 s, memory.e2e 163 → 119 s alone with every count checked. Typecheck incremental (warm 66 → 14 s; a changed export still fails its dependants, cached errors still reported). Full gate on 3 workers on a GPU (owner to confirm; **moot (owner 2026-10-22):** no fixed gate-time budget (D253); the full gate went back to 2 workers in phase 34): the 29 heaviest files 600 → 471–478 s, 4.7 → 5.6 GB anonymous. Projected full gate ~18.7 min (26 measured, ~24 on 2 workers with the failures fixed): still over 15 (D181 open, options there); D219 (a slot pick lost on 3 workers). Fast gate green (before it the village perf check missed twice on a loaded host, D199). |
 
 (30.1's before numbers and 30.20's after numbers.)
 
@@ -322,7 +322,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     sample count is the same (an array layer is one lookup); the sheet wins on
     memory, vertex density for paint, unequal rows and off-the-shelf sheets.
   - No lightmaps: block layers' per-chunk lightmaps (§2) are for the owner to
-    keep or drop.
+    keep or drop. **Kept: confirmed by the owner 2026-10-22.**
   - Two primitives (sweep a profile along a path, repeat along a path) plus
     fills, not one special case per shape.
   - Interior floor plans and furnishing are the riskiest part and are judged
@@ -330,24 +330,25 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - With Part D the phase has 28 items. 30.0's re-check may split Part D
     into its own phase if the gate budget or size calls for it (owner
     decides).
+    **Moot (owner 2026-10-22):** Part D was built inside this phase.
 - 2026-10-07: phase start release check: three.js 0.186.1 is still the latest (no update). Rapier: pinned 0.20.0, 0.21.0 is out;
   upgraded only if a terrain item needs it (heightfield holes for 30.11), as its own item after reading its release notes.
 - 2026-10-07 (30.1): the landscape class is built now with a placeholder far part (a flat 6 km ground plane and
   rings of large instanced copies under fog), so the harness and the far cost exist before terrain; when 30.10/30.11
   land, the class swaps the plane for a terrain and keeps the rings, and bumps `LEVEL_VERSION`. Default chosen,
-  owner to confirm: the area and the landscape share camera and environment, so the landscape minus the area is the
+  owner to confirm (**confirmed by the owner 2026-10-22**): the area and the landscape share camera and environment, so the landscape minus the area is the
   far part's cost (the run logs it as a row).
 - 2026-10-07 (30.2 part A): no block cell caps; the per-layer bound left is its bounds (1,024 × 256 × 1,024 cells), a
   dimension rather than a count, kept with the 16 layers per scene. A layer's memory is shown, not capped: the streaming
-  budget of 30.16 is what will bound it. Default chosen, owner to confirm.
+  budget of 30.16 is what will bound it. Default chosen, owner to confirm (**no cell caps confirmed by the owner 2026-10-22; the 16 layers per scene reversed → 39b.6b** (a memory budget, not a count)).
 - 2026-10-07 (30.2 part A): generated LODs are made at import into the stored GLB (`<name>_LOD0…3` beside each mesh
   node, the authored-level naming), not at load: the runtime only reads results. The setting is off unless an import asks
   (`generateLods: true`); a re-import keeps a model's levels through its version's `convertedFrom.lods`, so no new
   record field. Levels at 50/25/12.5 % of the triangles, each allowed 1/2/4 % of the mesh's size of error; a level that
   cannot drop below 80 % of the one before ends the chain. Skinned, animated, morphing, parented and compressed nodes and FBX
   conversions get none. The converter record keeps the name `texture-extract` (a GLB conversion; renaming it would be a
-  schema change). Default chosen, owner to confirm.
-- 2026-10-07 (30.2 part B): which files are binary. Default chosen, owner to confirm: the setting
+  schema change). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**).
+- 2026-10-07 (30.2 part B): which files are binary. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**): the setting
   `block_chunk_storage` (Project files) picks the form the editor writes; absent or 0 = JSON text, so every existing
   project keeps its files until it opts in; new projects are made with 1 (binary, NEW_PROJECT_SETTINGS). Changing it
   rewrites every chunk file in the same save (that is the "convert"; undo converts back). The reader takes both forms
@@ -365,7 +366,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
 - 2026-10-07 (30.2 part B): copies of Sprout and Skyforge (read-only copies, deleted after) open, Play (Skyforge's
   scene-main loaded through the Play relay, both layers in `runtime.blockMemory`) and export on WebGPU and WebGL 2;
   Skyforge's chunk files stay JSON until it sets the setting. Neither game needs a change.
-- 2026-10-07 (30.3): live blocks. Default chosen, owner to confirm:
+- 2026-10-07 (30.3): live blocks. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22, to revisit with the prefabs: superseded by phase 39c** (linked prefabs)):
   - Additive optional `live` on a block type (stored only when true); no schema bump. A live type needs a prefab
     look; its prefab's root is the cell's static part (placed at the footprint's bottom centre, turned with the
     cell, unit scale, its model merged in the chunk, refused if it carries a mover, patrol, gravity, animator, model
@@ -389,7 +390,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     (500 = 60 ms) and a script writing many live cells in one step pays it per cell; spreading spawns over steps
     belongs with world streaming (30.16). The Scene view shows only the root's model, not the live children.
   - The registry-size guard in descriptors.test.ts moved from 269,000 to 270,000 bytes for the `live` field.
-- 2026-10-07 (30.4): edge pieces. Default chosen, owner to confirm:
+- 2026-10-07 (30.4): edge pieces. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Additive optional fields, no schema bump: block type `placement` (stored only as `edge`) and `blocking` (stored only
     when false); chunk `edgePalette` + `edges` (`[lx, lz, y, axis, p]`); edge value `{block, rot?: 180, variant?, open?}`.
     The binary chunk payload writes layout 2 (edges after each chunk's columns) only when a chunk has edges; without
@@ -406,7 +407,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     41 to 40 characters (a 41-character layer id now hashes; live blocks shipped earlier today).
   - Not in this item: copy/move/mirror/stamp/paste carry cells only; edges on sloped tops stand at the row bottom; the
     A* over edges is 30.9's.
-- 2026-10-07 (30.5): auto-connect. Default chosen, owner to confirm:
+- 2026-10-07 (30.5): auto-connect. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Resolution is derived at mesh time, not stored at edit time: a pure function of the cell and its six neighbours
     (an edge: the edges meeting its two ends, above and below), run wherever a look is needed (mesher on the page and
     in the workers, which already hold the whole grid, so no protocol change and byte-identical output; collider;
@@ -428,7 +429,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     turned and mirrored with them (a piece whose type allows one rotation keeps it); stamps gain optional
     `edgePalette`/`edges`, the `array` edit the same keys.
   - The descriptor registry guard moved from 270,000 to 275,000 bytes (the eight pieces repeat their look and turn).
-- 2026-10-07 (30.6): side-face paint and wetness. Default chosen, owner to confirm:
+- 2026-10-07 (30.6): side-face paint and wetness. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Wall paint is opt-in per layer (`blockLayer.wallPaint`, stored only when true; no schema bump): absent keeps the
     old look and bytes (walls show their column's top paint, meshes and colours byte for byte as before). On:
     unpainted walls show layer 2, tops layer 1, the lip wraps the top's paint onto the wall's top row of points and
@@ -453,7 +454,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     materials made before keep their graphs. Darkening and wet roughness stay fixed (0.55, 0.1).
   - The adapter's environment look (scene look, blends, wind, wetness) moved into `environment-look.ts` (adapter.ts
     1,908 → 1,848 lines) before it grew.
-- 2026-10-07 (30.7): interiors (cut-aways). Default chosen, owner to confirm:
+- 2026-10-07 (30.7): interiors (cut-aways). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Data on the layer component (`cutaway`, additive optional, no schema bump; neither game needs a change): it
     names the layer's existing named regions (scene data) and rows, so cut-aways are drawn with the Region tool. A
     renamed or deleted region leaves the name in `cutaway` (it then cuts nothing) — the rename is not carried over.
@@ -481,7 +482,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     for cut-aways naming missing regions. A lightmap or probe bake started while an editor preview hides a zone is
     untested (turn the preview off first).
   - The descriptor registry guard moved from 275,000 to 278,000 bytes (the cut-away fields).
-- 2026-10-07 (30.8): kit swaps. Default chosen, owner to confirm:
+- 2026-10-07 (30.8): kit swaps. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A kit is a name block types swap by (`blockType.kits`), not a content list of its own: no new command, file or undo
     kind, project-wide (every layer shows the same kit names), and a swap is edited with the type it belongs to. Additive
     optional fields (`kits` on block types and layers, `kits` in the grid diff, `kitBlock` on `ctx.grid` reads); no schema
@@ -507,7 +508,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     other paths (MCP) get a Problems warning (`block_names_missing`) instead.
   - The descriptor registry guard moved from 278,000 to 280,000 bytes (kits on block types and layers).
   - The adapter's cut-away following moved into `block-cutaway-follow.ts` (adapter.ts 1,893 → 1,863 lines) before it grew.
-- 2026-10-07 (30.9): block extras. Each kept; default chosen, owner to confirm:
+- 2026-10-07 (30.9): block extras. Each kept; default chosen, owner to confirm (**confirmed by the owner 2026-10-22, except the walk graph's per-query bound: moved → roadmap Future** (one hierarchical A* walk graph for block layers and terrain)):
   - **Kept, all three.** 30.1's area class gives no "need" number for any of them (none is a frame cost); they are kept
     because each is cheap and generic: the walk graph is the one shape both a game's movement and the editor's
     reachability check need (a tactics game's move range is `reachable`); the Problems checks cost nothing per frame;
@@ -549,7 +550,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     and model looks' own shapes do not occlude (cells only).
   - Additive optional fields, no schema bump (`walk`, `vertexAO` on `blockLayer`); neither game needs a change. The
     descriptor registry guard moved from 280,000 to 282,000 bytes.
-- 2026-10-07 (30.10 part A): terrain data. Default chosen, owner to confirm:
+- 2026-10-07 (30.10 part A): terrain data. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A new component type `terrain` (additive; no schema bump; neither game needs a change). Tiles are listed in the
     component (`tiles: [{x, z, data?}]`, sorted by z then x) and their data are blobs in the source store (like instance
     buffers): the scene file stays small, an edit is a `setComponent` whose undo names the old digests. A tile without
@@ -594,7 +595,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     result's `terrain.tiles` (upload those texture regions). Holes are per cell (between samples). The Terrain tool set
     (30.10 part B) can run the same cores (`sculptTerrain`, `rampTerrain`, `paintTerrain`, `holeTerrain` on
     `TerrainSamples`) for its local preview; paint dabs cost 5–23 ms at 32–64 m radius on the CPU (a GPU preview avoids it).
-- 2026-10-07 (30.11 part A): terrain rendering. Default chosen, owner to confirm:
+- 2026-10-07 (30.11 part A): terrain rendering. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - CDLOD as planned: every tile is a quadtree root (no nodes across tiles, so a node's samples are one texture
     layer), nodes of `16 · 2^L` cells drawn as one shared 16² grid (`TERRAIN_GRID_QUADS`); a level reaches twice the
     one before; the finest reaches `lodDistance` (component, optional) ÷ the LOD bias, never less than 4.5 leaf nodes
@@ -630,7 +631,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     the cell's bilinear bow — pick the triangle split in `TerrainField` if part B needs the exact surface. The Rapier
     0.20 heightfield has no holes: tiles with holes need trimesh patches (or 0.21). Picking in the editor is off for
     terrain meshes (their grid is flat on the CPU): part B's raycast should read `TerrainField`.
-- 2026-10-07 (30.11 part B): terrain collision and part A's gaps. Default chosen, owner to confirm:
+- 2026-10-07 (30.11 part B): terrain collision and part A's gaps. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Rapier stays at 0.20: 0.21.0's types (read from its package; the changelog on the repo stops at 0.19) add only
     `HeightFieldFlags.FIX_INTERNAL_EDGES`, no holes. A holed tile is cut into 16 × 16-cell patches
     (`TERRAIN_COLLIDER_PATCH_CELLS`: a cut patch's mesh, 17² vertices and ≤ 512 triangles, is within the port's mesh
@@ -673,7 +674,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     (`decoded`/`packed`/`release`) and `TerrainColliders`' ring; the sim builds a 257² tile in ~7–9 ms, so the
     ring should add a few tiles a step at most. The landscape class has no player: a step's cost with its 144
     tiles' colliders is not measured in the browser.
-- 2026-10-07 (30.10 part B): the Terrain tool set. Default chosen, owner to confirm:
+- 2026-10-07 (30.10 part B): the Terrain tool set. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22** for the GPU preview and GameObject → Terrain; the Inspector tool set is moot (phase 34's terrain editor)):
   - Where: the tools are the `terrain` component's Inspector extension (as a block layer's Blocks tools), armed by
     "Edit terrain" while the Scene view is in front; GameObject → Terrain makes 2 × 2 tiles of 257 at 1 m, heights
     −128…384 m, centred on the origin. One brush state for every tool (strength in metres for raise/lower/noise, a
@@ -700,7 +701,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     preview back and compares it with the stored tiles once settled (test-only cost).
   - The fast gate's village perf check misses on WebGL 2 (p50 4.9 vs 4.84 ms) with or without this change (HEAD
     9bd926bd measured with it stashed): D191.
-- 2026-10-07 (30.12 part A): material rules and per-layer settings for every layer. Default chosen, owner to confirm:
+- 2026-10-07 (30.12 part A): material rules and per-layer settings for every layer. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - One rule list format for both (`surface-rules.ts`), stored on each component (`terrain.rules`, `blockLayer.rules`;
     additive optional fields, no schema bump, neither game needs a change): a rule names a layer, a strength and
     conditions — height (world m), slope (degrees), cavity (m: how far the ground `radius` around lies above the point),
@@ -736,7 +737,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     tests/perf/terrain.test.ts and block-layers.test.ts.
   - Notes for part B (biplanar, macro texture) and 30.13: rules read `SurfacePoint`; scatter rules can reuse
     `SurfaceRuleSet` and the bake rectangle (`terrainBakeRect`) to place copies only where the ground moved.
-- 2026-10-07 (30.12 part B): projection per layer, no triplanar. Default chosen, owner to confirm:
+- 2026-10-07 (30.12 part B): projection per layer, no triplanar. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A graph node `projectedSample` (catalogue + compiler) rather than template-only code, so any graph (trim sheets,
     block materials) can use it: mode 0 reads at its UV (unchanged look), 1 on the world plane the surface faces
     most (top or the dominant side wall plane: one read, a seam where a slope turns past 45° — the price of not
@@ -758,7 +759,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     30.12 (ed1b037b, built in a worktree) measured 6.9 ms in the same hour, part A alone 7.1 ms, so host drift, not
     this item (part A's gate at 17:53 measured 5.7 ms). WebGL 2 stayed within its limit. Parts B and C committed with
     the rest of their fast gate green and the perf check red on that drift: D192.
-- 2026-10-07 (30.12 part C): the macro texture. Default chosen, owner to confirm:
+- 2026-10-07 (30.12 part C): the macro texture. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Opt-in per terrain (`macroDistance`, additive optional, no schema bump; GameObject → Terrain does not set it).
     Baked on the page's GPU from the material the terrain draws with (whatever graph: no separate "macro material"
     to keep in sync), so it follows texture arrivals, material swaps and edits; never stored or exported (it is a
@@ -770,7 +771,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - The bake mesh sets its own matrix (a scene update would otherwise reset its world matrix: the cause of the first
     black bakes), and a material counts as changed when its nodes change (graph materials compile again in place).
   - The descriptor registry guard moved from 284,000 to 286,000 bytes (rules and macro distance).
-- 2026-10-08 (30.26b): architecture edits within §5. Default chosen, owner to confirm:
+- 2026-10-08 (30.26b): architecture edits within §5. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Groups are found from the outlines alone (boxes touching within 0.1 mm, `building` links); a block of rooms sharing
     walls is one group, so a drag there re-expands the block (≈ 4 ms for 64 rooms) but its unchanged elements come back
     as the same objects (interned by their JSON), so only changed elements are hashed again.
@@ -785,7 +786,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     lights' order (the light budget) follows the buildings' order as before unless buildings touch.
   - Not done: cutting a chunk's single heavy element; the page's room culling is still rebuilt per edit (not measured
     here).
-- 2026-10-08 (30.26): floor plans and furnishing. Default chosen, owner to confirm:
+- 2026-10-08 (30.26): floor plans and furnishing. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22 and extended → 39b.6d:** rooms drawn on their own (interior-only scenes) are furnished too):
   - Programs and furnishing sets are standalone graphs of new kinds (`room-program`: Program + Room nodes, a wire between
     Room nodes = a door between those types; `furnishing-set`: Furnishing + Prop + Light nodes, no wires): the editor's
     graph editor, Create menu, rename and undo serve them; the engine ships none (neutral programs/sets only in tests).
@@ -827,7 +828,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     name): deleting the last room or building, and Unlock, used to leave them stored.
   - Additive only (building `program`, `furnishing`, `layoutSeed`, `pins`; outline `building`, `roomType`; expansion
     `props`, `lights`, `planRooms`, room plan `type`): no schema bump, neither game needs a change.
-- 2026-10-08 (30.25): buildings. Default chosen, owner to confirm:
+- 2026-10-08 (30.25): buildings. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A building is a room outline plus a roof and where its interior is (`architecture.buildings`: the outline's fields —
     footprint path, inside `preset`, `outside` as the facade, storeys, openings, stairs, holes — with `roof` {shape
     flat|gable|hip|mansard, slot?, trimSlot?, rise?, overhang?, axis?, breakRise?, inset?} and `interior` {scene,
@@ -862,7 +863,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     before they grew (both files are smaller than before). runtime.ts: one argument on an existing line.
   - Not in this item: cut-aways of an in-place building's roof (unverified), round-headed openings, rooms inside a
     building (30.26), the starter layout's roof row.
-- 2026-10-08 (30.24): rooms drive culling and lighting. Default chosen, owner to confirm:
+- 2026-10-08 (30.24): rooms drive culling and lighting. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Room membership is a light layer of its own, not the 8 named bits: each room gets an exact key for the page's life
     (any number of rooms; graph colouring onto 8 bits would let two same-coloured rooms within a lamp's reach share light
     and would take the bits projects name). Meshes take the room of their bounds' middle, lamps the room they stand in
@@ -879,7 +880,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     is crossed only from the side sight comes from, a walk past 16 steps a portal sees everything.
   - A doorway is shut when every cell edge across its foot holds a piece that blocks passage and is not open. An open
     edge piece is still drawn as its slab, so the interior class leaves open doorways empty.
-  - The per-scene cap of 16 point and spot lights stays (owner's call): with room tests and the skip, a lamp in an unseen
+  - The per-scene cap of 16 point and spot lights stays (owner's call; **moved by the owner 2026-10-22 → the lighting phase:** clustered/tiled forward lighting lifts the 16-light count): with room tests and the skip, a lamp in an unseen
     room costs nothing on the GPU, so a larger budget or clustered lights is a follow-up to decide.
   - Shadow budget: absent keeps every shadow drawn every frame (the rule for existing projects); 2–4 recommended in
     deployment.md; `LOCAL_SHADOW_DISTANCE` 40 m (fade from 30 m), a point light ranks at half a spot of its size; maps are
@@ -895,7 +896,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     cells are usually air), so cells inside a room region are split by the page only.
   - Additive only (expansion fields, a quality level field): no schema bump. adapter.ts: the cut-away follower moved to
     level-views.ts before the rooms were wired in (the file is smaller than before).
-- 2026-10-08 (30.23): rooms and paths. Default chosen, owner to confirm:
+- 2026-10-08 (30.23): rooms and paths. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**; the editor part is moot (phases 36/37)):
   - Rooms are outlines of a generated-architecture object that names its block layer (`architecture.layer`), not layer
     data: 30.21/30.22's generator, view, colliders and export serve them unchanged. The Rooms tool edits the first object
     naming the layer and makes it (at the layer's place, one `createEntity`) with the first room. Additive fields only
@@ -935,7 +936,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - Notes for 30.24: `ArchitectureExpansion.rooms` (each storey's plan: points, floor, top), `architectureRoomRegions`
     and `architectureWallEdges` (doorway edges are `false`) give the portal graph's rooms and openings;
     `RuntimeArchitecture.roomsOn(layer, origin, cellSize)` holds them per layer in the simulation.
-- 2026-10-08 (30.22): style graphs and presets. Default chosen, owner to confirm:
+- 2026-10-08 (30.22): style graphs and presets. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Styles and presets are standalone graph documents (`content.graphs`), not a new content list: the editor's Create
     menu, graph editor, rename, delete, undo, storage and MCP `setGraph`/`graphEdit` serve them unchanged; a preset is a
     list of nodes (Preset, Value, Mask) without wires, edited by the sliders. The Inspector's sliders came first; the
@@ -962,7 +963,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - Notes for 30.23: outlines are rooms' and paths' data (`architecture.outlines`); a room's openings are the
     outline's (sweeps with Openings on cut them, framed by the sweep's frame input). Inside/outside styles and shared
     walls will need either two outlines or style inputs per side; `expandArchitecture` is the single entry point.
-- 2026-10-08 (30.21): the generator. Default chosen, owner to confirm:
+- 2026-10-08 (30.21): the generator. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Additive component `architecture` {elements, profiles?, overrides?, chunkSize?, seed?, ao?, lodDistance?, castShadow?,
     receiveShadow?, baked?}; no schema bump, neither game needs a change. Placed like a spline (position only). Elements
     and profiles are JSON fields in the Inspector until 30.22's sliders.
@@ -985,7 +986,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     `tl:arch:ready` time it. Presets can expand into `profiles` + `elements`; `trimSheetOfMaterial`/`architectureSheets`
     resolve rows. Wall paint onto generated vertices (`trimColoursFromWallPaint`) is not yet applied (rooms on block
     layers, 30.23); tests use `tests/arch-test-style.ts`.
-- 2026-10-08 (30.20): trim sheets and row layouts. Default chosen, owner to confirm:
+- 2026-10-08 (30.20): trim sheets and row layouts. Default chosen, owner to confirm (**moot (owner 2026-10-22)** for the shader and the row layout (35.3 and 36.1 replaced them); the bleed handling confirmed):
   - A new shader type `trim` (closed set, like kit/water), not a graph template: the row table is data the
     generator reads on the CPU, and the footprint cap needs gradient sampling no graph node has. The table lives
     on the material (`trim`, required there, refused elsewhere; an instance draws with its root's table — a sheet
@@ -1015,7 +1016,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     `trimColoursFromWallPaint` (layer-local positions). A strip should span its row exactly once across (stack
     strips for taller walls; `tileV` rows may stack seamlessly). The material needs COLOR_0 for AO; meshes need no
     tangents (derived frame works). `tests/e2e/trim-strips.ts` writes a strips GLB with the same helpers.
-- 2026-10-08 (30.19): height and distance fog. Default chosen, owner to confirm:
+- 2026-10-08 (30.19): height and distance fog. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A `heightFog` part beside `fog`, not a third fog mode: a look may want both (a short classic haze and a valley
     fog), presets blend each on its own, and an existing look's bytes are untouched. Both draw in one fog node.
   - The sky gets the height fog through a dome at 95 % of the camera's far plane (real geometry, so standard, reversed
@@ -1025,7 +1026,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - Not per quality level: the cost is a few exponentials a pixel (+0.45 ms of the landscape's scene pass); a level
     switch for it can follow if a game needs one. The frame's +0.4–0.6 ms on the main thread tracks the added GPU
     time of uncapped frames (not split further).
-- 2026-10-08 (30.18): one surface query. Default chosen, owner to confirm:
+- 2026-10-08 (30.18): one surface query. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Which ground answers: the highest at or below the point over every block layer and terrain (a point inside blocks
     climbs to their top; `top(x, z)` asks from above everything); a block layer wins a tie and terrain up to 1 cm over a
     block top (terrain heights are 16-bit steps, and 30.17's flatten keeps the ground 2 cm under the tops). Not
@@ -1043,7 +1044,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     look's, not the ground's.
   - Backend: `querySurface` reads the stored cells (kits as authored) and only the tiles under the points; without a
     `sceneId` every scene's block layers and terrains together, as a game loads them into one world.
-- 2026-10-08 (30.17 part B): far-terrain lighting. Default chosen, owner to confirm:
+- 2026-10-08 (30.17 part B): far-terrain lighting. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - The row's "far terrain gets sparser probes and baked per-tile horizon and AO terms" (and the 2026-10-03 note: far tiles
     need sparser probes and baked horizon terms, not 29.5's 2 m grid): built as the horizon terms only. Probes over open
     ground mostly see sky; what varies there is how much sky the ground sees and whether the sun clears its horizon, which
@@ -1058,7 +1059,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     what the bake cost before (23–27 ms). A tile's neighbours bake again when it changes; a sun turned 2° re-bakes every
     far tile over frames (a day cycle re-bakes continually within the 2 ms budget). Only the far ground (past
     `macroDistance`) gets the terms: the near ground has the shadow maps and probes. Shadows off: no horizon shadow.
-- 2026-10-08 (30.17 part A): blocks on terrain — heights, holes, material, scatter, collision. Default chosen, owner to confirm:
+- 2026-10-08 (30.17 part A): blocks on terrain — heights, holes, material, scatter, collision. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - An edit layer, not automatic (additive, no schema bump; neither game needs a change: no game has terrain yet):
     `terrain.layers` kind `blocks` {blockLayers? (absent: every block layer), mode? cut|flatten (absent cut), blend? m
     (absent 8, 0-256), paint? (stored only when false)} in `TerrainLayerStack` (`terrain-blocks.ts`), so it re-bakes like
@@ -1087,7 +1088,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     (rules or not) and remakes the terrain's squares round a block edit.
   - With `cut` and a streamed block layer, past its render ring the block area is not drawn and its holes show what is
     behind (documented; `flatten` is the stand-in for that case).
-- 2026-10-08 (30.16b): streamed scatter without missed frames (D195). Default chosen, owner to confirm:
+- 2026-10-08 (30.16b): streamed scatter without missed frames (D195). Default chosen, owner to confirm (**moot (owner 2026-10-22):** phase 40 replaces `scatter-view.ts`):
   - A removed scatter copy stays in its set shrunk to nothing until the group is made again for another reason
     (a re-bake, streamed in again), as a hidden one does: a removal costs one copy's upload instead of re-making a
     group of tens of thousands. The cost is the empty slot's vertex work (none drawn: its triangles are degenerate)
@@ -1098,7 +1099,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   - Streamed arrivals (block chunk meshes swapped in, scatter sets made) share 4 ms a frame (`STREAM_ARRIVAL_MS`)
     instead of 4 ms each; each still makes one piece a frame, so a busy flight streams a little later rather than
     missing a refresh. Terrain tile uploads keep their own 2 ms.
-- 2026-10-08 (30.16): world streaming. Default chosen, owner to confirm:
+- 2026-10-08 (30.16): world streaming. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22, except bodies beyond the loaded collision (NPCs, later ragdolls): moved → phase 41** (41.4b suspends their physics)):
   - Rings per terrain and block layer (`streaming`), not one project setting: tile and chunk sizes differ per
     object; absent keeps everything loaded (existing projects unchanged). The Inspector starts a new `streaming`
     at 1,500 m (terrain) / 256 m (block layer). Collision and live rings follow the camera's place, its target and
@@ -1128,7 +1129,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     reaches them; any change drew it again before).
   - Measured misses: one per renderer in the world class's plain flight (a dense scatter group made in one frame,
     D195); not fixed here. `scatter-view.test.ts` has a flaky deep comparison (D196, not this item's).
-- 2026-10-08 (30.15): edit layers, stamps and erosion. Default chosen, owner to confirm:
+- 2026-10-08 (30.15): edit layers, stamps and erosion. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Additive, no schema bump (neither game needs a change): `terrain.layers` (absent: one base layer with the splines on
     top, the bytes as stored) lists `stamps`, `erosion` and at most one `splines` layer in the order they apply over the
     hand-made ground (`tiles[].base`, 30.14's); `enabled` (stored only when false) and `strength` 0–1 per layer.
@@ -1156,7 +1157,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     has no page), and the result must be bit-equal wherever it runs.
   - The export and Play drop `layers` with `tiles[].base` (the combined `data` ships alone; erosion blobs never reach
     a build — integration test).
-- 2026-10-08 (30.14b): re-bakes without hitches (D193). Default chosen, owner to confirm:
+- 2026-10-08 (30.14b): re-bakes without hitches (D193). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - An object realized again (every edit realizes the edited objects again) keeps what it draws until the next frame:
     a terrain's scatter and ground cover go only when the terrain goes, a spline's mesh when it is not set again before
     the frame's update, and a terrain set again with the same materials keeps them (the library's redefinitions still
@@ -1171,7 +1172,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     the perf harness shows what still builds; `--sculpt-edit`, `--edits-only` and `--edit-profile` join `--spline-edit`.
   - Not done (follow-up if the owner sees it): the static shadow map is drawn again whole after a re-bake, and a re-made
     set's instance buffer is uploaded in one frame; together likely the 2–4 remaining frames of 17–27 ms in 6 edits.
-- 2026-10-08 (30.14): splines. Default chosen, owner to confirm:
+- 2026-10-08 (30.14): splines. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - One `spline` component (additive, no schema bump; neither game needs a change): points `{at, tangent?, width?, roll?}`
     as offsets from the object's position (no rotation or scale, as a terrain), Hermite segments with Catmull-Rom
     tangents where a point has none, width and roll linear between points; `terrain`, `scatter`, `mesh`, `pieces` and the
@@ -1199,7 +1200,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     texture needed) and reads the new Scene depth node (three's viewport depth copy: checked in a plain three page on
     both renderers with and without MSAA). A logarithmic depth buffer is not handled by the node.
   - The descriptor registry guard moved from 286,000 to 296,000 bytes (the spline's descriptor, about 8.7 KB).
-- 2026-10-08 (30.13b): scatter sets off the main thread, per-copy colliders and addresses, impostors. Default chosen, owner to confirm:
+- 2026-10-08 (30.13b): scatter sets off the main thread, per-copy colliders and addresses, impostors. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**; the worker set prep is moot (phase 40)):
   - Sets are prepared on a worker of the view worker script and made on the page within the frame's budget; groups stay 2,048 m (smaller
     groups would add draws, the cost was the arithmetic). The old set is drawn until its replacement is made.
   - A copy's address is `<object>#scatter:<rule>:<ix>,<iz>` (rule and candidate cell, as stored) and is also its collider's id, so a ray hit
@@ -1213,7 +1214,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     surface normal (normal maps are below a far copy's pixels). Per-tile HLOD not built: it measured (estimated by triangles) dearer.
   - The flight measurement counts missed refreshes at the display's rate (vsync): uncapped, a GPU-bound page runs ahead and then waits, so
     its intervals alternate between short and long whatever it costs.
-- 2026-10-07 (30.13): rule scatter on both, ground cover, the foliage policy. Default chosen, owner to confirm:
+- 2026-10-07 (30.13): rule scatter on both, ground cover, the foliage policy. Default chosen, owner to confirm (**confirmed by the owner 2026-10-22** for the rule format, storage and no shadow by default; the cover path and wind are moot (phase 40)):
   - One rule format for terrain and block layers (`scatter`, additive optional fields; no schema bump; neither game needs
     a change). Stored copies live beside the data they stand on: a terrain tile's in a blob of its own named by
     `tiles[].scatter` (a scatter stroke re-uploads no tile texels; undo = old digests), a block chunk's in the chunk
@@ -1265,7 +1266,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
 | E82.5 foliage across both | 30.13 |
 | E82.6 LOD and fog | 30.11, 30.19 |
 | E82.7 static batching, E82.8 probes | 29.10, 29.5 |
-- 2026-10-08 (30.27, acceptance). Default chosen, owner to confirm:
+- 2026-10-08 (30.27, acceptance). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**; uncapped measuring is moot (perf is measured at the 60 Hz cap)):
   - The acceptance level is a new e2e file (`level-acceptance.e2e.ts`) built by commands, not an extension of terrain-cdlod:
     that spec drives the editor's tools for 2.9 min and its camera never sees the horizon; the new one is one backend, one
     Play and one export per renderer, 17 s in all, and holds every part (Part A–D) in one scene. It reads each feature at
@@ -1297,7 +1298,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
 | E82.6 LOD and fog | terrain-cdlod e2e (no crack between levels, streamed overview); environment e2e and env-parity (height fog); level-acceptance (fog at the horizon) |
 | E82.7 static batching, E82.8 probes | phase 29 (29.10, 29.5); terrain not in probe bakes (D198) |
 
-- 2026-10-09 (30.28 part A, full-gate and review fixes). Default chosen, owner to confirm:
+- 2026-10-09 (30.28 part A, full-gate and review fixes). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - Scene lights: the per-draw branch round a layered light (a draw the light leaves out skips it) left the surface
     values every later light reads (view position and direction, normals, world position) unset when it was the first
     to use them and the draw was left out: every light after it lit black. The branch's condition now names those values
@@ -1318,7 +1319,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   worktree, `village --gate` interleaved 6 runs each in the same quarter hour: WebGPU p50 7.6–7.8 against 7.7–7.9 ms,
   WebGL 2 4.4–4.6 against 4.4–4.6 ms. The phase adds nothing to the village's frame; the 7.8 ms is a host state (the
   same commits read 5.5–5.7 ms in other hours, before phase 30 too). Baseline kept at 5.6 ms; not loosened.
-- 2026-10-09 (30.28 part B1, the review's M3 and M4). Default chosen, owner to confirm:
+- 2026-10-09 (30.28 part B1, the review's M3 and M4). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**; D205 (the first-room light hitch) moved to the lighting phase):
   - Furnishing lights past a scene's 16 point and spot lights: the per-scene budget is kept and the build (Play and
     the export) names the lights it leaves out in a Problems line per scene (`lights_dropped`). A budget per visible
     set (rooms the walk hides not counted) was the preferred default, but which three.js lights are on is part of
@@ -1334,7 +1335,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     rooms still realize the lights again once (D205). Copies an instance set writes in place (an editor drag) tell
     the shadowed lamps' budget where they were and are; ctx.scatter hides already redraw it through the static
     revision. Room culling looks at the animated drawables only when the shadow budget asks what moved.
-- 2026-10-09 (30.28 part B2, the review's M5, M7, M9 and D206). Default chosen, owner to confirm:
+- 2026-10-09 (30.28 part B2, the review's M5, M7, M9 and D206). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A dragged wall keeps the openings on every other side where they stood (re-based by the generator's own
     distances: a side whose start stayed keeps the distance from its start, one whose start moved from its end); its
     own openings go with it. A neighbour's wall along the same line over any stretch (as the generator shares it,
@@ -1354,7 +1355,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     of the far ground's memory), baked over one node across the tile (it reads heights only); a turned sun re-bakes it
     alone, 8 tiles a frame at most (`TERRAIN_SUN_BAKES_PER_FRAME`: the GPU cost is not in the 2 ms main-thread budget).
     The sky's share no longer runs the sun's direction too, and the normal's alpha is unused.
-- 2026-10-09 (30.28 part C2, the review's M6, M10–M13 and lows). Default chosen, owner to confirm:
+- 2026-10-09 (30.28 part C2, the review's M6, M10–M13 and lows). Default chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - A door piece's cell edges are the generator's own (`architectureOpeningEdges`, one walk of the wall's cells with
     `architectureWallEdges`): an opening past a closed outline's end is cut there, as the wall's hole is, not wrapped
     onto its first side.
@@ -1368,9 +1369,9 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
     them too, and the timeline keeps every mark until cleared.
   - Play's region check accepts a planned building's rooms by their names (`<building>-r<n>`, `-s<k>` above): how
     many a program makes is known only at load.
-  - Per-object counts kept as they are, owner to confirm (D218): `FLOOR_PLAN_COUNT_MAX` 64 floor plans a building,
+  - Per-object counts kept as they are, owner to confirm (**`FLOOR_PLAN_COUNT_MAX` reversed by the owner 2026-10-22 → 39b.6b** (removed); the other two confirmed) (D218): `FLOOR_PLAN_COUNT_MAX` 64 floor plans a building,
     `BLOCK_CONNECT_WITH_MAX` 32 types a connected type joins, `SPLINE_LIMITS.maxPoints` 4,096 points a spline.
-- 2026-10-09 (30.28 part C1, gate budget): default chosen, owner to confirm: the full gate runs 3 Playwright workers on a GPU host
+- 2026-10-09 (30.28 part C1, gate budget): default chosen, owner to confirm (**moot (owner 2026-10-22):** phase 34 went back to 2 workers and there is no fixed gate-time budget (D253)): the full gate runs 3 Playwright workers on a GPU host
   (`FULL_WORKERS` in `tools/gate.sh`; fast and rerun keep 2, a caller's `TL_E2E_WORKERS` wins, a host without a GPU keeps 2).
   Measured on the 29 heaviest e2e files (both projects, every variant, the leak tests on), each run under the 7 GB cap:
   1 worker 1,100 s; 2 workers 600 s, 4.7 GB anonymous (5.8 with page cache); 3 workers 471 and 478 s, 5.6 GB (6.5), each test ~5 % slower
@@ -1391,7 +1392,7 @@ Against §5 (misses called misses, each with its D-row): whole frame (landscape)
   file in Playwright's order: 20.2 min on 2 workers (the log: 20.7), 14.3 on 3; with memory.e2e's new time 14.0, +5 % load = ~14.8;
   build 0.5 min with a warm typecheck (1.3 cold), lint 1.1, vitest 2.3: ~18.7 min. Running lint beside vitest saves 30 s but peaked at 6.4 GB (and both at full
   width ran out of the 7 GB cap): not taken. Starting the files that take minutes first would save ~0.6 min on 3 workers; Playwright
-  orders files by name within a project, so it needs a project of its own: left for the owner's decision on D181.
+  orders files by name within a project, so it needs a project of its own: left for the owner's decision on D181 (**moot (owner 2026-10-22):** D181 closed as a duplicate of D253; no fixed gate-time budget).
 - 2026-10-09, phase end: full gate `--both-renderers` (26 min against the
   15 min budget, D181) red: every later light lit black after a skipped
   layered light (a real defect, found by bisecting to 30.24), a node kind

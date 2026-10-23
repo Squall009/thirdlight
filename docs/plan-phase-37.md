@@ -36,7 +36,7 @@ the game repos; nothing here is fitted to one game.
   - D251: leaving an editor on WebGL 2 is slow.
 
   Phase 33 (occlusion) follows this phase.
-- *Proposed, default chosen, owner to confirm:*
+- *Proposed, default chosen, owner to confirm (**owner 2026-10-22:** confirmed, except a drawing tool's click selecting a room or building: reversed → 39b.6b (buildings are selected only in Navigate)):*
   - **Editors open in Navigate.** Afterwards the editor remembers the last
     tool, and it comes back with one key or click.
   - **With a drawing tool armed, a click without a drag on an existing
@@ -49,6 +49,7 @@ the game repos; nothing here is fitted to one game.
     default state. Panels may scroll inside themselves.
 - **Still open for the owner, not decided here:** D253, the full gate's
   budget (28 min against 15).
+  **Moot (owner 2026-10-22):** no fixed gate-time budget; the gate must just not grow without need.
 
 ## 2. Where things stand (recon 2026-10-16, at `8cde51d2`)
 
@@ -150,7 +151,7 @@ manual → acceptance.
 | 37.8 | Done 2026-10-17: **frames beside the panels** (fit and centred in the view minus the open panels, measured) and **entering frames the object** unless the view shows it from outside, above and aimed (`frame-view.ts`, vitest); 3D starter's block editor checked on WebGPU and WebGL 2; Home frames selected block cells. Manual: `level-editors.md` (Navigate, Esc order, panels, framing, texture stand-ins, atlas preview pages), each editor guide's column/panel table, old layout wording gone; Help → Keyboard shortcuts has Space, the Esc order and Home (the reference has no generated key list). E2E (previous → this fast gate): block-editor 8.4 → 9.3 s, projects 11.5 → 14.8, layered-material 51.4 → 51.6, terrain-paint 10.4 → 10.2, editor-window unchanged (net +4.5 s); one decal-atlas preview poll failed once in layered-material and passed on rerun; village perf in its limits. |
 | 37.9 | Done 2026-10-17: the owner's flow through the UI on a new 3D starter, Iris Xe, 1920×1080, WebGPU and WebGL 2 — **130 JPEGs** (`~/.cache/thirdlight-phase37/acceptance/`, 65 a renderer): every block mode, terrain, vertex paint on a building, decals and the kit editor entered (each shows its object); Navigate orbit, hover, click-select a building, storeys + facade preset from its panel, Home beside the panel; Rect click selects, drag draws a room inside; Esc deselect → drop → leave, Done's badge dim/lit, Space; panel collapse, drag (mid-drag targets), Esc mid-drag, Panels switch, layout kept, Reset; every column fits (865/865 px, all modes); Make it paintable grey → means → preview → array, never white (no white pixel in a 2 s burst, both renderers); cold atlas of 200 images: preview pages 2.5–2.9 s (over 2 s: D275), pages 45–49 s; four 2048² layers built and painted (D274 verified); trim Material tab, palette groups, preset optgroups, Help rows; Play and export. Fixed: vertex paint entry framed the generated object's origin (it ignored chunks drawn outside the node), the atlas status showed the last request's "Made in 41 ms" instead of the wait, the Rooms hints listed Finish/Undo corner/Take off with no tool armed, the trim sheet's checkbox stood apart from its label. D275–D278 logged. The decal-atlas preview poll did not fail again. E2E (fast gate, host load ~13 from another session's tests): layered-material 51.6 s → 1.2 min, level-acceptance 27.1 → 35.2 s, block-editor 9.3 → 11.7 s (unchanged file: load); village perf missed WebGL 2 p50 twice (6.1, 5.5 ms vs 4.84): interleaved A/B against 8cde51d2 equal (5.3/5.4/5.3 vs 5.6/5.5/7.5 ms, both missing) — host state (D199). Owner look pending. |
 | 37.10 | Done 2026-10-17: review fixes (decision log): the floating facade crown (D279, predates the phase), the atlas's second composition, rooms inside buildings picked, Rect alone selects on a click, picks and frames at the storeys the runtime builds, the waited undo checked against what the user saw, and the cheap lows; the full gate's one failure was the test's sample (below). Vitest 718 files (new `arch-rooms.test.ts`; room-draw, client, decal-pages, texture-slots extended). Fast gate (host load 15–20 from another session's tests): build, lint, vitest green; layered-material 59 s → 1.3 min, projects 16.4 → 22.6 s (unchanged flows: load), terrain-cdlod failed its frame-upload time check (10 ms vs < 8, in the Scene view; again 9.8 / 13.6 ms in Play on two reruns under that load) and passed alone once the host was quiet (3.8 min, both renderers; watch note: a CPU-time check, not this change); the zoom-in adds a few wheel steps to the materials step (about 1–2 s). Village perf after it in its limits (WebGPU p50 5.5, WebGL 2 4.7 ms); the first rerun had run 37.9's leftover perf check (WebGL 2 5.2 ms at load 8, D199). Looked at 1920×1080 on WebGPU and WebGL 2 (crown, number fields, a room picked in a building: `acceptance/*-3710-*.jpg`). D279–D281 logged. |
-| Phase gate | `full --both-renderers` at `dc2ae677` (2026-10-17 05:06, 2 workers): build, lint, vitest 717 files passed; e2e **389 passed, 1 failed** (also alone) in 24.9 min; **31 min — OVER BUDGET** (15 min; D253 is still the owner's decision); memory peak 5.6 GB, no OOM. The failure: terrain-cdlod's material rules, "the preview paints the steep ramp with layer 3" 0.469 against > 0.5 — **the test's sampling, not the product**: the Tiles step's Home frames the whole 256 m terrain, now beside the open panels (37.8), so the 3 m ramp was ~8 px wide and the 8 px sample took its edges (the preview painted the ramp; the panels covered nothing). The step now zooms in until the ramp's middle spans 40 px before sampling. `tools/gate.sh rerun` GREEN (1 passed alone, 4.1 min, peak 4.3 GB; again 3.8 min after 37.10's last change). |
+| Phase gate | `full --both-renderers` at `dc2ae677` (2026-10-17 05:06, 2 workers): build, lint, vitest 717 files passed; e2e **389 passed, 1 failed** (also alone) in 24.9 min; **31 min — OVER BUDGET** (15 min; D253 is still the owner's decision; **moot (owner 2026-10-22):** no fixed gate-time budget); memory peak 5.6 GB, no OOM. The failure: terrain-cdlod's material rules, "the preview paints the steep ramp with layer 3" 0.469 against > 0.5 — **the test's sampling, not the product**: the Tiles step's Home frames the whole 256 m terrain, now beside the open panels (37.8), so the 3 m ramp was ~8 px wide and the 8 px sample took its edges (the preview painted the ramp; the panels covered nothing). The step now zooms in until the ramp's middle spans 40 px before sampling. `tools/gate.sh rerun` GREEN (1 passed alone, 4.1 min, peak 4.3 GB; again 3.8 min after 37.10's last change). |
 
 ## 6. Decision log
 
@@ -161,7 +162,7 @@ manual → acceptance.
 - 2026-10-16 (37.1): The owner looked at the mockup ("I like it") and asked
   for all of phase 37 to be built, then they will use it and give feedback.
   The mockup's `SPEC.md` (`~/.cache/thirdlight-phase37/mockup/SPEC.md`) is
-  the layout to build. Its open choices are taken as shown:
+  the layout to build. Its open choices are taken as shown (**confirmed by the owner 2026-10-22**):
   - a lit **Navigate** tile in the tool grid (screen 01), not the no-tile
     variant;
   - **Space** brings back the last tool;
@@ -180,6 +181,7 @@ manual → acceptance.
   opens with none, the tool grid's first tile is Navigate, and a column
   arms its Scene-view tool in Navigate or with its tile. Defaults chosen,
   owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - whether a tool is armed is kept across the rail's modes (switching
     mode keeps Navigate, or arms that mode's remembered tile); a mode with
     no tool grid, or a disabled one (a locked layer, a material that reads
@@ -203,7 +205,7 @@ manual → acceptance.
   - Enter and Backspace now reach the Rooms tool (they were never routed);
     `setBlockToolsActive` (no callers) is removed.
 
-- 2026-10-16 (37.3): Docked panels. Defaults chosen, owner to confirm:
+- 2026-10-16 (37.3): Docked panels. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - a mode's column declares its panels (`EditPanels`: id, title, default
     dock, collapsed, badge, shown-when, render), not the mode registry: the
     content needs the column's state, so it renders in the column and is
@@ -228,6 +230,7 @@ manual → acceptance.
   size; Rooms & buildings: Layer added). The detail column is gone: only
   the block editor used it, so the shell's support for it went too.
   Defaults chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **Rules:** the column keeps the Tool grid (Navigate + Scatter) and
     the two rule lists; the scatter brush's rule picker and settings are
     the **Scatter brush** panel (right edge, open), sharing the Brush
@@ -251,6 +254,7 @@ manual → acceptance.
   kit editor on panels, split as the SPEC's tables say. The brush and noise
   mask panels are one function for every editor (`editmode/brush-panels.tsx`,
   moved out of the block editor). Defaults chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **Terrain:** Sculpt's column is its tool grid alone (four wide), Brush
     and Noise mask are panels, and the Noise tool's bump size and seed a
     Noise panel shown with that tool; Paint's mask panel starts open (the
@@ -297,7 +301,7 @@ manual → acceptance.
     building's walls, where the floor and the selection outline are what
     shows — which matches what 37.4 saw.
 
-- 2026-10-16 (37.6): Load times. Defaults chosen, owner to confirm:
+- 2026-10-16 (37.6): Load times. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - a layer's stand-ins come in this order — its mean colour (mid grey while
     not known), the means the backend reads, a 256 px preview of the array
     (`SLOT_PREVIEW_SIDE`), the array — and replace the array a changed slot
@@ -326,6 +330,7 @@ manual → acceptance.
   selection from outside it (37.5's finding: F or Home on the rooms object or
   a building landed inside its walls), and D274 (four 2048² tiling layers
   could not be assembled). Defaults chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **framing** is one function for every frame (`viewport/frame-view.ts`):
     the camera outside the box's bounding sphere, fitted to the narrower view
     angle, the view's heading kept and its pitch held between 20° and 65°
@@ -359,6 +364,7 @@ manual → acceptance.
 
 - 2026-10-17 (37.8): The lead added two view fixes to the item (found in
   37.7). Defaults chosen, owner to confirm:
+  **Confirmed by the owner 2026-10-22.**
   - **framing beside the panels:** every frame (Home, F, entering) fits and
     centres the box in the view minus the open panels, measured from the
     dock layer when it frames (`panelInsets`: a side's widest open panel;
@@ -382,7 +388,7 @@ manual → acceptance.
     stale block rows (Q to turn, Alt or right drag always) were replaced
     with Space, the Esc order, Home and T.
 
-- 2026-10-17 (37.9): Acceptance. Defaults chosen, owner to confirm:
+- 2026-10-17 (37.9): Acceptance. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - the 200-image decal corpus is fixture content seeded through the content
     routes (200 images through the palette by hand is not a flow anyone
     runs); the Rebuild, the panel and every other step go through the page;
@@ -419,7 +425,8 @@ manual → acceptance.
   - **L, left (D280):** (9) preview pages recompose cached pages, (12) a panel's `seq` on a badge change,
     (13) the trim checker's fixed 356 px, (14) `viewport.ts` (1,990 lines) to split its framing next time,
     (15) the editor's grey (alpha = a height's middle, on purpose). Also D281: a plain undo is still resent
-    after the feed (owner's policy).
+    after the feed (owner's policy). **Reversed by the owner 2026-10-22 → 39b.6b:** an undo refused for a
+    revision conflict is not resent (D281).
   - **Defaults chosen, owner to confirm:** *picking inside a building* — a click selects the building; with
     it selected, a click goes in to the room or path drawn inside it under the pointer (through its walls or
     roof: the inner one stood up to the building's top), and a click there again goes back out (the
@@ -429,6 +436,7 @@ manual → acceptance.
     or not (selecting is Navigate's or Rect's; 37.2's rule for those three is dropped). *Facade height* — the
     facade follows the inside's walls (not the reverse, and the storey height is not raised to the taller
     of the two, which would open gaps between the inside's storeys).
+    **Owner 2026-10-22:** picking and click-placed tools **reversed → 39b.6b**: a click selects a building only in Navigate (no tool; the first Esc drops the tool), a double-click enters the room under the pointer, and no tool selects on a click, Rect included; the facade height rule **confirmed**.
   - **Needs the owner's eyes:** the 37.2–37.9 defaults above in this log (lit Navigate tile, Space, default
     docks, Rules/Scatter-brush placement, the atlas as a collapsed bottom panel, the kit's Preview panel, Esc
     badge dimming, framing pitch 20–65° and entry framing); the go-in click and the Rect-only rule; the

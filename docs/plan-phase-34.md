@@ -39,7 +39,7 @@ own item) and Rapier (pinned `0.20.0`; nothing here depends on it).
 - **Every object type has its own icon** in the hierarchy and the Scene view:
   block layers, terrains, lights by type, and so on.
 - **Order 34 → 35 → 36, then 33** (owner approved 2026-10-12).
-- *Proposed, default chosen, owner to confirm:*
+- *Proposed, default chosen, owner to confirm (**owner 2026-10-22:** the brush rules confirmed; the mockup-first rule is moot (phase 37's ruling and mockup)):*
   - **A layout mockup first (34.2).** Static screenshots of the terrain,
     vertex paint, decal and block editor layouts, for the owner to approve
     before the shell is built.
@@ -199,7 +199,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 - 2026-10-12 (34.1) — Icons: the plan's "probe grid, reflection probe, light layer volume and UI" are not object
   components in the engine (probe grids are baked data, reflection probes and light-layer volumes do not exist,
   UI documents are content, not objects); the probe volume, effect, prefab copy, model and box got icons instead, and
-  patrol, hitbox and health (SVG glyphs until now) got generated art. Order (default chosen, owner to confirm):
+  patrol, hitbox and health (SVG glyphs until now) got generated art. Order (default chosen, owner to confirm; **confirmed by the owner 2026-10-22**):
   what an object is (camera, spawn, light, level geometry, volumes, effect, audio) before what it does (gameplay)
   before what it is made of (prefab, model, box) — so a box with a mover shows the mover. Value variants are data
   on the descriptor (`iconVariants`, dot-path conditions), not editor special cases; the light's type switch in
@@ -210,7 +210,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
 - 2026-10-12 (34.2) — Layout mockup made; **owner look pending**; 34.3 onward proceed with it (the owner was
   asleep; the brief says go on). Contract in `~/.cache/thirdlight-phase34/mockup/SPEC.md`: header 46 px with a
   brand stripe and Done (Esc), rail 76 px, settings column 340 px, optional detail column 300 px, hints 30 px;
-  menus, toolbar and status bar stay, as with the editor window. Defaults chosen, owner to confirm: the rail
+  menus, toolbar and status bar stay, as with the editor window. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**; Esc, the atlas drawer and the brush's place were replaced by phase 37 (moot)): the rail
   holds an editor's modes and a tool grid holds a mode's tools in every editor (the block editor's "grouped
   rail" is its five groups as modes); modes switch with Shift+number (Unreal's precedent) so number keys pick
   palette entries; the brush is the brand amber, erase red, state and selection stay blue; frame is Home
@@ -227,7 +227,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   release goes first to the tool whose gesture it ends, then to a tool that acts on a plain click (the Decal tool
   places on click, after a handle drag or brush stroke has had its release). `SceneTool.key` and `ToolRouter.key`
   exist for the edit-mode shell's key map; no tool takes keys yet (34.4 wires them).
-- 2026-10-12 (34.4) — The edit-mode shell. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.4) — The edit-mode shell. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**; "entering keeps the camera" was replaced by phase 37):
   - **The terrain's interim column is its old panel split by rail mode** (Sculpt, Paint, Holes, Material rules, Scatter,
     Stack, Tiles), not a placeholder: every tool and rule editor works from the editor; 34.8 rebuilds the column with
     the brush kit and the palette. "Settings" (tile size, spacing, …) stays in the Inspector until then.
@@ -238,6 +238,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   - **Context shows the rest as drawn, not faded.** A faded ghost needs a second pass in the adapter (or a material
     change on every object, which rebuilds programs); the rest is unpickable and the chip says "Whole scene · only X
     can be picked". The faded look is left for the owner's call.
+    **Drawn as is: confirmed by the owner 2026-10-22.**
   - **No fly camera:** the Scene view has none; the mode has what it has (orbit, pan, zoom) plus Home to frame.
     Entering keeps the camera (a test or a user framed it on purpose).
   - **Entering clears the selection, Done restores it**; the mode stays open while the Game view, the editor window or
@@ -248,7 +249,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     the existing `terrain` tool.
   - Found: an MCP tile change while the terrain brush is armed stops the terrain drawing (predates the shell) — D248,
     for 34.8.
-- 2026-10-12 (34.5, 34.6) — The brush kit. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.5, 34.6) — The brush kit. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **Size is metres across**, the stroke's radius half of it; a stamp's side and an erosion square are the size.
   - **A sculpt dab moves the ground by height step × strength** (strength is one dab's share for every tool; the
     height step is its own labelled row).
@@ -271,7 +272,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     tiles on release. For 35's layered surface material.
   - Not yet on the kit: the vertex paint and instance brush panels and rings (35.5), block paint's panel (36.5); their
     commands take `opacity`, `mask`, `hardness` now.
-- 2026-10-12 (34.7) — The layer palette. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.7) — The layer palette. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, except the one marked reversed below):
   - **Layers are numbered from 1 on screen** (badges, "Layer 3", the rules' chip; the mockup's), the stored index is
     one less. The old rule hint "where none applies, layer 0" says "the first layer" for terrains.
   - **Without a layered material** the tiles are the four stand-in colours named "Layer 1–4" with "no material" as
@@ -282,6 +283,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     docked project window, and the test drives a real drop event), and a click on an empty slot or **Add layer**
     picks the texture in a popover — the path that works today. Whether the project window should stay usable
     beside an edit mode is the owner's call.
+    **Reversed by the owner 2026-10-22 → 39b.6b:** the project window stays usable in edit modes (drag-in).
   - **Thumbnails** are the backend's texture tile thumbnails (`content/thumbnails/:digest?asset=`), read through
     the one `TileThumbnails` cache: a texture imported as a plain image or encoded to KTX2 from one has a picture;
     a KTX2 imported as is, or a prebuilt texture array, has none (the backend has no image to make one from and
@@ -292,7 +294,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     command). The table in the material document stays for editing all layers at once.
   - Not done here: Erase/Blur/Fill paint tools and the rules' cards and live preview (34.8), the palette in vertex
     paint (35) and blocks (36). The slots' normal and ORM arrays are not filled from the palette (the albedo's only).
-- 2026-10-12 (34.8) — The terrain editor. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.8) — The terrain editor. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**; tile extension is revisited with D254):
   - **Paint's tools are Paint and Erase; Blur and Fill (in the mockup) are not built.** A blur of hand paint and a
     fill need maths in `paint-brush.ts`/`terrain-edit.ts` and a GPU pass whose preview equals the stored bytes; none
     exists yet, so the buttons are left out rather than shown doing something else. Erase is the paint tool inverted
@@ -334,7 +336,7 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   - Screenshots looked at against 01–03 (owner look pending): Sculpt, Paint (palette, settings with slots, texture
     browser), Holes, Material rules (cards, picker, preview), Scatter, Stack (stamp handles), Tiles (grid), Settings;
     kept in `~/.cache/thirdlight-phase34/work/shots/348-*.png`.
-- 2026-10-12 (34.9) — Acceptance. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.9) — Acceptance. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**):
   - **A texture read says what it gives without a texture** (`absent`: white, black or orm), an additive node field;
     the template's ORM reads say `orm` (occlusion 1, roughness 0.8 — the PBR output's default — metal 0) and a normal
     read gives a flat normal. A slot list fills an empty normal/ORM slot with that value as a constant layer
@@ -351,11 +353,12 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
   - Look (owner look pending): from the editor's default distance the 1 m-tiled layers read as their average
     colours (flat olive grass); close up is unverified (not looked at). The default scene has no sky, so Play and the export show black
     above the horizon.
-- 2026-10-12 (34.9b) — Visual polish. Defaults chosen, owner to confirm:
+- 2026-10-12 (34.9b) — Visual polish. Defaults chosen, owner to confirm (**confirmed by the owner 2026-10-22**, except the one marked reversed below):
   - **No default sky for new projects (unchanged).** The acceptance's black void was the project having no sky, not
     isolation (it keeps what belongs to no object: sky, fog dome, lights; asserted now). A sky in every new project
     would change the lighting and pixels of every test project; proposed for the owner instead. The acceptance shots
     set a gradient sky in the scene's look, as a user does in Window → Environment.
+    **Reversed by the owner 2026-10-22 → 39b.6b:** every new project has the physical sky; the pixel baselines are re-recorded once.
   - **Relief reads with the default lights.** The flat look came from the far, top-down view and 1 m tiling, not from
     isolation: lights are skipped by the sweep and light the isolated terrain exactly as with Context (pixels).
   - **The working view on entering** (`EditModeKind.workArea`, `Viewport.frameWorkArea`): the middle of the terrain's
@@ -408,4 +411,5 @@ Iris Xe, 1080p, WebGPU (WebGL 2 recorded).
     close-up checked; an added tile copies edge heights straight → long streaks (D254); pre-phase template
     materials keep white unset ORM (absent = white, as before, by design); slot arrays at the faster UASTC effort
     (small quality loss); no sky in new projects; the defaults to confirm (icons and their order, 1-based layer
-    numbers, brush size across, per-tool memory, Shift+number, Home frames all, the 64 m working view).
+    numbers, brush size across, per-tool memory, Shift+number, Home frames all, the 64 m working view). **Owner 2026-10-22:** the defaults decided (marked above;
+    the project window and the sky reversed → 39b.6b); the looks wait for the review page.

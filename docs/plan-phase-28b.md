@@ -132,12 +132,14 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   ~02:00 with no code change; plain three.js page unchanged (6.2–6.5 ms).
   Baseline WebGPU p50/p95 6.6/8.1 → 7.5/9.4 ms, WebGL 2 4.1/6.8 → 4.2/6.8 ms.
   Default chosen, owner to confirm.
+  **Moot (owner 2026-10-22):** replaced by phase 29's re-record; the village baseline is now recorded at the 60 Hz cap (39b.5).
 - 2026-10-06 (28b.2 A): `packedFrom.reencoded` is one boolean per layer
   beside `layers` (the plan's `layers[].reencoded` can't hold a field: a layer
   is its [R, G, B, A] list). True only for a layer read from texels
   transcoded out of a KTX2 with no lossless original; joined layers and
   layers from PNG/JPEG/WebP or a found PNG are false. The pack dialog now
   stays open after a pack to show this. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.2 A): a join needs the sources' colour space to be the
   encoding's (sRGB for colour, linear for normal map / data); a joined colour
   array stays UASTC (not ETC1S). Only a PNG counts as a lossless original:
@@ -146,6 +148,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   its largest level (64 layers of 2048²); the encoder's 12 Mpix limit does
   not apply to it. Texture arrays and cube maps are refused as sources.
   Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.2 B): per-layer slots are the texture parameter's value
   itself (a list of ids in `default` or an instance's `values`), not a new
   field, so an A/B instance changes one slot; object overrides stay one
@@ -160,6 +163,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   `POST …/content/textures/slots`. The editor may value-import
   `@thirdlight/project-model/texture-slots` (a new pure subpath in the
   boundary table). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.3): world UVs are metres from the layer's origin (the min
   corner of cell 0), not absolute world: chunks are meshed layer-local and a
   layer only moves, so two layers whose origins differ by a non-multiple of a
@@ -179,6 +183,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   (cross(n, t) × w = +v), so a material lights the same with or without the
   attribute; the normal-map green convention stays 28b.4's check. Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.3): existing projects. Skyforge's block types are all
   model looks without `uv`, so they draw as before (unless a kit piece has
   no UVs: it now shows world-mapped texture instead of the texture's corner
@@ -189,6 +194,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   layers mesh to the same positions, normals and indices byte for byte (the
   pinned digests without UVs match); only UVs changed. Accepted: default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.4): per-layer settings are four vec4 parameters of the
   layered template (`layerTiling` metres per repeat, `layerNormalStrength`,
   `layerContrast`, `layerOffset`; one component per layer, every layer
@@ -203,6 +209,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   layer uses, as before; the editor's Layers table shows only for materials
   with the vec4 parameters (no in-place upgrade; make a new one from the
   template). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.4): old projects' repeat after 28b.3's metre UVs. A
   material whose graph is the old template's shape (UV0 × the `tiling`
   parameter, with a Height blend; `readsCellUv`) is flagged when compiled,
@@ -218,6 +225,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   material with a texture on stand-ins) repeats per metre now. On 1 m cells
   nothing changes. Skyforge's terrain builds its UVs from the world position,
   so it is unaffected. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.4): normal-map green (E40). Measured before the fix with a
   normal map tilted toward the image's top (OpenGL / glTF convention, what
   the Texture Designer writes): every engine-made surface lit it from the
@@ -240,6 +248,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   Normal maps authored to look right under the old reading need their green
   turned around; Skyforge's painted terrain (E40) should be looked at again.
   Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.6): footprints are written by the command layer after
   any entity command, not by the editor: the step compares each
   `blockFootprint` prop's world position, rotation and component before and
@@ -261,6 +270,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   differs after the command from before its first surface/sculpt edit; it is
   present only when the command had such an edit (0 included). Default
   chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.8 A): a footprint field outside the cell schema. When the
   command sets or changes the footprint itself (setComponent, a paste), the
   command is refused, naming the field, the prop and the layer it stands on
@@ -271,6 +281,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   props share cells, an unmoved prop's fields are written again after a
   moved or deleted prop's clear, in the same step; the moved prop writes last
   (its value wins on a cell both set). Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22.**
 - 2026-10-06 (28b.8 A): `replay-answer.e2e.ts` scale bench failed the full
   gate and alone; not a 28b regression (the same rate at `0c04d623`,
   `e117c750` and `3128b471`, the last full gate it passed). The test was
@@ -291,6 +302,7 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   PNG). Today no tool writes the entry, so KTX2s from asset tools are
   re-encoded from themselves until one does. Default chosen, owner to
   confirm.
+  **Confirmed by the owner 2026-10-22**; the art-factory is asked to write `thirdlight.sourceSha256` (39b decision log).
 - 2026-10-06 (28b.8 C): world UVs far from the layer origin. Float32 UVs
   tens of kilometres out step by millimetres (several texels), so each chunk
   takes its UVs less the whole 720 m periods below its min corner (x and z).
@@ -301,11 +313,13 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
   such cell widths) seams every 720 m; heights are not wrapped. Layers within
   720 m of their origin are unchanged. Documented in `docs/deployment.md`,
   D182. Default chosen, owner to confirm.
+  **Confirmed by the owner 2026-10-22** (D182).
 - 2026-10-06 (28b.8 C): village perf baseline re-recorded at 949f61f5:
   WebGPU p50/p95 7.5/9.4 → 6.3/7.8 ms, WebGL 2 4.2/6.8 → 4.2/6.3 ms (the old
   one was recorded during a host-drift episode; two quiet runs measured
   6.3/7.9 WebGPU, 4.3–4.4 WebGL 2 before writing). The WebGPU p50 limit
   tightens from 8.25 to 6.93 ms. Tightening; owner to confirm.
+  **Moot (owner 2026-10-22):** replaced by phase 29's re-record; the village baseline is now recorded at the 60 Hz cap (39b.5).
 - 2026-10-06 (28b.8 C): old kit graphs (made before the template used
   Normal map nodes) decode their normals by hand. The compile recognises
   exactly that shape (`detailDecoded` / `macroDecoded` = Sample texture rgb
@@ -334,4 +348,5 @@ Phase done 2026-10-06 (owner look pending): full gate `--both-renderers` (21 min
     per metre with upright wall images. The seamless 4 m texture, kit normal
     maps on tops and walls, and KTX2-only painted terrain have been checked
     by pixel tests only. The slot picker and Layers table have not been
-    looked at. Plus the "default chosen, owner to confirm" entries above.
+    looked at. Plus the "default chosen, owner to confirm" entries above
+    (decided by the owner 2026-10-22, marked there).

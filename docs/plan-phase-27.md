@@ -323,6 +323,9 @@ moves at least as many lines out as it adds.
   are loaded; Lighting and Environment are floating windows over the Scene
   view rather than full windows, because they preview in it; Blocks moves
   into the Inspector and prefab creation into the GameObject menu.
+  **Owner 2026-10-22:** the active scene's environment, the floating windows
+  and prefab creation in the GameObject menu **confirmed**; Blocks in the
+  Inspector **moot** (phase 36's block editor replaced it).
 - 2026-10-01 (27.0): §2 re-checked against the code. Corrected: 11 document
   kinds (no model or material-function kind); 143 e2e specs, not 162; the
   project window sits in the Assets tab with its own side panel (asset

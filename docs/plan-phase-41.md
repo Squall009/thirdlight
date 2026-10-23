@@ -43,6 +43,7 @@ first.
   confirm: **axis-aligned planes only**, since rotated planes need a joint
   frame. That covers side-scrollers and Mario-style sections. An arbitrary
   plane is a later extension.
+  **Confirmed by the owner 2026-10-22.**
 - Set it with:
   - a `plane` field on the body and character components (static, kinematic
     and dynamic bodies, and characters);
@@ -187,3 +188,4 @@ with real Rapier on page and worker.
 - 2026-10-21: Planned from the owner's choice: one backend, a plane switchable
   at any time (Mario-pipe case), to cut complexity. Default chosen, owner to
   confirm: axis-aligned planes only for now.
+  **Confirmed by the owner 2026-10-22.**
