@@ -20,8 +20,11 @@ holds this build's value.
   ([`MAX_CONTENT_FILE_BYTES`](../reference/limits-project-model-1.md#limit-max-content-file-bytes)),
   one imported asset at most 32 MiB
   ([`CONTENT_STAGE_MAX`](../reference/limits-protocol.md#limit-content-stage-max)),
-  one scene at most 16,384 objects
-  ([`MAX_ENTITIES_V4`](../reference/limits-project-model-2.md#limit-max-entities-v4)),
+  one scene's objects at most 32 MiB of scene document, about four times
+  16,384 plain objects
+  ([`SCENE_OBJECT_BUDGET_BYTES`](../reference/limits-project-model-2.md#limit-scene-object-budget-bytes);
+  a memory budget, not a count: `tl_inspect target="project"` shows each
+  scene's `objectBytes`),
   one instance set at most 65,536 copies
   ([`MAX_INSTANCES`](../reference/limits-project-model-2.md#limit-max-instances)),
   one block layer at most 1,024 × 256 × 1,024 cells of bounds
@@ -88,7 +91,7 @@ large landscape on a laptop with an integrated GPU sharing 8–16 GiB.
   each with its reason in the source. If your game needs more, split the
   thing (another scene, another layer, another set) rather than ask for a
   bigger one.
-- **Per-object caps are not per-project caps.** 16,384 objects is one
-  scene; load several scenes together for a larger world.
+- **Per-object caps are not per-project caps.** A scene's memory budget
+  is one scene's; load several scenes together for a larger world.
 - **Measure before raising a budget**: see
   [measure and budget performance](performance.md).

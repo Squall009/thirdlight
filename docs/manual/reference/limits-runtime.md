@@ -182,7 +182,7 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-max-live-spawned"></a>`MAX_LIVE_SPAWNED` | `16384` | Engine limit: spawned entities alive at once (prefab children count): as many as one scene holds, since spawned copies live and draw like a scene's own entities. |
+| <a id="limit-max-live-spawned"></a>`MAX_LIVE_SPAWNED` | `16384` | Engine limit: spawned entities alive at once (prefab children count), a bound on one run's spawning (a script spawning every step without destroying stops here and is told so), not on what a scene holds. |
 | <a id="limit-max-spawns-per-step"></a>`MAX_SPAWNS_PER_STEP` | `64` | Engine limit: spawns one step may request (every script together), a runtime budget: a spawn costs about 0.1 ms (measured with 16,384 alive), so 64 keep a burst to a few milliseconds of the step; a game that fires more spreads them over steps. |
 
 <a id="limits-runtime--timeline"></a>

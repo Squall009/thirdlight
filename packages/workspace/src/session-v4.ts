@@ -8,7 +8,7 @@
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
-import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -1146,10 +1146,12 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   if (op === 'queryBlocks') return serveQueryBlocks(state, projectId, a);
   if (op === 'queryIndex') return serveQueryIndex(s, state, projectId, a);
   if (op === 'queryProject') {
-    // `{environments: true}`: each scene row carries its look (sky, fog, post, wind) when it has one.
-    for (const k of Object.keys(a)) if (k !== 'environments') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'environments'));
-    if (a['environments'] !== undefined && typeof a['environments'] !== 'boolean') return failure(op, projectId, fieldTypeError('/args/environments', a['environments'], 'boolean'));
+    // `{environments: true}`: each scene row carries its look (sky, fog, post, wind) when it has one; `{memory: true}`
+    // what its objects take against their budget (a scene is bounded by its memory, never a count of objects).
+    for (const k of Object.keys(a)) if (k !== 'environments' && k !== 'memory') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'environments, memory'));
+    for (const k of ['environments', 'memory']) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
     const looks = a['environments'] === true;
+    const memory = a['memory'] === true;
     const scene = primaryScene(state);
     return {
       ok: true,
@@ -1163,7 +1165,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
       },
       scenes: state.content.scenes.map((e) => {
         const sc = state.scenes.get(e.sceneId);
-        return { sceneId: e.sceneId, name: e.name, entityCount: sc?.entities.length ?? 0, ...(looks && sc?.environment !== undefined ? { environment: JSON.parse(JSON.stringify(sc.environment)) as unknown } : {}) };
+        return { sceneId: e.sceneId, name: e.name, entityCount: sc?.entities.length ?? 0, ...(memory ? { objectBytes: sc !== undefined ? sceneObjectBytes(sc) : 0, objectBudgetBytes: SCENE_OBJECT_BUDGET_BYTES } : {}), ...(looks && sc?.environment !== undefined ? { environment: JSON.parse(JSON.stringify(sc.environment)) as unknown } : {}) };
       }),
       startScenes: [...state.content.startScenes],
       history: { undoDepth: s.history.cursor, redoDepth: s.history.entries.length - s.history.cursor },
@@ -1248,13 +1250,25 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
 /**
  * `queryBlocks` — block-layer cells and regions for editors, MCP
  * and tools. `{sceneId?}` lists the layers (entity, component, cell count,
- * chunk keys, regions); `{entityId}` one layer: with `chunks: [[cx, cz], …]`
+ * memory, chunk keys, regions); `{entityId}` one layer: with `chunks: [[cx, cz], …]`
  * those chunks in their stored form (palette + runs; the editor reads what a
  * change named), with `box: [x0, y0, z0, x1, y1, z1]` the cells inside it as
  * `[x, y, z, paletteIndex]` rows plus the palette and each distinct value's
  * effective metadata (at most 65,536 cells) and the edge pieces on and inside it, with `region: id` that region's
  * boxes and cells (at most 65,536).
  */
+/**
+ * What a layer's cells take in memory (`BlockGrid.memory`, as Play's diagnostics count them), by its stored data: an
+ * edit makes the layer's data anew, so an unchanged layer is measured once.
+ */
+const layerMemory = new WeakMap<BlockLayerData, number>();
+function layerMemoryBytes(component: BlockLayerComponent, data: BlockLayerData | null): number {
+  if (data === null) return 0;
+  let bytes = layerMemory.get(data);
+  if (bytes === undefined) layerMemory.set(data, (bytes = BlockGrid.from(component, data).memory().bytes));
+  return bytes;
+}
+
 function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
   const op = 'queryBlocks';
   for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'chunks', 'box', 'region'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, chunks, box, region'));
@@ -1274,6 +1288,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
       component: l.component,
       cells: cellCount(l.data),
       edges: edgeCount(l.data),
+      memoryBytes: layerMemoryBytes(l.component, l.data),
       chunks: (l.data?.chunks ?? []).map((c) => [c.cx, c.cz]),
       regions: (l.data?.regions ?? []).map((r) => r.regionId),
     }));
@@ -1284,7 +1299,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
   const scene = sceneOfEntity(state, entityId);
   const layer = scene === null ? undefined : layersOf(scene).find((l) => l.entityId === entityId);
   if (scene === null || layer === undefined) return failure(op, projectId, entityNotFound(entityId));
-  const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), edges: edgeCount(layer.data), regions: layer.data?.regions ?? [] };
+  const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), edges: edgeCount(layer.data), memoryBytes: layerMemoryBytes(layer.component, layer.data), regions: layer.data?.regions ?? [] };
   const chunks = a['chunks'];
   if (chunks !== undefined) {
     if (!Array.isArray(chunks) || chunks.length > 4096 || !chunks.every((c) => Array.isArray(c) && c.length === 2 && Number.isSafeInteger(c[0]) && Number.isSafeInteger(c[1]))) return failure(op, projectId, fieldValueType('/args/chunks', chunks, 'up to 4096 [cx, cz] pairs', 'chunks is a list of [cx, cz]'));

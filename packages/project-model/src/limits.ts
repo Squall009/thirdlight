@@ -18,7 +18,8 @@ export { ASSET_KINDS } from './descriptor-types';
 // The resource kinds (the project window's search and kind menu name them).
 export { RESOURCE_KIND_TABLE } from './loadable';
 export { MAX_COLLISION_LAYERS, MAX_ENTITIES_V2 } from './components';
-export { MAX_EMISSIVE_INTENSITY, MAX_ENTITIES_V4, MAX_INTENSITY } from './scene-v3';
+export { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY } from './scene-v3';
+export { SCENE_OBJECT_BUDGET_BYTES } from './scene-memory';
 export { MAX_INSTANCES, SCENE_LIMITS_V3 } from './types-v3';
 export { EVENT_CUE_LIMITS } from './event-cues';
 export { MODE_LIMITS } from './modes';

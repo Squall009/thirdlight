@@ -135,6 +135,13 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-scatter-cover-distance-default"></a>`SCATTER_COVER_DISTANCE_DEFAULT` | `40` | How far (m) ground cover reaches from the camera when its rule says nothing. |
 | <a id="limit-scatter-limits"></a>`SCATTER_LIMITS` | `{"idLength":32,"density":{"min":0.0001,"max":100},"spacingMax":100,"scale":{"min":0.01,"max":100},"sinkMax":100,"regionName":64,"coverDistance":{"min":1,"max":1000},"shadowDistance":{"min":1,"max":10000},"blobShadow":{"min":0.05,"max":100},"impostorSize":{"min":0.0001,"max":1}}` | Bounds of a rule's values (dimensions of a value, not counts). |
 
+<a id="limits-project-model--scene-memory"></a>
+## `scene-memory.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-scene-object-budget-bytes"></a>`SCENE_OBJECT_BUDGET_BYTES` | `33554432` | The bytes one scene's document may take: about four times what 16,384 plain objects take (a box as createEntity makes it is about 530 bytes). |
+
 <a id="limits-project-model--scene-v3"></a>
 ## `scene-v3.ts`
 
@@ -143,7 +150,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-directional-shadow-defaults"></a>`DIRECTIONAL_SHADOW_DEFAULTS` | `{"mapSize":1024,"bias":-0.0005,"normalBias":0.02,"extent":24}` |  |
 | <a id="limit-directional-shadow-limits"></a>`DIRECTIONAL_SHADOW_LIMITS` | `{"mapSizes":[512,1024,2048,4096],"bias":{"min":-0.01,"max":0.01},"normalBias":{"min":0,"max":1},"extent":{"min":1,"max":64}}` | The directional light's shadow settings (data; absent = the defaults, three-adapter `DIRECTIONAL_SHADOW_DEFAULTS` holds the same values): - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp shadow for a person-size object in a side, top-down or third-person view, at a quarter of the memory of 2048²; WebGL 2 guarantees 2048, WebGPU 8192 (4096 is the cap: the largest map worth its memory on common GPUs). - bias -0.0005: half a thousandth of the shadow depth range removes acne on surfaces facing the light without lifting the shadow off its caster. - normal bias 0.02 m: about half a texel at the defaults — removes the stripes on surfaces at a grazing angle (curved models, instance sets). - extent 24 m (half the side of the square that follows the camera in a v4 game): the previous engine constant, room for a screen of any common genre; a v3 game's level bounds decide its square instead. |
 | <a id="limit-max-emissive-intensity"></a>`MAX_EMISSIVE_INTENSITY` | `4` |  |
-| <a id="limit-max-entities-v4"></a>`MAX_ENTITIES_V4` | `16384` | The v4 per-scene entity cap: a scene is one load unit (a big world is several scenes loaded together; instance sets hold dense detail). |
 | <a id="limit-max-intensity"></a>`MAX_INTENSITY` | `8` |  |
 
 <a id="limits-project-model--script-libraries"></a>

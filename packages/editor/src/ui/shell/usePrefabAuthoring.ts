@@ -145,7 +145,6 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
         declarations: decls,
         parentId: null,
         sceneEntityIds: refs.entityIds,
-        sceneEntityCount: entitiesNow.length,
         parentDepth: 0,
         overrides: collected.overrides,
       });

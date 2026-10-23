@@ -38,7 +38,8 @@ import {
   entityIdAt,
   ENTITY_ID_MAX,
   MAX_ENTITIES_V2,
-  MAX_ENTITIES_V4,
+  SCENE_OBJECT_BUDGET_BYTES,
+  sceneDocumentBytes,
   MAX_ENTITY_DEPTH,
 } from '@thirdlight/project-model';
 
@@ -186,8 +187,8 @@ function cameraIdOf(scene: SceneDocument): string | null {
  */
 export function isNoChange(current: SceneDocument, result: SceneDocument): boolean {
   if (!sameBlocks((current as SceneV4).blocks, (result as SceneV4).blocks)) return false;
-  const a = maskedSceneBytes(current);
-  const b = maskedSceneBytes(result);
+  const a = sceneDocumentBytes(current);
+  const b = sceneDocumentBytes(result);
   if (a === null || b === null) return false; // unreachable: both documents are valid
   return bytesEqual(a, b);
 }
@@ -208,30 +209,6 @@ function sameBlocks(a: readonly BlockLayerData[] | undefined, b: readonly BlockL
     for (let j = 0; j < pc.length; j++) if (pc[j] !== qc[j] && JSON.stringify(pc[j]) !== JSON.stringify(qc[j])) return false;
   }
   return true;
-}
-
-/**
- * The canonical bytes of a scene with `revision` masked and its block cells
- * left out (`isNoChange` compares those itself), cached
- * per entity array. Scene documents are immutable values here: an edit builds
- * a new entity array, so the scene a command starts from is usually the one
- * the previous command produced (and serialized) — its bytes are not built
- * again. The cache key also checks the scene's other fields.
- */
-const sceneBytesCache = new WeakMap<object, { head: string; bytes: Uint8Array }>();
-function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
-  const entities = (scene as { entities?: unknown }).entities;
-  const cacheable = Array.isArray(entities);
-  const head = cacheable ? JSON.stringify({ ...scene, entities: null, blocks: null, revision: 0 }) : '';
-  if (cacheable) {
-    const hit = sceneBytesCache.get(entities);
-    if (hit !== undefined && hit.head === head) return hit.bytes;
-  }
-  const { blocks: _cells, ...rest } = scene as SceneV4;
-  const s = serializeCanonical({ ...rest, revision: 0 });
-  if (!s.ok) return null;
-  if (cacheable) sceneBytesCache.set(entities, { head, bytes: s.bytes });
-  return s.bytes;
 }
 
 /**
@@ -360,7 +337,21 @@ function gateResultV4(
   if (errors.length > 0) return { ok: false, error: resultSceneError(errors) };
   const nextContent = cv.normalized as unknown as ContentDocument;
   if (stateIsNoChange(current, sv.normalized, nextContent)) return { ok: false, error: noChangeContent() };
+  const over = sceneBudgetError(current.scene, sv.normalized);
+  if (over !== null) return { ok: false, error: over };
   return { ok: true, scene: sv.normalized, content: nextContent };
+}
+
+/**
+ * A scene's objects are bounded by their memory, not a count: an edit that
+ * grows a scene past `SCENE_OBJECT_BUDGET_BYTES` is refused (one that shrinks
+ * or keeps it, an undo included, never is). The bytes are the ones the
+ * no-change check measured, so this costs nothing more.
+ */
+function sceneBudgetError(before: SceneDocument, after: SceneDocument): CommandError | null {
+  const bytes = sceneDocumentBytes(after)?.length ?? 0;
+  if (bytes <= SCENE_OBJECT_BUDGET_BYTES || bytes <= (sceneDocumentBytes(before)?.length ?? 0)) return null;
+  return limitsExceeded('scene_bytes', bytes, SCENE_OBJECT_BUDGET_BYTES, `the scene's objects would take ${bytes} bytes, past its memory budget of ${SCENE_OBJECT_BUDGET_BYTES} (SCENE_OBJECT_BUDGET_BYTES): put more in another scene loaded with it, or use an instance set for many copies`);
 }
 
 /** Strip the envelope prefix from a v3 branch error (paths are `/scene/…`). */
@@ -643,10 +634,10 @@ function stageCreate(
       if (roleError !== null) return fail(roleError);
     }
   }
-  const maxEntities = scene.schemaVersion === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
+  // An older scene keeps its count; a current one is bounded by its memory (`gateResultV4`).
   const total = work.sceneCount + work.created.length + 1;
-  if (total > maxEntities) {
-    return fail(limitsExceeded('entities', total, maxEntities));
+  if (scene.schemaVersion !== 4 && total > MAX_ENTITIES_V2) {
+    return fail(limitsExceeded('entities', total, MAX_ENTITIES_V2));
   }
   const newDepth = parentId === null ? 1 : depthIn(work, parentId) + 1;
   if (newDepth > MAX_ENTITY_DEPTH) {

@@ -125,6 +125,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         offset: { type: 'integer', minimum: 0 },
         sceneId: { type: 'string', description: 'target="entities": only this scene' },
         environments: { type: 'boolean', description: 'target="project": each scene row carries its look (sky, fog, post, wind) when it has one' },
+        memory: { type: 'boolean', description: 'target="project": each scene row carries objectBytes (what its objects take) and objectBudgetBytes (its memory budget; there is no count of objects)' },
       },
       required: ['target'],
       additionalProperties: false,
@@ -574,6 +575,10 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
     if (a.environments !== undefined) {
       if (typeof a.environments !== 'boolean') return toolError('environments must be a boolean');
       argsOut.environments = a.environments;
+    }
+    if (a.memory !== undefined) {
+      if (typeof a.memory !== 'boolean') return toolError('memory must be a boolean');
+      argsOut.memory = a.memory;
     }
   } else if (target === 'entity') {
     op = 'queryEntity';

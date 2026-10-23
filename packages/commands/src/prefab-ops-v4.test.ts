@@ -401,14 +401,12 @@ describe('deterministic ID allocation and limits', () => {
     expect(nextFreeEntityId({ has: () => true, size: 16_384 } as unknown as ReadonlySet<string>, 'box')).toBe(undefined);
   });
 
-  it('the result entity bound is checked before ID allocation', () => {
-    // instantiatePrefab bounds a v4 scene at 16384 entities (the cap
-    // createEntity/pasteEntities use) — the entity bound fires before a full
-    // group prefix is scanned (C10's id_exhaustion remains a
-    // contract-required defensive branch, unit-tested above).
+  it('a v4 scene of 16,384 objects, 9,999 of them old four-digit groups, still takes an instance (no count; ids go on)', () => {
     const base = stateThrough('M5');
     const entities = [...base.scene.entities];
+    const taken = new Set(entities.map((e) => e.id));
     for (let n = 1; n <= 9999; n++) {
+      if (taken.has(`group-${String(n).padStart(4, '0')}`)) continue;
       entities.push({
         id: `group-${String(n).padStart(4, '0')}`,
         components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } },
@@ -421,10 +419,8 @@ describe('deterministic ID allocation and limits', () => {
       } as SceneV4['entities'][number]);
     }
     const state = createCommandState({ ...base.scene, entities } as SceneV4, base.content);
-    const before = JSON.stringify(state);
     const r = mutation(state, 'instantiatePrefab', { prefabId: 'prefab-0001' });
-    expect(failError(r)).toMatchObject({ code: 'limits_exceeded', limit: 'entities', max: 16_384 });
-    expect(JSON.stringify(state)).toBe(before);
+    expect(r.ok, JSON.stringify(r.result).slice(0, 400)).toBe(true);
   });
 
   it('rejects 65 overrides; takes more definitions than the 128 once allowed', () => {
@@ -447,12 +443,10 @@ describe('deterministic ID allocation and limits', () => {
     expect(more.ok, JSON.stringify(more.result).slice(0, 400)).toBe(true);
   });
 
-  it('rejects an instantiation that would exceed the scene entity or depth limit', () => {
+  it('rejects an instantiation that would exceed the depth limit; a scene\'s object count is none', () => {
     const state = stateThrough('M5');
     const definition = state.content?.prefabs[0] as PrefabDefinition;
-    // Entity bound: a v4 scene of 1024 entities still takes an instance
-    // (the v4 per-scene cap is 16384, as createEntity/pasteEntities); one of
-    // 16384 does not.
+    // No entity count: a v4 scene of 1024 entities takes an instance, and so does one of 16,384 (its memory bounds it).
     const entities = [...state.scene.entities];
     while (entities.length < 1024) {
       entities.push({
@@ -469,11 +463,7 @@ describe('deterministic ID allocation and limits', () => {
       } as SceneV4['entities'][number]);
     }
     const full = createCommandState({ ...state.scene, entities } as SceneV4, state.content);
-    expect(failError(mutation(full, 'instantiatePrefab', { prefabId: 'prefab-0001' }))).toMatchObject({
-      code: 'limits_exceeded',
-      limit: 'entities',
-      max: 16_384,
-    });
+    expect((mutation(full, 'instantiatePrefab', { prefabId: 'prefab-0001' }) as { ok: boolean }).ok).toBe(true);
     void definition;
     // Depth bound: a chain of depth 32 parents plus a depth-2 definition = 34.
     const chain: SceneV4['entities'] = [];

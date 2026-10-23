@@ -134,8 +134,6 @@ export const SCENE_CAMERA_GONE = 'the scene camera is gone: the engine owns the 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 // `blocks` — the scene's block-layer cells and regions (absent = none).
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'entities', 'blocks']);
-/** The v4 per-scene entity cap: a scene is one load unit (a big world is several scenes loaded together; instance sets hold dense detail). */
-export const MAX_ENTITIES_V4 = 16_384;
 /** The boolean flags an entity may carry (only a non-default value is stored). */
 export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static', 'keepLoaded'] as const;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components']);
@@ -841,7 +839,7 @@ function validateEntityComponentsV3(
     const bl = comps['blockLayer'];
     const data = merged && isPlainObject(bl) ? bl['data'] : undefined;
     validateBlockLayerComponent(isPlainObject(bl) && data !== undefined ? Object.fromEntries(Object.entries(bl).filter(([k]) => k !== 'data')) : bl, `${path}/blockLayer`, errors);
-    if (data !== undefined) validateSceneBlocks([data], [{ id: isPlainObject(data) ? data['entityId'] : undefined, components: { blockLayer: bl } }], errors, true);
+    if (data !== undefined) validateSceneBlocks([data], [{ id: isPlainObject(data) ? data['entityId'] : undefined, components: { blockLayer: bl } }], errors);
     for (const other of ['model', 'box', 'camera', 'collider', 'controller', 'instances'] as const) {
       if (comps[other] !== undefined) errors.push(collisionConflict(path, `blockLayer and ${other} are mutually exclusive on one entity (a layer is its own level geometry)`, ['blockLayer', other]));
     }
@@ -1155,8 +1153,9 @@ interface SceneV3ValueResult {
 
 export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3, merged = false): SceneV3ValueResult {
   const errors: ModelErrorV3[] = [];
-  // A merged runtime scene (several scenes loaded together) is bounded by the project, not one scene.
-  const maxEntities = merged ? MAX_ENTITIES_V4 * 64 : version === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
+  // A current scene's objects are bounded by their memory (`SCENE_OBJECT_BUDGET_BYTES`, checked as a command grows
+  // it), never a count, and neither is a merged runtime scene (several loaded together); an older one keeps its count.
+  const maxEntities = merged || version === 4 ? Infinity : MAX_ENTITIES_V2;
   const sceneId = doc['sceneId'];
   if (sceneId === undefined) errors.push(fieldMissing('/sceneId', 'sceneId'));
   else if (typeof sceneId !== 'string') errors.push(fieldType('/sceneId', sceneId, 'string'));
@@ -1359,7 +1358,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     if (!knownScene.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...knownScene].join(', ')));
   }
   // The scene's block-layer cells and regions.
-  if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors, merged);
+  if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors);
   // The scene's look (sky, fog, post, wind).
   if (version === 4 && doc['environment'] !== undefined) validateSceneEnvironment(doc['environment'], '/environment', errors);
   if (errors.length > 0) return { errors };

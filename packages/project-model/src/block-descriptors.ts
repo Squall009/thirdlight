@@ -92,7 +92,7 @@ export const blockLayer: ComponentDescriptor = {
   icon: 'blocks',
   excludes: ['model', 'box', 'collider', 'controller', 'instances', 'terrain', 'spline', 'architecture'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
   prefab: false,
-  rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
+  rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale.'],
 };
 
 /** A prop's occupancy footprint (the editor writes it into the block cells beneath the prop). */

@@ -33,7 +33,6 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import {
-  MAX_ENTITIES_V2 as MAX_SCENE_ENTITIES,
   MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
@@ -52,7 +51,7 @@ import {
 
 // ---- limits: the model's, checked here before a command is sent ----
 
-export { MAX_DISPLAY_NAME, MAX_OVERRIDES, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES, MAX_SCENE_DEPTH, MAX_SCENE_ENTITIES };
+export { MAX_DISPLAY_NAME, MAX_OVERRIDES, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES, MAX_SCENE_DEPTH };
 
 /** A bounded, actionable planning error (the contract's code vocabulary). */
 export type PlanError = ControlError & Record<string, unknown>;
@@ -307,8 +306,6 @@ export interface InstantiateInput {
   sceneEntityIds: readonly string[];
   /** Catalog asset IDs (`assetRef` override resolution); absent: the backend checks them (the editor reads the catalog in pages). */
   assetIds?: readonly string[];
-  /** The projected scene size before insertion (the `entities` limit). */
-  sceneEntityCount: number;
   /** The depth of `parentId` (root = 1); 0 for the scene root. */
   parentDepth: number;
 }
@@ -479,19 +476,7 @@ export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ com
     checked.push({ localId: override.localId, key: override.key, value: override.value as PropertyValue });
   }
   // 6. atomic preconditions on the whole operation.
-  const resultingEntities = input.sceneEntityCount + definition.entityCount;
-  if (resultingEntities > MAX_SCENE_ENTITIES) {
-    return {
-      ok: false,
-      error: {
-        code: 'limits_exceeded',
-        message: `placing this copy would create ${resultingEntities} scene entities; the bound is ${MAX_SCENE_ENTITIES}`,
-        limit: 'entities',
-        current: resultingEntities,
-        max: MAX_SCENE_ENTITIES,
-      },
-    };
-  }
+  // What a scene's objects may take is its memory, which the backend measures: no count is checked here.
   const resultingDepth = input.parentDepth + definition.depth;
   if (resultingDepth > MAX_SCENE_DEPTH) {
     return {

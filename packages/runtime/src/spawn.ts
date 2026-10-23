@@ -4,7 +4,7 @@
  * prefab definition into fresh runtime entities. A spawned copy is in the
  * running game only (never in the project, never in a save). No I/O.
  */
-import { MAX_ENTITIES_V4, type EntityV3, type PrefabDefinition } from '@thirdlight/project-model';
+import type { EntityV3, PrefabDefinition } from '@thirdlight/project-model';
 
 /**
  * Engine limit: spawns one step may request (every script together), a
@@ -14,11 +14,11 @@ import { MAX_ENTITIES_V4, type EntityV3, type PrefabDefinition } from '@thirdlig
  */
 export const MAX_SPAWNS_PER_STEP = 64;
 /**
- * Engine limit: spawned entities alive at once (prefab children count): as
- * many as one scene holds, since spawned copies live and draw like a scene's
- * own entities.
+ * Engine limit: spawned entities alive at once (prefab children count), a
+ * bound on one run's spawning (a script spawning every step without
+ * destroying stops here and is told so), not on what a scene holds.
  */
-export const MAX_LIVE_SPAWNED = MAX_ENTITIES_V4;
+export const MAX_LIVE_SPAWNED = 16_384;
 /** Runtime ids of spawned entities: `spawn-<n>`, n counting from 1 for the whole game (never reused). */
 export const SPAWN_ID_PREFIX = 'spawn-';
 

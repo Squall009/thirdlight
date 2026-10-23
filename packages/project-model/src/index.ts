@@ -416,7 +416,8 @@ export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type Upgrade
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
-export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, ENTITY_FLAGS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
+export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, ENTITY_FLAGS, V4_REGISTRY } from './scene-v3';
+export { SCENE_OBJECT_BUDGET_BYTES, sceneDocumentBytes, sceneObjectBytes } from './scene-memory';
 export { validateContentV4, isNormalizedContent, ENGINE_TIMING_DEFAULTS } from './content';
 // Texture arrays and packed textures.
 export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, canonicalLabels, isAssetLabel, type Ktx2Encoding } from './content';

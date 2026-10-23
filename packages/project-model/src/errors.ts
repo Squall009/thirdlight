@@ -19,6 +19,7 @@ export type LimitName =
   | 'asset_versions'
   | 'version_records'
   | 'content_bytes'
+  | 'scene_bytes'
   | 'source_bytes'
   | 'nodes'
   | 'meshes'

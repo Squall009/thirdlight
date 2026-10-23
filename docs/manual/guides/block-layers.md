@@ -121,9 +121,10 @@ hand.
   only the height may differ. The layer is a root object at identity
   rotation and unit scale.
 - **Limits per layer, not per project:** at most 1,024 × 256 × 1,024 cells
-  of bounds (a larger box is refused with `limits_exceeded`), 16 layers with
-  cells per scene, 256 edits and 64 KiB per `editBlocks` request. See
-  [Limits](limits.md).
+  of bounds (a larger box is refused with `limits_exceeded`), 256 edits and
+  64 KiB per `editBlocks` request. A scene holds as many layers as it needs:
+  what bounds them is memory, which `tl_content_query target="blocks"` shows
+  per layer (`memoryBytes`). See [Limits](limits.md).
 - **A fixed look** (Placement → Look) paints that look *pinned*: a
   connected block then stops following its neighbours.
 - **Cut-aways are drawing only.** Collision, grid queries and shadows stay;

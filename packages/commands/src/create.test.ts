@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { serializeCanonical } from '@thirdlight/project-model';
+import { SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, serializeCanonical } from '@thirdlight/project-model';
 import type { EntityV3, SceneV4 } from '@thirdlight/project-model';
 
 import {
@@ -204,32 +204,42 @@ describe('createEntity — preconditions and limits', () => {
   const boxId = (n: number): string => `box-${String(n).padStart(6, '0')}`;
   const groupId = (n: number): string => `group-${String(n).padStart(6, '0')}`;
 
-  it('16385th entity in a v4 scene ⇒ limits_exceeded { entities, 16385, 16384 }; the 16384th is allowed', () => {
-    // A v4 scene holds up to 16384 entities: the
-    // camera, box-000001..box-009999 and group-000001..group-006384.
+  it('a v4 scene has no object count: past 16,384 objects a create goes through (a created box takes about 530 bytes)', () => {
     const ents: EntityV3[] = [cameraEntity()];
     for (let n = 1; n <= 9999; n++) ents.push(boxEntity(boxId(n)));
     for (let n = 1; n <= 6384; n++) ents.push(groupEntity(groupId(n)));
     expect(ents.length).toBe(16384);
     const st = v4State(scene(0, ents));
+    const r = applyMutation(st, req('createEntity', { kind: 'group' }));
+    expect(ok(r).createdId).toBe('group-006385');
+    expect(r.ok && r.state.scene.entities.length).toBe(16385);
+    // A box as createEntity makes it.
+    const one = stateOf(applyMutation(v4State(BASE), req('createEntity', { kind: 'box' })));
+    const perBox = sceneObjectBytes(one.scene) - sceneObjectBytes(BASE);
+    expect(perBox).toBeGreaterThan(100);
+    expect(perBox).toBeLessThan(600);
+    // The budget holds about four times the 16,384 plain objects a scene was once capped at.
+    expect(SCENE_OBJECT_BUDGET_BYTES / perBox).toBeGreaterThan(3.5 * 16_384);
+  });
+
+  it('a scene is bounded by its memory: an edit growing it past SCENE_OBJECT_BUDGET_BYTES is refused, one that shrinks it is not', () => {
+    // A scene over its budget already (as a file written outside the editor may be): it opens and can only shrink.
+    const ents: EntityV3[] = [cameraEntity()];
+    // (A new array each time: a scene's bytes are kept per entity array, which commands never change in place.)
+    for (let n = 1; sceneObjectBytes(scene(0, [...ents])) <= SCENE_OBJECT_BUDGET_BYTES; n++) {
+      for (let k = 0; k < 4096; k++) ents.push(boxEntity(boxId(n * 4096 + k)));
+    }
+    const st = v4State(scene(0, ents));
     const before = sceneBytes(st.scene);
     const r = applyMutation(st, req('createEntity', { kind: 'group' }));
     if (r.ok) throw new Error('should have failed');
-    expect(r.result.error).toEqual({
-      code: 'limits_exceeded',
-      cls: 'validation',
-      limit: 'entities',
-      current: 16385,
-      max: 16384,
-      message: 'creation would exceed the entities limit (16385 > 16384)',
-    });
+    expect(r.result.error).toMatchObject({ code: 'limits_exceeded', cls: 'validation', limit: 'scene_bytes', max: SCENE_OBJECT_BUDGET_BYTES });
+    expect((r.result.error as { current: number }).current).toBeGreaterThan(SCENE_OBJECT_BUDGET_BYTES);
+    expect(r.result.error.message).toContain('another scene');
     expect(bytesEqual(sceneBytes(st.scene), before)).toBe(true);
-    // One below the limit: the 16384th entity is created (group-006384).
-    const st2 = v4State(scene(0, ents.slice(0, -1)));
-    const r2 = applyMutation(st2, req('createEntity', { kind: 'group' }));
-    expect(ok(r2).createdId).toBe('group-006384');
-    expect(r2.ok && r2.state.scene.entities.length).toBe(16384);
-  });
+    const shrunk = applyMutation(st, req('deleteEntity', { entityId: ents[ents.length - 1]!.id }));
+    expect(shrunk.ok, JSON.stringify(shrunk.ok ? '' : shrunk.result)).toBe(true);
+  }, 120_000);
 
   it('a v4 scene holding 9,999 old four-digit boxes still creates boxes (no id_exhaustion below the entity limit)', () => {
     const ents: EntityV3[] = [cameraEntity()];

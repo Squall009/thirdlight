@@ -285,7 +285,7 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 - Cannot share an object with [`spline`](components-rendering-2.md#component-spline): a block layer is its own level geometry
 - Cannot share an object with [`architecture`](components-rendering-2.md#component-architecture): a block layer is its own level geometry
 - Icon: blocks
-- Rule: A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.
+- Rule: A block layer is a root object (a folder may hold it) at identity rotation and unit scale.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

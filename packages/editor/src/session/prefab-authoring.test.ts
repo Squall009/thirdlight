@@ -96,7 +96,6 @@ const BASE_INSTANTIATE = {
   parentId: null as string | null,
   sceneEntityIds: ['group-0000', 'group-0001', 'cam-main'],
   assetIds: ASSETS,
-  sceneEntityCount: 6,
   parentDepth: 0,
 };
 
@@ -208,7 +207,7 @@ describe('instantiation accepts only the three configurables', () => {
   });
 
   it('plans a plain copy with no optional fields', () => {
-    const plan = planInstantiatePrefab({ ...BASE_INSTANTIATE, parentId: undefined, sceneEntityCount: 6 });
+    const plan = planInstantiatePrefab({ ...BASE_INSTANTIATE, parentId: undefined });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.command.args).toEqual({ prefabId: 'prefab-0001' });
@@ -280,9 +279,7 @@ describe('instantiation accepts only the three configurables', () => {
     });
   });
 
-  it('enforces the atomic entities/depth limits', () => {
-    const limited = planInstantiatePrefab({ ...BASE_INSTANTIATE, sceneEntityCount: 1023 });
-    expect(limited).toMatchObject({ ok: false, error: { code: 'limits_exceeded', limit: 'entities', current: 1027, max: 1024 } });
+  it('enforces the atomic depth limit (a scene\'s size is its memory, which the backend measures)', () => {
     const deep = planInstantiatePrefab({ ...BASE_INSTANTIATE, parentDepth: 31 });
     expect(deep).toMatchObject({ ok: false, error: { code: 'limits_exceeded', limit: 'depth', current: 33, max: 32 } });
   });

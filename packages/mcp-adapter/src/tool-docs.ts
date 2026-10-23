@@ -106,7 +106,7 @@ export const TOOL_DETAILS = {
     'target="engine" returns the engine the backend runs: version, commit and lockfileDigest (as it started), build (dist/build-info.json at start: builtAt, commit, dirty), ' +
     'startedAt, dist {build (now), newerThanProcess, reason} - newerThanProcess true: dist/ was rebuilt after the backend started, so the pages load the newer bundles while the backend still runs the old one until restarted - checkoutCommit when the checkout moved on, ' +
     'and manual {dir, pages, topics}: the manual tl_docs answers from (the copy the build put in dist/docs, read when the backend started; else the checkout\'s docs). A project has one or more scenes ' +
-    '(one file each; target="project" lists scenes and startScenes, with environments=true each scene\'s look; target="entity" names its sceneId). Never mutates.',
+    '(one file each; target="project" lists scenes (each with entityCount; with memory=true objectBytes = what its objects take and objectBudgetBytes = its memory budget: a scene holds as many objects as fit, never a count; an edit growing it past the budget is refused, limit scene_bytes) and startScenes, with environments=true each scene\'s look; target="entity" names its sceneId). Never mutates.',
   tl_command:
     'Submit one undoable editing command to the project, with optimistic concurrency ' +
     '(expectedRevision). Scene ops: createEntity (kind group|box|model|folder), setTransform, ' +
@@ -473,7 +473,7 @@ export const TOOL_DETAILS = {
     'Scene handle, ~120 KB); target="projectFiles" lists one ' +
     'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav/.ogg/.opus/.mp3/.flac/.png/… ' +
     'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
-    '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
+    '(component, cell count, memoryBytes = what its cells take in memory in a game, no count of layers or cells bounds it; chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
     'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
     'boxes and cells). target="terrain" reads terrains: without entityId each terrain (tileSamples, spacing, heightRange, tiles, tilesWithData, ' +
     'storedBytes, memoryBytes = what its tiles take decoded in a game; sceneId optional), with entityId one terrain with tileRows [{x, z, data, storedBytes, memoryBytes}] and, ' +

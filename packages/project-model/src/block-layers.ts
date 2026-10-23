@@ -333,12 +333,14 @@ export const CHUNK_SIZE = 16;
 /**
  * Engine limits (they protect the runtime and keep requests under the 64 KiB
  * command cap): block types of 8 variants, 32 metadata fields, stamps of at
- * most 16,384 cells, 16 layers per scene, a layer up to 1,024 × 256 × 1,024
- * cells, coordinates within ±4,096 horizontally and ±1,024 vertically, 256
- * regions of 1,024 boxes. A project has as many block types and stamps as it
- * needs (each is edited alone; cells name a type by id through a per-chunk
- * palette), and a layer as many cells as its bounds hold: what bounds a layer
- * is memory (diagnostics show each layer's), never a cell count.
+ * most 16,384 cells, a layer up to 1,024 × 256 × 1,024 cells, coordinates
+ * within ±4,096 horizontally and ±1,024 vertically, 256 regions of 1,024
+ * boxes. A project has as many block types and stamps as it needs (each is
+ * edited alone; cells name a type by id through a per-chunk palette), a scene
+ * as many layers and a layer as many cells as its bounds hold: what bounds
+ * them is memory (`tl_content_query target="blocks"` and Play's diagnostics
+ * show each layer's; the streaming budget bounds streamed chunks), never a
+ * count.
  */
 export const BLOCK_LIMITS = Object.freeze({
   variants: 8,
@@ -351,7 +353,6 @@ export const BLOCK_LIMITS = Object.freeze({
   stringLength: 64,
   stampCells: 16_384,
   stampSize: 64,
-  layersPerScene: 16,
   layerWidth: 1024,
   layerHeight: 256,
   coordinateXZ: 4096,
@@ -991,12 +992,11 @@ export function validateBlockRegion(r: unknown, p: string, errors: ModelErrorV2[
 
 /**
  * The scene document's own block rules: structure, every layer entry names a
- * scene entity carrying `blockLayer` (at most one entry per layer, 16 layers
- * per scene), every cell lies within its layer's bounds, a metadata-only layer
+ * scene entity carrying `blockLayer` (at most one entry per layer), every cell lies within its layer's bounds, a metadata-only layer
  * holds no blocks. Block types and metadata fields are the
  * content's (`composeBlockLayers`).
  */
-export function validateSceneBlocks(value: unknown, entities: readonly unknown[], errors: ModelErrorV2[], merged = false): void {
+export function validateSceneBlocks(value: unknown, entities: readonly unknown[], errors: ModelErrorV2[]): void {
   const path = '/blocks';
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'blocks is an array of layer entries', value, 'array');
   const layers = new Map<string, BlockLayerComponent>();
@@ -1005,7 +1005,6 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
     const bl = (e['components'] as Record<string, unknown>)['blockLayer'];
     if (bl !== undefined && typeof e['id'] === 'string') layers.set(e['id'], bl as BlockLayerComponent);
   }
-  if (!merged && value.length > BLOCK_LIMITS.layersPerScene) err(errors, 'limits_exceeded', path, `a scene holds at most ${BLOCK_LIMITS.layersPerScene} block layers with cells`, value.length);
   const seen = new Set<string>();
   value.forEach((entry, i) => {
     const p = `${path}/${i}`;
