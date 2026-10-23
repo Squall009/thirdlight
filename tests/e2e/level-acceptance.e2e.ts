@@ -205,7 +205,8 @@ const isPink: Pred = (r, g, b) => r > 140 && b > 1.4 * g && r > 1.25 * b;
 const isPeach: Pred = (r, g, b) => r > 170 && g > 0.5 * r && g < 0.88 * r && b < 0.8 * g;
 const isSkyBlue: Pred = (r, g, b) => b > 110 && b > 1.4 * r && b > 1.15 * g;
 const isSheetA: Pred = (r, g, b) => g > 70 && g > 1.5 * r && g > 1.5 * b;
-const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.6 * g && b > 1.9 * g;
+/** Sheet B's purple: trim draws at the sheet's own colour (a white tint), so its sunlit faces (the pipe, the shed roof) read a brighter, paler purple than the walls. */
+const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.35 * g && b > 1.8 * g;
 /** The paint's red and blue tints over white; the white of an unpainted block; the trim's grime (a dark brown). */
 const isPaintRed: Pred = (r, g, b) => r > 90 && g < 0.4 * r && b < 0.4 * r;
 const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.5 * b && g < 0.5 * b;
