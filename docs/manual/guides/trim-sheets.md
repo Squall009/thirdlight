@@ -27,7 +27,8 @@ of a wall as a strip of its slot's row.
    repeat its edge; 8 by default), **rows at their real height** (below),
    then one line per row.
 3. In the Inspector's textures, set **map** to the colour image,
-   **normalMap** to the normal map and **ormMap** to the ORM.
+   **normalMap** to the normal map and **ormMap** to the ORM. Its **color**
+   tints the sheet (white: the sheet's own colours, wherever it is put).
    **Equal rows** splits the sheet again; **Import layout.json** reads a
    Texture Designer trim export's table (rows at their real height on);
    **Check padding** compares the

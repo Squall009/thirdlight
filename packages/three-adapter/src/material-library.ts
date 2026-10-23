@@ -980,22 +980,6 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    * arrives, not as the compile's empty fallback (white).
    */
   const drawnFor = new Map<string, string>();
-  /**
-   * A trim material (drawn as its layered surface) without a colour of its
-   * own tints by the colour of the material it is put over — a model file's,
-   * or generated architecture's stand-in — as the trim shader did, which
-   * started from that material: the object's own value of the graph's
-   * `color` parameter. A layered surface whose base layer is a trim sheet
-   * (what "Make it paintable" makes of a trim material) tints its base the
-   * same way, so the building looks the same before and after; its other
-   * layers keep their textures' own colours.
-   */
-  const withSourceTint = (def: MaterialDefLike, src: THREE.Material, own: Readonly<Record<string, number | readonly number[] | string>> | undefined): Readonly<Record<string, number | readonly number[] | string>> | undefined => {
-    const trimBase = def.shader === 'trim' ? def.params['color'] === undefined : (def.layerSheets?.[0] ?? '') !== '' && (def.parameters?.find((p) => p.key === 'color')?.default ?? '#ffffff') === '#ffffff' && def.parameters?.some((p) => p.key === 'color') === true;
-    if (!trimBase || !(src instanceof THREE.MeshStandardMaterial) || own?.['color'] !== undefined) return own;
-    const tint = `#${src.color.getHexString()}`;
-    return tint === '#ffffff' ? own : { ...(own ?? {}), color: tint };
-  };
   /** The row table a graph material's mesh-UV layers keep inside: a trim material's own, a layered material's sheets' (null: none). */
   const rowsOf = (def: MaterialDefLike): TrimSheet | null =>
     layerSheetRows(def, (id) => {
@@ -1190,7 +1174,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         const id = mapping === null ? undefined : (mapping[src.name] ?? mapping['*']);
         const def = id === undefined ? undefined : defs.get(id);
         if (def?.graph !== undefined) {
-          const own = withSourceTint(def, src, overrides?.[def.materialId]);
+          const own = overrides?.[def.materialId];
           const live = runtime?.values[def.materialId];
           const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def, surface);
           usedDigests.add(e.digest);

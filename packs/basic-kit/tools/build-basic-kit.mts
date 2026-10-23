@@ -448,7 +448,7 @@ async function main(): Promise<void> {
   ];
   for (const p of pieces) writeFileSync(join(ASSETS, p.file), pieceGlb(p.model));
 
-  const material: MaterialDef = { materialId: IDS.trim, name: 'Basic trim sheet', shader: 'trim', params: {}, textures: { map: IDS.albedo, normalMap: IDS.normal, ormMap: IDS.orm }, trim: SPEC };
+  const material: MaterialDef = { materialId: IDS.trim, name: 'Basic trim sheet', shader: 'trim', params: { color: '#ffffff' }, textures: { map: IDS.albedo, normalMap: IDS.normal, ormMap: IDS.orm }, trim: SPEC };
   const kit: KitDef = {
     kitId: IDS.kit,
     name: 'Basic Kit',

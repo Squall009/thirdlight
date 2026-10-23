@@ -17,6 +17,8 @@ import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
+
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 import { createTestBackend } from './testing';
 
@@ -142,6 +144,23 @@ describe('graph materials\' problems on the backend', () => {
     expect(m.materials.find((r) => r.materialId === 'mat-graph')!.problems).toEqual([]);
     problems = (await get(`/api/v1/projects/${P}/problems`)).json as typeof problems;
     expect(problems.materialProblems).toEqual([]);
+  });
+
+  it('a trim material with no colour of its own draws its sheet white and says the look changed until a colour is stored', async () => {
+    const trim = { materialId: 'mat-trim', name: 'Trim', shader: 'trim', params: {}, textures: {}, trim: defaultTrimSheet() };
+    expect((await command('setMaterial', { material: trim })).ok).toBe(true);
+    await settle();
+    const row = (await materials('?materialId=mat-trim')).materials[0]!;
+    expect(row.problems).toEqual([{ severity: 'warning', message: expect.stringContaining('no longer tinted by the surface it is on') }]);
+    expect(row.problems[0]!.message).toContain('color: #9a968c keeps the old look');
+    let problems = (await get(`/api/v1/projects/${P}/problems`)).json as { problems: { code: string; message: string }[]; materialProblems: Row[] };
+    expect(problems.problems.some((p) => p.message.includes('Material "Trim" (mat-trim)'))).toBe(true);
+    // The old grey stored as its colour keeps the old look, and clears the line (white would too).
+    expect((await command('setMaterial', { material: { ...trim, params: { color: '#9a968c' } } })).ok).toBe(true);
+    await settle();
+    expect((await materials('?materialId=mat-trim')).materials[0]!.problems).toEqual([]);
+    problems = (await get(`/api/v1/projects/${P}/problems`)).json as typeof problems;
+    expect(problems.materialProblems.map((r) => r.materialId)).not.toContain('mat-trim');
   });
 
   it('a project loaded by a new backend is checked at its load', async () => {

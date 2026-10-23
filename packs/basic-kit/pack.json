@@ -66,7 +66,9 @@
           "materialId": "basic-trim",
           "name": "Basic trim sheet",
           "shader": "trim",
-          "params": {},
+          "params": {
+            "color": "#ffffff"
+          },
           "textures": {
             "map": "basic-trim-albedo",
             "normalMap": "basic-trim-normal",

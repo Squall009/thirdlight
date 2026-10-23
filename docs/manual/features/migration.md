@@ -180,3 +180,12 @@ engine:
   ([Timelines](timelines.md)).
 - **Prefab copies keep their objects' tags**, so `ctx.tags` finds placed
   and spawned copies.
+- **A trim sheet draws at its own colours.** A trim material's **color**
+  tints its sheet, white by default, wherever it is put; it no longer takes
+  the colour of the surface under it (generated architecture's grey
+  stand-in `#9a968c`, or a model's own material colour). A trim material
+  that stored no colour therefore draws brighter (an exception to keeping
+  the look, the owner's call); its row in Problems says so until a colour is
+  stored: `#9a968c` keeps the old look on generated architecture, `#ffffff`
+  the sheet's own. A layered surface made from a trim sheet (**Make it
+  paintable**) draws its base at its own **color** the same way.

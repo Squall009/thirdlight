@@ -169,8 +169,9 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
           err = await run('setMaterial', { material: made });
           break;
         case 'trim-material':
-          // One sheet in the engine's starter layout (equal rows); its textures and rows are set in the Inspector.
-          err = await run('setMaterial', { material: { materialId: id, name, shader: 'trim', params: {}, textures: {}, trim: defaultTrimSheet() } satisfies MaterialDef });
+          // One sheet in the engine's starter layout (equal rows); its textures and rows are set in the Inspector. Its
+          // colour is stored: white, the sheet as it is.
+          err = await run('setMaterial', { material: { materialId: id, name, shader: 'trim', params: { color: '#ffffff' }, textures: {}, trim: defaultTrimSheet() } satisfies MaterialDef });
           break;
         case 'graph-material':
           err = await run('setMaterial', { material: arg === '' ? ({ materialId: id, name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() } satisfies MaterialDef) : templateMaterial(arg, id, name) });

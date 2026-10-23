@@ -62,7 +62,7 @@ describe('material problems on the backend', () => {
   });
 
   it('a trim sheet drawing rows at their real height names the presets whose row-tied sliders do not fit its rows', () => {
-    const sheet = { materialId: 'sheet', name: 'Sheet', shader: 'trim', params: {}, textures: {}, trim: defaultTrimSheet() };
+    const sheet = { materialId: 'sheet', name: 'Sheet', shader: 'trim', params: { color: '#ffffff' }, textures: {}, trim: defaultTrimSheet() };
     const preset = (graphId: string, values: Record<string, number>, sheetId = 'sheet') => ({ graphId, kind: 'architecture-preset', name: graphId, graph: { nodes: [{ id: 'preset', type: 'preset', position: [0, 0], data: { style: '', base: 'starter-room', sheet: sheetId } }, ...Object.entries(values).map(([parameter, value], i) => ({ id: `v${i}`, type: 'value', position: [0, 150], data: { parameter, value } }))], edges: [] } });
     const problems = (graphs: unknown[], trim = sheet.trim): string[] => createMaterialProblemChecker().check({ materials: [{ ...sheet, trim }], graphs, assets }).find((r) => r.materialId === 'sheet')!.problems.map((p) => p.message);
     // The starter room's 0.15 m baseboard fits the 0.156 m row; 0.3 m does not, and both heights are named.

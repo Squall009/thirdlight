@@ -265,8 +265,7 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
     b.wire([blend, 'weights'], m, 'weights');
     return [m, 'out'];
   };
-  // The base layer's tint (white: its texture as it is). A trim material put over generated architecture tinted its
-  // sheet by the architecture's stand-in colour; a trim sheet made a layered surface's base keeps that look here.
+  // The base layer's tint (white: its texture as it is), as a trim material's colour tints its sheet.
   const baseTint = b.op('multiply', 'baseTinted', [albedos[0]!, 'rgb'], b.param('color', 'color', '#ffffff'));
   const layered = mix('albedoMix', albedos.map((s, i) => (i === 0 ? baseTint : ([s, 'rgb'] as GraphOut))));
   // Generated architecture's grime (0 on every other mesh): toward the grime colour and matte, by the `grime` amount.

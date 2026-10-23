@@ -31,7 +31,7 @@ import { layerSheetMismatches } from '@thirdlight/project-model/layered-surface'
 import { resolveMaterial } from '@thirdlight/project-model/material-reads';
 import { parseFillLayer, textureSlotSetKey, withAssembledSlots, type TextureSlotSet } from '@thirdlight/project-model/texture-slots';
 import type { TrimSheet } from '@thirdlight/project-model/trim-sheet';
-import { materialGraphCanonical, materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
+import { ARCHITECTURE_STAND_IN_COLOUR, materialGraphCanonical, materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 
 /**
  * A slot list compiles as its array (one texture id standing for the
@@ -55,7 +55,7 @@ export interface MaterialRow {
 }
 
 interface ContentLike {
-  readonly materials?: readonly { materialId: string; name?: string; shader?: string; graph?: unknown; parameters?: unknown; trim?: TrimSheet; layerSheets?: readonly string[] }[];
+  readonly materials?: readonly { materialId: string; name?: string; shader?: string; params?: Readonly<Record<string, unknown>>; instanceOf?: string; graph?: unknown; parameters?: unknown; trim?: TrimSheet; layerSheets?: readonly string[] }[];
   readonly graphs?: readonly { graphId: string; kind: string; name?: string; graph: unknown }[];
   readonly assets?: readonly { assetId: string; kind: string }[];
 }
@@ -95,7 +95,7 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
     const heights = rowHeightProblems(content);
     for (const m of content.materials ?? []) {
       if (m.graph === undefined || m.graph === null) {
-        rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: false, problems: (heights.get(m.materialId) ?? []).slice(0, PROBLEMS_PER_MATERIAL) });
+        rows.push({ materialId: m.materialId, name: m.name ?? m.materialId, graph: false, problems: [...tintProblems(m), ...(heights.get(m.materialId) ?? [])].slice(0, PROBLEMS_PER_MATERIAL) });
         continue;
       }
       // Per-layer slots: the array's id, there when every slot names a texture of the project (or is a constant layer).
@@ -149,6 +149,16 @@ export function createMaterialProblemChecker(): MaterialProblemChecker {
       lastRows.delete(projectId);
     },
   };
+}
+
+/**
+ * A trim material with no colour of its own draws its sheet as it is (white). Projects made before took the colour
+ * of the surface under it instead (generated architecture's grey stand-in), so such a building is brighter now: the
+ * line says so until a colour is stored (the old grey keeps the old look, white the new).
+ */
+function tintProblems(m: NonNullable<ContentLike['materials']>[number]): MaterialProblem[] {
+  if (m.shader !== 'trim' || m.instanceOf !== undefined || m.params?.['color'] !== undefined) return [];
+  return [{ severity: 'warning', message: `no colour stored: draws its sheet as it is (white tint), no longer tinted by the surface it is on (architecture's grey ${ARCHITECTURE_STAND_IN_COLOUR}), so it looks brighter; set color: ${ARCHITECTURE_STAND_IN_COLOUR} keeps the old look, #ffffff the new` }];
 }
 
 /** A layered material's trim sheets that name no trim material, or whose rows differ from its first sheet's. */

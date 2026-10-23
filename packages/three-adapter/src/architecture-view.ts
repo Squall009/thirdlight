@@ -88,6 +88,8 @@ export const ARCHITECTURE_READY_MARK = 'tl:arch:ready';
 export const ARCHITECTURE_PREVIEW_MARK = 'tl:arch:preview';
 
 /** The page query that leaves generated architecture out (`?architecture=off`: a diagnostic comparison). */
+/** The plain surface generated architecture is drawn with until a material is given to its slot. */
+export const ARCHITECTURE_STAND_IN_COLOUR = '#9a968c';
 export const ARCHITECTURE_URL_PARAM = 'architecture';
 
 /** Whether a page draws generated architecture (`?architecture=off|0|false`: no). */
@@ -1290,7 +1292,7 @@ export class ArchitectureView {
   private surface(slot: string): THREE.MeshStandardMaterial {
     let m = this.surfaces.get(slot);
     if (m === undefined) {
-      m = new THREE.MeshStandardMaterial({ color: 0x9a968c, roughness: 0.9, metalness: 0 });
+      m = new THREE.MeshStandardMaterial({ color: ARCHITECTURE_STAND_IN_COLOUR, roughness: 0.9, metalness: 0 });
       m.name = slot === '' ? ARCHITECTURE_MATERIAL_SLOT : slot;
       this.surfaces.set(slot, m);
     }
