@@ -15,7 +15,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { exportedContent, startBackend, type E2EBackend } from './backend';
+import { exportedContent, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
@@ -25,6 +25,7 @@ let be: E2EBackend;
 let dir: string;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
   dir = mkdtempSync(join(tmpdir(), 'tl-e2e-matgraph-play-'));
 });
 test.afterEach(async () => {

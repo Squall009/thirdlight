@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
@@ -22,6 +22,7 @@ let be: E2EBackend;
 let dir: string;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
   dir = mkdtempSync(join(tmpdir(), 'tl-e2e-tex-'));
 });
 test.afterEach(async () => {

@@ -12,6 +12,7 @@ import {
 } from './validate';
 import type { ModelErrorV2 } from './errors';
 import type { SettingsMap } from './types-v2';
+import type { SceneEnvironment } from './materials';
 import { PROPERTY_KEY_RE } from './components';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
@@ -221,6 +222,14 @@ export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.fre
   ambient_occlusion: ambientOcclusionSettingValue(AMBIENT_OCCLUSION_NEW_PROJECT),
   block_chunk_storage: 1,
 });
+
+/**
+ * The look a new project's first scene is made with (an empty project's, and
+ * a template's that sets none of its own): the physical sky — atmosphere and
+ * a sun placed opposite the scene's directional light — at its defaults, so
+ * no new scene opens on a black background.
+ */
+export const NEW_PROJECT_ENVIRONMENT: Readonly<SceneEnvironment> = Object.freeze({ sky: Object.freeze({ mode: 'procedural' as const }) });
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */
 export type PhysicsDimension = 2 | 3;

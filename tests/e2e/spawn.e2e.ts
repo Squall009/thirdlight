@@ -17,12 +17,13 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { STARTER, type E2EBackend, startBackend } from './backend';
+import { STARTER, type E2EBackend, startBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('spawn-e2e', 'starter');
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

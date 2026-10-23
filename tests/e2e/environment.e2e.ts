@@ -21,7 +21,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
 import { gpuAvailable } from './browser-env.mjs';
@@ -32,6 +32,7 @@ import { publishTexture } from './painted-layers';
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

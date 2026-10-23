@@ -105,6 +105,7 @@ export { localLightModeOf, upgradeVertexLocalLights, validateLocalLightMode, typ
 
 export {
   M2_SETTINGS_KEYS,
+  NEW_PROJECT_ENVIRONMENT,
   NEW_PROJECT_SETTINGS,
   RENDERING_SETTINGS_GROUP,
   fixedStepHzOf,

@@ -18,7 +18,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from './pw';
 
-import { exportedContent, addTitleShell, startBackend, type E2EBackend } from './backend';
+import { exportedContent, addTitleShell, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
@@ -123,6 +123,7 @@ for (const variant of VARIANTS) test(`a burst effect started by a collectible's 
   onlyInItsProject(variant, VARIANTS);
   test.setTimeout(420_000);
   be = await startBackend('effects-runtime-e2e', 'starter');
+  await withoutSky(be);
   // The effect executor follows the backend (on a GPU host `auto` takes WebGPU: the compute executor).
   const executor = backendOf(variant) === 'webgpu' ? 'webgpu' : 'cpu';
   // The starter's fixed camera frames x 4 (its step removed): a collectible just right of the start that sends "burst"
@@ -207,6 +208,7 @@ test('the Scene view plays the selected object\'s effect in edit mode (Gizmos to
   test.setTimeout(180_000);
   // A v4 project (the template): the effect component is a v4 component.
   be = await startBackend('effects-edit-e2e', 'starter');
+  await withoutSky(be);
   await cmd('setEffect', { effect: burstEffect('fx-loop', true) });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

@@ -15,7 +15,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { expect, test, type Locator } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 
@@ -95,6 +95,7 @@ for (const variant of VARIANTS) test(`a script's look override glows an object r
   onlyInItsProject(variant, VARIANTS);
   test.setTimeout(240_000);
   be = await startBackend('look-override-e2e', 'starter');
+  await withoutSky(be);
   // A grey block in the middle of the starter camera's view (the camera at [4, 3, 12] looks along −Z).
   const block = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lamp', transform: { position: [4, 3, 0] }, box: { size: [3, 2, 1], material: { color: '#808080' } } }))['createdId']);
   await script('blink', BLINK, block);

@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
@@ -126,6 +126,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   onlyInItsProject(variant, VARIANTS);
   test.setTimeout(300_000);
   be = await startBackend('effect-editor-e2e');
+  await withoutSky(be);
   // The executor Play would use: WebGPU compute wherever the renderer is WebGPU (`auto` takes it on a GPU host).
   const executor = backendOf(variant) === 'webgpu' ? 'webgpu' : 'cpu';
   await cmd('setEffect', { effect: streamEffect(40) });

@@ -76,11 +76,13 @@ import {
   type Manifest,
   type ProjectManifestV2,
   type SceneV3,
+  type SceneEnvironment,
   type SceneV4,
   type BlockChunk,
   type BlockLayerData,
   type ClipDurationOf,
   ID_RE,
+  NEW_PROJECT_ENVIRONMENT,
   NEW_PROJECT_SETTINGS,
 } from '@thirdlight/project-model';
 
@@ -1275,11 +1277,14 @@ export function projectFilesFromV3(
    * so the new project needs no upgrade (and reports none) at its first open.
    */
   clipDurations?: ClipDurationOf,
+  /** A new project's look, given to its first scene when that scene has none of its own. */
+  environment?: Readonly<SceneEnvironment>,
 ): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
   const { project, notes } = migrateProjectV3ToV4(manifest, scene, content);
   const animated = clipDurations === undefined ? null : migrateModelAnimations(project.scenes as SceneV4[], project.content as ContentCatalogV4, clipDurations);
   const current = animated !== null && animated.migrated > 0 ? { content: animated.content, scenes: animated.scenes } : { content: project.content, scenes: project.scenes };
-  const v = validateProjectV4(project.manifest, current.content, current.scenes);
+  const scenes = environment === undefined ? current.scenes : current.scenes.map((sc, i) => (i === 0 && (sc as SceneV4).environment === undefined ? { ...sc, environment } : sc));
+  const v = validateProjectV4(project.manifest, current.content, scenes);
   if (!v.ok) return { ok: false, message: v.errors[0]?.message ?? 'unknown' };
   const sceneV4 = v.normalized.scenes[0] as SceneV4;
   return {
@@ -1362,7 +1367,7 @@ export function defaultProjectFilesV4(
     createdAt,
     scenes: [{ id: DEFAULT_SCENE_ID, path: 'scenes/main.json' }],
   };
-  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized);
+  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized, undefined, NEW_PROJECT_ENVIRONMENT);
 }
 
 // ---- migration v3 → v4 on disk -----------------------------------------------------

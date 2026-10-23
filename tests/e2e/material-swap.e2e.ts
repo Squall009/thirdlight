@@ -21,7 +21,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
@@ -144,6 +144,7 @@ for (const variant of RENDERER_VARIANTS) {
     onlyInItsProject(variant);
     test.setTimeout(300_000);
     be = await startBackend('material-swap', 'starter');
+    await withoutSky(be);
     const s = await buildScene();
     // The blue texture's bytes are held back until released (every request that names the asset or its digest).
     let release: () => void = () => undefined;
@@ -201,6 +202,7 @@ test('editor: a material swap track and key in the Timeline window', async ({ pa
   test.skip(test.info().project.name === 'webgpu', 'renderer-independent UI (the default project covers it)');
   test.setTimeout(180_000);
   be = await startBackend('material-swap-editor', 'starter');
+  await withoutSky(be);
   await cmd('setMaterial', { material: { materialId: 'mat-red', name: 'Red', shader: 'unlit', params: { color: '#ff0000' }, textures: {} } });
   const box = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Panel', transform: { position: [3, 2, 6] }, box: { size: [1, 1, 0.1], material: { color: '#808080' } } })).createdId);
   await cmd('setTimeline', { timeline: { timelineId: 'night', name: 'Night', duration: 3, slots: [{ name: 'panel', entity: box }], tracks: [] } });

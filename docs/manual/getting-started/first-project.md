@@ -20,8 +20,8 @@ below are the same, its objects differ.
      to keep the project inside your game's own git repository instead (see
      [Projects and scenes](../concepts/projects-and-scenes.md)).
    - **Start from**: the **2D starter** card. Each template shows a picture
-     and one line on what it holds; *Empty scene* gives you just a camera
-     and lights, the *3D starter* a 3D world to walk in.
+     and one line on what it holds; *Empty scene* gives you just a camera,
+     lights and the physical sky, the *3D starter* a 3D world to walk in.
 3. Press **Create and open**. The editor opens on the new project.
 
 ## What you see

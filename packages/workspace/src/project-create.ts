@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { ContentCatalogV3, ContentCatalogV4, Manifest, SceneV3 } from '@thirdlight/project-model';
-import { glbClipDurations, NEW_PROJECT_SETTINGS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
+import { glbClipDurations, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
 import { publishBlob, type ContentContext } from './content-store';
@@ -190,7 +190,7 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     const clip = list?.[clipIndex]?.name === clipName ? list[clipIndex] : list?.find((c) => c.name === clipName);
     return clip?.duration ?? null;
   };
-  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf);
+  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT);
   if (!built.ok) {
     return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
   }

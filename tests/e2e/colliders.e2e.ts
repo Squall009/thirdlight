@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto';
 
 import { expect, test, type Page } from './pw';
 
-import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend, withoutSky } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng } from './png';
 import { menu } from './ui';
@@ -92,6 +92,7 @@ async function restingPlayer(page: Page, what: string, ready: (p: { x: number; y
 test('3D: a model collider stops the player on each _COL part, a placed box where it is; the conversion command equals the editor button', async ({ page }) => {
   test.setTimeout(360_000);
   be = await startBackend('colliders-e2e');
+  await withoutSky(be);
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   // No other bodies: whatever the player lands on is one of ours.
   for (const e of await entities()) if (e.components['collider'] !== undefined || e.components['controller'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
@@ -148,6 +149,7 @@ test('3D: a model collider stops the player on each _COL part, a placed box wher
 test('a scene\'s 3D collider point budget counts its model colliders\' _COL parts: the export is taken at the budget, refused past it', async () => {
   test.setTimeout(240_000);
   be = await startBackend('colliders-budget-e2e');
+  await withoutSky(be);
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   // 256 box parts of 8 hull points: 2,048 points an object, so 512 objects are the budget exactly.
@@ -187,6 +189,7 @@ const PUSHER = [
 test('3D: a collider on a child follows its script-moved parent and pushes the player', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('colliders-child-e2e');
+  await withoutSky(be);
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined || e.components['controller'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   await create('Floor', [0, -0.5, 0], { collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } });
@@ -222,6 +225,7 @@ async function outlinePixels(page: Page): Promise<number> {
 test('the Scene view draws no collider outlines on open, the selection\'s (a compound and its child\'s) when selected, all with the Gizmos menu', async ({ page }) => {
   test.setTimeout(180_000);
   be = await startBackend('colliders-outlines-e2e');
+  await withoutSky(be);
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   const cart = await create('Cart', [0, 0, 0], { collider: { shape: { type: 'compound', shapes: [{ type: 'box', hx: 0.5, hy: 0.5, hz: 0.5, center: [-1.5, 0, 0] }, { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5, center: [1.5, 0, 0] }] } } });

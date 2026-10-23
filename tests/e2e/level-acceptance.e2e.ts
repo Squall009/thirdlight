@@ -79,7 +79,7 @@ import { expect, test, type Page } from './pw';
 
 import { riverMaterial, layeredMaterial } from '../../packages/editor/src/session/material-graph';
 import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimSheet } from '../../packages/project-model/src/trim-sheet';
-import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend, withoutSky } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { ALBEDO_HEIGHT_LAYERS, isBlue, isGreenish, isMagenta, packNormalAndOrm, packTexture, publishLayerSources, publishTexture, useArrays, type Pred } from './painted-layers';
 import { decodePng, type Image } from './png';
@@ -667,6 +667,7 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
   test.skip(test.info().project.name === 'webgpu', 'one pass covers both renderers');
   test.setTimeout(420_000);
   be = await startBackend('level-acceptance');
+  await withoutSky(be);
   useBackend(be);
   const built = await buildLevel();
   if (process.env['ACC_BUILD_ONLY'] === '1') return;

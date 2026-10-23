@@ -6,6 +6,11 @@
     "schemaVersion": 4,
     "sceneId": "scene-main",
     "revision": 129,
+    "environment": {
+      "sky": {
+        "mode": "procedural"
+      }
+    },
     "entities": [
       {"id":"cam-main","name":"Main Camera","keepLoaded":true,"components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"virtualCamera":{"rig":"fixed","priority":-1000}}},
       {"id":"light-0001","name":"Sun","components":{"transform":{"position":[0,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3],"castShadow":true}}},

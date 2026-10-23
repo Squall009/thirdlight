@@ -41,7 +41,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test } from './pw';
 
-import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, type E2EBackend, withoutSky } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -206,6 +206,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   be = await startBackend('scene-lights-e2e', 'starter');
+  await withoutSky(be);
 
   // The start scene: a red sun shining at the camera's view (-z), a dim fill, a white wall behind everything.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ff0000', intensity: 3, direction: [0, -0.2, -1], castShadow: false } });

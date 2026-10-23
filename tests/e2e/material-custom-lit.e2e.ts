@@ -18,7 +18,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { exportedContent, startBackend, type E2EBackend } from './backend';
+import { exportedContent, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, closeEditor, openEditor, previewCanvas } from './ui';
@@ -26,6 +26,7 @@ import { menu, closeEditor, openEditor, previewCanvas } from './ui';
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

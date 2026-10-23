@@ -18,13 +18,14 @@ import { createHash } from 'node:crypto';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { type E2EBackend, startBackend } from './backend';
+import { type E2EBackend, startBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { menu } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('sensors-e2e', 'starter');
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

@@ -16,7 +16,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { createBox } from './ui';
 
@@ -53,6 +53,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
 
 test('several scenes in the editor: new scene is active, objects go there, rename, start set, drag across, close/open, delete', async ({ page }) => {
   be = await startBackend();
+  await withoutSky(be);
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
 

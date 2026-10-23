@@ -19,7 +19,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { skinnedGlb } from './skinned-glb';
 import { chooseItem, createItem, closeEditor, openEditor, expectEditorOpen, editorPane, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
@@ -28,6 +28,7 @@ let be: E2EBackend;
 let seq = 0;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

@@ -28,8 +28,8 @@ the terrain's own icon is not drawn while you edit it. Entering looks
 obliquely at the middle of the terrain, about 64 m of ground across (near
 enough to see its textures), unless the view already looks at the terrain
 (then it stays); **Home** frames the whole terrain, **Done**
-(Esc) goes back. A project without a sky shows the editor's dark backdrop
-above the horizon: give the scene a sky in its look ([**Window → Environment**](environment.md)). Later, double-click the terrain in the
+(Esc) goes back. A scene without a sky (new projects have one) shows the editor's dark
+backdrop above the horizon: give the scene a sky in its look ([**Window → Environment**](environment.md)). Later, double-click the terrain in the
 Hierarchy or the Scene view, or press **Edit terrain** in its Inspector (the
 Inspector keeps only the terrain's plain fields). Play sets the editor aside
 and comes back to it.

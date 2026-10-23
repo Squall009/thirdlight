@@ -30,13 +30,14 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
+import { addTitleShell, publishWav, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng } from './png';
 import { openWindow, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('visual-script-e2e', 'starter');
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();

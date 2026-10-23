@@ -23,7 +23,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test, type Frame, type Page } from './pw';
 import { BRIDGE_MESSAGE_MAX_BYTES, SCREENSHOT_DATA_URL_MAX } from '@thirdlight/protocol';
 
-import { startBackend, type E2EBackend } from './backend';
+import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -34,6 +34,7 @@ let be: E2EBackend;
 let dir: string;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
   dir = mkdtempSync(join(tmpdir(), 'tl-e2e-shot-'));
 });
 test.afterEach(async () => {

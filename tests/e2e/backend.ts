@@ -176,6 +176,19 @@ export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void>
 }
 
 /**
+ * Take the sky out of a new project's scene. A new project has the physical
+ * sky; a test that measures a feature by its pixels against the dark
+ * background (a light's tint, a decal, particles, outlines, a cookie's
+ * stripes) starts from a scene without one, so what it reads is the feature.
+ * One command: the next revision, undoable like any edit.
+ */
+export async function withoutSky(be: E2EBackend, sceneId = 'scene-main', projectId = be.projectId): Promise<void> {
+  const q = await be.command({ op: 'queryProject', projectId, args: {} });
+  const r = await be.command({ op: 'setEnvironment', projectId, expectedRevision: Number(q['revision']), requestId: `req-${randomUUID().replace(/-/g, '')}`, origin: { kind: 'mcp', clientId: 'e2e-sky' }, args: { sceneId, environment: {} } });
+  if (r['ok'] !== true) throw new Error(`withoutSky: ${JSON.stringify(r).slice(0, 400)}`);
+}
+
+/**
  * Publish one of the WAV fixtures (`fixtures/m3/media/wav/<file>`)
  * as a project audio asset through the real content route (stage, upload,
  * inspect, publishAsset); returns the asset id. The starter has no audio.

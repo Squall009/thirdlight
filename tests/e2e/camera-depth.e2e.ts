@@ -27,7 +27,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { serveDir } from './frame-reading';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -161,6 +161,7 @@ for (const variant of RENDERER_VARIANTS) test(`a virtual camera's far plane and 
   onlyInItsProject(variant);
   test.setTimeout(240_000);
   be = await startBackend('camera-depth-e2e');
+  await withoutSky(be);
   // ---- The near scene: the floor and its three decals (the Scene view frames them on open).
   await create('Near floor', [0, -0.5, -1.75], { box: { size: [6, 1, 3.5], material: { color: '#a8a8a8' } } }, 'box');
   const red = await publishBytes(be, makePng(64, 64, () => [230, 30, 30, 255]), 'texture', 'decal-red');

@@ -52,7 +52,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
 import { multiPieceGlb } from './multi-piece-glb';
 import { closeProjectSettings, editMode, leaveEditMode, openProjectSettings } from './ui';
@@ -464,6 +464,7 @@ async function startPlay(page: Page): Promise<string> {
 test('a block map built with bulk commands renders in the Scene view, Play and the export; a script digs the player through', async ({ page }) => {
   test.setTimeout(720_000);
   be = await startBackend('block-layers-e2e');
+  await withoutSky(be);
   const { layer } = await buildMap();
 
   // Read back through queryBlocks: the layer list, a box of cells with their effective metadata, a region.

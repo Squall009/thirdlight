@@ -30,7 +30,7 @@ import { writeFileSync } from 'node:fs';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from './pw';
 
-import { STARTER, startBackend, type E2EBackend } from './backend';
+import { STARTER, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { menu, openWindow, projectWindow, closeEditor, editorPane, createItem } from './ui';
@@ -234,7 +234,8 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   expect(new URL(page.url()).searchParams.get('project')).toBe(PROJECT);
 
-  // The scene's own sun and fill turned down, so the spot's patch stands out.
+  // The scene's own sun, fill and sky turned down, so the spot's patch stands out.
+  await withoutSky(be, 'scene-main', PROJECT);
   for (const id of ['light-0001', 'light-0002']) {
     await select(page, id);
     await field(page, 'light intensity', '0');

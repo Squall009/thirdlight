@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 
 import { expect, test } from './pw';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
@@ -22,6 +22,7 @@ import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWin
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend();
+  await withoutSky(be);
 });
 test.afterEach(async () => {
   await be.stop();
