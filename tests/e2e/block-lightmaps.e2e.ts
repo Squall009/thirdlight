@@ -151,9 +151,13 @@ async function openScene(page: Page, variant: RendererVariant, env: Record<strin
   return { layer, cube };
 }
 
-async function bakeEntries(): Promise<{ entityId: string; chunk?: number[]; layout?: string }[]> {
+type BakeRecord = { source: string; bounces: number; entries: { entityId: string; chunk?: number[]; layout?: string }[] };
+async function bakeRecord(): Promise<BakeRecord> {
   const config = await be!.command({ op: 'queryGameConfig', projectId: be!.projectId });
-  return Object.values(config['lighting'] as Record<string, { entries: { entityId: string; chunk?: number[]; layout?: string }[] }>)[0]!.entries;
+  return Object.values(config['lighting'] as Record<string, BakeRecord>)[0]!;
+}
+async function bakeEntries(): Promise<BakeRecord['entries']> {
+  return (await bakeRecord()).entries;
 }
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export (${variant})`, async ({ page }) => {
@@ -220,11 +224,11 @@ const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BL
 const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
 const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
 
-test('Bake final (Blender Cycles) bakes the block layer\'s chunks too; Play shows the shadow on the blocks', async ({ page }) => {
+test('Bake final (Blender Cycles) bakes the cube and the block layer\'s chunks; Play shows the shadow on the blocks', async ({ page }) => {
   test.skip(!haveBlender, 'no Blender for the final bake on this machine');
   test.skip(test.info().project.name === 'webgpu', 'the renderer variants are covered by the preview bake');
   test.setTimeout(900_000);
-  const { layer } = await openScene(page, 'auto', { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
+  const { layer, cube } = await openScene(page, 'auto', { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
   const beforeLit = brightnessAt(await play(page, 'auto', steadyLit()), litSpot);
   await openWindow(page, 'Lighting');
   await page.getByRole('button', { name: /settings/ }).click();
@@ -232,7 +236,11 @@ test('Bake final (Blender Cycles) bakes the block layer\'s chunks too; Play show
   await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');
   await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
   await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
-  expect((await bakeEntries()).some((e) => e.entityId === layer && e.chunk !== undefined)).toBe(true);
+  const bake = await bakeRecord();
+  expect(bake.source).toBe('blender');
+  expect(bake.bounces).toBe(3);
+  // The cube (a box) and the layer's chunk.
+  expect(bake.entries.map((e) => [e.entityId, e.chunk ?? null])).toEqual(expect.arrayContaining([[cube, null], [layer, [0, 0]]]));
   const after = await play(page, 'auto', bakedShadow(beforeLit, 0.8, 0.7, 1.7));
   const afterShadow = brightnessAt(after, shadowSpot);
   const afterLit = brightnessAt(after, litSpot);

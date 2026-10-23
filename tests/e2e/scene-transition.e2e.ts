@@ -17,6 +17,7 @@
  *   sound, its bus set in the row's form. In Play (sound unlocked by a
  *   click) the host plays it each time a project script sends the signal —
  *   counted by the host's sound observation (heard sound: owner look pending).
+ *   Then MCP's game-control relay unloads the far scene and the main one.
  */
 import { createHash, randomBytes } from 'node:crypto';
 
@@ -189,5 +190,12 @@ test('a trigger\'s scene transition, a track camera and event sounds from the ed
   await expect.poll(played, { timeout: 20_000, message: 'the event sound plays' }).toBeGreaterThan(first);
   const second = await played();
   await expect.poll(played, { timeout: 20_000, message: 'and again on the next tick' }).toBeGreaterThan(second);
+  // MCP's game-control relay unloads the far scene (the same request a script makes), then the main one: its kept
+  // camera and player stay (the starter's are kept loaded).
+  for (const [sceneId, left] of [['scene-far', ['scene-main']], ['scene-main', []]] as const) {
+    const unload = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId });
+    expect(unload.status, JSON.stringify(unload.json)).toBe(200);
+    await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual(left);
+  }
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });

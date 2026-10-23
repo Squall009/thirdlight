@@ -76,7 +76,7 @@ function graph(chains: Record<string, { type: string; data?: Record<string, unkn
 }
 
 /** A one-shot burst of bright magenta additive billboards that hang in the air for 60 s (neutral fixture). */
-function burstEffect(effectId: string, loop: boolean): Record<string, unknown> {
+function burstEffect(effectId: string, loop: boolean, color = '#ff00ff'): Record<string, unknown> {
   return {
     effectId,
     name: 'Magenta burst',
@@ -95,7 +95,7 @@ function burstEffect(effectId: string, loop: boolean): Record<string, unknown> {
           initialize: [
             { type: 'init.position.sphere', data: { radius: loop ? 1.5 : 0.9 } },
             { type: 'init.lifetime', data: { min: loop ? 1.5 : 60, max: loop ? 1.5 : 60 } },
-            { type: 'init.color', data: { color: '#ff00ff' } },
+            { type: 'init.color', data: { color } },
             { type: 'init.size', data: { min: loop ? 0.6 : 0.22, max: loop ? 0.8 : 0.3 } },
           ],
           output: [{ type: 'output.billboard', data: { blend: 'additive' } }],
@@ -114,6 +114,7 @@ function count(img: Image, test: (r: number, g: number, b: number) => boolean): 
   return n;
 }
 const magenta = (r: number, g: number, b: number): boolean => r > 150 && b > 150 && g < 0.55 * Math.min(r, b);
+const green = (r: number, g: number, b: number): boolean => g > 150 && r < 0.55 * g && b < 0.55 * g;
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
 const VARIANTS: readonly RendererVariant[] = PRODUCT_RENDERER_VARIANTS;
@@ -201,7 +202,7 @@ for (const variant of VARIANTS) test(`a burst effect started by a collectible's 
   }
 });
 
-test('the Scene view plays the selected object\'s effect in edit mode (Gizmos toggle)', async ({ page }) => {
+test('the Scene view plays the selected object\'s effect in edit mode (Gizmos toggle) and follows edits of the effect live', async ({ page }) => {
   test.skip(test.info().project.name === 'webgpu', 'the edit-mode toggle is renderer-independent UI (the default project covers it)');
   test.setTimeout(180_000);
   // A v4 project (the template): the effect component is a v4 component.
@@ -222,16 +223,25 @@ test('the Scene view plays the selected object\'s effect in edit mode (Gizmos to
   await page.keyboard.press('f');
   for (let k = 0; k < 8; k++) await page.mouse.wheel(0, -400);
   await page.waitForTimeout(800);
-  const off = count(await shot(viewport), magenta);
+  const still = await shot(viewport);
+  const off = count(still, magenta);
+  // The view's own green (the gizmo's up arrow, the spawn's flag), which particles over them cover while they play.
+  const offGreen = count(still, green);
   // Toggle on: the effect plays around the selected object.
   await menu(page, 'Gizmos', 'Play selected effects: off');
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').particles ?? 0, { timeout: 30_000 }).toBeGreaterThan(50);
   expect(JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').executor).toBe(backendOf('auto') === 'webgpu' ? 'webgpu' : 'cpu');
   let on = 0;
   await expect.poll(async () => (on = count(await shot(viewport), magenta)), { timeout: 30_000 }).toBeGreaterThan(off + 200);
-  console.log(`[effects-runtime] scene view: magenta off ${off}, on ${on}`);
+  // Edit the effect (its colour): the playing preview picks the new definition up without toggling.
+  const g0 = count(await shot(viewport), green);
+  await cmd('setEffect', { effect: burstEffect('fx-loop', true, '#00ff00') });
+  let g = 0;
+  await expect.poll(async () => (g = count(await shot(viewport), green)), { timeout: 30_000 }).toBeGreaterThan(g0 + 100);
+  await expect.poll(async () => count(await shot(viewport), magenta), { timeout: 30_000 }).toBeLessThan(off + Math.max(20, (on - off) * 0.2));
+  console.log(`[effects-runtime] scene view: magenta off ${off}, on ${on}; green after the edit ${g}`);
   // Toggle off: nothing plays.
   await menu(page, 'Gizmos', 'Play selected effects: on');
   await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').preview, { timeout: 10_000 }).toBe(false);
-  await expect.poll(async () => count(await shot(viewport), magenta), { timeout: 20_000 }).toBeLessThan(off + 20);
+  await expect.poll(async () => count(await shot(viewport), green), { timeout: 20_000 }).toBeLessThan(offGreen + 20);
 });

@@ -1,8 +1,8 @@
 /**
  * Materials, textures and wind in the browser. A foliage material
  * (COLOR_0 as wind data) set as an asset's default makes its pieces move in
- * the Scene view, in Play and in the export; a standard material with a
- * texture shows the texture on a box.
+ * the Scene view, in Play and in the export (a standard material's texture
+ * on a box, on every backend: textures.e2e.ts).
  *
  * Node materials on WebGPURenderer, on the product's own renderer
  * (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): shader-parity compares
@@ -18,9 +18,8 @@ import { expect, test, type Locator, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
-import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
-import { menu, projectWindow, openWindow, createItem, inspector } from './ui';
+import { projectWindow, openWindow, createItem, inspector } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -42,14 +41,6 @@ function changed(a: Image, b: Image): number {
       const q = b.pixel(x, y);
       if (Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) > 40) n += 1;
     }
-  }
-  return n;
-}
-function bluePixels(img: Image): number {
-  let n = 0;
-  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
-    const [r, g, b] = img.pixel(x, y);
-    if (b > 90 && b > 2 * r && b > 2 * g) n += 1;
   }
   return n;
 }
@@ -83,18 +74,15 @@ function serveDir(root: string): Promise<{ url: string; close: () => Promise<voi
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`, close: () => new Promise((d) => server.close(() => d())) })));
 }
 
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export); a texture shows on a box (${variant})`, async ({ page }) => {
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves in the wind (editor, Play, export) (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   const kit = join(dir, 'kit.glb');
   writeFileSync(kit, multiPieceGlb(KIT_PIECES));
-  const checker = join(dir, 'checker.png');
-  writeFileSync(checker, makePng(64, 64, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [30, 60, 230, 255] : [240, 240, 240, 255])));
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   await importFile(page, kit);
-  await importFile(page, checker);
   const kitTile = page.locator('.tl-assets__list li[data-asset-id]:not([data-piece])').filter({ hasText: 'kit' });
   await kitTile.dragTo(page.locator('canvas.tl-viewport'));
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'flower' })).toHaveCount(1, { timeout: 10_000 });
@@ -128,23 +116,12 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves 
   // Generous waits: the first frames with a new node material compile its pipeline (slow on the CPU renderer here).
   await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
 
-  // A textured standard material on a box.
-  await createItem(page, 'Material', 'Material 2');
-  await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });
-  await menu(page, 'GameObject', 'Box');
-  const boxRow = page.locator('.tl-hierarchy__list li.tl-row.is-selected');
-  await expect(boxRow).toContainText('box');
-  const beforeBlue = bluePixels(decodePng(await viewport.screenshot()));
-  await page.getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Material 2' });
-  await expect.poll(async () => bluePixels(decodePng(await viewport.screenshot())), { timeout: 10_000 }).toBeGreaterThan(beforeBlue + 100);
-
-  // Play: the wind moves the pieces there too, and the box shows its texture.
+  // Play: the wind moves the pieces there too.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect.poll(() => motion(frame), { timeout: 45_000 }).toBeGreaterThan(30);
-  await expect.poll(async () => bluePixels(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(100);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   await page.getByTitle('Stop the play preview').click();
 

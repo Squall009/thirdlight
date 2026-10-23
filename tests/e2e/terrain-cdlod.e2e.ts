@@ -426,16 +426,24 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     expect(Math.abs(at.y - (STRIP_HEIGHT + 0.9)), `${renderer} Play: standing on the terrain (at y ${at.y})`).toBeLessThan(0.05);
     {
       // Two seconds back toward the band of posts (a second a request: the relay's body bound): about 8 m at the
-      // walking speed, through it were it not solid.
+      // walking speed, through it were it not solid. A relay is answered once its frames have run.
       const back = Array.from({ length: 120 }, (_, k) => ({ stepOffset: k, ...controls(0, 'none', -1) }));
       for (let leg = 0; leg < 2; leg++) {
         const r = await relay(`${psid}/input`, { mode: 'exclusive-test', frames: back });
         expect(r.status, JSON.stringify(r.json)).toBe(200);
-        await page.waitForTimeout(1200);
       }
       await expect.poll(async () => (await read())?.player?.z ?? at.z, { timeout: 30_000, message: `${renderer} Play: walking back` }).toBeGreaterThan(at.z + 0.5);
-      await page.waitForTimeout(1000);
-      const stopped = (await read())!.player!;
+      // Where it came to rest: two readings with the step moved on and the player not.
+      const rest: { o: Observation | null } = { o: null };
+      await expect
+        .poll(async () => {
+          const o = await read();
+          const before = rest.o;
+          rest.o = o;
+          return o?.player !== undefined && before?.player !== undefined && Math.abs(o.player.z - before.player.z) < 1e-3 && (o.stepIndex ?? 0) > (before.stepIndex ?? 0);
+        }, { timeout: 30_000, intervals: [250], message: `${renderer} Play: at rest after walking back` })
+        .toBe(true);
+      const stopped = rest.o!.player!;
       const colliders = (await sdiag(psid)).runtime?.scatterCopies?.colliders ?? 0;
       test.info().annotations.push({ type: `${renderer} Play scatter collision`, description: JSON.stringify({ from: at.z, stopped: stopped.z, band, colliders }) });
       console.log(`${renderer} Play scatter collision: from z ${at.z.toFixed(2)} stopped at ${stopped.z.toFixed(2)}, the band z ${band[0].toFixed(2)}–${band[1].toFixed(2)}, ${colliders} copy colliders`);
@@ -453,7 +461,6 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         const p = (await read())?.player;
         return p !== undefined && (p.z < from - 1.5 || p.y < STRIP_HEIGHT - 0.5);
       }, { timeout: 30_000, message: `${renderer} Play: walking forward (leg ${leg + 1})` }).toBe(true);
-      await page.waitForTimeout(1200);
     }
     await expect.poll(async () => (await read())?.player?.y ?? Infinity, { timeout: 30_000, message: `${renderer} Play: fell through the hole` }).toBeLessThan(STRIP_HEIGHT - 3);
     const fell = (await read())!.player!;

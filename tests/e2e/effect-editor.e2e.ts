@@ -11,8 +11,9 @@
  *   Leak check: switching the tab between two effects 5× leaves no preview open and
  *   every close returned the preview renderer's geometry and attribute
  *   counts to their baseline.
- * - The Scene view's edit-mode preview (Gizmos → Play selected effects)
- *   follows an edit of the effect live (magenta → green).
+ *
+ * The Scene view's edit-mode preview following an edit live is in
+ * effects-runtime.e2e.ts (with its Gizmos toggle).
  */
 import { createHash } from 'node:crypto';
 
@@ -21,7 +22,7 @@ import { expect, test, type Locator, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
-import { menu, expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
+import { expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -106,7 +107,6 @@ function count(img: Image, test: (r: number, g: number, b: number) => boolean): 
   return n;
 }
 const magenta = (r: number, g: number, b: number): boolean => r > 150 && b > 150 && g < 0.55 * Math.min(r, b);
-const green = (r: number, g: number, b: number): boolean => g > 150 && r < 0.55 * g && b < 0.55 * g;
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
 interface PreviewState { executor: string | null; time: number; steps: number; playing: boolean; systems: { id: string; spawned: number; living: number | null }[] }
@@ -231,35 +231,4 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   expect((await ledger(page)).open).toBe(0);
   // The Scene view still draws (no context was lost to the previews).
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-tl-renderer-state', 'ready');
-});
-
-test('the Scene view\'s edit-mode effect preview follows edits of the effect live', async ({ page }) => {
-  test.skip(test.info().project.name === 'webgpu', 'renderer-independent editor wiring (the default project covers it)');
-  test.setTimeout(180_000);
-  be = await startBackend('effect-editor-scene-e2e');
-  await cmd('setEffect', { effect: streamEffect(300) });
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const created = await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Emitter', transform: { position: [0, 0, 0] } });
-  const id = String(created['createdId']);
-  await cmd('setComponent', { entityId: id, component: 'effect', value: { effectId: 'fx-stream', params: { size: 0.5 } } });
-  const viewport = page.locator('canvas.tl-viewport');
-  const row = page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${id}"]`);
-  await expect(row).toBeVisible({ timeout: 20_000 });
-  await row.click();
-  await expect(row).toHaveClass(/is-selected/);
-  await viewport.hover();
-  await page.keyboard.press('f');
-  await page.waitForTimeout(800);
-  await menu(page, 'Gizmos', 'Play selected effects: off');
-  await expect.poll(async () => JSON.parse((await viewport.getAttribute('data-effects')) ?? '{}').particles ?? 0, { timeout: 30_000 }).toBeGreaterThan(50);
-  let m = 0;
-  await expect.poll(async () => (m = count(await shot(viewport), magenta)), { timeout: 30_000 }).toBeGreaterThan(100);
-  const g0 = count(await shot(viewport), green);
-  // Edit the effect (its colour): the playing preview picks the new definition up without toggling.
-  await cmd('setEffect', { effect: streamEffect(300, '#00ff00') });
-  let g = 0;
-  await expect.poll(async () => (g = count(await shot(viewport), green)), { timeout: 30_000 }).toBeGreaterThan(g0 + 100);
-  await expect.poll(async () => count(await shot(viewport), magenta), { timeout: 30_000 }).toBeLessThan(m * 0.2);
-  console.log(`[effect-editor] scene view: magenta ${m} → green ${g}`);
 });

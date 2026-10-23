@@ -1,9 +1,8 @@
 /**
  * Light baking. A static cube on a static ground, the sun set to
  * "baked" and casting no realtime shadow: before a bake Play shows no shadow;
- * after "Bake preview" (in this browser) or "Bake final" (Blender Cycles on
- * the bake host) in the Lighting window the cube's shadow is in the ground's
- * lightmap (the sun is then no longer realtime), and a lit spot keeps about
+ * after "Bake preview" (in this browser) in the Lighting window the cube's
+ * shadow is in the ground's lightmap (the sun is then no longer realtime), and a lit spot keeps about
  * the brightness the realtime sun gave it.
  *
  * The preview bake runs once per renderer variant
@@ -16,8 +15,10 @@
  * lightmaps, published as files and recorded in the scene's bake, read back
  * (the probe inside the cube is filled from its neighbours, an open one is
  * lit), loaded by Play; on WebGL 2 the window says the bake needs WebGPU.
+ *
+ * "Bake final" (Blender Cycles) on a cube is block-lightmaps.e2e.ts's final
+ * bake: the same box and lighting, with a block layer as the ground.
  */
-import { spawnSync } from 'node:child_process';
 
 import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
@@ -35,11 +36,6 @@ let seq = 0;
 test.afterEach(async () => {
   await be?.stop();
 });
-
-/** The final bake runs Blender here (THIRDLIGHT_BLENDER / blender on PATH), or on TL_BAKE_HOST with TL_BAKE_BLENDER. */
-const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
-const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
-const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
 
 async function cmd(op: string, args: Record<string, unknown>, sameIsFine = false): Promise<Record<string, unknown>> {
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
@@ -286,40 +282,6 @@ for (const variant of RENDERER_VARIANTS) test(`Bake preview puts the static cube
   }
   await expect(page.locator('[aria-label="probe status"]')).toContainText('No probes for this scene');
   expect(await bakeOf()).toBeUndefined();
-});
-
-test('Bake final runs Blender Cycles on the bake host; its lightmap shows the shadow in Play', async ({ page }) => {
-  test.skip(!haveBlender, 'no Blender for the final bake on this machine');
-  test.skip(test.info().project.name === 'webgpu', 'the renderer variants are covered by the preview bake');
-  test.setTimeout(900_000);
-  be = await startBackend('e2e-0001', undefined, { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
-  const { ground, cube, play } = await openScene(page);
-  const before = await play(steadyLit());
-  const beforeLit = brightnessAt(before, litSpot);
-
-  await openWindow(page, 'Lighting');
-  await expect(page.getByRole('button', { name: 'Bake final (Blender)' })).toBeEnabled();
-  await page.getByRole('button', { name: /settings/ }).click();
-  // A small, quick bake (the real samples are the owner's choice).
-  await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
-  await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');
-  const started = Date.now();
-  await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
-  console.log(`[lightmaps] final bake on ${bakeHost}: ${((Date.now() - started) / 1000).toFixed(1)} s (${await page.getByRole('status').textContent()})`);
-  const bake = await bakeOf();
-  expect(bake.source).toBe('blender');
-  expect(bake.bounces).toBe(3);
-  expect(bake.entries.map((e) => e.entityId).sort()).toEqual([cube, ground].sort());
-
-  const after = await play(bakedShadow(beforeLit, 0.8, 0.7, 1.7));
-  const afterShadow = brightnessAt(after, shadowSpot);
-  const afterLit = brightnessAt(after, litSpot);
-  console.log(`[lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
-  expect(afterShadow).toBeLessThan(afterLit * 0.8);
-  // Bounce light adds a little on top of what the realtime sun + ambient gave.
-  expect(afterLit / beforeLit).toBeGreaterThan(0.7);
-  expect(afterLit / beforeLit).toBeLessThan(1.7);
 });
 
 /**

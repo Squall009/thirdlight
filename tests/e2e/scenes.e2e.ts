@@ -4,10 +4,11 @@
  * - the editor with several scenes: a header per open scene, a new scene
  *   becomes the active one and new objects go there, rename, the start set,
  *   close/open (a closed scene's block layer leaves the Scene view too),
- *   deleting an empty scene, and a drag between scenes refused;
- * - Play loads scenes on demand: an exit zone loads a scene and moves the
- *   player to its spawn; MCP's game-control relay unloads it again (a script's
- *   ctx.scenes: keep-loaded.e2e, scene-reload.e2e).
+ *   deleting an empty scene, and a drag between scenes refused.
+ *
+ * Play loading a scene through a trigger's transition and MCP unloading it:
+ * scene-transition.e2e.ts (a script's ctx.scenes: keep-loaded.e2e,
+ * scene-reload.e2e).
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
@@ -27,15 +28,6 @@ test.afterEach(async () => {
 const status = (page: Page) => page.locator('.tl-statusbar');
 const header = (page: Page, name: string) => page.locator('.tl-scene-header').filter({ has: page.locator('.tl-scene-header__name', { hasText: new RegExp(`^${name}$`) }) });
 const row = (page: Page, name: string) => page.locator('.tl-hierarchy__list li.tl-row').filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
-
-async function api(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
-  const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/${path}`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },
-    body: JSON.stringify(body),
-  });
-  return { status: r.status, json: (await r.json()) as Record<string, unknown> };
-}
 
 async function query(op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   return be.command({ op, projectId: be.projectId, args });
@@ -163,49 +155,4 @@ test('several scenes in the editor: new scene is active, objects go there, renam
   await third.getByRole('button', { name: 'delete scene Scene 3' }).click();
   await expect(third).toHaveCount(0);
   expect(existsSync(join(be.projectDir, 'scenes', `${thirdId}.json`))).toBe(false);
-});
-
-/** The cave scene: a floor far to the right, a spawn on it and a magenta marker box. */
-async function buildCave(): Promise<void> {
-  await cmd('createScene', { sceneId: 'scene-cave', name: 'Cave' });
-  await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave floor', transform: { position: [65, -0.2, 0] }, box: { size: [10, 0.4, 2], material: { color: '#4a3f5c' } }, components: { collider: { shape: { type: 'box', hx: 5, hy: 0.2 } } } });
-  await cmd('createEntity', { sceneId: 'scene-cave', kind: 'box', name: 'Cave marker', transform: { position: [67, 1.2, 0] }, box: { size: [1.4, 1.4, 1.4], material: { color: '#ff00ff' } } });
-  await cmd('createEntity', { sceneId: 'scene-cave', kind: 'group', name: 'Cave spawn', transform: { position: [65, 0.91, 0] }, components: { playerSpawn: {} } });
-}
-
-async function startPlay(page: Page, firstState = 'running'): Promise<{ psid: string; observe: () => Promise<{ state?: string; player?: { x: number; y: number }; scenes?: { loaded: string[]; loading: string[] } }> }> {
-  await page.goto(be.editorUrl);
-  await expect(status(page)).toContainText('connected');
-  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
-  await page.getByTitle('Start an isolated play preview').click();
-  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-  const observe = async () => (await api(`play/${psid}/observe`, {})).json as never;
-  await expect.poll(async () => (await observe()).state, { timeout: 15_000 }).toBe(firstState);
-  return { psid, observe };
-}
-
-test('Play: a scene transition trigger loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
-  be = await startBackend('exits-e2e', 'starter');
-  await buildCave();
-  // A trigger with a scene transition. It sits on the
-  // start spawn: the character starts inside it, so the scene plays straight into the transition.
-  const caveSpawn = String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id);
-  await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'to-cave', sceneTransition: { scene: 'scene-cave', spawn: caveSpawn } } } });
-  const { psid, observe } = await startPlay(page);
-  await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 10_000 }).toEqual(['scene-main', 'scene-cave']);
-  await expect.poll(async () => (await observe()).player!.x, { timeout: 5_000 }).toBeCloseTo(65, 0);
-  // The frame: the player on the cave floor next to the magenta marker.
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: 'test-results/scenes-exit-cave.png' });
-
-  // MCP's relay unloads it (the same request a script makes).
-  const unload = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId: 'scene-cave' });
-  expect(unload.status, JSON.stringify(unload.json)).toBe(200);
-  await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual(['scene-main']);
-  // The main scene unloads too: its kept camera and player stay (the starter's are kept loaded).
-  const main = await api(`play/${psid}/control`, { command: 'unloadScene', sceneId: 'scene-main' });
-  expect(main.status, JSON.stringify(main.json)).toBe(200);
-  await expect.poll(async () => (await observe()).scenes?.loaded, { timeout: 5_000 }).toEqual([]);
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: 'test-results/scenes-exit-unloaded.png' });
 });
