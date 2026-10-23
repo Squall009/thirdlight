@@ -19,7 +19,9 @@
  *
  * A mode's column may declare docked panels over the view (`docks.tsx`):
  * the settings of what is picked, collapsible and movable between the
- * view's edges and corners, their layout remembered per editor.
+ * view's edges and corners, their layout remembered per editor. Every
+ * editor has the project window as one too (collapsed on the bottom edge),
+ * so assets are dragged in from it while the mode covers the bottom dock.
  *
  * Every editor opens in Navigate: no tool armed, a drag orbits and a click
  * selects (`edit-tool.tsx` holds that state for every editor alike). The
@@ -29,7 +31,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
+import { useEffect, useRef, useState, type JSX, type ReactNode, type RefObject } from 'react';
 
 import { editKeyAction, escapeStep, sharedKeyHints } from '../../session/edit-keys';
 import { NO_INSETS } from '../../viewport/frame-view';
@@ -37,7 +39,7 @@ import type { Viewport } from '../../viewport/viewport';
 import { iconSrc, iconTitle, objectIconFor, type IconKind, type IconTable } from '../../viewport/icons';
 import type { SceneViewLending } from '../shell/useSceneViewLending';
 import { isTyping } from '../workspace/EditorWindow';
-import { DockLayer, DockProvider, measuredPanelInsets, PanelsChip, useDockHost } from './docks';
+import { DockLayer, DockProvider, EditPanels, measuredPanelInsets, PanelsChip, useDockHost } from './docks';
 import { EditModeHeader } from './EditModeHeader';
 import { EditStatusContext, type EditStatus } from './edit-status';
 import { EditToolContext, useEditToolHost } from './edit-tool';
@@ -60,6 +62,8 @@ export interface EditModeShellProps {
   /** The editor's message over the view (a refused edit), as the Scene view shows it; null: none. */
   notice: string | null;
   onDismissNotice: () => void;
+  /** The project window, drawn in the mode's Project panel. */
+  project: () => ReactNode;
 }
 
 /** Points a side the view is sampled at to tell whether an object is on screen (a mode that frames on entering keeps a view that shows it). */
@@ -259,6 +263,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
           <div className="tl-editmode__canvas" ref={viewHost} />
           {scene ? <ViewportChrome objectName={name} context chip={kind.chip} extra={kind.viewExtra?.(sceneView)} panels={<PanelsChip host={docks} />} /> : <ViewportChrome objectName={name} context={state.context} extra={kind.viewExtra?.({ entity: entity!, mode: rail.id, host: p.host })} panels={<PanelsChip host={docks} />} />}
           <DockLayer host={docks} />
+          <EditPanels panels={[{ id: 'project', title: 'Project', dock: 'b', collapsed: true, wide: true, render: () => <div className="tl-editmode__project">{p.project()}</div> }]} />
           {p.notice !== null && (
             <div className="tl-notice" role="alert">
               <span>{p.notice}</span>

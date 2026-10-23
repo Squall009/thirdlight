@@ -88,6 +88,11 @@ view. Each editor's guide lists which are where.
   started.
 - A click or the wheel on a panel never reaches the view or a tool. A tall
   panel scrolls inside itself when its side of the view runs out of room.
+- **Project.** Every editor has the project window as a panel, collapsed on
+  the bottom edge (the edit mode covers the bottom dock). Open it and drag
+  an asset from it onto a palette: a texture onto a layer tile, a model onto
+  **New type**, a texture onto the decal palette's drop zone (a decal
+  material from it).
 
 ## Framing
 

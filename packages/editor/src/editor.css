@@ -1272,6 +1272,8 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-editmode__body { flex: 1; display: flex; min-height: 0; }
 .tl-editmode__view { flex: 1; position: relative; min-width: 0; background: var(--viewport-bg); overflow: hidden; user-select: none; -webkit-user-select: none; }
 .tl-editmode__canvas { position: absolute; inset: 0; }
+/* The project window in an edit mode's Project panel: the bottom dock's height, so its tiles are dragged in as from there. */
+.tl-editmode__project { height: 260px; display: flex; min-height: 0; }
 .tl-editmode__column { flex: none; width: var(--editmode-col); display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); border-left: 1px solid var(--line); }
 .tl-editmode__column-head { flex: none; display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 6px; font-size: var(--text-md); }
 .tl-editmode__column-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }

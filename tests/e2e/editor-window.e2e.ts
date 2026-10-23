@@ -830,13 +830,12 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   await expect(mode.getByRole('button', { name: 'open material' })).toHaveText(made.name);
   const albedo = async (): Promise<unknown> => (await mats()).find((m) => m.materialId === made.materialId)?.parameters?.find((x) => x.key === 'albedoHeight')?.default;
 
-  // ---- A texture dropped from the project window onto layer 1 goes into its slot; its thumbnail is the backend's.
-  const drop = await page.evaluateHandle(() => {
-    const dt = new DataTransfer();
-    dt.setData('application/x-thirdlight-asset', JSON.stringify({ assetId: 'tex-grass', kind: 'texture' }));
-    return dt;
-  });
-  await layers.getByRole('radio', { name: 'layer 1', exact: true }).dispatchEvent('drop', { dataTransfer: drop });
+  // ---- A texture dragged from the project window (the edit mode's Project panel, collapsed on the bottom edge until
+  // opened) onto layer 1 goes into its slot; its thumbnail is the backend's.
+  const project = await openPanel(page, 'project');
+  await project.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
+  await project.getByLabel('search the project').fill('t:texture Meadow grass');
+  await project.locator('li[data-asset-id="tex-grass"]').dragTo(layers.getByRole('radio', { name: 'layer 1', exact: true }));
   await expect.poll(albedo, { timeout: 15_000, message: 'the dropped texture in slot 1' }).toEqual(['tex-grass', '', '', '']);
   const thumb = layers.getByRole('radio', { name: 'layer 1', exact: true }).locator('.tl-ptile__thumb');
   await expect(thumb).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });
@@ -846,6 +845,8 @@ async function paletteChecks(page: Page, hill: string, paintStroke: () => Promis
   expect(bytes, 'a thumbnail is at most 64 KB').toBeLessThanOrEqual(64 * 1024);
   // An opaque PNG has no height in its alpha: the backend's check puts a "no height" badge on the tile.
   await expect(layers.getByRole('radio', { name: 'layer 1', exact: true }).getByLabel('no height in alpha')).toHaveText('no height', { timeout: 15_000 });
+  await project.locator('.tl-dpanel__head').click();
+  await expect(project).toHaveAttribute('data-open', 'false');
 
   // ---- An empty slot picks its texture in a popover beside the column.
   await layers.getByRole('radio', { name: 'layer 2', exact: true }).click();

@@ -32,6 +32,7 @@ import type { KitDocumentHost } from '../kit/KitDocument';
 import { SceneToolWindows } from '../tools/SceneToolWindows';
 import { EditorDialogs } from './EditorDialogs';
 import { editorMenus, hierarchyContextMenu } from './menus';
+import { AssetsTab, type AssetsTabProps } from './AssetsTab';
 import { BottomDock } from './BottomDock';
 import { InspectorDock } from './InspectorDock';
 import type { BottomTab } from './dock-tabs';
@@ -358,6 +359,8 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
 
   /** What the edit modes read from the app. */
   const editModeHost = makeEditModeHost(m);
+  // The project window, in the bottom dock and in an edit mode's Project panel (assets are dragged in from either).
+  const assetsTab: AssetsTabProps = { clientRef, assets, actions: assetActions, folderImport: fileCheck.checkable, tileThumbnails, inspect, items, search: projectSearch };
 
   return (
     <CatalogProvider catalog={sessionClient?.catalog ?? null} asset={assetSummary}>
@@ -439,16 +442,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
             viewFailures={viewFailures}
             fileCheck={fileCheck}
             reimportIssue={assets.reimportIssue}
-            assetsTab={{
-              clientRef,
-              assets,
-              actions: assetActions,
-              folderImport: fileCheck.checkable,
-              tileThumbnails,
-              inspect,
-              items,
-              search: projectSearch,
-            }}
+            assetsTab={assetsTab}
             workspaceDispatch={workspaceDispatch}
             openDocument={openDocument}
           />
@@ -471,6 +465,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
           onRedo={() => void sceneEditing.redo()}
           notice={notice}
           onDismissNotice={() => setNotice(null)}
+          project={() => <AssetsTab {...assetsTab} />}
         />
       )}
       {centerTab === 'scene' && !windowOpen && !settingsWindow.open && !editMode.shown && (
