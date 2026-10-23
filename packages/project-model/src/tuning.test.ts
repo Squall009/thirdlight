@@ -26,7 +26,9 @@ function content(extra: Obj = {}): Obj {
 }
 const withBounds = (bounds: unknown): Obj => {
   const m = JSON.parse(JSON.stringify(MODEL)) as Obj;
-  ((m['versions'] as Obj[])[0]!['metrics'] as Obj)['bounds'] = bounds;
+  const metrics = (m['versions'] as Obj[])[0]!['metrics'] as Obj;
+  if (bounds === undefined) delete metrics['bounds'];
+  else metrics['bounds'] = bounds;
   return m;
 };
 
@@ -62,7 +64,7 @@ describe('tuning values in the project model', () => {
     const view = captureContentViewV3(placed, content({ assets: [withBounds({ min: [-1, 0, -1], max: [1, 2, 1] })] }), { projectId: 'p', revision: 1 }, [placed]);
     expect(view.ok).toBe(true);
     if (view.ok) expect(view.normalized.assets[0]!.bounds).toEqual({ min: [-1, 0, -1], max: [1, 2, 1] });
-    const old = captureContentViewV3(placed, content({ assets: [MODEL] }), { projectId: 'p', revision: 1 }, [placed]);
+    const old = captureContentViewV3(placed, content({ assets: [withBounds(undefined)] }), { projectId: 'p', revision: 1 }, [placed]);
     expect(old.ok && 'bounds' in old.normalized.assets[0]!).toBe(false);
   });
 });

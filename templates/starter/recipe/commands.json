@@ -9,30 +9,44 @@
         "assetId": "starter-character",
         "kind": "model",
         "displayName": "Character",
-        "sourceDigest": "8cc765270e1cc320f885ef1b6bbd1a9dbccb5a26217dc4b5ee38f062d5696556",
-        "sourceByteLength": 7800,
+        "sourceDigest": "aa1fba3071f5ed35a7cacef3a2757600e76b38214017e338bc7bca22197cb875",
+        "sourceByteLength": 948892,
         "importRecipe": {
           "profile": "gltf-glb",
           "recipeVersion": 1,
           "toolchain": {
             "three": "0.186.0"
           },
-          "extensions": []
+          "extensions": [
+            "KHR_texture_basisu"
+          ]
         },
         "metrics": {
-          "nodes": 5,
+          "nodes": 27,
           "meshes": 4,
           "primitives": 4,
-          "materials": 4,
-          "images": 0,
-          "textures": 0,
-          "vertices": 96,
-          "triangles": 48,
-          "animations": 3,
-          "animationChannels": 5,
-          "clipDurationMs": 0,
-          "decodedGeometryBytes": 2784,
-          "decodedImageBytes": 0
+          "materials": 1,
+          "images": 3,
+          "textures": 3,
+          "vertices": 6585,
+          "triangles": 8216,
+          "animations": 6,
+          "animationChannels": 396,
+          "clipDurationMs": 2000,
+          "decodedGeometryBytes": 387684,
+          "decodedImageBytes": 9437184,
+          "bounds": {
+            "min": [
+              -0.689203,
+              -0.899166,
+              -0.118804
+            ],
+            "max": [
+              0.689203,
+              0.883934,
+              0.165751
+            ]
+          }
         },
         "importedAt": "2026-09-28T00:00:00Z"
       }

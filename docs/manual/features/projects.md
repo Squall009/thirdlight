@@ -23,7 +23,12 @@ Two ship, neither with game rules:
 - `templates/starter` ("2D starter"): a side-on level — a ground, three
   boxes, a character with the controller, a spawn point, a camera, two
   lights and a pillar model (it plays as a scene). Rebuilt by
-  `templates/starter/tools/build-template.mts`.
+  `templates/starter/tools/build-template.mts`. Its character is a
+  game-ready skinned model made in Blender (`assets/model/character.glb`,
+  949 KB: three levels of detail of 4,796 / 2,398 / 958 triangles, a
+  capsule `_COL`, a 22-bone skin, 1024² albedo and ORM and a 512² normal
+  map in KTX2, clips Idle, Run, Airborne, Walk, Jump and Land in place);
+  the controller's capsule collides, not the model.
 - `templates/starter-3d` ("3D starter"): 3D physics, the same character with
   a follow / orbit camera on a spawn point, a sun and a gradient sky, a
   ground block layer on the Basic Kit (added from `packs/basic-kit` when the

@@ -305,7 +305,8 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
     await expect.poll(async () => magenta(game), { timeout: 15_000 }).toBeLessThan(closed / 10);
     // The graph behavior's module came from the static site (nothing else was contacted).
     expect(loaded.some((l) => /^200 .*\/behaviors\/[0-9a-f]{64}\.js$/.test(l)), loaded.join('\n')).toBe(true);
-    expect(loaded.every((l) => l.split(' ')[1]!.startsWith(site.url))).toBe(true);
+    // A model's embedded textures decode through blob: URLs of the page's own origin.
+    expect(loaded.filter((l) => !l.split(' ')[1]!.replace(/^blob:/, '').startsWith(site.url))).toEqual([]);
     expect(errors).toEqual([]);
     await expect(game.getByText(/error/i)).toHaveCount(0);
   } finally {

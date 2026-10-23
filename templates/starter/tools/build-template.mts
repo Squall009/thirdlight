@@ -5,8 +5,11 @@
  * enemies. A project made from it plays in scene mode (the scene as
  * authored, the character driven by the controller).
  *
- * The script (1) writes the template's self-generated assets (two small
- * rigid GLBs, no downloaded content) and their provenance, and (2) authors
+ * The script (1) writes the template's self-generated pillar (a small rigid
+ * GLB, no downloaded content) and the provenance of both models — the
+ * character is a game-ready file made in Blender by the art pipeline
+ * (`assets/model/character.glb`, kept in the repository; read, never
+ * written here) — and (2) authors
  * the scene through the real editing path (`@thirdlight/commands`
  * `applyMutation`, the same commands the browser and MCP use) and captures
  * the result as `captured/project.json`, with the command list in
@@ -14,15 +17,17 @@
  *
  * Run:
  *   npx esbuild templates/starter/tools/build-template.mts --bundle --platform=node \
- *     --format=esm --outfile=/tmp/tl-starter.mjs && node /tmp/tl-starter.mjs
+ *     --format=esm --outfile=$HOME/.cache/tmp/tl-starter.mjs && node $HOME/.cache/tmp/tl-starter.mjs
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
+import { inspectGlb } from '@thirdlight/asset-pipeline';
 
 import { capture, newAuthor, run } from '../../tools/author.mts';
 
-// Bundled to /tmp, so the template folder comes from the working directory (the repo root).
+// Bundled outside the repository, so the template folder comes from the working directory (the repo root).
 const ROOT = resolve('templates', 'starter');
 const ASSETS = join(ROOT, 'assets');
 const PROJECT_ID = 'starter';
@@ -164,25 +169,6 @@ function buildRigidModel(sceneName: string, parts: Part[], clips: Clip[], rootTr
   return packGlb(JSON.stringify(json), bin.padded());
 }
 
-// A blocky character sized to the 1.8 m controller capsule (an adult human).
-// Its origin is the capsule centre, so the root sits 0.9 m lower: feet on the
-// ground. Clips for the controller's locomotion roles: Idle, Run, Airborne.
-const CHARACTER = buildRigidModel(
-  'Character',
-  [
-    { name: 'Legs', half: [0.2, 0.3, 0.16], translation: [0, 0.3, 0], color: [0.3, 0.32, 0.38, 1] },
-    { name: 'Body', half: [0.28, 0.42, 0.2], translation: [0, 1.02, 0], color: [0.55, 0.6, 0.66, 1] },
-    { name: 'Head', half: [0.18, 0.18, 0.18], translation: [0, 1.62, 0], color: [0.8, 0.78, 0.74, 1] },
-    { name: 'Arm', half: [0.08, 0.34, 0.08], translation: [0.36, 1.05, 0], color: [0.45, 0.5, 0.56, 1] },
-  ],
-  [
-    { name: 'Idle', duration: 1.0, perPart: { Arm: { rot: [0, 0, 0.1, 0.995] } } },
-    { name: 'Run', duration: 0.4, perPart: { Arm: { rot: [0.5, 0, 0, 0.866] }, Legs: { rot: [-0.2, 0, 0, 0.98] } } },
-    { name: 'Airborne', duration: 0.6, perPart: { Arm: { rot: [0, 0, 0.7, 0.714] }, Legs: { trans: [0, 0.1, 0] } } },
-  ],
-  [0, -0.9, 0],
-);
-
 // A decoration: a 2 m pillar with a wider cap. No clips.
 const PILLAR = buildRigidModel(
   'Pillar',
@@ -235,21 +221,32 @@ const solid = (name: string, x: number, y: number, w: number, h: number, color: 
   components: { collider: { shape: { type: 'box', hx: w / 2, hy: h / 2 } } },
 });
 
+/** A file's import record as the engine's own GLB inspection proposes it (metrics, bounds, used extensions). */
+function inspected(bytes: Uint8Array, displayName: string): { importRecipe: Record<string, unknown>; metrics: Record<string, unknown> } {
+  const recipe = { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' } } as const;
+  const p = inspectGlb(bytes, { ...recipe, displayName });
+  if (p.status !== 'ok' || !('metrics' in p)) throw new Error(`${displayName}: the import inspection refused it: ${JSON.stringify(p.diagnostics)}`);
+  return { importRecipe: { ...p.importRecipe }, metrics: { ...p.metrics } };
+}
+
 function main(): void {
   mkdirSync(join(ASSETS, 'model'), { recursive: true });
+  const character = new Uint8Array(readFileSync(join(ASSETS, 'model', 'character.glb')));
+  const pillar = { importRecipe: { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] }, metrics: glbMetrics(PILLAR) };
   const models = [
-    { assetId: 'starter-character', displayName: 'Character', path: 'model/character.glb', bytes: CHARACTER, clips: ['Idle', 'Run', 'Airborne'] },
-    { assetId: 'starter-pillar', displayName: 'Pillar', path: 'model/pillar.glb', bytes: PILLAR, clips: [] as string[] },
+    // The controller's roles: Idle 0, Run 1, Airborne 2 (Walk 3, Jump 4 and Land 5 are there for a game's own animator).
+    { assetId: 'starter-character', displayName: 'Character', path: 'model/character.glb', bytes: character, clips: ['Idle', 'Run', 'Airborne', 'Walk', 'Jump', 'Land'], made: 'Blender (art pipeline): LOD0–2 and a capsule _COL, KTX2 textures, 22-bone skin', ...inspected(character, 'Character') },
+    { assetId: 'starter-pillar', displayName: 'Pillar', path: 'model/pillar.glb', bytes: PILLAR, clips: [] as string[], made: 'this script', ...pillar },
   ];
-  for (const m of models) writeFileSync(join(ASSETS, m.path), m.bytes);
+  writeFileSync(join(ASSETS, 'model', 'pillar.glb'), PILLAR);
   writeFileSync(
     join(ASSETS, 'provenance.json'),
     JSON.stringify(
       {
         template: PROJECT_ID,
         generatedBy: 'templates/starter/tools/build-template.mts',
-        note: 'Original content generated by the script above; no downloaded or third-party content.',
-        assets: models.map((m) => ({ id: m.assetId, kind: 'model', path: m.path, sourceDigest: sha256Hex(m.bytes), sourceByteLength: m.bytes.byteLength, profile: 'glb-gltf2', triangles: glbMetrics(m.bytes)['triangles'], clips: m.clips })),
+        note: 'Original content (the pillar generated by the script above, the character made in Blender for this template); no downloaded or third-party content.',
+        assets: models.map((m) => ({ id: m.assetId, kind: 'model', path: m.path, madeBy: m.made, sourceDigest: sha256Hex(m.bytes), sourceByteLength: m.bytes.byteLength, profile: 'glb-gltf2', triangles: m.metrics['triangles'], clips: m.clips })),
       },
       null,
       2,
@@ -266,8 +263,8 @@ function main(): void {
       displayName: m.displayName,
       sourceDigest: sha256Hex(m.bytes),
       sourceByteLength: m.bytes.byteLength,
-      importRecipe: { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] },
-      metrics: glbMetrics(m.bytes),
+      importRecipe: m.importRecipe,
+      metrics: m.metrics,
       importedAt: IMPORTED_AT,
     });
   }
@@ -295,7 +292,7 @@ function main(): void {
   run(author, 'createEntity', { kind: 'model', name: 'Pillar', transform: T(17, 0), model: { asset: { assetId: 'starter-pillar' } } });
 
   capture(author, ROOT, 'templates/starter/tools/build-template.mts', IMPORTED_AT);
-  for (const m of models) console.log(`  ${m.path}: ${m.bytes.byteLength} B, ${JSON.stringify(glbMetrics(m.bytes))}`);
+  for (const m of models) console.log(`  ${m.path}: ${m.bytes.byteLength} B, ${JSON.stringify(m.metrics)}`);
 }
 
 main();
