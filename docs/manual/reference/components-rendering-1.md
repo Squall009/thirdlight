@@ -290,7 +290,9 @@ A grid of blocks for building levels (terrain, buildings, a tactics map); its ce
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `cellSize` | vec3 [x, y, z] | `[1,1,1]` | 0.05 – 64, step 0.05, m | **Cell size.** Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]). Cells are square from above: x and z are one value, only the height y differs. (required) |
-| `bounds` | JSON |  |  | **Bounds.** The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). Change it in the block editor: Regions, Layer size. (required) |
+| `bounds` | object |  |  | **Bounds.** The cells the layer may hold (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 across and ±1024 up). The block editor's Regions, Layer size changes it too. (required; rules: To is past From on every axis; a layer cannot shrink past a block it holds.) |
+| `bounds.min` | vec3 [x, y, z] |  | step 1 | **From.** The first cell, in whole cells. (required) |
+| `bounds.max` | vec3 [x, y, z] |  | step 1 | **To.** One past the last cell, in whole cells. (required) |
 | `metadataOnly` | bool | `false` |  | **Metadata only.** Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn. |
 | `collision` | bool | `true` |  | **Collision.** The blocks' collision shapes are colliders: as they are in a 3D project, cut at the play plane on the 2D plane. |
 | `planeZ` | number | `0` | -262144 – 262144, step 0.05, m | **Play plane z.** 2D-plane projects: the world z where the blocks' collision shapes are cut into the 2D world's colliders (the cells holding it collide; on a cell boundary, the cells in front of it, toward +z). A 3D project ignores it. |

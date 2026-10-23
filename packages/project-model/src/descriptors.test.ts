@@ -174,10 +174,10 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 };
 
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
-const SKIP_COUNT = new Set(['startScenes:']);
+const SKIP_COUNT = new Set(['startScenes:', 'blockTypes:*.rotations', 'blockTypes:*.boxes.*']);
 /** Optional fields of an exactly-one-of pair (removing the present one leaves none). */
 // Fields that come in pairs or one of a set: removing one alone is refused.
-const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot', 'blockStamps:*.edgePalette', 'blockStamps:*.edges']);
+const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot', 'blockStamps:*.edgePalette', 'blockStamps:*.edges', 'blockTypes:*.variants.*.prefab']);
 
 
 interface Ctx {
@@ -906,10 +906,10 @@ function runAllProbes(): void {
   // Shared script libraries (the files are free text, the item is json).
   probe('scriptLibraries', contentErrors, contentDoc({ scriptLibraries: [{ libraryId: 'lib-a', name: 'Lib', files: [{ path: 'src/index.ts', text: 'export const a = 1;\n' }] }] }), '/scriptLibraries', block('scriptLibraries'), 'scriptLibraries:');
   // Block types, cell fields and stamps.
-  probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2 }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0, 90], metadata: { walkable: true }, materials: { '*': 'mat-a' }, uv: 'world' }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2, uv: 'model' }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0], metadata: { walkable: true }, materials: { '*': 'mat-a' }, uv: 'world' }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[2]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'door', name: 'Door', variants: [{ prefab: 'door' }], shape: 'none', live: true, oneWay: true }], '', block('blockTypes'), 'blockTypes:');
-  probe('blockTypes[3]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'fence', name: 'Fence', variants: [{ color: '#886644' }], shape: 'half', placement: 'edge', blocking: false, rotations: [0, 180] }], '', block('blockTypes'), 'blockTypes:');
+  probe('blockTypes[3]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'fence', name: 'Fence', variants: [{ color: '#886644' }], shape: 'half', placement: 'edge', blocking: false }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[4]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', connect: { with: ['gate'], pieces: { single: { variant: 0, rot: 90 }, end: { variant: 1, rot: 90 }, straight: { variant: 1, rot: 90 }, corner: { variant: 1, rot: 180 }, t: { variant: 1, rot: 90 }, cross: { variant: 1, rot: 90 }, base: { variant: 0, rot: 180 }, cap: { variant: 1, rot: 270 } } } }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[5]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'wall', name: 'Wall', variants: [{ color: '#888888' }, { color: '#999999' }], shape: 'full', kits: { burnt: { block: 'wall-burnt', variant: 1, variants: [0, 1] } } }], '', block('blockTypes'), 'blockTypes:');
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
@@ -1042,8 +1042,9 @@ describe('descriptor registry', () => {
     // occlusion culling, the setting and a quality level's field, about 0.6 KB; occluders — the object flag and a model's import setting, about 1 KB;
     // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB; a block layer's 2D play plane
     // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB; see-through — the object flag on
-    // six kinds and its six settings, about 3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(337_400);
+    // six kinds and its six settings, about 3 KB; block looks, boxes, turns and cell metadata, a layer's bounds and a
+    // spline's profile as structured fields instead of JSON, about 2 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(340_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

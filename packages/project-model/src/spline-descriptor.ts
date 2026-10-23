@@ -60,7 +60,7 @@ export const spline: ComponentDescriptor = {
     ]),
     obj('mesh', 'Mesh', 'A mesh along it with levels of detail: a profile swept along, or a river\'s water. It wears Materials slot "spline" (or "*").', [
       enm('kind', 'Kind', 'A swept profile, or water with flow and foam.', SPLINE_MESH_KINDS, { default: 'surface', labels: { surface: 'Surface', water: 'Water' } }),
-      json('profile', 'Profile', `The cross-section, left to right: [[across, up], …], across in half widths (-1 to 1), up in metres; 2-${L.profilePoints} points (empty: flat).`),
+      list('profile', 'Profile', `The cross-section, left to right: ${L.profilePoints} points at most (empty: flat).`, vec2('*', 'Point', 'Across in half widths (-1 to 1), up in metres.', { min: -D, max: D, step: 0.05, labels: ['across', 'up'] }), { minItems: 2, maxItems: L.profilePoints }),
       num('offset', 'Offset', `Metres above the points (empty: ${SPLINE_SURFACE_OFFSET_DEFAULT} for a surface, 0 for water).`, { min: -D, max: D, step: 0.01, unit: 'm' }),
       num('tiling', 'Tiling', 'Metres along one texture repeat covers (empty: the width).', { min: 0.01, max: D, step: 0.5, unit: 'm' }),
       num('step', 'Step', 'Metres between cross-sections.', { min: 0.05, max: 100, step: 0.05, unit: 'm', default: SPLINE_MESH_STEP_DEFAULT }),

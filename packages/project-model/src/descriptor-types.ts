@@ -228,7 +228,7 @@ export interface ComponentsFieldDescriptor extends FieldBase {
 export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
-  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState';
+  readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState' | 'cellField';
   /** `uiBinding`: the plain value a binding stands in for (the editor offers it or a view-model path). */
   readonly valueType?: 'number' | 'text' | 'bool' | 'texture' | 'entity';
   /**

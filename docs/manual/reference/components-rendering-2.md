@@ -42,7 +42,7 @@ A curve through points, each with its own width and roll: roads, paths and river
 | `scatter.rules` | list of string, 1–32 chars |  |  | **Rules.** Only these scatter rules (empty: all). |
 | `mesh` | object |  |  | **Mesh.** A mesh along it with levels of detail: a profile swept along, or a river's water. It wears Materials slot "spline" (or "*"). (scripts read) |
 | `mesh.kind` | enum: `surface`, `water` | `"surface"` |  | **Kind.** A swept profile, or water with flow and foam. |
-| `mesh.profile` | JSON |  |  | **Profile.** The cross-section, left to right: [[across, up], …], across in half widths (-1 to 1), up in metres; 2-64 points (empty: flat). |
+| `mesh.profile` | list of vec2 [across, up], 2–64 items |  |  | **Profile.** The cross-section, left to right: 64 points at most (empty: flat). |
 | `mesh.offset` | number |  | -1000 – 1000, step 0.01, m | **Offset.** Metres above the points (empty: 0.05 for a surface, 0 for water). |
 | `mesh.tiling` | number |  | 0.01 – 1000, step 0.5, m | **Tiling.** Metres along one texture repeat covers (empty: the width). |
 | `mesh.step` | number | `1` | 0.05 – 100, step 0.05, m | **Step.** Metres between cross-sections. |

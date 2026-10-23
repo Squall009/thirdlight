@@ -309,4 +309,4 @@ The cell metadata this object writes into the block-layer cells beneath it when 
 |---|---|---|---|---|
 | `layer` | object id (with `blockLayer`) |  |  | **Layer.** The block layer written (none: every layer under the object). (scripts read) |
 | `size` | vec2 [x, z] | `[1,1]` | 1 – 64, step 1 | **Size.** Cells along x and z, centred on the object and turned with its quarter turns. (scripts read) |
-| `set` | JSON |  |  | **Metadata.** The metadata the cells take: field key → value (fields of the project's cell schema). (required; scripts read) |
+| `set` | map identifier → JSON (typed by cellField) |  |  | **Metadata.** The metadata the cells take: field → value (fields of the project's cell schema). (required; scripts read) |

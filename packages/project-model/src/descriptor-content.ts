@@ -494,14 +494,23 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     value: list('blockTypes', 'Block types', 'The project\'s block types.', obj('*', 'Block type', 'One block.', [
       str('blockId', 'Id', 'The stable block id cells name.', { ...ID, required: true }),
       str('name', 'Name', 'Shown in the block palette.', { ...NAME, required: true }),
-      json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position) and an optional uv ("model" | "world") of its own.`, { required: true, shape: 'BlockVariant[]' }),
+      list('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks (a cell without a variant picks one by weight, stably by position).`, obj('*', 'Look', 'One look: a model, a prefab or a colour.', [
+        obj('model', 'Model', 'A model asset, or one named part of it.', [
+          asset('assetId', 'Model', 'The model asset.', ['model'], { required: true }),
+          str('piece', 'Piece', 'One node of the model (its name); absent: the whole model.', { minLength: 1, maxLength: 128 }),
+        ]),
+        ref('prefab', 'Prefab', 'A prefab shown in the cell (spawned as real objects when the block is live).', 'prefab'),
+        color('color', 'Colour', "A coloured stand-in of the block's shape."),
+        num('weight', 'Weight', 'How often this look is picked against the others (absent: 1).', { min: 0, minExclusive: true, max: BLOCK_LIMITS.variantWeight }),
+        enm('uv', 'Texture mapping', "This look's own texture mapping (absent: the block type's).", BLOCK_UV_MODES, { labels: { model: 'Model', world: 'World (metres)' } }),
+      ], { rules: ['A look is one of a model, a prefab or a colour.'] }), { required: true, minItems: 1, maxItems: BLOCK_LIMITS.variants }),
       enm('uv', 'Texture mapping', "Where the looks' texture coordinates come from. Model: the model's own (a coloured stand-in, or a model part without any, is mapped to the world). World: from the block's place in the layer, in metres, one flat projection per face (tops from above, walls from the side, slopes past 45° as walls), so a texture runs on across cells without a seam; a material's tiling sets how many metres one repeat covers. A look may set its own.", BLOCK_UV_MODES, { default: 'model', labels: { model: 'Model', world: 'World (metres)' } }),
       enm('shape', 'Collision shape', 'The collision shape (and the coloured stand-in\'s shape): full, half, ramp, stairs (rising toward +Z), custom boxes or none.', ['full', 'half', 'ramp', 'stairs', 'custom', 'none'], { required: true }),
-      json('boxes', 'Custom boxes', `1–${BLOCK_LIMITS.customBoxes} boxes [x0, y0, z0, x1, y1, z1] in footprint units (0–1).`, { required: true, when: when('shape', 'custom') }),
+      list('boxes', 'Custom boxes', `1–${BLOCK_LIMITS.customBoxes} boxes in footprint units (0–1).`, list('*', 'Box', '[x0, y0, z0, x1, y1, z1] in footprint units (0–1), max above min on every axis.', num('*', 'Corner', 'A coordinate in footprint units, 0–1.', { step: 0.05 }), { length: 6 }), { required: true, minItems: 1, maxItems: BLOCK_LIMITS.customBoxes, when: when('shape', 'custom') }),
       bool('solid', 'Solid', 'Fills its cell and hides the faces of neighbours touching it (absent: a full shape is solid).'),
       vec3('footprint', 'Footprint', 'Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty.', { min: 1, max: BLOCK_LIMITS.footprint, step: 1, default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
-      json('rotations', 'Rotations', 'The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all).'),
-      json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
+      list('rotations', 'Rotations', 'The allowed rotations in degrees (absent: all).', int('*', 'Rotation', 'Degrees about up.', { values: [0, 90, 180, 270] }), { minItems: 1, maxItems: 4, unique: true }),
+      map('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field → value).', 'Field', json('*', 'Value', "The field's value (its type is the cell field's).", { typedBy: 'cellField' }), { keyFormat: 'identifier' }),
       // A picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
       map('materials', 'Materials', 'Material slot → project material: a model look\'s source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material).', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: 32 }),
       bool('live', 'Live', "In the running game each cell showing a prefab look spawns that prefab as real objects (scripts, movers, lights, children), placed, removed and saved with the cell; the root's model stays merged with the blocks."),

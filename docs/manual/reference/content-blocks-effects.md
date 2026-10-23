@@ -65,14 +65,23 @@ The blocks block layers are built from: their looks, collision shape, footprint,
 | `blockTypes` | list of objects | `[]` |  | **Block types.** The project's block types. |
 | `blockTypes[].blockId` | string, id, 1–64 chars |  |  | **Id.** The stable block id cells name. (required; format id) |
 | `blockTypes[].name` | string, name, 1–128 chars |  |  | **Name.** Shown in the block palette. (required; format name) |
-| `blockTypes[].variants` | JSON: `BlockVariant[]` ([BlockVariant](types-a-d.md#type-block-variant)) |  |  | **Looks.** 1–8 weighted looks: {model: {assetId, piece?}} \| {prefab} \| {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position) and an optional uv ("model" \| "world") of its own. (required) |
+| `blockTypes[].variants` | list of objects, 1–8 items |  |  | **Looks.** 1–8 weighted looks (a cell without a variant picks one by weight, stably by position). (required) |
+| `blockTypes[].variants[]` | object |  |  | **Look.** One look: a model, a prefab or a colour. (rules: A look is one of a model, a prefab or a colour.) |
+| `blockTypes[].variants[].model` | object |  |  | **Model.** A model asset, or one named part of it. |
+| `blockTypes[].variants[].model.assetId` | asset id (model) |  |  | **Model.** The model asset. (required) |
+| `blockTypes[].variants[].model.piece` | string, 1–128 chars |  |  | **Piece.** One node of the model (its name); absent: the whole model. |
+| `blockTypes[].variants[].prefab` | prefab id |  |  | **Prefab.** A prefab shown in the cell (spawned as real objects when the block is live). |
+| `blockTypes[].variants[].color` | color |  |  | **Colour.** A coloured stand-in of the block's shape. |
+| `blockTypes[].variants[].weight` | number |  | > 0, ≤ 1000 | **Weight.** How often this look is picked against the others (absent: 1). |
+| `blockTypes[].variants[].uv` | enum: `model`, `world` |  |  | **Texture mapping.** This look's own texture mapping (absent: the block type's). (choices: `model` = Model, `world` = World (metres)) |
 | `blockTypes[].uv` | enum: `model`, `world` | `"model"` |  | **Texture mapping.** Where the looks' texture coordinates come from. Model: the model's own (a coloured stand-in, or a model part without any, is mapped to the world). World: from the block's place in the layer, in metres, one flat projection per face (tops from above, walls from the side, slopes past 45° as walls), so a texture runs on across cells without a seam; a material's tiling sets how many metres one repeat covers. A look may set its own. (choices: `model` = Model, `world` = World (metres)) |
 | `blockTypes[].shape` | enum: `full`, `half`, `ramp`, `stairs`, `custom`, `none` |  |  | **Collision shape.** The collision shape (and the coloured stand-in's shape): full, half, ramp, stairs (rising toward +Z), custom boxes or none. (required) |
-| `blockTypes[].boxes` | JSON |  |  | **Custom boxes.** 1–8 boxes [x0, y0, z0, x1, y1, z1] in footprint units (0–1). (required; applies when `shape` is `custom`) |
+| `blockTypes[].boxes` | list of list of number, 6 items, 1–8 items |  |  | **Custom boxes.** 1–8 boxes in footprint units (0–1). (required; applies when `shape` is `custom`) |
+| `blockTypes[].boxes[]` | list of number, 6 items |  |  | **Box.** [x0, y0, z0, x1, y1, z1] in footprint units (0–1), max above min on every axis. |
 | `blockTypes[].solid` | bool |  |  | **Solid.** Fills its cell and hides the faces of neighbours touching it (absent: a full shape is solid). |
 | `blockTypes[].footprint` | vec3 [x, y, z] | `[1,1,1]` | 1 – 8, step 1 | **Footprint.** Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty. |
-| `blockTypes[].rotations` | JSON |  |  | **Rotations.** The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all). |
-| `blockTypes[].metadata` | JSON |  |  | **Default metadata.** Cell metadata every cell of this block starts with (field key → value). |
+| `blockTypes[].rotations` | list of int (one of 0, 90, 180, 270), 1–4 items, distinct |  |  | **Rotations.** The allowed rotations in degrees (absent: all). |
+| `blockTypes[].metadata` | map identifier → JSON (typed by cellField) |  |  | **Default metadata.** Cell metadata every cell of this block starts with (field → value). |
 | `blockTypes[].materials` | map materialSlot → material id, 1–32 entries |  |  | **Materials.** Material slot → project material: a model look's source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material). |
 | `blockTypes[].live` | bool |  |  | **Live.** In the running game each cell showing a prefab look spawns that prefab as real objects (scripts, movers, lights, children), placed, removed and saved with the cell; the root's model stays merged with the blocks. |
 | `blockTypes[].oneWay` | bool | `false` |  | **One-way.** On the 2D plane the player jumps up through it and lands on top (a floating ledge); it drops through with down + jump. A 3D project ignores it. |

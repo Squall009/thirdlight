@@ -73,7 +73,7 @@ function shade(hex: string, t: number): string {
 }
 
 /** The field default (as the effective-metadata rule has it). */
-function defaultOf(f: CellField): CellMetaValue {
+export function defaultOf(f: CellField): CellMetaValue {
   return f.default ?? (f.type === 'bool' ? false : f.type === 'enum' ? (f.values?.[0] ?? '') : f.type === 'string' ? '' : 0);
 }
 

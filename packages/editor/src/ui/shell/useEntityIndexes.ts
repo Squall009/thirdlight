@@ -124,6 +124,8 @@ export function useEntityIndexes(deps: EntityIndexesDeps) {
       physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
       // The light layer masks' checkboxes carry the project's layer names.
       lightLayerNames: lightLayers,
+      // A cell metadata map is edited by the project's cell fields.
+      cellFields: clientRef.current?.getCellFields() ?? [],
       // A socket's node list comes from its target's model.
       modelNodes: (entityId: string) => {
         const e = allEntities.find((x) => x.id === entityId);

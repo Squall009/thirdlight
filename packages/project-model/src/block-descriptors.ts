@@ -6,7 +6,7 @@
  *
  * Pure data.
  */
-import { lightLayerMask, list, ref, seeThroughField, str } from './descriptor-builders';
+import { lightLayerMask, list, map as mapOf, obj as objOf, ref, seeThroughField, str } from './descriptor-builders';
 import { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS } from './block-cutaway';
 import { WALK_METRES_RANGE } from './block-walk-settings';
 import { streamingField } from './world-streaming-descriptor';
@@ -32,7 +32,10 @@ export const blockLayer: ComponentDescriptor = {
   category: 'Rendering',
   value: obj('blockLayer', 'Block layer', "The grid: cell size and bounds. The object's position is the min corner of cell [0, 0, 0].", [
     vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]). Cells are square from above: x and z are one value, only the height y differs.', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'], same: [0, 2] }),
-    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024). Change it in the block editor: Regions, Layer size.', { required: true }),
+    objOf('bounds', 'Bounds', 'The cells the layer may hold (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 across and ±1024 up). The block editor\'s Regions, Layer size changes it too.', [
+      vec3('min', 'From', 'The first cell, in whole cells.', { required: true, step: 1, labels: ['x', 'y', 'z'] }),
+      vec3('max', 'To', 'One past the last cell, in whole cells.', { required: true, step: 1, labels: ['x', 'y', 'z'] }),
+    ], { required: true, rules: ['To is past From on every axis; a layer cannot shrink past a block it holds.'] }),
     bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
     bool('collision', 'Collision', "The blocks' collision shapes are colliders: as they are in a 3D project, cut at the play plane on the 2D plane.", { default: true }),
     num('planeZ', 'Play plane z', "2D-plane projects: the world z where the blocks' collision shapes are cut into the 2D world's colliders (the cells holding it collide; on a cell boundary, the cells in front of it, toward +z). A 3D project ignores it.", { min: -BLOCK_PLANE_Z_MAX, max: BLOCK_PLANE_Z_MAX, step: 0.05, unit: 'm', default: 0 }),
@@ -104,7 +107,7 @@ export const blockFootprint: ComponentDescriptor = {
   value: obj('blockFootprint', 'Block footprint', 'Which cells (a rectangle centred on the object, turned with it) take which metadata.', [
     entity('layer', 'Layer', 'The block layer written (none: every layer under the object).', { component: 'blockLayer' }),
     vec2('size', 'Size', 'Cells along x and z, centred on the object and turned with its quarter turns.', { min: 1, max: 64, step: 1, default: [1, 1], labels: ['x', 'z'] }),
-    json('set', 'Metadata', "The metadata the cells take: field key → value (fields of the project's cell schema).", { required: true }),
+    mapOf('set', 'Metadata', "The metadata the cells take: field → value (fields of the project's cell schema).", 'Field', json('*', 'Value', "The field's value (its type is the cell field's).", { typedBy: 'cellField' }), { required: true, keyFormat: 'identifier' }),
   ]),
   // Starts empty (writes nothing) until its metadata is chosen.
   add: { kind: 'menu', value: { set: {} } },

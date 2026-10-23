@@ -13,7 +13,9 @@
  */
 import { useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import * as THREE from 'three';
-import type { ComponentDescriptor, FieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import type { CellField, CellMetaValue, ComponentDescriptor, FieldDescriptor, MapFieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { defaultOf as cellFieldDefault } from '../session/block-overlay';
+import { MetaValueField } from './blocks/RegionsColumn';
 import { lightLayerLabel } from '@thirdlight/project-model/limits';
 import { RefPicker } from './catalog/RefPicker';
 import { OpenItemButton } from './catalog/item-opener';
@@ -66,6 +68,8 @@ export interface FieldContext extends PickerData {
   readonly selfId?: string;
   /** The project's light layer names by number (a light layer mask's checkboxes are labelled with them). */
   readonly lightLayerNames?: readonly string[];
+  /** The project's cell fields (a cell metadata map is edited field by field, each by its type). */
+  readonly cellFields?: readonly CellField[];
 }
 
 export type Edit = (path: FieldPath, next: unknown) => void;
@@ -666,6 +670,8 @@ function MapWidget(p: RowProps & { aria: string }): JSX.Element {
     const params = typeof effectId === 'string' ? p.ctx.effectParameters?.[effectId] : undefined;
     if (params !== undefined) return <EffectParametersWidget {...p} params={params} />;
   }
+  // Cell metadata is edited by the project's cell fields, each value by its field's type.
+  if (f.value.type === 'json' && f.value.typedBy === 'cellField' && p.ctx.cellFields !== undefined) return <CellValuesWidget {...p} fields={p.ctx.cellFields} />;
   // An animator's starting values come from its controller's parameter list.
   if (f.keyRef === 'animatorParameter') {
     const controller = p.level?.value['controller'];
@@ -710,6 +716,54 @@ function MapWidget(p: RowProps & { aria: string }): JSX.Element {
             + add
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A cell metadata map (field → value) edited by the project's cell fields:
+ * a row per stored field with its type's control, a picker adding a field
+ * not set yet at its default. A key naming no field of the project (removed
+ * since) shows its value, to be removed.
+ */
+function CellValuesWidget(p: RowProps & { aria: string; fields: readonly CellField[] }): JSX.Element {
+  const f = p.f as MapFieldDescriptor;
+  const value = p.value !== null && typeof p.value === 'object' ? (p.value as Record<string, CellMetaValue>) : {};
+  const unset = p.fields.filter((x) => !Object.prototype.hasOwnProperty.call(value, x.key));
+  return (
+    <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
+      <div className="tl-field__label">{fieldLabel(f)}</div>
+      {Object.keys(value).length === 0 && <span className="tl-inspector__hint">none</span>}
+      {Object.entries(value).map(([k, v]) => {
+        const field = p.fields.find((x) => x.key === k);
+        return (
+          <div className="tl-desc__item" key={k}>
+            <span className="tl-field__label">{field?.label ?? k}</span>
+            {field !== undefined ? <MetaValueField field={field} value={v} aria={`${p.aria} ${k}`} onChange={(next) => p.onEdit([...p.path, k], next)} /> : <span className="tl-desc__readonly">{JSON.stringify(v)} (not a cell field of the project)</span>}
+            <button type="button" className="tl-btn tl-btn--small" aria-label={`remove ${p.aria} ${k}`} onClick={() => p.onEdit([...p.path, k], undefined)}>
+              ×
+            </button>
+          </div>
+        );
+      })}
+      {unset.length > 0 && (
+        <select
+          className="tl-input"
+          aria-label={`add ${p.aria}`}
+          value=""
+          onChange={(e) => {
+            const field = unset.find((x) => x.key === e.target.value);
+            if (field !== undefined) p.onEdit([...p.path, field.key], cellFieldDefault(field));
+          }}
+        >
+          <option value="">+ add a field…</option>
+          {unset.map((x) => (
+            <option key={x.key} value={x.key}>
+              {x.label ?? x.key}
+            </option>
+          ))}
+        </select>
       )}
     </div>
   );

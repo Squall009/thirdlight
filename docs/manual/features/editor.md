@@ -197,8 +197,13 @@ right kind — models, audio, textures), object pickers (only objects
 with the right component, e.g. a spawn), scene pickers, material, animator,
 script and prefab pickers, signal names (with the names already in use as
 suggestions), texts, nested groups (a **+ add** / **×** pair for optional
-ones, such as camera bounds), and lists (waypoints, scenes: **+ add** and
-**×** per item). A field left at its engine default shows its label in
+ones, such as camera bounds), lists (waypoints, scenes: **+ add** and
+**×** per item) and cell metadata (a block footprint's: a row per cell
+field with its type's control, **+ add a field…** for the rest). A block
+layer's bounds are its **From** and **To** cells, a spline profile's points
+one box per axis. Data a tool writes whole (generated architecture, terrain
+tiles, painted vertices, scatter and material rules) shows read-only; its
+own editor changes it. A field left at its engine default shows its label in
 italics; an optional field set back to its default is removed from the data.
 Fields that only apply to one variant appear when it is chosen (a circle
 trigger's radius, a spot light's cone): switching fills the new variant's

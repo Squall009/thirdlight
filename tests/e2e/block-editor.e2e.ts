@@ -112,7 +112,7 @@ async function cells(layer: string, box: number[]): Promise<Map<string, { block?
 const blockAt = async (layer: string, x: number, y: number, z: number): Promise<string | null> => (await cells(layer, [x, y, z, x + 1, y + 1, z + 1])).get(`${x},${y},${z}`)?.block ?? null;
 const cellCount = async (layer: string): Promise<number> => ((await query('queryBlocks')) as { layers: { entityId: string; cells: number }[] }).layers.find((l) => l.entityId === layer)?.cells ?? 0;
 
-type EntityView = { active?: boolean; locked?: boolean; components: { transform: { position: number[] }; blockLayer?: { cellSize: number[]; cutaway?: unknown; kits?: unknown; walk?: unknown } } };
+type EntityView = { active?: boolean; locked?: boolean; components: { transform: { position: number[] }; blockLayer?: { cellSize: number[]; bounds?: unknown; cutaway?: unknown; kits?: unknown; walk?: unknown }; blockFootprint?: { set?: Record<string, unknown> } } };
 async function entity(id: string): Promise<EntityView> {
   return ((await query('queryEntity', { entityId: id })) as { entity: EntityView }).entity;
 }
@@ -467,13 +467,15 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await expect.poll(async () => ((await query('queryBlocks')) as { layers: { entityId: string }[] }).layers.map((l) => l.entityId)).toEqual([layer]);
   });
 
+  // The prop with a block footprint (the Inspector step reads it too).
+  let hut = '';
   await test.step('cell-top snapping: a prop dragged over the layer lands on the cells, its footprint written with the move', async () => {
     await (await menuItem(page, 'Edit', 'Snapping settings…')).click();
     const dialog = page.getByRole('dialog', { name: 'Snapping settings' });
     await dialog.getByLabel('snap to cell tops').check();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await cmd('setCellFields', { fields: [{ key: 'hazard', type: 'bool', color: '#ff0000' }, { key: 'lot', type: 'int', default: 0, min: 0, max: 99 }] });
-    const hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
+    hut = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Hut', transform: { position: [-4.5, 3, -5.5] }, box: { size: [1, 1, 1], material: { color: '#dd8844' } } }))['createdId']);
     await cmd('setComponent', { entityId: hut, component: 'blockFootprint', value: { layer, set: { lot: 7 } } });
     await dragGizmoX(page, hut);
     await expect.poll(async () => (await entity(hut)).components.transform.position[1]).toBe(0.5);
@@ -495,6 +497,27 @@ test('the block editor builds, fills, picks, replaces, stamps and draws walls; e
     await cellField('x').press('Enter');
     await expect.poll(async () => (await entity(layer)).components.blockLayer?.cellSize).toEqual([2, 1, 2]);
     await expect(cellField('z')).toHaveValue('2');
+  });
+
+  await test.step('the Inspector edits the layer size and a footprint\'s metadata as fields, not JSON', async () => {
+    // The layer's bounds: From and To, each three whole-cell boxes (one setComponent).
+    const bounds = (await entity(layer)).components.blockLayer!.bounds as { min: number[]; max: number[] };
+    const toY = inspector(page).getByLabel('blockLayer bounds max y', { exact: true });
+    await expect(toY).toHaveValue(String(bounds.max[1]));
+    await toY.fill(String(bounds.max[1]! + 2));
+    await toY.press('Enter');
+    await expect.poll(async () => (await entity(layer)).components.blockLayer?.bounds).toEqual({ min: bounds.min, max: [bounds.max[0], bounds.max[1]! + 2, bounds.max[2]] });
+    // The footprint's metadata: one row per field, each by its cell field's type; a field not set yet added from the list.
+    await page.locator(`.tl-hierarchy__list li[data-entity-id="${hut}"]`).click();
+    const lot = inspector(page).getByLabel('blockFootprint set lot', { exact: true });
+    await expect(lot).toHaveValue('7');
+    await lot.fill('9');
+    await lot.press('Enter');
+    await expect.poll(async () => (await entity(hut)).components.blockFootprint?.set).toEqual({ lot: 9 });
+    await inspector(page).getByLabel('add blockFootprint set', { exact: true }).selectOption('hazard');
+    await expect.poll(async () => (await entity(hut)).components.blockFootprint?.set).toEqual({ lot: 9, hazard: false });
+    await inspector(page).getByLabel('remove blockFootprint set hazard', { exact: true }).click();
+    await expect.poll(async () => (await entity(hut)).components.blockFootprint?.set).toEqual({ lot: 9 });
   });
 });
 
