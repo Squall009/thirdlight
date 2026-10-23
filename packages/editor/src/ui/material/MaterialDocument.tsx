@@ -257,10 +257,14 @@ function TextureValue({ value, name, slots, onCommit }: { value: MaterialParamet
   // first, not on the saved list), or a new list with no slot filled (not a value to save).
   const [held, setHeld] = useState<string[] | null>(null);
   const saved = Array.isArray(value) ? (value as unknown[]).map(String) : null;
-  const confirmed = held !== null && saved !== null && held.length === saved.length && held.every((x, i) => x === saved[i]);
+  const sameList = (a: readonly string[] | null, b: readonly string[] | null): boolean => a !== null && b !== null && a.length === b.length && a.every((x, i) => x === b[i]);
+  const confirmed = sameList(held, saved);
   useEffect(() => {
-    if (confirmed) setHeld(null);
-  }, [confirmed]);
+    // Against the list held when the effect runs, not the one this render saw: a pick that lands between the
+    // confirming render and this effect (a quick second pick while the first's answer arrives) holds a newer
+    // list, which must stay held or the next pick builds on the saved, older one.
+    if (confirmed) setHeld((h) => (sameList(h, saved) ? null : h));
+  }, [confirmed, saved]);
   // An object's override is one texture: over a material's slots it starts as none (the slots draw).
   if (!slots && Array.isArray(value)) return <RefPicker aria={name} kinds={TEXTURE_KINDS} value="" none="(the material's slots)" onPick={(id) => onCommit(id)} />;
   const list = held ?? saved;

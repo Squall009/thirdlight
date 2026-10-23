@@ -438,6 +438,8 @@ describe('stop paths', () => {
       // Then silence: it stops a timeout after the last progress.
       const stopped = await editor.waitForEvent('play.stopped', 4000);
       expect(stopped.reason).toBe('preview_timeout');
+      // The end says where the start stood: the progress seen and how long before the timeout.
+      expect(tb.backend._test.plays.get(psid)?.endDetail).toMatch(/^5 load progress reports, the last 1 s before$/);
       editor.close();
     } finally {
       await tb.teardown();
@@ -544,7 +546,7 @@ describe('an ended play says why', () => {
         expect(res.status, action).toBe(404);
         expect(res.json.error.code).toBe('play_not_found');
         expect(res.json.error.ended).toMatchObject({ reason: 'preview_timeout', presented: false });
-        expect(res.json.error.message).toMatch(/^the play ended before it was presented at .*: the preview did not present it within 1 s$/);
+        expect(res.json.error.message).toMatch(/^the play ended before it was presented at .*: the preview did not present it within 1 s of its last progress \(no load progress from the preview since the start\)$/);
       }
       const list = await problems(tb);
       expect(list.find((p) => p.source === 'play' && p.code === 'play_preview_timeout')?.message).toContain(psid);

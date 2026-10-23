@@ -262,8 +262,9 @@ test('a double-click opens each kind of item in its editor, an edit there is sav
       await expect(editorWindow(page).getByRole('tablist', { name: 'open items' }).getByRole('tab', { selected: true })).toContainText(`${title} edited`);
     }
     if (label === undefined) {
-      // A script opens in the code editor, which takes the focus a moment later and keeps an Escape that reaches it
-      // first for itself (its own widgets): Escape again until the window closes.
+      // Nothing else took the focus: it is on the double-clicked tile, where the first Escape clears the project
+      // window's choice (the next one goes on to the window), or on the code editor once it takes it, which keeps an
+      // Escape for its own widgets first. Escape again until the window closes.
       await expect(async () => {
         await page.keyboard.press('Escape');
         await expect(editorWindow(page)).toHaveCount(0, { timeout: 1_000 });

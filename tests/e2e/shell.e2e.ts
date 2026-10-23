@@ -191,8 +191,19 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   expect(t0.paused).toBe(true);
   expect(t0.ui?.screen).toBe('title');
   await expect(frame.locator('[data-tl-ui-doc="title"][data-tl-ui-source="screen"]')).toHaveCount(1);
-  await page.waitForTimeout(400);
-  expect((await observe())!.stepIndex).toBe(t0.stepIndex);
+  // The hold: the step stops. The first paused reading can be a tick behind the simulation worker (one tick is in
+  // flight by design, up to the catch-up's 12 steps after a slow frame), so the hold is two readings 400 ms apart
+  // that agree, not the first reading staying.
+  await expect
+    .poll(
+      async () => {
+        const a = (await observe())!.stepIndex;
+        await page.waitForTimeout(400);
+        return (await observe())!.stepIndex === a;
+      },
+      { timeout: 10_000, message: 'the title holds the step' },
+    )
+    .toBe(true);
   const titleShot = await shot('title');
   expect(near(colourAt(titleShot, 0.5, 0.45), '#c02070'), `title colour ${colourAt(titleShot, 0.5, 0.45).join(',')}`).toBe(true);
 

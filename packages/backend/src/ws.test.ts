@@ -2,8 +2,12 @@
  * The WS channel:
  * upgrade auth (single-use wsToken), `attached`, heartbeat, frame bounds,
  * the protocol-error tolerance (10/60 s), `mutation.applied` delivery,
- * the caller binding (`session_required`), and the duplicate-retry replay.
+ * the caller binding (`session_required`), the duplicate-retry replay, and a
+ * close that a client which never answers its close frame cannot hold up.
  */
+import { randomBytes } from 'node:crypto';
+import { request } from 'node:http';
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   api,
@@ -17,6 +21,7 @@ import {
   upgrade,
   type TestBackend,
 } from './test-helpers';
+import { WS_CLOSE_GRACE_MS } from './ws-channel';
 
 describe('WS upgrade + session channel', () => {
   let tb: TestBackend;
@@ -355,5 +360,27 @@ describe('commands over HTTP + mutation.applied', () => {
     expect(res.status).toBe(400);
     const j = (await res.json()) as { error: { code: string } };
     expect(j.error.code).toBe('invalid_request');
+  });
+});
+describe('closing the backend', () => {
+  it('drops an editor socket that never answers the close frame, so close() ends within the grace', async () => {
+    const tb = await startBackend();
+    const sid = mkSessionId();
+    const est = await establish(tb, sid);
+    // A raw upgraded socket that reads nothing back: like a page too busy (a loaded host) to answer the close.
+    const q = new URLSearchParams({ sessionId: sid, wsToken: est.wsToken }).toString();
+    const sock = await new Promise<{ destroy(): void }>((ok, fail) => {
+      const req = request({ host: '127.0.0.1', port: tb.backend.portAuthoring, path: `/api/v1/ws?${q}`, headers: { Upgrade: 'websocket', Connection: 'Upgrade', 'Sec-WebSocket-Key': randomBytes(16).toString('base64'), 'Sec-WebSocket-Version': '13', Origin: AUTHORING_ORIGIN } });
+      req.once('upgrade', (_res, socket) => ok(socket));
+      req.once('error', fail);
+      req.end();
+    });
+    try {
+      const t0 = Date.now();
+      await tb.teardown();
+      expect(Date.now() - t0).toBeLessThan(WS_CLOSE_GRACE_MS + 3000);
+    } finally {
+      sock.destroy();
+    }
   });
 });

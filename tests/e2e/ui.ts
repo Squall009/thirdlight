@@ -282,7 +282,9 @@ export async function createItem(page: Page, what: string | readonly [string, st
   const field = page.getByLabel('new item name', { exact: true });
   await field.fill(name);
   await field.press('Enter');
-  await expect(field).toHaveCount(0);
+  // The field goes when the backend answers the create command; beside an import's jobs on a loaded host that
+  // answer has taken more than the default 5 s, which says nothing about the create.
+  await expect(field).toHaveCount(0, { timeout: 30_000 });
 }
 
 /** Put back the search (and the folder) a lookup changed, once the project window shows again. */

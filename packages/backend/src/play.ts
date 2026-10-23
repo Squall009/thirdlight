@@ -172,6 +172,8 @@ export interface PlayRecord {
   /** ms. */
   expiresAt: number;
   presentTimer?: ReturnType<typeof setTimeout>;
+  /** Load progress the preview reported before it presented (a timeout says where the start stood). */
+  progress?: { count: number; lastAt: number };
   ttlTimer?: ReturnType<typeof setTimeout>;
   stopAckTimer?: ReturnType<typeof setTimeout>;
   relays: Map<string, PendingRelay>;
@@ -250,7 +252,7 @@ export function playEndMessage(end: PlayEnd, timeouts: { presentSeconds: number;
       : end.reason === 'preview_failed'
         ? `the preview failed to start${end.detail !== undefined ? ` (${end.detail})` : ''}`
         : end.reason === 'preview_timeout'
-          ? `the preview did not present it within ${timeouts.presentSeconds} s`
+          ? `the preview did not present it within ${timeouts.presentSeconds} s of its last progress${end.detail !== undefined ? ` (${end.detail})` : ''}`
           : end.reason === 'expired'
             ? `it had no activity for ${Math.round(timeouts.ttlSeconds / 60)} min`
             : (end.detail ?? 'the editor page that ran it closed, reloaded or lost its connection');
@@ -386,6 +388,7 @@ export class PlayManager {
     if (rec === undefined || rec.state !== 'active' || rec.presentTimer === undefined) return;
     clearTimeout(rec.presentTimer);
     rec.presentTimer = setTimeout(() => this.presentTimeoutFired(rec), this.hooks.presentTimeoutMs());
+    rec.progress = { count: (rec.progress?.count ?? 0) + 1, lastAt: this.hooks.nowMs() };
   }
 
   /** A runtime failure reported by the preview path. */
@@ -749,7 +752,8 @@ export class PlayManager {
     rec.presentTimer = undefined;
     if (rec.state !== 'active') return;
     this.hooks.logPlay(rec.ownerSessionId, rec.playSessionId, 'preview_timeout');
-    this.stop(rec, 'preview_timeout');
+    const p = rec.progress;
+    this.stop(rec, 'preview_timeout', p === undefined ? 'no load progress from the preview since the start' : `${p.count} load progress report${p.count === 1 ? '' : 's'}, the last ${Math.round((this.hooks.nowMs() - p.lastAt) / 1000)} s before`);
   }
 
   private ttlFired(rec: PlayRecord): void {

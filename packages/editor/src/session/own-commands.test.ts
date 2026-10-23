@@ -68,7 +68,7 @@ describe('mergeDocumentEdit', () => {
  * delivered, like a page whose main thread has not got to them yet.
  */
 function fakeBackend() {
-  const state = { revision: 1, shell: null as Record<string, unknown> | null, box: { color: '#ffffff' } as Record<string, unknown> };
+  const state = { revision: 1, shell: null as Record<string, unknown> | null, box: { color: '#ffffff' } as Record<string, unknown>, settings: {} as Record<string, number> };
   const sent: { op: string; expectedRevision: number; args: Record<string, unknown> }[] = [];
   const reply = (status: number, body: unknown): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetchStub = vi.fn(async (_url: string, init: { body?: string }) => {
@@ -88,6 +88,11 @@ function fakeBackend() {
       const previous = { ...state.box };
       state.box = { ...state.box, ...(env.args['value'] as Record<string, unknown>) };
       change = { type: 'setComponent', id: 'crate', component: 'box', previous, next: { ...state.box }, changedFields: Object.keys(env.args['value'] as object) };
+    } else if (env.op === 'setSettings') {
+      // As the backend: the keys sent are merged into the settings.
+      const previous = { ...state.settings };
+      state.settings = { ...state.settings, ...(env.args['settings'] as Record<string, number>) };
+      change = { type: 'setSettings', previous, next: { ...state.settings }, changedKeys: Object.keys(env.args['settings'] as object) };
     } else throw new Error(`unexpected op ${env.op}`);
     state.revision += 1;
     return reply(200, { ok: true, op: env.op, requestId: env.requestId, revision: state.revision, duplicated: false, change });
@@ -172,6 +177,19 @@ describe('SessionClient — own commands made before the previous result arrived
     expect(r).toMatchObject({ ok: true, revision: 5 });
     expect(be.sent.map((s) => s.expectedRevision)).toEqual([1, 4]);
   }, 10_000);
+
+  it('sends a second setting changed before the first one\'s answer arrived on top of it (setSettings carries only its keys)', async () => {
+    const be = fakeBackend();
+    vi.stubGlobal('fetch', be.fetchStub);
+    const c = makeClient();
+    // The Quality panel: a number committed with Enter, then a choice picked at once, both while the view is at revision 1.
+    const a = c.setSettings({ render_scale: 0.75 }, c.projection.revision);
+    const b = c.setSettings({ dynamic_resolution: 1 }, c.projection.revision);
+    expect(await a).toMatchObject({ ok: true, revision: 2 });
+    expect(await b).toMatchObject({ ok: true, revision: 3 });
+    expect(be.sent.map((x) => x.expectedRevision)).toEqual([1, 2]);
+    expect(be.state.settings).toEqual({ render_scale: 0.75, dynamic_resolution: 1 });
+  });
 
   it('does not resend a whole-document edit built from the old view', async () => {
 

@@ -26,13 +26,15 @@
  */
 
 /**
- * Ops whose args carry a whole document (the settings, the shell, one
- * material, …) rather than a patch. Sent against a newer revision with args
- * built from an older view they would silently undo the edits in between,
- * so they are rebased only when their args are built at send time.
+ * Ops whose args carry a whole document (the shell, one material, …) rather
+ * than a patch. Sent against a newer revision with args built from an older
+ * view they would silently undo the edits in between, so they are rebased
+ * only when their args are built at send time. `setSettings` is not one: it
+ * carries only the keys it sets and the backend merges them, so a second
+ * setting changed before the first one's answer reached the page goes on top
+ * of it instead of being refused.
  */
 export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
-  'setSettings',
   'setTags',
   'setAssetOptions',
   'setMaterial',

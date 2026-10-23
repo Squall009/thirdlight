@@ -365,8 +365,8 @@ export function ProjectWindow(p: Props): JSX.Element {
     if (tag === 'INPUT' || tag === 'SELECT') return;
     const mod = ev.ctrlKey || ev.metaKey;
     const key = ev.key.toLowerCase();
-    // The window's scene shortcuts (paste objects, delete the selected object) are not meant here; undo and redo are.
-    if (!(mod && (key === 'z' || key === 'y'))) ev.stopPropagation();
+    // The window's scene shortcuts are not meant here; undo, redo and an Escape with nothing here to clear are (it closes the editor window).
+    if (!(mod && (key === 'z' || key === 'y')) && !(ev.key === 'Escape' && chosen.size === 0 && clip === null)) ev.stopPropagation();
     if (mod && key === 'x') {
       ev.preventDefault();
       cut();

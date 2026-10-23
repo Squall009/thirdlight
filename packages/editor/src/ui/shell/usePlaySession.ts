@@ -203,9 +203,13 @@ export function usePlaySession(
     bridgeRef.current = bridge;
 
     let snapshotSent = false;
+    // The preview's boot (its page loaded, its handshake answered) is load progress too: before the snapshot the
+    // composition reports none, and on a loaded host the boot alone can outlast the backend's present timeout.
+    const progress = (): void => void clientRef.current?.sendPlayPreviewProgress(playInfo.playSessionId);
     bridge.on('tl.handshake.ack', () => {
       if (snapshotSent) return;
       snapshotSent = true;
+      progress();
       if (playInfo.contentId !== null && playInfo.buildId !== null) {
         bridge.sendPlayContentExpect(playInfo.playSessionId, playInfo.contentId, playInfo.buildId);
       }
@@ -221,9 +225,7 @@ export function usePlaySession(
       clientRef.current?.sendPlayPreviewReady(playInfo.playSessionId);
     });
     // Load progress keeps the backend's present timeout from firing while the preview still moves.
-    bridge.on('tl.load.progress', () => {
-      clientRef.current?.sendPlayPreviewProgress(playInfo.playSessionId);
-    });
+    bridge.on('tl.load.progress', progress);
     bridge.on('tl.stopped', () => {
       setPlaying(false);
       setPlayInfo(null);
@@ -309,7 +311,11 @@ export function usePlaySession(
     const onMsg = (ev: MessageEvent): void => {
       bridge.handleMessage({ origin: ev.origin, source: ev.source, data: ev.data });
     };
-    iframe.addEventListener('load', onLoad);
+    const onFrameLoad = (): void => {
+      progress();
+      onLoad();
+    };
+    iframe.addEventListener('load', onFrameLoad);
     window.addEventListener('message', onMsg);
     // The preview may finish loading before this listener exists (the load
     // event is then missed): keep offering the handshake until it is acked.
@@ -319,7 +325,7 @@ export function usePlaySession(
     }, 300);
     return () => {
       window.clearInterval(retry);
-      iframe.removeEventListener('load', onLoad);
+      iframe.removeEventListener('load', onFrameLoad);
       window.removeEventListener('message', onMsg);
       bridgeRef.current = null;
     };

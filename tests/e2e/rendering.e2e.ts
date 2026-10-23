@@ -249,10 +249,16 @@ test('repeated boxes are drawn instanced in the Scene view and Play; picking wor
   // A change from outside (another client): the view draws again and syncs only that object.
   const listed = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 200, offset: 0 } }))['entities'] as { id: string; name: string }[];
   const moved = listed.find((e) => e.name === 'field 0')!.id;
-  await command('setTransform', { entityId: moved, transform: { position: [-10, 3, -10], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
-  await expect.poll(async () => Number(await attr(page, 'data-frames')), { timeout: 30_000 }).toBeGreaterThan(frames);
-  const sync = JSON.parse(await attr(page, 'data-sync')) as { entities: number; processed: number; full: boolean };
-  console.log(`[rendering] sync after one setTransform: ${JSON.stringify(sync)}`);
+  // A full sync the editor makes for its own reasons (a late background change of the project's content, on a
+  // loaded host) can land on the same frame and take the move with it: the move is then made again.
+  let sync = { entities: 0, processed: 0, full: true };
+  for (let attempt = 0; attempt < 3 && (sync.full || sync.processed !== 1); attempt++) {
+    const drawn = Number(await attr(page, 'data-frames'));
+    await command('setTransform', { entityId: moved, transform: { position: [-10, 3 + attempt, -10], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    await expect.poll(async () => Number(await attr(page, 'data-frames')), { timeout: 30_000 }).toBeGreaterThan(drawn);
+    sync = JSON.parse(await attr(page, 'data-sync')) as typeof sync;
+    console.log(`[rendering] sync after one setTransform: ${JSON.stringify(sync)}`);
+  }
   expect(sync.full).toBe(false);
   expect(sync.processed).toBe(1);
   expect(sync.entities).toBeGreaterThan(BOXES);
@@ -938,21 +944,41 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     // A mid-grey colour sky: under dynamic resolution it is still shown as its own display colour, not tone mapped
     // (as the Scene view, always at full resolution, shows it, and as before render scales existed).
     await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#7a8aa0' } } });
-    await command('setSettings', { settings: { render_scale: 1, dynamic_resolution: 1 } });
+    // At a 30 fps cap the frame's budget is 33 ms: the forced slow frames (two budgets more) still step it down, and
+    // the way back up does not depend on how busy this host's GPU is with other work (at 16.7 ms it could hold it).
+    await command('setSettings', { settings: { render_scale: 1, dynamic_resolution: 1, frame_rate_cap: 30 } });
     const { psid } = await play(editorUrlFor(be.editorUrl, variant).replace('#', '&slowFrames=6#'), variant);
+    // Each check on one reading: the drawn size follows the scale a frame later (a reading can hold a new scale and
+    // the old size), and a loaded host can step it again between two readings. Back up means drawn at full size again.
+    const full = await page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first().evaluate((c: HTMLCanvasElement) => c.width);
     await expect.poll(async () => (await render(psid))?.dynamic?.stepsDown ?? 0, { timeout: 30_000, message: 'stepped down' }).toBeGreaterThan(0);
     const down = (await render(psid))!;
     expect(down.scale).toBeLessThan(1);
-    await expect.poll(async () => JSON.stringify(await render(psid)), { timeout: 60_000, message: 'back up to 1' }).toMatch(/"scale":1,/);
-    const up = (await render(psid))!;
+    const seen: { up: RenderDiag | null; last: RenderDiag | null } = { up: null, last: null };
+    await expect
+      .poll(
+        async () => {
+          const r = (seen.last = await render(psid));
+          if (r?.scale === 1 && (r.dynamic?.stepsUp ?? 0) > 0 && r.internal?.[0] === full) seen.up = r;
+          return seen.up !== null;
+        },
+        { timeout: 60_000, message: 'back up to 1, drawn at full size' },
+      )
+      .toBe(true)
+      .catch((e: Error) => {
+        console.log(`[render scale] ${backendOf(variant)} dynamic: not back at ${full} px wide; last reading ${JSON.stringify(seen.last)}`);
+        throw e;
+      });
+    const up = seen.up!;
     console.log(`[render scale] ${backendOf(variant)} dynamic: down to ${down.scale} (${down.dynamic?.source}), back to ${up.scale}: ${JSON.stringify(up.dynamic)}`);
     expect(up.dynamic!.stepsUp).toBeGreaterThan(0);
-    expect(up.internal?.[0]).toBeGreaterThan(down.internal?.[0] ?? 0);
+    expect(up.internal?.[0]).toBe(full);
     const sky = (await settledShot(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), `${variant}-dynamic-sky`)).pixel(4, 4);
     console.log(`[render scale] ${backendOf(variant)} dynamic: sky ${JSON.stringify(sky)} (the colour is 122,138,160)`);
     for (const [i, want] of [122, 138, 160].entries()) expect(Math.abs(sky[i]! - want), `sky channel ${i}`).toBeLessThanOrEqual(3);
     await stop();
     await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418' } } });
+    await command('setSettings', { settings: { frame_rate_cap: 0 } });
   }
 });
 

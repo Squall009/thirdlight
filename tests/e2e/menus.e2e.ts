@@ -46,6 +46,9 @@ test('GameObject menu creates lights, spawns, empties, cameras with the starter 
   for (let i = 0; i < 2; i += 1) {
     await lightRows.first().click();
     await menu(page, 'Edit', 'Delete');
+    // The row goes once the delete is answered; until then it is still the first row, and a click on it selects
+    // an object that is about to go (Delete is then disabled when the menu opens).
+    await expect(lightRows).toHaveCount(1 - i);
   }
   await expect(rows(page)).toHaveCount(base - 2);
   await menu(page, 'GameObject', 'Light', 'Directional light');

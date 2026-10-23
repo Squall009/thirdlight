@@ -31,6 +31,9 @@ import type { RecordProblem } from './problems';
 import type { SessionRecord, SessionRegistry } from './sessions';
 import { utf8Len, type OriginDoc } from './util';
 
+/** How long a closing backend waits for a client to answer its close frame before it drops the socket. */
+export const WS_CLOSE_GRACE_MS = 2000;
+
 export interface WsChannelDeps {
   readonly timeouts: BackendTimeouts;
   readonly nowMs: () => number;
@@ -367,7 +370,11 @@ export function createWsChannel(deps: WsChannelDeps) {
     stopSweep(): void {
       clearInterval(sweepTimer);
     },
-    /** Close every editor connection (1001) and the WS server; `done` once it is closed. */
+    /**
+     * Close every editor connection (1001) and the WS server; `done` once it is closed. A client that does not
+     * answer the close frame within {@link WS_CLOSE_GRACE_MS} (a page busy on a loaded host) is dropped: the
+     * HTTP server's close waits for every socket, and the process gives its whole close only 10 s.
+     */
     close(done: () => void): void {
       for (const s of sessions.all()) {
         if (s.connected && s.socket !== null) {
@@ -378,6 +385,10 @@ export function createWsChannel(deps: WsChannelDeps) {
           }
         }
       }
+      const grace = setTimeout(() => {
+        for (const ws of wss.clients) ws.terminate();
+      }, WS_CLOSE_GRACE_MS);
+      grace.unref();
       wss.close(done);
     },
   };
