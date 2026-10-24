@@ -10,11 +10,15 @@
  * renderers (renderer-variants.ts). The scene uses light layers, an object
  * without local lights and ambient occlusion as well, so those agree too.
  *
- * Then the Scene view's See-through preview (view only, never stored): the
- * project's See-through setting is on, so the view built its shaders with
- * the mask at load (as Play did, which with no camera target fades nothing:
- * the parity above holds armed), and a screen put between the camera and the
- * cube dithers round the camera's target with nothing selected. The subject
+ * See-through: the view is drawn once before the project's See-through
+ * setting is turned on and once after (the view arms: every shader carries
+ * the mask, round no one): the two match, so an armed program that fades
+ * nothing draws what an unarmed one does. Play loads armed (with no camera
+ * target it fades nothing), so the parity above holds armed. Then the Scene
+ * view's See-through preview (view only, never stored) round the camera's
+ * target with nothing selected dithers the screen put between the camera and
+ * the cube, and leaves the wall behind the cube solid (only true occluders
+ * fade): with that wall opted out the picture is the same. The subject
  * choice and the arming are vitest's (see-through-preview.test.ts).
  */
 import { writeFileSync } from 'node:fs';
@@ -68,8 +72,8 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   const masked = await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'masked lamp', transform: { position: [0.9, 0.8, -0.9] } });
   await command('setComponent', { entityId: String(masked['createdId']), component: 'light', value: { type: 'point', color: '#ff40ff', intensity: 5, range: 4, decay: 2, lightMask: 1 } });
   await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#506070' }, fog: { mode: 'linear', color: '#506070', near: 8, far: 40 }, post: { exposure: 1.1, ssao: { enabled: true } } } });
-  // See-through on (the preview below), its fade at once: nothing eases while the test waits.
-  await command('setSettings', { settings: { see_through: 1, see_through_fade_s: 0 } });
+  // See-through's fade at once (nothing eases while the test waits); the setting itself goes on once the view is drawn unarmed.
+  await command('setSettings', { settings: { see_through_fade_s: 0 } });
 
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -89,8 +93,22 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   // A screen between the camera and the cube (part of the parity scene; the see-through preview thins it below).
   const at = cam.position.map((c, i) => [0, 0.5, 0][i]! + (c - [0, 0.5, 0][i]!) * 0.4);
   await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'screen', transform: { position: at }, box: { size: [0.7, 0.7, 0.7], material: { color: '#30a050' } } });
+  // A tall wall 2 m behind the cube across the ground: under the view's pitched camera its upper part stands in the
+  // see-through circle above the cube (the case a plane through the subject facing the camera wrongly faded).
+  const [ax, az] = [-cam.position[0]!, -cam.position[2]!];
+  const len = Math.hypot(ax, az);
+  const behind = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'wall behind', transform: { position: [(ax / len) * 2, 1.25, (az / len) * 2] }, box: { size: [1.6, 2.5, 1.6], material: { color: '#d0c030' } } });
+  const unarmed = await settledShot(view, `scene-view-unarmed-${variant}`, SETTLE_MS);
+  const state = async (): Promise<{ enabled: boolean; armed: boolean; subjects: { id: string; fade: number }[] } | null> => JSON.parse((await view.getAttribute('data-see-through')) || 'null');
+  await command('setSettings', { settings: { see_through: 1 } });
+  // On by the project's setting, round no one (armed: the switch names a subject, nothing is built).
+  await expect.poll(state).toMatchObject({ enabled: true, armed: true, subjects: [] });
   const scene = await settledShot(view, `scene-view-${variant}`, SETTLE_MS);
   expect(await viewCamera(page)).toEqual(cam);
+  // Armed but idle draws what unarmed draws (an armed program once lit everything black, and Play matched it).
+  const idle = diff(unarmed, scene, STRICT);
+  console.log(`[scene-view-parity] ${variant}: armed idle vs unarmed: ${show(idle)}`);
+  expect(within(idle), show(idle)).toBe(true);
 
   await page.getByTitle('Start an isolated play preview').click();
   const game = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
@@ -117,9 +135,6 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   await command('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...camEntity.components.virtualCamera, target: cubeId } });
   const revision = (await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision'];
   const seeThrough = page.getByRole('button', { name: /^see-through/ });
-  const state = async (): Promise<{ enabled: boolean; armed: boolean; subjects: { id: string; fade: number }[] } | null> => JSON.parse((await view.getAttribute('data-see-through')) || 'null');
-  // On from load by the project's setting, round no one (armed: the switch names a subject, nothing is built).
-  await expect.poll(state).toMatchObject({ enabled: true, armed: true, subjects: [] });
   await seeThrough.click();
   await expect(seeThrough).toHaveText('see-through: on');
   await expect.poll(state).toMatchObject({ enabled: true, subjects: [{ id: cubeId, fade: 1 }] });
@@ -131,8 +146,16 @@ for (const variant of RENDERER_VARIANTS) test(`the Scene view and Play draw the 
   const st = diff(centre(scene, 160, 160), centre(thinned, 160, 160), STRICT);
   console.log(`[scene-view-parity] ${variant}: see-through preview vs off, middle of the view: ${show(st)}`);
   expect(st.bad, show(st)).toBeGreaterThan(0.05);
-  await seeThrough.click();
-  await expect(seeThrough).toHaveText('see-through: off');
   // View only: nothing was stored.
   expect((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} }))['revision']).toBe(revision);
+  // The wall behind the cube is no occluder: opted out, it draws the same as it did inside the circle.
+  const behindId = String(behind['createdId']);
+  const wall = (await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: behindId } }))['entity'] as { components: { box: Record<string, unknown> } };
+  await command('setComponent', { entityId: behindId, component: 'box', value: { ...wall.components.box, seeThrough: false } });
+  const solid = await settledShot(view, `see-through-wall-behind-solid-${variant}`, SETTLE_MS);
+  const back = diff(centre(thinned, 160, 160), centre(solid, 160, 160), STRICT);
+  console.log(`[scene-view-parity] ${variant}: see-through on, wall behind opted out vs in: ${show(back)}`);
+  expect(within(back), show(back)).toBe(true);
+  await seeThrough.click();
+  await expect(seeThrough).toHaveText('see-through: off');
 });
