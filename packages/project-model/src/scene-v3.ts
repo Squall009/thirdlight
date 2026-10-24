@@ -70,7 +70,6 @@ import {
   colliderShapePoints,
   validateColliderLayers,
   ID_RE_V2,
-  MAX_ENTITIES_V2,
   COLLIDER_3D_LIMITS,
   validateBehaviorComponent,
   validateBoxV2,
@@ -1148,9 +1147,8 @@ interface SceneV3ValueResult {
 
 export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3, merged = false): SceneV3ValueResult {
   const errors: ModelErrorV3[] = [];
-  // A current scene's objects are bounded by their memory (`SCENE_OBJECT_BUDGET_BYTES`, checked as a command grows
-  // it), never a count, and neither is a merged runtime scene (several loaded together); an older one keeps its count.
-  const maxEntities = merged || version === 4 ? Infinity : MAX_ENTITIES_V2;
+  // A scene's objects are bounded by their memory (`SCENE_OBJECT_BUDGET_BYTES`, checked as a command grows it), never
+  // a count: an older scene upgraded on open is no exception.
   const sceneId = doc['sceneId'];
   if (sceneId === undefined) errors.push(fieldMissing('/sceneId', 'sceneId'));
   else if (typeof sceneId !== 'string') errors.push(fieldType('/sceneId', sceneId, 'string'));
@@ -1174,9 +1172,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   else if (!Array.isArray(ents)) errors.push(fieldType('/entities', ents, 'array'));
   else {
     entities = ents;
-    if (ents.length > maxEntities) {
-      errors.push(limitsError('/entities', 'entities', ents.length, maxEntities, `scene exceeds the entity limit of ${maxEntities}`));
-    }
   }
 
   if (entities !== null) {

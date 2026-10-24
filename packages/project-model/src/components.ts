@@ -35,8 +35,6 @@ import { validateLocalLightMode } from './local-lights';
 export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
-export const MAX_ENTITIES_V2 = 1024;
-
 /** How far a quaternion's x and y may stray from 0 and still turn about Z only (a 2D-plane physics rotation). */
 export const PLANE_ROTATION_TOLERANCE = 1e-6;
 

@@ -297,7 +297,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-max-instances"></a>`MAX_INSTANCES` | `65536` | Most copies in one instance set. |
 | <a id="limit-max-tags"></a>`MAX_TAGS` | `32` | At most this many tags per project: one per bit of the 32-bit tag mask queries filter by. |
-| <a id="limit-scene-limits-v3"></a>`SCENE_LIMITS_V3` | `{"playerSpawns":16,"lightsDirectional":1,"lightsAmbient":1,"entities":1024,"audioVersions":8,"animationProfileBytes":4096}` | The v3/v4 scene limit values (contract material: fixtures reference them). |
+| <a id="limit-scene-limits-v3"></a>`SCENE_LIMITS_V3` | `{"playerSpawns":16,"lightsDirectional":1,"lightsAmbient":1,"audioVersions":8,"animationProfileBytes":4096}` | The v3/v4 scene limit values (contract material: fixtures reference them). |
 
 <a id="limits-project-model--ui-documents"></a>
 ## `ui-documents.ts`

@@ -37,7 +37,6 @@ import {
   nextFreeEntityIdOf,
   entityIdAt,
   ENTITY_ID_MAX,
-  MAX_ENTITIES_V2,
   SCENE_OBJECT_BUDGET_BYTES,
   sceneDocumentBytes,
   MAX_ENTITY_DEPTH,
@@ -553,14 +552,13 @@ interface CreateWork {
   /** The next number to try per id prefix (ids are allocated in order). */
   readonly nextN: Map<string, number>;
   readonly created: Record<string, unknown>[];
-  readonly sceneCount: number;
 }
 
 function createWork(scene: SceneDocument, reservedIds?: ReadonlySet<string>): CreateWork {
   const byId = entitiesById(scene);
   // Ids are unique across the project — the other scenes' ids are reserved.
   const taken = new Set<string>([...byId.keys(), ...(reservedIds ?? [])]);
-  return { byId, taken, nextN: new Map(), created: [], sceneCount: scene.entities.length };
+  return { byId, taken, nextN: new Map(), created: [] };
 }
 
 /** The smallest free `<prefix>-N` (`entityIdAt` width), from where the last one of this prefix stopped. */
@@ -634,11 +632,7 @@ function stageCreate(
       if (roleError !== null) return fail(roleError);
     }
   }
-  // An older scene keeps its count; a current one is bounded by its memory (`gateResultV4`).
-  const total = work.sceneCount + work.created.length + 1;
-  if (scene.schemaVersion !== 4 && total > MAX_ENTITIES_V2) {
-    return fail(limitsExceeded('entities', total, MAX_ENTITIES_V2));
-  }
+  // A scene is bounded by its memory (`gateResultV4`), never an object count.
   const newDepth = parentId === null ? 1 : depthIn(work, parentId) + 1;
   if (newDepth > MAX_ENTITY_DEPTH) {
     return fail(limitsExceeded('depth', newDepth, MAX_ENTITY_DEPTH));

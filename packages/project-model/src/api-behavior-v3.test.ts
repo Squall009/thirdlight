@@ -819,18 +819,11 @@ describe('hierarchy and component rules', () => {
     }
   });
 
-  it('limits: v3 1024 entities ok, 1025 limits_exceeded (entities); depth 32 ok, 33 limits_exceeded (depth)', () => {
+  it('limits: a v3 scene has no object count (2,000 entities ok); depth 32 ok, 33 limits_exceeded (depth)', () => {
     const mk = (n: number) => validScene(Array.from({ length: n }, (_, i) => boxEntity(`e${i}`)).concat(cameraEntity()));
-    expect(validateSceneV3(mk(1023)).ok).toBe(true); // 1023 boxes + 1 camera = 1024
-    const bad1025 = validateSceneV3(mk(1024));
-    expect(bad1025.ok).toBe(false);
-    if (!bad1025.ok) {
-      const lim = bad1025.errors.find((e) => e.code === 'limits_exceeded');
-      expect(lim?.limit).toBe('entities');
-      expect(lim?.path).toBe('/entities');
-    }
-    // v4 lifts the per-scene entity cap to 16,384.
-    expect(validateSceneV4({ ...mk(1024), schemaVersion: 4, entities: sceneCamerasAsShots(mk(1024)['entities'] as unknown[]) }).ok).toBe(true);
+    // A scene is bounded by its memory (the command gate), never a count: an older scene opened for upgrade too.
+    expect(validateSceneV3(mk(2000)).ok).toBe(true);
+    expect(validateSceneV4({ ...mk(2000), schemaVersion: 4, entities: sceneCamerasAsShots(mk(2000)['entities'] as unknown[]) }).ok).toBe(true);
 
     const chain = (depth: number) => {
       const ents: Record<string, unknown>[] = [{ ...boxEntity('n1') }];

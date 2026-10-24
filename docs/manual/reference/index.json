@@ -623,7 +623,6 @@
 "limit.MAX_DECLARATION_BYTES": {"page":"limits-project-model-1.md","section":"limits-project-model--content-limits"},
 "limit.MAX_DECLARATION_STRING_LENGTH": {"page":"limits-project-model-1.md","section":"limits-project-model--content-limits"},
 "limit.MAX_EMISSIVE_INTENSITY": {"page":"limits-project-model-2.md","section":"limits-project-model--scene-v3"},
-"limit.MAX_ENTITIES_V2": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
 "limit.MAX_ENTITY_DEPTH": {"page":"limits-project-model-2.md","section":"limits-project-model--validate"},
 "limit.MAX_ENTITY_WRITES_PER_STEP": {"page":"limits-runtime.md","section":"limits-runtime--entity-access"},
 "limit.MAX_ENUM_VALUES": {"page":"limits-project-model-1.md","section":"limits-project-model--content-limits"},

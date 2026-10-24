@@ -28,7 +28,6 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import {
-  MAX_ENTITIES_V2 as MAX_SCENE_ENTITIES,
   MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
   MAX_PREFAB_BYTES,
   MAX_PREFAB_DEPTH,
@@ -647,11 +646,6 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
   }
 
   // step 6: atomic preconditions — nothing is created if any fails.
-  // An older scene keeps its count; a current one is bounded by its memory (the command gate).
-  const totalEntities = scene.entities.length + definition.entities.length;
-  if (scene.schemaVersion !== 4 && totalEntities > MAX_SCENE_ENTITIES) {
-    return { ok: false, error: limitsExceeded('entities', totalEntities, MAX_SCENE_ENTITIES) };
-  }
   const parentDepth = parentId === null ? 0 : sceneEntityDepth(scene, parentId);
   const resultingDepth = parentDepth + definition.depth;
   if (resultingDepth > MAX_SCENE_DEPTH) {

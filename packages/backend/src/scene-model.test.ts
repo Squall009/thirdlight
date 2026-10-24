@@ -9,9 +9,11 @@
  * with new ids. `createEntity` takes what `setComponent` adds. An edit that
  * changes nothing is refused as no_change. A project whose recent commands
  * include scene edits and a scene transition to a spawn loads again in a new
- * backend over the same data root.
+ * backend over the same data root. A scene has no object count (its memory
+ * is its bound): a template project grows past 1,024 objects and a
+ * storage-v3 project holding more than that opens.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -153,7 +155,7 @@ describe('the scene model over HTTP', () => {
 });
 
 describe('a project reopened by a new backend', () => {
-  it('loads again when its recent commands include scene edits and a scene transition to a spawn', async () => {
+  it('loads again when its recent commands include scene edits, a scene transition to a spawn and more than 1,024 objects; a storage-v3 project with more opens', async () => {
     const P = 'scene-reopen';
     const tb = await startBackend({ tokens: [], engineRoot: REPO });
     let closed = false;
@@ -171,6 +173,20 @@ describe('a project reopened by a new backend', () => {
       // A scene transition names a spawn: its recorded creation must load without the spawn beside it.
       const spawn = String((await send('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Arrival', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } }))['createdId']);
       await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', transform: { position: [69, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-extra', spawn } } } });
+      // No object count per scene: two batches take the scene past the 1,024 older scenes were capped at.
+      const boxes = (from: number): Record<string, unknown>[] => Array.from({ length: 550 }, (_, i) => ({ kind: 'box', name: `Crate ${from + i}`, transform: { position: [from + i, 0, 0] } }));
+      await send('createEntities', { sceneId: 'scene-main', entities: boxes(0) });
+      await send('createEntities', { sceneId: 'scene-main', entities: boxes(550) });
+      const mainFile = (dir: string): number => (JSON.parse(readFileSync(join(tb.root, 'data', 'projects', dir, 'scenes', 'scene-main.json'), 'utf8')) as { scene: { entities: unknown[] } }).scene.entities.length;
+      expect(mainFile(P)).toBeGreaterThan(1_100);
+      // A storage-v3 project (one scenes/main.json envelope, upgraded on open) holding more than 1,024 objects.
+      const V3 = 'demo-0003';
+      const v3Dir = join(tb.root, 'data', 'projects', V3);
+      cpSync(join(REPO, 'fixtures', 'm3', 'storage', 'project-v3-demo-0003'), v3Dir, { recursive: true });
+      const envelope = JSON.parse(readFileSync(join(v3Dir, 'scenes', 'main.json'), 'utf8')) as { scene: { entities: Record<string, unknown>[] } };
+      const crate = envelope.scene.entities.find((e) => e['id'] === 'box-0001')!;
+      for (let n = 1000; n < 2100; n++) envelope.scene.entities.push({ ...crate, id: `box-${n}`, name: `Crate ${n}` });
+      writeFileSync(join(v3Dir, 'scenes', 'main.json'), JSON.stringify(envelope, null, 2));
       // The same data root, a new backend (the first one closed): its first read of the project loads it.
       await tb.backend.close();
       closed = true;
@@ -179,6 +195,10 @@ describe('a project reopened by a new backend', () => {
         const q = await api(`http://127.0.0.1:${second.backend.portAuthoring}/api/v1/projects/${P}/commands`, { body: { op: 'queryProject', projectId: P }, token: tb.adminToken, origin: null });
         expect((q.json as { ok?: boolean }).ok, JSON.stringify(q.json).slice(0, 300)).toBe(true);
         expect((q.json as { scenes: { name: string }[] }).scenes.map((s) => s.name)).toContain('Extra room');
+        expect(mainFile(P)).toBeGreaterThan(1_100);
+        const v3 = await api(`http://127.0.0.1:${second.backend.portAuthoring}/api/v1/projects/${V3}/commands`, { body: { op: 'queryProject', projectId: V3 }, token: tb.adminToken, origin: null });
+        expect((v3.json as { ok?: boolean }).ok, JSON.stringify(v3.json).slice(0, 300)).toBe(true);
+        expect(mainFile(V3)).toBe(9 + 1_100);
       } finally {
         await second.teardown();
       }

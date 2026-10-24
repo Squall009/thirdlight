@@ -561,7 +561,6 @@ export const SCENE_LIMITS_V3 = Object.freeze({
   playerSpawns: 16,
   lightsDirectional: 1,
   lightsAmbient: 1,
-  entities: 1024,
   audioVersions: 8,
   animationProfileBytes: 4_096,
 });
