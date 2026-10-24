@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { prefabPartId, prefabStageId } from '@thirdlight/project-model';
+import { RESULT_ASSEMBLED_MAX } from '@thirdlight/protocol';
 
 import { pasteValuesOf, type SelectionRead } from '../../../packages/editor/src/session/copy-values';
 import { Projection } from '../../../packages/editor/src/session/projection';
@@ -289,6 +290,18 @@ describe('linked-copy commands at the backend', () => {
     // What each copy keeps as its own (the root's place) is not the prefab's; a stage edit names only its prefab.
     expect((await refused('setTransform', { entityId: door.rootId, transform: { position: [5, 0, 0] } })).code).toBe('prefab_override_unsupported');
     expect((await refused('deleteEntity', { entityId: made, entityIds: [copies[0]] })).code).toBe('prefab_override_unsupported');
+  }, 120_000);
+
+  it('a result names the assembled objects a big change made only up to a bound; the WS feed carries every one', async () => {
+    const copies = Array.from({ length: 40 }, (_, i) => ({ id: `paste-src-${i}`, name: `Door ${i}`, components: { transform: { position: [i, 0, 20], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, prefab: { prefabId: 'door' } } }));
+    const before = projection.listEntities().length;
+    const r = await send('pasteEntities', { entities: copies, sceneId: 'scene-main' });
+    const made = projection.listEntities().length - before;
+    expect(made).toBeGreaterThan(RESULT_ASSEMBLED_MAX);
+    expect(r.change.assembled).toEqual({ upserted: made, removed: 0, ids: expect.any(Array), truncated: true });
+    expect(r.change.assembled.ids).toHaveLength(RESULT_ASSEMBLED_MAX);
+    await send('undo', {});
+    expect(projection.listEntities()).toHaveLength(before);
   }, 120_000);
 
   it('a prefab edit writes the block footprints of its copies in every scene, not only the scene the command ran in', async () => {

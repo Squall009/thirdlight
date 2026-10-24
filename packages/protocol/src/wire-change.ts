@@ -83,3 +83,37 @@ export function fromWireChange(wire: Record<string, unknown>, current: { setMate
   }
   return { type, next } as unknown as ChangeData;
 }
+
+/**
+ * The most assembled objects a command result (HTTP, MCP) carries whole. A
+ * prefab edit can change every object of every copy: 1,000 copies make a
+ * delta of about 270 KB, too much for an agent's context and more than a
+ * result needs. Past this, the result says how many objects changed and
+ * names the first ones; the editor's WS feed carries the whole delta.
+ */
+export const RESULT_ASSEMBLED_MAX = 64;
+
+/** What a result says of the assembled objects a change moved, when it does not carry them whole. */
+export interface AssembledSummary {
+  upserted: number;
+  removed: number;
+  /** The first changed objects' ids (new or changed first, then removed), at most `RESULT_ASSEMBLED_MAX`. */
+  ids: string[];
+  truncated: true;
+}
+
+/**
+ * A command result with its change's `assembled` delta bounded: whole up to
+ * `RESULT_ASSEMBLED_MAX` objects, else an `AssembledSummary`. Any other
+ * result is returned as it is.
+ */
+export function withBoundedAssembled<R>(result: R): R {
+  const change = (result as { change?: { assembled?: unknown } } | null)?.change;
+  const a = change?.assembled as { upsert?: { entities?: { id?: unknown }[] }[]; removedIds?: unknown[] } | undefined;
+  if (a === undefined || !Array.isArray(a.upsert) || !Array.isArray(a.removedIds)) return result;
+  const upserted = a.upsert.flatMap((g) => (Array.isArray(g.entities) ? g.entities.map((e) => String(e.id)) : []));
+  if (upserted.length + a.removedIds.length <= RESULT_ASSEMBLED_MAX) return result;
+  const ids = [...upserted, ...a.removedIds.map(String)].slice(0, RESULT_ASSEMBLED_MAX);
+  const summary: AssembledSummary = { upserted: upserted.length, removed: a.removedIds.length, ids, truncated: true };
+  return { ...result, change: { ...change, assembled: summary } } as R;
+}

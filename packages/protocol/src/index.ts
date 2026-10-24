@@ -313,7 +313,7 @@ export {
 } from './bake';
 
 // The change record on the WS (no previous side; keyed lists as deltas).
-export { WIRE_LIST_KEYS, fromWireChange, toWireChange, type WireListDelta } from './wire-change';
+export { RESULT_ASSEMBLED_MAX, WIRE_LIST_KEYS, fromWireChange, toWireChange, withBoundedAssembled, type AssembledSummary, type WireListDelta } from './wire-change';
 
 // Importing an asset tool's job export (a folder or zip: a GLB and manifest.json).
 export {

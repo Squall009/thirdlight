@@ -4,7 +4,7 @@ import type { HeadlessEditors } from './headless';
 import type { ErosionRunner } from './erosion-runner';
 import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, type SessionError } from '@thirdlight/protocol';
+import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { SessionRegistry, type SessionRecord } from './sessions';
 
@@ -278,7 +278,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       if (result.ok && extraction !== null && result.duplicated === false) {
         if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
-        sendJson(res, 200, { ...result, textureExtraction: extraction });
+        sendJson(res, 200, withBoundedAssembled({ ...result, textureExtraction: extraction }));
         return;
       }
       if (!result.ok && folderReport !== null) {
@@ -289,13 +289,13 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       if (result.ok && folderReport !== null && result.duplicated === false) {
         if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
-        sendJson(res, 200, { ...result, folderImport: folderReport });
+        sendJson(res, 200, withBoundedAssembled({ ...result, folderImport: folderReport }));
         return;
       }
       if (result.ok && stagePrep !== null && result.duplicated === false) {
         if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);
-        sendJson(res, 200, { ...result, libraryStage: stagePrep });
+        sendJson(res, 200, withBoundedAssembled({ ...result, libraryStage: stagePrep }));
         return;
       }
       if (result.ok) {
@@ -328,7 +328,8 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         }
         // What ran is applied (the revision moved), so the answer stays a success; `groupIncomplete` says the step
         // was not taken whole, and the editor shows it.
-        sendJson(res, 200, stopped !== null ? { ...last, groupIncomplete: stopped } : last);
+        // The result names the assembled objects a big prefab edit changed only up to a bound; the WS feed carries them all.
+        sendJson(res, 200, withBoundedAssembled(stopped !== null ? { ...last, groupIncomplete: stopped } : last));
         return;
       }
       // The response is exactly the commands.md result — pass the

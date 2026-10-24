@@ -68,7 +68,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
 | [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 37 sections |
-| [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `ws-events.ts` |
+| [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
 | [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 21 sections |

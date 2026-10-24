@@ -152,6 +152,8 @@ export class CommandSender {
   private applyOwnAck(requestId: string, r: { revision: number; change: unknown }): void {
     this.ownCommands.recordOwnRevision(r.revision);
     if (r.revision !== this.host.projection.revision + 1 || r.change === null || typeof r.change !== 'object') return;
+    // A result that names only some of the assembled objects a prefab edit changed: the WS event brings them all.
+    if ((r.change as { assembled?: { truncated?: unknown } }).assembled?.truncated === true) return;
     const sceneId = (r as { sceneId?: unknown }).sceneId;
     this.host.applyAcked({ requestId, revision: r.revision, change: r.change, ...(typeof sceneId === 'string' ? { sceneId } : {}) });
   }

@@ -108,6 +108,13 @@ The limits and defaults `@thirdlight/protocol` defines, by source file. Values a
 | <a id="limit-play-problem-kinds-max"></a>`PLAY_PROBLEM_KINDS_MAX` | `32` | The distinct kinds one Play writes at most: each kind is one line, so this bounds a page that reports a new code over and over, not a game. |
 | <a id="limit-play-problem-message-max"></a>`PLAY_PROBLEM_MESSAGE_MAX` | `512` | The longest problem line (characters). |
 
+<a id="limits-protocol--wire-change"></a>
+## `wire-change.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-result-assembled-max"></a>`RESULT_ASSEMBLED_MAX` | `64` | The most assembled objects a command result (HTTP, MCP) carries whole. A prefab edit can change every object of every copy: 1,000 copies make a delta of about 270 KB, too much for an agent's context and more than a result needs. Past this, the result says how many objects changed and names the first ones; the editor's WS feed carries the whole delta. |
+
 <a id="limits-protocol--ws-events"></a>
 ## `ws-events.ts`
 
