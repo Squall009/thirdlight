@@ -12,17 +12,86 @@
  *   building's rooms (edited here like any room); the program no longer
  *   runs. Detach: locked, and every prop pinned. Pin a prop: it stays where
  *   it is (same id) whatever is made again; unpin hands it back.
+ * - `RoomFurnishingFields`: the same for a room drawn on its own (no
+ *   program: its outline is the room): its furnishing set, falling back to
+ *   the rooms object's and the layer's, seed, Detach and pins.
  *
  * Browser-only (React).
  */
 import type { JSX } from 'react';
-import type { ArchitectureBuilding, FurnishedProp } from '@thirdlight/project-model';
+import type { ArchitectureBuilding, ArchitectureOutline, FurnishedProp } from '@thirdlight/project-model';
 import { ARCHITECTURE_ROOF_SHAPES } from '@thirdlight/runtime';
 
 import type { RoomsBinding } from '../architecture/useRoomsBinding';
 import { Num, Pick, Text } from './RoomFields';
 
-const pinOf = (x: FurnishedProp): NonNullable<ArchitectureBuilding['pins']>[number] => ({ id: x.id, model: x.model, position: x.position, facing: x.facing, size: x.size });
+type Pin = NonNullable<ArchitectureOutline['pins']>[number];
+const pinOf = (x: FurnishedProp): Pin => ({ id: x.id, ...(x.model !== undefined ? { model: x.model } : { height: x.height ?? x.size[1] }), position: x.position, facing: x.facing, size: x.size });
+
+/** A furnished room's or building's props, each with Pin (kept where it is whatever is made again) or Unpin. */
+function PropPins(p: { props: readonly FurnishedProp[]; pins: readonly Pin[]; setPins: (pins: Pin[], what: string) => void }): JSX.Element {
+  const pinned = new Set(p.pins.map((x) => x.id));
+  return (
+    <>
+      {p.props.length > 0 && <div className="tl-inspector__subtitle">Props ({p.props.length})</div>}
+      <div className="tl-rooms__list" aria-label="props">
+        {p.props.map((x) => (
+          <div key={x.id} className="tl-rooms__opening" aria-label={`prop ${x.id}`}>
+            <span className="tl-field__label" title={`${x.model?.assetId ?? `stand-in block ${x.size.join(' × ')} × ${x.height ?? 0} m`} at ${x.position.map((v) => v.toFixed(2)).join(', ')}`}>
+              {x.id}
+            </span>
+            {pinned.has(x.id) ? (
+              <button type="button" className="tl-btn tl-btn--small is-active" aria-label={`unpin ${x.id}`} title="Hand it back to the furnishing" onClick={() => p.setPins(p.pins.filter((q) => q.id !== x.id), 'Unpin prop')}>
+                Unpin
+              </button>
+            ) : (
+              <button type="button" className="tl-btn tl-btn--small" aria-label={`pin ${x.id}`} title="Keep it where it is whatever is made again" onClick={() => p.setPins([...p.pins, pinOf(x)], 'Pin prop')}>
+                Pin
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/**
+ * A room drawn on its own (no building): its furnishing set (absent: the
+ * rooms object's, else the layer's), the layout's seed, Detach (every prop
+ * pinned: nothing is made again) and its props to pin.
+ */
+export function RoomFurnishingFields(p: { room: ArchitectureOutline; binding: RoomsBinding; onSet: (next: ArchitectureOutline, what: string) => void }): JSX.Element {
+  const { room, binding: B } = p;
+  const props = B.props.filter((x) => x.outline === room.id);
+  const pins = room.pins ?? [];
+  const inherited = B.component?.furnishing ?? B.layerFurnishing;
+  const nameOf = (id: string): string => B.furnishings.find(([g]) => g === id)?.[1] ?? id;
+  const setField = (key: 'furnishing' | 'layoutSeed', v: string | number | undefined, what: string): void => {
+    const rest: ArchitectureOutline = { ...room };
+    delete rest[key];
+    p.onSet(v === undefined || v === '' ? rest : ({ ...rest, [key]: v } as ArchitectureOutline), what);
+  };
+  const setPins = (next: Pin[], what: string): void => {
+    const { pins: _p, ...rest } = room;
+    p.onSet(next.length > 0 ? { ...rest, pins: next } : rest, what);
+  };
+  const pinned = new Set(pins.map((x) => x.id));
+  return (
+    <div aria-label={`room ${room.id} furnishing`}>
+      <Pick label="furnishing set" value={room.furnishing ?? ''} options={[['', inherited !== null && inherited !== undefined ? `— ${B.component?.furnishing !== undefined ? 'the rooms’' : 'the layer’s'}: ${nameOf(inherited)} —` : '— none —'], ...B.furnishings]} onCommit={(v) => setField('furnishing', v, 'Furnishing set')} />
+      <Num label="layout seed" value={room.layoutSeed ?? 0} min={0} max={0xffffffff} step={1} onCommit={(v) => setField('layoutSeed', v === undefined || v === 0 ? undefined : Math.round(v), 'Layout seed')} />
+      <button type="button" className="tl-btn tl-btn--small" title="Lay the props out again from the next seed (pinned props stay)" disabled={room.roomType === undefined} onClick={() => setField('layoutSeed', ((room.layoutSeed ?? 0) + 1) % 0x100000000, 'New layout')}>
+        New layout
+      </button>
+      <button type="button" className="tl-btn tl-btn--small" title="Pin every prop: nothing is made again" disabled={props.every((x) => pinned.has(x.id))} onClick={() => setPins([...pins, ...props.filter((x) => !pinned.has(x.id)).map(pinOf)], 'Detach furnishing')}>
+        Detach
+      </button>
+      {room.roomType === undefined && <p className="tl-hint">Give the room a type: the furnishing set places props by type.</p>}
+      <PropPins props={props} pins={pins} setPins={setPins} />
+    </div>
+  );
+}
 
 export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding: RoomsBinding; onSet: (next: ArchitectureBuilding, what: string) => void }): JSX.Element {
   const bld = p.building;
@@ -36,7 +105,7 @@ export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding:
     delete rest[key];
     p.onSet(v === undefined || v === '' ? rest : ({ ...rest, [key]: v } as ArchitectureBuilding), what);
   };
-  const setPins = (pins: NonNullable<ArchitectureBuilding['pins']>, what: string): void => {
+  const setPins = (pins: Pin[], what: string): void => {
     const { pins: _p, ...rest } = bld;
     p.onSet(pins.length > 0 ? { ...rest, pins } : rest, what);
   };
@@ -78,25 +147,7 @@ export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding:
           Unlock plan
         </button>
       )}
-      {props.length > 0 && <div className="tl-inspector__subtitle">Props ({props.length})</div>}
-      <div className="tl-rooms__list" aria-label="props">
-        {props.map((x) => (
-          <div key={x.id} className="tl-rooms__opening" aria-label={`prop ${x.id}`}>
-            <span className="tl-field__label" title={`${x.model.assetId} at ${x.position.map((v) => v.toFixed(2)).join(', ')}`}>
-              {x.id}
-            </span>
-            {pinned.has(x.id) ? (
-              <button type="button" className="tl-btn tl-btn--small is-active" aria-label={`unpin ${x.id}`} title="Hand it back to the furnishing" onClick={() => setPins((bld.pins ?? []).filter((q) => q.id !== x.id), 'Unpin prop')}>
-                Unpin
-              </button>
-            ) : (
-              <button type="button" className="tl-btn tl-btn--small" aria-label={`pin ${x.id}`} title="Keep it where it is whatever is made again" onClick={() => setPins([...(bld.pins ?? []), pinOf(x)], 'Pin prop')}>
-                Pin
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
+      <PropPins props={props} pins={bld.pins ?? []} setPins={setPins} />
     </div>
   );
 }

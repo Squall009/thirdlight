@@ -75,6 +75,7 @@ export const blockLayer: ComponentDescriptor = {
       str('kit', 'Theme', 'A theme name the block types swap by.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
       str('region', 'Region', 'The region it covers (empty: the whole layer).', { minLength: 1, maxLength: 64 }),
     ]), { maxItems: BLOCK_LIMITS.regions + 1 }),
+    str('furnishing', 'Furnishing set', 'The furnishing set (a furnishing-set graph, or an engine starter such as starter-furnishing) that furnishes the rooms drawn on the layer when neither the room nor its rooms object names one (absent: none).', { format: 'id', minLength: 1, maxLength: 64 }),
     ref('kitId', 'Kit', 'The kit the layer is built from: the block editor offers its block types and pieces. Editor-side: the cells name their block types themselves.', 'kit'),
     obj('walk', 'Walk', "How the layer is walked by ctx.grid's walk queries (walkNeighbours, path, reachable) unless a query sets its own, and the region the Problems check walks from: places to stand there that cannot be walked to are listed.", [
       str('from', 'From region', 'The region the Problems check walks from (empty: no check).', { format: 'identifier', minLength: 1, maxLength: 64 }),

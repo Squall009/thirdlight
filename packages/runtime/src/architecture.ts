@@ -71,6 +71,8 @@ export class RuntimeArchitecture {
   /** Counts changes to rooms drawn on block layers (objects with `layer` added, removed or restyled). */
   private roomsRevision = 0;
   private readonly roomsCache = new Map<string, { revision: number; key: string; rooms: ArchitectureLayerRooms }>();
+  /** The furnishing sets of loaded block layers (rooms drawn on them that name none take it). */
+  private readonly layerSets = new Map<string, string>();
 
   constructor(
     private readonly collide = false,
@@ -158,6 +160,8 @@ export class RuntimeArchitecture {
   /** Loaded objects carrying `architecture` (their colliders at the next flush when new or changed). */
   add(entities: readonly EntityV3[]): void {
     for (const e of entities) {
+      const layer = (e.components as { blockLayer?: { furnishing?: string } }).blockLayer;
+      if (layer !== undefined) this.layerSet(e.id, layer.furnishing ?? null);
       const c = (e.components as { architecture?: ArchitectureComponent }).architecture;
       if (c === undefined || !Array.isArray(c.elements)) continue;
       const p = e.components.transform?.position ?? [0, 0, 0];
@@ -169,10 +173,19 @@ export class RuntimeArchitecture {
     }
   }
 
+  /** A block layer's furnishing set: the objects drawn on it build their colliders again when it changes (their stand-in props). */
+  private layerSet(layerId: string, set: string | null): void {
+    if ((this.layerSets.get(layerId) ?? null) === set) return;
+    if (set === null) this.layerSets.delete(layerId);
+    else this.layerSets.set(layerId, set);
+    for (const [id, h] of this.held) if (h.component.layer === layerId) this.dirty.add(id);
+  }
+
   /** Forget unloaded objects; returns their collider ids (the caller removes them from the port). */
   remove(ids: ReadonlySet<string>): string[] {
     const out: string[] = [];
     for (const id of ids) {
+      this.layerSet(id, null);
       const h = this.held.get(id);
       if (h !== undefined) out.push(...h.built);
       if (h?.component.layer !== undefined) this.roomsRevision += 1;
@@ -196,7 +209,8 @@ export class RuntimeArchitecture {
     for (const id of dirty) {
       const h = this.held.get(id);
       if (h === undefined) continue;
-      const expanded = expandArchitecture(h.component, h.origin, this.styles, { swaps: this.swaps }).component;
+      const layerFurnishing = h.component.layer !== undefined ? (this.layerSets.get(h.component.layer) ?? null) : null;
+      const expanded = expandArchitecture(h.component, h.origin, this.styles, { swaps: this.swaps, layerFurnishing }).component;
       const from = canonicalJsonText({ c: expanded, o: h.origin });
       if (h.builtFrom === from) continue;
       remove.push(...h.built);

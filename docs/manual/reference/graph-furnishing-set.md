@@ -17,12 +17,12 @@ Port types:
 <a id="graph-furnishing-set--furnishing"></a>
 ## Furnishing
 
-- Furnishing (`furnishing`): Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building gets (largest rooms first).
+- Furnishing (`furnishing`): Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).
 
 <a id="node-furnishing-set--furnishing"></a>
 ### Furnishing (`furnishing`)
 
-Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building gets (largest rooms first).
+Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).
 
 (every graph needs one; at most 1 per graph)
 
@@ -38,13 +38,13 @@ Fields:
 <a id="graph-furnishing-set--props"></a>
 ## Props
 
-- Prop (`prop`): A kit model placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.
+- Prop (`prop`): A kit model (none: a stand-in block of its size) placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.
 - Light (`light`): A point light in the middle of each room of a type (empty: any room), this high over its floor.
 
 <a id="node-furnishing-set--prop"></a>
 ### Prop (`prop`)
 
-A kit model placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.
+A kit model (none: a stand-in block of its size) placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.
 
 Fields:
 

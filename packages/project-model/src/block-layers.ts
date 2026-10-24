@@ -192,6 +192,8 @@ export interface BlockLayerComponent {
    * types themselves (absent: none).
    */
   kitId?: string;
+  /** The furnishing set of the rooms drawn on the layer when neither the room nor its rooms object names one (absent: none). */
+  furnishing?: string;
   /**
    * How the layer is walked (`block-walk-settings.ts`): the step, drop and
    * headroom of `ctx.grid`'s walk queries, the cell field that allows
@@ -891,7 +893,7 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
 /** The stored fields of the `blockLayer` component, in canonical order. */
-export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'planeZ', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers', 'seeThrough'] as const;
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'planeZ', 'castShadow', 'receiveShadow', 'maxSlope', 'smoothAngle', 'topSubdivision', 'wallPaint', 'lightLayers', 'cutaway', 'kits', 'kitId', 'walk', 'vertexAO', 'rules', 'scatter', 'streaming', 'decalLayers', 'seeThrough', 'furnishing'] as const;
 
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
@@ -934,6 +936,7 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
   validateBlockCutaway(v['cutaway'], `${path}/cutaway`, errors);
   validateLayerKits(v['kits'], `${path}/kits`, errors);
   if (v['kitId'] !== undefined && (typeof v['kitId'] !== 'string' || !ID_RE.test(v['kitId']))) err(errors, 'id_invalid', `${path}/kitId`, 'kitId is a kit id', v['kitId']);
+  if (v['furnishing'] !== undefined && (typeof v['furnishing'] !== 'string' || !ID_RE.test(v['furnishing']))) err(errors, 'field_value', `${path}/furnishing`, 'furnishing names a furnishing set graph', v['furnishing']);
   validateBlockLayerWalk(v['walk'], `${path}/walk`, errors);
   const ao = v['vertexAO'];
   if (ao !== undefined && (!finite(ao) || ao < 0 || ao > 1)) err(errors, 'field_value', `${path}/vertexAO`, 'vertexAO is 0-1 (0: none)', ao);
@@ -967,6 +970,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.streaming !== undefined ? { streaming: canonicalStreamingRings(c.streaming)! } : {}),
     ...(c.decalLayers !== undefined ? { decalLayers: c.decalLayers } : {}),
     ...(c.seeThrough === false ? { seeThrough: false as const } : {}),
+    ...(c.furnishing !== undefined ? { furnishing: c.furnishing } : {}),
   };
 }
 

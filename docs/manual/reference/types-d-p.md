@@ -1,8 +1,21 @@
-# Types (DecalPageRef to PaintInstancesArgs)
+# Types (DecalPageLayerRef to PackedFrom)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-decal-page-layer-ref"></a>
+### DecalPageLayerRef
+
+Declared in `packages/project-model/src/decal-pages.ts`.
+
+```ts
+interface DecalPageLayerRef {
+  /** The texture array (a texture asset id of the build). */
+  texture: string;
+  layer: number;
+}
+```
 
 <a id="type-decal-page-ref"></a>
 ### DecalPageRef
@@ -1613,17 +1626,5 @@ interface PackedFrom {
    * Absent on textures packed before KTX2 sources were taken.
    */
   reencoded?: boolean[];
-}
-```
-
-<a id="type-paint-instances-args"></a>
-### PaintInstancesArgs
-
-Declared in `packages/commands/src/instance-stroke-ops.ts`.
-
-```ts
-/** `paintInstances` args: the instance set and one stroke. */
-interface PaintInstancesArgs extends InstanceStroke {
-  entityId: string;
 }
 ```

@@ -87,7 +87,7 @@ export interface ArchitecturePresetDef {
 export interface ArchitectureStyles {
   readonly styles: ReadonlyMap<string, ArchitectureStyleDef>;
   readonly presets: ReadonlyMap<string, ArchitecturePresetDef>;
-  /** The project's room programs and furnishing sets (games' data: the engine ships none). */
+  /** The room programs and furnishing sets (the project's over the engine's starters). */
   readonly programs: ReadonlyMap<string, RoomProgramDef>;
   readonly furnishings: ReadonlyMap<string, FurnishingSetDef>;
 }
@@ -234,14 +234,18 @@ function presetDef(id: string, graph: GraphData): ArchitecturePresetDef {
   return { id, style: head !== undefined ? str(K, head, 'style') : '', base: head !== undefined ? str(K, head, 'base') : '', sheet: head !== undefined ? str(K, head, 'sheet') : '', values, masks };
 }
 
-const STARTERS: { styles: Map<string, ArchitectureStyleDef>; presets: Map<string, ArchitecturePresetDef> } = (() => {
+const STARTERS: { styles: Map<string, ArchitectureStyleDef>; presets: Map<string, ArchitecturePresetDef>; programs: Map<string, RoomProgramDef>; furnishings: Map<string, FurnishingSetDef> } = (() => {
   const styles = new Map<string, ArchitectureStyleDef>();
   const presets = new Map<string, ArchitecturePresetDef>();
+  const programs = new Map<string, RoomProgramDef>();
+  const furnishings = new Map<string, FurnishingSetDef>();
   for (const g of ARCHITECTURE_STARTER_GRAPHS) {
     if (g.kind === ARCHITECTURE_STYLE_KIND) styles.set(g.graphId, styleDef(g.graphId, g.graph));
-    else presets.set(g.graphId, presetDef(g.graphId, g.graph));
+    else if (g.kind === ARCHITECTURE_PRESET_KIND) presets.set(g.graphId, presetDef(g.graphId, g.graph));
+    else if (g.kind === ROOM_PROGRAM_KIND) programs.set(g.graphId, roomProgramDef(g.graphId, g.graph));
+    else if (g.kind === FURNISHING_SET_KIND) furnishings.set(g.graphId, furnishingSetDef(g.graphId, g.graph));
   }
-  return { styles, presets };
+  return { styles, presets, programs, furnishings };
 })();
 
 const tables = new WeakMap<readonly unknown[], ArchitectureStyles>();
@@ -256,8 +260,8 @@ export function architectureStylesOf(graphs: readonly ArchitectureGraphLike[] | 
   if (known !== undefined) return known;
   const styles = new Map(STARTERS.styles);
   const presets = new Map(STARTERS.presets);
-  const programs = new Map<string, RoomProgramDef>();
-  const furnishings = new Map<string, FurnishingSetDef>();
+  const programs = new Map(STARTERS.programs);
+  const furnishings = new Map(STARTERS.furnishings);
   for (const g of list) {
     if (g === null || typeof g !== 'object' || typeof g.graphId !== 'string' || typeof g.graph !== 'object' || g.graph === null) continue;
     if (g.kind === ARCHITECTURE_STYLE_KIND) styles.set(g.graphId, styleDef(g.graphId, g.graph));

@@ -360,6 +360,7 @@ export {
   architectureRowTies,
   architectureStylesOf,
   architectureTiedRow,
+  architectureLayerFurnishing,
   expandArchitecture,
   fitsTrimRow,
   formatRowMetres,

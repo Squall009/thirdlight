@@ -161,7 +161,7 @@ describe('a building split into rooms and furnished', () => {
     expect(x.problems).toEqual([]);
     const props = x.props ?? [];
     expect(props.length).toBeGreaterThanOrEqual(8);
-    expect(props.filter((p) => p.model.assetId === 'kit-table').every((p) => x.rooms.find((r) => r.id === p.room)?.type === 'room-a')).toBe(true);
+    expect(props.filter((p) => p.model?.assetId === 'kit-table').every((p) => x.rooms.find((r) => r.id === p.room)?.type === 'room-a')).toBe(true);
     // Lights: the set's count, one per room, largest rooms first.
     expect((x.lights ?? []).length).toBe(3);
     expect(new Set((x.lights ?? []).map((l) => l.room)).size).toBe(3);
@@ -172,7 +172,7 @@ describe('a building split into rooms and furnished', () => {
     for (const r of x.rooms) {
       const mine = props.filter((p) => p.room === r.id);
       const inner = shrink(r.points, 0.1);
-      for (const p of mine.filter((q) => q.model.assetId === 'kit-cabinet')) {
+      for (const p of mine.filter((q) => q.model?.assetId === 'kit-cabinet')) {
         // Its back against a wall: the point behind its middle by half its depth is the wall's face.
         const [fx, fz] = facingDir(p.facing);
         const bx = p.position[0] - fx * (p.size[1] / 2 + 0.02);
@@ -192,7 +192,7 @@ describe('a building split into rooms and furnished', () => {
   it('keeps pinned props where they were under a new seed, a pin replacing its generated prop; a locked plan is the generated one', () => {
     const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing' });
     const before = expandArchitecture(comp(b), [0, 0, 0], table).props!;
-    const pick = before.find((p) => p.model.assetId === 'kit-cabinet')!;
+    const pick = before.find((p) => p.model?.assetId === 'kit-cabinet')!;
     const pin = { id: pick.id, model: pick.model, position: pick.position, facing: pick.facing, size: pick.size };
     const after = expandArchitecture(comp({ ...b, layoutSeed: 99, pins: [pin] }), [0, 0, 0], table).props!;
     const kept = after.filter((p) => p.id === pick.id);
@@ -233,7 +233,7 @@ describe('a building split into rooms and furnished', () => {
     const t1 = performance.now();
     const y = expandArchitecture(comp(b), [0, 0, 0], styles(programGraph()));
     expect(performance.now() - t1).toBeLessThan(10_000);
-    const crates = (y.props ?? []).filter((p) => p.model.assetId === 'kit-crate');
+    const crates = (y.props ?? []).filter((p) => p.model?.assetId === 'kit-crate');
     expect(crates.length).toBeGreaterThan(y.rooms.length);
     expect(crates.length).toBeLessThan(many);
   });
@@ -290,6 +290,46 @@ describe('a building split into rooms and furnished', () => {
     expect(bad({ pins: [{ id: 'p', model: { assetId: 'kit-crate' }, position: [1, 0], facing: 0 }] })).toEqual(['/a/buildings/0/pins/0/position']);
     expect(bad({}, [{ id: 'r', path: { points: at(RECT), closed: true }, preset: 'starter-room', building: 'nope' }])).toEqual(['/a/outlines/0/building']);
     expect(architectureGraphsOf([{ kind: ROOM_PROGRAM_KIND }, { kind: FURNISHING_SET_KIND }, { kind: 'material-function' }]).length).toBe(2);
+  });
+
+  it('furnishes rooms drawn on their own by type: the room\'s set, else the object\'s, else the layer\'s; the starter set\'s stand-in blocks; a pinned, moved prop survives a new seed', () => {
+    // Three rooms side by side (an interior-only scene: no building), each a type of the engine's starter set.
+    const room = (id: string, x0: number, type: string, extra: Record<string, unknown> = {}): ArchitectureComponent['outlines'] extends (infer O)[] | undefined ? O : never =>
+      ({ id, path: { points: at([[x0, 0], [x0 + 6, 0], [x0 + 6, 5], [x0, 5]]), closed: true }, preset: 'starter-room', roomType: type, openings: [{ id: 'door', at: 3, width: 1, bottom: 0, top: 2.1 }], ...extra }) as never;
+    const starters = architectureStylesOf(undefined);
+    expect(starters.furnishings.has('starter-furnishing') && starters.programs.has('starter-house')).toBe(true);
+    const three: ArchitectureComponent = { elements: [], furnishing: 'starter-furnishing', outlines: [room('living', 0, 'living'), room('kitchen', 6, 'kitchen'), room('bedroom', 12, 'bedroom')] };
+    const errors: ModelErrorV2[] = [];
+    validateArchitectureComponent(three, '/a', errors);
+    expect(errors).toEqual([]);
+    const x = expandArchitecture(three, [0, 0, 0], starters);
+    expect(x.problems).toEqual([]);
+    const props = x.props ?? [];
+    for (const id of ['living', 'kitchen', 'bedroom']) expect(props.filter((p) => p.outline === id && p.room === id).length).toBeGreaterThan(1);
+    // Each room holds only its type's props, as stand-in blocks (no models) swept in the room's trim sheet.
+    expect(props.every((p) => p.model === undefined && p.id.startsWith(`${p.outline}-${p.outline}-`))).toBe(true);
+    const blocks = x.component.elements.filter((e) => props.some((p) => p.id === e.id));
+    expect(blocks).toHaveLength(props.length);
+    expect(blocks.every((e) => e.kind === 'sweep' && x.component.profiles?.[e.profile]?.cap === 'frame')).toBe(true);
+    expect(generateArchitecture(x.component, SHEETS).flatMap((c) => c.problems)).toEqual([]);
+    expect((x.lights ?? []).map((l) => l.room).sort()).toEqual(['bedroom', 'kitchen', 'living']);
+    // The set comes from the room, else the object, else the layer; none anywhere: not furnished.
+    const { furnishing: _f, ...bare } = three;
+    expect(expandArchitecture(bare, [0, 0, 0], starters).props).toBeUndefined();
+    expect(expandArchitecture({ ...bare, layer: 'ground' }, [0, 0, 0], starters, { layerFurnishing: 'starter-furnishing' }).props?.length).toBe(expandArchitecture({ ...three, layer: 'ground' }, [0, 0, 0], starters).props?.length);
+    const own = expandArchitecture({ ...bare, outlines: [room('living', 0, 'living', { furnishing: 'test-furnishing' })] }, [0, 0, 0], architectureStylesOf(graphs()));
+    expect(new Set((own.props ?? []).map((p) => p.model?.assetId))).toEqual(new Set(['kit-cabinet', 'kit-crate']));
+    expect(expandArchitecture({ ...bare, outlines: [room('r', 0, 'living', { furnishing: 'nope' })] }, [0, 0, 0], starters).problems).toEqual(['room r: furnishing set "nope" is not in the project']);
+    // Pin a bench, move it, lay the room out again from another seed: the bench stays where it was moved to.
+    const bench = props.find((p) => p.outline === 'living' && p.id.includes('living-bench'))!;
+    const moved: [number, number, number] = [3, bench.position[1], 2.5];
+    const pinned = { ...three, outlines: three.outlines!.map((o) => (o.id === 'living' ? { ...o, layoutSeed: 7, pins: [{ id: bench.id, height: bench.height!, position: moved, facing: 0, size: bench.size }] } : o)) };
+    validateArchitectureComponent(pinned, '/a', errors);
+    expect(errors).toEqual([]);
+    const again = expandArchitecture(pinned, [0, 0, 0], starters).props ?? [];
+    expect(again.filter((p) => p.id === bench.id)).toEqual([{ id: bench.id, room: 'living', height: bench.height, position: moved, facing: 0, size: bench.size, pinned: true, outline: 'living' }]);
+    expect(again.filter((p) => p.outline === 'living' && !p.pinned).map((p) => p.position)).not.toEqual(props.filter((p) => p.outline === 'living' && p.id !== bench.id).map((p) => p.position));
+    expect(again.filter((p) => p.outline === 'kitchen')).toEqual(props.filter((p) => p.outline === 'kitchen'));
   });
 
   it.runIf(process.env['TL_PERF'] === '1')('times split and furnish per building (a village of 64 two-storey houses)', () => {

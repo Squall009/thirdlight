@@ -1,6 +1,6 @@
 /**
  * Furnishing: a furnishing set's props (`arch-plan-kinds.ts`) placed in a
- * building's rooms by type, deterministic per building seed.
+ * building's rooms, or a room drawn on its own, by type, deterministic per seed.
  *
  * - Each room is read on a grid of {@link FURNISH_CELL} cells over its
  *   inside (the walls' inner faces). Kept free of props: a clearance in
@@ -57,10 +57,12 @@ export interface FurnishRoom {
   anchors: readonly (readonly [number, number])[];
 }
 
-/** A pinned prop (stored on the building): kept where it is. */
+/** A pinned prop (stored on the building or room): kept where it is. */
 export interface FurnishPin {
   id: string;
-  model: { assetId: string; piece?: string };
+  /** Its kit model (absent: a stand-in block `height` tall). */
+  model?: { assetId: string; piece?: string };
+  height?: number;
   position: [number, number, number];
   /** Degrees about +Y turning +Z (the prop's front) toward +X. */
   facing: number;
@@ -73,13 +75,17 @@ export interface FurnishedProp {
   /** `<room>-<prop node>-<n>`: the same prop of the same room under any seed. */
   id: string;
   room: string;
-  model: { assetId: string; piece?: string };
+  /** Its kit model (absent: a stand-in block of its footprint, `height` tall: a set's prop that names no model). */
+  model?: { assetId: string; piece?: string };
+  height?: number;
   position: [number, number, number];
   facing: number;
   size: [number, number];
   pinned: boolean;
   /** The building it stands in (set by the expansion). */
   building?: string;
+  /** The room drawn on its own it stands in, its outline's id (set by the expansion). */
+  outline?: string;
 }
 
 export interface FurnishedLight {
@@ -94,6 +100,11 @@ export interface FurnishedLight {
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 const r3 = (v: number): number => Math.round(v * 1e3) / 1e3;
 const PIN_SIZE: [number, number] = [0.5, 0.5];
+
+/** A pin's look: its model, else its stand-in block's height. */
+export function propLook(p: { model?: { assetId: string; piece?: string }; height?: number }): { model: { assetId: string; piece?: string } } | { height: number } {
+  return p.model !== undefined ? { model: p.model } : { height: p.height ?? PIN_SIZE[0] };
+}
 
 /** The facing angle (degrees, +Z toward (dx, dz)) of a direction on the ground. */
 export function facingOf(dx: number, dz: number): number {
@@ -410,7 +421,7 @@ function placeProps(room: FurnishRoom, set: FurnishingSetDef, seed: number, pins
     const size = pin.size ?? PIN_SIZE;
     stand(boxOf(pin.position[0], pin.position[2], size[0], size[1], pin.facing), boxOf(pin.position[0], pin.position[2], size[0], size[1], pin.facing, reachR));
     pinned.add(pin.id);
-    out.push({ id: pin.id, room: room.id, model: pin.model, position: pin.position, facing: pin.facing, size, pinned: true });
+    out.push({ id: pin.id, room: room.id, ...propLook(pin), position: pin.position, facing: pin.facing, size, pinned: true });
   }
   const y = r6(room.floor);
   for (const p of set.props) {
@@ -436,8 +447,8 @@ function placeProps(room: FurnishRoom, set: FurnishingSetDef, seed: number, pins
         g.cells(boxOf(c.x, c.z, p.width, p.depth, c.facing, reachR), grown);
         if (!keepsPath(new Set(grown))) continue;
         stand(body, boxOf(c.x, c.z, p.width, p.depth, c.facing, reachR));
-        const model = p.piece !== '' ? { assetId: p.model, piece: p.piece } : { assetId: p.model };
-        out.push({ id, room: room.id, model, position: [r6(c.x), y, r6(c.z)], facing: r3(c.facing), size: [p.width, p.depth], pinned: false });
+        const look = p.model === '' ? { height: p.height } : { model: p.piece !== '' ? { assetId: p.model, piece: p.piece } : { assetId: p.model } };
+        out.push({ id, room: room.id, ...look, position: [r6(c.x), y, r6(c.z)], facing: r3(c.facing), size: [p.width, p.depth], pinned: false });
         stood = true;
         break;
       }

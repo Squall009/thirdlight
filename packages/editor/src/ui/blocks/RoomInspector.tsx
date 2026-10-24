@@ -4,7 +4,8 @@
  * Derive, its storeys, its openings (where each stands and how big, a pane,
  * the kit piece that stands in it, a live door block of the layer), the
  * kit pieces on its walls' segments and corners, a run's repeated piece
- * from the kit, a building's roof, interior and floor plan, stairs and
+ * from the kit, a building's roof, interior and floor plan, a room's type
+ * and furnishing (drawn on its own: its set, seed and pinned props), stairs and
  * floor holes, and Delete. Every change is one command on the rooms object.
  *
  * Browser-only (React).
@@ -19,7 +20,7 @@ import { isBuilding, openingResized, overridesOf, withOutlineSet, withOverride, 
 import type { RoomsBinding } from '../architecture/useRoomsBinding';
 import { PresetSliders, type PresetSlidersHost } from '../architecture/PresetSliders';
 import { Section, Toggle } from '../editmode/controls';
-import { BuildingFields, BuildingPlanFields } from './BuildingSections';
+import { BuildingFields, BuildingPlanFields, RoomFurnishingFields } from './BuildingSections';
 import { Num, Pick, Text } from './RoomFields';
 import type { BlockSetup } from './block-column';
 
@@ -142,11 +143,11 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
             />
           </>
         )}
-        {room.building !== undefined && (
+        {closed && building === null && (
           <Text
             label="room type"
             value={room.roomType ?? ''}
-            placeholder="what the furnishing set reads"
+            placeholder={room.building !== undefined ? 'what the furnishing set reads' : 'living, kitchen, bedroom, …: the set’s types'}
             onCommit={(v) => {
               const { roomType: _t, ...rest } = room;
               set(v === '' ? rest : { ...rest, roomType: v }, 'Room type');
@@ -244,6 +245,11 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
       {building !== null && (
         <Section title="Floor plan">
           <BuildingPlanFields building={building} binding={b} onSet={(next, what) => set(next, what)} />
+        </Section>
+      )}
+      {closed && building === null && room.building === undefined && (
+        <Section title="Furnishing" aside={<span className="tl-sec__note">{b.props.filter((x) => x.outline === room.id).length}</span>}>
+          <RoomFurnishingFields room={room} binding={b} onSet={(next, what) => set(next, what)} />
         </Section>
       )}
       {closed && <StairsSection {...p} set={set} />}

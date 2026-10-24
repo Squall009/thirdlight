@@ -410,10 +410,17 @@ made from the same definition, in place or in a scene of its own
 
 A building's footprint can be split into rooms by a **room program** and the
 rooms furnished by a **furnishing set**, both made at load from the
-building's parameters (additive fields; nothing generated is stored).
-Programs and sets are **the game's data** — standalone graphs the project
-makes (Create → Graph → **Room program** / **Furnishing set**); the engine
-ships none.
+building's parameters (additive fields; nothing generated is stored). A
+room drawn on its own (no building: an interior-only scene) with a **room
+type** is furnished the same way. Programs and sets are standalone graphs
+the project makes (Create → Graph → **Room program** / **Furnishing set**);
+the engine ships a neutral starter of each so it works out of the box:
+`starter-house` (a hall the front door opens into, a living room and a
+kitchen beside it, bedrooms upstairs, a store for the spare space) and
+`starter-furnishing` (stand-in blocks by type — `living`: a table, two
+benches, a shelf; `kitchen`: counters and a table; `bedroom`: a bed, a
+cabinet, a wardrobe; `storage`: shelves and crates; `hall`: a bench — and
+a light in every room). A project's graph of the same id replaces one.
 
 - **Room program** (graph kind `room-program`): one **Program** node —
   **grid** (walls on it from the footprint's corner; default 1 m),
@@ -438,7 +445,9 @@ ships none.
   (its back to a wall, facing the room), `corner`, `centre` (facing the
   room's first door); its footprint **width** along its X and **depth**
   along its Z in metres (the model's pivot at its base's middle, its front
-  +Z), **height** (taller than a window's sill: not in front of it),
+  +Z), **height** (taller than a window's sill: not in front of it; a Prop
+  with no model is a **stand-in block** of this footprint and height,
+  wearing its room's trim sheet's `frame` row and colliding as a box),
   **count** and the **space round it**) and **Light** nodes (one point light
   in each room of the type, **height** over the floor, **colour**,
   **intensity**, **range**; no shadow).
@@ -452,6 +461,21 @@ ships none.
   Rooms & buildings like any room, furnished by type; the program no longer
   runs); **Detach** also pins every prop; **Unlock plan** removes the stored
   rooms.
+- **A room drawn on its own** (Rect or Polygon; Rooms & buildings → the
+  room) — its **inside preset** (the style) and **room type**, and a
+  **Furnishing** section: **furnishing set** (`outlines[].furnishing`;
+  empty: the rooms object's, else the layer's, named in the pick), **layout
+  seed** / **New layout**, **Detach** (every prop pinned: nothing is made
+  again) and the props list with **Pin** / **Unpin**
+  (`outlines[].pins`; a stand-in's pin keeps its `height` instead of a
+  `model`). Pins move by data: `setComponent` with the pin's new
+  `position`. The column's **Furnishing** section sets the fallbacks: the
+  **rooms furnishing set** (`architecture.furnishing`, for its rooms that
+  name none) and the **layer furnishing set** (`blockLayer.furnishing`, for
+  rooms drawn on the layer whose room and object name none). A room with no
+  type, or no set anywhere, is not furnished. Its lights count against the
+  scene's light budget like a building's (one per room, within the set's
+  **lights**).
 - **How it is made** — the rooms are room outlines inside the building: the
   building makes its walls on the footprint once (each room's face of them
   in the room's rows), partitions are shared walls (made once, a door cut

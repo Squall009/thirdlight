@@ -34,9 +34,9 @@
  *
  * Pure and deterministic (plain arithmetic), like the rest of the generator.
  */
-import { buildingFloorPlan, floorPlanOutlines, propElement } from './arch-building-plan';
+import { buildingFloorPlan, floorPlanOutlines, propElement, standInElement } from './arch-building-plan';
 import { architectureOutlineGroups, groupContextText, internElements, rememberedGroups } from './arch-groups';
-import { furnishLights, furnishRoom, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishRoom } from './arch-furnish';
+import { furnishLights, furnishRoom, propLook, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishRoom } from './arch-furnish';
 import { pointInPolygon } from './arch-mesh';
 import { pathPointAt, samplePath } from './arch-path';
 import {
@@ -65,6 +65,7 @@ import {
   type ArchitectureOutline,
   type ArchitecturePaint,
   type ArchitecturePath,
+  type ArchitecturePin,
   type ArchitectureProfile,
   type ArchitectureStair,
   type ArchitectureSweep,
@@ -365,6 +366,25 @@ function stairElement(id: string, s: ArchitectureStair, material: string | null)
   return { element, profile, foot, head, footprint: [corner(0, -w), corner(run, -w), corner(run, w), corner(0, w)] };
 }
 
+/** What an expansion reads besides the component. */
+export interface ArchitectureExpandOptions {
+  /** Presets scripts swapped: preset → the one shown in its place. */
+  swaps?: Readonly<Record<string, string>> | null;
+  /** A preset's values tried live (the editor's sliders). */
+  preview?: ArchitecturePreview | null;
+  /** The wall paint of the block layer the rooms are drawn on. */
+  paint?: ArchitecturePaint | null;
+  /** The furnishing set of the block layer the rooms are drawn on (its `furnishing`; {@link architectureLayerFurnishing}). */
+  layerFurnishing?: string | null;
+}
+
+/** The furnishing set of the block layer an object's rooms are drawn on (null: none, or no layer). */
+export function architectureLayerFurnishing(c: Pick<ArchitectureComponent, 'layer'> | undefined, componentsOf: (entityId: string) => Readonly<Record<string, unknown>> | undefined): string | null {
+  if (c?.layer === undefined) return null;
+  const f = (componentsOf(c.layer)?.['blockLayer'] as { furnishing?: unknown } | undefined)?.furnishing;
+  return typeof f === 'string' ? f : null;
+}
+
 /**
  * The component the generator makes: its own elements and profiles plus
  * each outline's, made by its preset's style (a swap replacing the preset,
@@ -380,7 +400,7 @@ function stairElement(id: string, s: ArchitectureStair, material: string | null)
  * keys hash only new ones). What it makes does not depend on what was
  * remembered.
  */
-export function expandArchitecture(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; paint?: ArchitecturePaint | null } = {}): ArchitectureExpansion {
+export function expandArchitecture(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: ArchitectureExpandOptions = {}): ArchitectureExpansion {
   const buildings = c.buildings ?? [];
   const outlines: ArchitectureOutline[] = buildings.length === 0 ? (c.outlines ?? []) : [...(c.outlines ?? []), ...buildings];
   const paint = opts.paint ?? null;
@@ -393,7 +413,9 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
   const flags = outlines.map((_o, i) => buildings.length > 0 && i >= own);
   const groups = architectureOutlineGroups(outlines, flags);
   const memo = rememberedGroups<GroupExpansion>(table);
-  const context = groupContextText(c, origin, opts.swaps);
+  // Rooms drawn on their own that name no furnishing set take the object's, else the layer's.
+  const furnishing = c.furnishing ?? opts.layerFurnishing ?? null;
+  const context = groupContextText(c, origin, opts.swaps) + (furnishing !== null ? `\nfurnishing ${furnishing}` : '');
   const preview = opts.preview ?? null;
   const previewText = preview !== null ? `\npreview ${JSON.stringify(preview)}` : '';
   const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
@@ -423,7 +445,7 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
         g.map((i) => flags[i]!),
         origin,
         table,
-        opts,
+        { ...opts, furnishing },
       );
       // Outlines that meet expand together: an edit to one makes the others' elements again, the same ones.
       x = g.length > 1 ? { ...made, elements: internElements(table, made.elements, elements.length + made.elements.length * groups.length) } : made;
@@ -451,11 +473,11 @@ export function expandArchitecture(c: ArchitectureComponent, origin: readonly nu
  * group order). Slower than {@link expandArchitecture}; the reference its
  * tests hold the grouping and the memo to.
  */
-export function expandArchitectureUngrouped(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; paint?: ArchitecturePaint | null } = {}): ArchitectureExpansion {
+export function expandArchitectureUngrouped(c: ArchitectureComponent, origin: readonly number[], table: ArchitectureStyles, opts: ArchitectureExpandOptions = {}): ArchitectureExpansion {
   const buildings = c.buildings ?? [];
   const outlines: ArchitectureOutline[] = [...(c.outlines ?? []), ...buildings];
   const paint = opts.paint ?? null;
-  const x = expandGroup(c, outlines, outlines.map((_o, i) => i >= (c.outlines?.length ?? 0)), origin, table, opts);
+  const x = expandGroup(c, outlines, outlines.map((_o, i) => i >= (c.outlines?.length ?? 0)), origin, table, { ...opts, furnishing: c.furnishing ?? opts.layerFurnishing ?? null });
   const { outlines: _o, masks: _m, buildings: _b, interiorOf: _i, ...rest } = c;
   return {
     component: { ...rest, elements: [...c.elements, ...x.elements], profiles: { ...x.profiles }, ...(paint !== null ? { paint } : {}) },
@@ -489,7 +511,7 @@ interface GroupExpansion {
 }
 
 /** A group of outlines (`flags`: which are buildings) expanded: the whole expansion's steps over only these. */
-function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOutline[], flags: readonly boolean[], origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null }): GroupExpansion {
+function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOutline[], flags: readonly boolean[], origin: readonly number[], table: ArchitectureStyles, opts: { swaps?: Readonly<Record<string, string>> | null; preview?: ArchitecturePreview | null; furnishing: string | null }): GroupExpansion {
   const buildings = outlines.filter((_o, i) => flags[i]) as ArchitectureBuilding[];
   const ownBuildings = new Set<ArchitectureOutline>(buildings);
   const profiles: Record<string, ArchitectureProfile> = { ...(c.profiles ?? {}) };
@@ -709,7 +731,7 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
   const exteriorOnly = new Set<ArchitectureElement>();
   const holesOf = new Map<Inst, ArchitecturePath[]>();
   /** The stairs made: whose they are, foot, head and footprint (rooms keep them free of props). */
-  const flights: { s: Styled; foot: number[]; head: number[]; footprint: [number, number][] }[] = [];
+  const flights: Flight[] = [];
   for (const s of styled) {
     const mine = (instsOf.get(s) ?? []).filter((i) => i.poly !== null);
     for (const h of s.o.holes ?? []) {
@@ -741,34 +763,8 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
     if (plan !== undefined) plan.holes = holes.map((h) => h.points.map((q) => [q[0], q[2]] as [number, number]));
   }
 
-  // Buildings' furnishing: props and lights in their rooms, pinned props where they were pinned.
-  const props: FurnishedProp[] = [];
-  const lights: FurnishedLight[] = [];
-  for (const B of buildingStyled.values()) {
-    const b = B.building!;
-    const pins = b.pins ?? [];
-    if (B.part === 'exterior' || (b.furnishing === undefined && pins.length === 0)) continue;
-    const set = b.furnishing !== undefined ? (table.furnishings.get(b.furnishing) ?? null) : null;
-    if (b.furnishing !== undefined && set === null) problems.push(`building ${b.id}: furnishing set "${b.furnishing}" is not in the project`);
-    const placedPins = new Set<string>();
-    const furnished: FurnishRoom[] = [];
-    const first = props.length;
-    for (const X of insts) {
-      const plan = planOf.get(X);
-      if (X.s.parent !== B || X.poly === null || plan === undefined) continue;
-      const room = furnishRoomOf(X, plan, holesOf.get(X) ?? [], flights, c.layer !== undefined && X.storey === 0 ? ARCHITECTURE_FLOOR_ON_CELLS : 0);
-      const flat = X.poly.flatMap((q) => [q[0], q[2]]);
-      const mine = pins.filter((p) => !placedPins.has(p.id) && p.position[1] > X.base - 0.5 && p.position[1] < plan.top && pointInPolygon(p.position[0], p.position[2], flat));
-      for (const p of mine) placedPins.add(p.id);
-      if (set !== null && X.s.o.roomType !== undefined) {
-        furnished.push(room);
-        props.push(...furnishRoom(room, set, b.layoutSeed ?? 0, mine));
-      } else props.push(...mine.map((p) => pinnedProp(p, X.id)));
-    }
-    for (const p of pins) if (!placedPins.has(p.id)) props.push(pinnedProp(p, ''));
-    for (let i = first; i < props.length; i++) props[i] = { ...props[i]!, building: b.id };
-    if (set !== null) lights.push(...furnishLights(furnished, set));
-  }
+  // The furnishing: props and lights in buildings' rooms and in rooms drawn on their own.
+  const { props, lights, propElements } = furnishAll(c, styled, buildingStyled.values(), insts, instsOf, planOf, holesOf, flights, table, opts.furnishing, profiles, problems);
 
   // The outside presets' walls (their inner faces dress this room's outer faces) and trims along the open stretches.
   // An outside preset's style makes its trims for walls of its own height, but the walls are this room's: a Tall room's
@@ -853,19 +849,101 @@ function expandGroup(c: ArchitectureComponent, outlines: readonly ArchitectureOu
       else if (X.s.part !== 'exterior' || e.kind === 'fill' || (e.kind === 'sweep' && e.wall === true)) elements.push(e);
     }
   }
-  elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...props.map(propElement));
+  elements.push(...stairs.filter((e) => !exteriorOnly.has(e)), ...exterior, ...roofs(styled, insts, planOf), ...propElements);
   const made: Record<string, ArchitectureProfile> = {};
   for (const name in profiles) if (profiles[name] !== c.profiles?.[name]) made[name] = profiles[name]!;
   return { elements, profiles: made, materials, problems, presets, rooms, props, lights, planRooms, rises: storeyRises, swapped };
 }
 
+/** A flight of stairs as the furnishing keeps it free: whose it is, its foot, head and footprint. */
+type Flight = { s: Styled; foot: number[]; head: number[]; footprint: [number, number][] };
+
+/**
+ * The furnishing of a group's rooms: a building's rooms by its set, a room
+ * drawn on its own by its set (else the object's, else the layer's:
+ * `fallback`), pins where they were pinned; props as the generator's
+ * elements (kit copies, or stand-in blocks whose profiles go into `profiles`).
+ */
+function furnishAll(c: ArchitectureComponent, styled: readonly Styled[], buildings: Iterable<Styled>, insts: readonly Inst[], instsOf: ReadonlyMap<Styled, Inst[]>, planOf: ReadonlyMap<Inst, ArchitectureRoomPlan>, holesOf: ReadonlyMap<Inst, ArchitecturePath[]>, flights: readonly Flight[], table: ArchitectureStyles, fallback: string | null, profiles: Record<string, ArchitectureProfile>, problems: string[]): { props: FurnishedProp[]; lights: FurnishedLight[]; propElements: ArchitectureElement[] } {
+  // Buildings' furnishing: props and lights in their rooms, pinned props where they were pinned.
+  const props: FurnishedProp[] = [];
+  const lights: FurnishedLight[] = [];
+  /** The trim sheet of each furnished room (its stand-in props wear it). */
+  const sheetOf = new Map<string, string | null>();
+  for (const B of buildings) {
+    const b = B.building!;
+    const pins = b.pins ?? [];
+    if (B.part === 'exterior' || (b.furnishing === undefined && pins.length === 0)) continue;
+    const set = b.furnishing !== undefined ? (table.furnishings.get(b.furnishing) ?? null) : null;
+    if (b.furnishing !== undefined && set === null) problems.push(`building ${b.id}: furnishing set "${b.furnishing}" is not in the project`);
+    const placedPins = new Set<string>();
+    const furnished: FurnishRoom[] = [];
+    const first = props.length;
+    for (const X of insts) {
+      const plan = planOf.get(X);
+      if (X.s.parent !== B || X.poly === null || plan === undefined) continue;
+      const room = furnishRoomOf(X, plan, holesOf.get(X) ?? [], flights, c.layer !== undefined && X.storey === 0 ? ARCHITECTURE_FLOOR_ON_CELLS : 0);
+      sheetOf.set(X.id, X.s.r.sheet);
+      const flat = X.poly.flatMap((q) => [q[0], q[2]]);
+      const mine = pins.filter((p) => !placedPins.has(p.id) && p.position[1] > X.base - 0.5 && p.position[1] < plan.top && pointInPolygon(p.position[0], p.position[2], flat));
+      for (const p of mine) placedPins.add(p.id);
+      if (set !== null && X.s.o.roomType !== undefined) {
+        furnished.push(room);
+        props.push(...furnishRoom(room, set, b.layoutSeed ?? 0, mine));
+      } else props.push(...mine.map((p) => pinnedProp(p, X.id)));
+    }
+    for (const p of pins) if (!placedPins.has(p.id)) props.push(pinnedProp(p, ''));
+    for (let i = first; i < props.length; i++) props[i] = { ...props[i]!, building: b.id };
+    if (set !== null) lights.push(...furnishLights(furnished, set));
+  }
+  // Rooms drawn on their own: furnished by type from their own set, else the object's, else the layer's.
+  for (const s of styled) {
+    const o = s.o;
+    if (s.parent !== null || s.building !== null || o.path.closed !== true) continue;
+    const pins = o.pins ?? [];
+    const setId = o.roomType !== undefined ? (o.furnishing ?? fallback ?? undefined) : undefined;
+    if (setId === undefined && pins.length === 0) continue;
+    const set = setId !== undefined ? (table.furnishings.get(setId) ?? null) : null;
+    if (setId !== undefined && set === null) problems.push(`room ${o.id}: furnishing set "${setId}" is not in the project`);
+    const placedPins = new Set<string>();
+    const furnished: FurnishRoom[] = [];
+    const first = props.length;
+    for (const X of instsOf.get(s) ?? []) {
+      const plan = planOf.get(X);
+      if (X.poly === null || plan === undefined) continue;
+      const room = furnishRoomOf(X, plan, holesOf.get(X) ?? [], flights, c.layer !== undefined && X.storey === 0 ? ARCHITECTURE_FLOOR_ON_CELLS : 0);
+      sheetOf.set(X.id, s.r.sheet);
+      const flat = X.poly.flatMap((q) => [q[0], q[2]]);
+      const mine = pins.filter((p) => !placedPins.has(p.id) && p.position[1] > X.base - 0.5 && p.position[1] < plan.top && pointInPolygon(p.position[0], p.position[2], flat));
+      for (const p of mine) placedPins.add(p.id);
+      if (set !== null) {
+        furnished.push(room);
+        props.push(...furnishRoom(room, set, o.layoutSeed ?? 0, mine));
+      } else props.push(...mine.map((p) => pinnedProp(p, X.id)));
+    }
+    for (const p of pins) if (!placedPins.has(p.id)) props.push(pinnedProp(p, ''));
+    for (let i = first; i < props.length; i++) props[i] = { ...props[i]!, outline: o.id };
+    if (set !== null) lights.push(...furnishLights(furnished, set));
+  }
+  // Props: kit copies, or stand-in blocks in their room's trim sheet.
+  const propElements = props.map((p): ArchitectureElement => {
+    if (p.model !== undefined) return propElement(p as FurnishedProp & { model: NonNullable<FurnishedProp['model']> });
+    const made = standInElement(p, sheetOf.get(p.room) ?? null);
+    const name = architectureProfileName(made.profile);
+    profiles[name] ??= made.profile;
+    return { ...made.element, profile: name };
+  });
+
+  return { props, lights, propElements };
+}
+
 /** A pinned prop as placed (standing in `room`, "" for none). */
-function pinnedProp(p: NonNullable<ArchitectureBuilding['pins']>[number], room: string): FurnishedProp {
-  return { id: p.id, room, model: p.model, position: p.position, facing: p.facing, size: p.size ?? [0.5, 0.5], pinned: true };
+function pinnedProp(p: ArchitecturePin, room: string): FurnishedProp {
+  return { id: p.id, room, ...propLook(p), position: p.position, facing: p.facing, size: p.size ?? [0.5, 0.5], pinned: true };
 }
 
 /** A building's room storey as the furnishing reads it: its walls' inner faces, doors and windows, stairs and holes. */
-function furnishRoomOf(X: Inst, plan: ArchitectureRoomPlan, holes: readonly ArchitecturePath[], flights: readonly { s: Styled; foot: number[]; head: number[]; footprint: [number, number][] }[], raise: number): FurnishRoom {
+function furnishRoomOf(X: Inst, plan: ArchitectureRoomPlan, holes: readonly ArchitecturePath[], flights: readonly Flight[], raise: number): FurnishRoom {
   const poly = X.poly!;
   const openings: FurnishOpening[] = [...X.openings, ...X.extra].map((o) => {
     const p = pointAlong(poly, X.dist, true, o.at);

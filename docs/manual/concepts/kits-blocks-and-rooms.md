@@ -22,7 +22,7 @@ for any of this:
 | **Vaults, roofs and stairs** | the preset's style (vaulted ceilings) and the room's or building's settings (roof shape, storeys, stairs) | Rooms & buildings, the picked room's section |
 | **Openings**: doors, windows and arches cut in the walls, with reveals, frames and panes | an opening on a wall (its place, width, sill and head) | Rooms & buildings: Door, Window, Arch |
 | **Buildings**: a footprint with storeys, a facade and a roof | a building outline | Rooms & buildings: Building |
-| **Interiors**: a building split into rooms and furnished by room type | the building's floor plan, and a room program and furnishing set (graphs your game makes) | the picked building's section |
+| **Interiors**: a building split into rooms and furnished by room type, or rooms drawn on their own furnished by type | the building's floor plan, or the room's type; a room program and furnishing set (the engine's starters, or graphs your game makes) | the picked building's or room's section |
 | **Rails, fences and pipes** | an open path | Rooms & buildings: Path |
 
 All of it is generated when the scene loads (on worker threads), from a

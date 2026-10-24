@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)
+# Types (AcknowledgeBehaviorTrustArgs to DecalCellRef)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -379,12 +379,6 @@ interface ArchitectureBuilding extends ArchitectureOutline {
   interior?: ArchitectureBuildingInterior;
   /** A room program (a `room-program` graph) splitting the footprint into rooms at load (absent: one room; outlines naming the building as theirs replace it). */
   program?: string;
-  /** A furnishing set (a `furnishing-set` graph) placing props and lights in the building's rooms at load (absent: none). */
-  furnishing?: string;
-  /** The seed of the floor plan and the furnishing (absent: 0). */
-  layoutSeed?: number;
-  /** Props pinned by hand: they stay where they are when the plan or furnishing is made again (absent: none). */
-  pins?: ArchitecturePin[];
 }
 ```
 
@@ -568,8 +562,19 @@ interface ArchitectureOutline {
   stairs?: ArchitectureStair[];
   /** A room of a building (its id): its walls on the footprint are the building's, and the building furnishes it (absent: none). */
   building?: string;
-  /** The room's type a building's furnishing set places props by (absent: none). */
+  /** The room's type its furnishing set places props by (absent: none: not furnished). */
   roomType?: string;
+  /**
+   * A furnishing set (a `furnishing-set` graph) placing props and lights in
+   * the room at load. A room drawn on its own reads its own, else the rooms
+   * object's, else its block layer's (absent everywhere: none); a building
+   * names one for all its rooms.
+   */
+  furnishing?: string;
+  /** The seed of the furnishing (and a building's floor plan; absent: 0). */
+  layoutSeed?: number;
+  /** Props pinned by hand: they stay where they are when the furnishing is made again (absent: none). */
+  pins?: ArchitecturePin[];
   /**
    * A kit model the style's repeats place instead of their own piece (a
    * run's railing or fence posts from a kit; absent: the style's piece).
@@ -642,10 +647,13 @@ interface ArchitecturePath {
 Declared in `packages/project-model/src/architecture.ts`.
 
 ```ts
-/** A prop pinned in a building: a generated prop kept (same id) or one put there by hand. */
+/** A prop pinned in a building or room: a generated prop kept (same id) or one put there by hand. */
 interface ArchitecturePin {
   id: string;
-  model: ArchitectureModelRef;
+  /** Its kit model (absent: a stand-in block `height` metres tall on its footprint). */
+  model?: ArchitectureModelRef;
+  /** A stand-in block's height (metres; only without a model). */
+  height?: number;
   /** Its foot (metres from the object). */
   position: [number, number, number];
   /** Degrees about +Y turning its front (+Z) toward +X. */
@@ -1412,18 +1420,5 @@ Declared in `packages/project-model/src/decals.ts`.
 interface DecalCellRef {
   sheet: string;
   cell: string;
-}
-```
-
-<a id="type-decal-page-layer-ref"></a>
-### DecalPageLayerRef
-
-Declared in `packages/project-model/src/decal-pages.ts`.
-
-```ts
-interface DecalPageLayerRef {
-  /** The texture array (a texture asset id of the build). */
-  texture: string;
-  layer: number;
 }
 ```

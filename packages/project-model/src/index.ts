@@ -1566,7 +1566,7 @@ export {
 } from './arch-style';
 export { architectureRowMismatches, architectureRowTies, architectureTiedRow, fitsTrimRow, formatRowMetres, type ArchitectureRowMismatch, type ArchitectureRowTie } from './arch-style-rows';
 // Rooms and runs (closed and open outlines): shared walls, storeys, stairs; what a block layer reads of them.
-export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, expandArchitecture, reversedPath } from './arch-rooms';
+export { ARCHITECTURE_FLOOR_ON_CELLS, ARCHITECTURE_STAIR_SLOTS, ARCHITECTURE_STOREY_HEIGHT_FALLBACK, architectureLayerFurnishing, expandArchitecture, reversedPath, type ArchitectureExpandOptions } from './arch-rooms';
 // Distances along an outline as the generator measures them (arcs, chamfers and offsets in): where an opening's `at` falls.
 export { samplePath as sampleArchitecturePath, type PathSamples as ArchitecturePathSamples } from './arch-path';
 // Floor plans and furnishing: room programs and furnishing sets (games' graphs), the splitter and the placer.
@@ -1591,7 +1591,7 @@ export {
 } from './arch-plan-kinds';
 export { FLOOR_PLAN_TRIES, footprintZones, splitFloorPlan, type FloorPlan, type FloorPlanDoor, type FloorPlanInput, type FloorPlanRoom, type FloorPlanStair, type PlanRect } from './arch-floor-plan';
 export { FURNISH_CELL, furnishLights, furnishRoom, facingDir, facingOf, type FurnishedLight, type FurnishedProp, type FurnishOpening, type FurnishPin, type FurnishRoom } from './arch-furnish';
-export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement } from './arch-building-plan';
+export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement, standInElement, ARCHITECTURE_STAND_IN_SLOT } from './arch-building-plan';
 export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity } from './arch-lights';
 export { architectureOpeningEdges, architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';

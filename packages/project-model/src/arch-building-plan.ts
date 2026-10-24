@@ -12,7 +12,8 @@
  *   rooms are cut once in the wall they share, framed both sides.
  * - Props are kit copies (one instance set per model per chunk), placed at
  *   load like the rest of the architecture; pinned props stand where they
- *   were pinned.
+ *   were pinned. A prop without a model is a stand-in block: a box swept
+ *   along its back edge, wearing its room's trim sheet.
  *
  * Pure.
  */
@@ -20,7 +21,7 @@ import { distanceAlongRect, planRectCorners, splitFloorPlan, type FloorPlan } fr
 import { facingDir, type FurnishedProp } from './arch-furnish';
 import { pathPointAt, samplePath } from './arch-path';
 import type { RoomProgramDef } from './arch-plan-kinds';
-import { ARCHITECTURE_DOOR_SILL_MAX, ARCHITECTURE_LIMITS, type ArchitectureBuilding, type ArchitectureOpening, type ArchitectureOutline, type ArchitectureRepeat, type ArchitectureStair } from './architecture';
+import { ARCHITECTURE_DOOR_SILL_MAX, ARCHITECTURE_LIMITS, type ArchitectureBuilding, type ArchitectureOpening, type ArchitectureOutline, type ArchitectureProfile, type ArchitectureRepeat, type ArchitectureStair, type ArchitectureSweep } from './architecture';
 
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 
@@ -102,8 +103,31 @@ export function floorPlanOutlines(b: ArchitectureBuilding, plan: FloorPlan, stor
   });
 }
 
-/** A prop as the generator's element: one kit copy at its foot, its front (+Z) toward its facing. */
-export function propElement(p: FurnishedProp): ArchitectureRepeat {
+/** The trim row a stand-in prop's block wears (a row of the starter layout every sheet made to the spec has). */
+export const ARCHITECTURE_STAND_IN_SLOT = 'frame';
+
+/**
+ * A stand-in prop (one without a model) as the generator's element: a box
+ * of its footprint and height swept along its back edge, `material` its
+ * room's trim sheet; the profile is named by the caller.
+ */
+export function standInElement(p: FurnishedProp, material: string | null): { element: ArchitectureSweep; profile: ArchitectureProfile } {
+  const [fx, fz] = facingDir(p.facing);
+  const [w, d] = p.size;
+  const h = r6(p.height ?? d);
+  const [x, y, z] = p.position;
+  // Travel along the prop's +X (fz, -fx): right of travel is its front, where the profile reaches.
+  const bx = x - (fx * d) / 2;
+  const bz = z - (fz * d) / 2;
+  const path = { points: [[r6(bx - (fz * w) / 2), y, r6(bz + (fx * w) / 2)], [r6(bx + (fz * w) / 2), y, r6(bz - (fx * w) / 2)]] as [number, number, number][] };
+  const S = ARCHITECTURE_STAND_IN_SLOT;
+  // Counter-clockwise in (across, up) so the faces look out: front, top, back; the bottom on the floor is left open.
+  const profile: ArchitectureProfile = { points: [[r6(d), 0], [r6(d), h], [0, h], [0, 0]], slots: [S, S, S, ''], closed: true, cap: S };
+  return { element: { id: p.id, kind: 'sweep', path, profile: '', ...(material !== null ? { material } : {}) }, profile };
+}
+
+/** A prop with a model as the generator's element: one kit copy at its foot, its front (+Z) toward its facing. */
+export function propElement(p: FurnishedProp & { model: NonNullable<FurnishedProp['model']> }): ArchitectureRepeat {
   const [fx, fz] = facingDir(p.facing);
   // A copy's +X runs along the path; its +Z is right of that: (fz, -fx) puts +Z on the facing.
   const [x, y, z] = p.position;

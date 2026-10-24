@@ -15,10 +15,12 @@
  *   node (the clearance kept in front of doors, the walkable path's width,
  *   how many lights a building gets), Prop nodes (a kit model, the room
  *   type it furnishes, against a wall, in a corner or in the middle, its
- *   footprint and count) and Light nodes (one light per room of the type).
+ *   footprint and count; no model: a stand-in block of that size) and Light
+ *   nodes (one light per room of the type).
  *
  * `arch-floor-plan.ts` splits footprints by a program, `arch-furnish.ts`
- * places a set's props; the engine ships neither programs nor sets.
+ * places a set's props; the engine's neutral starter program and set are in
+ * `arch-style-starters.ts`.
  */
 import { graphBool, graphFieldOf, graphNum, graphStr } from './arch-style-kinds';
 import { ARCHITECTURE_LIMITS } from './architecture';
@@ -104,7 +106,7 @@ export const FURNISHING_SET_GRAPH_KIND: GraphKindDef = {
       type: 'furnishing',
       label: 'Furnishing',
       category: 'Furnishing',
-      description: 'Kept free: metres in front of each door, and a walkable path this wide joining a room\'s doors and stairs. The gap between a prop and its wall, and the most lights one building gets (largest rooms first).',
+      description: 'Kept free: metres in front of each door, and a walkable path this wide joining a room\'s doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).',
       inputs: [],
       outputs: [],
       fields: [num('doorClearance', 'Door clearance', 1, 0, 10), num('pathWidth', 'Path width', 0.8, 0, 10), num('wallGap', 'Wall gap', 0.02, 0, 1), num('lights', 'Lights', 4, 0, MAX_LOCAL_LIGHTS)],
@@ -115,7 +117,7 @@ export const FURNISHING_SET_GRAPH_KIND: GraphKindDef = {
       type: 'prop',
       label: 'Prop',
       category: 'Props',
-      description: 'A kit model placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.',
+      description: 'A kit model (none: a stand-in block of its size) placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.',
       inputs: [],
       outputs: [],
       fields: [
@@ -256,8 +258,8 @@ export function furnishingSetDef(graphId: string, graph: GraphData): FurnishingS
   const lightDefs: FurnishingLightDef[] = [];
   for (const n of nodes) {
     if (n.type === 'prop') {
+      // No model: a stand-in block of the prop's footprint and height.
       const model = graphStr(K, n, 'model');
-      if (model === '') continue;
       const place = graphStr(K, n, 'place');
       props.push({
         node: n.id,

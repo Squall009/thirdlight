@@ -87,7 +87,7 @@ function nudge(f: FieldDescriptor, current: unknown): unknown {
     }
     case 'signal':
     case 'string':
-      return f.format === 'counter' || f.format === 'identifier' || f.type === 'signal' ? 'edited_value' : 'Edited value';
+      return f.format === 'counter' || f.format === 'identifier' || f.format === 'id' || f.type === 'signal' ? 'edited_value' : 'Edited value';
     default:
       return undefined;
   }

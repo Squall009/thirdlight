@@ -21,8 +21,12 @@ rooms drive culling and lighting (a lamp stops at its room's walls).
   derive from another; the engine ships neutral starters (`starter-room`,
   `starter-room-tall`, `starter-hall`, `starter-rail`, `starter-fence`,
   `starter-pipe`).
-- **Room program** and **furnishing set:** graphs your game makes to split a
-  building into rooms and place props and lights by room type.
+- **Room program** and **furnishing set:** graphs that split a building into
+  rooms and place props and lights by room type — in a building's rooms and
+  in rooms drawn on their own. The engine ships neutral starters
+  (`starter-house`, `starter-furnishing`: stand-in blocks), so a drawn room
+  given a type and a set is furnished out of the box; your game's own
+  replace them.
 
 ## In the editor
 

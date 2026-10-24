@@ -1,5 +1,6 @@
 /**
- * The lights buildings' furnishing sets place, as light objects: made into
+ * The lights furnishing sets place (in buildings and in rooms drawn on
+ * their own), as light objects: made into
  * the scene documents by the build (Play and the export) and by the editor's
  * Scene view, never stored, so a new seed or plan moves them with the rooms.
  *
@@ -16,7 +17,7 @@
  * Pure.
  */
 import { hashText64 } from './arch-math';
-import { expandArchitecture } from './arch-rooms';
+import { architectureLayerFurnishing, expandArchitecture } from './arch-rooms';
 import type { ArchitectureStyles } from './arch-style';
 import type { ArchitectureComponent } from './architecture';
 import type { FurnishedLight } from './arch-furnish';
@@ -48,12 +49,21 @@ export function furnishingLightEntity(entity: LightSourceEntity, l: FurnishedLig
   };
 }
 
-/** The furnishing lights of one architecture object (none without buildings). */
-export function furnishingLightsOf(entity: LightSourceEntity, table: ArchitectureStyles): FurnishedLight[] {
+/** Whether an object may furnish anything: a building naming a set, or a room drawn on its own with a type. */
+function furnishes(c: ArchitectureComponent): boolean {
+  return (c.buildings ?? []).some((b) => b.furnishing !== undefined) || (c.outlines ?? []).some((o) => o.roomType !== undefined && o.building === undefined);
+}
+
+/**
+ * The furnishing lights of one architecture object (none without
+ * furnished rooms); `layerFurnishing`: the set of the block layer its rooms
+ * are drawn on.
+ */
+export function furnishingLightsOf(entity: LightSourceEntity, table: ArchitectureStyles, layerFurnishing: string | null = null): FurnishedLight[] {
   const comps = entity.components as { architecture?: ArchitectureComponent; transform?: { position?: number[] } };
   const c = comps.architecture;
-  if (c?.buildings === undefined || !c.buildings.some((b) => b.furnishing !== undefined) || entity.active === false) return [];
-  return [...(expandArchitecture(c, comps.transform?.position ?? [0, 0, 0], table).lights ?? [])];
+  if (c === undefined || !furnishes(c) || entity.active === false) return [];
+  return [...(expandArchitecture(c, comps.transform?.position ?? [0, 0, 0], table, { layerFurnishing }).lights ?? [])];
 }
 
 const isLocal = (e: { components: object }): boolean => {
@@ -78,12 +88,13 @@ export function withFurnishingLights<D extends { entities: readonly LightSourceE
   const out = docs.map((d) => {
     let room = MAX_LOCAL_LIGHTS - d.entities.filter(isLocal).length;
     const ids = new Set(d.entities.map((e) => e.id));
+    const byId = new Map(d.entities.map((e) => [e.id, e.components as Readonly<Record<string, unknown>>]));
     const added: LightSourceEntity[] = [];
     const left: string[] = [];
     for (const e of d.entities) {
       // Past the budget only a caller that asks which lights are left out has the rest expanded.
       if (room <= 0 && dropped === undefined) break;
-      for (const l of furnishingLightsOf(e, table)) {
+      for (const l of furnishingLightsOf(e, table, architectureLayerFurnishing((e.components as { architecture?: ArchitectureComponent }).architecture, (id) => byId.get(id)))) {
         const made = furnishingLightEntity(e, l);
         if (ids.has(made.id)) continue;
         ids.add(made.id);

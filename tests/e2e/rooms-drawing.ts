@@ -30,6 +30,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { architectureStylesOf, expandArchitecture, type ArchitectureComponent } from '@thirdlight/project-model';
+
 import { expect, type Locator, type Page } from './pw';
 
 import { armTile, editMode, editModeTab, editPanel, enterBlockEditor, leaveEditMode, openPanel } from './ui';
@@ -159,6 +161,93 @@ export async function aimCorner(page: Page, p: V3, corner: V3): Promise<{ x: num
 
 /** The layer's corner (cell lines) at world (x, z) on the floor: the rooms' frame is the layer's. */
 const corner = (x: number, z: number): V3 => [x - LAYER_AT[0], 1, z - LAYER_AT[2]];
+
+/** The floor of the furnished rooms (world min corner): far from every camera's reads, deleted after its step. */
+const INTERIOR_AT = [300, -1, 60] as const;
+
+/** Three rooms drawn on their own furnish themselves; a pinned, moved prop survives a new layout. */
+async function furnishDrawnRooms(page: Page, cmd: Cmd, query: Query): Promise<void> {
+  const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Interior floor', transform: { position: [...INTERIOR_AT] } }))['createdId']);
+  await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [18, 4, 6] } } });
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 18, 1, 6], cell: { block: 'e2e-ground' } }] });
+  // Inside to the right of travel; a door in each room's front wall (z = 0).
+  const room = (id: string, x0: number, type?: string): Record<string, unknown> => ({ id, path: { points: [[x0 + 6, 1, 0], [x0 + 6, 1, 6], [x0, 1, 6], [x0, 1, 0]], closed: true }, preset: 'starter-room', openings: [{ id: 'door', at: 21, width: 1, bottom: 0, top: 2.1 }], ...(type !== undefined ? { roomType: type } : {}) });
+  // No trim material of its own: the engine's default sheet (the starter row layout, `frame` for the stand-ins).
+  const interior = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Interior rooms', transform: { position: [...INTERIOR_AT] } }))['createdId']);
+  await cmd('setComponent', { entityId: interior, component: 'architecture', value: { elements: [], layer, furnishing: 'starter-furnishing', outlines: [room('living', 0, 'living'), room('kitchen', 6, 'kitchen'), room('bedroom', 12)] } });
+  type Outline = { id: string; roomType?: string; furnishing?: string; layoutSeed?: number; pins?: { id: string; position: number[]; height?: number }[] };
+  const stored = async (): Promise<ArchitectureComponent & { outlines: Outline[] }> => ((await query('queryEntity', { entityId: interior }))['entity'] as { components: { architecture: never } }).components.architecture;
+  const bedroom = async (): Promise<Outline | undefined> => (await stored()).outlines.find((o) => o.id === 'bedroom');
+
+  await enterBlockEditor(page, layer);
+  const blocks = editMode(page);
+  await page.keyboard.press('Home');
+  await editModeTab(page, 'Rooms & buildings');
+  await (await openPanel(page, 'rooms')).getByLabel('room bedroom', { exact: true }).click();
+  const panel = blocks.getByLabel('room bedroom inspector');
+  await panel.getByLabel('room type', { exact: true }).fill('bedroom');
+  await panel.getByLabel('room type', { exact: true }).press('Enter');
+  await expect.poll(async () => (await bedroom())?.roomType, { timeout: 15_000 }).toBe('bedroom');
+  const furnishing = panel.getByLabel('room bedroom furnishing');
+  // The set falls back to the rooms object's (named in the pick); the room's own pick stores it on the room.
+  await expect(furnishing.getByLabel('furnishing set', { exact: true }).locator('option').first()).toHaveText('— the rooms’: Furnishing (starter) —');
+  await furnishing.getByLabel('furnishing set', { exact: true }).selectOption('starter-furnishing');
+  await expect.poll(async () => (await bedroom())?.furnishing, { timeout: 15_000 }).toBe('starter-furnishing');
+  const places = async (): Promise<Map<string, string>> => {
+    const rows = furnishing.getByLabel('props', { exact: true }).locator('[aria-label^="prop "]');
+    const out = new Map<string, string>();
+    for (let i = 0; i < (await rows.count()); i++) out.set((await rows.nth(i).getAttribute('aria-label'))!.slice('prop '.length), (await rows.nth(i).locator('span').getAttribute('title')) ?? '');
+    return out;
+  };
+  await expect.poll(async () => (await places()).size, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+  const before = await places();
+  const pinId = [...before.keys()].find((id) => id.includes('wardrobe')) ?? [...before.keys()][0]!;
+  await furnishing.getByLabel(`pin ${pinId}`, { exact: true }).click();
+  await expect.poll(async () => (await bedroom())?.pins?.map((p) => p.id), { timeout: 15_000 }).toEqual([pinId]);
+  // Moved by data (pins move by command), to the room's middle; then New layout: the seed moves on, the pin stays put.
+  const moved = { ...(await bedroom())!.pins![0]!, position: [15, (await bedroom())!.pins![0]!.position[1]!, 3], facing: 0 };
+  const now = await stored();
+  await cmd('setComponent', { entityId: interior, component: 'architecture', value: { ...now, outlines: now.outlines.map((o) => (o.id === 'bedroom' ? { ...o, pins: [moved] } : o)) } });
+  await expect.poll(async () => (await places()).get(pinId), { timeout: 15_000 }).toContain('at 15.00, ');
+  const since = await page.evaluate(() => performance.now());
+  await furnishing.getByRole('button', { name: 'New layout' }).click();
+  await expect.poll(async () => (await bedroom())?.layoutSeed, { timeout: 15_000 }).toBe(1);
+  await expect.poll(async () => [...(await places()).entries()].filter(([id, at]) => id !== pinId && before.get(id) !== at).length, { timeout: 15_000 }).toBeGreaterThan(0);
+  expect((await places()).get(pinId)).toContain('at 15.00, ');
+  expect((await bedroom())?.pins).toEqual([moved]);
+
+  // The generator, as Play and the export make it from the stored component: every room furnished by its type, stand-in
+  // blocks in the generated elements, a light each, the pinned prop where it was moved.
+  const x = expandArchitecture(await stored(), [...INTERIOR_AT], architectureStylesOf(undefined));
+  expect(x.problems).toEqual([]);
+  for (const id of ['living', 'kitchen', 'bedroom']) expect((x.props ?? []).filter((p) => p.outline === id && p.id.startsWith(`${id}-${id}-`)).length).toBeGreaterThanOrEqual(2);
+  expect((x.props ?? []).filter((p) => p.model === undefined).every((p) => x.component.elements.some((e) => e.id === p.id && e.kind === 'sweep'))).toBe(true);
+  expect((x.lights ?? []).map((l) => l.room).sort()).toEqual(['bedroom', 'kitchen', 'living']);
+  expect((x.props ?? []).find((p) => p.id === pinId)).toMatchObject({ pinned: true, position: moved.position });
+  // The Scene view drew the new layout (the object's chunks made after it).
+  await expect.poll(() => page.evaluate(([t, id]) => (performance.getEntriesByType('mark') as PerformanceMark[]).some((m) => m.name === 'tl:arch:ready' && m.startTime > (t as number) && (m.detail as { object: string }).object === id), [since, interior] as const), { timeout: 20_000 }).toBe(true);
+  const shots = process.env['TL_SHOTS'];
+  if (shots !== undefined) {
+    await page.keyboard.press('Escape');
+    // Steeply from above (a right drag down): the walls hide the floors from the editor's usual angle.
+    const box = (await view(page).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 400, { steps: 12 });
+    await page.mouse.up({ button: 'right' });
+    const [x0, , z0] = INTERIOR_AT;
+    await frameOn(page, [[x0, 0, z0], [x0 + 18, 0, z0], [x0, 0, z0 + 6], [x0 + 18, 0, z0 + 6], [x0 + 9, 3, z0 + 3]]);
+    const renderer = await page.locator('canvas[data-tl-renderer]').first().getAttribute('data-tl-renderer');
+    // The rooms alone (their corners on screen, a margin round them).
+    const corners = (await Promise.all([0, 3].flatMap((y) => [[x0, y, z0], [x0 + 18, y, z0], [x0, y, z0 + 6], [x0 + 18, y, z0 + 6]].map((p) => screen(page, p as unknown as V3))))).filter((p) => p !== null);
+    const [l, t] = [Math.max(box.x, Math.min(...corners.map((p) => p.x)) - 30), Math.max(box.y, Math.min(...corners.map((p) => p.y)) - 30)];
+    const clip = { x: l, y: t, width: Math.min(box.x + box.width, Math.max(...corners.map((p) => p.x)) + 30) - l, height: Math.min(box.y + box.height, Math.max(...corners.map((p) => p.y)) + 30) - t };
+    await page.screenshot({ path: `${shots}/rooms-furnished-${renderer ?? 'view'}.png`, clip });
+  }
+  await leaveEditMode(page);
+  await cmd('deleteEntity', { entityId: interior });
+  await cmd('deleteEntity', { entityId: layer });
+}
 
 /** The engine's Basic Kit models (its door and window pieces), published into the project as they are. */
 const BASIC_KIT_MODELS = join(import.meta.dirname, '../../packs/basic-kit/assets/models');
@@ -524,6 +613,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
     .poll(async () => (((await query('queryBlocks', { entityId: layer, chunks: [[0, 0]] })) as { chunks?: { chunk: { wallPaint?: string } | null }[] }).chunks ?? []).some((c) => (c.chunk?.wallPaint ?? '') !== ''), { timeout: 15_000 })
     .toBe(true);
   await leaveEditMode(page);
+  await furnishDrawnRooms(page, cmd, query);
   return {
     roomsId,
     timings: { drawToVisible, drag: { regenerations: mine.length, median: med(mine), worst: Math.max(...mine), others: drag.ready.filter((r) => r.object !== roomsId).length, madeMedian: med(drag.chunks) } },

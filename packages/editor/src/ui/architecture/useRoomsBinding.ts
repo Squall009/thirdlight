@@ -11,7 +11,7 @@
  */
 import { useMemo } from 'react';
 import type { ArchitectureComponent, ArchitectureElement, ArchitectureOutline, ArchitectureRoomPlan, BlockLayerComponent, FurnishedProp, GraphDocument, KitDef } from '@thirdlight/project-model';
-import { ARCHITECTURE_PRESET_KIND, architectureGraphsOf, architectureStylesOf, architectureWallEdges, expandArchitecture, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from '@thirdlight/runtime';
+import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STARTER_GRAPHS, architectureGraphsOf, architectureStylesOf, architectureWallEdges, expandArchitecture, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from '@thirdlight/runtime';
 
 import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
@@ -33,12 +33,14 @@ export interface RoomsBinding {
   plans: readonly ArchitectureRoomPlan[];
   /** Each room's and building's storey height as built (expanded; absent: no room). */
   rises: Readonly<Record<string, number>> | undefined;
-  /** Buildings' furnished and pinned props, and the rooms their programs made (expanded). */
+  /** Buildings' and drawn rooms' furnished and pinned props, and the rooms buildings' programs made (expanded). */
   props: readonly FurnishedProp[];
   planRooms: readonly ArchitectureOutline[];
-  /** The project's room programs and furnishing sets: [id, name]. */
+  /** The room programs and furnishing sets: [id, name], the project's then the engine's starters. */
   programs: readonly (readonly [string, string])[];
   furnishings: readonly (readonly [string, string])[];
+  /** The furnishing set of the layer (rooms naming none, in an object naming none, take it; null: none). */
+  layerFurnishing: string | null;
   /** The cell edges the rooms' walls stand on (the paint brush reaches their faces). */
   walls: ReadonlyMap<number, boolean> | null;
   /** Every preset: [id, name, group], grouped by source (the rooms' kit first, then other kits, the project's, the starters). */
@@ -70,7 +72,8 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
   const layerOrigin = layer?.position ?? NO_POSITION;
   const origin = rooms?.position ?? layerOrigin;
   const table = useMemo(() => architectureStylesOf(architectureGraphsOf(graphs)), [graphs]);
-  const expanded = useMemo(() => (component === null ? null : expandArchitecture(component, origin, table)), [component, origin, table]);
+  const layerFurnishing = comp?.furnishing ?? null;
+  const expanded = useMemo(() => (component === null ? null : expandArchitecture(component, origin, table, { layerFurnishing })), [component, origin, table, layerFurnishing]);
   const walls = useMemo(() => {
     if (expanded === null || comp === undefined) return null;
     return architectureWallEdges(expanded.component, [0, 1, 2].map((i) => (origin[i] ?? 0) - (layerOrigin[i] ?? 0)), comp.cellSize);
@@ -78,8 +81,8 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
   // The rooms' kit: their own pick, else the layer's.
   const kitId = component?.kitId ?? comp?.kitId;
   const presets = useMemo(() => groupedPresetChoices(graphs, kits, kitId), [graphs, kits, kitId]);
-  const programs = useMemo(() => graphs.filter((g) => g.kind === ROOM_PROGRAM_KIND).map((g) => [g.graphId, g.name] as const), [graphs]);
-  const furnishings = useMemo(() => graphs.filter((g) => g.kind === FURNISHING_SET_KIND).map((g) => [g.graphId, g.name] as const), [graphs]);
+  const programs = useMemo(() => planChoices(graphs, ROOM_PROGRAM_KIND), [graphs]);
+  const furnishings = useMemo(() => planChoices(graphs, FURNISHING_SET_KIND), [graphs]);
   if (layer === null || comp === undefined) return undefined;
   const roomsId = rooms?.id ?? null;
   const scenes = (clientRef.current?.projection.scenes ?? []).map((r) => [r.sceneId, r.name] as const);
@@ -94,6 +97,7 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     planRooms: expanded?.planRooms ?? [],
     programs,
     furnishings,
+    layerFurnishing,
     elements: expanded?.component.elements ?? NO_ELEMENTS,
     walls,
     presets,
@@ -130,6 +134,13 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
     },
     derive: (base, via) => derivePreset(via ?? clientRef, graphs, presets, base, roomsId, reportFailure),
   };
+}
+
+/** A kind's room programs or furnishing sets as choices: the project's, then the engine's starters it does not replace. */
+function planChoices(graphs: readonly GraphDocument[], kind: string): (readonly [string, string])[] {
+  const own = graphs.filter((g) => g.kind === kind).map((g) => [g.graphId, g.name] as const);
+  const ids = new Set(own.map(([id]) => id));
+  return [...own, ...ARCHITECTURE_STARTER_GRAPHS.filter((g) => g.kind === kind && !ids.has(g.graphId)).map((g) => [g.graphId, g.name] as const)];
 }
 
 /**

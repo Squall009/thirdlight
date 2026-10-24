@@ -26,7 +26,7 @@ import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type Dialogue
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
+import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { isStoredVertexColors, MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
@@ -1342,7 +1342,9 @@ function modelColliderUses(scenes: readonly unknown[] | undefined, prefabs: read
       }
       // Generated architecture's kit copies that collide (a repeat's models, overridden segments, openings' models).
       const arch = c?.['architecture'] as ArchitectureComponent | undefined;
-      if (arch !== undefined && Array.isArray(arch.elements)) for (const set of architectureCopies(expandArchitecture(arch, [0, 0, 0], archStyles()).component)) if (set.collide) use(set.model.assetId, set.model.piece);
+      // Rooms drawn on a block layer of this list take its furnishing set when they name none.
+      const layerFurnishing = architectureLayerFurnishing(arch, (id) => (entities as { id?: string; components?: Record<string, unknown> }[]).find((x) => x?.id === id)?.components);
+      if (arch !== undefined && Array.isArray(arch.elements)) for (const set of architectureCopies(expandArchitecture(arch, [0, 0, 0], archStyles(), { layerFurnishing }).component)) if (set.collide) use(set.model.assetId, set.model.piece);
       // A spline's pieces that collide (the default): each copy carries its model's parts.
       for (const p of (c?.['spline'] as { pieces?: { asset?: { assetId?: unknown; piece?: unknown }; collide?: unknown }[] } | undefined)?.pieces ?? []) if (p.collide !== false) use(p.asset?.assetId, p.asset?.piece);
       const shape = (c?.['collider'] as { shape?: { type?: unknown } } | undefined)?.shape;

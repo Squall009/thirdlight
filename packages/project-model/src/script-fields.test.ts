@@ -82,8 +82,8 @@ describe('script access marks', () => {
   });
 });
 
-// Re-pinned for 7 without a bump when a light's importance went (it chose per-vertex shading, which is gone; the load drops it).
-const PINNED_V7 = '122b4a0a71fef3eb';
+// Re-pinned for 7 without a bump when a light's importance went (it chose per-vertex shading, which is gone; the load drops it), and when rooms objects and block layers gained an optional furnishing set.
+const PINNED_V7 = 'bbb12b892b804b2b';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

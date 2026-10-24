@@ -1,15 +1,17 @@
 /**
  * The engine's neutral starter styles and presets: a plain room, a vaulted
  * hall with pilasters, a rail of posts (and a fence of it), and a pipe — the operators shown at work
- * on the starter row layout, with no game's look. Every project has them;
- * a project's graph of the same id replaces one, and a project's presets
- * may derive from them.
+ * on the starter row layout, with no game's look — and a starter room
+ * program and furnishing set, so a room drawn and given a type is furnished
+ * out of the box (stand-in blocks wearing the room's trim sheet: no models,
+ * no game's props). Every project has them; a project's graph of the same
+ * id replaces one, and a project's presets may derive from them.
  *
  * Pure data.
  */
 import type { GraphData, GraphEdge, GraphNode, GraphValue } from './graph';
 import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STYLE_KIND } from './arch-style-kinds';
-import { floorPlanGraphTemplate } from './arch-plan-kinds';
+import { floorPlanGraphTemplate, FURNISHING_SET_KIND, ROOM_PROGRAM_KIND } from './arch-plan-kinds';
 
 export interface ArchitectureStarterGraph {
   graphId: string;
@@ -186,6 +188,59 @@ function preset(style: string, base: string, values: Record<string, number> = {}
   return { nodes, edges: [] };
 }
 
+/**
+ * A house's rooms: a hall the front door opens into, a living room and a
+ * kitchen beside it, bedrooms upstairs (the ground when there is one
+ * storey), a store taking the spare space.
+ */
+function starterProgram(): GraphData {
+  const room = (type: string, area: number, count: number, storeys: string, stairs = false): Record<string, GraphValue> => ({ type, area, count, storeys, stairs, preset: '' });
+  return graph(
+    [
+      ['program', 'program', 0, { grid: 1, minSide: 2.4, doorWidth: 1, doorHeight: 2.1, entrance: 'hall', filler: 'storage' }],
+      ['hall', 'room', 1, room('hall', 0.6, 1, 'every', true)],
+      ['living', 'room', 2, room('living', 1.6, 1, 'ground')],
+      ['kitchen', 'room', 2, room('kitchen', 1, 1, 'ground')],
+      ['bedroom', 'room', 2, room('bedroom', 1, 2, 'upper')],
+      ['storage', 'room', 3, room('storage', 0.4, 1, 'every')],
+    ],
+    [
+      ['hall.door', 'living.doors'],
+      ['hall.door', 'kitchen.doors'],
+      ['living.door', 'kitchen.doors'],
+      ['hall.door', 'bedroom.doors'],
+      ['hall.door', 'storage.doors'],
+    ],
+  );
+}
+
+/**
+ * Stand-in blocks by room type (the starter program's types): tables,
+ * benches, shelves, counters, beds and crates as plain blocks of their
+ * size, and a warm light in every room.
+ */
+function starterFurnishing(): GraphData {
+  const prop = (room: string, place: string, width: number, depth: number, height: number, count = 1, spacing = 0.2): Record<string, GraphValue> => ({ room, model: '', piece: '', place, width, depth, height, count, spacing });
+  return graph(
+    [
+      ['furnishing', 'furnishing', 0, { doorClearance: 1, pathWidth: 0.8, wallGap: 0.02, lights: 4 }],
+      ['living-table', 'prop', 1, prop('living', 'centre', 1.2, 0.8, 0.75, 1, 0.6)],
+      ['living-bench', 'prop', 1, prop('living', 'wall', 1.6, 0.5, 0.45, 2)],
+      ['living-shelf', 'prop', 1, prop('living', 'wall', 1, 0.35, 1.8)],
+      ['kitchen-counter', 'prop', 2, prop('kitchen', 'wall', 1.8, 0.6, 0.9, 2, 0)],
+      ['kitchen-table', 'prop', 2, prop('kitchen', 'centre', 1, 0.8, 0.75, 1, 0.6)],
+      ['bedroom-bed', 'prop', 2, prop('bedroom', 'wall', 1.4, 2, 0.5)],
+      ['bedroom-cabinet', 'prop', 3, prop('bedroom', 'corner', 0.5, 0.45, 0.6)],
+      ['bedroom-wardrobe', 'prop', 3, prop('bedroom', 'wall', 1.2, 0.6, 2)],
+      ['storage-shelf', 'prop', 3, prop('storage', 'wall', 1.2, 0.4, 2, 4)],
+      ['storage-crate', 'prop', 4, prop('storage', 'corner', 0.6, 0.6, 0.6, 4, 0.1)],
+      ['hall-bench', 'prop', 4, prop('hall', 'wall', 1.2, 0.4, 0.45)],
+      ['light', 'light', 4, { room: '', color: '#ffe2b8', intensity: 1.5, range: 6, height: 2.2 }],
+    ],
+    [],
+  );
+}
+
 /** The starters (ids are the engine's; a project's graph of an id replaces it). */
 export const ARCHITECTURE_STARTER_GRAPHS: readonly ArchitectureStarterGraph[] = Object.freeze([
   { graphId: 'starter-room-style', kind: ARCHITECTURE_STYLE_KIND, name: 'Room (starter)', graph: roomStyle(false) },
@@ -198,6 +253,8 @@ export const ARCHITECTURE_STARTER_GRAPHS: readonly ArchitectureStarterGraph[] = 
   { graphId: 'starter-rail', kind: ARCHITECTURE_PRESET_KIND, name: 'Rail (starter)', graph: preset('starter-rail-style', '') },
   { graphId: 'starter-fence', kind: ARCHITECTURE_PRESET_KIND, name: 'Fence (starter)', graph: preset('', 'starter-rail', { post_spacing: 2, rail_height: 1.1, post_size: 0.12 }) },
   { graphId: 'starter-pipe', kind: ARCHITECTURE_PRESET_KIND, name: 'Pipe (starter)', graph: preset('starter-pipe-style', '') },
+  { graphId: 'starter-house', kind: ROOM_PROGRAM_KIND, name: 'House (starter)', graph: starterProgram() },
+  { graphId: 'starter-furnishing', kind: FURNISHING_SET_KIND, name: 'Furnishing (starter)', graph: starterFurnishing() },
 ]);
 
 /** What a new style, preset, program or furnishing graph starts as: a style with its Outline and Output; a preset deriving from the starter room; a program or set with its head node. */

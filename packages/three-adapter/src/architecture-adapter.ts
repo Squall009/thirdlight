@@ -7,7 +7,7 @@
  * grid changes), and the rooms its objects make (room-culling.ts).
  */
 import type * as THREE from 'three';
-import { architecturePaintOf, architectureRoomRegions, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData, type GridRenderChange } from '@thirdlight/runtime';
+import { architectureLayerFurnishing, architecturePaintOf, architectureRoomRegions, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData, type GridRenderChange } from '@thirdlight/runtime';
 
 import { ArchitectureView, type ArchitectureChunkStore } from './architecture-view';
 import type { BlockLayerView } from './block-layers';
@@ -82,6 +82,8 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
       const c = d.components(layerId) as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData }; transform?: { position?: number[] } } | undefined;
       return c?.blockLayer === undefined ? null : architecturePaintOf(c.blockLayer, c.blockLayer.data?.chunks ?? [], c.transform?.position ?? [0, 0, 0], origin);
     },
+    // Rooms drawn on a layer that name no furnishing set take the layer's.
+    layerFurnishing: (layerId) => architectureLayerFurnishing({ layer: layerId }, (id) => d.components(id) as Readonly<Record<string, unknown>> | undefined),
     // Rooms drawn on a layer find its door pieces on its cell edges and are regions its cut-aways may name.
     rooms: (id, origin, component, plans) => {
       const layer = component.layer === undefined ? undefined : (d.components(component.layer) as { blockLayer?: BlockLayerComponent; transform?: { position?: number[] } } | undefined);

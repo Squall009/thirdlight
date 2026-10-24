@@ -27,10 +27,10 @@ What the engine offers, generated from its source: the objects, components and c
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 82 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to DecalPageLayerRef)](types-a-d.md) | 75 sections |
-| [Types (DecalPageRef to PaintInstancesArgs)](types-d-p.md) | 94 sections |
-| [Types (PaintTarget to UiEasing)](types-p-u.md) | 96 sections |
-| [Types (UiEngineAction to WindConfig)](types-u-w.md) | 21 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to DecalCellRef)](types-a-d.md) | 74 sections |
+| [Types (DecalPageLayerRef to PackedFrom)](types-d-p.md) | 94 sections |
+| [Types (PaintInstancesArgs to UiDialogueInput)](types-p-u.md) | 95 sections |
+| [Types (UiDocument to WindConfig)](types-u-w.md) | 23 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 23 sections |
 | [Script API types (from `BehaviorHealth`)](script-types-behavior-health.md) | 20 sections |

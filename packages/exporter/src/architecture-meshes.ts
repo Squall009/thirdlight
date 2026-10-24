@@ -15,16 +15,16 @@
  *
  * The blob carries no generator problems (those are the editor's to show).
  */
-import { architecturePaintOf, architectureSheets, architectureStylesOf, encodeArchitectureChunks, expandArchitecture, generateArchitecture, trimSheetOfMaterial, type ArchitectureComponent, type ArchitecturePaint, type ArchitectureStyles, type BlockLayerComponent, type BlockLayerData, type MaterialDef } from '@thirdlight/project-model';
+import { architectureLayerFurnishing, architecturePaintOf, architectureSheets, architectureStylesOf, encodeArchitectureChunks, expandArchitecture, generateArchitecture, trimSheetOfMaterial, type ArchitectureComponent, type ArchitecturePaint, type ArchitectureStyles, type BlockLayerComponent, type BlockLayerData, type MaterialDef } from '@thirdlight/project-model';
 
 import type { BlockDataBlob } from './block-chunk-data';
 
 /** Packs documents' generated architecture when the project ships its meshes (else documents pass unchanged). */
 export function architectureMeshPacker(ship: boolean, materials: () => readonly MaterialDef[] | undefined, hash: (bytes: Uint8Array) => string, styles: () => ArchitectureStyles = () => architectureStylesOf(undefined)): { pack(doc: unknown): unknown; blobs(): BlockDataBlob[] } {
   const blobs = new Map<string, Uint8Array>();
-  const bakedOf = (raw: ArchitectureComponent, mapping: Readonly<Record<string, string>> | undefined, origin: readonly number[], paint: ArchitecturePaint | null): string => {
+  const bakedOf = (raw: ArchitectureComponent, mapping: Readonly<Record<string, string>> | undefined, origin: readonly number[], paint: ArchitecturePaint | null, layerFurnishing: string | null): string => {
     const defs = materials() ?? [];
-    const x = expandArchitecture(raw, origin, styles(), { paint });
+    const x = expandArchitecture(raw, origin, styles(), { paint, layerFurnishing });
     const c = x.component;
     const sheets = architectureSheets(c, Object.keys(x.materials).length > 0 ? { ...x.materials, ...(mapping ?? {}) } : mapping, (id) => trimSheetOfMaterial(defs, id));
     const chunks = generateArchitecture(c, sheets).map((k) => ({ ...k, problems: [] }));
@@ -56,7 +56,8 @@ export function architectureMeshPacker(ship: boolean, materials: () => readonly 
         changed = true;
         const p = (comps?.['transform'] as { position?: number[] } | undefined)?.position ?? [0, 0, 0];
         const at = [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0];
-        const baked = bakedOf(c, comps?.['materials'] as Record<string, string> | undefined, at, paintOf(c.layer, at));
+        const layerFurnishing = architectureLayerFurnishing(c, (id) => docEntities.find((x) => x.id === id)?.components);
+        const baked = bakedOf(c, comps?.['materials'] as Record<string, string> | undefined, at, paintOf(c.layer, at), layerFurnishing);
         return { ...(e as object), components: { ...comps, architecture: { ...c, baked } } };
       });
       return changed ? { ...d, entities } : doc;

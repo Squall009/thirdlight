@@ -9,7 +9,7 @@
  * objects; they follow every edit of the building. Buildings' furnishing
  * lights are added the same way.
  */
-import { buildingInteriorEntity, furnishingLightEntity, furnishingLightsOf, MAX_LOCAL_LIGHTS, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/runtime';
+import { architectureLayerFurnishing, buildingInteriorEntity, furnishingLightEntity, furnishingLightsOf, MAX_LOCAL_LIGHTS, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/runtime';
 import type { LightComponent } from '@thirdlight/project-model';
 
 import type { ProjectedEntity } from './projection';
@@ -70,12 +70,12 @@ export function withSceneViewInteriors(visible: readonly ProjectedEntity[], all:
 }
 
 /** Furnishing lights made from one architecture object, kept while the object and the table stay the same. */
-const lit = new WeakMap<ProjectedEntity, { table: ArchitectureStyles; lights: ProjectedEntity[] }>();
+const lit = new WeakMap<ProjectedEntity, { table: ArchitectureStyles; layerSet: string | null; lights: ProjectedEntity[] }>();
 
-function lightsOf(e: ProjectedEntity, table: ArchitectureStyles): ProjectedEntity[] {
+function lightsOf(e: ProjectedEntity, table: ArchitectureStyles, layerSet: string | null): ProjectedEntity[] {
   const known = lit.get(e);
-  if (known !== undefined && known.table === table) return known.lights;
-  const lights = furnishingLightsOf({ id: e.id, name: e.name, active: e.active, components: e.components }, table).map((l): ProjectedEntity => {
+  if (known !== undefined && known.table === table && known.layerSet === layerSet) return known.lights;
+  const lights = furnishingLightsOf({ id: e.id, name: e.name, active: e.active, components: e.components }, table, layerSet).map((l): ProjectedEntity => {
     const x = furnishingLightEntity({ id: e.id, name: e.name, components: e.components }, l);
     const light = x.components['light'] as LightComponent;
     return {
@@ -97,12 +97,12 @@ function lightsOf(e: ProjectedEntity, table: ArchitectureStyles): ProjectedEntit
       components: x.components,
     };
   });
-  lit.set(e, { table, lights });
+  lit.set(e, { table, layerSet, lights });
   return lights;
 }
 
 /**
- * The entities the Scene view draws with buildings' furnishing lights added
+ * The entities the Scene view draws with furnishing lights added (buildings' and rooms drawn on their own)
  * (as the build adds them: within each scene's budget of point and spot
  * lights). The same array when there are none.
  */
@@ -111,9 +111,12 @@ export function withSceneViewLights(entities: readonly ProjectedEntity[], table:
   const used = new Map<string, number>();
   const local = (e: ProjectedEntity): boolean => e.light?.type === 'point' || e.light?.type === 'spot';
   for (const e of entities) if (local(e)) used.set(e.sceneId ?? '', (used.get(e.sceneId ?? '') ?? 0) + 1);
+  let byId: Map<string, ProjectedEntity> | null = null;
   for (const e of entities) {
-    if ((e.components['architecture'] as ArchitectureComponent | undefined)?.buildings === undefined || e.active === false) continue;
-    for (const l of lightsOf(e, table)) {
+    const arch = e.components['architecture'] as ArchitectureComponent | undefined;
+    if (arch === undefined || (arch.buildings === undefined && arch.outlines === undefined) || e.active === false) continue;
+    const layerSet = architectureLayerFurnishing(arch, (id) => (byId ??= new Map(entities.map((x) => [x.id, x]))).get(id)?.components);
+    for (const l of lightsOf(e, table, layerSet)) {
       const scene = e.sceneId ?? '';
       if ((used.get(scene) ?? 0) >= MAX_LOCAL_LIGHTS) break;
       used.set(scene, (used.get(scene) ?? 0) + 1);

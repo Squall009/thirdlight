@@ -115,6 +115,8 @@ export interface ArchitectureViewDeps {
   styles?: readonly ArchitectureGraphLike[] | null;
   /** The wall paint of the block layer an object's rooms are drawn on, for an object at `origin` (absent or null: none). */
   paint?: ((layerId: string, origin: readonly number[]) => ArchitecturePaint | null) | undefined;
+  /** The furnishing set of the block layer an object's rooms are drawn on (absent or null: none). */
+  layerFurnishing?: ((layerId: string) => string | null) | undefined;
   /** A kit model's template for instance sets (null: still loading; `onReady` once it is in). */
   template(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
   /** Put a model's own materials on an instance set (the undo; null: none). */
@@ -399,7 +401,8 @@ export class ArchitectureView {
   /** The component the generator makes from the one given (outlines made by their presets' styles). */
   private expand(id: string, rec: Rec): void {
     const paint = rec.raw.layer !== undefined ? (this.deps.paint?.(rec.raw.layer, rec.origin) ?? null) : null;
-    const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing, paint });
+    const layerFurnishing = rec.raw.layer !== undefined ? (this.deps.layerFurnishing?.(rec.raw.layer) ?? null) : null;
+    const x = expandArchitecture(rec.raw, rec.origin, this.styles, { swaps: this.swaps, preview: this.previewing, paint, layerFurnishing });
     // Shipped meshes are of the stored presets: a swapped one (an inside, an outside, a building's or its planned rooms') or a previewed one is generated here.
     const restyled = rec.raw.baked !== undefined && (x.swapped === true || (this.previewing !== null && x.presets.has(this.previewing.preset)));
     if (restyled) {
@@ -457,7 +460,8 @@ export class ArchitectureView {
     if (this.deps.drawn !== false && !this.disposed) {
       for (const o of objects) {
         if (o.component.baked !== undefined) continue;
-        const x = expandArchitecture(o.component, o.origin, this.styles, { swaps: this.swaps });
+        const layerFurnishing = o.component.layer !== undefined ? (this.deps.layerFurnishing?.(o.component.layer) ?? null) : null;
+        const x = expandArchitecture(o.component, o.origin, this.styles, { swaps: this.swaps, layerFurnishing });
         const sheets = this.deps.sheetsOf?.(o.materials, x.component, x.materials) ?? this.deps.sheets('', x.component, x.materials);
         const id = prepId(o.id);
         const prep: Prep = { component: x.component, chunks: new Map(), pending: new Set(), done: () => undefined };
