@@ -21,7 +21,7 @@ import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeEditor } from '../../../packages/backend/src/test-editor';
 import { api, connectWs, mkRequestId, mkSessionId, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
-import { FakeNode, startHarness } from '../m22-worker/harness';
+import { FakeNode, behaviorModule, startHarness } from '../m22-worker/harness';
 import { MODULES_3D, SETTINGS, type Any } from '../m23-3d/character-kit';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
@@ -156,5 +156,69 @@ describe('anything in a prefab', () => {
     const r = await post('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'sky' });
     expect(r.status).not.toBe(200);
     expect(JSON.stringify(r.json)).toContain('hemisphere');
+  }, 60_000);
+
+  it('a spawned player that is destroyed leaves the game: its controller and its physics character go, the next player is the first', async () => {
+    // Two players spawned from a player prefab; the first is destroyed (as a game respawning its player would).
+    const director = `let first = null;
+export default {
+  step(s, ctx) {
+    if (ctx.phase !== 'intent') return;
+    if (ctx.stepIndex === 30) first = ctx.spawn('runner', { position: [-2, 0.91, 0] });
+    if (ctx.stepIndex === 35) ctx.spawn('runner', { position: [2, 0.91, 0] });
+    if (ctx.stepIndex === 70) ctx.destroy(first);
+  },
+};
+`;
+    const T = (p: number[]): Any => ({ position: p, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+    const runner = { prefabId: 'runner', displayName: 'Runner', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'runner', name: 'Runner', components: { transform: T([0, 0.91, 0]), controller: {} } }] };
+    const game = [
+      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 30, hy: 0.5, hz: 30 } } } },
+      { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
+    ];
+    const axis = (x: number): Any => ({ v: x, x, y: 0, p: 'none' });
+    const replay = Array.from({ length: 300 }, (_, s) => ({ stepIndex: s, actions: s >= 100 ? { move: axis(1) } : {} }));
+    const h = await startHarness('single', {
+      snapshot: { snapshotId: 'runner@r1', projectId: 'runner', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: game }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: game.map((e) => e.id) }], prefabs: [runner] },
+      settings: SETTINGS,
+      physics: physics3DConfigOf(game, SETTINGS),
+      modules: MODULES_3D,
+      behaviors: [behaviorModule('director', director)],
+      replay,
+      digestSteps: true,
+      host: { buildId: 'b', container: new FakeNode() },
+    });
+    try {
+      const rt = h.rt as Any;
+      const colliders = (): number => rt.sim.physics3d.diagnostics().worldColliderCount as number;
+      let now = 10;
+      const until = async (step: number): Promise<void> => {
+        while (h.digests.length < step) {
+          now += DT;
+          await h.tick(now);
+        }
+      };
+      await until(3);
+      const empty = colliders();
+      expect(rt.controllers.ids).toEqual([]);
+      await until(55);
+      const [a, b] = rt.controllers.ids as string[];
+      expect(rt.controllers.ids).toHaveLength(2);
+      expect(rt.controllers.first).toBe(a);
+      expect(colliders()).toBe(empty + 2);
+      await until(95);
+      expect(rt.controllers.ids).toEqual([b]);
+      expect(rt.controllers.first).toBe(b);
+      expect(rt.controllers.result(a)).toBeUndefined();
+      expect(colliders()).toBe(empty + 1);
+      // The remaining player is the one an unnamed call and the input move.
+      const x0 = rt.controllers.result(b).position.x as number;
+      await until(260);
+      expect(rt.controllers.result(b).position.x - x0).toBeGreaterThan(1);
+      // No failure (the scene has no camera, which is only a warning).
+      expect(((rt.getDiagnostics() as Any).diagnostics?.errors ?? []).filter((e: Any) => e.reason !== 'warn')).toEqual([]);
+    } finally {
+      await h.dispose();
+    }
   }, 60_000);
 });

@@ -166,6 +166,31 @@ export class PlayerControllers {
     return true;
   }
 
+  /**
+   * A player whose object left the game for good (a destroyed spawned copy;
+   * its id never comes back): its character leaves the physics world, and
+   * the next player becomes the first. False when it is no player. Throws a
+   * port failure.
+   */
+  remove(id: string): boolean {
+    const c = this.byId.get(id);
+    if (c === undefined) return false;
+    if (c.portId !== undefined) {
+      const port = this.host.physics3d ?? this.host.physics;
+      try {
+        port?.removeCharacter?.(c.portId);
+      } catch (e) {
+        throw new PhysicsPortFailure('threw', `physics port removeCharacter("${id}") threw: ${messageOf(e)}`);
+      }
+    }
+    this.byId.delete(id);
+    this.staged.delete(id);
+    this.staged3d.delete(id);
+    this.list = Object.freeze(this.list.filter((x) => x !== id));
+    this.names = Object.freeze([...new Set([...this.byId.values()].flatMap((x) => [x.actions.move, x.actions.jump, ...(x.actions.climb !== null ? [x.actions.climb] : [])]))]);
+    return true;
+  }
+
   /** The first controller (what a call that names none means), or undefined without one. */
   get first(): string | undefined {
     return this.ids[0];

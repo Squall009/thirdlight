@@ -527,7 +527,9 @@ export class GameplayBlocks {
   }
 
   /** Entities of an unloaded scene. */
-  remove(ids: ReadonlySet<string>): void {
+  remove(ids: ReadonlySet<string>, forGood = false): void {
+    // Objects that never come back (destroyed spawned copies) take their player characters along; an unloaded scene's come back with it.
+    if (forGood) for (let i = this.chars.length - 1; i >= 0; i--) if (ids.has(this.chars[i]!.id)) this.chars.splice(i, 1);
     for (const id of ids) {
       this.scriptPosed.delete(id);
       this.movers.delete(id);

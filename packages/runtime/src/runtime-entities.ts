@@ -402,6 +402,17 @@ export class RuntimeEntities {
     if (ids.size === 0) return;
     const colliderIds = [...ids].filter((id) => (this.spawned.get(id)?.components as { collider?: unknown } | undefined)?.collider !== undefined);
     this.detach(ids, colliderIds, `spawned "${[...ids][0]}"`);
+    // A spawned player never comes back (spawned ids are not reused): it leaves the players and the physics world.
+    const players = new Set([...ids].filter((id) => this.host.controllers.has(id)));
+    for (const id of players) {
+      try {
+        this.host.controllers.remove(id);
+      } catch (e) {
+        this.faults.failStopFromError(e, this.sim.stepIndex);
+      }
+      this.host.placement.remove(id);
+    }
+    if (players.size > 0) this.host.blocks?.remove(players, true);
     for (const id of ids) this.spawned.delete(id);
     this.spawnScenes.removed(ids);
     this.spawnRequests.removed(ids);

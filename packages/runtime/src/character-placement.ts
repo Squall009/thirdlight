@@ -367,6 +367,12 @@ export class ControllerPlacements {
     if (this.waitingSave !== null) placement.restoreFrom(this.waitingSave, this.savedOf(this.waitingSave, this.list.length - 1, id));
   }
 
+  /** A controller that left the game for good. */
+  remove(id: string): void {
+    const i = this.list.findIndex((x) => x.id === id);
+    if (i >= 0) this.list.splice(i, 1);
+  }
+
   /** A controller's character in a save: the first's is `character`, the others' are under `characters`. */
   private savedOf(world: WorldSave, index: number, id: string): SavedCharacter | null {
     return index === 0 ? world.character : (world.characters?.[id] ?? null);

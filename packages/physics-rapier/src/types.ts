@@ -172,6 +172,8 @@ export interface RapierPhysicsPort extends PhysicsResetPort {
   restartWorld(origins?: readonly { characterId?: string; position: Vec2 }[]): void;
   /** Add a player character while the world runs (a scene brought a player controller). */
   addCharacter(spec: RapierFurtherCharacterSpec): void;
+  /** Take an added character out of the world (its player left the game for good); an unknown id is ignored. */
+  removeCharacter(id: string): void;
   diagnostics(): RapierPhysicsDiagnostics;
   dispose(): void;
 }

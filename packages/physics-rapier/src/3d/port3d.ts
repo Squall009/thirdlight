@@ -91,6 +91,8 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
   restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
   addCharacter(spec: AddedCharacter3D): void;
+  /** Take an added character out of the world (its player left the game for good); an unknown id is ignored. */
+  removeCharacter(id: string): void;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -606,6 +608,33 @@ function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['chara
     retainedSupport: { x: 0, y: 1, z: 0 },
     stepping: null,
     last: undefined,
+  };
+}
+
+/**
+ * Further characters added while the world runs (a player arrives) and taken
+ * out for good (a spawned player destroyed). `world` reads the world in use
+ * (a rebuild makes a new one, with the characters it holds); `listed` lists
+ * the characters again.
+ */
+function furtherCharacters3D(world: () => RAPIER.World, further: Map<string, CharacterBody3D>, tuning: PhysicsInitConfig3D['controller'], assertLive: (op: string) => void, listed: () => void): Pick<RapierPhysicsPort3D, 'addCharacter' | 'removeCharacter'> {
+  return {
+    addCharacter(spec: AddedCharacter3D): void {
+      assertLive('addCharacter');
+      const problem = furtherProblem3D(spec, 'addCharacter', { has: (id) => further.has(id) });
+      if (problem !== null) throw new Error(problem.message);
+      further.set(spec.id, makeCharacterBody3D(world(), spec, spec.controller ?? tuning));
+      listed();
+    },
+    removeCharacter(id: string): void {
+      assertLive('removeCharacter');
+      const b = further.get(id);
+      if (b === undefined) return;
+      world().removeCharacterController(b.controller);
+      world().removeCollider(b.collider, false);
+      further.delete(id);
+      listed();
+    },
   };
 }
 
@@ -1384,14 +1413,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       stilled.length = 0;
     },
 
-    addCharacter(spec: AddedCharacter3D): void {
-      assertLive('addCharacter');
-      const problem = furtherProblem3D(spec, 'addCharacter', { has: (id) => further.has(id) });
-      if (problem !== null) throw new Error(problem.message);
-      // Made in the world as it is now (a rebuild makes it again with the others).
-      further.set(spec.id, makeCharacterBody3D(world, spec, spec.controller ?? config.controller));
-      listCharacters();
-    },
+    ...furtherCharacters3D(() => world, further, config.controller, assertLive, listCharacters),
 
     diagnostics(): Rapier3DDiagnostics {
       return released ?? counters();

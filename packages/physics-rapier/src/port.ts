@@ -416,6 +416,32 @@ function makeCharacterBody(world: RAPIER.World, spec: RapierCharacterSpec, tunin
   return { collider, controller, cap, tuning, position: { x: spec.x, y: spec.y }, staged: null, grounded: false, retainedSupport: { x: 0, y: 1 }, dropSteps: 0, last: undefined };
 }
 
+/**
+ * Further characters added while the world runs (a player arrives) and taken
+ * out for good (a spawned player destroyed). `world` reads the world in use
+ * (a restart makes a new one); `listed` lists the characters again.
+ */
+function furtherCharacters(world: () => RAPIER.World, further: Map<string, CharacterBody>, tuning: RapierControllerConfig, assertLive: (operation: string) => void, listed: () => void): Pick<RapierPhysicsPort, 'addCharacter' | 'removeCharacter'> {
+  return {
+    addCharacter(spec: RapierFurtherCharacterSpec): void {
+      assertLive('addCharacter');
+      const problem = furtherProblem(spec, 'addCharacter', { has: (id) => further.has(id) });
+      if (problem !== null) throw new Error(problem.message);
+      further.set(spec.id, makeCharacterBody(world(), spec, spec.controller ?? tuning));
+      listed();
+    },
+    removeCharacter(id: string): void {
+      assertLive('removeCharacter');
+      const b = further.get(id);
+      if (b === undefined) return;
+      world().removeCharacterController(b.controller);
+      world().removeCollider(b.collider, false);
+      further.delete(id);
+      listed();
+    },
+  };
+}
+
 /** A character's capsule collider at its position + offset and its own Rapier controller, in `world`. */
 function makeCapsule(world: RAPIER.World, cap: CapsuleShape, at: Vec2, tuning: RapierControllerConfig): { collider: RAPIER.Collider; controller: RAPIER.KinematicCharacterController } {
   // PARENTLESS character collider (normative trap): created with no parent
@@ -537,6 +563,7 @@ function createAdapter(
       characterHandles.add(b.collider.handle);
       if (!edgeCapsules.has(b)) edgeCapsules.set(b, new RAPIER.Capsule(b.cap.halfHeight, b.cap.radius));
     }
+    for (const b of edgeCapsules.keys()) if (!all.includes(b)) edgeCapsules.delete(b);
     othersOut = characterHandles.size > 1 ? (collider) => !characterHandles.has(collider.handle) : undefined;
   };
   listCharacters();
@@ -1287,13 +1314,7 @@ function createAdapter(
       // One pipeline update: the first sweep and every query see every collider.
       world.step();
     },
-    addCharacter(spec: RapierFurtherCharacterSpec): void {
-      assertLive('addCharacter');
-      const problem = furtherProblem(spec, 'addCharacter', { has: (id) => further.has(id) });
-      if (problem !== null) throw new Error(problem.message);
-      further.set(spec.id, makeCharacterBody(world, spec, spec.controller ?? config.controller));
-      listCharacters();
-    },
+    ...furtherCharacters(() => world, further, config.controller, assertLive, listCharacters),
     dispose(): void {
       if (disposed) return;
       // Capture the live counts, then release everything: `World.free()` frees

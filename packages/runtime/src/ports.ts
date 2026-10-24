@@ -95,6 +95,8 @@ export interface PhysicsPort {
    * without a character takes them too.
    */
   addCharacter?(spec: AddedCharacter2D): void;
+  /** Take an added character out of the world for good (its object left the game: a destroyed spawned player). */
+  removeCharacter?(id: string): void;
   /** Ignore one-way colliders for the next `steps` steps (drop through), for a character (absent: the first). */
   dropThrough?(steps: number, characterId?: string): void;
   /** The nearest collider hit by a ray (the characters excluded). */
@@ -583,6 +585,8 @@ export interface PhysicsPort3D {
   restartWorld?(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
   /** Add a player character while the world runs (see the 2D port's), named by its object from then on. */
   addCharacter?(spec: AddedCharacter3D): void;
+  /** Take an added character out of the world for good (see the 2D port's). */
+  removeCharacter?(id: string): void;
   dispose(): void;
 }
 
