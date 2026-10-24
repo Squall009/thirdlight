@@ -8,12 +8,10 @@
  * Checked when the project loads and after a change that touches copies or
  * prefabs (the assembled read is kept per state, so a check is a read).
  */
-import type { ScenePrefabProblem, WorkspaceService } from '@thirdlight/workspace';
+import { namedList, type ScenePrefabProblem, type WorkspaceService } from '@thirdlight/workspace';
 
 /** The change types that can change what assembly meets besides one carrying assembled objects. */
 const RELEVANT = new Set(['createPrefab', 'updatePrefab', 'removePrefab', 'importResources', 'moveResources']);
-/** Copies named in one line before it says how many more. */
-const NAMED_MAX = 5;
 
 export interface PrefabProblemChecker {
   loaded(projectId: string): void;
@@ -32,8 +30,7 @@ export function prefabProblemLines(problems: readonly ScenePrefabProblem[]): { c
   return [...groups.values()].map((g) => {
     const first = g[0]!;
     const copies = [...new Set(g.map((p) => `${p.entityId} (scene "${p.sceneId}")`))];
-    const named = copies.slice(0, NAMED_MAX).join(', ') + (copies.length > NAMED_MAX ? ` and ${copies.length - NAMED_MAX} more` : '');
-    return { code: `prefab_${first.code.replace(/^prefab_/, '')}`, message: `Prefab "${first.prefabId}": ${first.message}${g.length > 1 ? ` (${g.length} times)` : ''} — ${named}` };
+    return { code: `prefab_${first.code.replace(/^prefab_/, '')}`, message: `Prefab "${first.prefabId}": ${first.message}${g.length > 1 ? ` (${g.length} times)` : ''} — ${namedList(copies)}` };
   });
 }
 

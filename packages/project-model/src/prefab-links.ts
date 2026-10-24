@@ -18,7 +18,7 @@
  * parts `[localId]` never meet the base's.
  */
 
-import { fieldMissing, fieldType, fieldValue, idInvalid, isPlainObject, pointerSegment, unexpectedField, withFound } from './validate';
+import { ID_MAX_LENGTH, fieldMissing, fieldType, fieldValue, idInvalid, isPlainObject, pointerSegment, unexpectedField, withFound } from './validate';
 import { ID_RE_V2 } from './components';
 import type { ModelErrorV2 } from './errors';
 
@@ -201,8 +201,6 @@ export function keptPartIds(entities: readonly { components: object }[]): string
   return out;
 }
 
-/** The longest scene id (the project id syntax). */
-const MAX_ID_LENGTH = 64;
 /** The hash part of a derived part id (base 36, fixed width). */
 const PART_HASH_LENGTH = 11;
 
@@ -228,7 +226,7 @@ function hash53(text: string): number {
  */
 export function prefabPartId(copyId: string, partKey: string): string {
   const hash = hash53(`${copyId}\u0000${partKey}`).toString(36).padStart(PART_HASH_LENGTH, '0');
-  return `${copyId.slice(0, MAX_ID_LENGTH - PART_HASH_LENGTH - 1)}-${hash}`;
+  return `${copyId.slice(0, ID_MAX_LENGTH - PART_HASH_LENGTH - 1)}-${hash}`;
 }
 
 /** What every prefab stage's root id starts with (see `prefabStageId`). */

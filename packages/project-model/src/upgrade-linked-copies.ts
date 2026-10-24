@@ -33,8 +33,8 @@ import type { DeclaredProperty } from './types-v2';
 type Obj = Record<string, unknown>;
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Copies named in one note before it says how many more (a Problems line is short). */
-const NAMED_MAX = 4;
+/** Objects one line names before it says how many more (the upgrade's lines and the prefab Problems lines). */
+const NAMED_MAX = 5;
 
 export interface LinkPrefabCopiesResult {
   content: unknown;
@@ -122,7 +122,7 @@ function linkCopy(
 const objects = (n: number): string => (n === 1 ? '1 object stays' : `${n} objects stay`);
 
 /** "a (scene "s"), b (scene "s") and 3 more" */
-function named(list: readonly string[]): string {
+export function namedList(list: readonly string[]): string {
   return list.slice(0, NAMED_MAX).join(', ') + (list.length > NAMED_MAX ? ` and ${list.length - NAMED_MAX} more` : '');
 }
 
@@ -249,11 +249,11 @@ export function linkPrefabCopies(contentIn: unknown, scenesIn: readonly unknown[
   const prefabs = [...new Set([...withOverrides.keys(), ...keptPlain.keys(), ...gone.keys()])].sort();
   for (const id of prefabs) {
     const o = withOverrides.get(id) ?? [];
-    if (o.length > 0) notes.push(`Prefab "${id}": ${o.length} cop${o.length === 1 ? 'y keeps its' : 'ies keep their'} differences from the prefab as overrides — ${named(o)}`);
+    if (o.length > 0) notes.push(`Prefab "${id}": ${o.length} cop${o.length === 1 ? 'y keeps its' : 'ies keep their'} differences from the prefab as overrides — ${namedList(o)}`);
     const k = keptPlain.get(id) ?? [];
-    if (k.length > 0) notes.push(`Prefab "${id}": ${objects(k.length)} plain (not linked: re-arranged parts a link cannot keep, or parts outside a copy) — ${named(k)}`);
+    if (k.length > 0) notes.push(`Prefab "${id}": ${objects(k.length)} plain (not linked: re-arranged parts a link cannot keep, or parts outside a copy) — ${namedList(k)}`);
     const g = gone.get(id) ?? [];
-    if (g.length > 0) notes.push(`Prefab "${id}" is gone: ${objects(g.length)} plain, no longer naming it — ${named(g)}`);
+    if (g.length > 0) notes.push(`Prefab "${id}" is gone: ${objects(g.length)} plain, no longer naming it — ${namedList(g)}`);
   }
   return { content: contentIn, scenes: changed ? scenes : [...scenesIn], changed, notes };
 }

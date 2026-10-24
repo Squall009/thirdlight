@@ -408,7 +408,7 @@ export {
 export { REMOVED_FROM_ENGINE, REMOVED_COMPONENTS, removedComponentMessage, isRemovedComponent } from './removed-game-data';
 export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type UpgradeSceneModelResult } from './upgrade-scene-model';
 export { upgradeToSchema8, SCHEMA_8_STEPS, type Schema8Step, type UpgradeToSchema8Result } from './upgrade-schema-8';
-export { linkPrefabCopies, type LinkPrefabCopiesResult } from './upgrade-linked-copies';
+export { linkPrefabCopies, namedList, type LinkPrefabCopiesResult } from './upgrade-linked-copies';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).

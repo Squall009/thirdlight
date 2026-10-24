@@ -8,16 +8,18 @@
  * that assemble back to exactly what was edited.
  */
 import type { AssemblyEntity, PrefabAssembler } from './prefab-assembly';
+import { canonicalJsonText } from './sha256';
 import type { PrefabLinkComponent, PrefabOverride } from './prefab-links';
 
 type Obj = Record<string, unknown>;
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Sorted-key JSON: two values are the same object when this is equal. */
+/**
+ * The canonical JSON text of a value (two values are the same object when it
+ * is equal); an absent field stays apart from one set to null.
+ */
 export function canonicalJson(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
-  if (isObject(v)) return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`).join(',')}}`;
-  return JSON.stringify(v);
+  return v === undefined ? 'undefined' : canonicalJsonText(v);
 }
 
 /** A field name a part path can hold (paths are `/`-separated). */
