@@ -174,6 +174,7 @@ backend.
 | 39c.8 | Done. Bench moved to `tests/integration/m39c-linked-prefabs/prefab-scale.bench.test.ts` (+ prefab edit timed over WS into the editor's projection; `TL_BENCH_PREFABS`, `TL_BENCH_FOOTPRINT`). 1,000 linked copies (medians of 5): view 16 ms, Play backend 110 ms (baseline 21 / 105: within 10 %). A stage edit reaching 1,000 copies: 70 ms command → projection (one 271 KB `mutation.applied`, 1,000 objects); in a real browser at the cap, command → second frame after the Scene view shows it 105 ms (WebGPU) / 83 ms (WebGL2), seen in screenshots. The 1 MiB frame is passed at ~3,800 copies of one prefab: 4,000 copies resync in 380 ms (vitest) / ~350 ms (browser, status bar's new revision + 2 frames), so no chunking. Fixed: a prefab with a footprint could not be edited on its stage when the scene has a block layer (`reference_missing`; the stage now drops the scene's cells); footprint writes keep each copy's assembly (per prefab list, per stored copy): a command on a 1,000-copy scene with a footprinted prefab 50 → 35 ms (33 ms with the footprint pass off: the rest is the block layer). Vitest: `footprint-ops` (+stage edit). No e2e touched. |
 | 39c.9 | Done: manual rewritten. `concepts/prefabs.md` (linked copies, overrides with marks / Overrides list / revert-apply per field, part, all, prefab edit mode, nesting and variants, unpack, what can be in a prefab and the player prefab, spawn / live blocks / block looks / footprints / decals, editor, API and MCP incl. `queryPrefabs stage` and `updatePrefab` alias, older projects); `guides/prefabs.md` (override, edit, revert/apply, variant, nest, unpack steps in the editor and through the API; pitfalls); `features/migration.md` (prefab Problems codes, linked-copy behaviour); `features/scripting.md` (prefabs may hold controllers/cameras/lights). Docs only: manual-links, gen-reference, skill tests green. Left: the MCP tool text in `packages/mcp-adapter/src/tool-docs.ts` still says a prefab holds "never the player controller or scene wiring" (source, not docs). |
 | 39c.10 | Browser acceptance done (both renderers, 1920×1080, editor UI), owner look pending; full gate + review by lead. Door prefab, five copies, one colour override kept through a prefab-mode edit (four changed), "Locked door" variant with a Lock part, Handle nested via the copy's Overrides list, player prefab (character + follow camera) walked in Play (4 m, Run, camera followed). Fixes found on the way (`f5660db2`, `3d496157`): prefab rename (`updatePrefab` without `fromEntity`, Project window name field), GameObject menu makes objects inside the open prefab (was: hidden in the scene) and selects them, added objects listed in Overrides with Apply (was: no UI path to nest), Scene view camera restored after prefab mode; MCP tool text fixed (`eab46d31`). On WebGPU the Lock and the handle nesting went through MCP (before the fixes); on WebGL2 everything through the UI. Logged D308 (Surface doesn't colour models), D309 (notice styling, variant header name, dropped copies sink). `project-items` chosen-item test 3.7 → 4.4 s. Screenshots `acceptance/39c.10-*.jpg` (9). |
+| 39c.11 | Review fixes done (2a74a616..ad2610cc): H1 refs resolve assembled, H2 Duplicate/Paste keeps the link, M1 footprints in every scene, M2 a destroyed spawned player leaves, M3 results bounded (64 objects), D309, L1. +5 vitest steps in existing m39c files (~+1 s); no e2e touched (0 s). Fast gate (edit-copy, project-window, delete-content, window-tools + menus): GREEN at ad2610cc (9 min, 35 e2e passed, village at 60 Hz p95 16.7 ms, 0 missed, CPU 4.9/4.5 ms on WebGPU/WebGL2); `scan-bounded-log.test.ts` failed once and passed alone (D307 watch). Drop-rest, info notices and the variant heading are unverified in a browser. |
 
 ## 5. Decision log
 
@@ -306,3 +307,24 @@ backend.
   which stays well inside 1 s at 16,000 objects (~350 ms in the browser). No chunked frames or "reassemble locally" message:
   the editor would need the assembler and the prefabs, for a case that already meets the target. Each such resync still adds
   a `ws_frame_too_large` Problems line (by design: a resync is never silent). Default chosen, owner to confirm.
+- 2026-10-24 (39c.11): **Phase review (independent agent, at ea083106).** Full gate at ea083106: GREEN, 387 passed,
+  0 flakes, 29 min (e2e 23.6 min), against 27 min in phase 39 and 33 min (RED) in 39b. Findings: 2 High, 3 Medium,
+  5 Low. Fixed: **H1** references (behavior entityRefs, transition and shell spawns) resolve against the assembled
+  scene, so a schema-7 project naming a copy's non-root part upgrades and opens and a spawn-point prefab copy is a
+  spawn (2a74a616); **H2** Duplicate and Copy/Paste of a linked copy make a linked copy with its overrides, a lone
+  part pastes as an ordinary (added) object (148c5751); **M1** a prefab edit writes its copies' footprint cells in
+  every scene, undo by the same pass (e6726f50); **M2** a destroyed spawned player leaves the controllers, the
+  physics world and the blocks; the next player becomes the first (3202ff7c; replaces 39c.6's "stays in the player
+  list"; default chosen, owner to confirm); **M3** HTTP/MCP results carry `change.assembled` whole up to
+  `RESULT_ASSEMBLED_MAX` (64), else counts, the first 64 ids and `truncated`, while the WS feed carries everything
+  (2b8a521b); **L1** one canonicalJson, ID_MAX_LENGTH and namedList (5 names) (ad2610cc); **D309** dropped copies
+  rest on the surface (lifted in the same undo step), the variant's prefab mode names the variant, success notices
+  use an info style (6743a2d1). Open: L2 (kept `partIds` of gone parts never pruned), L3 (new assembled parts go to
+  the end of the editor's order until a full read), L4 (per-command assembly not memoized; `prefabCopyCountErrors`
+  now shares the per-scene memo with the reference checks), L5 (`prefab-stage_` ids not reserved) → D310; the H2
+  e2e step was skipped (the behaviour is tested at the backend through the editor's value builder). Rule checks: no
+  new per-project caps (64 is a result-size bound, not a content cap); no copied constants left from the review;
+  no file past 2,000 lines, ratchet only shrank (both Rapier `createAdapter`s); no history comments. Owner's eyes:
+  the acceptance screenshots (door, variant, nesting, player prefab, both renderers), the drop rest, the info
+  notice style and the variant heading (unverified), D308, and whether 16 local lights per scene still fits now
+  that lamp prefabs count.

@@ -105,14 +105,16 @@ override the second copy's input actions so it reads its own keys.
   with [`ctx.spawn`](../reference/script-api.md#ctx-spawn) and removes them
   with [`ctx.destroy`](../reference/script-api.md#ctx-destroy). A spawn uses
   the prefab as it is assembled, nested copies and variants included, and a
-  spawned prefab with a controller is one more player. A new run removes
-  every spawned copy.
+  spawned prefab with a controller is one more player; destroyed, it leaves
+  the players and the physics world, and the next player becomes the first
+  (the one a call naming no object means). A new run removes every spawned
+  copy.
 - A block type's look can be a prefab, a variant or a prefab with nested
   copies, drawn as assembled; a **live** block spawns that prefab in its
   cell ([blocks](../features/blocks.md)).
 - A copy's parts write their block footprints like plain objects: placing,
   moving or deleting a copy, moving one of its parts, or editing the prefab
-  rewrites the cells in the same undo step.
+  rewrites the cells (in every scene holding copies) in the same undo step.
 - [`ctx.decals.spawn`](../reference/script-api.md#ctx-decals) leaves a
   prefab's decal (a variant's too) on a surface.
 
@@ -124,7 +126,11 @@ override the second copy's input actions so it reads its own keys.
 - The prefab appears in the Project window, with its model's thumbnail.
   Choose it to see it in the Inspector (its **name** field renames it);
   **place copy** puts one copy at the scene root. Drag it into the Scene view
-  to place a copy where it lands.
+  to place a copy where it lands: what it draws rests on the surface (a
+  character whose origin is its middle stands on it).
+- **Duplicate** (Ctrl+D) and **Copy**/**Paste** of a copy make another linked
+  copy with the same overrides. A part of a copy duplicated on its own is an
+  ordinary object (added to the copy when it stays under one of its parts).
 - **GameObject → Prefab copy…** opens the Project window on your prefabs.
 - Right-click a prefab (or press **create variant** in its Inspector) for a
   variant, named "<base> Variant".
@@ -149,7 +155,13 @@ The editor and MCP send the same commands; each is one undo step.
   `setBehaviorProperties`, `setTransform`, `updateEntity`, `createEntity`
   under a part, `deleteEntity` of a part) writes an override.
   `queryEntity` on a copy answers `prefabCopy`: its prefab, its overrides
-  and its parts' ids.
+  and its parts' ids. A part's id can be named anywhere an object id can
+  (a behavior's object reference, a scene transition's or the shell's
+  spawn).
+- A command's result carries the copies' objects it changed
+  (`change.assembled`) whole up to 64; past that it says how many changed
+  and names the first 64 (`truncated: true`). The editor's change feed
+  carries them all.
 - [`revertPrefabOverrides`](../reference/ops-detail.md#op-revertPrefabOverrides)
   and [`applyPrefabOverrides`](../reference/ops-detail.md#op-applyPrefabOverrides)
   take `{entityId, part?, path?, all?}`: `entityId` is the copy or one of its
