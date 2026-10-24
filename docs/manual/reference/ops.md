@@ -70,6 +70,7 @@ interface MutationFailure {
 | Op | Arguments | Writes |
 |---|---|---|
 | [`acknowledgeBehaviorTrust`](ops-detail.md#op-acknowledgeBehaviorTrust) | AcknowledgeBehaviorTrustArgs | `behaviorTrust` |
+| [`applyPrefabOverrides`](ops-detail.md#op-applyPrefabOverrides) | PrefabOverrideTargetArgs | `prefabs` |
 | [`applySurfacePreset`](ops-detail.md#op-applySurfacePreset) | ApplySurfacePresetArgs |  |
 | [`colliderFromModel`](ops-detail.md#op-colliderFromModel) | ColliderFromModelArgs |  |
 | [`commitScriptLibraryStage`](ops-detail.md#op-commitScriptLibraryStage) | { stageId: string } |  |
@@ -77,6 +78,7 @@ interface MutationFailure {
 | [`createEntity`](ops-detail.md#op-createEntity) | CreateEntityArgs |  |
 | [`createFolder`](ops-detail.md#op-createFolder) | CreateFolderArgs |  |
 | [`createPrefab`](ops-detail.md#op-createPrefab) | CreatePrefabArgs | `prefabs` |
+| [`createPrefabVariant`](ops-detail.md#op-createPrefabVariant) | CreatePrefabVariantArgs | `prefabs` |
 | [`createScene`](ops-detail.md#op-createScene) | SceneIndexArgs | `scenes` |
 | [`deleteAnimator`](ops-detail.md#op-deleteAnimator) | { controllerId: string } | `animators` |
 | [`deleteAsset`](ops-detail.md#op-deleteAsset) | { assetId: string } | `assets` |
@@ -113,6 +115,7 @@ interface MutationFailure {
 | [`renameEffect`](ops-detail.md#op-renameEffect) | { effectId: string; name: string } | `effects` |
 | [`renameFolder`](ops-detail.md#op-renameFolder) | RenameFolderArgs |  |
 | [`renameScene`](ops-detail.md#op-renameScene) | SceneIndexArgs | `scenes` |
+| [`revertPrefabOverrides`](ops-detail.md#op-revertPrefabOverrides) | PrefabOverrideTargetArgs |  |
 | [`revokeBehaviorTrust`](ops-detail.md#op-revokeBehaviorTrust) | { sourceDigest: string } | `behaviorTrust` |
 | [`setAddress`](ops-detail.md#op-setAddress) | SetAddressArgs | `loadable`, `assets` |
 | [`setAnimator`](ops-detail.md#op-setAnimator) | { controller: AnimatorController } | `animators` |
@@ -149,5 +152,6 @@ interface MutationFailure {
 | [`setUiDocument`](ops-detail.md#op-setUiDocument) | { document: UiDocument } | `uiDocuments` |
 | [`setUiTheme`](ops-detail.md#op-setUiTheme) | { theme: UiTheme } | `uiThemes` |
 | [`undo`](ops-detail.md#op-undo) | EmptyArgs |  |
+| [`unpackPrefab`](ops-detail.md#op-unpackPrefab) | UnpackPrefabArgs |  |
 | [`updateEntity`](ops-detail.md#op-updateEntity) | UpdateEntityArgs |  |
 | [`updatePrefab`](ops-detail.md#op-updatePrefab) | UpdatePrefabArgs | `prefabs` |

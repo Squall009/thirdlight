@@ -4,17 +4,23 @@ A **prefab** is a saved group of objects you place many times: a lamp post,
 a door with its trigger, a projectile, an enemy with its script. It is made
 from objects in a scene, with their children and components.
 
-## Copies, not links
+## Linked copies
 
-Placing a prefab makes an **independent copy**: new objects with new ids,
-which you then edit like any other objects. Nothing rewrites copies already
-placed. To change a prefab, **apply** an edited copy (or any objects) to it:
-its contents are replaced under the same id, so scripts that spawn it by
-name spawn the new contents. Copies already placed or spawned keep what
-they have. There is no revert or variant.
+Placing a prefab makes a **linked copy**: one object that names the prefab.
+Its parts are made from the prefab whenever the scene is built (the editor,
+Play, the export), with ids derived from the copy's, so editing the prefab
+reaches every copy. Editing a copy's part (a colour, a position, a script
+value, a child added under it, a part deleted) is kept on that copy as an
+**override**: the prefab and the other copies stay as they are. A copy's
+overrides can be **reverted** (one field, one part, or all) or **applied**
+to the prefab (the same, plus the objects added to the copy), and a copy can
+be **unpacked** into plain objects that no longer follow the prefab. A
+prefab can hold linked copies of other prefabs (**nesting**), and a
+**variant** is a prefab made of one linked copy of a base: it follows the
+base. A prefab can never contain itself.
 
-Each placed object carries a [Prefab link](../reference/components-organisation.md#component-prefab)
-component that says which prefab and which of its objects it came from.
+Each part of a copy carries a [Prefab link](../reference/components-organisation.md#component-prefab)
+component that says which prefab and which of its objects it is.
 
 What a prefab keeps: models and boxes, colliders, materials, animators,
 scripts and the gameplay blocks (movers, triggers, health and so on), and
@@ -41,10 +47,15 @@ in [prefabs in the reference](../reference/content-blocks-settings.md#content-pr
   prefab from objects.
 - [`instantiatePrefab`](../reference/ops-detail.md#op-instantiatePrefab)
   places a copy in a scene.
-- [`updatePrefab`](../reference/ops-detail.md#op-updatePrefab) replaces a
-  prefab's contents with an object and its children, keeping the id. The
-  object may be a copy of that prefab: the parts it came from keep their
-  local ids. It cannot hold a copy of another prefab.
+- Editing a copy's part with the ordinary commands writes an override;
+  [`revertPrefabOverrides`](../reference/ops-detail.md#op-revertPrefabOverrides),
+  [`applyPrefabOverrides`](../reference/ops-detail.md#op-applyPrefabOverrides),
+  [`unpackPrefab`](../reference/ops-detail.md#op-unpackPrefab) and
+  [`createPrefabVariant`](../reference/ops-detail.md#op-createPrefabVariant)
+  do the rest. Each is one undo step.
+- [`updatePrefab`](../reference/ops-detail.md#op-updatePrefab) from a
+  linked copy of the prefab applies all its overrides; from other objects it
+  replaces the prefab's contents with them, keeping the id.
 - [`deletePrefab`](../reference/ops-detail.md#op-deletePrefab) deletes one.
   It is refused while anything uses it.
 - A script spawns copies into the running game (never into the project)

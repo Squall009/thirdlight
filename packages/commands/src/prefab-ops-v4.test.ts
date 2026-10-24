@@ -17,11 +17,15 @@
  * Every state is a v4 project scene: the `fixtures/m2` envelopes are lifted in memory by `m2EnvelopeV4` (scene
  * relabelled schemaVersion 4, content given the v4 scene index), and the
  * recorded results are asserted against the v4 engine; where v4 differs
- * the difference is stated at the assertion.
+ * the difference is stated at the assertion. The fixtures recorded plain
+ * copies; a v4 scene places linked copies (one stored object, parts
+ * assembled with ids derived from the copy's), so from the first placement
+ * on the steps run with the copies' part ids and the results are asserted
+ * for linked copies.
  */
 
 import { describe, expect, it } from 'vitest';
-import type { PrefabDefinition, SceneV4 } from '@thirdlight/project-model';
+import { assembleSceneEntities, prefabPartId, type EntityV3, type PrefabDefinition, type SceneV4 } from '@thirdlight/project-model';
 
 import {
   applyMutation,
@@ -29,6 +33,7 @@ import {
   queryPrefabs,
 } from './index';
 import { nextFreeEntityId } from './prefab-ops';
+import { catalogAssembler } from './prefab-copy-edit';
 import type { CommandState, InstantiatePrefabChange, MutationSuccess } from './index';
 import { m2EnvelopeV4, m2FixtureJson } from './test-fixtures';
 
@@ -61,6 +66,27 @@ const FAILURES = m2FixtureJson<{ cases: FailureCase[] }>(
 
 const step = (id: string): ScenarioStep => STEPS.find((s) => s.stepId === id) as ScenarioStep;
 
+/** The recorded plain copies' ids, as the linked copies' roots and part ids. */
+const PART = (copy: string, local: string): string => prefabPartId(copy, local);
+const LINKED_IDS: Record<string, string> = {
+  'box-000001': PART('group-000001', 'box-0001'),
+  'model-000001': PART('group-000001', 'model-0001'),
+  'model-000002': PART('group-000001', 'model-0002'),
+  'box-000002': PART('group-000002', 'box-0001'),
+  'model-000003': PART('group-000002', 'model-0001'),
+  'model-000004': PART('group-000002', 'model-0002'),
+};
+/** A recorded request with the plain copies' ids named as the linked copies' parts. */
+function linkedRequest<T>(request: T): T {
+  return JSON.parse(JSON.stringify(request), (_k, v: unknown) => (typeof v === 'string' && LINKED_IDS[v] !== undefined ? LINKED_IDS[v] : v)) as T;
+}
+
+/** The scene as Play and the editor see it: linked copies assembled. */
+function assembled(state: CommandState<SceneV4>): Map<string, EntityV3> {
+  const made = assembleSceneEntities(state.scene.entities as never, catalogAssembler(state.content));
+  return new Map((made.entities as unknown as EntityV3[]).map((e) => [e.id, e]));
+}
+
 /** A fresh command state from the committed before envelope (revision 2). */
 function baseState(): CommandState<SceneV4> {
   return createCommandState(BEFORE.scene, BEFORE.content);
@@ -74,7 +100,7 @@ function stateThrough(id: string): CommandState<SceneV4> {
     // (pipeline step 2); the pure layer re-validates and would conflict. It changes no
     // state, so skipping it reaches the same snapshot.
     if ((s.out as { duplicated?: boolean }).duplicated !== true) {
-      const r = applyMutation(state, s.in);
+      const r = applyMutation(state, linkedRequest(s.in));
       expect(r.ok, `scenario ${s.stepId} must apply`).toBe(true);
       if (!r.ok) return state;
       state = r.state as CommandState<SceneV4>;
@@ -139,57 +165,60 @@ function instantiateChange(result: MutationSuccess): InstantiatePrefabChange {
 // ---- accepted prefab fixture replay ---------------------------------------------
 
 describe('accepted prefab fixture replay', () => {
-  it('replays the whole M1–M10 scenario byte-for-byte and lands on the after envelope', () => {
+  it('replays M1–M3 byte-for-byte; M4–M10 place, edit, delete and restore linked copies', () => {
     let state = baseState();
-    const seen = new Map<string, MutationSuccess>();
-    for (const s of STEPS) {
-      const req = s.in as { requestId: string };
-      if ((s.out as { duplicated?: boolean }).duplicated === true) {
-        // A duplicated retry is served by the workspace dedup layer (pipeline
-        // step 2) BEFORE this pure layer is reached: the recorded result replays
-        // byte-identically modulo `duplicated`. Assert that relationship
-        // instead of re-executing (the pure layer has no record map).
-        const recorded = seen.get(req.requestId);
-        expect(recorded, `${s.stepId} duplicate of an unrecorded request`).toBeDefined();
-        const out = { ...(s.out as Record<string, unknown>) };
-        delete out['duplicated'];
-        const prev = { ...(recorded as unknown as Record<string, unknown>) };
-        delete prev['duplicated'];
-        expect(out).toEqual(prev);
-        continue;
-      }
+    for (const s of STEPS.slice(0, 3)) {
       const r = applyMutation(state, s.in);
       expect(r.result, s.stepId).toEqual(s.out);
-      if (r.ok) {
-        seen.set(req.requestId, r.result);
-        state = r.state as CommandState<SceneV4>;
-      }
+      if (r.ok) state = r.state as CommandState<SceneV4>;
     }
-    expect(state.scene).toEqual(AFTER.scene);
-    expect(state.scene.revision).toBe(AFTER.scene.revision);
-    expect(state.content).toEqual(AFTER.content);
+    const before = state.scene.entities.map((e) => e.id);
+    // The two placements: each copy is one stored object naming the prefab; the first one's property value is its override.
+    const m4 = ok(applyMutation(state, step('M4').in));
+    const m5 = ok(applyMutation(m4.state, step('M5').in));
+    expect(m4.result.change).toMatchObject({ type: 'instantiatePrefab', rootId: 'group-000001', entries: [{ index: 6 }] });
+    expect(instantiateChange(m4.result).entries[0]?.entity).toEqual({
+      id: 'group-000001',
+      components: {
+        transform: { position: [6, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
+        prefab: { prefabId: 'prefab-0001', overrides: [{ part: 'model-0001', path: 'components/behavior/values/speed', value: 7.25 }] },
+      },
+    });
+    expect(m5.state.scene.entities.map((e) => e.id)).toEqual([...before, 'group-000001', 'group-000002']);
+    // The recorded pedestal edit on copy A: an override of copy A, the prefab and copy B untouched.
+    const m6 = ok(applyMutation(m5.state, linkedRequest(step('M6').in)));
+    expect(m6.result.change).toMatchObject({ type: 'prefabLinkEdit', copyIds: ['group-000001'] });
+    const a = m6.state.scene.entities.find((e) => e.id === 'group-000001');
+    expect((a?.components.prefab as unknown as { overrides: unknown[] }).overrides).toContainEqual({ part: 'box-0001', path: 'components/box/material/color', value: '#c05050' });
+    expect(m6.state.content).toEqual(m5.state.content);
+    const view = assembled(m6.state);
+    expect(view.get(LINKED_IDS['box-000001'] as string)?.components.box?.material?.color).toBe('#c05050');
+    expect(view.get(LINKED_IDS['box-000002'] as string)?.components.box?.material?.color).toBe('#b0b0b0');
+    // Delete, undo, redo: the copy goes whole (one stored object), comes back, goes again.
+    const m7 = ok(applyMutation(m6.state, step('M7').in));
+    expect(m7.result.change).toEqual({ type: 'deleteEntity', rootId: 'group-000001', deletedIds: ['group-000001'] });
+    const m8 = ok(applyMutation(m7.state, step('M8').in));
+    expect(m8.state.scene.entities).toEqual(m6.state.scene.entities);
+    const m9 = ok(applyMutation(m8.state, step('M9').in));
+    expect(m9.state.scene.entities.map((e) => e.id)).toEqual([...before, 'group-000002']);
+    expect(m9.state.content).toEqual(AFTER.content);
   });
 
-  it('M3 captures the 4-entity definition and M4/M5 materialize two independent instances', () => {
+  it('M3 captures the 4-entity definition and M4/M5 place two linked copies with their own part ids', () => {
     const m3 = applyMutation(stateThrough('M2'), step('M3').in);
     expect(m3.result).toEqual(step('M3').out);
-    const m4 = applyMutation(stateThrough('M3'), step('M4').in);
-    expect(m4.result).toEqual(step('M4').out);
-    const m5 = applyMutation(stateThrough('M4'), step('M5').in);
-    expect(m5.result).toEqual(step('M5').out);
-    if (!m4.ok || !m5.ok) throw new Error('instantiation must succeed');
+    const m4 = ok(applyMutation(stateThrough('M3'), step('M4').in));
+    const m5 = ok(applyMutation(m4.state, step('M5').in));
     const c4 = instantiateChange(m4.result);
     const c5 = instantiateChange(m5.result);
-    // Distinct IDs, exact mapping, remapped internal reference.
-    expect(c4.mapping.map((m) => m.entityId)).toEqual(['group-000001', 'box-000001', 'model-000001', 'model-000002']);
-    expect(c5.mapping.map((m) => m.entityId)).toEqual(['group-000002', 'box-000002', 'model-000003', 'model-000004']);
-    expect(c4.mapping.map((m) => m.localId)).toEqual(['group-0001', 'box-0001', 'model-0001', 'model-0002']);
-    const lantern4 = c4.entries.find((e) => e.entity.id === 'model-000001');
-    const lantern5 = c5.entries.find((e) => e.entity.id === 'model-000003');
-    expect(lantern4?.entity.components.behavior?.values['target']).toBe('group-000001');
-    expect(lantern5?.entity.components.behavior?.values['target']).toBe('group-000002');
+    // Distinct ids, the exact mapping, the internal reference naming the copy's own root.
+    expect(c4.mapping).toEqual(['group-0001', 'box-0001', 'model-0001', 'model-0002'].map((localId, i) => ({ localId, entityId: i === 0 ? 'group-000001' : PART('group-000001', localId) })));
+    expect(c5.mapping.map((m) => m.entityId)).toEqual(['group-000002', LINKED_IDS['box-000002'], LINKED_IDS['model-000003'], LINKED_IDS['model-000004']]);
+    const view = assembled(m5.state);
+    expect(view.get(LINKED_IDS['model-000001'] as string)?.components.behavior?.values).toMatchObject({ target: 'group-000001', speed: 7.25 });
+    expect(view.get(LINKED_IDS['model-000003'] as string)?.components.behavior?.values).toMatchObject({ target: 'group-000002', speed: 4.5 });
     expect(c4.entries[0]?.index).toBe(6);
-    expect(c5.entries[0]?.index).toBe(10);
+    expect(c5.entries[0]?.index).toBe(7);
   });
 
   it('replays every pure prefab atomic-rejection case against its reachable state, byte-for-byte', () => {
@@ -201,28 +230,31 @@ describe('accepted prefab fixture replay', () => {
       // pure-layer one. F02 captured the scene camera, which is gone: its shot is captured like any object.
       if (c.caseId.startsWith('F24') || c.caseId.startsWith('F02')) continue;
       let state = build();
+      // After the first placement the copies are linked: those cases run with the copies' part ids, and their codes are asserted.
+      const linked = !['base', 'r3-after-M1', 'r4-after-M2', 'r5-after-M3'].includes(c.state);
+      // F01 captured a placed copy, which nests it now (asserted in createPrefab below).
+      if (c.caseId.startsWith('F01')) continue;
       for (const s of c.steps) {
-        const r = applyMutation(state, s.in);
-        expect(r.result, c.caseId).toEqual(s.out);
+        const r = applyMutation(state, linked ? linkedRequest(s.in) : s.in);
+        if (!linked) expect(r.result, c.caseId).toEqual(s.out);
+        else expect(r.ok ? 'ok' : r.result.error.code, c.caseId).toBe(s.out['ok'] === true ? 'ok' : (s.out['error'] as { code: string }).code);
         if (r.ok) state = r.state as CommandState<SceneV4>;
       }
       expect(c.expect.durableStateUnchanged).toBe(true);
       replayed += 1;
     }
-    // F01, F03–F09 (prefab), F10–F20 (content/property cases, reachable through
-    // the r3/r4/r5/r7 snapshots), F21 (`reference_in_use`, the Lantern
-    // `model-000003`), F22 (no_change), F23 (stale instantiate).
-    expect(replayed).toBe(22);
+    // F03–F09 (prefab), F10–F20 (content/property cases, reachable through
+    // the r3/r4/r5/r7 snapshots), F21 (`reference_in_use`, copy B's lantern),
+    // F22 (no_change), F23 (stale instantiate).
+    expect(replayed).toBe(21);
   });
 
   it('reference_in_use: a copy outside the deleted subtree blocks the delete', () => {
-    // The committed F21 case now carries the instance-B lantern ID
-    // (`model-000003`, per the scenario's own M5 mapping); this re-derives the
-    // same outcome through the helper API as an independent check.
+    // Copy B's lantern (an override of the linked copy) names the source group: deleting the group is refused, naming the lantern part.
     const state = stateThrough('M5');
     const edited = ok(
       mutation(state, 'setBehaviorProperties', {
-        entityId: 'model-000003',
+        entityId: LINKED_IDS['model-000003'],
         behaviorId: 'behavior-0001',
         values: { target: 'group-0001' },
       }),
@@ -232,7 +264,7 @@ describe('accepted prefab fixture replay', () => {
       code: 'reference_in_use',
       cls: 'validation',
       entityIds: ['group-0001', 'box-0001', 'model-0001', 'model-0002'],
-      referencingEntityIds: ['model-000003'],
+      referencingEntityIds: [LINKED_IDS['model-000003']],
       message: 'an entity outside the deleted subtree references an entity inside it',
       hint: 'clear the referencing property values first, or delete the referencing entity too',
     });
@@ -242,7 +274,7 @@ describe('accepted prefab fixture replay', () => {
     const state = stateThrough('M5');
     const before = JSON.stringify(state);
     const bad = [
-      ['createPrefab', { prefabId: 'prefab-0002', displayName: 'Copy', sourceEntityId: 'group-000001' }],
+      ['createPrefab', { prefabId: 'prefab-0001', displayName: 'Copy', sourceEntityId: 'group-000001' }],
       ['instantiatePrefab', { prefabId: 'prefab-0001', overrides: [{ localId: 'model-9999', key: 'speed', value: 1 }] }],
       ['instantiatePrefab', { prefabId: 'prefab-0001', overrides: [{ localId: 'model-0001', key: 'target', value: 'group-0099' }] }],
     ] as [string, unknown][];
@@ -256,78 +288,50 @@ describe('accepted prefab fixture replay', () => {
 // ---- one undo / redo preserves identity --------------------------------------------
 
 describe('one undo/redo preserves instance identity', () => {
-  it('undo removes the whole subtree and redo restores exactly those IDs', () => {
+  it('undo removes the copy (its parts with it) and redo restores exactly its ids', () => {
     const state = stateThrough('M5');
-    // Undo the SECOND instance: its whole subtree disappears in one step.
     const undone = ok(mutation(state, 'undo', {}));
-    const ids = undone.state.scene.entities.map((e) => e.id);
-    expect(ids).not.toContain('group-000002');
-    expect(ids).not.toContain('model-000004');
-    expect(undone.result.change).toMatchObject({ type: 'deleteEntity', rootId: 'group-000002' });
+    expect(undone.state.scene.entities.map((e) => e.id)).not.toContain('group-000002');
+    expect(assembled(undone.state).has(LINKED_IDS['model-000004'] as string)).toBe(false);
+    expect(undone.result.change).toEqual({ type: 'deleteEntity', rootId: 'group-000002', deletedIds: ['group-000002'] });
     const redone = ok(mutation(undone.state, 'redo', {}));
     const change = instantiateChange(redone.result);
     expect(change.rootId).toBe('group-000002');
-    expect(change.mapping.map((m) => m.entityId)).toEqual(['group-000002', 'box-000002', 'model-000003', 'model-000004']);
-    expect(redone.state.scene.entities.map((e) => e.id)).toEqual(state.scene.entities.map((e) => e.id));
+    expect(change.mapping.map((m) => m.entityId)).toEqual(['group-000002', LINKED_IDS['box-000002'], LINKED_IDS['model-000003'], LINKED_IDS['model-000004']]);
     expect(redone.state.scene.entities).toEqual(state.scene.entities);
   });
 
-  it('redo after undo re-inserts recorded values without re-checking IDs against later state', () => {
-    // Undo both instances (`M5` then `M4`: separate history entries), then redo in order.
-    let state = stateThrough('M5');
-    state = ok(mutation(state, 'undo', {})).state; // undo `M5`
-    state = ok(mutation(state, 'undo', {})).state; // undo `M4`
-    expect(state.scene.entities.map((e) => e.id)).not.toContain('group-000001');
-    const redo1 = ok(mutation(state, 'redo', {}));
-    expect(instantiateChange(redo1.result).mapping.map((m) => m.entityId)).toEqual([
-      'group-000001',
-      'box-000001',
-      'model-000001',
-      'model-000002',
-    ]);
-    const redo2 = ok(mutation(redo1.state, 'redo', {}));
-    expect(instantiateChange(redo2.result).mapping.map((m) => m.entityId)).toEqual([
-      'group-000002',
-      'box-000002',
-      'model-000003',
-      'model-000004',
-    ]);
+  it('an override is one undo step: undo puts the copy back, redo writes the override again', () => {
+    const state = stateThrough('M5');
+    const edited = ok(mutation(state, 'setBehaviorProperties', { entityId: LINKED_IDS['model-000001'], behaviorId: 'behavior-0001', values: { speed: 9.75 } }));
+    const undone = ok(mutation(edited.state, 'undo', {}));
+    expect(undone.result.change).toMatchObject({ type: 'prefabLinkEdit', copyIds: ['group-000001'] });
+    expect(undone.state.scene.entities).toEqual(state.scene.entities);
+    const redone = ok(mutation(undone.state, 'redo', {}));
+    expect(redone.state.scene.entities).toEqual(edited.state.scene.entities);
+    expect(assembled(redone.state).get(LINKED_IDS['model-000001'] as string)?.components.behavior?.values['speed']).toBe(9.75);
   });
 });
 
-// ---- two-instance independence -----------------------------------------------------
+// ---- linked copies -----------------------------------------------------------------
 
-describe('two instances share no entity, no value storage and no link', () => {
-  it('editing one copy never touches the other, and a definition change is impossible', () => {
+describe('copies are linked: an edit of one is its override, a prefab edit reaches all', () => {
+  it('editing one copy never touches the other or the prefab', () => {
     const state = stateThrough('M5');
-    const edited = ok(
-      mutation(state, 'setBehaviorProperties', {
-        entityId: 'model-000001',
-        behaviorId: 'behavior-0001',
-        values: { speed: 9.75 },
-      }),
-    );
-    const a = edited.state.scene.entities.find((e) => e.id === 'model-000001');
-    const b = edited.state.scene.entities.find((e) => e.id === 'model-000003');
-    expect(a?.components.behavior?.values['speed']).toBe(9.75);
-    // The other copy keeps the definition's recorded value.
-    expect(b?.components.behavior?.values['speed']).toBe(4.5);
-    // Both retain their own provenance and separate value objects.
-    expect(a?.components.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
-    expect(b?.components.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
-    expect(a?.components.behavior?.values).not.toBe(b?.components.behavior?.values);
-    // The definition value is byte-unchanged.
+    const edited = ok(mutation(state, 'setBehaviorProperties', { entityId: LINKED_IDS['model-000001'], behaviorId: 'behavior-0001', values: { speed: 9.75 } }));
+    const view = assembled(edited.state);
+    expect(view.get(LINKED_IDS['model-000001'] as string)?.components.behavior?.values['speed']).toBe(9.75);
+    expect(view.get(LINKED_IDS['model-000003'] as string)?.components.behavior?.values['speed']).toBe(4.5);
+    // Each part says which prefab part it is.
+    expect(view.get(LINKED_IDS['model-000001'] as string)?.components.prefab).toEqual({ prefabId: 'prefab-0001', localId: 'model-0001' });
     expect(edited.state.content?.prefabs).toEqual(state.content?.prefabs);
   });
 
-  it('a later definition is not editable and existing instances are unaffected by capture', () => {
+  it('a capture of new objects leaves the copies as they are', () => {
     const state = stateThrough('M5');
-    // Capturing a NEW definition from a fresh subtree does not touch instances.
     const fresh = ok(mutation(state, 'createPrefab', { prefabId: 'prefab-0002', displayName: 'Pedestal', sourceEntityId: 'box-0001' }));
     expect(fresh.state.content?.prefabs.map((d) => d.prefabId)).toEqual(['prefab-0001', 'prefab-0002']);
-    const before = state.scene.entities.filter((e) => e.id.startsWith('model-'));
-    const after = fresh.state.scene.entities.filter((e) => e.id.startsWith('model-'));
-    expect(after).toEqual(before);
+    expect(fresh.state.scene.entities).toEqual(state.scene.entities);
   });
 });
 
@@ -363,10 +367,14 @@ describe('createPrefab', () => {
 
   it('rejects the forbidden capture contents with the codes; a camera is captured like any object', () => {
     const state = stateThrough('M5');
-    // nested: capture an instance subtree
-    expect(
-      failError(mutation(state, 'createPrefab', { prefabId: 'prefab-0002', displayName: 'Copy', sourceEntityId: 'group-000001' })),
-    ).toMatchObject({ code: 'prefab_nested_forbidden', prefabInstanceIds: ['group-000001', 'box-000001', 'model-000001', 'model-000002'] });
+    // A placed copy captured nests it: the new prefab is made of one linked copy (with its overrides).
+    const nested = ok(mutation(state, 'createPrefab', { prefabId: 'prefab-0002', displayName: 'Copy', sourceEntityId: 'group-000001' }));
+    expect((nested.result.change as { definition: PrefabDefinition }).definition.entities).toEqual([
+      { localId: 'group-000001', components: { transform: { position: [6, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, prefab: { prefabId: 'prefab-0001', overrides: [{ part: 'model-0001', path: 'components/behavior/values/speed', value: 7.25 }] } } },
+    ]);
+    // A copy of the new prefab captured into the prefab it nests would make it contain itself.
+    const placed = ok(mutation(nested.state, 'instantiatePrefab', { prefabId: 'prefab-0002', parentId: 'group-0001' }));
+    expect(failError(mutation(placed.state, 'updatePrefab', { prefabId: 'prefab-0001', fromEntity: 'group-0001' }))).toMatchObject({ code: 'prefab_cycle', prefabId: 'prefab-0001' });
     // A camera is a shot: a prefab may carry one (a spawned player brings its own camera).
     ok(mutation(baseState(), 'createPrefab', { prefabId: 'prefab-0002', displayName: 'World', sourceEntityId: 'group-0000' }));
     // external reference
@@ -380,13 +388,12 @@ describe('createPrefab', () => {
 
 describe('deterministic ID allocation and limits', () => {
   it('re-uses deleted IDs exactly as the accepted createEntity rule does', () => {
-    // From the after envelope group-000001/box-000001/model-000001/model-000002 are free
-    // again (M7–M10 deleted them), so the next instance must take those IDs.
+    // From the after envelope group-000001 is free again (M7–M10 deleted it), so the next copy takes it; its parts' ids follow from it.
     const state = createCommandState(AFTER.scene, AFTER.content);
     const r = ok(mutation(state, 'instantiatePrefab', { prefabId: 'prefab-0001', transform: { position: [12, 0, 0] } }));
     const change = instantiateChange(r.result);
-    expect(change.mapping.map((m) => m.entityId)).toEqual(['group-000001', 'box-000001', 'model-000001', 'model-000002']);
-    expect(change.entries.map((e) => e.index)).toEqual([10, 11, 12, 13]);
+    expect(change.mapping.map((m) => m.entityId)).toEqual(['group-000001', LINKED_IDS['box-000001'], LINKED_IDS['model-000001'], LINKED_IDS['model-000002']]);
+    expect(change.entries.map((e) => e.index)).toEqual([10]);
   });
 
   it('the deterministic allocator takes the smallest free six-digit id; old four-digit ids do not block it', () => {
@@ -505,88 +512,6 @@ describe('deterministic ID allocation and limits', () => {
   });
 });
 
-describe('fixtures/m2/prefabs/independence.messages.json replay', () => {
-  it('replays every step byte-for-byte and ends at the indexed revision', () => {
-    const scenario = m2FixtureJson<{
-      base: { state: string; revision: number };
-      steps: ScenarioStep[];
-    }>('prefabs/independence.messages.json');
-    const index = m2FixtureJson<{
-      files: { finalRevision: number; outcomes: { stepId: string; op: string; changeType: string }[] }[];
-    }>('prefabs/expected.json');
-    let state = createCommandState(AFTER.scene, AFTER.content);
-    for (const s of scenario.steps) {
-      const r = applyMutation(state, s.in);
-      expect(r.result, s.stepId).toEqual(s.out);
-      if (r.ok) state = r.state as CommandState<SceneV4>;
-    }
-    const entry = index.files[0] as {
-      finalRevision: number;
-      outcomes: { stepId: string; op: string; changeType: string }[];
-    };
-    expect(state.scene.revision).toBe(entry.finalRevision);
-    expect(entry.outcomes.map((o) => o.stepId)).toEqual(scenario.steps.map((s) => s.stepId));
-    expect(entry.outcomes.map((o) => o.op)).toEqual(scenario.steps.map((s) => s.in['op']));
-    expect(entry.outcomes.map((o) => o.changeType)).toEqual(
-      scenario.steps.map((s) => (s.out['change'] as { type: string }).type),
-    );
-    expect(state.content).toEqual(AFTER.content);
-  });
-
-  it('the two new copies are independent and the edits touch only copy A', () => {
-    const scenario = m2FixtureJson<{ steps: ScenarioStep[] }>('prefabs/independence.messages.json');
-    let state = createCommandState(AFTER.scene, AFTER.content);
-    const applied: MutationSuccess[] = [];
-    for (const s of scenario.steps) {
-      const r = applyMutation(state, s.in);
-      if (!r.ok) throw new Error(`${s.stepId} must apply`);
-      applied.push(r.result);
-      state = r.state as CommandState<SceneV4>;
-    }
-    const c1 = instantiateChange(applied[0] as MutationSuccess);
-    const c4 = instantiateChange(applied[3] as MutationSuccess);
-    expect(c1.mapping.map((m) => m.entityId)).toEqual(['group-000001', 'box-000001', 'model-000001', 'model-000002']);
-    expect(c4.mapping.map((m) => m.entityId)).toEqual(['group-000003', 'box-000003', 'model-000005', 'model-000006']);
-    // Edited copy A only: copy B (model-000003/0006) and the later copy C
-    // (model-000005/0008) keep the definition's recorded speed and target.
-    const byId = new Map(state.scene.entities.map((e) => [e.id, e]));
-    expect(byId.get('model-000001')?.components.behavior?.values?.['speed']).toBe(1.25);
-    expect(byId.get('model-000003')?.components.behavior?.values?.['speed']).toBe(4.5);
-    expect(byId.get('model-000005')?.components.behavior?.values?.['speed']).toBe(4.5);
-    expect(byId.get('box-000001')?.components.box?.material?.color).toBe('#112233');
-    expect(byId.get('box-000003')?.components.box?.material?.color).toBe('#b0b0b0');
-    // Remapped internal references per copy.
-    expect(byId.get('model-000001')?.components.behavior?.values?.['target']).toBe('group-000001');
-    expect(byId.get('model-000005')?.components.behavior?.values?.['target']).toBe('group-000003');
-    // The definition is byte-unchanged by every edit.
-    expect(state.content?.prefabs).toEqual(AFTER.content.prefabs);
-  });
-
-  it('one undo removes copy C whole and redo restores exactly its IDs', () => {
-    const scenario = m2FixtureJson<{ steps: ScenarioStep[] }>('prefabs/independence.messages.json');
-    const undoStep = scenario.steps.find((s) => s.stepId === 'I5') as ScenarioStep;
-    const redoStep = scenario.steps.find((s) => s.stepId === 'I6') as ScenarioStep;
-    let state = createCommandState(AFTER.scene, AFTER.content);
-    for (const s of scenario.steps) {
-      if (s.stepId === 'I5') break;
-      const r = applyMutation(state, s.in);
-      if (!r.ok) throw new Error(`${s.stepId} must apply`);
-      state = r.state as CommandState<SceneV4>;
-    }
-    const undone = ok(mutation(state, 'undo', {}, undoStep.in['expectedRevision'] as number));
-    expect(undone.result.change).toEqual(undoStep.out['change']);
-    expect(undone.state.scene.entities.map((e) => e.id)).not.toContain('group-000003');
-    const redone = ok(mutation(undone.state, 'redo', {}, redoStep.in['expectedRevision'] as number));
-    expect(redone.result.change).toEqual(redoStep.out['change']);
-    expect(instantiateChange(redone.result).mapping.map((m) => m.entityId)).toEqual([
-      'group-000003',
-      'box-000003',
-      'model-000005',
-      'model-000006',
-    ]);
-  });
-});
-
 // ---- Gameplay components in v4 prefabs -----------------------------------
 
 describe('a v4 prefab keeps its gameplay components', () => {
@@ -603,11 +528,11 @@ describe('a v4 prefab keeps its gameplay components', () => {
     expect((defs.find((d) => d.prefabId === 'token')!.entities[0]!.components as unknown as { collectible?: unknown }).collectible).toEqual({ counter: 'tokens', amount: 5, size: [0.6, 0.6] });
     expect(failCode(mutation(b.state, 'createPrefab', { prefabId: 'hero', displayName: 'Hero', sourceEntityId: 'player-0101' }))).toBe('prefab_component_forbidden');
     const placed = ok(mutation(b.state, 'instantiatePrefab', { prefabId: 'token', transform: { position: [9, 2, 0] } }));
-    const copy = placed.state.scene.entities.find((e) => e.id === instantiateChange(placed.result).rootId)!;
+    const copy = assembled(placed.state).get(instantiateChange(placed.result).rootId)!;
     expect((copy.components as unknown as { collectible?: unknown }).collectible).toEqual({ counter: 'tokens', amount: 5, size: [0.6, 0.6] });
     expect(copy.components.transform?.position).toEqual([9, 2, 0]);
     const crateCopy = ok(mutation(placed.state, 'instantiatePrefab', { prefabId: 'crate', transform: { position: [12, 0.5, 0] } }));
-    const crateEntity = crateCopy.state.scene.entities.find((e) => e.id === instantiateChange(crateCopy.result).rootId)!;
+    const crateEntity = assembled(crateCopy.state).get(instantiateChange(crateCopy.result).rootId)!;
     expect(crateEntity.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
   });
 });

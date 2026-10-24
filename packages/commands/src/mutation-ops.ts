@@ -21,7 +21,15 @@ export type ContentMutationOp = (typeof CONTENT_MUTATION_OPS)[number];
  * `createPrefab` captures an immutable definition; `instantiatePrefab`
  * materializes independent copies in ONE transaction.
  */
-export const PREFAB_MUTATION_OPS = ['createPrefab', 'instantiatePrefab'] as const;
+export const PREFAB_MUTATION_OPS = [
+  'createPrefab',
+  'instantiatePrefab',
+  // Linked copies: their overrides reverted or applied to the prefab, a copy unpacked, a variant of a prefab.
+  'revertPrefabOverrides',
+  'applyPrefabOverrides',
+  'unpackPrefab',
+  'createPrefabVariant',
+] as const;
 export type PrefabMutationOp = (typeof PREFAB_MUTATION_OPS)[number];
 
 /**

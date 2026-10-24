@@ -51,6 +51,10 @@ export const ERROR_CODES = [
   'prefab_local_unknown',
   'prefab_reference_missing',
   'prefab_component_forbidden',
+  // Linked copies: an edit a copy cannot keep as overrides, a command that needs a copy, a prefab that would contain itself.
+  'prefab_override_unsupported',
+  'prefab_copy_required',
+  'prefab_cycle',
   'behavior_not_found',
   'behavior_id_duplicate',
   'behavior_reference_missing',
@@ -526,6 +530,41 @@ export function prefabCameraCaptureForbidden(
     message:
       'the selected subtree contains the scene camera; a prefab definition may not contain a camera component',
   };
+}
+
+/** An edit of a linked copy's part that the copy cannot keep as overrides. */
+export function prefabOverrideUnsupported(entityId: string, message: string): CommandError {
+  return {
+    code: 'prefab_override_unsupported',
+    cls: 'validation',
+    entityId,
+    message,
+    hint: 'edit the prefab itself, or unpack the copy (unpackPrefab) to edit its objects freely',
+  };
+}
+
+/** A linked-copy command names an object that is no linked copy or part of one. */
+export function prefabCopyRequired(entityId: string): CommandError {
+  return {
+    code: 'prefab_copy_required',
+    cls: 'validation',
+    entityId,
+    message: `"${entityId}" is not a linked prefab copy or a part of one`,
+    hint: 'name a placed copy (its root) or one of its parts (queryEntities shows each part\'s prefab)',
+  };
+}
+
+/** The change would make a prefab contain itself through nested copies. */
+export function prefabCycle(prefabId: string, chain: readonly string[]): CommandError {
+  return withFound(
+    {
+      code: 'prefab_cycle',
+      cls: 'validation',
+      prefabId,
+      message: `prefab "${prefabId}" would contain itself through nested copies (${chain.join(' → ')})`,
+    },
+    chain,
+  );
 }
 
 /** The captured subtree contains a prefab instance. */

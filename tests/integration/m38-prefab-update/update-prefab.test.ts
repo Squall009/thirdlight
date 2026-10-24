@@ -2,15 +2,17 @@
  * `updatePrefab` on the real filesystem with the real workspace service, and
  * what a script that spawns the prefab by name gets afterwards.
  *
- * A two-part crate becomes a prefab; one copy is placed and edited (a bigger
- * box, a new part, a script property naming the new part); a second copy is
- * placed and left alone. A script library names the prefab, so it cannot be
- * deleted, but applying the edited copy replaces its contents under the same
- * id: the parts it came from keep their local ids, the new part is named by
- * its scene id, the reference names the local id, the untouched copy stays as
- * it was. Undo and redo swap the whole definition. The play content built
- * from the project carries the new contents, and a script's `ctx.spawn` of the
- * prefab id makes a copy of them in the running game.
+ * A two-part crate becomes a prefab; one linked copy is placed and edited (a
+ * bigger box and a script property naming a new object, kept as its
+ * overrides, and the new object added to it); a second copy is placed and
+ * left alone. A script library names the prefab, so it cannot be deleted,
+ * but `updatePrefab` from the edited copy applies all of it: the parts keep
+ * their local ids, the added object becomes a part (with a new local id; the
+ * copy keeps its scene id), the reference names that local id, and the
+ * untouched copy follows the prefab. Undo and redo swap the definition and
+ * the copy. The play content built from the project carries the new
+ * contents, and a script's `ctx.spawn` of the prefab id makes a copy of them
+ * in the running game.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -46,7 +48,7 @@ const SPAWNER = `export default {
 `;
 
 describe('updatePrefab', () => {
-  it('replaces a prefab in use under the same id, leaves placed copies alone, undoes, and a script spawns the new contents', async () => {
+  it('applies a linked copy to the prefab in use under the same id, every copy follows, undoes, and a script spawns the new contents', async () => {
     const env = makeBuildEnv('m38-prefab-update');
     ok(env, 'publishBehavior', { behaviorId: 'linker', displayName: 'Linker', mode: 'declaration-create', declaration: { properties: [{ key: 'target', label: 'Target', type: 'entityRef', default: null }] } });
     const root = ok(env, 'createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Crate' }).createdId as string;
@@ -73,29 +75,32 @@ describe('updatePrefab', () => {
     const handle = ok(env, 'createEntity', { kind: 'box', name: 'Handle', parentId: copyRoot }).createdId as string;
     ok(env, 'setBehaviorProperties', { entityId: copyRoot, behaviorId: 'linker', values: { target: handle } });
 
-    // Refusals: no such prefab, no such object, a copy of another prefab inside, an unknown argument.
-    ok(env, 'createPrefab', { prefabId: 'barrel', displayName: 'Barrel', sourceEntityId: lid });
-    const barrel = ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'barrel', parentId: root }).change.rootId as string;
+    // Refusals: no such prefab, no such object, a copy of the prefab inside what would become it, an unknown argument.
+    const inner = ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate', parentId: root }).change.rootId as string;
     expect(refused(env, 'updatePrefab', { prefabId: 'nope', fromEntity: copyRoot }).code).toBe('prefab_not_found');
     expect(refused(env, 'updatePrefab', { prefabId: 'crate', fromEntity: 'box-999999' }).code).toBe('entity_not_found');
-    expect(refused(env, 'updatePrefab', { prefabId: 'crate', fromEntity: root }).code).toBe('prefab_nested_forbidden');
+    expect(refused(env, 'updatePrefab', { prefabId: 'crate', fromEntity: root }).code).toBe('prefab_cycle');
     expect(refused(env, 'updatePrefab', { prefabId: 'crate', fromEntity: copyRoot, extra: 1 }).code).toBe('field_unexpected');
-    ok(env, 'deleteEntity', { entityId: barrel });
+    ok(env, 'deleteEntity', { entityId: inner });
 
     const rev = revision(env);
     const applied = ok(env, 'updatePrefab', { prefabId: 'crate', fromEntity: copyRoot });
     expect(applied.revision).toBe(rev + 1);
-    expect(applied.change.type).toBe('updatePrefab');
-    expect(applied.change.previous).toEqual(before);
+    expect(applied.change).toMatchObject({ type: 'prefabLinkEdit', copyIds: [copyRoot], removedIds: [handle] });
+    expect(applied.change.prefabs[0].previous).toEqual(before);
     const after = definition(env, 'crate');
-    expect(applied.change.next).toEqual(after);
+    expect(applied.change.prefabs[0].next).toEqual(after);
     expect(after).toMatchObject({ prefabId: 'crate', displayName: 'Crate', createdRevision: before.createdRevision, updatedRevision: rev + 1, entityCount: 3, depth: 2 });
-    // The parts keep their local ids; the new one is named by its scene id; the reference names the local id.
-    expect(after.entities.map((e: Any) => [e.localId, e.parentLocalId ?? null, e.name])).toEqual([[root, null, 'Crate'], [lid, root, 'Lid'], [handle, root, 'Handle']]);
+    // The parts keep their local ids; the added object is a new part; the reference names its local id.
+    const handleLocal = after.entities[2].localId as string;
+    expect(after.entities.map((e: Any) => [e.localId, e.parentLocalId ?? null, e.name])).toEqual([[root, null, 'Crate'], [lid, root, 'Lid'], [handleLocal, root, 'Handle']]);
     expect(after.entities[1].components.box.size).toEqual([2, 0.5, 2]);
-    expect(after.entities[0].components.behavior).toEqual({ behaviorId: 'linker', values: { target: handle } });
-    // The untouched copy keeps what it has (copies are independent); its provenance still resolves.
-    expect(entity(env, otherLid)).toEqual(otherBefore);
+    expect(after.entities[0].components.behavior).toEqual({ behaviorId: 'linker', values: { target: handleLocal } });
+    // The applying copy keeps no overrides and keeps its handle's id, now a part; the other copy follows the prefab.
+    expect(entity(env, handle)).toMatchObject({ name: 'Handle', parentId: copyRoot, components: { prefab: { prefabId: 'crate', localId: handleLocal } } });
+    expect(entity(env, copyRoot).components.behavior.values.target).toBe(handle);
+    expect(otherBefore.components.box.size).not.toEqual([2, 0.5, 2]);
+    expect(entity(env, otherLid).components.box.size).toEqual([2, 0.5, 2]);
     // Applying the same contents again changes nothing.
     expect(refused(env, 'updatePrefab', { prefabId: 'crate', fromEntity: copyRoot }).code).toBe('no_change');
     // A new name is taken when given.
@@ -105,9 +110,11 @@ describe('updatePrefab', () => {
 
     // Undo puts the old contents back; redo the new ones.
     const undone = ok(env, 'undo', {});
-    expect(undone.change).toMatchObject({ type: 'updatePrefab', prefabId: 'crate' });
-    // The part counter stays where the update left it (the ids it handed out stay spent).
-    expect(definition(env, 'crate')).toEqual({ ...before, nextLocalNumber: after.nextLocalNumber });
+    expect(undone.change).toMatchObject({ type: 'prefabLinkEdit', copyIds: [copyRoot] });
+    // The prefab and the copy as they were: the handle an object added to the copy again.
+    expect(definition(env, 'crate')).toEqual(before);
+    expect(entity(env, otherLid)).toEqual(otherBefore);
+    expect(entity(env, handle).components.prefab).toBeUndefined();
     ok(env, 'redo', {});
     expect(definition(env, 'crate')).toEqual(after);
 
@@ -144,7 +151,7 @@ describe('updatePrefab', () => {
     try {
       for (let i = 1; i <= 6; i += 1) await h.tick(i * DT);
       const spawned = h.rt.sceneSet().spawned as Any[];
-      expect(spawned.map((e) => e.components.prefab)).toEqual([{ prefabId: 'crate', localId: root }, { prefabId: 'crate', localId: lid }, { prefabId: 'crate', localId: handle }]);
+      expect(spawned.map((e) => e.components.prefab)).toEqual([{ prefabId: 'crate', localId: root }, { prefabId: 'crate', localId: lid }, { prefabId: 'crate', localId: handleLocal }]);
       expect(spawned[1].components.box.size).toEqual([2, 0.5, 2]);
       // The copy's script names the copy's own handle.
       expect(spawned[0].components.behavior.values.target).toBe(spawned[2].id);
@@ -154,25 +161,24 @@ describe('updatePrefab', () => {
     }
   });
 
-  it('refuses a copy holding another copy of the same prefab, and never gives a dropped part\'s id to a new part', () => {
+  it('refuses a prefab that would hold itself, and never gives a dropped part\'s id to a new part', () => {
     const env = makeBuildEnv('m38-prefab-update-ids');
     try {
       const root = ok(env, 'createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Crate' }).createdId as string;
       const lid = ok(env, 'createEntity', { kind: 'box', name: 'Lid', parentId: root }).createdId as string;
       const knob = ok(env, 'createEntity', { kind: 'box', name: 'Knob', parentId: root }).createdId as string;
       ok(env, 'createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: root });
-      const mapOf = (r: Any): Map<string, string> => new Map((r.change.mapping as { localId: string; entityId: string }[]).map((m) => [m.localId, m.entityId]));
+      // A copy placed under another copy's part reports its parts with the copy's change (`placed`).
+      const mapOf = (r: Any): Map<string, string> => new Map(((r.change.mapping ?? r.change.placed.mapping) as { localId: string; entityId: string }[]).map((m) => [m.localId, m.entityId]));
 
       // Copy A, and copy B placed under A's lid.
       const a = mapOf(ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate' }));
       const b = mapOf(ok(env, 'instantiatePrefab', { sceneId: 'scene-main', prefabId: 'crate', parentId: a.get(lid) }));
-      // Applying A (or A's lid) would capture B as more parts of A: the prefab would hold itself.
-      for (const from of [a.get(root), a.get(lid)]) {
-        const nested = command(env, 'updatePrefab', { prefabId: 'crate', fromEntity: from }) as Any;
-        expect(nested.ok).toBe(false);
-        expect(nested.error).toMatchObject({ code: 'prefab_nested_forbidden', prefabInstanceIds: [b.get(root)] });
-        expect(nested.error.message).toContain('another copy of prefab "crate"');
-      }
+      // Applying A would make B (added under A's lid) a nested copy of the prefab in itself.
+      const nested = command(env, 'updatePrefab', { prefabId: 'crate', fromEntity: a.get(root) }) as Any;
+      expect(nested.ok).toBe(false);
+      expect(nested.error).toMatchObject({ code: 'prefab_cycle', prefabId: 'crate' });
+      expect(nested.error.message).toContain('would contain itself');
 
       // B on its own applies; without its knob, the knob part is dropped.
       ok(env, 'deleteEntity', { entityId: b.get(knob) });
@@ -191,9 +197,9 @@ describe('updatePrefab', () => {
       expect(grown.entities.map((e: Any) => [e.localId, e.parentLocalId ?? null, e.name])).toEqual([[root, null, 'Crate'], [lid, root, 'Lid'], [fresh, root, 'Lid']]);
       expect([root, lid, knob]).not.toContain(fresh);
       expect(grown.nextLocalNumber).toBeGreaterThan(dropped.nextLocalNumber);
-      // Undo puts the two-part contents back and keeps the counter.
+      // Undo puts the two-part contents back.
       ok(env, 'undo', {});
-      expect(definition(env, 'crate')).toEqual({ ...dropped, nextLocalNumber: grown.nextLocalNumber });
+      expect(definition(env, 'crate')).toEqual(dropped);
     } finally {
       env.svc.dispose();
     }

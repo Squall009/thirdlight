@@ -154,6 +154,15 @@ function applyFieldOverride(part: FlatPart, path: string, value: unknown, remove
   return true;
 }
 
+/**
+ * Set or remove one field of a part-shaped object (a prefab entity, or a
+ * scene object as a part): what an override does, for applying an override
+ * to a prefab. False when the field cannot be reached.
+ */
+export function applyPartField(part: { name?: string; tags?: number; components: object }, path: string, value: unknown, remove: boolean): boolean {
+  return applyFieldOverride(part as unknown as FlatPart, path, value, remove);
+}
+
 /** Apply a copy's (or a nested copy's) overrides to its parts; `keyOf` maps an override's part to a key of `parts`. */
 function applyOverrides(parts: FlatPart[], overrides: readonly PrefabOverride[], keyOf: (part: string) => string, rootKey: string, stale: (o: PrefabOverride, why: string) => void): FlatPart[] {
   if (overrides.length === 0) return parts;

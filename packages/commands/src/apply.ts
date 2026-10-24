@@ -16,6 +16,7 @@
  */
 
 import { applyMoveEntitiesScene } from './move-scene-ops';
+import { assembledView, routeCopyEdit, withKeptPartIds } from './prefab-copy-edit';
 import type { Manifest } from '@thirdlight/project-model';
 
 import {
@@ -45,7 +46,7 @@ import {
   applyUpdateEntity,
   type OpSuccess,
 } from './ops';
-import { applyCreatePrefab, applyInstantiatePrefab, applyUpdatePrefab } from './prefab-ops';
+import { applyPrefabOp } from './prefab-link-ops';
 import { applyApplySurfacePreset } from './v3-ops';
 import { applySetTags } from './tag-ops';
 import { applySetAssetOptions } from './asset-options-ops';
@@ -285,13 +286,22 @@ export function applyMutation<S extends SceneDocument>(
   if (state.preparedBehaviorSources !== undefined) {
     input.preparedBehaviorSources = state.preparedBehaviorSources;
   }
-  if (state.reservedIds !== undefined) input.reservedIds = state.reservedIds;
+  // A linked copy's kept part ids are no stored object's, yet no new object may take one.
+  const reserved = withKeptPartIds(scene, state.reservedIds);
+  if (reserved !== undefined) input.reservedIds = reserved;
   if (state.scriptLibraryStages !== undefined) input.scriptLibraryStages = state.scriptLibraryStages;
+
+  // A command naming a linked copy's part runs on the copy's assembled objects and is stored as overrides.
+  const routed = routeCopyEdit(state, request, va.validated.op, env.args, (s, r) => applyMutation(s, r));
+  if (routed !== null) {
+    if (!routed.ok) return { ok: false, result: failure(request, routed.error) };
+    return completeForward(state, va.validated.op as ForwardOp, envelope.projectId, envelope.requestId, revision, envelope.origin, routed.op);
+  }
 
   switch (va.validated.op) {
     case 'createEntities': {
       // Several creates, one transaction (one revision, one undo).
-      const r = applyCreateEntities(scene, va.validated.args, state.content, state.reservedIds);
+      const r = applyCreateEntities(scene, va.validated.args, state.content, input.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'createEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
@@ -366,7 +376,7 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'createEntity': {
-      const r = applyCreateEntity(scene, va.validated.args, state.content, state.reservedIds);
+      const r = applyCreateEntity(scene, va.validated.args, state.content, input.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(
         state,
@@ -604,7 +614,7 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, 'setLighting', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'pasteEntities': {
-      const r = applyPasteEntities(scene, va.validated.args, state.content, state.reservedIds);
+      const r = applyPasteEntities(scene, va.validated.args, state.content, input.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'pasteEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
@@ -635,7 +645,7 @@ export function applyMutation<S extends SceneDocument>(
       );
     }
     case 'deleteEntity': {
-      const r = applyDeleteEntity(scene, va.validated.args, state.content);
+      const r = applyDeleteEntity(scene, va.validated.args, state.content, assembledView(scene, state.content));
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(
         state,
@@ -677,36 +687,16 @@ export function applyMutation<S extends SceneDocument>(
         r.op,
       );
     }
-    case 'createPrefab': {
-      const r = applyCreatePrefab(input, va.validated.args);
+    case 'createPrefab':
+    case 'updatePrefab':
+    case 'instantiatePrefab':
+    case 'revertPrefabOverrides':
+    case 'applyPrefabOverrides':
+    case 'unpackPrefab':
+    case 'createPrefabVariant': {
+      const r = applyPrefabOp(input, va.validated);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
-      return completeForward(
-        state,
-        'createPrefab',
-        envelope.projectId,
-        envelope.requestId,
-        revision,
-        envelope.origin,
-        r.op,
-      );
-    }
-    case 'updatePrefab': {
-      const r = applyUpdatePrefab(input, va.validated.args);
-      if (!r.ok) return { ok: false, result: failure(request, r.error) };
-      return completeForward(state, 'updatePrefab', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
-    }
-    case 'instantiatePrefab': {
-      const r = applyInstantiatePrefab(input, va.validated.args);
-      if (!r.ok) return { ok: false, result: failure(request, r.error) };
-      return completeForward(
-        state,
-        'instantiatePrefab',
-        envelope.projectId,
-        envelope.requestId,
-        revision,
-        envelope.origin,
-        r.op,
-      );
+      return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'applySurfacePreset': {
       const r = applyApplySurfacePreset(input, va.validated.args);

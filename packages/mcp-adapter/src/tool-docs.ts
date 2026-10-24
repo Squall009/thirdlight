@@ -146,9 +146,16 @@ export const TOOL_DETAILS = {
     'Prefabs: ' +
     'instantiatePrefab (a prefab keeps the source\'s components that may sit on a prefab (the descriptors\' prefab flag: collider, surface, materials, animator, mover, trigger, switch, ' +
     'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider on any of its objects; never the player controller or scene wiring). ' +
-    'updatePrefab {prefabId, fromEntity, displayName?} replaces a prefab\'s contents with fromEntity\'s subtree (the same capture as createPrefab; it may be a ' +
-    'copy of that prefab, never of another) and keeps its id, so scripts that spawn it by name get the new contents; copies already placed or spawned keep ' +
-    'what they have (copies are independent); one undo puts the old contents back. ' +
+    'Copies are linked: instantiatePrefab places one object naming the prefab; its parts are assembled from the prefab with ids derived from the copy\'s (the mapping ' +
+    'in the result; queryEntities shows them, each part\'s components.prefab names its prefab part). Editing a copy\'s part with the ordinary commands (setComponent, ' +
+    'setBehaviorProperties, setTransform, updateEntity name, createEntity under a part, deleteEntity of a part) stores an override on the copy (change type prefabLinkEdit); ' +
+    'a part cannot move to another parent or take its own flags (prefab_override_unsupported: unpack, or edit the prefab). Editing the prefab reaches every copy except ' +
+    'what a copy overrides. revertPrefabOverrides {entityId (the copy or a part), part? (a part path), path? (name, tags, components/<c>[/<field>]), all?} drops overrides; ' +
+    'applyPrefabOverrides (same args) writes them into the prefab, all: true also the objects added to the copy; an object added to a copy (a linked copy too) named alone becomes a part of that copy\'s prefab (a nesting); ' +
+    'unpackPrefab {entityId} turns a copy into plain objects (ids kept); createPrefabVariant {basePrefabId, prefabId, displayName} makes a prefab that is one linked copy of the base ' +
+    '(it follows the base). A prefab nests another when its objects held a linked copy at capture (createPrefab, updatePrefab) or an added copy is applied; a prefab that ' +
+    'would contain itself is refused (prefab_cycle). updatePrefab {prefabId, fromEntity, displayName?} from a linked copy of that prefab applies all its overrides; from other ' +
+    'objects it replaces the prefab\'s contents with their capture (keeping its id). Each is one undo step. ' +
     'Component fields, defaults, the GameObject menu\'s create entries (label, size, value) and icons: tl_content_query target="game" includeDescriptors. ' +
     'Generic primitives (both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
     'health {max, start?} on any object (scripts: ctx.health.get/damage/heal, damaged/healed/died events), patrol {mode: waypoints|edges, speed, ...}, ' +

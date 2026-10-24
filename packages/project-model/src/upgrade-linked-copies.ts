@@ -27,6 +27,7 @@
  */
 import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity, type AssemblyPrefab } from './prefab-assembly';
 import type { PrefabOverride } from './prefab-links';
+import { canonicalJson, linkedRoot, partOverrides } from './prefab-relink';
 import type { DeclaredProperty } from './types-v2';
 
 type Obj = Record<string, unknown>;
@@ -44,52 +45,12 @@ export interface LinkPrefabCopiesResult {
   notes: string[];
 }
 
-/** Sorted-key JSON: two values are the same object when this is equal. */
-function canon(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canon).join(',')}]`;
-  if (isObject(v)) return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`;
-  return JSON.stringify(v);
-}
+const canon = canonicalJson;
 
 /** A part's provenance (`{prefabId, localId}`), or null. */
 function provenanceOf(e: Obj): { prefabId: string; localId: string } | null {
   const p = isObject(e['components']) ? (e['components'] as Obj)['prefab'] : undefined;
   return isObject(p) && typeof p['prefabId'] === 'string' && typeof p['localId'] === 'string' ? { prefabId: p['prefabId'], localId: p['localId'] } : null;
-}
-
-/** A field name a part path can hold (paths are `/`-separated). */
-const pathSafe = (k: string): boolean => k.length > 0 && !k.includes('/');
-
-/** The overrides that turn `was` (the prefab's) into `now` (the copy's) at `path`. */
-function diffInto(out: PrefabOverride[], part: string, path: string, was: unknown, now: unknown): void {
-  if (canon(was) === canon(now)) return;
-  if (isObject(was) && isObject(now) && Object.keys({ ...was, ...now }).every(pathSafe)) {
-    for (const k of Object.keys({ ...was, ...now })) {
-      if (now[k] === undefined) out.push({ part, path: `${path}/${k}`, remove: true });
-      else if (was[k] === undefined) out.push({ part, path: `${path}/${k}`, value: now[k] });
-      else diffInto(out, part, `${path}/${k}`, was[k], now[k]);
-    }
-    return;
-  }
-  out.push({ part, path, value: now });
-}
-
-/** A part's own fields as overrides: its name, tags and components (the root's transform is the copy's own). */
-function partOverrides(out: PrefabOverride[], key: string, pristine: AssemblyEntity, now: Obj, isRoot: boolean): void {
-  if (!isRoot) {
-    for (const f of ['name', 'tags'] as const) {
-      if (now[f] === undefined && pristine[f] !== undefined) out.push({ part: key, path: f, remove: true });
-      else if (now[f] !== undefined && canon(now[f]) !== canon(pristine[f])) out.push({ part: key, path: f, value: now[f] });
-    }
-  }
-  const was = pristine.components as Obj;
-  const comps = isObject(now['components']) ? (now['components'] as Obj) : {};
-  for (const c of Object.keys({ ...was, ...comps })) {
-    if (isRoot && c === 'transform') continue;
-    if (comps[c] === undefined) out.push({ part: key, path: `components/${c}`, remove: true });
-    else if (was[c] === undefined) out.push({ part: key, path: `components/${c}`, value: comps[c] });
-    else diffInto(out, key, `components/${c}`, was[c], comps[c]);
-  }
 }
 
 interface Linked {
@@ -146,16 +107,7 @@ function linkCopy(
     if (!parts.has(d.localId) && parts.has(parentKeyOf.get(d.localId)!)) overrides.push({ part: d.localId, remove: true });
   }
   for (const [key, e] of parts) partOverrides(overrides, key, pristineByKey.get(key)!, e, key === rootKey);
-  // The root's own name and tags: kept on the copy where they differ from the prefab's (absent where the prefab has one: an override).
-  const pr = pristineByKey.get(rootKey)!;
-  const own: Obj = {};
-  for (const [k, v] of Object.entries(root)) if (k !== 'components' && k !== 'name' && k !== 'tags') own[k] = v;
-  for (const f of ['name', 'tags'] as const) {
-    if (root[f] === undefined && pr[f] !== undefined) overrides.push({ part: rootKey, path: f, remove: true });
-    else if (root[f] !== undefined && canon(root[f]) !== canon(pr[f])) own[f] = root[f];
-  }
-  const link = { prefabId, ...(overrides.length > 0 ? { overrides } : {}), ...(Object.keys(partIds).length > 0 ? { partIds } : {}) };
-  const linked: Obj = { ...own, components: { transform: comps['transform'], prefab: link } };
+  const linked = linkedRoot(root, pristineByKey.get(rootKey)!, rootKey, prefabId, overrides, partIds);
   // The proof: the link assembles to exactly the objects stored, in their place.
   const made = assembler.assembleCopy(linked as AssemblyEntity);
   if (made.problems.length > 0) return null;

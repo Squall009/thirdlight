@@ -110,10 +110,10 @@ Imported models, audio, textures and fonts (their versions are written by the im
 <a id="content-prefabs"></a>
 ## prefabs — Prefabs
 
-Captured object groups placed as independent copies.
+Captured object groups placed as linked copies: a copy follows its prefab except what it overrides.
 
 - In every project: yes
-- Written by: [`createPrefab`](ops-detail.md#op-createPrefab), [`updatePrefab`](ops-detail.md#op-updatePrefab), [`instantiatePrefab`](ops-detail.md#op-instantiatePrefab), [`deletePrefab`](ops-detail.md#op-deletePrefab)
+- Written by: [`createPrefab`](ops-detail.md#op-createPrefab), [`updatePrefab`](ops-detail.md#op-updatePrefab), [`instantiatePrefab`](ops-detail.md#op-instantiatePrefab), [`deletePrefab`](ops-detail.md#op-deletePrefab), [`createPrefabVariant`](ops-detail.md#op-createPrefabVariant), [`applyPrefabOverrides`](ops-detail.md#op-applyPrefabOverrides)
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -121,7 +121,7 @@ Captured object groups placed as independent copies.
 | `prefabs[].prefabId` | string, id, 1–64 chars |  |  | **Id.** The stable prefab id. (required; written by a tool; format id) |
 | `prefabs[].displayName` | string, name, 1–128 chars |  |  | **Name.** Shown in the prefab list. (required; written by a tool; format name) |
 | `prefabs[].createdRevision` | int |  | ≥ 0, step 1 | **Created at.** The project revision it was captured at. (required; written by a tool) |
-| `prefabs[].updatedRevision` | int |  | ≥ 0, step 1 | **Updated at.** The revision updatePrefab last replaced its contents at. (written by a tool) |
+| `prefabs[].updatedRevision` | int |  | ≥ 0, step 1 | **Updated at.** The revision its contents last changed at (updatePrefab, applyPrefabOverrides). (written by a tool) |
 | `prefabs[].nextLocalNumber` | int |  | ≥ 1, step 1 | **Next part number.** The least number a new part's local id takes; a dropped part's id is never given to another part. (written by a tool) |
 | `prefabs[].entityCount` | int |  | 1 – 1024, step 1 | **Objects.** How many objects it holds (derived). (required; written by a tool) |
 | `prefabs[].depth` | int |  | ≥ 1, step 1 | **Depth.** Hierarchy depth (derived). (required; written by a tool) |

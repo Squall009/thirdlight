@@ -9,7 +9,7 @@
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
 import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
 import type { InstancePaint, ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
-import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
+import { composeV4, INSTANCE_FLOATS, keptPartIds, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
 import { readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
@@ -99,7 +99,8 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   const req = request as { op?: unknown; args?: unknown };
   const op = typeof req.op === 'string' ? req.op : '';
   const args = (req.args !== null && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}) as Record<string, unknown>;
-  const target = targetSceneV4(state, s.history, op, args);
+  // A linked copy's part is no stored object: the assembled view says which scene holds it.
+  const target = targetSceneV4(state, s.history, op, args, (id) => prefabViewOf(s)?.derived.get(id)?.sceneId ?? null);
   if (!target.ok) return failRequest(request, target.error);
   // `sceneId` on a create names the scene; the pure layer never sees it.
   let pureRequest = request;
@@ -131,7 +132,11 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     if (named.length > 0) return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', id, named));
   }
   const reserved = new Set<string>();
-  for (const [id, sc] of state.scenes) if (id !== carrierId) for (const e of sc.entities) reserved.add(e.id);
+  for (const [id, sc] of state.scenes) {
+    if (id === carrierId) continue;
+    for (const e of sc.entities) reserved.add(e.id);
+    for (const kept of keptPartIds(sc.entities)) reserved.add(kept);
+  }
   const commandState: CommandState<SceneDocument> = {
     scene: { ...carrier, revision: state.revision },
     content: commandContentOf(state.content),
@@ -461,11 +466,12 @@ function targetSceneV4(
   history: HistoryState,
   op: string,
   args: Record<string, unknown>,
+  partScene: (id: string) => string | null = () => null,
 ): { ok: true; sceneId: string | null; otherSceneId?: string } | { ok: false; error: CommandError } {
   const sceneOf = (id: unknown): string | null => {
     if (typeof id !== 'string') return null;
     for (const [sid, sc] of state.scenes) if (sc.entities.some((e) => e.id === id)) return sid;
-    return null;
+    return partScene(id);
   };
   const cross = (path: string): { ok: false; error: CommandError } => ({ ok: false, error: crossSceneEntities(path) });
   if (op === 'undo' || op === 'redo') {

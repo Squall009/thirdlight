@@ -22,6 +22,8 @@
  * (defensive).
  */
 
+import { replayLinkEdit } from './prefab-link-replay';
+import type { PrefabLinkEditChange } from './prefab-link-types';
 import { replaySceneMove } from './move-scene-ops';
 import { COMPONENT_FIELD_ORDER } from './v3';
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
@@ -181,6 +183,20 @@ function finish(
   return { ok: true, applied: { scene: gate.scene, content: gate.content, change } };
 }
 
+/** A prefab removed from the catalog (the undo of a capture, the redo of a delete). */
+function removePrefabOf(state: CommandState<SceneDocument>, content: ContentDocument, prefabId: string, requestId: string): ApplyResult {
+  const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.filter((d) => d.prefabId !== prefabId) };
+  const change: RemovePrefabChange = { type: 'removePrefab', prefabId };
+  return finish(state, bumped(state.scene), nextContent, change, requestId);
+}
+
+/** Undo or redo of a linked-copy change: one side of the recorded objects (and prefabs) for the other. */
+function replayLinked(state: CommandState<SceneDocument>, entry: HistoryEntry, forward: boolean): ApplyResult {
+  const r = replayLinkEdit(state.scene, contentOf(state.content), entry.change as PrefabLinkEditChange, forward);
+  if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+  return finish(state, r.scene, r.content ?? state.content, r.change, entry.requestId);
+}
+
 function requireEntity(scene: SceneDocument, id: string): number {
   return scene.entities.findIndex((e) => e.id === id);
 }
@@ -260,6 +276,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const inv = entry.inverse;
   const content = contentOf(state.content);
 
+  if (inv.kind === 'prefabLinkEdit') return replayLinked(state, entry, false);
   if (inv.kind === 'updateEntity') return applyHeader(state, inv.id, inv.restore, inv.order, entry.requestId, inv.transform);
   if (inv.kind === 'moveEntities') {
     const f = entry.change as MoveEntitiesChange;
@@ -456,14 +473,8 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
-  if (inv.kind === 'removePrefab') {
-    // Undo of a createPrefab: remove the definition. By LIFO no later command
-    // exists, so no instance can still reference it.
-    const prefabs = content.prefabs.filter((d) => d.prefabId !== inv.prefabId);
-    const nextContent: ContentDocument = { ...content, prefabs };
-    const change: RemovePrefabChange = { type: 'removePrefab', prefabId: inv.prefabId };
-    return finish(state, bumped(scene), nextContent, change, entry.requestId);
-  }
+  // Undo of a createPrefab: remove the definition. By LIFO no later command exists, so no instance can still reference it.
+  if (inv.kind === 'removePrefab') return removePrefabOf(state, content, inv.prefabId, entry.requestId);
 
   if (inv.kind === 'setBehaviorProperties') {
     const index = requireEntity(scene, inv.id);
@@ -777,6 +788,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   const content = contentOf(state.content);
   const f = entry.change;
 
+  if (f.type === 'prefabLinkEdit') return replayLinked(state, entry, true);
   if (f.type === 'updateEntity') return applyHeader(state, f.id, f.next, f.order?.next ?? null, entry.requestId, f.transform?.next);
   if (f.type === 'moveEntitiesScene') {
     // Out of the carrier (the source) into the other scene again, as the move left them.
@@ -939,13 +951,8 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
-  if (f.type === 'removePrefab') {
-    // Redo of a deletePrefab.
-    if (!content.prefabs.some((d) => d.prefabId === f.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
-    const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.filter((d) => d.prefabId !== f.prefabId) };
-    const change: RemovePrefabChange = { type: 'removePrefab', prefabId: f.prefabId };
-    return finish(state, bumped(scene), nextContent, change, entry.requestId);
-  }
+  // Redo of a deletePrefab.
+  if (f.type === 'removePrefab') return content.prefabs.some((d) => d.prefabId === f.prefabId) ? removePrefabOf(state, content, f.prefabId, entry.requestId) : { ok: false, error: historyInvalid(entry.requestId) };
 
   if (f.type === 'publishAsset') {
     const next = f.next === null ? null : deepClone(f.next);

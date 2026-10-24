@@ -614,14 +614,16 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     // A graphEdit on an owner that stores its graph as its own data
     // (an animator controller) records that owner's change.
     // Records written before each material and controller became its own file carry the whole list.
+    // A command naming a linked copy's part records the copy's change; so do the linked-copy commands.
     const alsoOk =
+      t === 'prefabLinkEdit' ||
       (op === 'graphEdit' && (t === 'setAnimator' || t === 'setAnimators')) ||
       ((op === 'setMaterial' || op === 'deleteMaterial') && t === 'setMaterials') ||
       ((op === 'setAnimator' || op === 'deleteAnimator') && t === 'setAnimators');
     if (expected !== undefined && expected !== t && !alsoOk) {
       return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
     }
-    if (expected === undefined) {
+    if (expected === undefined && !alsoOk) {
       // The entity and history ops keep their exact correspondence (createEntity/setTransform/
       // deleteEntity); any other op/type pair is corrupt shape.
       const m1Expected: Record<string, string> = {
@@ -663,6 +665,15 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     if (entErr !== null) return entErr;
     if (ent['id'] !== change['id']) return rerr('createEntity change entity id must equal change id', ent['id'], '/result/change/entity/id');
   }
+  if (t === 'prefabLinkEdit') {
+    // Both sides are stored objects at their places (linked copies' roots among them, which the scene rules check on replay).
+    for (const side of ['previous', 'next'] as const) {
+      const list = change[side];
+      if (!Array.isArray(list) || !list.every((x) => isPlainObject(x) && Number.isInteger(x['index']) && isPlainObject(x['entity']) && typeof (x['entity'] as Record<string, unknown>)['id'] === 'string')) {
+        return rerr(`prefabLinkEdit change ${side} must be an array of {index, entity}`, undefined, `/result/change/${side}`);
+      }
+    }
+  }
   if (t === 'pasteEntities') {
     const ents = change['entities'];
     if (!Array.isArray(ents) || ents.length === 0) return rerr('pasteEntities change entities must be a non-empty array', undefined, '/result/change/entities');
@@ -674,6 +685,7 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
 
 /** All change types a record may carry. */
 const V2_CHANGE_TYPES: readonly string[] = [
+  'prefabLinkEdit',
   'createEntity',
   'setTransform',
   'deleteEntity',
@@ -740,6 +752,7 @@ const V2_CHANGE_TYPES: readonly string[] = [
 
 /** Required field names per change type (structural well-formedness). */
 const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
+  prefabLinkEdit: ['type', 'copyIds', 'previous', 'next', 'removedIds'],
   createEntity: ['type', 'id', 'entity'],
   setTransform: ['type', 'id', 'previous', 'next', 'changedFields'],
   deleteEntity: ['type', 'rootId', 'deletedIds'],
@@ -796,6 +809,8 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
 
 /** Optional field names per change type (a world-keeping reparent's transform). */
 const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
+  // The prefabs an apply changed.
+  prefabLinkEdit: ['prefabs', 'placed'],
   updateEntity: ['transform'],
   // A folder created with its children in one transaction (a multi-piece model drop).
   createEntity: ['children'],
@@ -815,6 +830,10 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setSettings: 'setSettings',
   acknowledgeBehaviorTrust: 'acknowledgeBehaviorTrust',
   createPrefab: 'createPrefab',
+  createPrefabVariant: 'createPrefab',
+  revertPrefabOverrides: 'prefabLinkEdit',
+  applyPrefabOverrides: 'prefabLinkEdit',
+  unpackPrefab: 'prefabLinkEdit',
   instantiatePrefab: 'instantiatePrefab',
   applySurfacePreset: 'applySurfacePreset',
   updateEntity: 'updateEntity',

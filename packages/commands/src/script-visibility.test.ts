@@ -6,6 +6,8 @@
  * derived from code is edited in the code only.
  */
 
+import { assembleSceneEntities } from '@thirdlight/project-model';
+import { catalogAssembler } from './prefab-copy-edit';
 import { describe, expect, it } from 'vitest';
 import type { SceneV4 } from '@thirdlight/project-model';
 
@@ -106,8 +108,11 @@ describe('declared property visibility', () => {
     const localId = def?.entities[0]?.localId as string;
     expect(err(run(state, 'instantiatePrefab', { prefabId: 'prefab-vis', overrides: [{ localId, key: 'secret', value: 9 }] }))).toMatchObject({ code: 'property_private', key: 'secret' });
     const placed = ok(run(state, 'instantiatePrefab', { prefabId: 'prefab-vis', overrides: [{ localId, key: 'speed', value: 7 }] }));
-    const copy = placed.scene.entities.find((e) => (e.components as unknown as Record<string, unknown>)['prefab'] !== undefined && behaviorOf(placed, e.id)?.values['speed'] === 7);
-    expect(copy !== undefined ? behaviorOf(placed, copy.id)?.values : null).toEqual({ speed: 7 });
+    // A placed copy is linked: its value is an override, and the assembled copy holds public values only.
+    const copy = placed.scene.entities.find((e) => (e.components as unknown as { prefab?: { overrides?: unknown[] } }).prefab?.overrides !== undefined);
+    expect((copy?.components as unknown as { prefab: { overrides: unknown[] } }).prefab.overrides).toEqual([{ part: localId, path: 'components/behavior/values/speed', value: 7 }]);
+    const made = assembleSceneEntities(placed.scene.entities as never, catalogAssembler(placed.content)).entities.find((e) => e.id === copy?.id);
+    expect((made?.components as { behavior?: { values: unknown } }).behavior?.values).toEqual({ speed: 7 });
   });
 
   it('a public property made private: its stored value becomes inert and the next write drops it', () => {

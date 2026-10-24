@@ -22,7 +22,8 @@ import {
   isPlainObject,
   limitsExceeded,
 } from './errors';
-import { MAX_PREFAB_OVERRIDES as MAX_OVERRIDES } from '@thirdlight/project-model';
+import { MAX_PREFAB_OVERRIDES as MAX_OVERRIDES, isPartKey } from '@thirdlight/project-model';
+import type { CreatePrefabVariantArgs, PrefabOverrideTargetArgs, UnpackPrefabArgs } from './prefab-link-types';
 import type {
   CommandError,
   CreatePrefabArgs,
@@ -239,4 +240,61 @@ export function validateInstantiatePrefabArgs(
     out.overrides = overrides;
   }
   return { ok: true, args: out };
+}
+
+/** Unknown fields refused, the named string fields required, the optional ones typed. */
+function checkFields(
+  args: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+): CommandError | null {
+  const known = [...required, ...optional];
+  for (const key of Object.keys(args)) {
+    if (!known.includes(key)) return fieldUnexpected(`/args/${key}`, key, known.join(', '));
+  }
+  for (const key of required) {
+    if (args[key] === undefined) return fieldMissing(`/args/${key}`, key);
+    if (typeof args[key] !== 'string') return fieldType(`/args/${key}`, args[key], 'string');
+  }
+  return null;
+}
+
+/** `revertPrefabOverrides` / `applyPrefabOverrides` args: `{entityId, part?, path?, all?}`. */
+export function validatePrefabOverrideTargetArgs(
+  args: Record<string, unknown>,
+): PrefabArgsOk<PrefabOverrideTargetArgs> | { ok: false; error: CommandError } {
+  const bad = checkFields(args, ['entityId'], ['part', 'path', 'all']);
+  if (bad !== null) return { ok: false, error: bad };
+  for (const key of ['part', 'path'] as const) {
+    if (args[key] !== undefined && typeof args[key] !== 'string') return { ok: false, error: fieldType(`/args/${key}`, args[key], 'string') };
+  }
+  if (typeof args['part'] === 'string' && !isPartKey(args['part'])) {
+    return { ok: false, error: fieldValue('/args/part', args['part'], 'local ids joined by /', "part is a part's path in the copy's prefab") };
+  }
+  if (typeof args['path'] === 'string' && !/^(name|tags|components\/[^/]+(\/[^/]+)*)$/.test(args['path'])) {
+    return { ok: false, error: fieldValue('/args/path', args['path'], 'name, tags or components/<component>[/<field>…]', 'path names a field of the part') };
+  }
+  if (args['all'] !== undefined && typeof args['all'] !== 'boolean') return { ok: false, error: fieldType('/args/all', args['all'], 'boolean') };
+  if (args['all'] === true && (args['part'] !== undefined || args['path'] !== undefined)) {
+    return { ok: false, error: fieldValue('/args/all', true, 'all alone, or part/path', 'all names every override: give it without part or path') };
+  }
+  const out: PrefabOverrideTargetArgs = { entityId: args['entityId'] as string };
+  if (typeof args['part'] === 'string') out.part = args['part'];
+  if (typeof args['path'] === 'string') out.path = args['path'];
+  if (args['all'] === true) out.all = true;
+  return { ok: true, args: out };
+}
+
+/** `unpackPrefab` args. */
+export function validateUnpackPrefabArgs(args: Record<string, unknown>): PrefabArgsOk<UnpackPrefabArgs> | { ok: false; error: CommandError } {
+  const bad = checkFields(args, ['entityId'], []);
+  if (bad !== null) return { ok: false, error: bad };
+  return { ok: true, args: { entityId: args['entityId'] as string } };
+}
+
+/** `createPrefabVariant` args. */
+export function validateCreatePrefabVariantArgs(args: Record<string, unknown>): PrefabArgsOk<CreatePrefabVariantArgs> | { ok: false; error: CommandError } {
+  const bad = checkFields(args, ['basePrefabId', 'prefabId', 'displayName'], []);
+  if (bad !== null) return { ok: false, error: bad };
+  return { ok: true, args: { basePrefabId: args['basePrefabId'] as string, prefabId: args['prefabId'] as string, displayName: args['displayName'] as string } };
 }

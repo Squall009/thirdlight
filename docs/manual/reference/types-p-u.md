@@ -1,8 +1,20 @@
-# Types (PaintTarget to UiDialogueInput)
+# Types (PaintInstancesArgs to UiAction)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-paint-instances-args"></a>
+### PaintInstancesArgs
+
+Declared in `packages/commands/src/instance-stroke-ops.ts`.
+
+```ts
+/** `paintInstances` args: the instance set and one stroke. */
+interface PaintInstancesArgs extends InstanceStroke {
+  entityId: string;
+}
+```
 
 <a id="type-paint-target"></a>
 ### PaintTarget
@@ -197,6 +209,29 @@ Declared in `packages/project-model/src/prefab-links.ts`.
 ```ts
 /** One difference a copy keeps from its prefab, on the part `part` names. */
 type PrefabOverride = PrefabFieldOverride | PrefabFieldRemoval | PrefabPartRemoval;
+```
+
+<a id="type-prefab-override-target-args"></a>
+### PrefabOverrideTargetArgs
+
+Declared in `packages/commands/src/prefab-link-types.ts`.
+
+```ts
+/**
+ * Names the overrides of one copy: `entityId` is the copy (its root) or one
+ * of its parts. `part` names a part of the copy by its part path (a removed
+ * part has no object to name); `path` one field of that part (`name`,
+ * `tags`, `components/<component>[/<field>…]`). `all` names every override
+ * of the copy (and, to apply, the objects added to it). To apply, `entityId`
+ * may also name an object added to a copy, alone: it becomes a part of that
+ * copy's prefab (a linked copy added so nests in it).
+ */
+interface PrefabOverrideTargetArgs {
+  entityId: string;
+  part?: string;
+  path?: string;
+  all?: boolean;
+}
 ```
 
 <a id="type-prefab-part-removal"></a>
@@ -1577,44 +1612,4 @@ type UiAction =
    * auto-advance), backlog (toggle the backlog view).
    */
   | { do: 'dialogue'; input: UiDialogueInput; value?: number };
-```
-
-<a id="type-ui-bindable"></a>
-### UiBindable
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiBindable<T> = T | UiBinding;
-```
-
-<a id="type-ui-binding"></a>
-### UiBinding
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-/** A value from the view model: `{ "bind": "path" }` (`"!path"` negates a boolean). */
-interface UiBinding {
-  bind: string;
-}
-```
-
-<a id="type-ui-color"></a>
-### UiColor
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-/** A colour: `#rgb`, `#rrggbb` or `#rrggbbaa`. */
-type UiColor = string;
-```
-
-<a id="type-ui-dialogue-input"></a>
-### UiDialogueInput
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiDialogueInput = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
 ```

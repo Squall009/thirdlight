@@ -559,6 +559,30 @@ export class Projection {
         this.structural();
         return true;
       }
+      case 'prefabLinkEdit': {
+        // Stored objects replaced. A linked copy's root and the objects hanging from its parts are assembled:
+        // their values come with the change's assembled objects, so only plain objects are taken from here.
+        const gone = new Set(change.removedIds);
+        for (const id of gone) {
+          this.entities.delete(id);
+          this.touch(id);
+        }
+        if (gone.size > 0) this.order = this.order.filter((id) => !gone.has(id));
+        for (const n of [...change.next].sort((a, b) => a.index - b.index)) {
+          const e = n.entity as unknown as { parentPart?: unknown; components: { prefab?: { localId?: unknown } } };
+          const link = e.components.prefab !== undefined && e.components.prefab.localId === undefined;
+          if (link || typeof e.parentPart === 'string') continue;
+          const p = toProjected(n.entity);
+          if (this.entities.has(p.id)) {
+            const was = this.entities.get(p.id);
+            if (was?.sceneId !== undefined) p.sceneId = was.sceneId;
+            this.entities.set(p.id, p);
+            this.touch(p.id);
+          } else this.add(p, Math.max(0, Math.min(this.order.length, n.index)));
+        }
+        this.structural();
+        return true;
+      }
       case 'restoreSubtree': {
         for (const e of change.entities) {
           const p = toProjected(e);

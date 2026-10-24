@@ -169,6 +169,11 @@ export class PrefabProjection {
         this.definitions.set(change.prefabId, cloneDefinition(change.next));
         return true;
       }
+      case 'prefabLinkEdit': {
+        // An apply changes the prefabs it wrote overrides into.
+        for (const p of change.prefabs ?? []) this.definitions.set(p.prefabId, cloneDefinition(p.next));
+        return (change.prefabs ?? []).length > 0;
+      }
       case 'removePrefab': {
         // The undo of a capture: the definition disappears; materialized copies
         // and their `components.prefab` provenance are untouched.

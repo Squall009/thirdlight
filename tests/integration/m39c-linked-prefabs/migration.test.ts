@@ -155,10 +155,15 @@ describe('a schemaVersion 7 project with plain prefab copies opened over HTTP', 
     before.game = await exported();
     before.digests = await digests(before.game);
     expect(before.digests.length).toBeGreaterThan(STEPS / 2);
-    // The same files as a schemaVersion 7 engine wrote them: plain copies, each part naming its prefab part.
+    // The same files as a schemaVersion 7 engine wrote them: plain copies, each part naming its prefab part —
+    // which is what the copies the commands placed (linked) assemble into.
+    const captured = (tb.backend._test.service.readCapturedV3(PID) as Any).read.scenes as Any;
+    const plain = (Array.isArray(captured) ? captured.find((x: Any) => x.sceneId === 'scene-main') : captured.get('scene-main')).entities as Any[];
     expect(tb.backend._test.service.releaseWorkspace(PID).ok).toBe(true);
     const manifest = readJson(join(dir(), 'project.json'));
     writeFileSync(join(dir(), 'project.json'), `${JSON.stringify({ ...manifest, schemaVersion: 7 }, null, 2)}\n`);
+    const sceneFile = join(dir(), 'scenes', 'scene-main.json');
+    writeFileSync(sceneFile, `${JSON.stringify({ ...readJson(sceneFile), scene: { ...readJson(sceneFile).scene, entities: plain } }, null, 2)}\n`);
     rmSync(prefabFile('crate'));
     const stored = readJson(join(dir(), 'scenes', 'scene-main.json')).scene.entities as Any[];
     expect(stored.find((e) => e.id === ids['d1Panel']).components.prefab).toMatchObject({ prefabId: 'door' });

@@ -855,6 +855,8 @@ export function applyDeleteEntity(
   scene: SceneDocument,
   args: DeleteEntityArgs,
   content?: ContentDocument,
+  /** The scene with its linked copies assembled (absent: it holds none): a copy's parts reference objects too. */
+  view?: SceneDocument,
 ): OpOutcome {
   const byId = entitiesById(scene);
   // Each named object's subtree; a child named with its parent goes with it.
@@ -873,7 +875,13 @@ export function applyDeleteEntity(
 
   // An `entityRef` property value owned
   // by an entity OUTSIDE the closure may not name an entity inside it.
-  const referencing = referencingEntitiesInUse(scene, content, closureSet);
+  let referencing = referencingEntitiesInUse(scene, content, closureSet);
+  if (view !== undefined && referencing.length === 0) {
+    // A deleted copy takes its parts; a copy's part may name what is deleted.
+    const viewClosure = new Set<string>();
+    for (const id of closureSet) for (const c of subtreeClosure(view, id) ?? [id]) viewClosure.add(c);
+    referencing = referencingEntitiesInUse(view, content, viewClosure);
+  }
   if (referencing.length > 0) {
     return {
       ok: false,

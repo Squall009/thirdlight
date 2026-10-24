@@ -15,7 +15,7 @@
  * variants and no structural overrides: a definition update never rewrites a
  * copy. `components.prefab` is informational provenance written only here.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, isPrefabLink, prefabNestingCycles } from '@thirdlight/project-model';
 
 import type {
   BehaviorComponent,
@@ -49,6 +49,7 @@ import {
   limitsExceeded,
   prefabCameraCaptureForbidden,
   prefabComponentForbidden,
+  prefabCycle,
   prefabExternalReferenceForbidden,
   prefabIdDuplicate,
   prefabLocalUnknown,
@@ -87,12 +88,12 @@ function utf8Length(text: string): number {
   return n;
 }
 
-function canonicalBytes(value: unknown): number {
+export function canonicalBytes(value: unknown): number {
   return utf8Length(JSON.stringify(value, null, 2) + '\n');
 }
 
 /** Instance ID prefix derivation: model, else box, else group. */
-function idPrefix(components: PrefabComponentsV2): 'model' | 'box' | 'group' {
+export function idPrefix(components: PrefabComponentsV2): 'model' | 'box' | 'group' {
   if (components.model !== undefined) return 'model';
   if (components.box !== undefined) return 'box';
   return 'group';
@@ -107,7 +108,7 @@ export function nextFreeEntityId(
 }
 
 /** Definition depth (definition root = 1). */
-function prefabDepth(entities: readonly PrefabEntity[]): number {
+export function prefabDepth(entities: readonly PrefabEntity[]): number {
   const byLocal = new Map(entities.map((e) => [e.localId, e]));
   const depth = new Map<string, number>();
   const depthOf = (id: string, seen: Set<string>): number => {
@@ -130,7 +131,7 @@ function prefabDepth(entities: readonly PrefabEntity[]): number {
 }
 
 /** Scene entity depth (root = 1). Valid scenes are acyclic with parents first. */
-function sceneEntityDepth(scene: SceneDocument, id: string): number {
+export function sceneEntityDepth(scene: SceneDocument, id: string): number {
   const byId = new Map(scene.entities.map((e) => [e.id, e]));
   let depth = 0;
   let cur = byId.get(id);
@@ -142,7 +143,7 @@ function sceneEntityDepth(scene: SceneDocument, id: string): number {
 }
 
 /** Full descendant closure of `rootId` in scene DOCUMENT order (root first). */
-function subtreeInDocumentOrder(scene: SceneDocument, rootId: string): string[] | null {
+export function subtreeInDocumentOrder(scene: SceneDocument, rootId: string): string[] | null {
   const byId = new Map(scene.entities.map((e) => [e.id, e]));
   if (!byId.has(rootId)) return null;
   const children = new Map<string, string[]>();
@@ -220,7 +221,7 @@ function localNumber(id: string): number | undefined {
  * the definition holds, and never below the number it recorded, so ids its
  * earlier versions held and dropped are never handed out again.
  */
-function nextLocalNumberOf(definition: PrefabDefinition): number {
+export function nextLocalNumberOf(definition: PrefabDefinition): number {
   let next = definition.nextLocalNumber ?? 1;
   for (const e of definition.entities) {
     const n = localNumber(e.localId);
@@ -257,7 +258,8 @@ function updateLocalIds(
   const root = closure[0] as EntityV3;
   claim(root.id, (previous.entities[0] as PrefabEntity).localId);
   for (const e of closure) {
-    if (e.components.prefab?.prefabId === prefabId) claim(e.id, e.components.prefab.localId);
+    const from = e.components.prefab;
+    if (from?.prefabId === prefabId && typeof from.localId === 'string') claim(e.id, from.localId);
   }
   let next = nextLocalNumberOf(previous);
   const held = new Set(previous.entities.map((p) => p.localId));
@@ -309,7 +311,7 @@ function capturePrefabEntities(
     }
   }
   const prefabInstanceIds = closure
-    .filter((e) => e.components.prefab !== undefined && (previous === undefined || e.components.prefab.prefabId !== prefabId))
+    .filter((e) => e.components.prefab !== undefined && !isPrefabLink(e.components.prefab as unknown) && (previous === undefined || e.components.prefab.prefabId !== prefabId))
     .map((e) => e.id);
   if (prefabInstanceIds.length > 0) {
     return { ok: false, error: prefabNestedForbidden(sourceEntityId, prefabInstanceIds) };
@@ -357,33 +359,69 @@ function capturePrefabEntities(
     localOf = named.localOf;
     nextLocalNumber = named.nextLocalNumber;
   }
+  const entities = prefabEntitiesOf(scene, catalog, closure, closureSet, localOf);
+  const depth = prefabDepth(entities);
+  if (depth > MAX_PREFAB_DEPTH) {
+    return { ok: false, error: limitsExceeded('prefab_depth', depth, MAX_PREFAB_DEPTH) };
+  }
+  return { ok: true, entities, depth, ...(nextLocalNumber !== undefined ? { nextLocalNumber } : {}) };
+}
+
+/**
+ * Scene objects as prefab objects, under the local ids `localOf` gives
+ * them: references inside the set name local ids; a linked copy among them
+ * becomes a nested copy (its overrides kept, its scene ids not); an object
+ * hanging from a copy's part hangs from that part of the nested copy. The
+ * first object's parent is `rootParent` (absent: it is the prefab's root).
+ */
+export function prefabEntitiesOf(
+  scene: SceneDocument,
+  catalog: ContentCatalog,
+  closure: readonly EntityV3[],
+  closureSet: ReadonlySet<string>,
+  localOf: ReadonlyMap<string, string>,
+  rootParent?: string,
+): PrefabEntity[] {
   const refKeys = entityRefKeys(catalog);
   // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
   const flags = effectiveEntityFlags(scene.entities);
-  const entities: PrefabEntity[] = closure.map((e) => {
+  const v4 = scene.schemaVersion === 4;
+  const rootKeyOf = (prefabId: string): string | undefined => catalog.prefabs.find((d) => d.prefabId === prefabId)?.entities[0]?.localId;
+  const byId = new Map(closure.map((e) => [e.id, e]));
+  return closure.map((e, i) => {
     const tags = flags.get(e.id)?.tags ?? 0;
-    const components: PrefabComponentsV2 = {
-      transform: cloneTransform(e.components.transform) as unknown as PrefabComponentsV2['transform'],
-    };
-    if (e.components.model !== undefined) components.model = deepClone(e.components.model);
-    if (e.components.box !== undefined) components.box = deepClone(e.components.box);
-    if (e.components.behavior !== undefined) {
-      const behavior = deepClone(e.components.behavior);
-      // References inside the subtree name local ids.
-      for (const key of refKeys.get(behavior.behaviorId) ?? []) {
-        const v = behavior.values[key];
-        if (typeof v === 'string' && localOf.has(v)) behavior.values[key] = localOf.get(v) as string;
+    const link = (e.components as { prefab?: unknown }).prefab;
+    let components: PrefabComponentsV2;
+    if (isPrefabLink(link)) {
+      // A nested copy keeps what it overrides; the scene ids its parts had are the scene's, not the prefab's.
+      const nested = { prefabId: link.prefabId, ...(link.overrides !== undefined && link.overrides.length > 0 ? { overrides: deepClone(link.overrides) } : {}) };
+      components = { transform: cloneTransform(e.components.transform), prefab: nested } as unknown as PrefabComponentsV2;
+    } else {
+      components = { transform: cloneTransform(e.components.transform) as unknown as PrefabComponentsV2['transform'] };
+      if (e.components.model !== undefined) components.model = deepClone(e.components.model);
+      if (e.components.box !== undefined) components.box = deepClone(e.components.box);
+      if (e.components.behavior !== undefined) {
+        const behavior = deepClone(e.components.behavior);
+        // References inside the subtree name local ids.
+        for (const key of refKeys.get(behavior.behaviorId) ?? []) {
+          const v = behavior.values[key];
+          if (typeof v === 'string' && localOf.has(v)) behavior.values[key] = localOf.get(v) as string;
+        }
+        components.behavior = behavior;
       }
-      components.behavior = behavior;
-    }
-    if (v4) {
-      const source = e.components as unknown as Record<string, unknown>;
-      for (const name of PREFAB_V4_COMPONENTS) {
-        if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
+      if (v4) {
+        const source = e.components as unknown as Record<string, unknown>;
+        for (const name of PREFAB_V4_COMPONENTS) {
+          if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
+        }
       }
     }
-    const parentLocalId =
-      e.parentId !== undefined && closureSet.has(e.parentId) ? localOf.get(e.parentId) : undefined;
+    let parentLocalId = e.parentId !== undefined && closureSet.has(e.parentId) ? localOf.get(e.parentId) : undefined;
+    const part = (e as unknown as { parentPart?: unknown }).parentPart;
+    const parent = e.parentId !== undefined ? byId.get(e.parentId) : undefined;
+    const parentLink = (parent?.components as { prefab?: unknown } | undefined)?.prefab;
+    if (parentLocalId !== undefined && typeof part === 'string' && isPrefabLink(parentLink) && part !== rootKeyOf(parentLink.prefabId)) parentLocalId = `${parentLocalId}/${part}`;
+    if (i === 0 && rootParent !== undefined) parentLocalId = rootParent;
     return {
       localId: localOf.get(e.id) as string,
       ...(e.name !== undefined ? { name: e.name } : {}),
@@ -392,14 +430,9 @@ function capturePrefabEntities(
       components,
     };
   });
-  const depth = prefabDepth(entities);
-  if (depth > MAX_PREFAB_DEPTH) {
-    return { ok: false, error: limitsExceeded('prefab_depth', depth, MAX_PREFAB_DEPTH) };
-  }
-  return { ok: true, entities, depth, ...(nextLocalNumber !== undefined ? { nextLocalNumber } : {}) };
 }
 
-function displayNameError(displayName: string): CommandError {
+export function displayNameError(displayName: string): CommandError {
   return fieldValue(
     '/args/displayName',
     displayName,
@@ -503,6 +536,9 @@ export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOut
     ...catalog,
     prefabs: catalog.prefabs.map((d) => (d.prefabId === args.prefabId ? definition : d)),
   };
+  // A captured copy of a prefab that holds this one (or of this one) would make it contain itself.
+  const cycle = prefabNestingCycles(nextContent.prefabs).get(args.prefabId);
+  if (cycle !== undefined) return { ok: false, error: prefabCycle(args.prefabId, cycle) };
   const gate = gateResultState(
     { scene, content: catalog, manifest: input.manifest },
     { ...scene, revision: scene.revision + 1 },

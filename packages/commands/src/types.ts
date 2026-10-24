@@ -911,6 +911,7 @@ export interface RestoreSubtreeChange {
 
 /** Structured change data. A client projection updates from this alone. */
 export type ChangeData =
+  | import('./prefab-link-types').PrefabLinkEditChange
   | CreateEntityChange
   | SetTransformChange
   | DeleteEntityChange
@@ -967,6 +968,7 @@ export type ChangeData =
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
+  | import('./prefab-link-types').PrefabLinkEditChange
   | CreateEntityChange
   | SetTransformChange
   | DeleteEntityChange
@@ -1207,6 +1209,7 @@ export interface SetSceneIndexInverse {
 }
 
 export type InverseSpec =
+  | import('./prefab-link-types').PrefabLinkEditInverse
   | EditBlocksInverse
   | SetBlockTypeInverse
   | SetCellFieldsInverse

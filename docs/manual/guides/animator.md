@@ -34,7 +34,7 @@ under it) whenever the controller defines them.
 ## Through the API
 
 1. The controller ([`setAnimator`](../reference/ops-detail.md#op-setAnimator),
-   [`AnimatorController`](../reference/types-a-d.md#type-animator-controller)):
+   [`AnimatorController`](../reference/types-a-c.md#type-animator-controller)):
    ```json
    {"controller": {"controllerId": "hero", "name": "Hero",
     "parameters": [{"name": "speed", "type": "float", "default": 0}, {"name": "grounded", "type": "bool", "default": true}],

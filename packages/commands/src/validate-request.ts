@@ -75,9 +75,13 @@ import { validateEditTerrainArgs, type EditTerrainArgs } from './terrain-ops';
 import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs, type CreateFolderArgs, type MoveResourcesArgs, type RenameFolderArgs } from './move-ops';
 import {
   validateCreatePrefabArgs,
+  validateCreatePrefabVariantArgs,
   validateInstantiatePrefabArgs,
+  validatePrefabOverrideTargetArgs,
+  validateUnpackPrefabArgs,
   validateUpdatePrefabArgs,
 } from './validate-prefab-args';
+import type { CreatePrefabVariantArgs, PrefabOverrideTargetArgs, UnpackPrefabArgs } from './prefab-link-types';
 import type {
   AcknowledgeBehaviorTrustArgs,
   ApplySurfacePresetArgs,
@@ -1256,6 +1260,10 @@ export type ValidatedOpArgs =
   | { op: 'importResources'; args: ImportResourcesArgs }
   | { op: 'deletePrefab'; args: { prefabId: string } }
   | { op: 'updatePrefab'; args: UpdatePrefabArgs }
+  | { op: 'revertPrefabOverrides'; args: PrefabOverrideTargetArgs }
+  | { op: 'applyPrefabOverrides'; args: PrefabOverrideTargetArgs }
+  | { op: 'unpackPrefab'; args: UnpackPrefabArgs }
+  | { op: 'createPrefabVariant'; args: CreatePrefabVariantArgs }
   | { op: 'deleteBehavior'; args: { behaviorId: string } }
   | { op: 'revokeBehaviorTrust'; args: { sourceDigest: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } }
@@ -1341,6 +1349,19 @@ function blockArgsError(op: string, args: Record<string, unknown>): CommandError
 export type ArgsValidation =
   | { ok: true; validated: ValidatedOpArgs }
   | { ok: false; error: CommandError };
+
+/** The prefab ops' args, one validator each (`validate-prefab-args.ts`). */
+function validatePrefabOpArgs(op: 'createPrefab' | 'updatePrefab' | 'instantiatePrefab' | 'revertPrefabOverrides' | 'applyPrefabOverrides' | 'unpackPrefab' | 'createPrefabVariant', args: Record<string, unknown>): { ok: true; validated: ValidatedOpArgs } | { ok: false; error: CommandError } {
+  const r =
+    op === 'createPrefab' ? validateCreatePrefabArgs(args)
+      : op === 'updatePrefab' ? validateUpdatePrefabArgs(args)
+        : op === 'instantiatePrefab' ? validateInstantiatePrefabArgs(args)
+          : op === 'unpackPrefab' ? validateUnpackPrefabArgs(args)
+            : op === 'createPrefabVariant' ? validateCreatePrefabVariantArgs(args)
+              : validatePrefabOverrideTargetArgs(args);
+  if (!r.ok) return r;
+  return { ok: true, validated: { op, args: r.args } as ValidatedOpArgs };
+}
 
 /**
  * Per-op `args` schema pass: failures are the `field_*`
@@ -1749,21 +1770,14 @@ export function validateOpArgs(
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'acknowledgeBehaviorTrust', args: r.args } };
     }
-    case 'createPrefab': {
-      const r = validateCreatePrefabArgs(args);
-      if (!r.ok) return r;
-      return { ok: true, validated: { op: 'createPrefab', args: r.args } };
-    }
-    case 'updatePrefab': {
-      const r = validateUpdatePrefabArgs(args);
-      if (!r.ok) return r;
-      return { ok: true, validated: { op: 'updatePrefab', args: r.args } };
-    }
-    case 'instantiatePrefab': {
-      const r = validateInstantiatePrefabArgs(args);
-      if (!r.ok) return r;
-      return { ok: true, validated: { op: 'instantiatePrefab', args: r.args } };
-    }
+    case 'createPrefab':
+    case 'updatePrefab':
+    case 'instantiatePrefab':
+    case 'revertPrefabOverrides':
+    case 'applyPrefabOverrides':
+    case 'unpackPrefab':
+    case 'createPrefabVariant':
+      return validatePrefabOpArgs(op, args);
     case 'applySurfacePreset': {
       const r = validateApplySurfacePresetArgs(args);
       if (!r.ok) return r;

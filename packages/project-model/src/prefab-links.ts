@@ -188,6 +188,19 @@ function validatePartIds(ids: unknown, path: string, errors: ModelErrorV2[], whe
   }
 }
 
+/**
+ * The scene ids linked copies keep for their parts (`partIds`), which no
+ * stored object holds: a new object's id must never be one of them.
+ */
+export function keptPartIds(entities: readonly { components: object }[]): string[] {
+  const out: string[] = [];
+  for (const e of entities) {
+    const link = (e.components as { prefab?: unknown }).prefab;
+    if (isPrefabLink(link) && link.partIds !== undefined) for (const id of Object.values(link.partIds)) out.push(id);
+  }
+  return out;
+}
+
 /** The longest scene id (the project id syntax). */
 const MAX_ID_LENGTH = 64;
 /** The hash part of a derived part id (base 36, fixed width). */

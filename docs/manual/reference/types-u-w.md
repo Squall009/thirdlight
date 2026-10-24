@@ -1,8 +1,48 @@
-# Types (UiDocument to WindConfig)
+# Types (UiBindable to WindConfig)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-bindable"></a>
+### UiBindable
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiBindable<T> = T | UiBinding;
+```
+
+<a id="type-ui-binding"></a>
+### UiBinding
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+/** A value from the view model: `{ "bind": "path" }` (`"!path"` negates a boolean). */
+interface UiBinding {
+  bind: string;
+}
+```
+
+<a id="type-ui-color"></a>
+### UiColor
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+/** A colour: `#rgb`, `#rrggbb` or `#rrggbbaa`. */
+type UiColor = string;
+```
+
+<a id="type-ui-dialogue-input"></a>
+### UiDialogueInput
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+type UiDialogueInput = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
+```
 
 <a id="type-ui-document"></a>
 ### UiDocument
@@ -340,6 +380,18 @@ interface UiWorldAnchor {
   margin?: number;
   /** A child widget shown only while clamped, turned towards the target (`--tl-angle`). */
   indicator?: string;
+}
+```
+
+<a id="type-unpack-prefab-args"></a>
+### UnpackPrefabArgs
+
+Declared in `packages/commands/src/prefab-link-types.ts`.
+
+```ts
+/** `unpackPrefab`: the copy becomes plain objects (ids kept). */
+interface UnpackPrefabArgs {
+  entityId: string;
 }
 ```
 

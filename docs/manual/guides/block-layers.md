@@ -75,7 +75,7 @@ Each stroke and button is one command and one undo step (Ctrl+Z).
 The same steps as commands (see [the request](../reference/ops.md#op-request)):
 
 1. Block types: [`setBlockType`](../reference/ops-detail.md#op-setBlockType)
-   with a [`BlockType`](../reference/types-a-d.md#type-block-type):
+   with a [`BlockType`](../reference/types-a-c.md#type-block-type):
    `{"block": {"blockId": "stone", "name": "Stone", "shape": "full", "variants": [{"color": "#8a8a8a"}]}}`,
    and `wall` the same with `"placement": "edge"`.
 2. The layer: [`createEntity`](../reference/ops-detail.md#op-createEntity)
@@ -84,7 +84,7 @@ The same steps as commands (see [the request](../reference/ops.md#op-request)):
    The answer's `createdId` is the layer's id.
 3. Cells, walls and a region in one
    [`editBlocks`](../reference/ops-detail.md#op-editBlocks) (one undo step;
-   edits are [`BlockEdit`](../reference/types-a-d.md#type-block-edit)s, boxes
+   edits are [`BlockEdit`](../reference/types-a-c.md#type-block-edit)s, boxes
    `[x0, y0, z0, x1, y1, z1]` with the max exclusive):
    ```json
    {"entityId": "<layer>", "edits": [

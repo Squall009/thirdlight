@@ -56,8 +56,8 @@ describe('the manual lookup', () => {
     expect(text(manual.lookup({ topic: `../getting-started/first-project.md#${second.id}` }))).toBe(sec);
     expect(text(manual.lookup({ topic: 'deployment' }))).toContain('MCP');
     // A same-folder link from a reference page, copied without its folder.
-    expect(text(manual.lookup({ topic: 'types-a-d#type-block-edit' }))).toBe(text(manual.lookup({ topic: 'reference/types-a-d#type-block-edit' })));
-    expect(text(manual.lookup({ topic: 'types-a-d.md#type-block-edit' }))).toContain('BlockEdit');
+    expect(text(manual.lookup({ topic: 'types-a-c#type-block-edit' }))).toBe(text(manual.lookup({ topic: 'reference/types-a-c#type-block-edit' })));
+    expect(text(manual.lookup({ topic: 'types-a-c.md#type-block-edit' }))).toContain('BlockEdit');
   });
 
   it('answers a reference topic with its section', () => {

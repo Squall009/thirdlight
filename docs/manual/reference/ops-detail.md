@@ -18,6 +18,31 @@ interface AcknowledgeBehaviorTrustArgs {
 }
 ```
 
+<a id="op-applyPrefabOverrides"></a>
+## applyPrefabOverrides
+
+Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+
+Arguments (`args`):
+
+```ts
+/**
+ * Names the overrides of one copy: `entityId` is the copy (its root) or one
+ * of its parts. `part` names a part of the copy by its part path (a removed
+ * part has no object to name); `path` one field of that part (`name`,
+ * `tags`, `components/<component>[/<field>…]`). `all` names every override
+ * of the copy (and, to apply, the objects added to it). To apply, `entityId`
+ * may also name an object added to a copy, alone: it becomes a part of that
+ * copy's prefab (a linked copy added so nests in it).
+ */
+interface PrefabOverrideTargetArgs {
+  entityId: string;
+  part?: string;
+  path?: string;
+  all?: boolean;
+}
+```
+
 <a id="op-applySurfacePreset"></a>
 ## applySurfacePreset
 
@@ -64,7 +89,7 @@ Arguments (`args`):
 
 Also `sceneId?: string` (read before validation): The scene every new object goes into. Required unless the items' `parentId`s name objects (all of one scene, which must match a named scene). Missing both: refused with `field_missing` at `/args/sceneId`.
 
-Types: [`CreateEntityArgs`](types-a-d.md#type-create-entity-args).
+Types: [`CreateEntityArgs`](types-a-c.md#type-create-entity-args).
 
 <a id="op-createEntity"></a>
 ## createEntity
@@ -137,6 +162,22 @@ interface CreatePrefabArgs {
   displayName: string;
   /** Existing entity ID in the current scene. */
   sourceEntityId: string;
+}
+```
+
+<a id="op-createPrefabVariant"></a>
+## createPrefabVariant
+
+Writes: [`content.prefabs`](content-blocks-settings.md#content-prefabs).
+
+Arguments (`args`):
+
+```ts
+/** `createPrefabVariant`: a new prefab made of one linked copy of `basePrefabId`. */
+interface CreatePrefabVariantArgs {
+  basePrefabId: string;
+  prefabId: string;
+  displayName: string;
 }
 ```
 
@@ -376,7 +417,7 @@ Arguments (`args`):
 { entityId: string; edits: BlockEdit[] }
 ```
 
-Types: [`BlockEdit`](types-a-d.md#type-block-edit).
+Types: [`BlockEdit`](types-a-c.md#type-block-edit).
 
 <a id="op-editTerrain"></a>
 ## editTerrain
@@ -710,6 +751,29 @@ type SceneIndexArgs =
   | { op: 'setStartScenes'; sceneIds: string[] };
 ```
 
+<a id="op-revertPrefabOverrides"></a>
+## revertPrefabOverrides
+
+Arguments (`args`):
+
+```ts
+/**
+ * Names the overrides of one copy: `entityId` is the copy (its root) or one
+ * of its parts. `part` names a part of the copy by its part path (a removed
+ * part has no object to name); `path` one field of that part (`name`,
+ * `tags`, `components/<component>[/<field>…]`). `all` names every override
+ * of the copy (and, to apply, the objects added to it). To apply, `entityId`
+ * may also name an object added to a copy, alone: it becomes a part of that
+ * copy's prefab (a linked copy added so nests in it).
+ */
+interface PrefabOverrideTargetArgs {
+  entityId: string;
+  part?: string;
+  path?: string;
+  all?: boolean;
+}
+```
+
 <a id="op-revokeBehaviorTrust"></a>
 ## revokeBehaviorTrust
 
@@ -748,7 +812,7 @@ Arguments (`args`):
 { controller: AnimatorController }
 ```
 
-Types: [`AnimatorController`](types-a-d.md#type-animator-controller).
+Types: [`AnimatorController`](types-a-c.md#type-animator-controller).
 
 <a id="op-setAssetOptions"></a>
 ## setAssetOptions
@@ -818,7 +882,7 @@ Arguments (`args`):
 { stamp?: BlockStamp; stampId?: string; name?: string; entityId?: string; box?: number[] }
 ```
 
-Types: [`BlockStamp`](types-a-d.md#type-block-stamp).
+Types: [`BlockStamp`](types-a-c.md#type-block-stamp).
 
 <a id="op-setBlockType"></a>
 ## setBlockType
@@ -831,7 +895,7 @@ Arguments (`args`):
 { block: BlockType }
 ```
 
-Types: [`BlockType`](types-a-d.md#type-block-type).
+Types: [`BlockType`](types-a-c.md#type-block-type).
 
 <a id="op-setCellFields"></a>
 ## setCellFields
@@ -844,7 +908,7 @@ Arguments (`args`):
 { fields: CellField[] }
 ```
 
-Types: [`CellField`](types-a-d.md#type-cell-field).
+Types: [`CellField`](types-a-c.md#type-cell-field).
 
 <a id="op-setCollisionLayers"></a>
 ## setCollisionLayers
@@ -1218,6 +1282,18 @@ Arguments (`args`):
 /** undo/redo args: exactly the empty object (strictly enforced at runtime). */
 interface EmptyArgs {
   // intentionally empty — any field is rejected (field_unexpected)
+}
+```
+
+<a id="op-unpackPrefab"></a>
+## unpackPrefab
+
+Arguments (`args`):
+
+```ts
+/** `unpackPrefab`: the copy becomes plain objects (ids kept). */
+interface UnpackPrefabArgs {
+  entityId: string;
 }
 ```
 

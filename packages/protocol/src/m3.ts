@@ -82,6 +82,8 @@ export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'
 
 /** The change-record types a v3 `mutation.applied` frame may carry. */
 export const CHANGE_TYPES = [
+  // A linked prefab copy's stored objects (and prefabs) replaced: overrides written, reverted or applied, a copy unpacked
+  'prefabLinkEdit',
   'createEntity',
   'setTransform',
   'deleteEntity',
