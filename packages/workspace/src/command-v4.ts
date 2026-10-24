@@ -7,7 +7,7 @@
  */
 
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
-import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
+import type { AdoptedScene, CommandError, FootprintChunks, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
 import type { InstancePaint, ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, keptPartIds, prefabStageRootOf, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
@@ -31,6 +31,7 @@ import { followCopyPaint, prepareVertexPaint, publishPaintBlobs, verifyPaintBlob
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
 import { assembledChange, prefabViewOf } from './prefab-view';
+import { otherSceneFootprints } from './prefab-footprints';
 import { SCENE_ROUTED_ARG, SCENE_ROUTED_CREATES } from './scene-routing';
 import { prepareErodeEdit } from './terrain-layer-reads';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
@@ -329,8 +330,15 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   const change = outcome.result.change as { type: string; scenesAdded?: AdoptedScene[]; environments?: Record<string, SceneEnvironment> };
   if (change.type === 'importResources') for (const a of change.scenesAdded ?? []) adopted.set(a.sceneId, a.scene as SceneV4);
   const otherResult = otherId !== undefined && outcome.state.otherScene !== undefined ? sceneV4Of(outcome.state.otherScene.scene) : null;
+  const footprinted = otherSceneFootprints(state.scenes, new Set([carrierId, ...(otherId !== undefined ? [otherId] : [])]), commandState.content, outcome.state.content, newRevision);
+  if (!footprinted.ok) return refuse(footprinted.error);
+  if (footprinted.chunks.length > 0) {
+    const ch = outcome.result.change as { footprints?: FootprintChunks[] };
+    outcome = { ...outcome, result: { ...outcome.result, change: { ...ch, footprints: [...(ch.footprints ?? []), ...footprinted.chunks] } as unknown as MutationSuccess['change'] } };
+  }
   for (const entry of nextContent.scenes) {
     if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
+    else if (footprinted.scenes.has(entry.sceneId)) nextScenes.set(entry.sceneId, footprinted.scenes.get(entry.sceneId)!);
     else if (otherResult !== null && entry.sceneId === otherId) nextScenes.set(entry.sceneId, { ...otherResult, sceneId: otherId });
     else {
       // A scene the index gains gets a new file, with the look the change carries (a copied look, an undone delete's).

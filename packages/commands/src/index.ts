@@ -254,7 +254,7 @@ export type {
 // Block-layer commands and the helpers queries and projections share.
 export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, withLayerData } from './block-ops';
 export { kitsOf } from './kit-ops';
-export type { FootprintChunks } from './footprint-ops';
+export { writeSceneFootprints, type FootprintChunks } from './footprint-ops';
 export type { BlockChunkSwap, BlockLayerPatch, BlockRegionSwap } from './block-patch';
 export { instanceFloatsOf, planInstanceStroke, validatePaintInstancesArgs, type PaintInstancesArgs, type PreparedInstanceStroke } from './instance-stroke-ops';
 export { planVertexPaint, validatePaintVerticesArgs, type PaintVerticesArgs, type PreparedVertexPaint, type VertexPaintBlob, type VertexPaintReads } from './vertex-paint-ops';

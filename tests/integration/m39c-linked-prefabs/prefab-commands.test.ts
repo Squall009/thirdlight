@@ -290,4 +290,43 @@ describe('linked-copy commands at the backend', () => {
     expect((await refused('setTransform', { entityId: door.rootId, transform: { position: [5, 0, 0] } })).code).toBe('prefab_override_unsupported');
     expect((await refused('deleteEntity', { entityId: made, entityIds: [copies[0]] })).code).toBe('prefab_override_unsupported');
   }, 120_000);
+
+  it('a prefab edit writes the block footprints of its copies in every scene, not only the scene the command ran in', async () => {
+    await send('setCellFields', { fields: [{ key: 'marked', type: 'bool' }] });
+    await send('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#888888' }], shape: 'full' } });
+    await send('createScene', { sceneId: 'scene-two', name: 'Second' });
+    const layers: string[] = [];
+    for (const sceneId of ['scene-main', 'scene-two']) {
+      const layer = (await send('createEntity', { kind: 'group', name: 'Ground', sceneId, transform: { position: [0, -1, 0] } })).createdId as string;
+      await send('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 4, 8] } } });
+      await send('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 8, 2, 8], cell: { block: 'stone' } }] });
+      layers.push(layer);
+    }
+    const root = (await send('createEntity', { kind: 'box', name: 'Mat', sceneId: 'scene-main', components: { blockFootprint: { size: [1, 1], set: { marked: true } } } })).createdId as string;
+    await send('createPrefab', { prefabId: 'mat', displayName: 'Mat', sourceEntityId: root });
+    await send('deleteEntity', { entityId: root });
+    const copies: string[] = [];
+    for (const sceneId of ['scene-main', 'scene-two']) copies.push((await send('instantiatePrefab', { sceneId, prefabId: 'mat', transform: { position: [3, 0, 3] } })).change.rootId as string);
+    /** A layer's cells (blocks and fields), as the editor reads them. */
+    const cells = async (entityId: string): Promise<Any> => {
+      const r = (await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryBlocks', projectId: PID, args: { entityId, box: [0, 0, 0, 8, 4, 8] } }, token: tb.adminToken, origin: null })).json as Any;
+      expect(r.ok, JSON.stringify(r).slice(0, 300)).toBe(true);
+      const { revision: _r, sceneId: _s, entityId: _e, ...rest } = r;
+      return rest;
+    };
+    const placed = await cells(layers[0]!);
+    expect(await cells(layers[1]!)).toEqual(placed);
+    // The copy in the first scene grows its footprint, applied to the prefab: the copy in the second scene follows.
+    await send('setComponent', { entityId: copies[0], component: 'blockFootprint', value: { size: [3, 3], set: { marked: true } } });
+    const applied = await send('applyPrefabOverrides', { entityId: copies[0], all: true });
+    expect((applied.change.footprints as Any[]).map((f) => f.entityId)).toContain(layers[1]);
+    const grown = await cells(layers[0]!);
+    expect(grown).not.toEqual(placed);
+    expect(await cells(layers[1]!)).toEqual(grown);
+    // Undone, the prefab's footprint and both scenes' cells are as before.
+    await send('undo', {});
+    await send('undo', {});
+    expect(await cells(layers[0]!)).toEqual(placed);
+    expect(await cells(layers[1]!)).toEqual(placed);
+  }, 120_000);
 });
