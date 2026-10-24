@@ -6,7 +6,8 @@
  *
  * - `parity` (WebGPU): neutral effect graphs run on the CPU reference
  *   (`EffectInstance`) and on the WebGPU compute executor with the same steps
- *   and origins; the GPU buffers are read back and compared particle by
+ *   and origins (as the second play of a batch shared with a play elsewhere);
+ *   the GPU buffers (its slot) are read back and compared particle by
  *   particle (by serial number): `window.__fx = { ok, cases: [{name, cpu,
  *   gpu, matched, maxPosError, meanPosError, maxColorError, maxSizeError}] }`.
  * - `render`: the effect player (the one Play and exports use) draws a burst
@@ -24,7 +25,7 @@ import * as THREE from 'three/webgpu';
 
 import { EffectInstance } from '@thirdlight/effects';
 import { newEffectSystemGraph, type EffectDef, type GraphData, type GraphValue } from '@thirdlight/project-model';
-import { applyObjectLightLayers, createEffectsPlayer, createRenderer, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
+import { applyObjectLightLayers, createEffectsPlayer, createRenderer, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectBatches, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
 
 const q = new URLSearchParams(location.search);
 const backend = (q.get('backend') ?? 'auto') as RendererPreference;
@@ -174,28 +175,35 @@ async function parity(r: THREE.WebGPURenderer): Promise<unknown[]> {
   const out: unknown[] = [];
   for (const c of PARITY) {
     const cpu = new EffectInstance(c.def, {});
-    const gpu = new GpuEffectExecutor(c.def, { capacityLimit: 1 << 18, sortedSystems: new Set() });
+    // Two plays in one batch (the player's way): the compared play takes the second slot, beside a play elsewhere
+    // that shares its passes and must not disturb it.
+    const batches = new GpuEffectBatches();
+    const other = new GpuEffectExecutor(c.def, { capacityLimit: 1 << 18, sortedSystems: new Set(), batches });
+    const gpu = new GpuEffectExecutor(c.def, { capacityLimit: 1 << 18, sortedSystems: new Set(), batches });
     for (let k = 0; k < STEPS; k++) {
       const t = (k + 1) * DT;
       const input = c.origin !== undefined ? { origin: c.origin(t) } : {};
       cpu.step(DT, input);
+      other.step(r, DT, { origin: { position: [5, -2, 7], rotation: [0, 0.6, 0, 0.8], scale: [2, 2, 2] } });
       gpu.step(r, DT, input);
+      batches.flushStep(r);
     }
     for (let si = 0; si < c.def.systems.length; si++) {
       const s = cpu.systems[si]!;
       const g = gpu.systems[si]!;
       // The interleaved state: 6 vec4 per slot (posAge, velLife, colour, initial colour, sizeRot, massRand).
+      const base = g.slot * g.capacity;
       const state = await readVec4(r, g.buffers.state);
       const field = (k: number): Float32Array => {
         const out = new Float32Array(g.capacity * 4);
-        for (let i = 0; i < g.capacity; i++) out.set(state.subarray((i * GPU_STATE_STRIDE + k) * 4, (i * GPU_STATE_STRIDE + k) * 4 + 4), i * 4);
+        for (let i = 0; i < g.capacity; i++) out.set(state.subarray(((base + i) * GPU_STATE_STRIDE + k) * 4, ((base + i) * GPU_STATE_STRIDE + k) * 4 + 4), i * 4);
         return out;
       };
       const posAge = field(GPU_STATE_FIELDS.posAge);
       const color = field(GPU_STATE_FIELDS.color);
       const sizeRot = field(GPU_STATE_FIELDS.sizeRot);
       const massRand = field(GPU_STATE_FIELDS.massRand);
-      const serial = new Uint32Array(await r.getArrayBufferAsync(g.buffers.serial.value as never));
+      const serial = new Uint32Array(await r.getArrayBufferAsync(g.buffers.serial.value as never)).subarray(base, base + g.capacity);
       const gpuBySerial = new Map<number, number>();
       for (let i = 0; i < g.capacity; i++) if (massRand[i * 4 + 2]! > 0.5) gpuBySerial.set(serial[i]!, i);
       let matched = 0;
@@ -217,7 +225,9 @@ async function parity(r: THREE.WebGPURenderer): Promise<unknown[]> {
       }
       out.push({ name: `${c.def.effectId}/${si}`, cpu: s.count, gpu: gpuBySerial.size, matched, within, maxPosError: maxPos, meanPosError: matched > 0 ? sumPos / matched : 0, maxColorError: maxCol, maxSizeError: maxSize });
     }
+    if (gpu.systems.some((g) => g.slot !== 1)) throw new Error('the compared play is not in the second slot of a shared batch');
     gpu.dispose();
+    other.dispose();
   }
   return out;
 }

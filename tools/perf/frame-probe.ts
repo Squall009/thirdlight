@@ -45,6 +45,8 @@ export interface SceneCounts {
   lod: { switches: number; copySwitches: number; copiesInView: number };
   /** Main-thread ms per frame of the effects' update (three-adapter EFFECTS_CPU_KEY on the scene; null: no effects player). */
   effectsMs: number | null;
+  /** Effect plays the GPU executor ran in the last frame. */
+  effectsGpuPlays?: number;
   /** World streaming (three-adapter STREAMING_KEY on the scene; absent: a page that streams nothing): its diagnostics. */
   streaming?: unknown;
   /** Projected decals (three-adapter PROJECTED_DECALS_KEY on the scene; absent: none): their diagnostics. */
@@ -222,8 +224,9 @@ export function probeSceneCounts(): SceneCounts {
     if (typeof pd?.diagnostics === 'function') out.projectedDecals = pd.diagnostics();
     const cd = o.isScene === true ? (ud?.['tlClippedDecals'] as { diagnostics?: () => unknown } | undefined) : undefined;
     if (typeof cd?.diagnostics === 'function') out.clippedDecals = cd.diagnostics();
-    const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number } | undefined) : undefined;
+    const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number; gpuPlays?: number } | undefined) : undefined;
     if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
+    if (fx?.gpuPlays !== undefined) out.effectsGpuPlays = (out.effectsGpuPlays ?? 0) + fx.gpuPlays;
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;
     if (o.isBatchedMesh === true) out.batchedMeshes += 1;
     if (o.isSkinnedMesh === true) out.skinnedMeshes += 1;

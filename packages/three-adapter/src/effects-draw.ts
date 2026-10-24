@@ -27,7 +27,7 @@ import { billboardAxes, EFFECT_LIGHT_LIMIT, flipbookFrame, flipbookRect, lightPa
 import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 
 import { EffectLights, EffectLightSlot } from './effect-lights';
-import type { GpuSystem } from './effects-gpu';
+import type { GpuPlaySystem } from './effects-gpu-batch';
 import type { N } from './effects-tsl';
 
 const TSL: N = TSLTyped;
@@ -144,7 +144,7 @@ export class GpuParticleSource implements ParticleSource {
   readonly space: 'local' | 'world';
   private readonly nodes: ParticleData;
 
-  constructor(gpu: GpuSystem) {
+  constructor(gpu: GpuPlaySystem) {
     this.capacity = gpu.capacity;
     this.space = gpu.program.space;
     const d = gpu.draw;

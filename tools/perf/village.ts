@@ -97,18 +97,27 @@ const T = (x: number, y: number, z: number, yawDeg = 0, s = 1): Record<string, u
 const hex = (n: number): string => `#${Math.floor(n).toString(16).padStart(6, '0').slice(-6)}`;
 
 /** A burning fire: additive sparks, the oldest one a point light (the effect light pool). */
-function fireEffect(): Record<string, unknown> {
+function fireEffect(gpuSystems = false): Record<string, unknown> {
+  const sparks = fireSystem('sparks', 'Sparks', 48, 24, '#ff9030', [{ type: 'output.billboard', data: { blend: 'additive' } }, { type: 'output.light', data: { maxLights: 1, intensity: 6, range: 6 } }]);
+  // Flames and smoke a game would add: small systems with no light, so they can run on the GPU beside the sparks.
+  const more = gpuSystems
+    ? [fireSystem('flames', 'Flames', 64, 48, '#ffb050', [{ type: 'output.billboard', data: { blend: 'additive' } }]), fireSystem('smoke', 'Smoke', 48, 30, '#404040', [{ type: 'output.billboard', data: { blend: 'alpha' } }])]
+    : [];
+  return { effectId: FIRE_EFFECT, name: 'Fire', duration: 1, loop: true, seed: 3, bounds: { center: [0, 1, 0], size: [3, 4, 3] }, systems: [sparks, ...more] };
+}
+
+function fireSystem(systemId: string, name: string, maxParticles: number, rate: number, color: string, output: { type: string; data?: Record<string, unknown> }[]): Record<string, unknown> {
   const chains: Record<string, { type: string; data?: Record<string, unknown> }[]> = {
-    spawn: [{ type: 'spawn.rate', data: { rate: 24 } }],
+    spawn: [{ type: 'spawn.rate', data: { rate } }],
     initialize: [
       { type: 'init.position.sphere', data: { radius: 0.4 } },
       { type: 'init.velocity', data: { min: [-0.2, 1, -0.2], max: [0.2, 2, 0.2] } },
       { type: 'init.lifetime', data: { min: 0.8, max: 1.2 } },
-      { type: 'init.color', data: { color: '#ff9030' } },
+      { type: 'init.color', data: { color } },
       { type: 'init.size', data: { min: 0.15, max: 0.3 } },
     ],
     update: [{ type: 'update.drag' }],
-    output: [{ type: 'output.billboard', data: { blend: 'additive' } }, { type: 'output.light', data: { maxLights: 1, intensity: 6, range: 6 } }],
+    output,
   };
   const nodes: Record<string, unknown>[] = ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] }));
   const edges: Record<string, unknown>[] = [];
@@ -122,7 +131,7 @@ function fireEffect(): Record<string, unknown> {
       prev = id;
     }
   }
-  return { effectId: FIRE_EFFECT, name: 'Fire', duration: 1, loop: true, seed: 3, bounds: { center: [0, 1, 0], size: [3, 4, 3] }, systems: [{ systemId: 'sparks', name: 'Sparks', maxParticles: 48, space: 'world', graph: { nodes, edges } }] };
+  return { systemId, name, maxParticles, space: 'world', graph: { nodes, edges } };
 }
 
 /** The occluded view the village can be measured from (`--view street`), against its open view of the same build. */
@@ -354,3 +363,12 @@ export async function addVillageLamps(be: PerfBackend, projectId: string, n: num
   await p.command('pasteEntities', { sceneId: 'scene-main', entities: lamps });
 }
 
+
+/**
+ * Flames and smoke in every fire (`node tools/perf/run.mjs village --fire-gpu-systems`): two small systems beside
+ * the light-emitting sparks, which run on the GPU — what many plays of one GPU effect cost the main thread. Not part
+ * of the class (its baseline fires have the sparks only).
+ */
+export async function addFireGpuSystems(be: PerfBackend, projectId: string): Promise<void> {
+  await be.project(projectId).command('setEffect', { effect: fireEffect(true) });
+}

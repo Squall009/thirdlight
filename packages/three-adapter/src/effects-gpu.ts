@@ -51,8 +51,11 @@ const { Fn, If, float, int, uint, vec2, vec3, vec4, select, instanceIndex, unifo
 
 /** Engine limit: slots sorted for alpha blending (bitonic, power of two); beyond it alpha particles draw unsorted. */
 export const GPU_SORT_LIMIT = 65536;
-/** Origin spawn blocks one system may have on the GPU (their runs are uniforms). */
-const MAX_RUNS = 4;
+/** Origin spawn blocks one system may have on the GPU (their runs are rows of the slot table). */
+export const MAX_RUNS = 4;
+/** A slot's step flags in the slot table: stepped this dispatch, or cleared (every particle dead) before its births. */
+export const SLOT_FLAG_STEP = 1;
+export const SLOT_FLAG_RESET = 2;
 
 /**
  * Why an effect cannot run on the GPU executor at all (null: it can, maybe
@@ -87,35 +90,13 @@ export function cpuSystemReason(s: SystemProgram): string | null {
 }
 
 /**
- * Engine tuning: the particle capacity below which a system of an effect
- * that already simulates systems on the CPU joins them there. On an
- * integrated GPU (WebGPU, main thread per system and frame) a GPU system
- * costs 0.045–0.08 ms of dispatch whatever its size, the CPU step 0.01 ms +
- * ~0.17 µs a particle — even at about 400 particles.
- */
-export const GPU_MIN_PARTICLES = 512;
-
-/**
- * Why a system that could run on the GPU is simulated on the CPU beside its
- * effect's CPU systems (null: on the GPU): it is small enough that the CPU
- * step costs less than the GPU's dispatch. Scene-depth collision is honoured
- * on the GPU only, so such a system stays there.
- */
-export function smallSystemReason(s: SystemProgram): string | null {
-  if (s.capacity >= GPU_MIN_PARTICLES) return null;
-  if (s.chains.update.some((b) => b.type === 'update.collide.depth')) return null;
-  return `system "${s.name}" holds at most ${s.capacity} particles (under ${GPU_MIN_PARTICLES}: cheaper on the CPU beside its effect's CPU systems)`;
-}
-
-/**
  * Why each system of an effect run by this executor is simulated on the CPU
- * (null: on the GPU): what must run there (`cpuSystemReason`) and, when
- * something must, the small systems with it (`smallSystemReason`).
+ * (null: on the GPU): what must run there (`cpuSystemReason`). Small systems
+ * stay on the GPU too: every play of an effect shares its passes
+ * (`effects-gpu-batch.ts`), so a system costs no dispatch of its own.
  */
 export function cpuSystemReasons(program: EffectProgram): (string | null)[] {
-  const must = program.systems.map((s) => cpuSystemReason(s));
-  if (must.every((r) => r === null)) return must;
-  return program.systems.map((s, i) => must[i] ?? smallSystemReason(s));
+  return program.systems.map((s) => cpuSystemReason(s));
 }
 
 /** The systems (by index) of a GPU-run effect simulated on the CPU. */
@@ -123,8 +104,18 @@ export function cpuSystemsOf(program: EffectProgram): number[] {
   return cpuSystemReasons(program).flatMap((r, i) => (r !== null ? [i] : []));
 }
 
-/** The per-instance uniforms every system of an effect shares. */
-interface SharedUniforms {
+/** What every system of an effect reads of its play: its slot's values (vars in the pass) and the batch's uniforms. */
+export interface GpuDepthUniforms {
+  viewProj: N;
+  view: N;
+  near: N;
+  far: N;
+  texture: THREE.Texture | null;
+  size: N;
+  enabled: boolean;
+}
+
+export interface SharedUniforms {
   dt: N;
   time: N;
   duration: N;
@@ -134,7 +125,7 @@ interface SharedUniforms {
   wind: { dir: N; strength: N; gust: N; freq: N; turb: N };
   params: Map<string, { node: N; type: string }>;
   /** Scene depth (collide.depth): the view-projection of the frame it was drawn with, its texture and size. */
-  depth: { viewProj: N; view: N; near: N; far: N; texture: THREE.Texture | null; size: N; enabled: boolean };
+  depth: GpuDepthUniforms;
   perm: N;
 }
 
@@ -369,46 +360,59 @@ function axisBasis(axis: string): [N, N, N] {
 }
 
 /** One system on the GPU: its buffers, passes and uniforms. */
+/**
+ * What a batch's systems read of each slot (a play): its effect-wide values
+ * (`shared(slot)`, as vars declared where it is called) and this system's
+ * births this step (`spawn(slot)`), from the batch's slot table.
+ */
+export interface GpuSlotReader {
+  shared(slot: N): SharedUniforms;
+  /** The step's flags (0 idle, 1 step, 2 clear the slot first: `SLOT_FLAG_*`). */
+  flags(slot: N): N;
+  /** Births this step: count, first serial number and the origin spawn blocks' runs (start, count, distance). */
+  spawn(slot: N, gpuIndex: number): { count: N; serialBase: N; runs: N[] };
+}
+
+/**
+ * One system of an effect for every play of a batch: each play owns a slot
+ * of `capacity` particles in the same buffers, and one dispatch steps every
+ * slot (a thread per particle of every slot; idle slots return at once).
+ */
 export class GpuSystem {
   readonly capacity: number;
+  readonly slots: number;
   readonly buffers: GpuParticleBuffers;
-  /**
-   * Draw buffers in draw order (instanced vertex attributes; the gather pass
-   * copies the living particles into them, back to front when sorted; a dead
-   * slot gets size 0). Vertex attributes, not storage reads: WebGPU's
-   * compatibility level may allow no storage buffers in the vertex stage.
-   */
-  readonly draw: { posAge: N; velLife: N; color: N; sizeRot: N };
-  private readonly gatherPass: N;
   readonly sortSize: number;
+  readonly sorted: boolean;
   private readonly updatePass: N;
   private readonly spawnPass: N;
-  private readonly resetPass: N;
   private readonly sortFill: N | null;
-  private readonly sortStep: N | null;
-  private readonly sortK: N;
-  private readonly sortJ: N;
+  private readonly sortSteps: N[];
   readonly cameraPosition: N;
-  private readonly spawnCount: N;
-  private readonly serialBase: N;
-  private readonly runs: N[];
-  private readonly sortKeys: N | null;
-  private readonly sortIdx: N | null;
+  readonly sortKeys: N | null;
+  readonly sortIdx: N | null;
+  /** The slot values of the pass being built (set at the start of each pass's function). */
+  private shared!: SharedUniforms;
 
   constructor(
     readonly program: SystemProgram,
-    private readonly shared: SharedUniforms,
+    private readonly reader: GpuSlotReader,
+    /** This system's place among its effect's GPU systems (its row in the slot table). */
+    private readonly gpuIndex: number,
     effectSeed: number,
     sorted: boolean,
+    slots: number,
   ) {
     const C = program.capacity;
     this.capacity = C;
-    const dead = new Uint32Array(C);
-    for (let i = 0; i < C; i++) dead[i] = C - 1 - i;
-    const deadCount = new Int32Array([C]);
-    const stateArray = new Float32Array(C * GPU_STATE_STRIDE * 4);
+    this.slots = slots;
+    const T = C * slots;
+    const dead = new Uint32Array(T);
+    for (let s = 0; s < slots; s++) for (let i = 0; i < C; i++) dead[s * C + i] = C - 1 - i;
+    const deadCount = new Int32Array(slots).fill(C);
+    const stateArray = new Float32Array(T * GPU_STATE_STRIDE * 4);
     // Every slot starts dead (massRand = mass 1, random 0, alive 0).
-    for (let i = 0; i < C; i++) stateArray[(i * GPU_STATE_STRIDE + GPU_STATE_FIELDS.massRand) * 4] = 1;
+    for (let i = 0; i < T; i++) stateArray[(i * GPU_STATE_STRIDE + GPU_STATE_FIELDS.massRand) * 4] = 1;
     const state = instancedArray(stateArray, 'vec4');
     const field = (k: number): N => ({ element: (i: N): N => state.element(uint(i).mul(GPU_STATE_STRIDE).add(k)) });
     this.buffers = {
@@ -419,60 +423,65 @@ export class GpuSystem {
       baseColor: field(GPU_STATE_FIELDS.baseColor),
       sizeRot: field(GPU_STATE_FIELDS.sizeRot),
       massRand: field(GPU_STATE_FIELDS.massRand),
-      serial: instancedArray(C, 'uint'),
+      serial: instancedArray(T, 'uint'),
       dead: instancedArray(dead, 'uint'),
       deadCount: instancedArray(deadCount, 'int').toAtomic(),
     };
-    this.sortSize = sorted && C <= GPU_SORT_LIMIT ? 2 ** Math.ceil(Math.log2(Math.max(2, C))) : 0;
-    this.sortKeys = this.sortSize > 0 ? instancedArray(this.sortSize, 'float') : null;
-    this.sortIdx = this.sortSize > 0 ? instancedArray(this.sortSize, 'uint') : null;
-    this.draw = { posAge: instancedArray(C, 'vec4'), velLife: instancedArray(C, 'vec4'), color: instancedArray(C, 'vec4'), sizeRot: instancedArray(C, 'vec4') };
-    this.spawnCount = uniform(0, 'uint');
-    this.serialBase = uniform(0, 'uint');
-    this.runs = Array.from({ length: MAX_RUNS }, () => uniform(new THREE.Vector4(0, 0, 0, 0)));
-    this.sortK = uniform(0, 'uint');
-    this.sortJ = uniform(0, 'uint');
+    this.sorted = sorted && C <= GPU_SORT_LIMIT;
+    this.sortSize = this.sorted ? 2 ** Math.ceil(Math.log2(Math.max(2, C))) : 0;
+    this.sortKeys = this.sortSize > 0 ? instancedArray(this.sortSize * slots, 'float') : null;
+    this.sortIdx = this.sortSize > 0 ? instancedArray(this.sortSize * slots, 'uint') : null;
     this.cameraPosition = uniform(new THREE.Vector3());
-    this.resetPass = this.buildReset()().compute(C);
-    this.updatePass = this.buildUpdate(effectSeed)().compute(C);
-    this.spawnPass = this.buildSpawn(effectSeed)().compute(C);
-    this.sortFill = this.sortSize > 0 ? this.buildSortFill()().compute(this.sortSize) : null;
-    this.sortStep = this.sortSize > 0 ? this.buildSortStep()().compute(this.sortSize) : null;
-    this.gatherPass = this.buildGather()().compute(C);
+    this.updatePass = this.buildUpdate(effectSeed)().compute(T);
+    this.spawnPass = this.buildSpawn(effectSeed)().compute(T);
+    this.sortFill = this.sortSize > 0 ? this.buildSortFill()().compute(this.sortSize * slots) : null;
+    this.sortSteps = [];
+    for (let k = 2; k <= this.sortSize; k *= 2) {
+      for (let j = k >> 1; j > 0; j >>= 1) this.sortSteps.push(this.buildSortStep(k, j)().compute(this.sortSize * slots));
+    }
   }
 
-  /** Copy the particles into the draw buffers (in sorted order when sorted; dead slots get size 0). */
-  private buildGather(): N {
+  /** A pass's thread → its slot and the particle's index in the slot (`per` threads a slot). */
+  private slotOf(per: number): { slot: N; local: N } {
+    const slot = instanceIndex.div(uint(per)).toVar();
+    return { slot, local: instanceIndex.sub(slot.mul(uint(per))).toVar() };
+  }
+
+  /**
+   * A play's copy of its slot into draw buffers (in sorted order when sorted;
+   * dead slots get size 0), as a pass of its own: each play draws from its
+   * own buffers.
+   */
+  gatherInto(draw: { posAge: N; velLife: N; color: N; sizeRot: N }, slot: number): N {
     const b = this.buffers;
-    const d = this.draw;
     const idx = this.sortIdx;
+    const C = this.capacity;
+    const base = uniform(slot * C, 'uint');
+    const sortBase = uniform(slot * this.sortSize, 'uint');
     return Fn(() => {
       const i = instanceIndex;
-      const slot = (idx !== null ? idx.element(i) : i).toVar();
-      const alive = b.massRand.element(slot).z.greaterThan(0.5);
-      const sr = b.sizeRot.element(slot).toVar();
-      d.posAge.element(i).assign(b.posAge.element(slot));
-      d.velLife.element(i).assign(b.velLife.element(slot));
-      d.color.element(i).assign(b.color.element(slot));
-      d.sizeRot.element(i).assign(vec4(select(alive, sr.x, float(0)), sr.y, sr.z, sr.w));
-    });
+      const g = base.add(idx !== null ? idx.element(sortBase.add(i)) : i).toVar();
+      const alive = b.massRand.element(g).z.greaterThan(0.5);
+      const sr = b.sizeRot.element(g).toVar();
+      draw.posAge.element(i).assign(b.posAge.element(g));
+      draw.velLife.element(i).assign(b.velLife.element(g));
+      draw.color.element(i).assign(b.color.element(g));
+      draw.sizeRot.element(i).assign(vec4(select(alive, sr.x, float(0)), sr.y, sr.z, sr.w));
+    })().compute(C);
   }
 
   private world(): boolean {
     return this.program.space === 'world';
   }
 
-  private buildReset(): N {
+  /** Clear one slot (thread `local` of it): every particle dead, the free list full. */
+  private resetSlot(g: N, slot: N, local: N): void {
     const C = this.capacity;
     const b = this.buffers;
-    return Fn(() => {
-      const i = instanceIndex;
-      b.massRand.element(i).assign(vec4(1, 0, 0, 0));
-      this.draw.sizeRot.element(i).assign(vec4(0));
-      b.dead.element(i).assign(uint(C - 1).sub(i));
-      If(i.equal(uint(0)), () => {
-        TSL.atomicStore(b.deadCount.element(0), int(C));
-      });
+    b.massRand.element(g).assign(vec4(1, 0, 0, 0));
+    b.dead.element(g).assign(uint(C - 1).sub(local));
+    If(local.equal(uint(0)), () => {
+      TSL.atomicStore(b.deadCount.element(slot), int(C));
     });
   }
 
@@ -492,14 +501,19 @@ export class GpuSystem {
 
   private buildUpdate(effectSeed: number): N {
     const b = this.buffers;
-    const sh = this.shared;
     const sys = this.program;
     const chain = sys.chains.update;
     const POST = new Set(['update.collide.plane', 'update.collide.depth', 'update.kill.plane', 'update.kill.sphere', 'update.kill.box', 'update.kill.speed']);
     return Fn(() => {
       const i = instanceIndex;
+      const { slot, local } = this.slotOf(this.capacity);
+      const sh = (this.shared = this.reader.shared(slot));
+      const flags = this.reader.flags(slot).toVar();
+      If(flags.greaterThan(SLOT_FLAG_STEP + 0.5), () => {
+        this.resetSlot(i, slot, local);
+      });
       const mr = b.massRand.element(i).toVar();
-      If(mr.z.greaterThan(0.5), () => {
+      If(flags.greaterThan(0.5).and(flags.lessThan(SLOT_FLAG_STEP + 0.5)).and(mr.z.greaterThan(0.5)), () => {
         const pa = b.posAge.element(i).toVar();
         const vl = b.velLife.element(i).toVar();
         const sr = b.sizeRot.element(i).toVar();
@@ -542,8 +556,9 @@ export class GpuSystem {
         });
         If(killed, () => {
           b.massRand.element(i).assign(vec4(p.mass, p.random, 0, 0));
-          const at = TSL.atomicAdd(b.deadCount.element(0), int(1));
-          b.dead.element(at).assign(i);
+          // The old count as a var: an atomic's result used inside another expression is evaluated again.
+          const at = TSL.atomicAdd(b.deadCount.element(slot), int(1)).toVar();
+          b.dead.element(slot.mul(uint(this.capacity)).add(uint(at))).assign(local);
         }).Else(() => {
           b.posAge.element(i).assign(vec4(p.pos, p.age));
           b.velLife.element(i).assign(vec4(p.vel, p.life));
@@ -728,22 +743,24 @@ export class GpuSystem {
 
   private buildSpawn(effectSeed: number): N {
     const b = this.buffers;
-    const sh = this.shared;
     const sys = this.program;
     const world = this.world();
+    const C = this.capacity;
     return Fn(() => {
-      const k = instanceIndex;
-      If(k.lessThan(this.spawnCount), () => {
-        const old = TSL.atomicSub(b.deadCount.element(0), int(1));
+      const { slot: at, local: k } = this.slotOf(C);
+      const sh = (this.shared = this.reader.shared(at));
+      const plan = this.reader.spawn(at, this.gpuIndex);
+      If(float(k).lessThan(plan.count), () => {
+        const old = TSL.atomicSub(b.deadCount.element(at), int(1)).toVar();
         If(old.lessThanEqual(int(0)), () => {
-          TSL.atomicAdd(b.deadCount.element(0), int(1));
+          TSL.atomicAdd(b.deadCount.element(at), int(1));
         }).Else(() => {
-          const slot = b.dead.element(old.sub(int(1))).toVar();
-          const serial = this.serialBase.add(k).toVar();
+          const slot = at.mul(uint(C)).add(b.dead.element(at.mul(uint(C)).add(uint(old.sub(int(1)))))).toVar();
+          const serial = plan.serialBase.add(k).toVar();
           const seed = hash32(uint(effectSeed >>> 0), uint(sys.index), serial).toVar();
           // Where along the path moved this step the birth is (distance runs), else at the origin.
           const t = float(1).toVar();
-          for (const r of this.runs) {
+          for (const r of plan.runs) {
             If(r.z.greaterThan(0.5).and(float(k).greaterThanEqual(r.x)).and(float(k).lessThan(r.x.add(r.y))), () => {
               t.assign(float(k).sub(r.x).add(1).div(r.y));
             });
@@ -907,7 +924,7 @@ export class GpuSystem {
     }
   }
 
-  /** Sort keys: the view distance of living particles (negated: farthest first), dead slots last. */
+  /** Sort keys: the view distance of living particles (negated: farthest first), dead slots last; each slot sorts its own segment. */
   private buildSortFill(): N {
     const b = this.buffers;
     const C = this.capacity;
@@ -915,10 +932,13 @@ export class GpuSystem {
     const idx = this.sortIdx!;
     return Fn(() => {
       const i = instanceIndex;
-      idx.element(i).assign(i);
-      If(i.lessThan(uint(C)), () => {
-        const alive = b.massRand.element(i).z.greaterThan(0.5);
-        const world = this.toWorldEventPoint(b.posAge.element(i).xyz);
+      const { slot, local } = this.slotOf(this.sortSize);
+      this.shared = this.reader.shared(slot);
+      idx.element(i).assign(local);
+      If(local.lessThan(uint(C)), () => {
+        const g = slot.mul(uint(C)).add(local);
+        const alive = b.massRand.element(g).z.greaterThan(0.5);
+        const world = this.toWorldEventPoint(b.posAge.element(g).xyz);
         keys.element(i).assign(select(alive, TSL.length(world.sub(this.cameraPosition)).negate(), float(3.0e38)));
       }).Else(() => {
         keys.element(i).assign(float(3.4e38));
@@ -926,15 +946,25 @@ export class GpuSystem {
     });
   }
 
-  /** One bitonic compare-exchange step (k, j uniforms). */
-  private buildSortStep(): N {
+  /**
+   * One bitonic compare-exchange step in every slot's segment (j < the
+   * segment: partners stay in it). Each step is a node of its own with its
+   * own k and j (the same shader), so a whole sort is one compute call: a
+   * uniform changed between dispatches of one call would reach the GPU only
+   * with its last value.
+   */
+  private buildSortStep(sortK: number, sortJ: number): N {
     const keys = this.sortKeys!;
     const idx = this.sortIdx!;
+    const mask = this.sortSize - 1;
+    const k = uniform(sortK, 'uint');
+    const j = uniform(sortJ, 'uint');
     return Fn(() => {
       const i = instanceIndex;
-      const l = i.bitXor(this.sortJ).toVar();
+      const l = i.bitXor(j).toVar();
       If(l.greaterThan(i), () => {
-        const ascending = i.bitAnd(this.sortK).equal(uint(0));
+        // The direction from the index in the segment: a whole segment (k = its size) sorts ascending in every slot.
+        const ascending = i.bitAnd(uint(mask)).bitAnd(k).equal(uint(0));
         const ki = keys.element(i).toVar();
         const kl = keys.element(l).toVar();
         If(ascending.and(ki.greaterThan(kl)).or(ascending.not().and(ki.lessThan(kl))), () => {
@@ -948,209 +978,22 @@ export class GpuSystem {
     });
   }
 
-  reset(renderer: THREE.WebGPURenderer): void {
-    void renderer.compute(this.resetPass);
+  /** The step's passes over every slot: update (and clears), then the planned births. */
+  stepPasses(): N[] {
+    return [this.updatePass, this.spawnPass];
   }
 
-  /** One step: update, then spawn the planned births. */
-  step(renderer: THREE.WebGPURenderer, plan: { serialBase: number; count: number; runs: { count: number; distance: boolean }[] } | undefined): void {
-    void renderer.compute(this.updatePass);
-    if (plan === undefined || plan.count <= 0) return;
-    const count = Math.min(plan.count, this.capacity);
-    this.spawnCount.value = count;
-    this.serialBase.value = plan.serialBase >>> 0;
-    let start = 0;
-    for (let r = 0; r < MAX_RUNS; r++) {
-      const run = plan.runs[r];
-      (this.runs[r]!.value as THREE.Vector4).set(start, run?.count ?? 0, run?.distance === true ? 1 : 0, 0);
-      start += run?.count ?? 0;
-    }
-    void renderer.compute(this.spawnPass, count);
-  }
-
-  /** Before drawing: sort the slots back to front for this camera (alpha-blended outputs), then gather them into the draw buffers. */
-  sort(renderer: THREE.WebGPURenderer, camera: THREE.Vector3): void {
-    this.sortSlots(renderer, camera);
-    void renderer.compute(this.gatherPass);
-  }
-
-  private sortSlots(renderer: THREE.WebGPURenderer, camera: THREE.Vector3): void {
-    if (this.sortFill === null || this.sortStep === null) return;
+  /** The passes that sort every slot back to front for this camera (alpha-blended outputs; none when unsorted), in order. */
+  sortPasses(camera: THREE.Vector3): N[] {
+    if (this.sortFill === null) return [];
     (this.cameraPosition.value as THREE.Vector3).copy(camera);
-    void renderer.compute(this.sortFill);
-    for (let k = 2; k <= this.sortSize; k *= 2) {
-      for (let j = k >> 1; j > 0; j >>= 1) {
-        this.sortK.value = k;
-        this.sortJ.value = j;
-        void renderer.compute(this.sortStep);
-      }
-    }
-  }
-
-  /** The number of living particles (reads the free list's count back; async). */
-  async living(renderer: THREE.WebGPURenderer): Promise<number> {
-    const buf = await renderer.getArrayBufferAsync(this.buffers.deadCount.value);
-    return this.capacity - new Int32Array(buf)[0]!;
+    return [this.sortFill, ...this.sortSteps];
   }
 
   dispose(renderer?: THREE.WebGPURenderer | null): void {
-    for (const n of [this.resetPass, this.updatePass, this.spawnPass, this.sortFill, this.sortStep, this.gatherPass]) n?.dispose?.();
-    const buffers = [this.buffers.state, this.buffers.serial, this.buffers.dead, this.buffers.deadCount, ...Object.values(this.draw), this.sortKeys, this.sortIdx].map((b) => (b as N | null)?.value ?? null);
+    for (const n of [this.updatePass, this.spawnPass, this.sortFill, ...this.sortSteps]) n?.dispose?.();
+    const buffers = [this.buffers.state, this.buffers.serial, this.buffers.dead, this.buffers.deadCount, this.sortKeys, this.sortIdx].map((b) => (b as N | null)?.value ?? null);
     for (const b of buffers) b?.dispose?.();
     releaseStorage(renderer, buffers);
-  }
-}
-
-export interface GpuExecutorOptions {
-  params?: Readonly<Record<string, number | number[] | string>>;
-  wind?: { direction: readonly number[]; strength: number; gust: number; gustFrequency: number; turbulence: number };
-  /** The executor's particle cap per system. */
-  capacityLimit: number;
-  /** Systems whose outputs blend with alpha (their slots are sorted back to front). */
-  sortedSystems: ReadonlySet<string>;
-  /** The scene depth the player draws for scene-depth collision (null: none; such blocks then do nothing). */
-  depthTexture?: THREE.Texture | null;
-  /** The particle cap of the systems simulated on the CPU (the CPU executor's; absent: `capacityLimit`). */
-  cpuCapacityLimit?: number;
-  /** A model asset's mesh (mesh-surface shapes of CPU-simulated systems). */
-  mesh?: (assetId: string) => import('@thirdlight/effects').EffectMesh | null;
-}
-
-/** A playing effect on the GPU (one per play; pooled by the player). */
-export class GpuEffectExecutor {
-  /** Plans the GPU systems' births and simulates the CPU systems (`cpuSystems`). */
-  readonly planner: EffectInstance;
-  /** The systems run on the GPU (each knows its index: `program.index`). */
-  readonly systems: GpuSystem[];
-  /** The systems (by index) simulated on the CPU beside them: `planner.systems[i]` holds their particles. */
-  readonly cpuSystems: ReadonlySet<number>;
-  private readonly shared: SharedUniforms;
-  private needsReset = false;
-
-  constructor(
-    readonly effect: import('@thirdlight/effects').EffectInstance['effect'],
-    options: GpuExecutorOptions,
-  ) {
-    // Compiled with the GPU cap, as the planner is: the small-system rule reads these capacities.
-    const cpuSystems = cpuSystemsOf(compileEffect(effect, { capacityLimit: options.capacityLimit }));
-    this.cpuSystems = new Set(cpuSystems);
-    this.planner = new EffectInstance(effect, {
-      planOnly: true,
-      capacityLimit: options.capacityLimit,
-      simulate: cpuSystems,
-      ...(options.cpuCapacityLimit !== undefined ? { simulateCapacityLimit: options.cpuCapacityLimit } : {}),
-      ...(options.params !== undefined ? { params: options.params } : {}),
-      ...(options.wind !== undefined ? { wind: options.wind as never } : {}),
-      ...(options.mesh !== undefined ? { mesh: options.mesh } : {}),
-    });
-    const program = this.planner.program;
-    const wind = this.planner.windConfig();
-    const d = new THREE.Vector3(wind.direction[0], 0, wind.direction[1]);
-    if (d.lengthSq() > 1e-24) d.normalize();
-    else d.set(0, 0, 0);
-    const params = new Map<string, { node: N; type: string }>();
-    for (const p of effect.parameters ?? []) {
-      const v = this.planner.parameter(p.key) ?? [0];
-      const node = p.type === 'float' ? uniform(v[0] ?? 0) : p.type === 'vec3' ? uniform(new THREE.Vector3(v[0], v[1], v[2])) : uniform(new THREE.Vector4(v[0], v[1], v[2], v[3] ?? 1));
-      params.set(p.key, { node, type: p.type });
-    }
-    const perm = instancedArray(permutationTable(effect.seed, (s) => {
-      const r = new Rng(s);
-      return () => r.next();
-    }), 'uint');
-    const usesDepth = program.systems.some((s) => s.chains.update.some((b) => b.type === 'update.collide.depth'));
-    this.shared = {
-      dt: uniform(0),
-      time: uniform(0),
-      duration: uniform(effect.duration),
-      worldTime: uniform(0),
-      origin: { position: uniform(new THREE.Vector3()), rotation: uniform(new THREE.Vector4(0, 0, 0, 1)), scale: uniform(new THREE.Vector3(1, 1, 1)) },
-      prevPosition: uniform(new THREE.Vector3()),
-      wind: { dir: uniform(d), strength: uniform(wind.strength), gust: uniform(wind.gust), freq: uniform(wind.gustFrequency), turb: uniform(wind.turbulence) },
-      params,
-      depth: { viewProj: uniform(new THREE.Matrix4()), view: uniform(new THREE.Matrix4()), near: uniform(0.1), far: uniform(100), texture: usesDepth ? (options.depthTexture ?? null) : null, size: uniform(new THREE.Vector2(1, 1)), enabled: usesDepth },
-      perm,
-    };
-    this.systems = program.systems.filter((s) => !this.cpuSystems.has(s.index)).map((s) => new GpuSystem(s, this.shared, effect.seed, options.sortedSystems.has(s.systemId)));
-  }
-
-  /** The camera the depth texture was drawn with (world → view → clip) and its size in pixels. */
-  setDepthCamera(camera: THREE.Camera & { near?: number; far?: number }, width: number, height: number): void {
-    const d = this.shared.depth;
-    (d.viewProj.value as THREE.Matrix4).multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    (d.view.value as THREE.Matrix4).copy(camera.matrixWorldInverse);
-    d.near.value = camera.near ?? 0.1;
-    d.far.value = camera.far ?? 100;
-    (d.size.value as THREE.Vector2).set(width, height);
-  }
-
-  get usesDepth(): boolean {
-    return this.shared.depth.enabled;
-  }
-
-  get diagnostics(): readonly import('@thirdlight/effects').EffectDiagnostic[] {
-    return this.planner.diagnostics;
-  }
-
-  /** Clears every particle and starts over (the next step resets the buffers first). */
-  restart(): void {
-    this.planner.restart();
-    this.needsReset = true;
-  }
-
-  /** Apply a pending restart now (clears the buffers without a step: the Effect tab's preview seeking to time 0). */
-  resetNow(renderer: THREE.WebGPURenderer): void {
-    if (!this.needsReset) return;
-    for (const s of this.systems) s.reset(renderer);
-    this.needsReset = false;
-  }
-
-  step(renderer: THREE.WebGPURenderer, dt: number, input: { origin?: EffectOrigin; worldTime?: number }): void {
-    if (!(dt > 0)) return;
-    this.resetNow(renderer);
-    const before = this.planner.origins().current;
-    this.planner.step(dt, input);
-    const { current } = this.planner.origins();
-    const sh = this.shared;
-    sh.dt.value = dt;
-    // The reference evaluates the step with the time at its start (cycle time of t0).
-    const t0 = this.planner.time - dt;
-    const D = this.effect.duration;
-    sh.time.value = this.effect.loop ? t0 % D : Math.min(t0, D);
-    sh.worldTime.value = input.worldTime ?? t0;
-    (sh.origin.position.value as THREE.Vector3).set(current.position[0], current.position[1], current.position[2]);
-    (sh.origin.rotation.value as THREE.Vector4).set(current.rotation[0], current.rotation[1], current.rotation[2], current.rotation[3]);
-    (sh.origin.scale.value as THREE.Vector3).set(current.scale[0], current.scale[1], current.scale[2]);
-    (sh.prevPosition.value as THREE.Vector3).set(before.position[0], before.position[1], before.position[2]);
-    const plans = this.planner.plans();
-    for (const s of this.systems) s.step(renderer, plans[s.program.index]);
-  }
-
-  sort(renderer: THREE.WebGPURenderer, cameraPosition: THREE.Vector3): void {
-    for (const s of this.systems) s.sort(renderer, cameraPosition);
-  }
-
-  /** Spawning is over (a finished one-shot or a stop): the player then asks the GPU whether particles remain. */
-  get spawning(): boolean {
-    return this.planner.alive;
-  }
-
-  async living(renderer: THREE.WebGPURenderer): Promise<number> {
-    return (await this.livingBySystem(renderer)).reduce((a, n) => a + n, 0);
-  }
-
-  /** Living particles per system, by index (GPU systems read back; CPU systems counted now). */
-  async livingBySystem(renderer: THREE.WebGPURenderer): Promise<number[]> {
-    const read = await Promise.all(this.systems.map((s) => s.living(renderer)));
-    const out = this.planner.systems.map((s) => s.count);
-    this.systems.forEach((s, i) => (out[s.program.index] = read[i]!));
-    return out;
-  }
-
-  /** Release the passes and buffers (`renderer`: the one that ran them, so their GPU buffers are freed now; see `releaseStorage`). */
-  dispose(renderer?: THREE.WebGPURenderer | null): void {
-    for (const s of this.systems) s.dispose(renderer);
-    this.shared.perm.value?.dispose?.();
-    releaseStorage(renderer, [this.shared.perm.value]);
   }
 }

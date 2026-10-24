@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 
 import type { EffectDefLike } from './effects-player';
-import { GpuEffectExecutor } from './effects-gpu';
+import { GpuEffectExecutor } from './effects-gpu-batch';
 import { EffectTimeline } from './effects-timeline';
 
 type Block = { type: string; data?: Record<string, unknown> };
@@ -132,8 +132,8 @@ describe('effect timeline (WebGPU executor, stub renderer)', () => {
     const { tl, computes } = make('webgpu');
     expect(tl.executor).toBe('webgpu');
     tl.seek(1);
-    // One reset pass, then per step an update pass and (40/s at 60 Hz: 2 of 3 steps) a spawn pass.
-    expect(computes.length).toBe(1 + 60 + 40);
+    // One clear, then per step one call (the update pass and the spawn pass of the 40/s births, read from the slot table).
+    expect(computes.length).toBe(1 + 60);
     expect(tl.counters()[0]).toMatchObject({ spawned: 40, living: null });
     computes.length = 0;
     tl.seek(0);
@@ -145,7 +145,7 @@ describe('effect timeline (WebGPU executor, stub renderer)', () => {
     const { r, freed } = stubRenderer();
     const gpu = new GpuEffectExecutor(STREAM, { capacityLimit: 1000, sortedSystems: new Set() });
     gpu.dispose(r);
-    // Per system: state, serial numbers, free list, its count, 4 draw buffers; plus the shared noise table.
-    expect(freed.filter((x) => x !== null && x !== undefined).length).toBe(9);
+    // Per system: state, serial numbers, free list, its count, 4 draw buffers; plus the slot table and the noise table (its batch empties).
+    expect(freed.filter((x) => x !== null && x !== undefined).length).toBe(10);
   });
 });

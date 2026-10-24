@@ -29,6 +29,8 @@
  *                                what a frame-rate cap saves)
  *   --point-lights N             add N point lights over the scatter (village.ts addVillageLamps; not in the baseline):
  *                                what local lights over foliage cost
+ *   --fire-gpu-systems           every fire also has flames (64) and smoke (48, alpha-sorted) beside its sparks (village.ts
+ *                                addFireGpuSystems; not in the baseline): many plays of one GPU-simulated effect
  *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
  *                                draws with probe lighting (its cost against a run without)
  *   --synthetic-probes N         record about N synthetic probe tiles (probe-synthetic.ts: a 2 m grid over a square
@@ -69,7 +71,7 @@ import { bakeProbesInEditor } from './probe-bake-run';
 import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
-import { addVillageLamps, buildVillage, villagePlan, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
+import { addFireGpuSystems, addVillageLamps, buildVillage, villagePlan, villageViewCamera, VILLAGE_SEED, VILLAGE_VERSION, type VillageBuild, type VillagePlan, type VillageView } from './village';
 import { addSeeThroughSubjects, candidatesOf, exportPrebuilt, seeThroughRuns, subjectsInView, type SeeThroughReport } from './see-through-run';
 
 /**
@@ -243,7 +245,7 @@ const hist = (h: readonly number[] | undefined): string => {
 export function frameLine(what: string, r: FrameRunResult): string {
   const gpu = r.gpu === null ? '' : r.gpu.available ? `, gpu ${r.gpu.msPerFrame} ms (${r.gpu.passes.slice(0, 4).map((p) => `${p.label} ${p.msPerFrame}`).join(', ')})` : `, gpu not measured (${r.gpu.note ?? 'no timestamp queries'})`;
   const pk = r.profile === null ? '' : `, main thread: ${r.profile.packages.slice(0, 5).map((p) => `${p.name} ${p.share}%`).join(', ')}`;
-  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}${r.scene.lod !== undefined ? `, ${r.scene.lod.copiesInView} instance copies drawn, LOD switches ${r.scene.lod.switches} models/${r.scene.lod.copySwitches} copies last frame` : ''}${r.scene.effectsMs != null ? `, effects ${r.scene.effectsMs} ms/frame main thread` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%${r.mainThread.cpuMsPerFrame !== undefined ? `, CPU ${r.mainThread.cpuMsPerFrame} ms` : ''})${r.rendererChoice?.occlusion !== undefined ? `, occlusion ${r.rendererChoice.occlusion} (path|occludees|tested|culled)` : ''}${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
+  return `${what}: ${r.frames.fps} fps, frame p50/p95/p99/max ${r.frames.p50}/${r.frames.p95}/${r.frames.p99}/${r.frames.max ?? '-'} ms${hist(r.frames.histogram)}, ${r.draws.p50} draws (scene ${r.scene.passDraws?.scene ?? '-'}, shadow ${r.scene.passDraws?.shadow ?? '-'}, post ${r.scene.passDraws?.post ?? '-'}; shadow per frame mean/p95/max ${r.scene.shadowDraws?.mean ?? '-'}/${r.scene.shadowDraws?.p95 ?? '-'}/${r.scene.shadowDraws?.max ?? '-'}), ${Math.round(r.tris.p50 / 1000)}k tris, ${r.scene.objects} Object3Ds (${r.scene.groups} groups, ${r.scene.lods} LOD, ${r.scene.meshes} meshes of which ${r.scene.hiddenMeshes} hidden, ${r.scene.bones} bones, ${r.scene.pointLights} point lights)${r.scene.merged !== undefined && r.scene.merged.meshes > 0 ? `, ${r.scene.merged.shown}/${r.scene.merged.meshes} merged cells drawn (${Math.round((r.scene.merged.vertexBytes + r.scene.merged.indexBytes) / 1024)} KiB)` : ''}${r.scene.lod !== undefined ? `, ${r.scene.lod.copiesInView} instance copies drawn, LOD switches ${r.scene.lod.switches} models/${r.scene.lod.copySwitches} copies last frame` : ''}${r.scene.effectsMs != null ? `, effects ${r.scene.effectsMs} ms/frame main thread (${r.scene.effectsGpuPlays ?? 0} plays on the GPU)` : ''}, ${r.live.uniformBuffers} uniform buffers${r.gpuCalls ? `, per frame ${r.gpuCalls.renderPasses} render/${r.gpuCalls.computePasses} compute passes, ${r.gpuCalls.setPipeline} pipeline and ${r.gpuCalls.setBindGroup} bind-group sets, ${r.gpuCalls.createBindGroup} bind groups made, ${r.gpuCalls.writeBuffer} buffer writes (${Math.round(r.gpuCalls.writeBufferBytes / 1024)} KiB), ${r.gpuCalls.textureUploads} texture uploads, ${r.gpuCalls.submits} submits` : ''}${r.shaders ? `, ${r.shaders.distinct} shader modules (${Math.round(r.shaders.totalChars / 1024)} KiB WGSL, largest ${Math.round(r.shaders.maxChars / 1024)} KiB)` : ''}, ${r.live.pipelines} pipelines, main thread ${r.mainThread.taskMsPerFrame} ms/frame (${Math.round(r.mainThread.busyShare * 100)}%${r.mainThread.cpuMsPerFrame !== undefined ? `, CPU ${r.mainThread.cpuMsPerFrame} ms` : ''})${r.rendererChoice?.occlusion !== undefined ? `, occlusion ${r.rendererChoice.occlusion} (path|occludees|tested|culled)` : ''}${gpu}${pk}${r.errors.length > 0 ? `; ${r.errors.length} page errors: ${r.errors[0]}` : ''}`;
 }
 
 /** The occlusion oracle's count for the log: what the view drew that no pixel showed, in all and by kind. */
@@ -339,6 +341,10 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       if (get('point-lights') !== undefined) {
         await addVillageLamps(be, projectId, Number(get('point-lights')));
         log(`village: ${get('point-lights')} lamps over the scatter`);
+      }
+      if (has('fire-gpu-systems')) {
+        await addFireGpuSystems(be, projectId);
+        log('village: flames and smoke in every fire');
       }
     } else {
       const reg = await be.post('/api/v1/admin/projects/register', { folder: resolve(projectFolder) });

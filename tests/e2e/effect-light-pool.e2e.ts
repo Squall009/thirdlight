@@ -99,7 +99,7 @@ const GLOW = {
     {
       systemId: 'sparks',
       name: 'Sparks',
-      // Room for more than live (4 at a time): a system this size runs on the GPU beside the light system (GPU_MIN_PARTICLES).
+      // Room for more than live (4 at a time); it runs on the GPU beside the light system.
       maxParticles: 512,
       space: 'world',
       graph: chainGraph({

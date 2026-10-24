@@ -30,7 +30,8 @@ import * as THREE from 'three/webgpu';
 import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin, type EffectProgram } from '@thirdlight/effects';
 
 import { CpuParticleSource, createOutputRenderer, EFFECT_LIGHT_LIMIT, emitsLight, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
-import { cpuSystemReason, cpuSystemReasons, GPU_SORT_LIMIT, GpuEffectExecutor, gpuUnsupportedReason } from './effects-gpu';
+import { cpuSystemReasons, GPU_SORT_LIMIT, gpuUnsupportedReason } from './effects-gpu';
+import { GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
 import { decodeTexture } from './material-library';
 import type { GlbLoaderPort } from './visual';
 
@@ -76,7 +77,8 @@ export const EFFECT_CAPS: { readonly webgpu: EffectCaps; readonly cpu: EffectCap
 /**
  * `scene.userData[EFFECTS_CPU_KEY]`: the main-thread time of the effects'
  * update (steps, CPU simulation, draw preparation), a running mean in ms per
- * frame — for tools reading the scene (the perf harness).
+ * frame, and `gpuPlays`, the plays the GPU executor ran in the last frame —
+ * for tools reading the scene (the perf harness).
  */
 export const EFFECTS_CPU_KEY = 'tlEffectsCpu';
 /** Weight of the newest frame in that running mean (about the last 60 frames). */
@@ -181,6 +183,8 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   let api: 'webgpu' | 'webgl2' | null = null;
   const playing: Playing[] = [];
   const pool = new Map<string, Playing[]>();
+  /** The GPU plays' shared passes on the current renderer. */
+  let batches = new GpuEffectBatches();
   const attached = new Map<string, { object: THREE.Object3D; component: EffectComponentLike; play: Playing | null }>();
   const lights = new LightPool(scene);
   // Before the first frame: a light added mid-play would recompile every lit material.
@@ -236,7 +240,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     const needs = shapeModels(def);
     for (const m of needs) void loadModel(m);
     const pending = needs.some((m) => !meshes.has(m));
-    const parts = buildEffectPlay(def, params, choice, drawContext(), { ...(options.wind ? { wind: options.wind } : {}), mesh: (id) => meshes.get(id) ?? null });
+    const parts = buildEffectPlay(def, params, choice, drawContext(), { ...(options.wind ? { wind: options.wind } : {}), mesh: (id) => meshes.get(id) ?? null, batches });
     return {
       ...parts,
       effectId: def.effectId,
@@ -338,8 +342,10 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   const box = new THREE.Box3();
   const tmpM = new THREE.Matrix4();
   const eye = new THREE.Vector3();
+  /** Each ready play's origin this frame (reused across frames). */
+  const originMatrices: THREE.Matrix4[] = [];
 
-  const cpuStat = { ms: 0 };
+  const cpuStat = { ms: 0, gpuPlays: 0 };
   scene.userData[EFFECTS_CPU_KEY] = cpuStat;
 
   function update(frameSeconds: number, camera: THREE.Camera, worldTime?: number): void {
@@ -361,19 +367,29 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     frustum.setFromProjectionMatrix(projScreen, renderer.coordinateSystem);
     eye.setFromMatrixPosition(camera.matrixWorld);
     lights.begin();
-    for (const rec of [...playing]) {
+    cpuStat.gpuPlays = playing.reduce((n, r) => n + (r.gpu !== null ? 1 : 0), 0);
+    const ready: { rec: Playing; origin: EffectOrigin; matrix: THREE.Matrix4 }[] = [];
+    for (const rec of playing) {
       if (rec.pending) {
         rec.pending = shapeModels(rec.def).some((m) => !meshes.has(m));
         if (rec.pending) continue;
       }
-      const origin = originOf(rec, tmpM);
-      const steps = dtAll > 0 ? Math.max(1, Math.ceil(dtAll / MAX_STEP - 1e-9)) : 0;
-      const dt = steps > 0 ? dtAll / steps : 0;
-      for (let k = 0; k < steps; k++) {
-        const input = { origin, ...(worldTime !== undefined ? { worldTime: worldTime - dtAll + dt * (k + 1) } : {}) };
-        if (rec.cpu !== null) rec.cpu.step(dt, input);
-        else if (rec.gpu !== null) rec.gpu.step(renderer, dt, input);
+      const matrix = (originMatrices[ready.length] ??= new THREE.Matrix4());
+      ready.push({ rec, origin: originOf(rec, matrix), matrix });
+    }
+    // Every play takes the same substeps; each substep's GPU work for all plays is one dispatch (the batches).
+    const steps = dtAll > 0 ? Math.max(1, Math.ceil(dtAll / MAX_STEP - 1e-9)) : 0;
+    const dt = steps > 0 ? dtAll / steps : 0;
+    for (let k = 0; k < steps; k++) {
+      const wt = worldTime !== undefined ? { worldTime: worldTime - dtAll + dt * (k + 1) } : {};
+      for (const { rec, origin } of ready) {
+        if (rec.cpu !== null) rec.cpu.step(dt, { origin, ...wt });
+        else if (rec.gpu !== null) rec.gpu.step(renderer, dt, { origin, ...wt });
       }
+      batches.flushStep(renderer);
+    }
+    for (const { rec, matrix } of ready) {
+      tmpM.copy(matrix);
       // Culling: the effect's bounds (effect space) around its origin.
       const b = rec.def.bounds;
       box.setFromCenterAndSize(new THREE.Vector3(b.center[0], b.center[1], b.center[2]), new THREE.Vector3(b.size[0], b.size[1], b.size[2])).applyMatrix4(tmpM);
@@ -413,6 +429,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       if (rec.finished && !rec.component) release(rec, true);
       else if (rec.finished && rec.component && options.replayFinished === true) restart(rec);
     }
+    batches.flushDraw(renderer, eye);
     lights.end();
   }
 
@@ -425,6 +442,8 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       }
       for (const list of pool.values()) for (const rec of list) destroy(rec);
       pool.clear();
+      batches.dispose(renderer);
+      batches = new GpuEffectBatches();
       renderer = r;
       api = backend;
       for (const [id, a] of attached) {
@@ -537,6 +556,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       for (const rec of [...playing]) release(rec, false);
       for (const list of pool.values()) for (const rec of list) destroy(rec);
       pool.clear();
+      batches.dispose(renderer);
       attached.clear();
       lights.dispose();
       if (scene.userData[EFFECTS_CPU_KEY] === cpuStat) delete scene.userData[EFFECTS_CPU_KEY];
@@ -557,10 +577,9 @@ export interface EffectExecutorChoice {
 
 export function chooseEffectExecutor(def: EffectDefLike, api: 'webgpu' | 'webgl2'): EffectExecutorChoice {
   const program = compileEffect(def);
-  // Uncapped capacities: below the GPU's cap (where the small-system rule looks) they are the capped ones.
   const perSystem = cpuSystemReasons(program);
   // An effect none of whose systems runs on the GPU plays on the CPU executor alone (no planner beside it, no read-back).
-  const allOnCpu = perSystem.length > 0 && perSystem.every((r) => r !== null) ? (program.systems.map((s) => cpuSystemReason(s)).find((r) => r !== null) ?? perSystem[0]!) : null;
+  const allOnCpu = perSystem.length > 0 && perSystem.every((r) => r !== null) ? perSystem[0]! : null;
   const gpuReason = api === 'webgpu' ? (gpuUnsupportedReason(program) ?? allOnCpu) : 'the WebGL 2 backend has no compute: the CPU executor';
   const executor: 'webgpu' | 'cpu' = api === 'webgpu' && gpuReason === null ? 'webgpu' : 'cpu';
   const systems = program.systems.map((s, i): EffectSystemExecutor => {
@@ -590,7 +609,7 @@ export function buildEffectPlay(
   params: Readonly<Record<string, number | readonly number[] | string>> | null,
   choice: EffectExecutorChoice,
   ctx: DrawContext,
-  o: { wind?: EffectsPlayerOptions['wind']; mesh?: (assetId: string) => EffectMesh | null },
+  o: { wind?: EffectsPlayerOptions['wind']; mesh?: (assetId: string) => EffectMesh | null; batches?: GpuEffectBatches },
 ): EffectPlayParts {
   const p = params !== null ? (params as Record<string, number | number[] | string>) : undefined;
   const cap = choice.executor === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu;
@@ -606,6 +625,7 @@ export function buildEffectPlay(
       ...(p !== undefined ? { params: p } : {}),
       ...(o.wind ? { wind: o.wind } : {}),
       mesh: (id) => o.mesh?.(id) ?? null,
+      ...(o.batches !== undefined ? { batches: o.batches } : {}),
     });
     parts.gpu = gpu;
     // In system order (draw order follows it): GPU systems draw from their buffers, CPU ones from the planner's particles.

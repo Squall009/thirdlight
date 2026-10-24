@@ -162,14 +162,17 @@ One graph, two executors:
   stream: it moves exactly as on the CPU executor), at the CPU caps. So a
   fire's flames and smoke stay on the GPU and only its light system runs on
   the CPU; nothing is read back from the GPU and the light is not a frame
-  late. In such an effect, a system holding fewer than 512 particles
-  (`GPU_MIN_PARTICLES`, three-adapter `effects-gpu.ts`) joins the CPU ones:
-  measured on the Iris Xe, a GPU system costs 0.045–0.08 ms of main-thread
-  dispatch a frame whatever its size, the CPU step 0.01 ms plus ~0.17 µs a
-  particle. An effect left with no GPU system plays on the CPU executor
-  alone. Each new play of an effect with GPU systems builds their compute
-  passes (about 8 ms on its first frame; a finished play is pooled and
-  reused).
+  late. An effect left with no GPU system plays on the CPU executor alone.
+- **Plays share their passes on WebGPU.** Every play of one effect
+  definition takes a slot in a shared batch (up to 64 plays, or fewer when
+  a play holds many particles: about 16 384 particles a batch), and one
+  compute dispatch steps every slot; the frame's sorts and the copies into
+  each play's draw buffers go to the GPU in one more call. So a play costs
+  the main thread its spawn planning and a few numbers, not passes of its
+  own, and small systems stay on the GPU (16 fires of three small systems
+  on the Iris Xe: 2 compute passes a frame instead of 101, 0.49 ms of
+  effects work instead of 2.2). A new batch builds its compute passes on
+  its first frame (about 8 ms); later plays of the effect join it.
 
 A system's *max particles* is capped to its executor's cap; a play past the
 total or the instance cap is refused (counted in the diagnostics). Point
