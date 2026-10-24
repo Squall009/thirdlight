@@ -796,8 +796,17 @@ const putProject = (prefix, projectFileMap) => {
 };
 
 // --- valid project-file fixtures (each a whole v4 project directory)
+// A new project is written with the settings whose engine default changed
+// (project-model NEW_PROJECT_SETTINGS), so the new-project fixture, which the
+// workspace's createProject bytes are compared against, carries them. The
+// scenarios and the defect fixtures derived from it start from plain content.
+const NEW_PROJECT_SETTINGS = { ambient_occlusion: 1, block_chunk_storage: 1 };
+const newProjectFiles = (snap) => ({
+  ...projectFiles(P, MAIN, snap),
+  "content.json": fileJson(contentFileObj(P, snap.contentRevision, { ...snap.content, settings: { ...NEW_PROJECT_SETTINGS } }, snap.contentRecords)),
+});
 const validDirs = {
-  "demo-0001-rev0": projectFiles(P, MAIN, snapT(0)),
+  "demo-0001-rev0": newProjectFiles(snapT(0)),
   "demo-0001-rev5": projectFiles(P, MAIN, snapT(5)),
   "demo-0001-rev6": projectFiles(P, MAIN, snapT(6)),
   "demo-0001-rev7": t7Files,
@@ -807,7 +816,7 @@ for (const [name, fm] of Object.entries(validDirs)) putProject(`envelope/valid/$
 
 // --- invalid project-file fixtures: a whole project directory each, with
 //     exactly one defect (loadV4 must block it with the pinned reason).
-const rev0 = validDirs["demo-0001-rev0"];
+const rev0 = projectFiles(P, MAIN, snapT(0));
 const rev5 = validDirs["demo-0001-rev5"];
 const invalid = {};
 {
