@@ -43,7 +43,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics |
-| [Graph: Visual script (part 3, from Tags)](graph-behavior-3.md) | 85 sections |
+| [Graph: Visual script (part 3, from Pick at pointer (`api.physics.pickAtPointer`))](graph-behavior-3.md) | 86 sections |
 | [Graph: Visual script (part 4, from Character)](graph-behavior-4.md) | Character, Look, Audio, Effects, Decals, Save, Grid |
 | [Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves |
 | [Graph: Visual script (part 6, from Save storage (`api.saves.storage`))](graph-behavior-6.md) | Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |

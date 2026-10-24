@@ -1015,6 +1015,7 @@ Inputs:
 - `maxFade` "max fade" (number)
 - `depthMargin` "depth margin" (number)
 - `fadeTime` "fade time" (number)
+- `padding` (number)
 
 Outputs:
 

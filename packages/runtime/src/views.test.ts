@@ -7,21 +7,24 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE } from '@thirdlight/project-model';
+import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE, SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS } from '@thirdlight/project-model';
 
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule, type Runtime } from './index';
+import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule, type Runtime, type StepContext } from './index';
+import { probeSpec } from './m2-helpers';
 
 const DT = 1 / 120;
 const T = (position: number[], rotation: number[] = [0, 0, 0, 1]) => ({ position, rotation, scale: [1, 1, 1] });
 const box = { id: 'box-000001', components: { transform: T([0, 0.5, 0]), box: { size: [1, 1, 1], material: { color: '#808080' } } } };
 
-function runtimeOf(entities: unknown[], settings: Record<string, number> = {}): Runtime {
+function runtimeOf(entities: unknown[], settings: Record<string, number> = {}, script?: (ctx: StepContext) => void): Runtime {
   const registry = createSimulationRegistry();
   for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
+  const probe = script === undefined ? null : probeSpec({ id: 'thirdlight.test:views', phases: ['intent'], step: (_p, ctx) => script(ctx) });
+  if (probe !== null) registerSimulationModule(registry, probe.id, probe);
   const res = instantiateRuntime({
     snapshot: { snapshotId: 'views@r1', projectId: 'views', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     registry,
-    modules: [],
+    modules: probe === null ? [] : [probe.id],
     driver: { kind: 'manual' },
     clock: () => 0,
     settings: { settings },
@@ -104,5 +107,31 @@ describe('the engine-owned view', () => {
     steps(rt2, 5);
     expect(rt2.cameraView!()!.live).toBe('cam-000003');
     rt2.dispose();
+  });
+
+  it('a script\'s see-through rides the view over the project\'s settings, the padding too', () => {
+    const k = SEE_THROUGH_SETTING_KEYS;
+    const calls: boolean[] = [];
+    let call: Record<string, unknown> | null = null;
+    const rt = runtimeOf([box], { [k.enabled]: 1, [k.padding]: 0.6, [k.depthMargin]: 0.4 }, (ctx) => {
+      if (call === null || ctx.camera === undefined) return;
+      calls.push(ctx.camera.setSeeThrough(call as Parameters<NonNullable<StepContext['camera']>['setSeeThrough']>[0]));
+      call = null;
+    });
+    steps(rt, 2);
+    // No call yet: the view carries nothing and the renderer keeps the project's settings.
+    expect(rt.cameraView!()!.seeThrough).toBeUndefined();
+    call = { padding: 1.2 };
+    steps(rt, 2);
+    expect(rt.cameraView!()!.seeThrough?.settings).toMatchObject({ enabled: true, padding: 1.2, depthMargin: 0.4 });
+    // Kept within its limits; a wrong type changes nothing.
+    call = { padding: SEE_THROUGH_LIMITS.padding.max + 5 };
+    steps(rt, 2);
+    expect(rt.cameraView!()!.seeThrough?.settings.padding).toBe(SEE_THROUGH_LIMITS.padding.max);
+    call = { padding: '1' };
+    steps(rt, 2);
+    expect(calls).toEqual([true, true, false]);
+    expect(rt.cameraView!()!.seeThrough?.settings.padding).toBe(SEE_THROUGH_LIMITS.padding.max);
+    rt.dispose();
   });
 });

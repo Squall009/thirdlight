@@ -884,11 +884,11 @@ export interface BehaviorCamera {
    */
   shake(amplitude: number, seconds: number, frequency?: number, rotation?: number, seed?: number): void;
   /**
-   * Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the radius, maxFade stays below 1, depthMargin is metres, fadeTime seconds. Lasts until the next call or a new run. `false` (nothing changed) for a wrong argument.
+   * Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; the view fades round the nearest few); null or an empty list goes back to the live camera's target. Radius and softness are shares of the view's height and of the radius, maxFade stays below 1, depthMargin is metres nearer the camera than the subject's body along each pixel's own view ray, fadeTime seconds, padding the metres the camera-to-body volume is widened by when the subject's occluders are found (only what stands in that volume fades). Lasts until the next call or a new run. `false` (nothing changed) for a wrong argument.
    * @graphNode Set see-through
    * @graphDefault enabled true
    */
-  setSeeThrough(params: { enabled?: boolean; subjects?: readonly string[] | null; radius?: number; softness?: number; maxFade?: number; depthMargin?: number; fadeTime?: number }): boolean;
+  setSeeThrough(params: { enabled?: boolean; subjects?: readonly string[] | null; radius?: number; softness?: number; maxFade?: number; depthMargin?: number; fadeTime?: number; padding?: number }): boolean;
   /**
    * The live virtual camera, or null while none is (the view holds the default pose).
    * @graphPure

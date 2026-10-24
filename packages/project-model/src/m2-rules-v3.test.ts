@@ -320,6 +320,7 @@ describe('gameplay settings resolution', () => {
       'see_through_max_fade',
       'see_through_depth_margin_m',
       'see_through_fade_s',
+      'see_through_padding_m',
     ]);
     // Every optional key the registry has may follow the six in a manifest, in registry order.
     expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));

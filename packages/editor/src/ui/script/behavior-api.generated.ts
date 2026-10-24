@@ -399,7 +399,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "setSeeThrough",
       "kind": "method",
-      "detail": "(params: { enabled?: boolean | undefined; subjects?: readonly string[] | null | undefined; radius?: number | undefined; softness?: number | undefined; maxFade?: number | undefined; depthMargin?: number | undefined; fadeTime?: number | undefined; }): boolean",
+      "detail": "(params: { enabled?: boolean | undefined; subjects?: readonly string[] | null | undefined; radius?: number | undefined; softness?: number | undefined; maxFade?: number | undefined; depthMargin?: number | undefined; fadeTime?: number | undefined; padding?: number | undefined; }): boolean",
       "doc": "Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; th"
     },
     {
@@ -4281,7 +4281,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits)."
+      "doc": "See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits)."
     },
     {
       "name": "see_through_radius",
@@ -4309,7 +4309,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "property",
       "detail": "number | undefined",
       "optional": true,
-      "doc": "Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`)."
+      "doc": "Metres a surface must be nearer the camera than the subject's body, along its own view ray, to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`)."
     },
     {
       "name": "see_through_fade_s",
@@ -4317,6 +4317,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "number | undefined",
       "optional": true,
       "doc": "Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`)."
+    },
+    {
+      "name": "see_through_padding_m",
+      "kind": "property",
+      "detail": "number | undefined",
+      "optional": true,
+      "doc": "Metres the volume from the camera to a subject's body is widened by when its occluders are found (absent: `SEE_THROUGH_DEFAULTS.padding`)."
     }
   ],
   "Readonly<{ position: readonly [number, number, number]; rotation: readonly [number, number, number, number]; scale: readonly [number, number, number]; }>": [

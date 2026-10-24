@@ -43,7 +43,7 @@ export interface SeeThroughSettings {
   softness: number;
   /** How far a pixel fades at most (0 … below 1: a dither, never fully gone). */
   maxFade: number;
-  /** Metres a pixel must be nearer the camera than the subject to fade. */
+  /** Metres a pixel must be nearer the camera than the subject's body, along the pixel's own view ray, to fade. */
   depthMargin: number;
   /** Seconds a subject's fade eases in or out. */
   fadeTime: number;
@@ -64,7 +64,7 @@ export const SEE_THROUGH_DEFAULTS: Readonly<SeeThroughSettings> = Object.freeze(
 });
 
 /** The numeric settings (every field but `enabled`), in the order they are listed everywhere. */
-export const SEE_THROUGH_NUMBER_FIELDS = Object.freeze(['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime'] as const);
+export const SEE_THROUGH_NUMBER_FIELDS = Object.freeze(['radius', 'softness', 'maxFade', 'depthMargin', 'fadeTime', 'padding'] as const);
 /** Every setting. */
 export const SEE_THROUGH_FIELDS = Object.freeze(['enabled', ...SEE_THROUGH_NUMBER_FIELDS] as const);
 
@@ -89,13 +89,10 @@ export function seeThroughSettingsOf(patch: unknown, base: Readonly<SeeThroughSe
     if (typeof v !== 'number' || !Number.isFinite(v)) continue;
     out[k] = Math.min(SEE_THROUGH_LIMITS[k].max, Math.max(SEE_THROUGH_LIMITS[k].min, v));
   }
-  // Not a listed setting yet (no project key): a host may still pass it.
-  const pad = p['padding'];
-  if (typeof pad === 'number' && Number.isFinite(pad)) out.padding = Math.min(SEE_THROUGH_LIMITS.padding.max, Math.max(SEE_THROUGH_LIMITS.padding.min, pad));
   return out;
 }
 
-/** The project setting each field is stored in (`content.settings`, a field of `GameplaySettings`; absent: its default). The padding is not stored yet: its default stands. */
+/** The project setting each field is stored in (`content.settings`, a field of `GameplaySettings`; absent: its default). */
 export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   enabled: 'see_through',
   radius: 'see_through_radius',
@@ -103,7 +100,8 @@ export const SEE_THROUGH_SETTING_KEYS = Object.freeze({
   maxFade: 'see_through_max_fade',
   depthMargin: 'see_through_depth_margin_m',
   fadeTime: 'see_through_fade_s',
-} as const satisfies Record<Exclude<keyof SeeThroughSettings, 'padding'>, keyof GameplaySettings>);
+  padding: 'see_through_padding_m',
+} as const satisfies Record<keyof SeeThroughSettings, keyof GameplaySettings>);
 
 /** A project's see-through from its settings (`see_through` 1 turns it on; the rest as set, else their defaults). */
 export function seeThroughSettingsOfProject(settings: unknown): SeeThroughSettings {

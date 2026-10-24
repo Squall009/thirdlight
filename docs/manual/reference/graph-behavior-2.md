@@ -938,12 +938,13 @@ Fields:
 - Settings occlusion culling (`api.settings.occlusion_culling`): Whether what solid objects hide is left out of the view (0 off, 1 auto: none for now, 2 on; absent: auto).
 - Settings streaming budget mb (`api.settings.streaming_budget_mb`): The memory streamed terrain tiles and block chunks may take in Play and the export, MiB (absent: `STREAMING_BUDGET_DEFAULT_MB`).
 - Settings architecture ship meshes (`api.settings.architecture_ship_meshes`): Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load).
-- Settings see through (`api.settings.see_through`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
+- Settings see through (`api.settings.see_through`): See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
 - Settings see through radius (`api.settings.see_through_radius`): The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`).
 - Settings see through softness (`api.settings.see_through_softness`): The share of the see-through radius its edge softens over (absent: `SEE_THROUGH_DEFAULTS.softness`).
 - Settings see through max fade (`api.settings.see_through_max_fade`): How far see-through thins what is in front at most (below 1; absent: `SEE_THROUGH_DEFAULTS.maxFade`).
-- Settings see through depth margin m (`api.settings.see_through_depth_margin_m`): Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
+- Settings see through depth margin m (`api.settings.see_through_depth_margin_m`): Metres a surface must be nearer the camera than the subject's body, along its own view ray, to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
 - Settings see through fade s (`api.settings.see_through_fade_s`): Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`).
+- Settings see through padding m (`api.settings.see_through_padding_m`): Metres the volume from the camera to a subject's body is widened by when its occluders are found (absent: `SEE_THROUGH_DEFAULTS.padding`).
 
 <a id="node-behavior--api-settings-gravity-y"></a>
 ### Settings gravity y (`api.settings.gravity_y`)
@@ -1142,7 +1143,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through"></a>
 ### Settings see through (`api.settings.see_through`)
 
-See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
+See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits).
 
 Outputs:
 
@@ -1182,7 +1183,7 @@ Outputs:
 <a id="node-behavior--api-settings-see-through-depth-margin-m"></a>
 ### Settings see through depth margin m (`api.settings.see_through_depth_margin_m`)
 
-Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
+Metres a surface must be nearer the camera than the subject's body, along its own view ray, to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`).
 
 Outputs:
 
@@ -1193,6 +1194,16 @@ Outputs:
 ### Settings see through fade s (`api.settings.see_through_fade_s`)
 
 Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`).
+
+Outputs:
+
+- `value` (number)
+- `found` (boolean)
+
+<a id="node-behavior--api-settings-see-through-padding-m"></a>
+### Settings see through padding m (`api.settings.see_through_padding_m`)
+
+Metres the volume from the camera to a subject's body is widened by when its occluders are found (absent: `SEE_THROUGH_DEFAULTS.padding`).
 
 Outputs:
 
@@ -1504,34 +1515,4 @@ Fields:
 |---|---|---|---|---|
 | `x` | x | number | `0.5` | -1000000000 – 1000000000 |
 | `y` | y | number | `0.5` | -1000000000 – 1000000000 |
-| `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-physics-pick-at-pointer"></a>
-### Pick at pointer (`api.physics.pickAtPointer`)
-
-3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `maxDistance` "max distance" (number)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `entityId` "entity" (string)
-- `point` (vector)
-- `normal` (vector)
-- `distance` (number)
-- `cell` (vector)
-- `scatter` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
 | `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |

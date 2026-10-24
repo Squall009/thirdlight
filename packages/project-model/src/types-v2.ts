@@ -616,7 +616,7 @@ export interface GameplaySettings {
   streaming_budget_mb?: number;
   /** Exports ship generated architecture's meshes too (0 no, 1 yes; absent: no, generated at load). */
   architecture_ship_meshes?: number;
-  /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The six keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits). */
+  /** See-through round the camera's target or the subjects a script names (0 off, 1 on; absent: off). The keys are `SEE_THROUGH_SETTING_KEYS` (see-through.ts, with their defaults and limits). */
   see_through?: number;
   /** The see-through circle's radius, a share of the view's height (absent: `SEE_THROUGH_DEFAULTS.radius`). */
   see_through_radius?: number;
@@ -624,10 +624,12 @@ export interface GameplaySettings {
   see_through_softness?: number;
   /** How far see-through thins what is in front at most (below 1; absent: `SEE_THROUGH_DEFAULTS.maxFade`). */
   see_through_max_fade?: number;
-  /** Metres a surface must be nearer the camera than the subject to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`). */
+  /** Metres a surface must be nearer the camera than the subject's body, along its own view ray, to fade (absent: `SEE_THROUGH_DEFAULTS.depthMargin`). */
   see_through_depth_margin_m?: number;
   /** Seconds see-through eases in or out round a subject (absent: `SEE_THROUGH_DEFAULTS.fadeTime`). */
   see_through_fade_s?: number;
+  /** Metres the volume from the camera to a subject's body is widened by when its occluders are found (absent: `SEE_THROUGH_DEFAULTS.padding`). */
+  see_through_padding_m?: number;
 }
 
 // ---- content block and captured view ---------------------------------

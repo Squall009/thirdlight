@@ -1,8 +1,38 @@
-# Graph: Visual script (part 3, from Tags)
+# Graph: Visual script (part 3, from Pick at pointer (`api.physics.pickAtPointer`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-physics-pick-at-pointer"></a>
+### Pick at pointer (`api.physics.pickAtPointer`)
+
+3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `maxDistance` "max distance" (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `entityId` "entity" (string)
+- `point` (vector)
+- `normal` (vector)
+- `distance` (number)
+- `cell` (vector)
+- `scatter` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |
 
 <a id="graph-behavior--tags"></a>
 ## Tags
