@@ -203,10 +203,16 @@ export const NODE_SIDE_ALLOWED = {
     external: [],
     node: [],
     typesOnly: { 'project-model': true, commands: true },
-    // The model's limits (plain constants) are defined once in project-model; so is the
-    // folded diagnostics row the runtime's error ring and the Play answers' bound share (pure functions).
-    // The mutation op list is defined once in commands (plain lists, no other imports).
-    valueSubpaths: { 'project-model': ['limits', 'repeated-rows'], commands: ['mutation-ops'] },
+    // Value subpaths (pure code that cannot mutate a project), one reason each:
+    valueSubpaths: {
+      'project-model': [
+        'limits', // payload bounds are the model's limits, defined once there
+        'repeated-rows', // the folded diagnostics row the runtime's error ring also builds
+      ],
+      commands: [
+        'mutation-ops', // the op list the request parser accepts is the one commands applies
+      ],
+    },
   },
   // "… project-model (types only — the snapshot document).
   backend: {
@@ -224,20 +230,22 @@ export const NODE_SIDE_ALLOWED = {
     // host's cores and memory).
     node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib', 'os'],
     typesOnly: { 'project-model': true },
-    // The shared PNG decoder (pure; texture sources for KTX2 encoding and
-    // packing), the model's limits and the trim-sheet rules (a sheet image's
-    // padding checked against its row table) and the texture-slot rules (an
-    // empty slot's constant layer read from its layer-list entry, a layered
-    // material drawn with only the layers it uses) and the layered surface's
-    // row rules (its trim sheets share one table) and the material instance
-    // resolution (an instance's trim sheet checked as its root) and the
-    // presets' row-tied sliders (a trim sheet's problems name the presets
-    // that do not fit its rows) and the kits' reference problems (what a kit
-    // names that the project lacks) and the kit checks against the trim sheet
-    // spec (a piece's file, a sheet's table and pixels) and the check of a
-    // model's occluder stand-ins against its pieces are the project-model
-    // values the backend runs.
-    valueSubpaths: { 'project-model': ['png', 'limits', 'trim-sheet', 'texture-slots', 'layered-surface', 'material-reads', 'arch-style-rows', 'kits', 'kit-checks', 'model-occluders'] },
+    // Value subpaths (pure code that cannot mutate a project): the backend runs
+    // the model's own checks rather than a copy. One reason each:
+    valueSubpaths: {
+      'project-model': [
+        'png', // the one PNG decoder: texture sources for KTX2 encoding and packing
+        'limits', // request and import bounds are the model's limits
+        'trim-sheet', // a sheet image's padding is checked against its row table
+        'texture-slots', // an empty slot's constant layer; a layered material draws only the layers it uses
+        'layered-surface', // the layered surface's trim sheets share one row table
+        'material-reads', // an instance's trim sheet is checked as its root's
+        'arch-style-rows', // a trim sheet's problems name the presets that do not fit its rows
+        'kits', // what a kit names that the project lacks
+        'kit-checks', // a kit piece's file and its sheet's table and pixels
+        'model-occluders', // a model's occluder stand-ins checked against its pieces
+      ],
+    },
   },
   // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
@@ -259,23 +267,28 @@ export const NODE_SIDE_ALLOWED = {
     externalSubpaths: { meshoptimizer: ['simplifier'] },
     node: [],
     typesOnly: { 'project-model': true },
-    // The importer checks the model's own limits (plain constants) and decodes
-    // EXT_meshopt_compression with the model's decoder (pure; the build reads
-    // a model's collision parts with the same one). It accepts the attribute a
-    // clipped decal baked to a model keeps its fade in, named where the GLB
-    // writer names it (decal-clip-glb: a constant and a pure writer).
-    valueSubpaths: { 'project-model': ['limits', 'meshopt', 'decal-clip-glb'] },
+    // Value subpaths (pure code), one reason each:
+    valueSubpaths: {
+      'project-model': [
+        'limits', // the importer checks the model's own limits
+        'meshopt', // the one EXT_meshopt_compression decoder (the build reads collision parts with it too)
+        'decal-clip-glb', // a baked decal's fade attribute, named where the GLB writer names it
+      ],
+    },
   },
   // "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the
   // types-only qualifier applies to the whole package).
-  // + project-model's input subpath: the default actions are defined once there.
   input: {
     packages: ['runtime', 'project-model'],
     external: [],
     node: [],
     typesOnly: { runtime: true, 'project-model': true },
-    valueSubpaths: { 'project-model': ['input'] },
+    valueSubpaths: {
+      'project-model': [
+        'input', // the default actions and bindings are defined once in the model
+      ],
+    },
   },
   // "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
   // (the approved pin)". The adapter never imports a concrete runtime
@@ -284,13 +297,15 @@ export const NODE_SIDE_ALLOWED = {
   // only its types and the limits subpath).
   // + @dimforge/rapier3d-compat for the `./3d` subpath.
   'physics-rapier': {
-    // + project-model's limits subpath only: the ports re-check the model's
-    // collider shape limits, which are defined once there.
     packages: ['runtime', 'project-model'],
     external: ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'],
     node: [],
     typesOnly: { runtime: true, 'project-model': true },
-    valueSubpaths: { 'project-model': ['limits'] },
+    valueSubpaths: {
+      'project-model': [
+        'limits', // the ports re-check the model's collider shape limits
+      ],
+    },
   },
   // The character package: the controller algorithm over the injected
   // input/physics ports; it may not reach the concrete physics adapter, the
@@ -313,14 +328,17 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
   },
   'mcp-adapter': {
-    // + project-model's limits subpath only: the tool descriptions state the
-    // model's limits from their one definition.
     packages: ['protocol', 'backend', 'project-model'],
     external: ['@modelcontextprotocol/sdk'],
     node: [],
+    // The backend's application services only, never its server internals.
     subpaths: { backend: ['services'], 'project-model': ['limits'] },
     typesOnly: { 'project-model': true },
-    valueSubpaths: { 'project-model': ['limits'] },
+    valueSubpaths: {
+      'project-model': [
+        'limits', // the tool descriptions state the model's limits from their one definition
+      ],
+    },
   },
   // "… project-model (types), commands (types) …".
   editor: {
@@ -357,23 +375,23 @@ export const NODE_SIDE_ALLOWED = {
     ],
     node: [],
     typesOnly: { 'project-model': true, commands: true },
-    // The model's limits (plain constants): the editor checks the same bounds
-    // before it sends a command. The texture-slot rules (pure functions over
-    // material data): the views draw a material's slots as Play does. The
-    // trim-sheet rules (pure functions over a material's row table): the
-    // trim table editor checks and splits rows as the model does. What a
-    // material reads (the shader table and the graph inference): the editors
-    // that paint warn of a material that would draw nothing, as one check.
-    // The layered surface (its template and graph builder): the editor makes
-    // the very material the renderer draws trim materials as. The material
-    // schema (shader types, parameters, slots, default wind): the inspector
-    // is built from the table the model validates against. The graph rules
-    // (op application, canonical form, port types, the cycle check): the
-    // graph editor's projection is the backend's own code. The animator
-    // controller ↔ graph read: the Animator tab shows the graph the backend
-    // applies its edits to. The effect defaults, context layout and parameter
-    // lookup: a new effect is what the backend accepts, its ports what it resolves.
-    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads', 'layered-surface', 'material-schema', 'graph', 'animator-graph', 'effects', 'effect-graph-kinds'] },
+    // Value subpaths (pure code that cannot mutate a project; edits still go
+    // as commands): the editor draws and checks with the model's own code so
+    // what it shows is what the backend accepts and Play draws. One reason each:
+    valueSubpaths: {
+      'project-model': [
+        'limits', // the editor checks the same bounds before it sends a command
+        'texture-slots', // the views draw a material's slots as Play does
+        'trim-sheet', // the trim table editor checks and splits rows as the model does
+        'material-reads', // painting editors warn of a material that would draw nothing
+        'layered-surface', // the editor makes the very material the renderer draws trim materials as
+        'material-schema', // the inspector is built from the table the model validates against
+        'graph', // the graph editor's projection is the backend's own op code
+        'animator-graph', // the Animator tab shows the graph the backend applies its edits to
+        'effects', // a new effect is built from the defaults the backend accepts
+        'effect-graph-kinds', // effect graph ports resolve as the backend resolves them
+      ],
+    },
   },
 };
 
