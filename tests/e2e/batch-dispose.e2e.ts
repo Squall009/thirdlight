@@ -33,7 +33,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Locator, type Page } from './pw';
 
-import { publishBytes, publishScript, startBackend, type E2EBackend } from './backend';
+import { publishBytes, publishScript, startBackend, withoutSky, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { decodePng, type Image } from './png';
@@ -155,6 +155,8 @@ for (const variant of RENDERER_VARIANTS) {
     onlyInItsProject(variant);
     test.setTimeout(180_000);
     be = await startBackend(`batch-dispose-${variant}`);
+    // The hues are read against the dark background (a new project's sky tone-maps them paler).
+    await withoutSky(be);
     // Two groups of four equal boxes (one material each) and one single box, all on the unit box mesh.
     const blue: string[] = [];
     for (let i = 0; i < 4; i++) {

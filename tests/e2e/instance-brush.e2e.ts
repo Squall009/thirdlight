@@ -50,7 +50,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { publishBytes, startBackend, withoutSky, type E2EBackend } from './backend';
 import { count, isRed, materials, publishTexture } from './painted-layers';
 import { makePng } from './png-make';
 import { consoleErrors, refusedObjects } from './console-errors';
@@ -572,6 +572,8 @@ function gameProjector(img: Image): Projector {
 test('the instance brush paints and erases on a block-layer top and a model: one command and one undo per stroke, redo, reload, the same copies from the same stroke over MCP, pixels in the Scene view and Play; vertex paint on a model, a copy and a generated wall', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend(`instance-brush-${randomBytes(4).toString('hex')}`);
+  // Paint is read by how much it darkens a copy: without the sky's tone mapping, which compresses the change.
+  await withoutSky(be);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const logged = consoleErrors(page);

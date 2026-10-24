@@ -45,6 +45,8 @@ test('Play reads only the start scene’s assets; a scene loaded later reads and
   const created = await be.post('/api/v1/admin/projects', { projectId: 'lazy', name: 'Lazy assets' });
   expect([200, 201]).toContain(created.status);
   const p = be.project('lazy');
+  // The colours are read as stored, without the new project's sky (its tone mapping makes them paler).
+  await p.command('setEnvironment', { sceneId: 'scene-main', environment: {} });
   const publish = async (assetId: string, kind: 'model' | 'texture', bytes: Uint8Array): Promise<void> => {
     const stageId = await be.stage('lazy', bytes);
     const inspected = await be.post(`/api/v1/projects/lazy/content/stages/${stageId}/inspect`, { kind });

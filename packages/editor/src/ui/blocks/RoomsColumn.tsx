@@ -160,6 +160,20 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
                     ))}
                   </div>
                 </Section>
+                <Section title="Furnishing">
+                  <Pick
+                    label="rooms furnishing set"
+                    value={b.component?.furnishing ?? ''}
+                    options={[['', '— the layer’s —'], ...b.furnishings]}
+                    onCommit={(v) => {
+                      if (b.component === null) return;
+                      const { furnishing: _f, ...rest } = b.component;
+                      void b.setRooms(v === '' ? rest : { ...rest, furnishing: v }, 'Rooms furnishing set');
+                    }}
+                  />
+                  <Pick label="layer furnishing set" value={s.component.furnishing ?? ''} options={[['', '— none —'], ...b.furnishings]} onCommit={(v) => void s.blocks.changeLayer('Layer furnishing set', s.entity.id, (c) => ({ ...c, furnishing: (v === '' ? null : v) as string }))} />
+                  <p className="tl-hint">A room with a type is furnished by its own set, else the rooms’ set, else the layer’s (the starter set’s types: living, kitchen, bedroom, storage, hall). Pin a prop in the room’s panel to keep it where it is.</p>
+                </Section>
                 {outlines.length > 0 && (
                   <Section title="Presets in use">
                     <PresetSwap component={b.component} presets={b.presets} disabled={s.locked} onSwap={(next, what) => void b.setRooms(next, what)} />
@@ -204,22 +218,6 @@ export function RoomsColumn({ entity, host }: EditModeView): JSX.Element {
           <Pick label="new room preset" value={opts.roomPreset} options={b.presets} onCommit={(v) => setOpts({ roomPreset: v })} />
           <Pick label="new path preset" value={opts.pathPreset} options={b.presets} onCommit={(v) => setOpts({ pathPreset: v })} />
           <Pick label="new facade preset" value={opts.facadePreset} options={[['', '— the inside’s —'], ...b.presets]} onCommit={(v) => setOpts({ facadePreset: v })} />
-        </Section>
-      )}
-      {b !== undefined && (
-        <Section title="Furnishing">
-          <Pick
-            label="rooms furnishing set"
-            value={b.component?.furnishing ?? ''}
-            options={[['', '— the layer’s —'], ...b.furnishings]}
-            onCommit={(v) => {
-              if (b.component === null) return;
-              const { furnishing: _f, ...rest } = b.component;
-              void b.setRooms(v === '' ? rest : { ...rest, furnishing: v }, 'Rooms furnishing set');
-            }}
-          />
-          <Pick label="layer furnishing set" value={s.component.furnishing ?? ''} options={[['', '— none —'], ...b.furnishings]} onCommit={(v) => void s.blocks.changeLayer('Layer furnishing set', s.entity.id, (c) => ({ ...c, furnishing: (v === '' ? null : v) as string }))} />
-          <p className="tl-hint">A room with a type is furnished by its own set, else the rooms’ set, else the layer’s (the starter set’s types: living, kitchen, bedroom, storage, hall). Pin a prop in the room’s panel to keep it where it is.</p>
         </Section>
       )}
       <Section

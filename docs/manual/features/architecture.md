@@ -469,7 +469,7 @@ a light in every room). A project's graph of the same id replaces one.
   again) and the props list with **Pin** / **Unpin**
   (`outlines[].pins`; a stand-in's pin keeps its `height` instead of a
   `model`). Pins move by data: `setComponent` with the pin's new
-  `position`. The column's **Furnishing** section sets the fallbacks: the
+  `position`. The **Rooms** panel's **Furnishing** section sets the fallbacks: the
   **rooms furnishing set** (`architecture.furnishing`, for its rooms that
   name none) and the **layer furnishing set** (`blockLayer.furnishing`, for
   rooms drawn on the layer whose room and object name none). A room with no

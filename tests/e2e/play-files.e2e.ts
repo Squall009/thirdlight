@@ -52,6 +52,8 @@ test('a model file changed on disk between two Plays: the second Play shows the 
   const created = await be.post('/api/v1/admin/projects', { projectId: ID, name: 'Play files' });
   expect([200, 201]).toContain(created.status);
   const p = be.project(ID);
+  // The colours are read as stored, without the new project's sky (its tone mapping makes them paler).
+  await p.command('setEnvironment', { sceneId: 'scene-main', environment: {} });
   const file = join(root, 'data', 'projects', ID, 'assets', 'look', 'ball.glb');
   mkdirSync(join(file, '..'), { recursive: true });
   writeFileSync(file, RED);

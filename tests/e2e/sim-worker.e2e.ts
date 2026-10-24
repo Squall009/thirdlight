@@ -320,15 +320,19 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
         }
         return changed;
       };
-      // Equal windows standing and moving: walking scrolls the view well past what standing changes in the same time.
+      // Equal windows standing and moving: walking scrolls the view past what standing changes in the same time (the
+      // character's idle clip changes pixels while it stands, so the walk is read from its position too).
+      const playerX = async (): Promise<number> => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { player?: { x: number } } | null }).__thirdlightObserve?.()?.player?.x ?? Number.NaN);
       await game.waitForTimeout(500);
       const still0 = await game.screenshot();
       await game.waitForTimeout(1500);
       const still1 = await game.screenshot();
+      const x0 = await playerX();
       await game.keyboard.down('d');
       await game.waitForTimeout(1500);
       await game.keyboard.up('d');
       const moved = await game.screenshot();
+      expect(await playerX(), `${c.query || 'default'}: the held key walks the character`).toBeGreaterThan(x0 + 1);
       const idle = diff(still0, still1);
       const moving = diff(still1, moved);
       if (c.query.includes('simDelayMs')) {
@@ -336,9 +340,10 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
         expect(trip, 'the export does not slow its worker for ?simDelayMs').toBeGreaterThanOrEqual(0);
         expect(trip, 'the export does not slow its worker for ?simDelayMs').toBeLessThan(30);
       }
-      expect(moving, `${c.query || 'default'}${c.isolated ? ' (isolated)' : ''}: pixels changed while moving (${moving}) vs standing (${idle})`).toBeGreaterThan(Math.max(3 * idle, 100));
+      expect(moving, `${c.query || 'default'}${c.isolated ? ' (isolated)' : ''}: pixels changed while moving (${moving}) vs standing (${idle})`).toBeGreaterThan(idle + 100);
       expect(errors).toEqual([]);
-      expect(requests.every((u) => u.startsWith(site.url))).toBe(true);
+      // A model's embedded textures decode through blob: URLs of the page's own origin.
+      expect(requests.filter((u) => !u.replace(/^blob:/, '').startsWith(site.url))).toEqual([]);
       // The 2D engine loads from its own script and WASM file where the simulation runs; the 3D one is not shipped.
       expect(requests.filter((u) => /\/js\/physics-2d\.(js|wasm)$/.test(u)).length, c.query).toBe(2);
     } finally {
