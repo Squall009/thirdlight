@@ -153,15 +153,34 @@ export function expectCulled(rooms: { rooms?: number; seen?: number; hidden?: nu
 /**
  * The rooms' portals and occlusion culling together draw the picture each
  * draws alone and the one with neither, at the page's still pose: occlusion
- * on (pinned to the renderer's path) and off, each with the portals on and
- * off (`game`'s scenes kept: `keepThreeScenes`). Then the door between R and
- * C is taken away with culling on: C is seen and the picture is the one with
- * culling off. Leaves the switches as the page had them, the door gone.
+ * on (the depth pyramid) and off, each with the portals on and off
+ * (`game`'s scenes kept: `keepThreeScenes`). Then the door between R and C
+ * is taken away with culling on: C is seen and the picture is the one with
+ * culling off. WebGL 2 culls nothing: there the door is only taken away.
+ * Leaves the switches as the page had them, the door gone.
  */
 export async function expectRoomsCullingMatch(game: Page, canvas: Locator, label: string): Promise<void> {
-  // Culling on the path the renderer has (the setting's auto culls nothing): the depth pyramid, else the queries.
+  // The door between R and C taken away (the key): the portals show C (their mark counts the rooms seen).
+  const rooms = async (): Promise<[number, number]> => String(await canvas.getAttribute('data-tl-rooms')).split(' ')[0]!.split('/').map(Number) as [number, number];
+  const seen = async (): Promise<number> => (await rooms())[0];
+  const openDoor = async (): Promise<void> => {
+    // (The mark counts the rooms seen once a frame was drawn with the portals.)
+    await expect.poll(async () => { const [a, b] = await rooms(); return a < b; }, { timeout: 10_000 }).toBe(true);
+    const shut = await seen();
+    await canvas.focus();
+    await game.keyboard.down(ROOMS_DOOR_KEY);
+    await game.waitForTimeout(100);
+    await game.keyboard.up(ROOMS_DOOR_KEY);
+    await expect.poll(seen, { timeout: 10_000, message: `${label}: the open doorway shows C` }).toBeGreaterThan(shut);
+  };
+  // Culling on the depth pyramid (the setting's auto culls nothing); WebGL 2 has no culling path.
   await onOcclusionSwitch(game, 'pin', 'hiz');
-  const path = (await onOcclusionSwitch<string>(game, 'path')) === 'hiz' ? 'hiz' : 'queries';
+  if ((await onOcclusionSwitch<string>(game, 'path')) !== 'hiz') {
+    await onOcclusionSwitch(game, 'pin', null);
+    await openDoor();
+    return;
+  }
+  const path = 'hiz';
   const shot = async (name: string): Promise<{ image: Awaited<ReturnType<typeof settledShot>>; occlusion: string | null }> => ({ image: await settledShot(canvas, `${label}-${name}`, 250), occlusion: await canvas.getAttribute('data-tl-occlusion') });
   // `data-tl-occlusion`: "<path>|<occludees>|<tested>|<culled>|…" (the GPU's counts read back about once a second).
   const culled = (m: string | null): number => Number((m ?? '').split('|')[3] ?? 0);
@@ -182,18 +201,9 @@ export async function expectRoomsCullingMatch(game: Page, canvas: Locator, label
   console.log(`[rooms] ${label}: portals on against off: ${show(d, STRICT)}`);
   expect(within(d, STRICT) && d.worst === 0, `${label}: the portals on and off draw the same picture (${show(d, STRICT)})`).toBe(true);
   await pinPortals(game, true);
-  // The door taken away with culling on: C is seen (the rooms' mark counts it) and nothing in it is left out.
-  const rooms = async (): Promise<[number, number]> => String(await canvas.getAttribute('data-tl-rooms')).split(' ')[0]!.split('/').map(Number) as [number, number];
-  const seen = async (): Promise<number> => (await rooms())[0];
-  // (The portals back on: the mark counts the rooms seen again once a frame was drawn with them.)
-  await expect.poll(async () => { const [a, b] = await rooms(); return a < b; }, { timeout: 10_000 }).toBe(true);
-  const shut = await seen();
+  // The door taken away with culling on (the portals back on): C is seen and nothing in it is left out.
   await onOcclusionSwitch(game, 'pin', path);
-  await canvas.focus();
-  await game.keyboard.down(ROOMS_DOOR_KEY);
-  await game.waitForTimeout(100);
-  await game.keyboard.up(ROOMS_DOOR_KEY);
-  await expect.poll(seen, { timeout: 10_000, message: `${label}: the open doorway shows C` }).toBeGreaterThan(shut);
+  await openDoor();
   const opened = await shot('door-open');
   await onOcclusionSwitch(game, 'pin', 'off');
   const openedOff = await shot('door-open-off');

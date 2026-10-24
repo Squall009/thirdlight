@@ -5,10 +5,9 @@
  *
  * The path comes from the project's `occlusion_culling` (or its quality
  * level's, through the render control) and the renderer: on culls with a
- * depth pyramid on WebGPU (`hiz`) and with occlusion queries on WebGL 2
- * (`queries`, whose answers come frames late); auto culls nothing for now;
- * the runtime's `occlusionPathOf` decides. The page flag
- * `?occlusion=off|queries|hiz` pins one for a comparison (the perf harness's
+ * depth pyramid on WebGPU (`hiz`) and nothing on WebGL 2; auto culls nothing
+ * for now; the runtime's `occlusionPathOf` decides. The page flag
+ * `?occlusion=off|hiz` pins one for a comparison (the perf harness's
  * `--switches occlusion=off`), as does the scene's switch at run time.
  *
  * A draw left out is hidden from the view for `HIDDEN_BY_OCCLUSION`
@@ -26,10 +25,7 @@
  * the GPU against it (occlusion-instances.ts; the diagnostics' tested and
  * culled count copies, read back a few frames late), as are block and
  * architecture chunks, merged cells and models drawn alone, each as a whole
- * (occlusion-whole.ts; counted with the copies). On the queries path
- * (WebGL 2) a box round each draw worth it is asked after the frame whether
- * any of it shows (occlusion-queries.ts; the stand-ins draw only there), and
- * what two answers in a row saw nothing of is hidden.
+ * (occlusion-whole.ts; counted with the copies).
  *
  * Runs once a frame after the frustum, the rooms and an edit mode's isolation
  * have had their say (what they hide is not tested again). Kept out of
@@ -46,11 +42,10 @@ import type { InstanceOcclusionDiagnostics } from './occlusion-instances';
 import { OcclusionKeep, type OcclusionKeepHost } from './occlusion-keep';
 import { OcclusionOverlay } from './occlusion-overlay';
 import { culledWhole } from './occlusion-whole';
-import { QueryOcclusion, queryContextOf, type QueryOcclusionDiagnostics, type QueryRenderer } from './occlusion-queries';
 import type { PyramidReadback } from './occlusion-pyramid';
 import { HIDDEN_BY_OCCLUSION, hideFromView } from './view-hidden';
 
-/** The page flag that pins a path (`?occlusion=off|queries|hiz`; a diagnostic comparison). */
+/** The page flag that pins a path (`?occlusion=off|hiz`; a diagnostic comparison). */
 export const OCCLUSION_URL_PARAM = 'occlusion';
 
 /** The flag's value that shows the depth pyramid over the frame (`?occlusion=pyramid`, or `pyramid:<level>`); it pins `hiz`. */
@@ -67,6 +62,9 @@ export function occlusionPyramidFromUrl(search: string): number | null {
   const m = PYRAMID_FLAG.exec(new URLSearchParams(search).get(OCCLUSION_URL_PARAM) ?? '');
   return m === null ? null : Number(m[1] ?? 0);
 }
+
+/** The problem code of an `on` setting on a renderer without a culling path (WebGL 2). */
+export const OCCLUSION_NO_PATH_PROBLEM = 'occlusion_culling_unavailable';
 
 /** `scene.userData[OCCLUSION_SWITCH_KEY]`: the scene's {@link OcclusionSwitch}. */
 export const OCCLUSION_SWITCH_KEY = 'tlOcclusion';
@@ -111,8 +109,6 @@ export interface OcclusionDiagnostics {
   readonly pass2Drawn: number;
   /** Instanced copies culled on the GPU (`hiz`; null: none). */
   readonly instances: InstanceOcclusionDiagnostics | null;
-  /** The occlusion queries (`queries`, WebGL 2; null: none). */
-  readonly queries: QueryOcclusionDiagnostics | null;
   /** The culling's own GPU time a frame, recently (its compute passes: the depth pyramid; null: none measured). */
   readonly gpuMs: number | null;
   /** The depth pyramid (`hiz`): its level 0's size, its levels, its GPU memory (with the stand-ins' records) and the frames drawn in two passes; null: none. */
@@ -136,8 +132,6 @@ export interface OcclusionCullerDeps {
   readonly view?: { is(camera: THREE.Camera): boolean; readonly camera?: THREE.Camera | null };
   /** The WebGPU renderer frames are drawn with (null: none, or WebGL 2): the depth pyramid's. */
   readonly gpu?: () => unknown;
-  /** The WebGL 2 renderer frames are drawn with (null: none, or WebGPU): the occlusion queries'. */
-  readonly webgl?: () => unknown;
   /** The GPU time of the frame's compute passes, recently (null: not measured). */
   readonly computeMs?: () => number | null;
   /** The pyramid level the page shows over the frame (`?occlusion=pyramid`; absent or null: none). */
@@ -146,6 +140,8 @@ export interface OcclusionCullerDeps {
   readonly canvas?: { setAttribute?(k: string, v: string): void } | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed?: () => void;
+  /** A problem for the game's author (the setting asks for culling the renderer does not have), once. */
+  readonly onProblem?: (code: string, message: string) => void;
   /** Where the objects `keep` names are drawn (absent: nothing can be kept). */
   readonly keep?: OcclusionKeepHost;
   /**
@@ -168,12 +164,11 @@ export class OcclusionCuller implements OcclusionSwitch {
   private instancedDraws: THREE.Object3D[] | null = null;
   private wholeDraws: Occludee[] = [];
   private mark = '';
+  /** The setting's culling on a renderer without a path was reported. */
+  private reportedNoPath = false;
   /** The frame in two passes and its pyramid (`hiz` on WebGPU), and the renderer it was made for. */
   private frame: TwoPassFrame | null = null;
   private frameRenderer: unknown = null;
-  /** The occlusion queries (`queries` on WebGL 2), and the renderer they were made for. */
-  private queries: QueryOcclusion | null = null;
-  private queriesRenderer: unknown = null;
   private shownLevel: number | null;
   private readonly kept: OcclusionKeep | null;
   private readonly overlay: OcclusionOverlay;
@@ -200,8 +195,6 @@ export class OcclusionCuller implements OcclusionSwitch {
     if (standin !== undefined && !standinFollowsSurfaces(standin, this.inScene)) return false;
     // What it stands in for may be dithered round a see-through subject: the depth must not hold it whole.
     if (standin !== undefined && this.deps.fades?.(standin, camera) === true) return false;
-    // On the queries path only in the query render after the frame (never in the depth the frame's draws read).
-    if (this.applied === 'queries' && this.queries?.drawing !== true) return false;
     if (this.applied === 'hiz' && (this.frame === null || this.frame.drawing !== 1 || standin === undefined || standin.material !== this.frame.pyramid.standinMaterial())) return false;
     this.standinDraws += 1;
     return true;
@@ -213,7 +206,6 @@ export class OcclusionCuller implements OcclusionSwitch {
    * are drawn with; a new renderer gets a new one.
    */
   scenePasses(): ScenePasses | null {
-    if (this.applied === 'queries') return this.queryOcclusion();
     if (this.applied !== 'hiz') return null;
     const gpu = this.deps.gpu?.() ?? null;
     if (gpu === null) return null;
@@ -228,36 +220,7 @@ export class OcclusionCuller implements OcclusionSwitch {
 
   /** Whether frames must draw through the environment renderer's scene pass (the two-pass frame's). */
   needsEnvironment(): boolean {
-    const path = this.choose().path;
-    if (path === 'queries') return queryContextOf(this.deps.webgl?.() ?? null) !== null;
-    return path === 'hiz' && (this.deps.gpu?.() ?? null) !== null;
-  }
-
-  /**
-   * After the frame was drawn (outside a capture's or a precompile's draw): the occlusion queries of the
-   * queries path are drawn against its depth.
-   */
-  afterDraw(): void {
-    if (this.applied === 'queries') this.queries?.afterDraw();
-  }
-
-  /** The queries path's culler for the renderer frames are drawn with (null: not WebGL 2). */
-  private queryOcclusion(): QueryOcclusion | null {
-    const r = this.deps.webgl?.() ?? null;
-    const gl = queryContextOf(r);
-    if (this.queries !== null && this.queriesRenderer !== r) this.dropQueries();
-    if (gl === null) return null;
-    if (this.queries === null) {
-      this.queries = new QueryOcclusion(r as QueryRenderer, gl, this.deps.scene);
-      this.queriesRenderer = r;
-    }
-    return this.queries;
-  }
-
-  private dropQueries(): void {
-    this.queries?.dispose();
-    this.queries = null;
-    this.queriesRenderer = null;
+    return this.choose().path === 'hiz' && (this.deps.gpu?.() ?? null) !== null;
   }
 
   showPyramid(level: number | null): void {
@@ -315,15 +278,7 @@ export class OcclusionCuller implements OcclusionSwitch {
     }
     if (path === 'hiz') this.dressStandins();
     const instances = path === 'hiz' ? (this.frame?.instances ?? null) : null;
-    const queries = path === 'queries' ? this.queryOcclusion() : null;
-    if (queries !== null) {
-      queries.update(this.registry.values(), this.deps.view?.camera ?? null);
-      const q = queries.diagnostics();
-      this.counts.tested = q.asked;
-      this.counts.culled = q.hidden;
-      this.counts.pass1Culled = 0;
-      this.counts.pass2Drawn = 0;
-    } else if (instances !== null) {
+    if (instances !== null) {
       instances.attach(this.deps.scene);
       const camera = this.deps.view?.camera ?? null;
       instances.update(this.instancedDraws ?? [], camera, this.frame!.wholes.update(this.wholeDraws, camera, (o) => o.role !== 'none'));
@@ -339,7 +294,7 @@ export class OcclusionCuller implements OcclusionSwitch {
       this.counts.pass1Culled = 0;
       this.counts.pass2Drawn = 0;
     }
-    if (this.overlay.on) this.overlay.update(this.culledBoxes(path, queries));
+    if (this.overlay.on) this.overlay.update(this.culledBoxes(path));
     this.counts.standins = this.standinDraws;
     this.standinDraws = 0;
     this.counts.ms = performance.now() - t0;
@@ -352,13 +307,12 @@ export class OcclusionCuller implements OcclusionSwitch {
     const pyramid = p === null || this.frame === null ? null : { size: [p.levels[0]!.width, p.levels[0]!.height] as const, levels: p.levels.length, bytes: this.frame.pyramid.bytes(), frames: this.frame.frames };
     const gpuMs = this.applied === 'hiz' ? (this.deps.computeMs?.() ?? null) : null;
     const instances = this.applied === 'hiz' ? (this.frame?.instances.diagnostics() ?? null) : null;
-    const queries = this.applied === 'queries' ? (this.queries?.diagnostics() ?? null) : null;
-    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, queries, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000, kept: this.kept?.size ?? 0, culledBoxes: this.overlay.on ? this.overlay.boxes : null };
+    return { setting: this.deps.setting(), path: c.path, source: c.source, pinned: this.pinned, occludees: this.registry.size, byKind: this.registry.counts(), byRole: this.registry.roleCounts(), standins: this.counts.standins, tested: this.counts.tested, culled: this.counts.culled, pass1Culled: this.counts.pass1Culled, pass2Drawn: this.counts.pass2Drawn, instances, gpuMs: gpuMs === null ? null : Math.round(gpuMs * 1000) / 1000, pyramid, ms: Math.round(this.counts.ms * 1000) / 1000, kept: this.kept?.size ?? 0, culledBoxes: this.overlay.on ? this.overlay.boxes : null };
   }
 
-  /** The world boxes of the draws the path hides now (draws culled whole, or hidden by the queries). */
-  private culledBoxes(path: OcclusionPath, queries: QueryOcclusion | null): THREE.Box3[] {
-    const hidden = path === 'queries' ? (queries?.hidden() ?? null) : path === 'hiz' ? (this.frame?.wholes.hidden() ?? null) : null;
+  /** The world boxes of the draws the path culls whole now. */
+  private culledBoxes(path: OcclusionPath): THREE.Box3[] {
+    const hidden = path === 'hiz' ? (this.frame?.wholes.hidden() ?? null) : null;
     const out: THREE.Box3[] = [];
     if (hidden === null) return out;
     for (const mesh of hidden) {
@@ -374,7 +328,6 @@ export class OcclusionCuller implements OcclusionSwitch {
     this.overlay.dispose();
     this.reset();
     this.dropFrame();
-    this.dropQueries();
     this.registry.clear();
     if (this.deps.scene.userData[OCCLUSION_SWITCH_KEY] === this) {
       delete this.deps.scene.userData[OCCLUSION_SWITCH_KEY];
@@ -383,7 +336,15 @@ export class OcclusionCuller implements OcclusionSwitch {
   }
 
   private choose(): { path: OcclusionPath; source: 'page' | 'setting' } {
-    const next = occlusionPathOf(this.deps.setting(), this.deps.renderer(), this.pinned);
+    const setting = this.deps.setting();
+    const renderer = this.deps.renderer();
+    const next = occlusionPathOf(setting, renderer, this.pinned);
+    // WebGL 2 has no culling path (its occlusion queries answered frames late and saved too little): `on` draws
+    // everything there, and the author hears it once rather than measuring a path that is not taken.
+    if (setting === 'on' && renderer === 'webgl2' && !this.reportedNoPath) {
+      this.reportedNoPath = true;
+      this.deps.onProblem?.(OCCLUSION_NO_PATH_PROBLEM, 'occlusion_culling is on, but only WebGPU culls (its depth pyramid): on WebGL 2 everything in view is drawn.');
+    }
     if (next.path !== this.choice.path || next.source !== this.choice.source) this.choice = { path: next.path, source: next.source };
     return this.choice;
   }
@@ -392,15 +353,14 @@ export class OcclusionCuller implements OcclusionSwitch {
   private reset(): void {
     let shown = false;
     for (const o of this.deps.scene.children) if (hideFromView(o, HIDDEN_BY_OCCLUSION, false)) shown = true;
-    // Off the pyramid path the stand-ins draw into the view's depth again (the queries' path) or not at all, and the
-    // instanced draws draw every copy in view with the programs they had.
+    // Off the pyramid path the stand-ins draw not at all, and the instanced draws draw every copy in view with the
+    // programs they had.
     // Off the pyramid path its pyramid, pools and kernels are let go too (megabytes at 1080p; made again if it comes back).
     if (this.applied === 'hiz' && this.choice.path !== 'hiz') {
       this.frame?.wholes.clear();
       this.frame?.instances.clear();
       this.dropFrame();
     }
-    if (this.applied === 'queries' && this.choice.path !== 'queries') this.queries?.clear();
     this.applied = this.choice.path;
     if (shown) this.deps.changed?.();
   }

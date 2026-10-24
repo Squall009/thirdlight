@@ -2780,8 +2780,8 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "path",
       "kind": "property",
-      "detail": "'off' | 'queries' | 'hiz'",
-      "doc": "The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU), 'queries' (occlusion queries) or 'off'."
+      "detail": "'off' | 'hiz'",
+      "doc": "The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU) or 'off'."
     },
     {
       "name": "tested",

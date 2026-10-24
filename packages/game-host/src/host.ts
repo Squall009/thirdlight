@@ -170,7 +170,7 @@ export interface HostRenderAdapter {
   /** The scene set revision the last presented frame drew (a transition fades in once it is on screen). */
   presentedSceneRevision?(): number;
   /** The last frame's counts (the frame stats read draw calls and triangles). */
-  diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number }; occlusion?: { path: 'off' | 'queries' | 'hiz'; tested: number; culled: number } } } | { ok: false };
+  diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number }; occlusion?: { path: 'off' | 'hiz'; tested: number; culled: number } } } | { ok: false };
   /** GPU time measured since the last call; null without timestamp queries. */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /** The quality level drawn. */

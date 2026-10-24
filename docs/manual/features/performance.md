@@ -210,7 +210,7 @@ open view, with the oracle (`node tools/perf/run.mjs level --classes area
 --view street`). The oracle counts per item, so a draw with one copy in
 sight counts as drawn; transparent items are counted over the opaque depth
 only (one hidden behind another transparent one counts as hidden).
-`--switches occlusion=hiz` (WebGPU) or `occlusion=queries` (WebGL 2) measures
+`--switches occlusion=hiz` (WebGPU) measures
 the same page again with occlusion culling on, `occlusion=off` with it off
 where a project turned it on ([Occlusion culling](occlusion.md)).
 

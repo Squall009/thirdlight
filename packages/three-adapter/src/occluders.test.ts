@@ -38,6 +38,20 @@ function kit(): THREE.Group {
 const byName = (root: THREE.Object3D, name: string): THREE.Mesh => root.getObjectByName(name) as THREE.Mesh;
 const camera = (): THREE.PerspectiveCamera => new THREE.PerspectiveCamera(60, 1, 0.1, 100);
 
+/** The culler mid-frame on the pyramid path, in a stand-in for its first pass (vitest has no WebGPU device to make the real one). */
+interface PassFrame {
+  drawing: 0 | 1 | 2;
+  readonly pyramid: { standinMaterial(): THREE.Material };
+}
+function onPyramidPass(culler: OcclusionCuller, standinMaterial: THREE.Material): PassFrame {
+  const frame: PassFrame = { drawing: 1, pyramid: { standinMaterial: () => standinMaterial } };
+  Object.assign(culler as unknown as { applied: string; frame: PassFrame | null }, { applied: 'hiz', frame });
+  return frame;
+}
+function offPyramidPass(culler: OcclusionCuller): void {
+  Object.assign(culler as unknown as { applied: string; frame: PassFrame | null }, { applied: 'off', frame: null });
+}
+
 describe('occluder stand-ins', () => {
   it('belong to their piece but are none of its render nodes and leave its bounds as they are', () => {
     const root = kit();
@@ -78,47 +92,48 @@ describe('occluder stand-ins', () => {
     expect(['hedge_LOD0', 'rock'].map((n) => occluderRoleOfDraw(byName(none, n), 'single'))).toEqual(['none', 'none']);
   });
 
-  it('draw for the view\'s camera alone, only while the culler is on a path, and are counted', () => {
+  it('draw for the view\'s camera alone, only in the pyramid\'s first pass, and are counted', () => {
     const root = kit();
     applyModelOccluders(root);
     const occ = byName(root, 'hedge_OCC');
     const scene = new THREE.Scene();
     const view = camera();
     const shadow = camera();
-    let path: 'off' | 'auto' = 'off';
+    let path: 'off' | 'auto' | 'on' = 'off';
     let gpu: 'webgl2' | 'webgpu' = 'webgl2';
-    // A WebGL 2 renderer as far as the queries need one (they are never drawn here).
-    const webgl = { backend: { gl: { beginQuery: () => undefined } } };
-    const culler = new OcclusionCuller({ scene, setting: () => path, renderer: () => gpu, pinned: null, view: { is: (c) => c === view }, webgl: () => (gpu === 'webgl2' ? webgl : null) });
+    const culler = new OcclusionCuller({ scene, setting: () => path, renderer: () => gpu, pinned: null, view: { is: (c) => c === view } });
     const draws = (c: THREE.Camera): number => {
       occ.onBeforeRender(null as never, scene, c, occ.geometry, occ.material as THREE.Material, null as never);
       return occ.geometry.drawRange.count;
     };
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    // WebGL 2's auto culls nothing: no stand-in.
+    // WebGL 2 culls nothing, pinned or not: no stand-in.
     path = 'auto';
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    // The queries' path (pinned): only while the query render after the frame draws them, for the view.
-    culler.pin('queries');
+    culler.pin('hiz');
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
-    const queries = culler.scenePasses() as unknown as { drawing: boolean };
-    queries.drawing = true;
-    expect([draws(view), draws(shadow)]).toEqual([Number.POSITIVE_INFINITY, 0]);
-    culler.update();
-    expect(culler.diagnostics().standins).toBe(1);
-    // An object that opts out draws no stand-in either.
-    applyObjectOccluder(root, { model: { occluder: false } });
-    expect(draws(view)).toBe(0);
-    applyObjectOccluder(root, { model: {} });
-    queries.drawing = false;
     culler.pin(null);
     // The pyramid's path: only in its first pass and with its material (none here: no WebGPU renderer), never into the depth.
     gpu = 'webgpu';
     culler.update();
     expect([draws(view), draws(shadow)]).toEqual([0, 0]);
+    // In the first pass, wearing the pyramid's material: for the view only.
+    path = 'on';
+    const frame = onPyramidPass(culler, occ.material as THREE.Material);
+    expect([draws(view), draws(shadow)]).toEqual([Number.POSITIVE_INFINITY, 0]);
+    frame.drawing = 2;
+    expect(draws(view), 'never in the second pass').toBe(0);
+    frame.drawing = 1;
+    culler.update();
+    // An object that opts out draws no stand-in either.
+    applyObjectOccluder(root, { model: { occluder: false } });
+    expect(draws(view)).toBe(0);
+    applyObjectOccluder(root, { model: {} });
+    offPyramidPass(culler);
+    expect(culler.diagnostics().standins, 'the one first-pass draw before the frame was counted').toBe(1);
     culler.dispose();
     expect(draws(view)).toBe(0);
   });
@@ -138,15 +153,12 @@ describe('occluder stand-ins', () => {
     pup.position.set(0, 0, -3);
     pup.updateMatrixWorld(true);
     const seeThrough = new SeeThroughView({ matrix: (id, out) => id === 'pup' && (out.copy(pup.matrixWorld), true), drawn: (id) => (id === 'pup' ? [pup] : []), components: () => ({}), cameraTarget: () => 'pup' }, { ...SEE_THROUGH_DEFAULTS, enabled: true, fadeTime: 0 });
-    const webgl = { backend: { gl: { beginQuery: () => undefined } } };
-    const culler = new OcclusionCuller({ scene, setting: () => 'auto', renderer: () => 'webgl2', pinned: null, view: { is: (c) => c === view }, webgl: () => webgl, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
+    const culler = new OcclusionCuller({ scene, setting: () => 'auto', renderer: () => 'webgpu', pinned: null, view: { is: (c) => c === view }, fades: (o, c) => seeThrough.bitsFor(o, c) !== 0 });
     const draws = (): number => {
       occ.onBeforeRender(null as never, scene, view, occ.geometry, occ.material as THREE.Material, null as never);
       return occ.geometry.drawRange.count;
     };
-    culler.pin('queries');
-    culler.update();
-    (culler.scenePasses() as unknown as { drawing: boolean }).drawing = true;
+    onPyramidPass(culler, occ.material as THREE.Material);
     // Nothing fading yet: it fills the depth.
     expect(draws()).toBe(Number.POSITIVE_INFINITY);
     const r = { contextNode: { value: {}, needsUpdate: false } };
@@ -156,6 +168,7 @@ describe('occluder stand-ins', () => {
     seeThrough.set({ enabled: false });
     seeThrough.update(r, view, 16);
     expect(draws()).toBe(Number.POSITIVE_INFINITY);
+    offPyramidPass(culler);
     culler.dispose();
     seeThrough.dispose();
   });

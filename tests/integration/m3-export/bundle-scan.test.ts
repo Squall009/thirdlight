@@ -357,8 +357,8 @@ describe('M3 export bundle re-measurement + production parity', () => {
     // The page reads the project's setting from the manifest (renderSettingsOf), so off reaches the exported game.
     expect(renderSettingsOf(built.closure.manifest.settings).occlusionCulling).toBe('off');
     const [page] = await bundlesOf(built.closure);
-    // Both paths and what they share, whatever the setting: a page flag can pin either for a comparison.
-    for (const m of ['three-adapter/src/occlusion.ts', 'three-adapter/src/occlusion-pyramid.ts', 'three-adapter/src/occlusion-instances.ts', 'three-adapter/src/occlusion-whole.ts', 'three-adapter/src/occlusion-queries.ts', 'three-adapter/src/occluders.ts', 'runtime/src/occlusion.ts']) {
+    // The depth pyramid's path and what it shares, whatever the setting: a page flag can pin it for a comparison.
+    for (const m of ['three-adapter/src/occlusion.ts', 'three-adapter/src/occlusion-pyramid.ts', 'three-adapter/src/occlusion-instances.ts', 'three-adapter/src/occlusion-whole.ts', 'three-adapter/src/occluders.ts', 'runtime/src/occlusion.ts']) {
       expect(page!.sources, m).toContain(`packages/${m}`);
     }
     for (const pkg of ['editor', 'backend', 'mcp-adapter', 'workspace', 'commands', 'protocol']) {

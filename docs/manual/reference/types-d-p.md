@@ -1,4 +1,4 @@
-# Types (DecalPageLayerRef to PackedFrom)
+# Types (DecalPageLayerRef to PaintInstancesArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1560,12 +1560,12 @@ Declared in `packages/project-model/src/render-settings.ts`.
 ```ts
 /**
  * Occlusion culling: what solid things in front hide is not drawn. `on`
- * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
- * queries on boxes on WebGL 2); `auto` (and a project that does not set it)
- * culls nothing on either renderer for now: the depth pyramid's two-pass frame
- * costs an open view more than it saves at the sizes measured, and the
- * queries answer frames late; `off` draws everything in view. Culling draws
- * the same picture as without it, so `on` changes cost, never the look.
+ * culls with a depth pyramid on WebGPU (WebGL 2 has no culling path and
+ * draws everything); `auto` (and a project that does not set it) culls
+ * nothing for now: the depth pyramid's two-pass frame costs an open view more
+ * than it saves at the sizes measured; `off` draws everything in view.
+ * Culling draws the same picture as without it, so `on` changes cost, never
+ * the look.
  */
 const OCCLUSION_CULLING_MODES: readonly ["off", "auto", "on"];
 ```
@@ -1626,5 +1626,17 @@ interface PackedFrom {
    * Absent on textures packed before KTX2 sources were taken.
    */
   reencoded?: boolean[];
+}
+```
+
+<a id="type-paint-instances-args"></a>
+### PaintInstancesArgs
+
+Declared in `packages/commands/src/instance-stroke-ops.ts`.
+
+```ts
+/** `paintInstances` args: the instance set and one stroke. */
+interface PaintInstancesArgs extends InstanceStroke {
+  entityId: string;
 }
 ```

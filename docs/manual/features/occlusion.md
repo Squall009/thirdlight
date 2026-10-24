@@ -2,8 +2,8 @@
 
 Occlusion culling leaves out of the view what something solid in front of
 it hides: the houses behind a wall, the scatter behind a hill, the props in
-a room the camera cannot see into. The picture stays the same; the GPU (and
-on WebGL 2 the main thread) has less to draw. Shadows, probe bakes and the
+a room the camera cannot see into. The picture stays the same; the GPU has
+less to draw. It needs WebGPU: on WebGL 2 everything in view is drawn. Shadows, probe bakes and the
 cached static shadow always draw everything, so a hidden object's shadow
 still falls where you can see it.
 
@@ -43,7 +43,7 @@ For a game:
 **Project Settings → Quality → Rendering → Occlusion culling**
 ([`occlusion_culling`](../reference/content-blocks-settings.md#content-settings):
 0 off, 1 auto, 2 on). A project that does not set it uses **auto**, which
-for now culls nothing on either renderer: in the scenes measured so far the
+for now culls nothing: in the scenes measured so far the
 culling cost an open view more than it saved (the frame drawn in two passes
 and the depth pyramid cost the open village about 0.6–0.8 ms, and its frames
 are bound by the main thread, not by the draws culling leaves out). **On**
@@ -57,21 +57,20 @@ A quality level may set its own
 `setSettings {occlusion_culling: 2}` and `setEnvironment` with a level's
 `occlusionCulling`.
 
-## The two paths
+## How it culls
 
-**On** picks a path by renderer:
+**On** culls with a depth pyramid on the GPU (`hiz`, WebGPU). The frame
+draws in two passes. The first draws what was seen last frame; a compute
+pass builds a pyramid of the farthest depth from it; the GPU tests the rest
+against it and the second pass draws what shows. Nothing seen is ever left
+out, also when the camera moves fast.
 
-- **WebGPU: a depth pyramid on the GPU (`hiz`).** The frame draws in two
-  passes. The first draws what was seen last frame; a compute pass builds a
-  pyramid of the farthest depth from it; the GPU tests the rest against it
-  and the second pass draws what shows. Nothing seen is ever left out, also
-  when the camera moves fast.
-- **WebGL 2: occlusion queries (`queries`).** WebGL 2 can only ask the GPU
-  afterwards whether a box round a draw showed any pixel. The answers come
-  frames late (two at 60 Hz, 20–60 frames uncapped), so a moving camera can
-  miss something for a frame or two when it comes out from behind a wall, and
-  each box costs about what the draw it replaces costs. Measured so far it
-  culls little; it is there for a project that measures a gain.
+**WebGL 2 culls nothing.** It can only ask the GPU afterwards whether a box
+round a draw showed any pixel; those answers come frames late and saved too
+little to pay for themselves, so the engine has no WebGL 2 path. With the
+setting on, a game drawn with WebGL 2 (`render_backend` 3, or a browser
+without WebGPU) draws everything in view, and Play reports it once in
+**Problems** (`occlusion_culling_unavailable`).
 
 ## `_OCC` stand-ins
 
@@ -130,7 +129,6 @@ to Play and used by the Scene view):
 |---|---|
 | `?occlusion=off` | draws everything in view |
 | `?occlusion=hiz` | the depth pyramid path, whatever the setting (WebGPU; on WebGL 2 it culls nothing) |
-| `?occlusion=queries` | the occlusion queries, whatever the setting (WebGL 2 only) |
 | `?occlusion=pyramid` or `pyramid:<level>` | shows the depth pyramid (level 0 by default) instead of the picture |
 
 The performance harness compares with `--switches occlusion=hiz` (or `occlusion=off` where a project turned it on)

@@ -965,8 +965,8 @@ export interface BehaviorStatsTime {
 ```ts
 /** Occlusion culling in the last frame: what hidden draws the view left out. */
 export interface BehaviorStatsOcclusion {
-  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU), 'queries' (occlusion queries) or 'off'. */
-  readonly path: 'off' | 'queries' | 'hiz';
+  /** The path it culls on: 'hiz' (a depth pyramid on the GPU, WebGPU) or 'off'. */
+  readonly path: 'off' | 'hiz';
   /** Draws tested against what is in front of them. */
   readonly tested: number;
   /** Draws left out of the view because something in front hides them. */

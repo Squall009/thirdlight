@@ -4,9 +4,9 @@ import { engineStatsOf, ENGINE_STATS_NONE } from './engine-stats';
 import { occludeeClassOf, occludeeScreenShare, occluderRoleOf, type OccluderFacts, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, occlusionPathFrom, occlusionPathOf } from './occlusion';
 
 describe('occlusion culling rules', () => {
-  it('on takes the depth pyramid on WebGPU and the queries on WebGL 2; auto culls nothing for now; off and an unknown renderer draw everything', () => {
+  it('on takes the depth pyramid on WebGPU and culls nothing on WebGL 2; auto culls nothing for now; off and an unknown renderer draw everything', () => {
     expect(occlusionPathOf('on', 'webgpu')).toEqual({ path: 'hiz', source: 'setting' });
-    expect(occlusionPathOf('on', 'webgl2')).toEqual({ path: 'queries', source: 'setting' });
+    expect(occlusionPathOf('on', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('on', null).path).toBe('off');
     expect(occlusionPathOf('auto', 'webgpu')).toEqual({ path: 'off', source: 'setting' });
     expect(occlusionPathOf('auto', 'webgl2')).toEqual({ path: 'off', source: 'setting' });
@@ -15,11 +15,11 @@ describe('occlusion culling rules', () => {
 
   it('a page pin wins over the setting, and a path the renderer lacks draws with none', () => {
     expect(occlusionPathOf('off', 'webgpu', 'hiz')).toEqual({ path: 'hiz', source: 'page' });
-    expect(occlusionPathOf('auto', 'webgl2', 'queries')).toEqual({ path: 'queries', source: 'page' });
-    expect(occlusionPathOf('auto', 'webgpu', 'queries')).toEqual({ path: 'off', source: 'page' });
     expect(occlusionPathOf('auto', 'webgpu', 'off')).toEqual({ path: 'off', source: 'page' });
     expect(occlusionPathOf('auto', 'webgl2', 'hiz')).toEqual({ path: 'off', source: 'page' });
-    expect(occlusionPathFrom('queries')).toBe('queries');
+    expect(occlusionPathFrom('hiz')).toBe('hiz');
+    // A path no renderer has is no path.
+    expect(occlusionPathFrom('queries')).toBeNull();
     expect(occlusionPathFrom('pyramid')).toBeNull();
     expect(occlusionPathFrom(null)).toBeNull();
   });

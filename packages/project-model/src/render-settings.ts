@@ -44,12 +44,12 @@ export function ambientOcclusionSettingValue(kind: AmbientOcclusionKind): number
 
 /**
  * Occlusion culling: what solid things in front hide is not drawn. `on`
- * culls on the path the renderer has (a depth pyramid on WebGPU, occlusion
- * queries on boxes on WebGL 2); `auto` (and a project that does not set it)
- * culls nothing on either renderer for now: the depth pyramid's two-pass frame
- * costs an open view more than it saves at the sizes measured, and the
- * queries answer frames late; `off` draws everything in view. Culling draws
- * the same picture as without it, so `on` changes cost, never the look.
+ * culls with a depth pyramid on WebGPU (WebGL 2 has no culling path and
+ * draws everything); `auto` (and a project that does not set it) culls
+ * nothing for now: the depth pyramid's two-pass frame costs an open view more
+ * than it saves at the sizes measured; `off` draws everything in view.
+ * Culling draws the same picture as without it, so `on` changes cost, never
+ * the look.
  */
 export const OCCLUSION_CULLING_MODES = ['off', 'auto', 'on'] as const;
 export type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];

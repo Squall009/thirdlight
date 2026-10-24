@@ -890,10 +890,10 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           architecture: architectureFromUrl(pageSearch()),
           // What the rooms' portals do not show is left out unless the page says ?portals=off (a diagnostic comparison).
           portals: portalsFromUrl(pageSearch()),
-          // Occlusion culling on the setting's path unless the page pins one, ?occlusion=off|queries|hiz (a diagnostic comparison;
-          // `pyramid` pins hiz and draws its depth pyramid instead of the picture).
+          // Occlusion culling on the setting's path unless the page pins one (?occlusion=off|hiz|pyramid, a diagnostic comparison).
           occlusion: occlusionFromUrl(pageSearch()),
           occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
+          ...(o.onProblem !== undefined ? { occlusionProblem: o.onProblem } : {}),
           ...(o.keepGeneratedArchitecture === true ? ((store) => (store !== null ? { architectureStore: store } : {}))(browserArchitectureStore()) : {}),
           // The style and preset graphs outlines are made by.
           ...(manifest.architectureStyles !== undefined ? { architectureStyles: manifest.architectureStyles } : {}),

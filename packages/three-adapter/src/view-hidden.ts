@@ -23,13 +23,13 @@ export const HIDDEN_BY_CUTAWAY = 1;
 export const HIDDEN_BY_ROOM = 2;
 /** Another object than the one an editor's edit mode isolates (isolation-view.ts): hidden from the shadows too. */
 export const HIDDEN_BY_ISOLATION = 4;
-/** Hidden behind what is drawn in front of it (occlusion queries' answers, the occlusion oracle's ideal culling). */
+/** Hidden behind what is drawn in front of it (the occlusion oracle's ideal culling). */
 export const HIDDEN_BY_OCCLUSION = 8;
 
 /**
  * The reasons decided before occlusion culling runs, each frame: a cut-away,
  * the rooms' portals, an edit mode's isolation. They are exact and cheap, so
- * what they hide is never tested against the depth or asked a query.
+ * what they hide is never tested against the depth.
  */
 export const HIDDEN_BEFORE_OCCLUSION = HIDDEN_BY_CUTAWAY | HIDDEN_BY_ROOM | HIDDEN_BY_ISOLATION;
 

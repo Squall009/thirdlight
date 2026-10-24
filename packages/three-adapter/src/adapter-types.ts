@@ -85,6 +85,8 @@ export interface SceneAdapterOptions {
   occlusion?: import('@thirdlight/runtime').OcclusionPath | null;
   /** The depth pyramid level drawn over the frame (`?occlusion=pyramid`; absent or null: the picture). */
   occlusionPyramid?: number | null;
+  /** A problem for the game's author from occlusion culling (its setting on a renderer that cannot cull), once. */
+  occlusionProblem?: (code: string, message: string) => void;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */

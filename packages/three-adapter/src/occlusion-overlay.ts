@@ -1,7 +1,7 @@
 /**
  * What occlusion culling leaves out, drawn over the frame: a tinted box
  * round each draw a culling path hides now (draws culled whole on WebGPU
- * whose last answer said hidden, draws the WebGL 2 queries hid). Drawn
+ * whose last answer said hidden). Drawn
  * without the depth test (what it shows is behind something by definition),
  * on the view only: lines are never occludees, cast no shadow and belong to
  * no object, so isolation leaves them drawn. Instanced copies are culled one

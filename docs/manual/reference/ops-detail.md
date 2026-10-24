@@ -1194,7 +1194,7 @@ Arguments (`args`):
 { document: UiDocument }
 ```
 
-Types: [`UiDocument`](types-u-w.md#type-ui-document).
+Types: [`UiDocument`](types-p-u.md#type-ui-document).
 
 <a id="op-setUiTheme"></a>
 ## setUiTheme

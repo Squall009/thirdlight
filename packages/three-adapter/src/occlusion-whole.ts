@@ -102,8 +102,7 @@ const _view = new TestView();
  * far its vertices may move (vertex-reach.ts). Worth a test: vertices with a
  * known reach, one range, at least `OCCLUSION_MIN_TRIANGLES`, in the
  * frustum, and not so large on screen that it is never hidden whole (the
- * runtime's `occludeeClassOf`). Both culling paths ask this, the depth pyramid's and
- * the occlusion queries'.
+ * runtime's `occludeeClassOf`).
  */
 export function wholeTestOf(o: Occludee, camera: THREE.Camera, view: TestView, corners: Float64Array): { count: number; first: number } | null {
   const m = o.object;

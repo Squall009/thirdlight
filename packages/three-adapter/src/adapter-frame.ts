@@ -420,11 +420,7 @@ export class AdapterFrame {
         else renderer.render(p.scene, camera);
       };
       if (job !== null) job.aside(render);
-      else {
-        render();
-        // The occlusion queries (WebGL 2) are drawn against the finished frame's depth.
-        p.occlusion.afterDraw();
-      }
+      else render();
     };
     try {
       try {

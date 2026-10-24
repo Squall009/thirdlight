@@ -39,24 +39,11 @@ describe('the Scene view occlusion switches', () => {
     expect(JSON.parse(canvas.attrs.get('data-occlusion-view')!)).toMatchObject({ view: { culling: false }, path: 'hiz', kept: 2, culled: 3, boxes: 1 });
   });
 
-  it('keeps drawing while the queries path hides something (its answers come frames later)', () => {
-    const { adapter } = fakeAdapter();
-    const sw = (adapter.occlusion as () => { diagnostics: () => unknown })();
-    let hidden = 2;
-    sw.diagnostics = () => ({ path: 'queries', kept: 0, tested: 4, culled: hidden, culledBoxes: null, instances: null, queries: { candidates: 4, hidden, asked: 4, answered: 4, lost: 0, cuts: 0 } });
-    const view = new SceneViewOcclusion(() => adapter, () => ({ setAttribute() {} }) as unknown as HTMLElement, null);
-    view.afterFrame();
-    expect(view.animating).toBe(true);
-    hidden = 0;
-    view.afterFrame();
-    expect(view.animating).toBe(false);
-  });
-
   it("pins the page flag's path when on", () => {
     const { calls, adapter } = fakeAdapter();
-    const view = new SceneViewOcclusion(() => adapter, () => ({ setAttribute() {} }) as unknown as HTMLElement, 'queries');
+    const view = new SceneViewOcclusion(() => adapter, () => ({ setAttribute() {} }) as unknown as HTMLElement, 'hiz');
     view.set({ culling: true, culled: false, pyramid: true });
-    expect(calls).toEqual(['pin queries', 'boxes false', 'pyramid 0']);
+    expect(calls).toEqual(['pin hiz', 'boxes false', 'pyramid 0']);
   });
 
   it('sends what is kept when it changes, and again after the adapter was made again', () => {

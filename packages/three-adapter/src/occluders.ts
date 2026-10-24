@@ -2,8 +2,8 @@
  * Occluders in the adapter: what hides the occludees from the view.
  *
  * Occlusion culling tests draws against the depth the view's opaque draws
- * leave: a depth pyramid built from it on WebGPU, occlusion queries drawn
- * against it on WebGL 2. What fills that depth, and in which order, is set
+ * leave: a depth pyramid built from it on WebGPU. What fills that depth, and
+ * in which order, is set
  * here; which draw counts is the runtime's `occluderRoleOf`:
  *
  * - **Level geometry** (terrain pages, block chunks, generated architecture,

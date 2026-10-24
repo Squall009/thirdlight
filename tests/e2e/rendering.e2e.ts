@@ -17,10 +17,8 @@
  *    instance set's copies (painted ones among them) hidden behind the boxes
  *    are culled on the GPU, as are a model drawn alone behind a wall (culled
  *    whole) and the terrain's nodes behind a ridge, and the picture stays
- *    the same. On WebGL 2 the occlusion queries (the setting's on there)
- *    hide the model behind the wall and draw the same pictures with
- *    culling on and off, through the post stack (the stand-in in the queries'
- *    depth only), in the plain frame and at poses along the moving camera.
+ *    the same. WebGL 2 has no culling path: the setting's on draws
+ *    everything there, and a Play says so once in the Problems.
  *  - Only what is drawn is in three.js: Play's scene holds the drawables and
  *    lights (no entity holders, empty markers or groups), and while nothing
  *    moves no matrix is written; a third of the field
@@ -317,15 +315,15 @@ type OcclusionView = { view: { culling: boolean; culled: boolean; pyramid: boole
 const occlusionView = async (page: Page): Promise<OcclusionView> => JSON.parse((await attr(page, 'data-occlusion-view')) || '{}') as OcclusionView;
 
 /**
- * Occlusion culling in the Scene view with the project's culling on, on both renderers (WebGL 2 on its queries): a wall put between the view and a dense block (2,352
+ * Occlusion culling in the Scene view with the project's culling on (WebGPU's depth pyramid): a wall put between the view and a dense block (2,352
  * triangles, worth a test) hides the block, and the View menu's culled draws show its box; selected, the block
  * is kept (outlined, never culled); the Inspector's Occluder off makes the wall hide nothing; an edit mode on the
  * block (vertex paint, with the rest shown as context) never culls it; and the view draws the same picture
- * with culling on and off.
+ * with culling on and off. On WebGL 2 the same setting culls nothing, and a Play reports it in the Problems once.
  */
 async function sceneViewOcclusion(page: Page): Promise<void> {
   const view = page.locator('canvas.tl-viewport');
-  // Culling on (the setting's auto culls nothing): the depth pyramid on WebGPU, the queries on WebGL 2.
+  // Culling on (the setting's auto culls nothing): the depth pyramid on WebGPU.
   await command('setSettings', { settings: { occlusion_culling: 2 } });
   const piece = { name: 'dense', lods: [[1, 1, 1]] as [number, number, number][], colors: [[0.2, 0.4, 0.9]] as [number, number, number][], segments: 14 };
   await publishBytes(be, new Uint8Array(multiPieceGlb([piece], { centred: true })), 'model', 'dense-block', 'Dense block');
@@ -395,15 +393,11 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
     expectOcclusionShotsMatch({ image: on, occlusion: `${marks.path}|0|${marks.tested}|${marks.culled}|0` }, { image: off, occlusion: 'off' }, label);
   };
 
-  // The product's renderer first (WebGPU on a GPU), then WebGL 2 (once, if the first was not it).
-  const backends = backendOf('auto') === 'webgpu' ? (['webgpu', 'webgl2'] as const) : (['webgl2'] as const);
-  for (const [k, backend] of backends.entries()) {
-    if (backend === 'webgl2') {
-      await page.goto(editorUrlFor(be.editorUrl, 'webgl2'));
-      await expect(page.locator('.tl-statusbar')).toContainText('connected');
-      await expectRendererBackend(view, 'webgl2');
-    } else await expectRendererBackend(view, 'auto');
-    const path = backend === 'webgpu' ? 'hiz' : 'queries';
+  // WebGPU (where the host has it), then WebGL 2, which culls nothing.
+  if (backendOf('auto') === 'webgpu') {
+    await expectRendererBackend(view, 'auto');
+    const backend = 'webgpu';
+    const path = 'hiz';
     await placeForView();
     await expect(row(block)).toBeVisible({ timeout: 15_000 });
     // The culled draws' boxes (the view keeps drawing while they show): the block behind the wall.
@@ -427,46 +421,56 @@ async function sceneViewOcclusion(page: Page): Promise<void> {
     // The wall selected: the block is culled again; the wall's Occluder off, it hides nothing (one undo puts it back).
     await row(wall).click();
     await culledShown(path, 1, `${backend}: the block culled again once the selection moved`);
-    // The Occluder field moves the wall out of the depth the pyramid is built from (the queries test the finished frame's depth).
-    if (path === 'hiz') {
-      const occluder = inspector(page).getByRole('checkbox', { name: 'box occluder' });
-      await expect(occluder).toBeChecked();
-      // (The field shows the stored value: it turns off once the command is applied.)
-      await occluder.click();
-      await expect(occluder).not.toBeChecked();
-      await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: wall } }))['entity'] as { components: { box: { occluder?: boolean } } }).components.box.occluder).toBe(false);
-      await culledShown(path, 0, 'the wall no occluder: the block drawn');
-      await menu(page, 'Edit', 'Undo');
-      await culledShown(path, 1, 'the wall an occluder again');
-    }
-    if (k === 0) {
-      // An edit mode on the block with the rest of the scene shown (Context): the edited block is never culled.
-      await row(block).click();
-      await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
-      const mode = page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
-      await expect(mode).toBeVisible();
-      await mode.getByRole('button', { name: 'Context' }).click();
-      await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { context?: boolean }).toMatchObject({ context: true });
-      await culledShown(path, 0, 'the edited block is never culled');
-      await mode.getByRole('button', { name: /^done/i }).click();
-      await expect(mode).toHaveCount(0);
-      await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'centre' }).first().click();
-      await culledShown(path, 1, 'out of the edit mode, culled again');
-      // The model's import setting: what of it hides what is behind it (one setAssetOptions; back to auto).
-      await chooseItem(page, 'model', 'Dense block');
-      const field = inspector(page).getByLabel('occluder', { exact: true });
-      await field.selectOption('none');
-      const occluderOf = async (): Promise<unknown> => ((await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; occluder?: string }[]).find((a) => a.assetId === 'dense-block')?.occluder;
-      await expect.poll(occluderOf).toBe('none');
-      await field.selectOption('auto');
-      await expect.poll(occluderOf).toBeUndefined();
-    }
+    // The Occluder field moves the wall out of the depth the pyramid is built from.
+    const occluder = inspector(page).getByRole('checkbox', { name: 'box occluder' });
+    await expect(occluder).toBeChecked();
+    // (The field shows the stored value: it turns off once the command is applied.)
+    await occluder.click();
+    await expect(occluder).not.toBeChecked();
+    await expect.poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: wall } }))['entity'] as { components: { box: { occluder?: boolean } } }).components.box.occluder).toBe(false);
+    await culledShown(path, 0, 'the wall no occluder: the block drawn');
+    await menu(page, 'Edit', 'Undo');
+    await culledShown(path, 1, 'the wall an occluder again');
+    // An edit mode on the block with the rest of the scene shown (Context): the edited block is never culled.
+    await row(block).click();
+    await inspector(page).getByRole('button', { name: 'Paint vertices', exact: true }).click();
+    const mode = page.locator('.tl-editmode[data-edit-mode="vertex-paint"]');
+    await expect(mode).toBeVisible();
+    await mode.getByRole('button', { name: 'Context' }).click();
+    await expect.poll(async () => JSON.parse((await view.getAttribute('data-isolation')) || '{}') as { context?: boolean }).toMatchObject({ context: true });
+    await culledShown(path, 0, 'the edited block is never culled');
+    await mode.getByRole('button', { name: /^done/i }).click();
+    await expect(mode).toHaveCount(0);
+    await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'centre' }).first().click();
+    await culledShown(path, 1, 'out of the edit mode, culled again');
+    // The model's import setting: what of it hides what is behind it (one setAssetOptions; back to auto).
+    await chooseItem(page, 'model', 'Dense block');
+    const field = inspector(page).getByLabel('occluder', { exact: true });
+    await field.selectOption('none');
+    const occluderOf = async (): Promise<unknown> => ((await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['assets'] as { assetId: string; occluder?: string }[]).find((a) => a.assetId === 'dense-block')?.occluder;
+    await expect.poll(occluderOf).toBe('none');
+    await field.selectOption('auto');
+    await expect.poll(occluderOf).toBeUndefined();
     // The picture with culling on (the block culled, the boxes off) and off: the same.
     await menu(page, 'View', 'Show culled draws: on');
     await expect.poll(async () => (await occlusionView(page)).boxes).toBeNull();
     await hiddenCasterShadow(`scene-view-${backend}`);
     await onOff(`scene-view-${backend}`);
   }
+  // WebGL 2: the setting stays on and nothing is culled; a Play says so once in the Problems.
+  await page.goto(editorUrlFor(be.editorUrl, 'webgl2'));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(view, 'webgl2');
+  await expect.poll(async () => (await occlusionView(page)).path, { timeout: 15_000 }).toBe('off');
+  const unavailable = async (): Promise<number> => {
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/problems`, { headers: { authorization: `Bearer ${be.token}`, origin: be.origin } });
+    return ((await r.json()) as { problems: { code: string }[] }).problems.filter((p) => p.code === 'occlusion_culling_unavailable').length;
+  };
+  expect(await unavailable(), 'no line before a Play').toBe(0);
+  await page.getByTitle('Start an isolated play preview').click();
+  await expect.poll(unavailable, { timeout: 30_000, message: 'WebGL 2 Play reports the setting it cannot honour' }).toBe(1);
+  await page.getByTitle('Stop the play preview').click();
+  await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
 }
 
 /** A unit quaternion (x, y, z, w) turning vectors. */
@@ -539,7 +543,7 @@ test('the export draws the box field instanced and looks the same as without ins
   await paintedCopies();
   await wholeDraws();
   await ridgeGround();
-  // Occlusion culling on (the setting's auto culls nothing): the depth pyramid on WebGPU, the queries on WebGL 2.
+  // Occlusion culling on (the setting's auto culls nothing): the depth pyramid on WebGPU.
   await command('setSettings', { settings: { occlusion_culling: 2 } });
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -596,12 +600,12 @@ test('the export draws the box field instanced and looks the same as without ins
       return f;
     };
     const shot = (f: { png: Buffer; occlusion: string | null }) => ({ image: decodePng(f.png), occlusion: f.occlusion });
-    /** The pose drawn with the setting's culling (or the path `path` pins), then pinned off in the same page: the same picture (`label`). */
-    const onAndOff = async (game: Page, canvas: Locator, label: string, on?: { png: Buffer; draws: number; occlusion: string | null }, path: string | null = null) => {
+    /** The pose drawn with the setting's culling, then pinned off in the same page: the same picture (`label`). */
+    const onAndOff = async (game: Page, canvas: Locator, label: string, on?: { png: Buffer; draws: number; occlusion: string | null }) => {
       const culled = on ?? (await shootGame(canvas, `${label}-on`));
       await onOcclusionSwitch(game, 'pin', 'off');
       const off = await shootGame(canvas, `${label}-off`);
-      await onOcclusionSwitch(game, 'pin', path);
+      await onOcclusionSwitch(game, 'pin', null);
       // Not only within the strict rule: drawing the frame in two passes changes no pixel.
       expect(expectOcclusionShotsMatch(shot(culled), shot(off), label).worst, `${label}: identical`).toBe(0);
       return { on: culled, off };
@@ -681,33 +685,11 @@ test('the export draws the box field instanced and looks the same as without ins
     }
     await first.game.close();
 
-    // WebGL 2's occlusion queries on boxes (the setting's on: their answers come frames late). The same
-    // pictures with culling on and off: through the post stack with ambient occlusion (the fence's stand-in drawn into
-    // the queries' depth only, the glass behind it still drawn), the plain frame (through the scene pass with culling
-    // on, straight to the canvas with it off), and at poses along the flown camera; the frames a draw stayed hidden
-    // after its box showed are counted (the lateness, logged).
+    // WebGL 2 culls nothing with the setting on.
     const gl = await openGame(`${site.url}?renderer=webgl2`);
-    const glOcc = await onAndOff(gl.game, gl.canvas, 'webgl2', undefined, 'queries');
-    const [glPath, , glTested, glCulled, glStandins] = glOcc.on.occlusion!.split('|');
-    expect(glPath, 'WebGL 2 culls with occlusion queries').toBe('queries');
-    expect(Number(glTested), 'boxes asked').toBeGreaterThan(0);
-    expect(Number(glCulled), 'the model behind the wall hidden').toBeGreaterThan(0);
-    expect(Number(glStandins), 'the stand-in drawn into the queries\' depth').toBeGreaterThan(0);
-    await gl.canvas.focus();
-    for (let leg = 1; leg <= 2; leg++) {
-      await gl.game.keyboard.down('KeyF');
-      await gl.game.waitForTimeout(400);
-      await gl.game.keyboard.up('KeyF');
-      await onAndOff(gl.game, gl.canvas, `webgl2-path-${leg}`, undefined, 'queries');
-    }
-    type Queries = { late: number; lateRunMax: number; ageFrames: number; lost: number; cuts: number };
-    const queries = (await onOcclusionSwitch<{ queries: Queries | null }>(gl.game, 'diagnostics')).queries!;
-    console.log(`[rendering] webgl2 queries: ${JSON.stringify(queries)}`);
-    expect(queries.ageFrames, 'answers came').toBeGreaterThan(0);
+    const glShot = await shootGame(gl.canvas, 'webgl2');
+    expect(glShot.occlusion!.split('|')[0], 'WebGL 2 has no culling path').toBe('off');
     await gl.game.close();
-    const glPlain = await openGame(`${site.url}?renderer=webgl2&ao=off`);
-    await onAndOff(glPlain.game, glPlain.canvas, 'webgl2-ao=off', undefined, 'queries');
-    await glPlain.game.close();
 
     const single = await frameOf(`${site.url}?batching=off`, 'single');
     console.log(`[rendering] export draw calls: ${batched.draws} instanced, ${single.draws} one per object`);

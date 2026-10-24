@@ -4,17 +4,13 @@
  *
  * Paths: `hiz` tests bounds against a depth pyramid built from the frame's
  * own depth, on the GPU (WebGPU only: it needs compute and indirect draws);
- * `queries` asks the GPU whether a draw's box has any visible pixel, an
- * answer that arrives a frame or more later (WebGL 2 only: WebGPU has the
- * pyramid, which answers in the same frame); `off` draws everything in view.
+ * `off` draws everything in view. WebGL 2 has no path: its occlusion
+ * queries answered frames late and saved too little to pay for themselves.
  * The project's `occlusion_culling` (or its quality level's) says off, auto
- * or on: on takes the depth pyramid on WebGPU and the queries on WebGL 2;
- * auto culls nothing on either for now. The pyramid's two-pass frame costs
- * an open view more than it saves at the scene sizes measured, and the
- * queries' answers come two frames late at 60 Hz and dozens of frames late
- * on a frame-bound GPU, more than the one frame a draw may come late from
- * behind a wall; a project that measures a gain turns it on. A page flag may
- * pin a path for a comparison.
+ * or on: on takes the depth pyramid on WebGPU; auto culls nothing for now.
+ * The pyramid's two-pass frame costs an open view more than it saves at the
+ * scene sizes measured; a project that measures a gain turns it on. A page
+ * flag may pin a path for a comparison.
  *
  * Occludees are what can be culled: one draw (or one copy of an instanced
  * draw). Whether testing it pays is decided here, once, from what it is, how
@@ -22,8 +18,7 @@
  * in this module and nowhere else.
  *
  * Occluders are what hides them: the depth the view's draws leave before the
- * test (a depth pyramid's source, or the depth occlusion queries are drawn
- * against). What counts is decided here too (`occluderRoleOf`): level
+ * test (the depth pyramid's source). What counts is decided here too (`occluderRoleOf`): level
  * geometry first, then opaque solid surfaces, then `_OCC` stand-ins; never
  * what is see-through or thin, nor what its object opts out.
  *
@@ -31,7 +26,7 @@
  */
 import type { OcclusionCulling } from '@thirdlight/project-model';
 
-export const OCCLUSION_PATHS = ['off', 'queries', 'hiz'] as const;
+export const OCCLUSION_PATHS = ['off', 'hiz'] as const;
 export type OcclusionPath = (typeof OCCLUSION_PATHS)[number];
 
 /** The renderer a frame is drawn with (null: not known yet). */
@@ -47,8 +42,7 @@ export interface OcclusionPathChoice {
 /** Whether `renderer` has `path` (the depth pyramid needs WebGPU's compute and indirect draws). */
 export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionRenderer): boolean {
   if (path === 'off') return true;
-  if (renderer === null) return false;
-  return path === 'queries' ? renderer === 'webgl2' : renderer === 'webgpu';
+  return renderer === 'webgpu';
 }
 
 /**
@@ -57,8 +51,7 @@ export function occlusionPathAvailable(path: OcclusionPath, renderer: OcclusionR
  */
 export function occlusionPathOf(setting: OcclusionCulling, renderer: OcclusionRenderer, pinned: OcclusionPath | null = null): OcclusionPathChoice {
   if (pinned !== null) return { path: occlusionPathAvailable(pinned, renderer) ? pinned : 'off', source: 'page' };
-  if (setting !== 'on' || renderer === null) return { path: 'off', source: 'setting' };
-  return { path: renderer === 'webgpu' ? 'hiz' : 'queries', source: 'setting' };
+  return { path: setting === 'on' && renderer === 'webgpu' ? 'hiz' : 'off', source: 'setting' };
 }
 
 /** A path from a page flag's value (null: not a path). */
@@ -85,11 +78,10 @@ const ITEM_KINDS: ReadonlySet<OccludeeKind> = new Set(['instanced', 'terrain']);
  * together (an instanced draw's copies in view, or else it is drawn whole that
  * frame), or a draw tested whole (a chunk, a merged cell, a model alone). A
  * draw tested on the GPU is a row of its tests and an indirect draw kept up
- * to date on the main thread; on WebGL 2 a query is a box drawn through three
- * like a draw of its own. A draw of fewer triangles does not win either back:
- * measured on the village class (Iris Xe), whose automatic batches of a few
- * small props, and models alone, cost more culled than drawn (64 triangles,
- * one box's worth, made the open village 0.1–0.3 ms slower on both paths).
+ * to date on the main thread. A draw of fewer triangles does not win that
+ * back: measured on the village class (Iris Xe), whose automatic batches of a
+ * few small props, and models alone, cost more culled than drawn (64
+ * triangles, one box's worth, made the open village 0.1–0.3 ms slower).
  */
 export const OCCLUSION_MIN_TRIANGLES = 2048;
 
@@ -100,55 +92,6 @@ export const OCCLUSION_MIN_TRIANGLES = 2048;
  * box; per-item draws are tested by their items, so this does not apply to them.
  */
 export const OCCLUSION_MAX_SCREEN_SHARE = 0.5;
-
-/**
- * Occlusion queries (WebGL 2): a draw seen at its last answer is asked again
- * at least every this many frames (its box's query is a draw of its own); a
- * draw hidden, or hidden at its last answer, is asked every frame, so it is
- * shown at its first answer that sees it.
- */
-export const OCCLUSION_QUERY_SPREAD_FRAMES = 4;
-
-/**
- * The oldest answer (in frames since its query was drawn) a draw is hidden
- * by. An answer arrives a frame or more after its query; an older one is
- * not trusted and the draw is drawn. The boxes queried grow by the camera's
- * motion over this many frames and one more.
- */
-export const OCCLUSION_QUERY_MAX_AGE_FRAMES = 2;
-
-/**
- * How much a queried box grows past the draw's bounds: a fixed margin and a
- * share of its distance from the eye, so its faces lie in front of the
- * draw's own surfaces in the depth buffer (a box face on a wall's face would
- * fail the depth test against the wall itself), however coarse the depth is
- * far away.
- */
-export const OCCLUSION_QUERY_MARGIN_M = 0.05;
-export const OCCLUSION_QUERY_MARGIN_SHARE = 0.01;
-
-/**
- * A camera cut: the eye moved more than this many metres further in a frame
- * than in the frame before (a teleport or a cut, not a steady flight, which
- * the boxes' growth covers), or turned more than this many radians. The
- * answers drawn from the old view are forgotten and everything is drawn.
- */
-export const OCCLUSION_CUT_JUMP_M = 1;
-export const OCCLUSION_CUT_TURN_RAD = 0.35;
-
-/** How far a queried box grows (metres) at `distance` from the eye, while the eye moves `step` metres a frame. */
-export function occlusionQueryMargin(distance: number, step: number): number {
-  return OCCLUSION_QUERY_MARGIN_M + Math.max(0, distance) * OCCLUSION_QUERY_MARGIN_SHARE + Math.max(0, step) * (OCCLUSION_QUERY_MAX_AGE_FRAMES + 1);
-}
-
-/**
- * Whether the view jumped between two frames: the eye moved `step` metres
- * (`lastStep` in the frame before) and its forward direction turned by an
- * angle whose cosine is `turnCos`.
- */
-export function occlusionCameraCut(step: number, lastStep: number, turnCos: number): boolean {
-  return step > Math.max(0, lastStep) + OCCLUSION_CUT_JUMP_M || turnCos < Math.cos(OCCLUSION_CUT_TURN_RAD);
-}
 
 /** What decides whether an occludee is tested. */
 export interface OccludeeFacts {

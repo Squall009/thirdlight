@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { occludeeClassOf, type OcclusionCulling } from '@thirdlight/runtime';
 
 import { markOccludee, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds } from './occludees';
-import { OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionSwitch } from './occlusion';
+import { OCCLUSION_NO_PATH_PROBLEM, OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionSwitch } from './occlusion';
 import { createQualityControl } from './quality-control';
 import { createRenderControl } from './render-control';
 import { LodTuning } from './lod-switch';
@@ -83,7 +83,7 @@ describe('occludees', () => {
   });
 });
 
-function culler(setting: { value: OcclusionCulling }, renderer: { value: 'webgpu' | 'webgl2' | null }, pinned: 'off' | 'queries' | 'hiz' | null = null) {
+function culler(setting: { value: OcclusionCulling }, renderer: { value: 'webgpu' | 'webgl2' | null }, pinned: 'off' | 'hiz' | null = null) {
   const scene = new THREE.Scene();
   const marks: string[] = [];
   let changes = 0;
@@ -153,10 +153,10 @@ describe('occlusion culler', () => {
     h.c.update();
     expect(h.c.diagnostics()).toMatchObject({ path: 'hiz', source: 'setting', occludees: 2, tested: 0, culled: 0, pass1Culled: 0, pass2Drawn: 0, gpuMs: null });
     expect(h.marks[h.marks.length - 1]).toBe('hiz|2|0|0|0');
-    // On WebGL 2, on takes the occlusion queries.
+    // On WebGL 2 nothing is culled (it has no culling path).
     renderer.value = 'webgl2';
     h.c.update();
-    expect(h.c.path()).toBe('queries');
+    expect(h.c.diagnostics()).toMatchObject({ setting: 'on', path: 'off', occludees: 0 });
     // Auto (a project that does not set it) culls nothing on either renderer for now.
     setting.value = 'auto';
     h.c.update();
@@ -170,12 +170,33 @@ describe('occlusion culler', () => {
     expect(h.marks[h.marks.length - 1]).toBe('off|0|0|0|0');
     expect(occlusionFromUrl('?occlusion=hiz&x=1')).toBe('hiz');
     expect(occlusionFromUrl('?occlusion=on')).toBeNull();
+    expect(occlusionFromUrl('?occlusion=queries')).toBeNull();
     // The pyramid's debug view pins the path that builds it.
     expect(occlusionFromUrl('?occlusion=pyramid')).toBe('hiz');
     expect(occlusionFromUrl('?occlusion=pyramid:4')).toBe('hiz');
     expect([occlusionPyramidFromUrl('?occlusion=pyramid'), occlusionPyramidFromUrl('?occlusion=pyramid:4'), occlusionPyramidFromUrl('?occlusion=hiz'), occlusionPyramidFromUrl('?occlusion=pyramid:x')]).toEqual([0, 4, null, null]);
     const pinned = culler({ value: 'on' }, { value: 'webgpu' }, 'off');
     expect(pinned.c.diagnostics()).toMatchObject({ path: 'off', source: 'page', pinned: 'off' });
+  });
+
+  it('an on setting on WebGL 2 draws everything and says so once; auto and a WebGPU renderer say nothing', () => {
+    const problems: string[] = [];
+    const setting = { value: 'auto' as OcclusionCulling };
+    const renderer = { value: 'webgl2' as 'webgpu' | 'webgl2' };
+    const c = new OcclusionCuller({ scene: new THREE.Scene(), setting: () => setting.value, renderer: () => renderer.value, pinned: null, onProblem: (code, message) => void problems.push(`${code}: ${message}`) });
+    c.update();
+    expect(problems).toEqual([]);
+    setting.value = 'on';
+    renderer.value = 'webgpu';
+    c.update();
+    expect([c.path(), problems.length]).toEqual(['hiz', 0]);
+    renderer.value = 'webgl2';
+    c.update();
+    c.update();
+    expect(c.path()).toBe('off');
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(new RegExp(`^${OCCLUSION_NO_PATH_PROBLEM}: occlusion_culling is on, but only WebGPU culls`));
+    c.dispose();
   });
 
   it('the scene\'s switch: tools read the path and pin one; what the old path hid is shown at once, other reasons stay', () => {
