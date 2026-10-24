@@ -5,7 +5,7 @@
  * branches here for a v4 project.
  */
 
-import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
+import { createCommandState, describePrefabCopy, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, readModelGeometry, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
@@ -1215,6 +1215,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
       childIds,
       tagNames: { own: namesOf(((entity as { tags?: number }).tags ?? 0) >>> 0), effective: namesOf(effective) },
     };
+    // An object of a linked copy: the copy, the prefab it links as stored (a variant, not its base) and its overrides.
+    const stored = state.scenes.get(scene.sceneId);
+    const copy = stored !== undefined && viewed !== null && viewed.linked ? describePrefabCopy({ ...stored, revision: state.revision }, commandContentOf(state.content), entityId) : null;
+    if (copy !== null) out['prefabCopy'] = copy;
     if (a['includeSubtree'] === true) {
       const inside = new Set([entityId]);
       for (const e of scene.entities) if (e.parentId !== undefined && inside.has(e.parentId)) inside.add(e.id);

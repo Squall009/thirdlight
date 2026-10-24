@@ -122,8 +122,8 @@ describe('linked prefab copies at the backend', () => {
     expect(byId.get(aPanel)).toMatchObject({ name: 'Panel', parentId: 'door-a', components: { prefab: { prefabId: 'door', localId: panel } } });
     expect(byId.get(bPanel).components.box.material.color).toBe('#22aa22');
     expect(byId.get(aPanel).components.box.material?.color).not.toBe('#22aa22');
-    // The variant: the door's parts under the copy's root, its own colour, the nested handle under the root.
-    expect(byId.get('locked-a')).toMatchObject({ name: 'Locked door', components: { prefab: { prefabId: 'door', localId: doorRoot }, transform: T(13) } });
+    // The variant: the door's parts under the copy's root (which names the variant), its own colour, the nested handle under the root.
+    expect(byId.get('locked-a')).toMatchObject({ name: 'Locked door', components: { prefab: { prefabId: 'locked-door', localId: 'base-1' }, transform: T(13) } });
     expect(byId.get(lockedPanel)).toMatchObject({ parentId: 'locked-a', components: { box: { material: { color: '#aa2222' } } } });
     expect(byId.get(lockedHandle)).toMatchObject({ name: 'Handle', parentId: 'locked-a', components: { prefab: { prefabId: 'handle', localId: handleRoot }, transform: T(0.3) } });
   };

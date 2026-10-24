@@ -188,6 +188,11 @@ describe('linked-copy commands at the backend', () => {
     const v = (await send('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'red-door' })).change;
     const vPanel = (v.mapping as Any[]).find((m) => m.localId === `${doorRoot}/${panel}`).entityId as string;
     await send('setComponent', { entityId: vPanel, component: 'box', value: { material: { color: '#ff0000' } } });
+    // A reader (the Inspector) learns the copy as stored: the variant it links (its root says so too), the part and its overrides.
+    const read = (await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryEntity', projectId: PID, args: { entityId: vPanel } }, token: tb.adminToken, origin: null })).json as Any;
+    expect(read.prefabCopy).toMatchObject({ copyId: v.rootId, prefabId: 'red-door', part: `${doorRoot}/${panel}`, root: false, overrides: [{ part: `${doorRoot}/${panel}`, path: 'components/box/material/color', value: '#ff0000' }] });
+    expect(read.prefabCopy.partIds[`${doorRoot}/${panel}`]).toBe(vPanel);
+    expect((await view(v.rootId)).components.prefab).toEqual({ prefabId: 'red-door', localId: doorRoot });
     await send('applyPrefabOverrides', { entityId: v.rootId, all: true });
     // The variant keeps the colour as its nested copy's override; the doors stay green.
     expect(prefab('red-door').entities[0].components.prefab).toEqual({ prefabId: 'door', overrides: [{ part: panel, path: 'components/box/material/color', value: '#ff0000' }] });

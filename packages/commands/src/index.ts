@@ -278,3 +278,5 @@ export { SET_COMPONENT_ENTITIES_MAX, validatePublishAssetArgs } from './validate
 export { withLoadingValues } from './loadable-ops';
 // The project window's file operations: the ops, and a change the other way (the host moves files by it).
 export { FILE_MOVE_OPS, reversedMoves, validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs } from './move-ops';
+// What an object of a linked copy is (its copy, linked prefab, part and the copy's overrides), for readers.
+export { describePrefabCopy, type PrefabCopyInfo } from './prefab-copy-info';

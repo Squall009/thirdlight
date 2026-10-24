@@ -231,7 +231,8 @@ describe('linked prefab copies', () => {
     expect(out.entities.find((e) => e.id === prefabPartId('door-1', 'sticker-1'))!.parentId).toBe(doorGrip.id);
     // The variant: the base's parts under `base-1`, its own padlock, the base's overrides and its own.
     const locked = out.entities.find((e) => e.id === 'locked-1')!;
-    expect(locked).toMatchObject({ name: 'Locked door', components: { prefab: { prefabId: 'door', localId: doorRoot } } });
+    // The copy's root names the prefab the copy links (the variant), though its parts come from the base.
+    expect(locked).toMatchObject({ name: 'Locked door', components: { prefab: { prefabId: 'locked-door', localId: 'base-1' } } });
     expect(posOf(locked)).toEqual([2, 0, 0]);
     const lockedHandle = out.entities.find((e) => e.id === prefabPartId('locked-1', 'base-1/nest-1'))!;
     expect(posOf(lockedHandle)).toEqual([0.5, 0, 0]);

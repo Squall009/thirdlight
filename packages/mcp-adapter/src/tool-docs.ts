@@ -97,7 +97,8 @@ import {
 export const TOOL_DETAILS = {
   tl_inspect:
     'Bounded, read-only inspection of the project. target="project" returns counts and IDs only; ' +
-    'target="entity" returns one entity (plus subtree only if includeSubtree=true); ' +
+    'target="entity" returns one entity (plus subtree only if includeSubtree=true); an object of a linked prefab copy also has prefabCopy ' +
+    '{copyId, prefabId (the prefab the copy links, a variant\'s copy: the variant), part, root, overrides (every override of the copy), partIds}; ' +
     'target="entities" returns a paged list (limit ≤ 1024, default 100; sceneId limits it to one scene, and ' +
     'each page names every entity\'s scene in entitySceneIds); ' +
     'target="selection" returns the entities selected in the connected editor. ' +

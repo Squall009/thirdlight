@@ -279,6 +279,8 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
             if (parentKey !== undefined) p.parentKey = parentKey;
             // The nested copy's own placement, name and tags are its root's.
             p.components['transform'] = clone(comps['transform']);
+            // A nested copy's root says it is that copy's prefab (a variant, not the base it is made from).
+            p.components['prefab'] = { prefabId: link.prefabId, localId: sub.rootKey };
             if (e.name !== undefined) p.name = e.name;
             if (e.tags !== undefined) p.tags = e.tags;
           } else p.parentKey = map(sp.parentKey);
@@ -344,7 +346,8 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
           ...own,
           ...(copy.name === undefined && p.name !== undefined ? { name: p.name } : {}),
           ...(copy.tags === undefined && p.tags !== undefined ? { tags: p.tags } : {}),
-          components: { ...p.components, transform: clone(comps['transform']) },
+          // The root names the prefab the copy links (a variant's copy: the variant), which the editor shows.
+          components: { ...p.components, transform: clone(comps['transform']), prefab: { prefabId: link.prefabId, localId: prefab.rootKey } },
         };
       }
       return {
