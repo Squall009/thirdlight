@@ -331,3 +331,6 @@ export {
 export { RESOURCE_CREATING_OPS } from '@thirdlight/project-model/limits';
 // How many objects a folded diagnostics row names; the editor's Console says when there were more.
 export { REPEATED_ROW_ENTITY_IDS_MAX } from '@thirdlight/project-model/repeated-rows';
+
+// Every mutation op the wire accepts (defined once, in commands).
+export { MUTATION_OPS } from '@thirdlight/commands/mutation-ops';

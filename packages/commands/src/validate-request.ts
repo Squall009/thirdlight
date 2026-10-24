@@ -50,6 +50,7 @@ import {
   jsonType,
   limitsExceeded,
 } from './errors';
+import { MUTATION_OPS } from './mutation-ops';
 import { SURFACE_PRESET_NAMES } from './v3';
 import { validatePasteArgs } from './paste-ops';
 import { CREATE_ENTITIES_MAX } from './ops';
@@ -115,117 +116,6 @@ const TOP_FIELDS = [
   'args',
 ] as const;
 
-/** Every mutation op a request may name (the one list: records, the host and the wire check against it). */
-export const MUTATION_OPS: readonly MutationOp[] = [
-  'createEntity',
-  'setTransform',
-  'deleteEntity',
-  'undo',
-  'redo',
-  // non-prefab content/property ops:
-  'publishAsset',
-  'publishBehavior',
-  'setBehaviorProperties',
-  'setComponent',
-  'setSettings',
-  'acknowledgeBehaviorTrust',
-  // prefab ops:
-  'createPrefab',
-  'instantiatePrefab',
-  // v3 game/presentation ops:
-  'applySurfacePreset',
-  'updateEntity',
-  // hierarchy + tags:
-  'moveEntities',
-  'setTags',
-  'setAssetOptions',
-  'pasteEntities',
-  'setMaterial',
-  'deleteMaterial',
-  'setEnvironment',
-  'setLighting',
-  'setAnimator',
-  'deleteAnimator',
-  'setInput',
-  'setCollisionLayers',
-  'setLightLayers',
-  'setSaveSchema',
-  'createScene',
-  'renameScene',
-  'deleteScene',
-  'setStartScenes',
-  // graphs
-  'setGraph',
-  'deleteGraph',
-  'graphEdit',
-  // Visual effects
-  'setEffect',
-  'deleteEffect',
-  'renameEffect',
-  // Shared script libraries
-  'setScriptLibrary',
-  'deleteScriptLibrary',
-  // Block layers
-  'editBlocks',
-  'setBlockType',
-  'deleteBlockType',
-  'setCellFields',
-  'setBlockStamp',
-  'deleteBlockStamp',
-  // Kits
-  'setKit',
-  'deleteKit',
-  // Project UI documents and themes
-  'setUiDocument',
-  'deleteUiDocument',
-  'setUiTheme',
-  'deleteUiTheme',
-  'setDialogue',
-  'deleteDialogue',
-  'setSpeaker',
-  'deleteSpeaker',
-  'setDialogueSettings',
-  // Game modes and behavior groups
-  'setModes',
-  'setBehaviorGroups',
-  // The event → cue table
-  'setEventCues',
-  // The game shell
-  'setShell',
-  // timelines
-  'setTimeline',
-  'deleteTimeline',
-  // Asset and prefab deletion
-  'deleteAsset',
-  'deletePrefab',
-  // A prefab's contents replaced from an object
-  'updatePrefab',
-  // A folder's files as assets
-  'importAssets',
-  // Resource and scene files the file check found
-  'importResources',
-  // Bulk creation
-  'createEntities',
-  // Staged library edits (several patches, one commit)
-  'commitScriptLibraryStage',
-  // Labels and addresses (what scripts load by name)
-  'setLabels',
-  'setAddress',
-  // The project window's file operations
-  'moveResources',
-  'renameFolder',
-  'createFolder',
-  // The instance brush (one stroke)
-  'paintInstances',
-  // The vertex paint brush (one stroke)
-  'paintVertices',
-  'colliderFromModel',
-  // A terrain edit (one stroke, import or conversion)
-  'editTerrain',
-  // Script deletion and trust withdrawal
-  'deleteBehavior',
-  'revokeBehaviorTrust',
-];
 
 /** The one id key of each op whose only argument names the record it removes. */
 const SINGLE_ID_KEY = { deleteAsset: 'assetId', deletePrefab: 'prefabId', deleteBehavior: 'behaviorId', revokeBehaviorTrust: 'sourceDigest' } as const;

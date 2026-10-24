@@ -1,13 +1,13 @@
 /**
  * The graph editor's pure model.
  *
- * The editor may import project-model types only, so
- * this module holds the editor side of the graph framework:
+ * The editor side of the graph framework. The rules the backend applies
+ * (op application, canonical form, port types, compatibility, the cycle
+ * check) are project-model's own, imported from its `graph` subpath, so the
+ * editor and the backend cannot disagree on them; this module adds:
  *
  * - `applyGraphOpsLocal`: advances the editor's copy of a graph from a
- *   `graphEdit` change (the backend applied and validated the same ops; this
- *   is the projection, kept equal to project-model's `applyGraphOps` by
- *   tests/graph-parity.test.ts);
+ *   `graphEdit` change (the backend applied and validated the same ops);
  * - connection helpers over the kind's data (port compatibility with the
  *   implicit conversions, the live cycle check, the catalogue filter for
  *   "drag from a port to empty space");
@@ -15,11 +15,9 @@
  * - geometry (node sizes, port positions, wires, hit tests, fit/zoom);
  * - edit builders (copy/paste with id remapping, duplicate, delete,
  *   alignment, grouping), each returning the op list of ONE graphEdit;
- * - data-dependent ports (`resolvePorts`: a sub-graph call's
- *   interface, types from node data, `auto` widths from the wires), the
- *   same rules as project-model's `resolveGraphPorts` (parity-tested). Every
- *   port lookup takes an optional `PortsOf` (default: the node type's ports
- *   with types from the node's own data).
+ * - data-dependent ports (`resolvePorts`: project-model's
+ *   `resolveGraphPorts`). Every port lookup takes an optional `PortsOf`
+ *   (default: the node type's ports with types from the node's own data).
  *
  * Pure: no DOM, no I/O.
  */
@@ -39,131 +37,29 @@ import type {
   GraphPortDef,
   GraphValue,
 } from '@thirdlight/project-model';
+import { applyGraphOps, canonicalGraphData, GRAPH_AUTO_TYPE, graphInterface as modelGraphInterface, nodeDef, nodeFieldValue, portCompatibility, repeatedPorts, repeatItems, resolveGraphPorts, wouldCycle } from '@thirdlight/project-model/graph';
 
 export type { GraphData, GraphKindDef, GraphNode, GraphNodeDef, GraphEdge, GraphGroup, GraphComment, GraphOp, GraphPoint, GraphValue, GraphContext };
 
 // ---- the projection -----------------------------------------------------------------------
 
-const byId = <T extends { id: string }>(a: T, b: T): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const clone = <T>(v: T): T => structuredClone(v);
 
 /** The canonical form (sorted by id, empty optionals dropped) — as the backend stores it. */
-export function canonicalGraph(g: GraphData): GraphData {
-  const nodes = [...g.nodes].sort(byId).map((n) => {
-    const keys = n.data !== undefined ? Object.keys(n.data).sort() : [];
-    return {
-      id: n.id,
-      type: n.type,
-      position: [n.position[0], n.position[1]] as GraphPoint,
-      ...(n.collapsed === true ? { collapsed: true as const } : {}),
-      ...(keys.length > 0 ? { data: Object.fromEntries(keys.map((k) => { const v = n.data![k]!; return [k, Array.isArray(v) ? [...v] : v]; })) } : {}),
-    };
-  });
-  const edges = [...g.edges].sort(byId).map((e) => ({
-    id: e.id,
-    from: { node: e.from.node, port: e.from.port },
-    to: { node: e.to.node, port: e.to.port },
-    ...(e.reroutes !== undefined && e.reroutes.length > 0 ? { reroutes: e.reroutes.map((p) => [p[0], p[1]] as GraphPoint) } : {}),
-  }));
-  const groups = [...(g.groups ?? [])].sort(byId).map((x) => ({ id: x.id, title: x.title, color: x.color, rect: [x.rect[0], x.rect[1], x.rect[2], x.rect[3]] as GraphGroup['rect'] }));
-  const comments = [...(g.comments ?? [])].sort(byId).map((c) => ({ id: c.id, text: c.text, position: [c.position[0], c.position[1]] as GraphPoint, ...(c.size !== undefined ? { size: [c.size[0], c.size[1]] as [number, number] } : {}) }));
-  return { nodes, edges, ...(groups.length > 0 ? { groups } : {}), ...(comments.length > 0 ? { comments } : {}) };
-}
+export const canonicalGraph: (g: GraphData) => GraphData = canonicalGraphData;
 
 /**
  * Apply a change's ops to the editor's copy. Returns null when an op does
  * not fit the copy (the copy is stale: the caller re-reads the full state).
  */
 export function applyGraphOpsLocal(input: GraphData, ops: readonly GraphOp[]): GraphData | null {
-  const nodes = new Map(input.nodes.map((n) => [n.id, clone(n)]));
-  const edges = new Map(input.edges.map((e) => [e.id, clone(e)]));
-  const groups = new Map((input.groups ?? []).map((g) => [g.id, clone(g)]));
-  const comments = new Map((input.comments ?? []).map((c) => [c.id, clone(c)]));
-  const taken = (id: string): boolean => nodes.has(id) || edges.has(id) || groups.has(id) || comments.has(id);
-  for (const op of ops) {
-    switch (op.op) {
-      case 'addNodes':
-        for (const n of op.nodes) {
-          if (taken(n.id)) return null;
-          nodes.set(n.id, clone(n));
-        }
-        break;
-      case 'removeNodes': {
-        for (const id of op.ids) if (!nodes.delete(id)) return null;
-        const gone = new Set(op.ids);
-        for (const [id, e] of edges) if (gone.has(e.from.node) || gone.has(e.to.node)) edges.delete(id);
-        break;
-      }
-      case 'moveNodes':
-        for (const m of op.moves) {
-          const n = nodes.get(m.id);
-          const c = comments.get(m.id);
-          const g = groups.get(m.id);
-          if (n !== undefined) n.position = [m.position[0], m.position[1]];
-          else if (c !== undefined) c.position = [m.position[0], m.position[1]];
-          else if (g !== undefined) g.rect = [m.position[0], m.position[1], g.rect[2], g.rect[3]];
-          else return null;
-        }
-        break;
-      case 'setNodeData': {
-        const n = nodes.get(op.id);
-        if (n === undefined) return null;
-        if (Object.keys(op.data).length > 0) n.data = clone(op.data);
-        else delete n.data;
-        break;
-      }
-      case 'setCollapsed':
-        for (const id of op.ids) {
-          const n = nodes.get(id);
-          if (n === undefined) return null;
-          if (op.collapsed) n.collapsed = true;
-          else delete n.collapsed;
-        }
-        break;
-      case 'connect':
-        for (const e of op.edges) {
-          if (taken(e.id)) return null;
-          edges.set(e.id, clone(e));
-        }
-        break;
-      case 'disconnect':
-        for (const id of op.ids) if (!edges.delete(id)) return null;
-        break;
-      case 'setReroutes': {
-        const e = edges.get(op.id);
-        if (e === undefined) return null;
-        if (op.reroutes.length > 0) e.reroutes = clone(op.reroutes);
-        else delete e.reroutes;
-        break;
-      }
-      case 'setGroups':
-        for (const g of op.groups) {
-          if (!groups.has(g.id) && taken(g.id)) return null;
-          groups.set(g.id, clone(g));
-        }
-        break;
-      case 'removeGroups':
-        for (const id of op.ids) if (!groups.delete(id)) return null;
-        break;
-      case 'setComments':
-        for (const c of op.comments) {
-          if (!comments.has(c.id) && taken(c.id)) return null;
-          comments.set(c.id, clone(c));
-        }
-        break;
-      case 'removeComments':
-        for (const id of op.ids) if (!comments.delete(id)) return null;
-        break;
-    }
-  }
-  return canonicalGraph({ nodes: [...nodes.values()], edges: [...edges.values()], groups: [...groups.values()], comments: [...comments.values()] });
+  const r = applyGraphOps(input, ops);
+  return r.ok ? r.graph : null;
 }
 
 // ---- kind helpers ---------------------------------------------------------------------------
 
-export function nodeDefOf(kind: GraphKindDef, type: string): GraphNodeDef | undefined {
-  return kind.nodes.find((n) => n.type === type);
-}
+export const nodeDefOf: (kind: GraphKindDef, type: string) => GraphNodeDef | undefined = nodeDef;
 
 export function portTypeColor(kind: GraphKindDef, type: string): string {
   return kind.portTypes.find((t) => t.id === type)?.color ?? '#b0b0b0';
@@ -175,9 +71,8 @@ export function portTypeLabel(kind: GraphKindDef, type: string): string {
 
 /** Output type → input type: null (incompatible), or ok with the implicit conversion (null = none needed). */
 export function compatibility(kind: GraphKindDef, from: string, to: string): { conversion: GraphConversion | null } | null {
-  if (from === to || (kind.anyType !== undefined && (from === kind.anyType || to === kind.anyType))) return { conversion: null };
-  const c = kind.conversions.find((x) => x.from === from && x.to === to);
-  return c !== undefined ? { conversion: c } : null;
+  const c = portCompatibility(kind, from, to);
+  return c !== null ? { conversion: c.conversion } : null;
 }
 
 // ---- Data-dependent ports ---------------------------------------------------------
@@ -190,77 +85,12 @@ export interface NodePorts {
 export type PortsOf = (n: GraphNode) => NodePorts;
 const NO_PORTS: NodePorts = { inputs: [], outputs: [] };
 /** The value of a type field that asks for the widest connected type. */
-export const AUTO_TYPE = 'auto';
-
-const byPosition = (a: GraphNode, b: GraphNode): number => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+export const AUTO_TYPE = GRAPH_AUTO_TYPE;
 
 /** A callable graph's interface: its input nodes as input ports, its output nodes as output ports. */
-export function graphInterface(kind: GraphKindDef, graph: GraphData): NodePorts {
-  const itf = kind.interface;
-  if (itf === undefined) return NO_PORTS;
-  const side = (type: string): GraphPortDef[] => {
-    const def = nodeDefOf(kind, type);
-    const lf = def?.fields?.find((f) => f.key === itf.labelField);
-    const tf = def?.fields?.find((f) => f.key === itf.typeField);
-    return graph.nodes
-      .filter((n) => n.type === type)
-      .sort(byPosition)
-      .map((n) => {
-        const label = lf !== undefined ? fieldValue(n, lf) : '';
-        const t = tf !== undefined ? fieldValue(n, tf) : '';
-        return { id: n.id, label: typeof label === 'string' && label !== '' ? label : n.id, type: String(t) };
-      });
-  };
-  return { inputs: side(itf.input), outputs: side(itf.output) };
-}
+export const graphInterface: (kind: GraphKindDef, graph: GraphData) => NodePorts = modelGraphInterface;
 
-/** The items of a repeated port's text field (project-model `repeatItems`). */
-export function repeatItems(value: string): string[] {
-  return value.trim() === '' ? [] : value.split(',').map((x) => x.trim());
-}
-
-/**
- * The ports a repeated port stands for on a node (project-model
- * `repeatedPorts`, parity-tested): a number field is the count, a text field
- * a comma-separated list (one port per item, labelled with it); ids
- * `<id>1`, `<id>2`, …
- */
-export function repeatedPorts(def: GraphNodeDef, node: GraphNode, port: GraphPortDef): GraphPortDef[] {
-  const rep = port.repeat;
-  if (rep === undefined) return [port];
-  const f = def.fields?.find((x) => x.key === rep.field);
-  const v = f !== undefined ? fieldValue(node, f) : 0;
-  const { repeat: _r, ...base } = port;
-  void _r;
-  const out: GraphPortDef[] = [];
-  if (typeof v === 'number') {
-    const n = Number.isFinite(v) ? Math.max(0, Math.min(rep.max, Math.trunc(v))) : 0;
-    for (let i = 1; i <= n; i++) out.push({ ...base, id: `${port.id}${i}`, label: `${port.label} ${i}`.trim() });
-  } else if (typeof v === 'string') {
-    repeatItems(v)
-      .slice(0, rep.max)
-      .forEach((item, i) => out.push({ ...base, id: `${port.id}${i + 1}`, label: item !== '' ? item : `${port.label} ${i + 1}`.trim() }));
-  }
-  return out;
-}
-
-type Slot = GraphPortDef | { port: GraphPortDef; auto: string };
-
-function declared(kind: GraphKindDef, def: GraphNodeDef, node: GraphNode, port: GraphPortDef, ctx: GraphContext | undefined): { type: string } | { auto: string } {
-  const rule = port.typeFrom;
-  if (rule === undefined) return { type: port.type };
-  const f = def.fields?.find((x) => x.key === rule.field);
-  if (f === undefined) return { type: port.type };
-  const v = fieldValue(node, f);
-  const s = typeof v === 'string' ? v : String(v);
-  if (rule.lookup !== undefined) return { type: ctx?.lookup?.(rule.lookup, s) ?? port.type };
-  if (rule.map !== undefined && Object.prototype.hasOwnProperty.call(rule.map, s)) return { type: rule.map[s]! };
-  if (rule.byLength !== undefined) return { type: rule.byLength[s.length - 1] ?? port.type };
-  if (s === AUTO_TYPE) return { auto: rule.field };
-  return { type: kind.portTypes.some((t) => t.id === s) ? s : port.type };
-}
-
-const optionsOf = (def: GraphNodeDef, field: string): readonly string[] => def.fields?.find((f) => f.key === field)?.options ?? [];
+export { repeatItems, repeatedPorts };
 
 /**
  * Every node's ports with resolved types: static ports, a call's interface
@@ -268,75 +98,7 @@ const optionsOf = (def: GraphNodeDef, field: string): readonly string[] => def.f
  * `auto` widths from the wires (the widest among the wires in, in the type
  * field's option order; none → the first option after `auto`).
  */
-export function resolvePorts(kind: GraphKindDef, graph: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }, ctx?: GraphContext): Map<string, NodePorts> {
-  const out = new Map<string, NodePorts>();
-  const pending = new Map<string, { def: GraphNodeDef; inputs: Slot[]; outputs: Slot[] }>();
-  for (const node of graph.nodes) {
-    const def = nodeDefOf(kind, node.type);
-    if (def === undefined) continue;
-    // Repeated ports first (their copies are ordinary ports).
-    let inputs: readonly GraphPortDef[] = def.inputs.some((p) => p.repeat !== undefined) ? def.inputs.flatMap((p) => repeatedPorts(def, node, p)) : def.inputs;
-    let outputs: readonly GraphPortDef[] = def.outputs.some((p) => p.repeat !== undefined) ? def.outputs.flatMap((p) => repeatedPorts(def, node, p)) : def.outputs;
-    const pf = def.portsFrom;
-    if (pf !== undefined) {
-      const f = def.fields?.find((x) => x.key === pf.field);
-      const ref = f !== undefined ? fieldValue(node, f) : '';
-      const target = typeof ref === 'string' && ref !== '' ? (ctx?.graph?.(pf.kind, ref) ?? null) : null;
-      const itf = target !== null ? graphInterface(target.kind, target.graph) : NO_PORTS;
-      inputs = [...inputs, ...itf.inputs];
-      outputs = [...outputs, ...itf.outputs];
-    }
-    let hasAuto = false;
-    const map = (p: GraphPortDef): Slot => {
-      const d = declared(kind, def, node, p, ctx);
-      if ('auto' in d) {
-        hasAuto = true;
-        return { port: p, auto: d.auto };
-      }
-      return d.type === p.type ? p : { ...p, type: d.type };
-    };
-    const ins = inputs.map(map);
-    const outs = outputs.map(map);
-    if (hasAuto) pending.set(node.id, { def, inputs: ins, outputs: outs });
-    else out.set(node.id, { inputs: ins as GraphPortDef[], outputs: outs as GraphPortDef[] });
-  }
-  if (pending.size === 0) return out;
-  const incoming = new Map<string, GraphEdge[]>();
-  for (const e of graph.edges) {
-    const l = incoming.get(e.to.node) ?? [];
-    l.push(e);
-    incoming.set(e.to.node, l);
-  }
-  const visiting = new Set<string>();
-  const resolve = (id: string): NodePorts | undefined => {
-    const done = out.get(id);
-    if (done !== undefined) return done;
-    const p = pending.get(id);
-    if (p === undefined || visiting.has(id)) return undefined;
-    visiting.add(id);
-    const widest = new Map<string, number>();
-    for (const e of incoming.get(id) ?? []) {
-      const slot = p.inputs.find((x) => ('auto' in x ? x.port.id : x.id) === e.to.port);
-      if (slot === undefined || !('auto' in slot)) continue;
-      const src = resolve(e.from.node)?.outputs.find((x) => x.id === e.from.port);
-      if (src === undefined) continue;
-      const i = optionsOf(p.def, slot.auto).indexOf(src.type);
-      if (i >= 0 && src.type !== AUTO_TYPE && i > (widest.get(slot.auto) ?? -1)) widest.set(slot.auto, i);
-    }
-    const fix = (x: Slot): GraphPortDef => {
-      if (!('auto' in x)) return x;
-      const opts = optionsOf(p.def, x.auto);
-      const i = widest.get(x.auto);
-      return { ...x.port, type: i !== undefined ? opts[i]! : (opts.find((o) => o !== AUTO_TYPE) ?? x.port.type) };
-    };
-    const r = { inputs: p.inputs.map(fix), outputs: p.outputs.map(fix) };
-    visiting.delete(id);
-    out.set(id, r);
-    return r;
-  };
-  for (const id of pending.keys()) resolve(id);
-  return out;
-}
+export const resolvePorts: (kind: GraphKindDef, graph: { nodes: readonly GraphNode[]; edges: readonly GraphEdge[] }, ctx?: GraphContext) => Map<string, NodePorts> = resolveGraphPorts;
 
 /** A node's ports without wires (a node not in a graph yet; `auto` takes its fallback). */
 export function staticPorts(kind: GraphKindDef, node: GraphNode, ctx?: GraphContext): NodePorts {
@@ -361,29 +123,7 @@ export function portDef(kind: GraphKindDef, graph: GraphData, nodeId: string, po
   return (side === 'in' ? ports.inputs : ports.outputs).find((p) => p.id === port);
 }
 
-/** Would an edge from `fromNode` into `toNode` close a cycle? */
-export function wouldCycle(graph: GraphData, fromNode: string, toNode: string): boolean {
-  if (fromNode === toNode) return true;
-  const adj = new Map<string, string[]>();
-  for (const e of graph.edges) {
-    const l = adj.get(e.from.node) ?? [];
-    l.push(e.to.node);
-    adj.set(e.from.node, l);
-  }
-  const seen = new Set<string>([toNode]);
-  const stack = [toNode];
-  while (stack.length > 0) {
-    const n = stack.pop()!;
-    for (const m of adj.get(n) ?? []) {
-      if (m === fromNode) return true;
-      if (!seen.has(m)) {
-        seen.add(m);
-        stack.push(m);
-      }
-    }
-  }
-  return false;
-}
+export { wouldCycle };
 
 export interface PortEnd {
   node: string;
@@ -491,10 +231,7 @@ export function searchCatalogue(kind: GraphKindDef, query: string, only?: readon
   return hits.sort((a, b) => order(a.category) - order(b.category));
 }
 
-export function fieldValue(node: GraphNode, f: GraphFieldDef): GraphValue {
-  const v = node.data?.[f.key];
-  return v === undefined ? f.default : v;
-}
+export const fieldValue: (node: GraphNode, f: GraphFieldDef) => GraphValue = nodeFieldValue;
 
 /** A node's title — its title field's value when the type has one and it is set, else the type's label. */
 export function nodeTitle(kind: GraphKindDef, node: GraphNode): string {

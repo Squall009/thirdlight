@@ -11,14 +11,14 @@
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model/limits';
-import type { MutationOp } from '@thirdlight/commands';
+import { MUTATION_OPS } from '@thirdlight/commands/mutation-ops';
 import {
   isProjectId,
   isSessionId,
   REQUEST_ID_RE,
 } from './ids';
 import { sessionError } from './errors';
-import { V3_MUTATION_OPS, V3_QUERY_OPS } from './m3';
+import { V3_QUERY_OPS } from './m3';
 import {
   checkField,
   checkOptionalObject,
@@ -320,15 +320,6 @@ export function parseAdminNoArgsBody(value: unknown): FieldErrorResult {
  * authoritative validator). Anything else is a
  * session-layer `invalid_request`.
  */
-const MUTATION_OPS: readonly MutationOp[] = [
-  // entity and history ops
-  'createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo',
-  // content/property/prefab ops
-  'publishAsset', 'publishBehavior', 'setBehaviorProperties', 'setComponent', 'setSettings',
-  'acknowledgeBehaviorTrust', 'createPrefab', 'instantiatePrefab',
-  // v3 game/presentation ops
-  ...(V3_MUTATION_OPS as readonly MutationOp[]),
-];
 export const QUERY_OPS = [
   'queryProject', 'queryEntity', 'queryEntities',
   'queryAssets', 'queryPrefabs', 'queryBehaviors',

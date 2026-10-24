@@ -8,6 +8,7 @@
  * clipped to length 1. `invert` and `scale` apply last. A button — or an axis
  * past 0.5 — is "down"; its phase is pressed / held / released / none.
  */
+import { DEFAULT_INPUT, DEFAULT_INPUT_3D } from '@thirdlight/project-model/input';
 import type { ActionValue, JumpPhase } from '@thirdlight/runtime';
 
 export interface InputBindingLike {
@@ -394,34 +395,8 @@ export function readCharacterPad(pad: CharacterPad, buttons: readonly boolean[],
   return { jump: pad.jump.some(down), left: pad.left.some(down), right: pad.right.some(down), axis };
 }
 
-/**
- * The default actions (a copy of project-model's `DEFAULT_INPUT`, which the
- * editor may not import as a value; tests/input-defaults-parity.test.ts keeps
- * them equal): today's controls plus attack, interact, pause, submit, cancel
- * and navigate.
- */
-export const DEFAULT_INPUT_CONFIG: InputConfigLike = Object.freeze({
-  actions: [
-    { name: 'move', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' }, { kind: 'keys1d', negative: 'ArrowLeft', positive: 'ArrowRight' }, { kind: 'gamepadButtons1d', negative: 14, positive: 15 }, { kind: 'gamepadAxis', axis: 0 }] },
-    { name: 'jump', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Space' }, { kind: 'gamepadButton', button: 0 }] },
-    { name: 'attack', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyJ' }, { kind: 'gamepadButton', button: 2 }] },
-    { name: 'interact', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }, { kind: 'gamepadButton', button: 3 }] },
-    { name: 'pause', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Escape' }, { kind: 'gamepadButton', button: 9 }] },
-    { name: 'submit', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Enter' }, { kind: 'gamepadButton', button: 0 }] },
-    { name: 'cancel', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'Backspace' }, { kind: 'gamepadButton', button: 1 }] },
-    { name: 'navigate', type: 'axis2d', map: 'ui', bindings: [{ kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
-  ],
-} as InputConfigLike);
+/** The default actions (project-model's, defined once there), seen through this package's structural shape. */
+export const DEFAULT_INPUT_CONFIG: InputConfigLike = DEFAULT_INPUT as InputConfigLike;
 
-/**
- * The default actions of a 3D project (a copy of project-model's
- * `DEFAULT_INPUT_3D`; tests/input-defaults-parity.test.ts keeps them equal):
- * `move` is a 2D axis (W/A/S/D, arrows, left stick) and `run` a button.
- */
-export const DEFAULT_INPUT_CONFIG_3D: InputConfigLike = Object.freeze({
-  actions: [
-    { name: 'move', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, { kind: 'keys2d', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }, { kind: 'gamepadStick', x: 0, y: 1 }] },
-    { name: 'run', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'ShiftLeft' }, { kind: 'key', code: 'ShiftRight' }, { kind: 'gamepadButton', button: 10 }] },
-    ...DEFAULT_INPUT_CONFIG.actions.filter((a) => a.name !== 'move'),
-  ],
-} as InputConfigLike);
+/** The default actions of a 3D project (project-model's): `move` is a 2D axis and `run` a button. */
+export const DEFAULT_INPUT_CONFIG_3D: InputConfigLike = DEFAULT_INPUT_3D as InputConfigLike;

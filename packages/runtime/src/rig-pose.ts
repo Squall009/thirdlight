@@ -23,6 +23,10 @@
  *
  * Pure and deterministic (plain doubles, fixed order): page, worker and
  * export compute the same pose.
+ *
+ * Why its own poser rather than three's mixer: the simulation runs without
+ * three.js (worker, Node) and must be deterministic;
+ * tests/integration/m23-sockets/rig-parity.test.ts holds the two together.
  */
 import type { ModelRig, ModelRigChannel } from '@thirdlight/project-model';
 

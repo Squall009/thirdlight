@@ -23,7 +23,7 @@ import { useEffect, useState, type DragEvent, type JSX } from 'react';
 import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader, MaterialValue } from '@thirdlight/project-model';
 import { MATERIAL_SHADER_LABELS } from '@thirdlight/project-model/material-reads';
 import { ParameterValue } from './MaterialDocument';
-import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../../session/material-schema';
+import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '@thirdlight/project-model/material-schema';
 import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';

@@ -1,11 +1,10 @@
 /**
- * The editor's material-graph code (the editor may import
- * project-model types only) against project-model:
+ * The editor's material-graph code against project-model, which validates
+ * what it sends:
  *
- * - data-dependent ports: the editor's `resolvePorts` equals project-model's
- *   `resolveGraphPorts` (auto widths, swizzle masks, parameter types,
- *   sub-graph calls) and its connection check agrees with the validator;
- * - the port contexts (functions, parameters) resolve the same;
+ * - data-dependent ports in the material context (auto widths, swizzle
+ *   masks, parameter types, sub-graph calls), and the editor's connection
+ *   check agrees with the validator;
  * - "New graph material" and "Convert to graph" produce graphs the backend
  *   accepts (every shader value and texture slot of the standard and unlit
  *   shaders wired in).
@@ -62,20 +61,17 @@ const GRAPH: GraphData = {
   ],
 };
 
-describe('material graphs: editor vs project-model', () => {
-  it('resolves every node\'s ports the same (auto widths, masks, parameters, calls)', () => {
-    const backend = resolveGraphPorts(MATERIAL_GRAPH_KIND, GRAPH, materialGraphContext(PARAMS, graphDocumentsContext(GRAPH_KINDS, FUNCTIONS)));
+describe('material graphs in the editor, checked by project-model', () => {
+  it('resolves ports from the material context (auto widths, masks, parameters, calls)', () => {
     const ed = editor.resolvePorts(MATERIAL_GRAPH_KIND, GRAPH, materialPortContext(PARAMS, FUNCTIONS, GRAPH_KINDS));
-    expect([...ed.keys()].sort()).toEqual([...backend.keys()].sort());
-    for (const [id, ports] of backend) expect(ed.get(id), id).toEqual(ports);
-    // Spot checks: a vec3 wire widens the multiply and the lerp; a call has its function's ports.
+    // A vec3 wire widens the multiply and the lerp; a call has its function's ports.
     expect(ed.get('n')!.outputs[0]!.type).toBe('vec3');
     expect(ed.get('sw')!.outputs[0]!.type).toBe('float');
     expect(ed.get('call')!.inputs.map((p) => p.id)).toEqual(['inColor', 'inAmount', 'inTex']);
     expect(ed.get('ghost')!.inputs).toEqual([]);
-    // The function context alone (a function graph calling another) resolves the same too.
+    // The function context alone (a function graph calling another).
     const g2: GraphData = { nodes: [{ id: 'call', type: 'call', position: [0, 0], data: { function: 'scale-color' } }], edges: [] };
-    expect(editor.resolvePorts(GRAPH_KINDS['material-function']!, g2, graphsPortContext(FUNCTIONS, GRAPH_KINDS))).toEqual(resolveGraphPorts(GRAPH_KINDS['material-function']!, g2, graphDocumentsContext(GRAPH_KINDS, FUNCTIONS)));
+    expect(editor.resolvePorts(GRAPH_KINDS['material-function']!, g2, graphsPortContext(FUNCTIONS, GRAPH_KINDS)).get('call')!.inputs.map((p) => p.id)).toEqual(['inColor', 'inAmount', 'inTex']);
   });
 
   it('the editor\'s connection check agrees with the validator', () => {

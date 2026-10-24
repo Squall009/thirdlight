@@ -21,7 +21,7 @@ import { useEffect, useState, type JSX } from 'react';
 import type { AnimatorCondition, AnimatorController, AnimatorState, AnimatorTransition, GraphNode, GraphValue } from '@thirdlight/project-model';
 
 import { GraphInspector } from '../../graph/GraphInspector';
-import { ANIMATOR_ANY, ANIMATOR_ENTRY, ANIMATOR_ENTRY_WIRE, animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '../../graph/animator';
+import { ANIMATOR_ANY, ANIMATOR_ENTRY, ANIMATOR_ENTRY_WIRE, animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '@thirdlight/project-model/animator-graph';
 import { nodeDefOf, type GraphKindDef, type GraphOp } from '../../graph/model';
 import { ClipSelect, paramOptions, useClipChoices, useRigOf, type ClipInfo } from './parts';
 

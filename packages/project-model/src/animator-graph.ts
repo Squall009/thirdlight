@@ -25,9 +25,8 @@
  * data without them opens with an automatic layout (states in columns by
  * their distance from the entry state).
  *
- * The editor may import project-model types only: it has its own copy of
- * the read side (editor/src/graph/animator.ts), kept equal by
- * tests/animator-graph-parity.test.ts.
+ * The editor reads the graph with this module too (a value subpath), so the
+ * ids it sends edits for are the ones the backend has.
  */
 import { ID_RE } from './validate';
 import {
@@ -46,10 +45,15 @@ import { canonicalGraphData, type GraphData, type GraphEdge, type GraphNode, typ
 
 export type AnimatorOwnerTarget = { controllerId: string; layer: number } | { controllerId: string; blendState: string };
 
-const ENTRY = 'ENTRY';
-const ANY = 'ANY';
-const OUT = 'OUT';
-const ENTRY_WIRE = 'ENTRY-WIRE';
+/** The fixed nodes of a layer's graph (entry, Any State) and of a blend tree (its output), and the entry's wire. */
+export const ANIMATOR_ENTRY = 'ENTRY';
+export const ANIMATOR_ANY = 'ANY';
+export const ANIMATOR_OUT = 'OUT';
+export const ANIMATOR_ENTRY_WIRE = 'ENTRY-WIRE';
+const ENTRY = ANIMATOR_ENTRY;
+const ANY = ANIMATOR_ANY;
+const OUT = ANIMATOR_OUT;
+const ENTRY_WIRE = ANIMATOR_ENTRY_WIRE;
 /** Layout steps (graph units): a column per step from the entry state, a row per state. */
 const COLUMN = 260;
 const ROW_STEP = 130;
@@ -72,14 +76,21 @@ export function parseAnimatorOwnerId(id: string): AnimatorOwnerTarget | null {
   return ID_RE.test(id) ? { controllerId: id, layer: 0 } : null;
 }
 
+/** The owner id of a target (the inverse of parseAnimatorOwnerId). */
+export function animatorOwnerId(t: AnimatorOwnerTarget): string {
+  return 'blendState' in t ? `${t.controllerId}#${t.blendState}` : t.layer === 0 ? t.controllerId : `${t.controllerId}@${t.layer}`;
+}
+
 type Layer = { states: AnimatorState[]; transitions: AnimatorTransition[]; entry: string; layout?: AnimatorLayout };
 
-function layerOf(c: AnimatorController, layer: number): Layer | null {
+/** A controller's layer by index (0: the base layer), or null. */
+export function animatorLayerOf(c: AnimatorController, layer: number): Layer | null {
   if (layer === 0) return c;
   return c.layers?.[layer - 1] ?? null;
 }
 
-function blendStateOf(c: AnimatorController, stateId: string): AnimatorState | null {
+/** The blend-tree state of that id in any layer, or null (absent, or not a blend tree). */
+export function animatorBlendStateOf(c: AnimatorController, stateId: string): AnimatorState | null {
   for (const l of [c, ...(c.layers ?? [])]) {
     const s = l.states.find((x) => x.id === stateId);
     if (s !== undefined) return s.motion.kind === 'blend1d' ? s : null;
@@ -186,7 +197,7 @@ function layoutExtras(l: AnimatorLayout | undefined): Pick<GraphData, 'groups' |
  */
 export function animatorGraphOf(c: AnimatorController, target: AnimatorOwnerTarget): { kindId: string; graph: GraphData } | null {
   if ('blendState' in target) {
-    const s = blendStateOf(c, target.blendState);
+    const s = animatorBlendStateOf(c, target.blendState);
     if (s === null || s.motion.kind !== 'blend1d') return null;
     const m = s.motion;
     const collapsed = new Set(m.layout?.collapsed ?? []);
@@ -205,7 +216,7 @@ export function animatorGraphOf(c: AnimatorController, target: AnimatorOwnerTarg
     const edges = m.children.map((_, i) => wire(`W${i}`, ref(`C${i}`, 'motion'), ref(OUT, 'motions')));
     return { kindId: 'animator-blend', graph: canonicalGraphData({ nodes, edges, ...layoutExtras(m.layout) }) };
   }
-  const l = layerOf(c, target.layer);
+  const l = animatorLayerOf(c, target.layer);
   if (l === null) return null;
   const auto = autoLayout(l);
   const collapsed = new Set(l.layout?.collapsed ?? []);
@@ -279,7 +290,7 @@ export function applyAnimatorGraph(c: AnimatorController, target: AnimatorOwnerT
 }
 
 function writeLayer(c: AnimatorController, layer: number, graph: GraphData): AnimatorGraphWrite {
-  const l = layerOf(c, layer);
+  const l = animatorLayerOf(c, layer);
   if (l === null) return { ok: false, message: `the controller has no layer ${layer}` };
   const entryNode = graph.nodes.find((n) => n.type === 'entry');
   const anyNode = graph.nodes.find((n) => n.type === 'any');
@@ -358,7 +369,7 @@ function writeLayer(c: AnimatorController, layer: number, graph: GraphData): Ani
 }
 
 function writeBlend(c: AnimatorController, stateId: string, graph: GraphData): AnimatorGraphWrite {
-  const s = blendStateOf(c, stateId);
+  const s = animatorBlendStateOf(c, stateId);
   if (s === null || s.motion.kind !== 'blend1d') return { ok: false, message: `no blend tree state "${stateId}" in this controller` };
   const m = s.motion;
   const outNode = graph.nodes.find((n) => n.type === 'output');

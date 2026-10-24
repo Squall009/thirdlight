@@ -521,6 +521,8 @@ export {
   localLightModeOf,
   type LocalLightMode,
   MAX_MATERIAL_INSTANCE_DEPTH,
+  // How an instance draws (its chain folded onto its root); the renderer resolves with the model's one rule.
+  resolveMaterialInstances,
   MAX_POLYGON_VERTICES,
   // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
   trimMaxFootprint,

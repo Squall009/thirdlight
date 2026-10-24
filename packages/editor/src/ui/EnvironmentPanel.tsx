@@ -18,7 +18,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, HeightFogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { HEIGHT_FOG_DEFAULTS, wrapDegrees } from '@thirdlight/three-adapter';
-import { DEFAULT_WIND } from '../session/material-schema';
+import { DEFAULT_WIND } from '@thirdlight/project-model/material-schema';
 import type { SkyAlignResult } from '../viewport/sky-align';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 

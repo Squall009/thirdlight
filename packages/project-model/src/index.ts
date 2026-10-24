@@ -726,7 +726,7 @@ export {
 export { FLAT_NORMAL_TEXEL, TEXTURE_ABSENT_VALUES, type TextureAbsent } from './material-graph-kinds';
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
 // An animator controller's layers and blend trees as graphs (owner kind `animator`).
-export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
+export { ANIMATOR_ANY, ANIMATOR_ENTRY, ANIMATOR_ENTRY_WIRE, ANIMATOR_OUT, animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
 // Input actions.
 export {
   canonicalInput,

@@ -9,7 +9,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |
 | <a id="limit-height-fog-defaults"></a>`HEIGHT_FOG_DEFAULTS` | `{"density":0.02,"color":"#c8d2dc","height":0,"falloff":0.05,"start":0,"inscatterExponent":8}` | What an absent height fog field means (the renderer and the preset blend read these); a new height fog starts at `density` and `color`. |
 | <a id="limit-height-fog-limits"></a>`HEIGHT_FOG_LIMITS` | `{"density":1,"height":10000,"falloff":10,"start":10000,"inscatterExponentMin":1,"inscatterExponentMax":64}` | The height fog's ranges (the validator and the descriptor share them). |
 | <a id="limit-material-extra-layers-max"></a>`MATERIAL_EXTRA_LAYERS_MAX` | `252` | Layers past a vec4's four a per-layer setting holds values for: every layer a terrain sample can name. |

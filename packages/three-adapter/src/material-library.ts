@@ -44,7 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, MAX_MATERIAL_INSTANCE_DEPTH, localLightModeOf, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
+import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, localLightModeOf, resolveMaterialInstances, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -120,9 +120,6 @@ export interface DecalPageRefLike {
   readonly orm?: { readonly texture: string; readonly layer: number };
 }
 
-/** The longest instance chain (the model's). */
-const MATERIAL_INSTANCE_DEPTH = MAX_MATERIAL_INSTANCE_DEPTH;
-
 /**
  * The foliage shader's sway: metres a vertex bends by at full strength and bend, the share of that it sags, and
  * metres it flutters along its normal. Its reach (how far a vertex may move, which occlusion culling's bounds take)
@@ -133,61 +130,14 @@ const FOLIAGE_SAG = 0.35;
 const FOLIAGE_FLUTTER_M = 0.015;
 
 /**
- * The adapter's copy of project-model `resolveMaterialInstances`
- * (the editor may use project-model types only; `tests/material-instance-parity.test.ts`
- * keeps the two equal). Every material as it draws, in list order: an
- * instance takes its root's shader, graph and parameters, the chain's params
- * and textures (the nearer level wins) and its chain's `values` as the
- * parameter defaults; an instance whose chain is broken is left out. The
- * runtime's manifest already holds resolved materials; `setMaterials` resolves
- * again, which leaves those unchanged.
+ * Every material as it draws, in list order (project-model's `resolveMaterialInstances`, seen through the
+ * adapter's structural shape): an instance takes its root's shader, graph and parameters, the chain's params and
+ * textures (the nearer level wins) and its chain's `values` as the parameter defaults; an instance whose chain is
+ * broken is left out. The runtime's manifest already holds resolved materials; `setMaterials` resolves again,
+ * which leaves those unchanged.
  */
 export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): MaterialDefLike[] {
-  if (!list.some((m) => m.instanceOf !== undefined)) return [...list];
-  const byId = new Map(list.map((m) => [m.materialId, m]));
-  const out: MaterialDefLike[] = [];
-  for (const m of list) {
-    if (m.instanceOf === undefined) {
-      out.push(m);
-      continue;
-    }
-    const chain: MaterialDefLike[] = [m];
-    let cur = m;
-    let broken = false;
-    while (cur.instanceOf !== undefined) {
-      const next = byId.get(cur.instanceOf);
-      if (next === undefined || chain.includes(next) || chain.length > MATERIAL_INSTANCE_DEPTH) {
-        broken = true;
-        break;
-      }
-      chain.push(next);
-      cur = next;
-    }
-    if (broken) continue;
-    const root = chain[chain.length - 1]!;
-    const params: Record<string, number | boolean | string | readonly [number, number]> = {};
-    const textures: Record<string, string> = {};
-    const values: Record<string, number | readonly number[] | string> = {};
-    for (let i = chain.length - 1; i >= 0; i--) {
-      const c = chain[i]!;
-      Object.assign(params, c.params ?? {});
-      Object.assign(textures, c.textures ?? {});
-      if (i < chain.length - 1) Object.assign(values, c.values ?? {});
-    }
-    out.push({
-      materialId: m.materialId,
-      name: m.name,
-      shader: root.shader,
-      params,
-      textures,
-      ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
-      ...(root.graph !== undefined ? { graph: root.graph } : {}),
-      ...(root.trim !== undefined ? { trim: root.trim } : {}),
-      ...(root.decal !== undefined ? { decal: root.decal } : {}),
-      ...(root.layerSheets !== undefined ? { layerSheets: root.layerSheets } : {}),
-    });
-  }
-  return out;
+  return resolveMaterialInstances(list as unknown as Parameters<typeof resolveMaterialInstances>[0]) as unknown as MaterialDefLike[];
 }
 
 /** An object's values for public parameters, by materialId then parameter key. */

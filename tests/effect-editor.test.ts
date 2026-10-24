@@ -1,21 +1,20 @@
 /**
- * The editor's effect code (the editor may import
- * project-model types only) against project-model:
+ * The editor's effect code against project-model, which validates what it
+ * sends:
  *
  * - a new effect and a new system built by the editor are what the backend
- *   accepts, with project-model's defaults and context layout;
- * - the editor's parameter port context resolves the effect graph's ports
- *   exactly like project-model's (Parameter nodes, attribute maps, auto
- *   maths widths).
+ *   accepts;
+ * - the parameter port context types the effect graph's ports (Parameter
+ *   nodes, attribute maps, auto maths widths).
  */
 import { describe, expect, it } from 'vitest';
 
-import { EFFECT_DEFAULTS, EFFECT_GRAPH_KIND, effectGraphContext, newEffectSystemGraph, resolveGraphPorts, validateEffect, type EffectParameter, type GraphData, type ModelErrorV2 } from '../packages/project-model/src/index';
+import { EFFECT_DEFAULTS, EFFECT_GRAPH_KIND, newEffectSystemGraph, validateEffect, type EffectParameter, type GraphData, type ModelErrorV2 } from '../packages/project-model/src/index';
 import * as editor from '../packages/editor/src/graph/model';
 import { newEffect, newSystem, uniqueId } from '../packages/editor/src/session/effect-edit';
 import { effectPortContext } from '../packages/editor/src/ui/effect/EffectDocument';
 
-describe('effect editor parity', () => {
+describe('effect editor', () => {
   it('a new effect and a new system match project-model and validate', () => {
     const sys = newSystem('system-1', 'System 1');
     expect(sys.graph).toEqual(newEffectSystemGraph());
@@ -30,7 +29,7 @@ describe('effect editor parity', () => {
     expect(uniqueId('!!!', [], 'effect')).toBe('effect');
   });
 
-  it('the editor resolves effect ports like project-model', () => {
+  it('the editor resolves effect ports from the effect\'s parameters', () => {
     const params: EffectParameter[] = [
       { key: 'rate', type: 'float', default: 1 },
       { key: 'wind', type: 'vec3', default: [0, 0, 0] },
@@ -53,9 +52,7 @@ describe('effect editor parity', () => {
         { id: 'e3', from: { node: 'm', port: 'out' }, to: { node: 'grav', port: 'acceleration' } },
       ],
     };
-    const ours = editor.resolvePorts(EFFECT_GRAPH_KIND, g, effectPortContext(params));
-    const theirs = resolveGraphPorts(EFFECT_GRAPH_KIND, g, effectGraphContext(params));
-    expect(ours).toEqual(theirs);
+    const theirs = editor.resolvePorts(EFFECT_GRAPH_KIND, g, effectPortContext(params));
     expect(theirs.get('p2')!.outputs[0]!.type).toBe('vec3');
     expect(theirs.get('p3')!.outputs[0]!.type).toBe('color');
     expect(theirs.get('p4')!.outputs[0]!.type).toBe('float');

@@ -1,13 +1,14 @@
 /**
  * The editor's side of visual scripts (behavior graphs).
  *
- * The editor may import project-model types only, so
- * the port context of a script graph is repeated here (project-model
- * `behaviorGraphContext`): the `variable` lookup types Get/Set variable
+ * The port context of a script graph repeats project-model's
+ * `behaviorGraphContext`: the `variable` lookup types Get/Set variable
  * ports (the graph's own first declaration of a name, else — in one of the
  * script's functions — the script's), and call nodes resolve their ports from
  * the script's functions (`behavior-function`) and the project's shared
- * functions (`behavior-library`). tests/behavior-graph-parity.test.ts keeps
+ * functions (`behavior-library`). Why a copy: project-model's module carries
+ * the generated script API catalogue (about 250 KB) that the editor receives
+ * as data from the backend instead; tests/behavior-graph-parity.test.ts keeps
  * the two equal. Pure.
  */
 import type { GraphContext, GraphData, GraphDocument, GraphKindDef, GraphNode } from '@thirdlight/project-model';
@@ -76,7 +77,7 @@ export function newBehaviorGraph(): { graph: GraphData; declaration: { propertie
   };
 }
 
-/** `<behaviorId>` or `<behaviorId>#<functionId>` (a graph edit's owner id) — commands `parseBehaviorOwnerId`. */
+/** `<behaviorId>` or `<behaviorId>#<functionId>` (a graph edit's owner id) — commands `parseBehaviorOwnerId`, whose package the editor reads as types only. */
 export function parseBehaviorOwnerId(id: string): { behaviorId: string; functionId: string | null } {
   const i = id.indexOf('#');
   return i < 0 ? { behaviorId: id, functionId: null } : { behaviorId: id.slice(0, i), functionId: id.slice(i + 1) };

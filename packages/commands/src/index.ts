@@ -270,7 +270,8 @@ export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, 
 // Asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
 export { contentInUse, type DeletedKind } from './delete-content-ops';
 export { CREATE_ENTITIES_MAX } from './ops';
-export { MUTATION_OPS, MUTATION_OPS_EXPECTED } from './validate-request';
+export { MUTATION_OPS_EXPECTED } from './validate-request';
+export { MUTATION_OPS } from './mutation-ops';
 // A catalog record from import facts (the host rebuilds a lost sidecar's record the way an import makes one).
 export { createdAssetRecord } from './content-ops';
 export { SET_COMPONENT_ENTITIES_MAX, validatePublishAssetArgs } from './validate-content-args';

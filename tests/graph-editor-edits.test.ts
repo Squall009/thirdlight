@@ -1,16 +1,15 @@
 /**
- * The editor's graph model (editor/src/graph/model.ts — the
- * editor may import project-model types only) against project-model:
+ * The graph editor's edit builders (editor/src/graph/model.ts) against
+ * project-model, which applies and validates what they send:
  *
- * - the editor's projection applies a change's ops exactly as the backend
- *   does (`applyGraphOps`), for forward edits and for the undo's inverse ops;
- * - its compatibility and cycle checks agree with the backend validator;
+ * - a stale copy makes the projection re-read (null);
+ * - a connection the editor plans is one the validator accepts;
  * - copy/paste remaps ids so the pasted piece is valid in the backend;
  * - its diagnostics read the registered kind's rules.
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyGraphOps, canonicalGraphData, portCompatibility, validateGraphData, type GraphData, type GraphOp, type ModelErrorV2 } from '../packages/project-model/src/index';
+import { applyGraphOps, canonicalGraphData, validateGraphData, type GraphData, type GraphOp, type ModelErrorV2 } from '../packages/project-model/src/index';
 import { TEST_GRAPH_KIND as K } from '../packages/project-model/src/graph-kinds';
 import * as editor from '../packages/editor/src/graph/model';
 
@@ -39,45 +38,10 @@ const valid = (g: GraphData): ModelErrorV2[] => {
   return e;
 };
 
-const EDITS: GraphOp[][] = [
-  [{ op: 'addNodes', nodes: [{ id: 'm', type: 'multiply', position: [10, 10], collapsed: true }] }, { op: 'connect', edges: [{ id: 'em', from: { node: 'c1', port: 'value' }, to: { node: 'm', port: 'a' }, reroutes: [[50, 50]] }] }],
-  [{ op: 'moveNodes', moves: [{ id: 'add', position: [220, 20] }, { id: 'k1', position: [5, 5] }, { id: 'g1', position: [0, 0] }] }],
-  [{ op: 'setNodeData', id: 'c2', data: { value: 7 } }, { op: 'setNodeData', id: 'c1', data: {} }],
-  [{ op: 'setCollapsed', ids: ['vec', 'add'], collapsed: true }],
-  [{ op: 'setReroutes', id: 'e3', reroutes: [[300, 50], [320, 60]] }],
-  [{ op: 'setGroups', groups: [{ id: 'g1', title: 'Renamed', color: '#aa0000', rect: [0, 0, 10, 10] }, { id: 'g2', title: 'New', color: '#00aa00', rect: [1, 1, 5, 5] }] }],
-  [{ op: 'setComments', comments: [{ id: 'k2', text: 'more', position: [1, 1], size: [100, 40] }] }, { op: 'removeComments', ids: ['k1'] }],
-  [{ op: 'removeGroups', ids: ['g1'] }, { op: 'disconnect', ids: ['e2'] }],
-  [{ op: 'removeNodes', ids: ['c1', 'vec'] }],
-];
-
-describe('graph parity: editor projection vs project-model', () => {
-  it('forward ops and the undo’s inverse ops give the same graph in both', () => {
-    for (const ops of EDITS) {
-      const backend = applyGraphOps(base(), ops);
-      expect(backend.ok).toBe(true);
-      if (!backend.ok) continue;
-      expect(editor.applyGraphOpsLocal(base(), ops)).toEqual(backend.graph);
-      const undone = applyGraphOps(backend.graph, backend.inverse);
-      expect(undone.ok).toBe(true);
-      if (undone.ok) expect(editor.applyGraphOpsLocal(backend.graph, backend.inverse)).toEqual(undone.graph);
-    }
-  });
-
+describe('graph editor edits against project-model', () => {
   it('an op that does not fit the copy makes the projection re-read (null)', () => {
     expect(editor.applyGraphOpsLocal(base(), [{ op: 'removeNodes', ids: ['ghost'] }])).toBeNull();
     expect(editor.applyGraphOpsLocal(base(), [{ op: 'addNodes', nodes: [{ id: 'e1', type: 'constant', position: [0, 0] }] }])).toBeNull();
-  });
-
-  it('compatibility agrees with the backend for every pair of port types', () => {
-    for (const a of K.portTypes) {
-      for (const b of K.portTypes) {
-        const be = portCompatibility(K, a.id, b.id);
-        const ed = editor.compatibility(K, a.id, b.id);
-        expect(ed === null, `${a.id} → ${b.id}`).toBe(be === null);
-        if (be !== null && ed !== null) expect(ed.conversion).toEqual(be.conversion);
-      }
-    }
   });
 
   it('a connection the editor plans is accepted by the backend; one it refuses is refused', () => {

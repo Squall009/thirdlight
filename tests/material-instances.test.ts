@@ -1,12 +1,10 @@
 /**
- * Material instances resolve the same way in project-model (the
- * manifest Play and the export ship) and in three-adapter (the editor's views,
- * which may use project-model types only).
+ * Material instances: how a chain folds onto its root (one rule, used by the
+ * manifest Play and the export ship and by the renderer) and their canonical form.
  */
 import { describe, expect, it } from 'vitest';
 
 import { canonicalMaterials, resolveMaterial, resolveMaterialInstances, type MaterialDef } from '../packages/project-model/src/materials';
-import { resolveMaterialInstancesLike, type MaterialDefLike } from '../packages/three-adapter/src/material-library';
 
 const LIST: MaterialDef[] = [
   {
@@ -45,13 +43,6 @@ describe('material instance resolution', () => {
     expect(s).toEqual({ materialId: 'mi-s', name: 'Shader rough', shader: 'kit', params: { roughness: 1, uvPeriod: 2 }, textures: { map: 'tex-b', normalMap: 'tex-n' } });
     expect(resolveMaterial(LIST, 'mat-s')).toBe(LIST[3]);
     expect(resolveMaterial(LIST, 'mi-broken')).toBeNull();
-  });
-
-  it('the adapter copy resolves identically (and leaves a resolved list unchanged)', () => {
-    const model = resolveMaterialInstances(LIST);
-    const adapter = resolveMaterialInstancesLike(LIST as unknown as MaterialDefLike[]);
-    expect(adapter).toEqual(model);
-    expect(resolveMaterialInstancesLike(adapter)).toEqual(model);
   });
 
   it('canonical form keeps instanceOf and sorted, lowercase values last', () => {

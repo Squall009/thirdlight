@@ -46,8 +46,10 @@
  *   normal that reads them is refused (they are computed from it).
  *
  * The node semantics (ports, types, defaults) are the compiler's own copy of
- * the catalogue (three-adapter does not import project-model;
- * `tests/material-graph-compile-parity.test.ts` keeps them equal).
+ * the catalogue, kept equal by `tests/material-graph-compile-parity.test.ts`.
+ * Why a copy: every compile step reads ports in this compact form (`t`/`d`,
+ * `dyn` widths), and the shipped compiler would have to be rebuilt on
+ * project-model's port shape to drop it.
  *
  * Pure three.js: building the node tree needs no GPU (unit-tested in Node);
  * a renderer turns it into shaders.

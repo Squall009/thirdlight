@@ -7,7 +7,7 @@
  *   count on the wire when a pair has several). Every gesture is one
  *   `graphEdit` on owner kind `animator` (the backend writes it into the
  *   controller; the change is a `setAnimators`, the view is read back from
- *   it — editor/src/graph/animator.ts). The selection shows in the right
+ *   it — project-model's animator-graph.ts). The selection shows in the right
  *   dock's Inspector (AnimatorInspector).
  * - Layers are tabs above the graph; a blend tree opens as its own
  *   graph (double-click it, or "Open blend tree" in the Inspector) with a
@@ -24,7 +24,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { AnimatorController, AnimatorLayer, GraphValue } from '@thirdlight/project-model';
 
 import { GraphEditor } from '../../graph/GraphEditor';
-import { animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '../../graph/animator';
+import { animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '@thirdlight/project-model/animator-graph';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { allStateIds, LayerSettings, MAX_LAYERS, newId, ParameterList, useClipChoices, useRigOf, type BoneInfo, type ClipInfo } from './parts';
 import { usePreview } from '../preview/preview-request';

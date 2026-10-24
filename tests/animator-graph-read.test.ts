@@ -1,14 +1,11 @@
 /**
- * The editor's controller → graph read (editor/src/graph/animator.ts —
- * the editor may import project-model types only) against project-model's
- * (the backend's `graphEdit` on owner kind `animator` applies ops to that
- * graph). Both must derive the same graph from the same controller, or the
- * editor would send ops for ids the backend does not have.
+ * The animator controller → graph read the Animator tab shows and the
+ * backend's `graphEdit` on owner kind `animator` applies ops to (one module
+ * for both): owner ids, every layer and blend tree, and a write read back.
  */
 import { describe, expect, it } from 'vitest';
 
-import { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, canonicalAnimatorController, parseAnimatorOwnerId, type AnimatorController } from '../packages/project-model/src/index';
-import * as editor from '../packages/editor/src/graph/animator';
+import { animatorGraphOf, animatorOwnerId, animatorTransitionPairs, applyAnimatorGraph, canonicalAnimatorController, parseAnimatorOwnerId, type AnimatorController } from '../packages/project-model/src/index';
 
 const clip = (name: string) => ({ assetId: 'model-a', clip: name, duration: name === 'idle' ? 1 : 0.75 });
 
@@ -62,32 +59,31 @@ function fixtures(): AnimatorController[] {
 
 const targets = ['plain', 'plain#c', 'laid', 'laid@1', 'laid#c', 'blend#c', 'plain@1', 'plain#a', 'laid@2'];
 
-describe('animator graph read: editor = backend', () => {
-  it('parses the same owner ids', () => {
-    for (const id of [...targets, 'Bad', 'x@0', 'x@', '#a', 'x#']) expect(editor.parseAnimatorOwnerId(id)).toEqual(parseAnimatorOwnerId(id));
-    for (const id of targets) expect(editor.animatorOwnerId(editor.parseAnimatorOwnerId(id)!)).toBe(id);
+describe('animator graph read', () => {
+  it('owner ids round-trip and bad ones are refused', () => {
+    for (const id of targets) expect(animatorOwnerId(parseAnimatorOwnerId(id)!)).toBe(id);
+    for (const id of ['Bad', 'x@0', 'x@', '#a', 'x#']) expect(parseAnimatorOwnerId(id)).toBeNull();
   });
 
-  it('derives the same graph for every layer and blend tree (with and without layout)', () => {
-    let compared = 0;
+  it('reads a graph for every layer and blend tree (with and without layout)', () => {
+    let read = 0;
     for (const c of fixtures()) {
       for (const id of targets) {
         const t = parseAnimatorOwnerId(id)!;
         if (c.controllerId !== t.controllerId) continue;
-        expect(editor.animatorGraphOf(c, t), `${c.controllerId} ${id}`).toEqual(animatorGraphOf(c, t));
-        compared += 1;
+        animatorGraphOf(c, t);
+        read += 1;
       }
     }
-    expect(compared).toBe(targets.length);
+    expect(read).toBe(targets.length);
   });
 
-  it('derives the same transition pairs (several transitions per pair = one wire)', () => {
-    for (const c of fixtures()) expect(editor.animatorTransitionPairs(c.transitions)).toEqual(animatorTransitionPairs(c.transitions));
-    const pairs = editor.animatorTransitionPairs(fixtures().find((c) => c.controllerId === 'plain')!.transitions);
+  it('several transitions per pair are one wire', () => {
+    const pairs = animatorTransitionPairs(fixtures().find((c) => c.controllerId === 'plain')!.transitions);
     expect(pairs.find((p) => p.from === 'a' && p.to === 'b')!.indices).toEqual([0, 2]);
   });
 
-  it('the editor view of a written controller is the backend read of it', () => {
+  it('the view of a written controller keeps the moved node', () => {
     const c = fixtures().find((x) => x.controllerId === 'plain')!;
     const t = { controllerId: 'plain', layer: 0 };
     const g = animatorGraphOf(c, t)!.graph;
@@ -95,7 +91,6 @@ describe('animator graph read: editor = backend', () => {
     const w = applyAnimatorGraph(c, t, moved);
     expect(w.ok).toBe(true);
     const next = (w as { controller: AnimatorController }).controller;
-    expect(editor.animatorGraphOf(next, t)).toEqual(animatorGraphOf(next, t));
-    expect(editor.animatorGraphOf(next, t)!.graph.nodes.find((n) => n.id === 'b')!.position).toEqual([777, 55]);
+    expect(animatorGraphOf(next, t)!.graph.nodes.find((n) => n.id === 'b')!.position).toEqual([777, 55]);
   });
 });

@@ -23,6 +23,7 @@ import type { EffectDef, EffectParameter, GraphValue } from '@thirdlight/project
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
+import { effectGraphContext } from '@thirdlight/project-model/effects';
 import { newSystem, uniqueId } from '../../session/effect-edit';
 import { ParameterValue } from '../material/MaterialDocument';
 import { usePreview } from '../preview/preview-request';
@@ -51,7 +52,7 @@ export function shownSystem(fx: EffectDef, chosen: string | null): EffectDef['sy
 
 /** What the effect's Parameter nodes read: its exposed parameters' types. */
 export function effectPortContext(parameters: readonly EffectParameter[] | undefined): GraphContext {
-  return { lookup: (name, value) => (name === 'parameter' ? ((parameters ?? []).find((p) => p.key === value)?.type ?? null) : null) };
+  return effectGraphContext(parameters);
 }
 
 const PARAM_TYPES: readonly EffectParameter['type'][] = ['float', 'vec3', 'color'];

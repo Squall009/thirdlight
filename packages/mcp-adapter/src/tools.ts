@@ -44,7 +44,7 @@ import {
   parseRelayGamepad,
   parseRelayUiEdges,
   relayFrameEnd,
-  V3_MUTATION_OPS,
+  MUTATION_OPS as PROTOCOL_MUTATION_OPS,
 } from '@thirdlight/protocol';
 import {
   INSTANCE_FLOATS,
@@ -68,23 +68,8 @@ export interface ToolDefinition {
   readonly inputSchema: Record<string, unknown>;
 }
 
-/** The core scene command ops. */
-const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'] as const;
-/** The content/property/prefab mutation ops. */
-const M2_MUTATION_OPS = [
-  'publishAsset',
-  'publishBehavior',
-  'setBehaviorProperties',
-  'setComponent',
-  'setSettings',
-  'acknowledgeBehaviorTrust',
-  'createPrefab',
-  'instantiatePrefab',
-] as const;
-/** The v3 game/presentation mutation ops. */
-// The v3 op list is the protocol's (one list; a new op reaches MCP with it).
-const M3_MUTATION_OPS = V3_MUTATION_OPS;
-const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
+// The protocol's op list (one list; a new op reaches MCP with it).
+const MUTATION_OPS = PROTOCOL_MUTATION_OPS;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /**
  * The tool's commands: the relay's closed set plus `signal`, which the tool

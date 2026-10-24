@@ -1,51 +1,35 @@
 /**
- * The editor side of graph materials (pure; the editor may
- * import project-model types only).
+ * The editor side of graph materials (pure).
  *
  * - the port context a material graph (or a material function) is edited in:
  *   the project's standalone graphs for Function call nodes and the
- *   material's parameters for Parameter nodes — the same lookups the backend
- *   validates with (project-model `materialGraphContext` /
- *   `graphDocumentsContext`);
+ *   material's parameters for Parameter nodes — project-model's own
+ *   `materialGraphContext` / `graphDocumentsContext`, the lookups the backend
+ *   validates with;
  * - the graph of a new graph material (one PBR output);
  * - "Convert to graph": a shader-type material as an equivalent graph, and
  *   the built-in templates (every shader type, pixel-tested against
  *   the shader rendering).
  */
 import type { GraphContext, GraphData, GraphDocument, GraphKindDef, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
+import { graphDocumentsContext } from '@thirdlight/project-model/graph';
 import { GraphBuilder, layeredMaterial, type GraphOut } from '@thirdlight/project-model/layered-surface';
+import { materialGraphContext, materialParameterPortType } from '@thirdlight/project-model/material-schema';
 
 // The layered surface is project-model's (the renderer draws trim materials as one): the editor's names for it.
 export { BIPLANAR_DISTANCE, BIPLANAR_EXTRA_READS, LAYER_READS, LAYER_SETTINGS, LAYERED_TEXTURES, layeredMaterial, TEMPLATE_LAYERS, TEMPLATE_READS, UV_SOURCES } from '@thirdlight/project-model/layered-surface';
 
-/** The port type a parameter feeds into a graph (a colour is a vec3) — project-model `materialParameterPortType`. */
-export function parameterPortType(type: string): string | null {
-  if (type === 'color') return 'vec3';
-  return ['float', 'vec2', 'vec3', 'vec4', 'texture', 'data'].includes(type) ? type : null;
-}
+/** The port type a parameter feeds into a graph (a colour is a vec3). */
+export const parameterPortType: (type: string) => string | null = materialParameterPortType;
 
 /** Standalone graphs by kind and id (Function call nodes read their ports from them). */
 export function graphsPortContext(graphs: readonly GraphDocument[], kinds: Readonly<Record<string, GraphKindDef>>): GraphContext {
-  return {
-    graph(kind, id) {
-      const d = graphs.find((g) => g.graphId === id && g.kind === kind);
-      const k = kinds[kind];
-      return d !== undefined && k !== undefined ? { kind: k, graph: d.graph } : null;
-    },
-  };
+  return graphDocumentsContext(kinds, graphs);
 }
 
 /** A material graph's context: the project's graphs plus its own parameters. */
 export function materialPortContext(parameters: readonly MaterialParameter[] | undefined, graphs: readonly GraphDocument[], kinds: Readonly<Record<string, GraphKindDef>>): GraphContext {
-  const base = graphsPortContext(graphs, kinds);
-  return {
-    ...(base.graph !== undefined ? { graph: base.graph } : {}),
-    lookup(name, value) {
-      if (name !== 'parameter') return null;
-      const p = (parameters ?? []).find((x) => x.key === value);
-      return p !== undefined ? parameterPortType(p.type) : null;
-    },
-  };
+  return materialGraphContext(parameters, graphDocumentsContext(kinds, graphs));
 }
 
 /** A new graph material's graph: one PBR output (a lit surface, every input at its default). */

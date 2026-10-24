@@ -205,9 +205,10 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'project-model': true, commands: true },
     // The model's limits (plain constants) are defined once in project-model; so is the
     // folded diagnostics row the runtime's error ring and the Play answers' bound share (pure functions).
-    valueSubpaths: { 'project-model': ['limits', 'repeated-rows'] },
+    // The mutation op list is defined once in commands (plain lists, no other imports).
+    valueSubpaths: { 'project-model': ['limits', 'repeated-rows'], commands: ['mutation-ops'] },
   },
-  // "… project-model (types only — the snapshot document)".
+  // "… project-model (types only — the snapshot document).
   backend: {
     // + three-adapter — the backend runs `materialGraphProblems`
     // (a graph material built to TSL nodes without a renderer) on load and
@@ -268,11 +269,13 @@ export const NODE_SIDE_ALLOWED = {
   // "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the
   // types-only qualifier applies to the whole package).
+  // + project-model's input subpath: the default actions are defined once there.
   input: {
-    packages: ['runtime'],
+    packages: ['runtime', 'project-model'],
     external: [],
     node: [],
-    typesOnly: { runtime: true },
+    typesOnly: { runtime: true, 'project-model': true },
+    valueSubpaths: { 'project-model': ['input'] },
   },
   // "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
   // (the approved pin)". The adapter never imports a concrete runtime
@@ -362,8 +365,15 @@ export const NODE_SIDE_ALLOWED = {
     // material reads (the shader table and the graph inference): the editors
     // that paint warn of a material that would draw nothing, as one check.
     // The layered surface (its template and graph builder): the editor makes
-    // the very material the renderer draws trim materials as.
-    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads', 'layered-surface'] },
+    // the very material the renderer draws trim materials as. The material
+    // schema (shader types, parameters, slots, default wind): the inspector
+    // is built from the table the model validates against. The graph rules
+    // (op application, canonical form, port types, the cycle check): the
+    // graph editor's projection is the backend's own code. The animator
+    // controller ↔ graph read: the Animator tab shows the graph the backend
+    // applies its edits to. The effect defaults, context layout and parameter
+    // lookup: a new effect is what the backend accepts, its ports what it resolves.
+    valueSubpaths: { 'project-model': ['limits', 'texture-slots', 'trim-sheet', 'material-reads', 'layered-surface', 'material-schema', 'graph', 'animator-graph', 'effects', 'effect-graph-kinds'] },
   },
 };
 

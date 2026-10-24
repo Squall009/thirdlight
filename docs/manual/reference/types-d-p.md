@@ -1191,7 +1191,7 @@ const MATERIAL_PARAMETER_TYPES: readonly ["float", "vec2", "vec3", "vec4", "colo
 <a id="type-material-shaders"></a>
 ### MATERIAL_SHADERS
 
-Declared in `packages/project-model/src/materials.ts`.
+Declared in `packages/project-model/src/material-schema.ts`.
 
 ```ts
 const MATERIAL_SHADERS: readonly ["standard", "foliage", "kit", "unlit", "water", "trim", "decal"];
@@ -1331,7 +1331,7 @@ type MaterialParameterValue = number | number[] | string;
 <a id="type-material-param-value"></a>
 ### MaterialParamValue
 
-Declared in `packages/project-model/src/materials.ts`.
+Declared in `packages/project-model/src/material-schema.ts`.
 
 ```ts
 type MaterialParamValue = number | boolean | string | [number, number];
@@ -1340,7 +1340,7 @@ type MaterialParamValue = number | boolean | string | [number, number];
 <a id="type-material-shader"></a>
 ### MaterialShader
 
-Declared in `packages/project-model/src/materials.ts`.
+Declared in `packages/project-model/src/material-schema.ts`.
 
 ```ts
 type MaterialShader = (typeof MATERIAL_SHADERS)[number];

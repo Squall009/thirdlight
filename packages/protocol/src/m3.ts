@@ -26,92 +26,9 @@ import type {
   GameConfigQueryResult,
   ModelAnimationRolesValue,
 } from '@thirdlight/commands';
-/** The v3 mutation ops — the `commands` package
- *  exports the ops in its type module but not from its public entry, so the
- *  wire layer restates exactly the two accepted names. */
-export type V3MutationOp =
-  | 'applySurfacePreset'
-  | 'updateEntity'
-  | 'moveEntities'
-  | 'setTags'
-  | 'setAssetOptions'
-  | 'pasteEntities'
-  | 'setMaterial'
-  | 'deleteMaterial'
-  | 'setEnvironment'
-  | 'setLighting'
-  | 'setAnimator'
-  | 'deleteAnimator'
-  | 'setInput'
-  | 'setCollisionLayers'
-  | 'setLightLayers'
-  | 'setSaveSchema'
-  | 'createScene'
-  | 'renameScene'
-  | 'deleteScene'
-  | 'setStartScenes'
-  | 'setGraph'
-  | 'deleteGraph'
-  | 'graphEdit'
-  | 'setEffect'
-  | 'deleteEffect'
-  | 'renameEffect'
-  | 'setScriptLibrary'
-  | 'deleteScriptLibrary'
-  // Block layers
-  | 'editBlocks'
-  | 'setBlockType'
-  | 'deleteBlockType'
-  | 'setCellFields'
-  | 'setBlockStamp'
-  | 'deleteBlockStamp'
-  // Kits
-  | 'setKit'
-  | 'deleteKit'
-  | 'setUiDocument'
-  | 'deleteUiDocument'
-  | 'setUiTheme'
-  | 'deleteUiTheme'
-  // Dialogue
-  | 'setDialogue'
-  | 'deleteDialogue'
-  | 'setSpeaker'
-  | 'deleteSpeaker'
-  | 'setDialogueSettings'
-  | 'setModes'
-  | 'setBehaviorGroups'
-  | 'setEventCues'
-  | 'setShell'
-  | 'deleteUiTheme'
-  | 'setTimeline'
-  | 'deleteTimeline'
-  // Asset and prefab deletion, bulk creation
-  | 'deleteAsset'
-  | 'deletePrefab'
-  | 'updatePrefab'
-  | 'importAssets'
-  | 'importResources'
-  | 'createEntities'
-  // Staged library edits (several patches, one commit)
-  | 'commitScriptLibraryStage'
-  // Labels and addresses (what scripts load by name)
-  | 'setLabels'
-  | 'setAddress'
-  // The project window: files and folders moved, a folder renamed or made
-  | 'moveResources'
-  | 'renameFolder'
-  | 'createFolder'
-  // An instance set painted or erased with the brush (one stroke, one undo)
-  | 'paintInstances'
-  | 'paintVertices'
-  // An object's collider made from its model file (one undo)
-  | 'colliderFromModel'
-  // A terrain's tiles sculpted, painted, cut, imported or converted (one edit, one undo)
-  | 'editTerrain'
-  // Remove a script record (refused while anything references it)
-  | 'deleteBehavior'
-  // Withdraw an acknowledged script source (refused while a published script uses it)
-  | 'revokeBehaviorTrust';
+import { V3_MUTATION_OPS, type V3MutationOp } from '@thirdlight/commands/mutation-ops';
+
+export { V3_MUTATION_OPS, type V3MutationOp };
 import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3, SignalDebugCommandName } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { GAME_OBSERVATION_SECTIONS, sectionsField } from './play-sections';
@@ -156,8 +73,6 @@ export const V3_CONTENT_KEYS = [
 /** The v3 scene document key set, in canonical order. */
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
-/** The v3 mutation ops. */
-export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setLightLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setKit', 'deleteKit', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'updatePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress', 'moveResources', 'renameFolder', 'createFolder', 'paintInstances', 'paintVertices', 'colliderFromModel', 'editTerrain', 'deleteBehavior', 'revokeBehaviorTrust'];
 /** The v3 query op. */
 // queryBlocks reads block-layer cells and regions.
 // queryIndex reads the project index (assets, resources and scenes, what references what).
