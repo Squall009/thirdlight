@@ -220,7 +220,7 @@ is one step in the terrain or scatter e2e.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 40.0 | Done 2026-10-24: three.js 0.186.1 still latest (`@types/three` 0.186.0); Rapier 0.21.0 out, pinned 0.20.0 stays (minor; phase 41). New perf class `node tools/perf/run.mjs meadow` (`tools/perf/meadow.ts`, `meadow-run.ts`, probe `bare/grass.js`; vitest `tests/perf/meadow.test.ts`): 1 km² terrain, 4 blended layers, stand-in clump 60/21/6 tris, cover 8 /m² to 60 m on the CPU path. At the 60 Hz cap, 1080p, Iris Xe: CPU cover holds (p95 16.7–16.8 ms, 0 missed, both renderers): 17,250 copies in view, 431k tris, 67 draws (45 scene), main thread 2.64 / 2.22 ms (ground alone 2.12 / 1.38), WebGPU GPU 8.3 ms (scene pass 3.99 vs 2.38 without grass). At 150 m reach (host under load) WebGPU p95 33.5 ms, 219 missed, 131 scene draws, main 6.0 ms. GPU sweep (one draw per ring): holds to ~2.1–2.9M tris in view; first misses at near 32 /m² on WebGL 2 (2.69M tris, 29 missed) and near 8 + mid 8 /m² to 150 m (4.8M, both). Proposed: near 8 /m² LOD0 to 30 m + mid 2 /m² LOD1 to 80 m (1.22M tris in view, 5 draws). Landscape/village at the cap under host load (load ~20): see `~/.cache/thirdlight-phase40/baseline.md`. Fast gate green (19 min); D311 watch. |
 
 ## 5. Decision log
 
@@ -231,6 +231,21 @@ is one step in the terrain or scatter e2e.
   frame rate measured at the cap.
 - 2026-10-22: The owner added clouds that drift with the global wind, with
   coverage and density settings (40.4b).
+- 2026-10-24 (40.0): Budgets for 40.2/40.8 from the meadow sweep, default
+  chosen, owner to confirm: cover grass on terrain at 8 clumps/m² (about 100
+  blades/m²) with LOD0 (≤ 80 tris) to 30 m, then 2 clumps/m² with LOD1 (≤ 20
+  tris) to 80 m, nothing past (the terrain's layer colour); about 1.2M cover
+  triangles in view, half the lightest load that missed the cap (2.7M), as the
+  probe has no post stack and no game; patches 8 m near, 16 m mid; one draw
+  per ring and mesh level. A far ring (LOD2, 1 /m² to 300 m) held the cap at
+  2.1M tris but is past that margin: 40.8 may add it if the measured frame
+  allows. The target density "dense, tall grass" is read as 8 clumps/m² of
+  0.5–0.8 m blades.
+- 2026-10-24 (40.0): The sweep is judged by frames at the cap only (no
+  missed refresh beyond one per window, p95 within 0.3 ms of 16.7). GPU
+  timestamps at a capped rate follow the Iris Xe's clock, which drops when it
+  idles (the same config read 3.4–5.2 ms in two runs), so they do not rank
+  configs.
 - 2026-10-21: The owner added one placement pipeline (stored scatter, cover
   and the instance brush through one renderer), after the maintainability
   review counted three placement systems.

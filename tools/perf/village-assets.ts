@@ -255,6 +255,134 @@ export function coverKitGlb(seed: number, names: readonly string[]): Buffer {
   );
 }
 
+/** A clump's levels: blades and segments per blade (a blade of `s` segments is `2s - 1` triangles). */
+export const CLUMP_LEVELS: readonly { blades: number; segments: number }[] = [
+  { blades: 12, segments: 3 },
+  { blades: 7, segments: 2 },
+  { blades: 6, segments: 1 },
+];
+
+/** A clump mesh: positions, flat normals, UVs, COLOR_0 (RGBA bytes) and 16-bit indices. */
+export interface ClumpMesh {
+  pos: Float32Array;
+  nrm: Float32Array;
+  uv: Float32Array;
+  color: Uint8Array;
+  idx: Uint16Array;
+  height: number;
+  radius: number;
+}
+
+/**
+ * A clump of blades standing on y = 0 within `spread` m of the origin: each a
+ * strip tapering to a point, leaning and curving out, `height` m tall at
+ * most. COLOR_0 follows the foliage material's convention (R the bend weight,
+ * 0 at the root and 1 at the tip; G a phase per blade; B flutter, the tip
+ * most; A thinness), so the engine's wind moves it as it would a game's grass.
+ */
+export function bladeClump(seed: number, blades: number, segments: number, height = 0.8, spread = 0.12): ClumpMesh {
+  const rnd = prng(seed);
+  const perBlade = 2 * segments + 1;
+  const verts = blades * perBlade;
+  const pos = new Float32Array(verts * 3);
+  const nrm = new Float32Array(verts * 3);
+  const uv = new Float32Array(verts * 2);
+  const color = new Uint8Array(verts * 4);
+  const idx = new Uint16Array(blades * (2 * segments - 1) * 3);
+  let v = 0;
+  let i = 0;
+  let top = 0;
+  let radius = 0;
+  for (let b = 0; b < blades; b += 1) {
+    const a = rnd() * Math.PI * 2;
+    const r = Math.sqrt(rnd()) * spread;
+    const bx = Math.cos(a) * r;
+    const bz = Math.sin(a) * r;
+    // Blades lean outward from the clump's middle, and face across their lean.
+    const lean = 0.15 + rnd() * 0.35;
+    const out = rnd() * Math.PI * 2;
+    const dx = Math.cos(out);
+    const dz = Math.sin(out);
+    const h = height * (0.6 + 0.4 * rnd());
+    const w = 0.025 + rnd() * 0.02;
+    const phase = Math.floor(rnd() * 255);
+    const first = v;
+    for (let k = 0; k <= segments; k += 1) {
+      const t = k / segments;
+      // The lean grows with height (a curve), the width shrinks to nothing at the tip.
+      const off = lean * h * t * t;
+      const cx = bx + dx * off;
+      const cz = bz + dz * off;
+      const y = h * t * (1 - 0.15 * lean * t);
+      const half = (w / 2) * (1 - t);
+      const sides = k === segments ? [0] : [-1, 1];
+      for (const s of sides) {
+        pos.set([cx - dz * half * s, y, cz + dx * half * s], v * 3);
+        nrm.set([dx, 0.3, dz], v * 3);
+        uv.set([k === segments ? 0.5 : (s + 1) / 2, 1 - t], v * 2);
+        color.set([Math.round(255 * t), phase, Math.round(255 * t * t), 140], v * 4);
+        radius = Math.max(radius, Math.hypot(cx, cz) + half);
+        top = Math.max(top, y);
+        v += 1;
+      }
+    }
+    // Quads up the strip (rows of two vertices), the last row a single triangle to the tip.
+    for (let k = 0; k < segments; k += 1) {
+      const a0 = first + 2 * k;
+      if (k < segments - 1) {
+        idx.set([a0, a0 + 1, a0 + 2, a0 + 1, a0 + 3, a0 + 2], i);
+        i += 6;
+      } else {
+        idx.set([a0, a0 + 1, a0 + 2], i);
+        i += 3;
+      }
+    }
+  }
+  // Normals: the lean direction tilted up, unit length.
+  for (let k = 0; k < verts; k += 1) {
+    const l = Math.hypot(nrm[k * 3]!, nrm[k * 3 + 1]!, nrm[k * 3 + 2]!);
+    for (let c = 0; c < 3; c += 1) nrm[k * 3 + c]! /= l;
+  }
+  return { pos, nrm, uv, color, idx, height: top, radius };
+}
+
+/**
+ * A stand-in grass kit: one piece `clump` with levels `clump_LOD0..2`
+ * ({@link CLUMP_LEVELS}: about 60, 20 and 6 triangles), one material named
+ * `grass`. A neutral, generated shape for measuring, not art.
+ */
+export function clumpKitGlb(seed: number, height = 0.8): Buffer {
+  const g = new GlbData();
+  const meshes: Record<string, unknown>[] = [];
+  const nodes: Record<string, unknown>[] = [];
+  CLUMP_LEVELS.forEach((lv, l) => {
+    const m = bladeClump(seed, lv.blades, lv.segments, height);
+    const n = m.pos.length / 3;
+    const POS = g.accessor(m.pos, FLOAT, n, 'VEC3', { min: [-m.radius, 0, -m.radius], max: [m.radius, m.height, m.radius] }, ARRAY);
+    const NRM = g.accessor(m.nrm, FLOAT, n, 'VEC3', {}, ARRAY);
+    const UV = g.accessor(m.uv, FLOAT, n, 'VEC2', {}, ARRAY);
+    const COL = g.accessor(m.color, U8, n, 'VEC4', { normalized: true }, ARRAY);
+    const IDX = g.accessor(m.idx, U16, m.idx.length, 'SCALAR', {}, ELEMENTS);
+    meshes.push({ name: `clump_LOD${l}`, primitives: [{ attributes: { POSITION: POS, NORMAL: NRM, TEXCOORD_0: UV, COLOR_0: COL }, indices: IDX, material: 0 }] });
+    nodes.push({ name: `clump_LOD${l}`, mesh: l });
+  });
+  const bin = g.bin();
+  return packGlb(
+    {
+      asset: { version: '2.0', generator: 'thirdlight perf grass clump' },
+      scene: 0,
+      scenes: [{ nodes: nodes.map((_, i) => i) }],
+      nodes,
+      meshes,
+      materials: [{ name: 'grass', doubleSided: true, pbrMetallicRoughness: { baseColorFactor: [0.3, 0.5, 0.18, 1], metallicFactor: 0, roughnessFactor: 0.8 } }],
+      accessors: g.accessors,
+      bufferViews: g.views,
+      buffers: [{ byteLength: bin.length }],
+    },
+    bin,
+  );
+}
+
 /** The figure's clip length (s). */
 export const FIGURE_CLIP_SECONDS = 2;
 

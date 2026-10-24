@@ -196,7 +196,7 @@ const ROAD_MATERIAL = 'mat-level-road';
 const RIVER_MATERIAL = 'mat-level-river';
 
 /** The starter's objects the classes do without (player, spawn, boxes, pillar). */
-const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
+export const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
 const PASTE_MAX = 256;
 /** The terrain's height under the area (m): under the area's lowest ground (levelHeightAt's minimum, 4 rows = 2 m), so it never shows through it. */
 const TERRAIN_BASE = 1.5;
@@ -934,6 +934,35 @@ async function paintWalls(p: ReturnType<PerfBackend['project']>, cmd: (op: strin
   log(`level: ${strokes.length} wall paint strokes in ${Math.round(performance.now() - t)} ms`);
 }
 
+/**
+ * The level terrain's layered material under {@link TERRAIN_MATERIAL}: four layers of noise textures (levelTerrainTextures)
+ * packed into the albedo-height, normal and ORM arrays the layered template reads. With `rules` every per-layer
+ * setting holds values for four more layers; `projection` reads every layer by slope (1) or biplanar (2).
+ */
+export async function publishTerrainMaterial(be: PerfBackend, projectId: string, cmd: (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>, seed: number, plan: { rules: boolean; projection: number }): Promise<string> {
+  // The terrain's layered material: four layers of albedo (height in alpha), normal and ORM arrays packed from plain textures.
+  const sources = levelTerrainTextures(seed, LEVEL_SPEC.terrainTexture);
+  for (const t of sources) await publishFileVia(be, projectId, cmd, { assetId: t.assetId, kind: 'texture', displayName: t.assetId, bytes: t.png });
+  const pack = async (assetId: string, encoding: 'color' | 'normal' | 'data', layers: { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[][]): Promise<void> => {
+    const packed = await be.post(`/api/v1/projects/${projectId}/content/textures/pack`, { layers, encoding, displayName: assetId });
+    const proposal = packed.json['proposal'] as Record<string, unknown> | undefined;
+    if (packed.json['ok'] !== true || proposal?.['status'] !== 'ok') throw new Error(`pack ${assetId}: ${JSON.stringify(packed.json).slice(0, 400)}`);
+    await cmd('publishAsset', { mode: 'create', assetId, kind: 'texture', displayName: assetId, sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], packedFrom: packed.json['packedFrom'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  };
+  const rgba = (id: string): { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[] => (['r', 'g', 'b', 'a'] as const).map((channel) => ({ assetId: id, channel }));
+  await pack('level-terrain-albedo', 'color', [1, 2, 3, 4].map((i) => rgba(`level-terrain-albedo-${i}`)));
+  await pack('level-terrain-normals', 'normal', [1, 2, 3, 4].map(() => rgba('level-terrain-normal')));
+  await pack('level-terrain-orms', 'data', [1, 2, 3, 4].map(() => rgba('level-terrain-orm')));
+  const mat = layeredMaterial(TERRAIN_MATERIAL, 'Level terrain');
+  const arrays: Record<string, string> = { albedoHeight: 'level-terrain-albedo', normals: 'level-terrain-normals', orm: 'level-terrain-orms' };
+  // With rules, every per-layer setting holds values of its own for four more layers (the per-pixel lookup is drawn).
+  const extra = (p: { type: string; default: unknown }): Record<string, unknown> => (plan.rules && p.type === 'vec4' && Array.isArray(p.default) ? { extraLayers: [...(p.default as number[])] } : {});
+  // `--projection`: every layer read by slope or biplanar.
+  const projected = (p: { key: string; default: unknown }): Record<string, unknown> => (p.key === 'layerProjection' && plan.projection > 0 ? { default: [plan.projection, plan.projection, plan.projection, plan.projection] } : {});
+  await cmd('setMaterial', { material: { ...mat, parameters: (mat.parameters ?? []).map((p) => (arrays[p.key] !== undefined ? { ...p, default: arrays[p.key] } : { ...p, ...extra(p), ...projected(p) })) } });
+  return TERRAIN_MATERIAL;
+}
+
 export async function buildLevel(be: PerfBackend, projectId: string, plan: LevelPlan, log: (s: string) => void = () => undefined): Promise<LevelBuild> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Perf level ${plan.kind}` });
@@ -957,26 +986,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     // The kits' foliage material: its wind distance is the policy's (0 off: the wind's work in every vertex).
     await cmd('setMaterial', { material: { materialId: FOLIAGE_MATERIAL, name: 'Level foliage', shader: 'foliage', params: { color: '#5a8a3a', roughness: 0.9, windDistance: plan.foliage === 'on' ? FOLIAGE_NEAR_METRES : 0 }, textures: {} } });
     for (const [assetId, name] of [[FAR_KIT, 'scatter'], [COVER_KIT, 'cover']] as const) await cmd('setAssetOptions', { assetId, materials: { [name]: FOLIAGE_MATERIAL } });
-    // The terrain's layered material: four layers of albedo (height in alpha), normal and ORM arrays packed from plain textures.
-    const sources = levelTerrainTextures(plan.seed, LEVEL_SPEC.terrainTexture);
-    for (const t of sources) await publishFileVia(be, projectId, cmd, { assetId: t.assetId, kind: 'texture', displayName: t.assetId, bytes: t.png });
-    const pack = async (assetId: string, encoding: 'color' | 'normal' | 'data', layers: { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[][]): Promise<void> => {
-      const packed = await be.post(`/api/v1/projects/${projectId}/content/textures/pack`, { layers, encoding, displayName: assetId });
-      const proposal = packed.json['proposal'] as Record<string, unknown> | undefined;
-      if (packed.json['ok'] !== true || proposal?.['status'] !== 'ok') throw new Error(`pack ${assetId}: ${JSON.stringify(packed.json).slice(0, 400)}`);
-      await cmd('publishAsset', { mode: 'create', assetId, kind: 'texture', displayName: assetId, sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], packedFrom: packed.json['packedFrom'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
-    };
-    const rgba = (id: string): { assetId: string; channel: 'r' | 'g' | 'b' | 'a' }[] => (['r', 'g', 'b', 'a'] as const).map((channel) => ({ assetId: id, channel }));
-    await pack('level-terrain-albedo', 'color', [1, 2, 3, 4].map((i) => rgba(`level-terrain-albedo-${i}`)));
-    await pack('level-terrain-normals', 'normal', [1, 2, 3, 4].map(() => rgba('level-terrain-normal')));
-    await pack('level-terrain-orms', 'data', [1, 2, 3, 4].map(() => rgba('level-terrain-orm')));
-    const mat = layeredMaterial(TERRAIN_MATERIAL, 'Level terrain');
-    const arrays: Record<string, string> = { albedoHeight: 'level-terrain-albedo', normals: 'level-terrain-normals', orm: 'level-terrain-orms' };
-    // With rules, every per-layer setting holds values of its own for four more layers (the per-pixel lookup is drawn).
-    const extra = (p: { type: string; default: unknown }): Record<string, unknown> => (plan.rules && p.type === 'vec4' && Array.isArray(p.default) ? { extraLayers: [...(p.default as number[])] } : {});
-    // `--projection`: every layer read by slope or biplanar.
-    const projected = (p: { key: string; default: unknown }): Record<string, unknown> => (p.key === 'layerProjection' && plan.projection > 0 ? { default: [plan.projection, plan.projection, plan.projection, plan.projection] } : {});
-    await cmd('setMaterial', { material: { ...mat, parameters: (mat.parameters ?? []).map((p) => (arrays[p.key] !== undefined ? { ...p, default: arrays[p.key] } : { ...p, ...extra(p), ...projected(p) })) } });
+    await publishTerrainMaterial(be, projectId, cmd, plan.seed, { rules: plan.rules, projection: plan.projection });
   }
   // With a kit swap, each type's burnt twin first (a swap names a type that exists), same shape, darker colours.
   const burnt = (blockId: string): Record<string, unknown> => (plan.kitSwap ? { kits: { burnt: { block: `${blockId}-burnt` } } } : {});

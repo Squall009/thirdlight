@@ -214,6 +214,25 @@ only (one hidden behind another transparent one counts as hidden).
 the same page again with occlusion culling on, `occlusion=off` with it off
 where a project turned it on ([Occlusion culling](occlusion.md)).
 
+**The meadow class and the grass density sweep.** `node tools/perf/run.mjs
+meadow` builds the meadow class (`tools/perf/meadow.ts`: a 1 × 1 km terrain
+of rolling hills wearing the level classes' four-layer material, blended by
+48 painted patches, and one ground-cover rule of tall blade clumps over it —
+a generated stand-in of about 60, 20 and 6 triangles a level, 8 clumps a m²
+out to 60 m, thinning on the other layers and on steep ground) and exports
+it with its grass and without, each measured on both renderers at the
+display's 60 Hz cap (always: uncapped runs throttle). Then it sweeps grass
+density on the GPU: a plain three.js page (`tools/perf/bare/grass.js`)
+draws the same heights and clump in rings round the camera (density, reach
+and level per ring), every clump placed in the vertex shader from its
+instance index, the patch it falls in and a heights texture, one draw per
+ring. The log ends with the budget proposed from the sweep: the heaviest
+config that held the cap, at most half the triangles of the lightest one
+that missed it (`--safety`). `--density`, `--cover-distance`, `--sweep
+id,…`, `--no-export` and `--no-sweep` narrow a run. GPU timestamps at the
+cap follow the GPU's clock, which drops when it idles, so the sweep is read
+by frames at the cap, not by GPU time.
+
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance
 set; `setComponent instances … castShadow: true`). Older engines had instance
