@@ -37,6 +37,8 @@ copy is one object linking its prefab, and editing the prefab reaches it:
   project naming a missing prefab does not load); one line per prefab.
 
 Prefabs themselves, `ctx.spawn`, live blocks and block looks are unchanged.
+After the upgrade, an edit of a copy's object is that copy's override, and
+an edit of the prefab reaches every copy: see [Prefabs](../concepts/prefabs.md).
 
 The upgrade of a 6:
 
@@ -77,6 +79,11 @@ export's `warnings` or its refusal):
   `player_scene` (a player in a scene the game does not start with; the
   one-player-per-view `player_count` refusal is gone: players share the view), `kept_ignored` (Keep loaded under an object that is not kept),
   `kept_twice` (one id kept in two scenes: refused);
+- whenever the project loads or a prefab or copy changes (one line per
+  kind and prefab, naming its copies): `prefab_override_stale` (an override
+  names a part or field the prefab no longer has: it is skipped),
+  `prefab_missing` (a copy names a prefab that is gone), `prefab_cycle`,
+  `prefab_part_id_taken` (a part's id is already another object's);
 - while it runs: `kept_reference_unloaded` (a kept object names an object of
   a scene that unloaded: the reference reads as empty).
 
@@ -208,6 +215,15 @@ engine:
   ([Timelines](timelines.md)).
 - **Prefab copies keep their objects' tags**, so `ctx.tags` finds placed
   and spawned copies.
+- **Placed prefab copies are linked.** `instantiatePrefab` places one
+  object that links its prefab; its parts' ids are derived from the copy's
+  (its result maps them). A command on a part writes an override, and one
+  a link cannot hold (a part moved to another parent, a part's own flags)
+  is refused with `prefab_override_unsupported`. `updatePrefab` from a
+  linked copy of its prefab applies all its overrides
+  (`applyPrefabOverrides`); from other objects it replaces the prefab's
+  contents as before. A prefab may now hold a player controller, cameras,
+  lights and spawn points.
 - **A trim sheet draws at its own colours.** A trim material's **color**
   tints its sheet, white by default, wherever it is put; it no longer takes
   the colour of the surface under it (generated architecture's grey

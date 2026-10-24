@@ -243,12 +243,14 @@ starts `after("close", 4)`, which shows it again.
 A script can put copies of a project prefab into the running game (never
 into the project): projectiles, dropped coins, falling crates, enemies from
 a spawner. Make the prefab as usual (GameObject → **Create prefab from
-selection**, see [the prefab guide](../guides/prefabs.md)); a prefab keeps the object's collider (on its root),
-surface, materials, animator and gameplay blocks (mover, trigger, switch,
-collectible, health, patrol, hitbox, audio source, face movement), so a copy
-collides, is collected, patrols or flies like the original. The player
-controller and level wiring (camera, lights, spawn markers) never go into a
-prefab.
+selection**, see [the prefab guide](../guides/prefabs.md)); a prefab keeps
+any component a scene object can carry (colliders, materials, animators,
+scripts, the gameplay blocks, a player controller, cameras, lights), so a
+copy collides, is collected, patrols or flies like the original. A spawn
+uses the prefab as assembled, nested copies and variants included, and a
+spawned prefab with a player controller is one more player. What the scene
+keeps (block layers, instance sets, terrains, vertex paint, folders) never
+goes into a prefab ([Prefabs](../concepts/prefabs.md#what-can-be-in-a-prefab)).
 
 - `ctx.spawn(prefabId, { position, rotation?, scale? })` — `position` is
   `[x, y]` (the root keeps the prefab's own z) or `[x, y, z]`; `rotation` a
