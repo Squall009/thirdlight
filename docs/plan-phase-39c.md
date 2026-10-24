@@ -192,4 +192,6 @@ backend.
   prefab; assembly re-parents them, and to the copy's root, with a problem, if the part is gone).
   The copy's own name, tags and flags are its root's; a stale override (its part or field gone)
   is skipped and reported, never fatal. Default chosen, owner to confirm.
+- 2026-10-24 (lead): order 39c.1 → 39c.3 → 39c.2: schema 8 lands with the migration (39c.3), and
+  commands must not write linked copies before that bump.
 
