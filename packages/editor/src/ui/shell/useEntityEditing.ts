@@ -202,7 +202,7 @@ export function useEntityEditing(deps: EntityEditingDeps) {
   const colliderFromModel3D = useCallback(
     async (entityId: string, kind: 'box' | 'convex' | 'mesh' | 'compound') => {
       const ok = await runTypedCommand('colliderFromModel', { entityId, kind }, setComponentError, true);
-      if (ok) setNotice(`Collider: ${kind === 'box' ? 'box around the model' : kind === 'compound' ? "one hull per part of the model's _COL node" : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's _COL node (else its geometry)`}`);
+      if (ok) setNotice(`Collider: ${kind === 'box' ? 'box around the model' : kind === 'compound' ? "one hull per part of the model's _COL node" : `${kind === 'mesh' ? 'mesh' : 'convex hull'} from the model's _COL node (else its geometry)`}`, 'info');
     },
     [runTypedCommand, setNotice],
   );

@@ -39,6 +39,7 @@ import { InspectorDock } from './InspectorDock';
 import { onPrefabStage } from './usePrefabStage';
 import type { BottomTab } from './dock-tabs';
 import type { EditorModel } from './useEditorModel';
+import { waitFor } from '../wait-for';
 
 /** The kit editor's host (its tab and the Inspector beside it share its state). */
 function makeKitHost(m: EditorModel): KitDocumentHost {
@@ -128,7 +129,7 @@ function makeEditModeHost(m: EditorModel): Omit<EditModeHost, 'prefab'> {
 
 /** The centre's stage: the Scene view's host, asset and material drops on it, the notices and the Game view's preview. */
 function renderSceneStage(m: EditorModel): JSX.Element {
-  const { assetDropActive, setAssetDropActive, stageRef, centerTab, viewportRef, clientRef, entityEditing, setSelectedId, setNotice, dropAsset, viewportHostRef, playing, ui, notice, playInfo, playRenderer, playIframeRef, previewSrc } = m;
+  const { assetDropActive, setAssetDropActive, stageRef, centerTab, viewportRef, clientRef, entityEditing, setSelectedId, setNotice, dropAsset, viewportHostRef, playing, ui, notice, noticeTone, playInfo, playRenderer, playIframeRef, previewSrc } = m;
   return (
     <div
       className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
@@ -166,7 +167,12 @@ function renderSceneStage(m: EditorModel): JSX.Element {
           ev.preventDefault();
           const prefabId = ev.dataTransfer.getData(PREFAB_DRAG_TYPE);
           const at = viewportRef.current?.dropPoint(ev.clientX, ev.clientY);
-          if (prefabId !== '' && at !== undefined) void m.prefab.placeAt(prefabId, at);
+          // What the copy draws rests on the surface, as an asset dropped does: its lowest point where it was dropped.
+          const rest = async (rootId: string): Promise<number | null> => {
+            const box = await waitFor(() => viewportRef.current?.worldBoxOf(rootId) ?? null);
+            return box === null || at === undefined ? null : at[1] - box.min[1]!;
+          };
+          if (prefabId !== '' && at !== undefined) void m.prefab.placeAt(prefabId, at, rest);
           return;
         }
         if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
@@ -202,7 +208,7 @@ function renderSceneStage(m: EditorModel): JSX.Element {
         </div>
       )}
       {notice !== null && (
-        <div className="tl-notice" role="alert">
+        <div className={noticeTone === 'info' ? 'tl-notice tl-notice--info' : 'tl-notice'} role={noticeTone === 'info' ? 'status' : 'alert'}>
           <span>{notice}</span>
           <button className="tl-btn tl-btn--small" onClick={() => setNotice(null)}>
             dismiss
@@ -236,7 +242,7 @@ function renderSceneStage(m: EditorModel): JSX.Element {
 
 /** The editor's shell for a project (`projectId`: the page's project). */
 export function renderEditorShell(m: EditorModel, projectId: string): JSX.Element {
-  const { animatorTools, assetActions, assetSummary, assets, bake, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, modelFilesRef, modes, move, notice, occlusionView, openDocument, play, playMode, playSession, playing, prefab, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, viewFailures, viewportRef, windowOpen, workareaRef, workspace, workspaceDispatch } = m;
+  const { animatorTools, assetActions, assetSummary, assets, bake, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, modelFilesRef, modes, move, notice, noticeTone, occlusionView, openDocument, play, playMode, playSession, playing, prefab, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, viewFailures, viewportRef, windowOpen, workareaRef, workspace, workspaceDispatch } = m;
   const selected = selectedEntity;
   /** The components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
@@ -493,6 +499,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
           onUndo={() => void sceneEditing.undo()}
           onRedo={() => void sceneEditing.redo()}
           notice={notice}
+          noticeTone={noticeTone}
           onDismissNotice={() => setNotice(null)}
           project={() => <AssetsTab {...assetsTab} />}
         />

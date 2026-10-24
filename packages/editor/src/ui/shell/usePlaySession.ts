@@ -33,7 +33,7 @@ export function usePlaySession(
   clientRef: MutableRefObject<SessionClient | null>,
   modesCount: number,
   setGameplayError: Dispatch<SetStateAction<GameplayBackendError | null>>,
-  setNotice: Dispatch<SetStateAction<string | null>>,
+  setNotice: (message: string | null) => void,
 ) {
   /** The page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
   const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));

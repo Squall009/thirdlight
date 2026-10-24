@@ -84,15 +84,30 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
     const ok = await runTypedCommand('createPrefab', plan.command.args, (e) => (failure = e));
     if (!ok) return setNotice(`Create prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
     setSelectedPrefabId(plan.command.args.prefabId);
-    setNotice(`Prefab “${plan.command.args.displayName}” created from ${sel.name ?? sel.id}.`);
+    setNotice(`Prefab “${plan.command.args.displayName}” created from ${sel.name ?? sel.id}.`, 'info');
   }, [clientRef, runTypedCommand, selectedIdRef, setNotice]);
 
-  /** A prefab dragged from the project window into the Scene view: one linked copy where it was dropped. */
-  const placeAt = useCallback(async (prefabId: string, position: readonly number[]) => {
-    let failure: UiError | null = null;
-    const ok = await runTypedCommand('instantiatePrefab', { prefabId, transform: { position: [...position] } }, (e) => (failure = e));
-    if (!ok) setNotice(`Place prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
-  }, [runTypedCommand, setNotice]);
+  /**
+   * A prefab dragged from the project window into the Scene view: one linked
+   * copy where it was dropped. `rest` measures how far the placed copy must
+   * rise so that what it draws rests on the surface (its origin may be its
+   * middle, as a character's is); the copy is lifted in the same undo step.
+   */
+  const placeAt = useCallback(async (prefabId: string, position: readonly number[], rest?: (rootId: string) => Promise<number | null>) => {
+    const c = clientRef.current;
+    if (!c) return;
+    await c.grouped(async (scope) => {
+      const res = await scope.command('instantiatePrefab', { prefabId, transform: { position: [...position] } }, scope.projection.revision);
+      if (!res.ok) return setNotice(`Place prefab: ${(res.response as { message?: string; code?: string }).message ?? 'refused'}`);
+      const rootId = (res.change as { rootId?: unknown } | undefined)?.rootId;
+      if (typeof rootId !== 'string' || rest === undefined) return;
+      const rise = await rest(rootId);
+      if (rise === null || Math.abs(rise) < 1e-4) return;
+      const at = [position[0] ?? 0, Math.round(((position[1] ?? 0) + rise) * 1e4) / 1e4, position[2] ?? 0];
+      const moved = await scope.command('setTransform', { entityId: rootId, transform: { position: at } }, scope.projection.revision);
+      if (!moved.ok) setNotice(`Place prefab: ${(moved.response as { message?: string }).message ?? 'refused'}`);
+    });
+  }, [clientRef, setNotice]);
 
   const overrideTargets = useMemo(() => {
     const c = clientRef.current;

@@ -481,6 +481,8 @@ input.tl-inspector__name { width: 100%; background: transparent; color: var(--te
 input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: var(--border); background: var(--panel-2); }
 
 .tl-notice--external { top: 56px; background: var(--warn-bg); border-color: var(--warn); }
+/* Something done (not a failure): the panel's own colours, readable over a light sky too. */
+.tl-notice--info { background: var(--panel); border-color: var(--border); }
 
 /* Problems */
 .tl-tab__count { margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--err); color: #fff; font-size: 10px; }

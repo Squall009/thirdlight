@@ -143,7 +143,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     const values = await selectionValues();
     if (values === null) return;
     clipboardRef.current = values;
-    setNotice(`Copied ${values.length} object${values.length === 1 ? '' : 's'}`);
+    setNotice(`Copied ${values.length} object${values.length === 1 ? '' : 's'}`, 'info');
   }, [selectionValues, setNotice]);
 
   /** Edit → Paste (Ctrl+V): into the active scene, inside the selected folder if one is selected. */

@@ -93,6 +93,8 @@ export const prefabMode: ObjectEditModeKind = {
   framesOnEnter: true,
   ownStage: true,
   meta: () => 'Every copy follows its edits',
+  // The prefab opened, not its root object: a variant's root is its base's, and would name the base.
+  title: ({ host }) => (host.prefab.stage !== null ? host.prefab.prefabName(host.prefab.stage.prefabId) : null),
   rail: [{ id: 'objects', label: 'Objects', glyph: 'stack', hint: 'Pick an object of the prefab and change it in the column; every copy follows.', navigate: 'A drag orbits; a click picks an object of the prefab.' }],
   tools: [],
   companions: (e, entities) => entities.filter((x) => onPrefabStage(x) && x.id !== e.id).map((x) => x.id),

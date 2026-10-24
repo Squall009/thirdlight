@@ -61,6 +61,8 @@ export interface EditModeShellProps {
   onRedo: () => void;
   /** The editor's message over the view (a refused edit), as the Scene view shows it; null: none. */
   notice: string | null;
+  /** `info`: something done, not a failure (another style). */
+  noticeTone?: 'error' | 'info';
   onDismissNotice: () => void;
   /** The project window, drawn in the mode's Project panel. */
   project: () => ReactNode;
@@ -237,7 +239,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
   const rail = kind.rail.find((r) => r.id === state.mode) ?? kind.rail[0]!;
   const sceneView = { mode: rail.id, host: p.host, focus: state.focus };
   const icon = scene ? null : objectIconFor(entity!, p.icons);
-  const name = scene ? (p.host.scene?.name ?? 'Scene') : entity!.name;
+  const name = scene ? (p.host.scene?.name ?? 'Scene') : (kind.title?.({ entity: entity!, mode: rail.id, host: p.host }) ?? entity!.name);
   const meta = scene ? kind.meta?.(sceneView) : kind.meta?.(entity!);
   const objectView = scene ? null : { entity: entity!, mode: rail.id, host: p.host };
   const navigate = tool.tools && !tool.api.armed;
@@ -274,7 +276,7 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
           <DockLayer host={docks} />
           <EditPanels panels={[{ id: 'project', title: 'Project', dock: 'b', collapsed: true, wide: true, render: () => <div className="tl-editmode__project">{p.project()}</div> }]} />
           {p.notice !== null && (
-            <div className="tl-notice" role="alert">
+            <div className={p.noticeTone === 'info' ? 'tl-notice tl-notice--info' : 'tl-notice'} role={p.noticeTone === 'info' ? 'status' : 'alert'}>
               <span>{p.notice}</span>
               <button className="tl-btn tl-btn--small" onClick={p.onDismissNotice}>
                 dismiss

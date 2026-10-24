@@ -59,7 +59,7 @@ import { defaultToolPlace } from '../tools/SceneToolWindows';
 import { useDecalAtlas } from './useDecalAtlas';
 import { useDecalTools } from './useDecalTools';
 import { useVertexPaintTools } from './useVertexPaintTools';
-import type { ReportFailure } from './commands';
+import type { NoticeTone, ReportFailure, SetNotice } from './commands';
 import { useKitEditor } from '../kit/useKitEditor';
 import { useSceneViewSync } from './useSceneViewSync';
 import { useEditorMount } from './useEditorMount';
@@ -130,13 +130,19 @@ export function useEditorModel() {
   const { sizes, splitter } = useDockSizes();
   const stageRef = useRef<HTMLDivElement | null>(null);
   /** A dismissible message over the viewport (e.g. why Play failed). */
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNoticeText] = useState<string | null>(null);
+  /** Whether the notice reports a failure or something done (shown in the error or the info style). */
+  const [noticeTone, setNoticeTone] = useState<NoticeTone>('error');
+  const setNotice: SetNotice = useCallback((message, tone = 'error') => {
+    setNoticeText(message);
+    setNoticeTone(tone);
+  }, []);
   /** Report a failed edit where the user is looking. */
   const reportFailure: ReportFailure = useCallback((what, res) => {
     if (res.ok) return;
     const r = res.response as { code?: string; message?: string };
     setNotice(`${what} failed: ${r.message ?? r.code ?? 'unknown error'}`);
-  }, []);
+  }, [setNotice]);
   /** The editor's refresh, for the hooks made before it (a saved setting shows at once). */
   const refreshRef = useRef<() => void>(() => undefined);
   const projectSettings = useProjectSettings(clientRef, refreshRef);
@@ -427,7 +433,7 @@ export function useEditorModel() {
 
   return {
     activate, openPrefab, prefabStage, sceneEntities,
-    activeScene, animatorTools, assetActions, assetDropActive, assetSummary, assets, bake, blockHandlersRef, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, decalAtlas, decalTools, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, materials, modelFilesRef, modes, move, newMaterialId, notice, occlusionView, openDocument, play, playIframeRef, playInfo, playMode, playRenderer, playSession, playing, prefab, prefabSummaries, previewSrc, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setAssetDropActive, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stageRef, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, vertexPaint, viewFailures, viewportHostRef, viewportRef, windowOpen, workareaRef, workspace, workspaceDispatch, gate,
+    activeScene, animatorTools, assetActions, assetDropActive, assetSummary, assets, bake, blockHandlersRef, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, decalAtlas, decalTools, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, materials, modelFilesRef, modes, move, newMaterialId, notice, noticeTone, occlusionView, openDocument, play, playIframeRef, playInfo, playMode, playRenderer, playSession, playing, prefab, prefabSummaries, previewSrc, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setAssetDropActive, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stageRef, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, vertexPaint, viewFailures, viewportHostRef, viewportRef, windowOpen, workareaRef, workspace, workspaceDispatch, gate,
   };
 }
 

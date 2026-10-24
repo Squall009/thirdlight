@@ -24,7 +24,9 @@ export type ViewportRef = MutableRefObject<Viewport | null>;
 export type ModelsRef = MutableRefObject<ModelFiles | null>;
 
 /** Shows a dismissible message over the Scene view (null clears it). */
-export type SetNotice = (message: string | null) => void;
+/** A notice over the view: an `error` (the default: something failed) or `info` (something done, e.g. "Prefab created"). */
+export type NoticeTone = 'error' | 'info';
+export type SetNotice = (message: string | null, tone?: NoticeTone) => void;
 
 /** Reports a failed edit where the user is looking (the notice over the Scene view). */
 export type ReportFailure = (what: string, res: CommandResult) => void;

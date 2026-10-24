@@ -136,6 +136,8 @@ export interface ObjectEditModeKind extends EditModeBase {
   applies(e: ProjectedEntity): boolean;
   /** A short fact for the header ("4 tiles · 2 × 2 · 256 m each"). */
   meta?(e: ProjectedEntity): string;
+  /** The name the header shows (absent: the object's): what the mode edits when that is not the object itself. */
+  title?(view: EditModeView): string | null;
   /** The object's box in its own frame for Home (absent: the meshes it draws). */
   bounds?(e: ProjectedEntity): { min: readonly number[]; max: readonly number[] } | null;
   /**
