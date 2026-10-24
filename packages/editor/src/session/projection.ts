@@ -439,11 +439,37 @@ export class Projection {
     for (const f of (change as { follows?: readonly { entityId: string; component: string; next: unknown }[] }).follows ?? []) {
       this.applyChangeInner({ type: 'setComponent', id: f.entityId, component: f.component, previous: null, next: f.next, changedFields: [] } as unknown as ChangeData, kinds);
     }
+    // The objects linked prefab copies make, as the change left them (whole values in, ids out).
+    const assembled = (change as { assembled?: { upsert: readonly { sceneId: string; entities: readonly EntityV3[] }[]; removedIds: readonly string[] } }).assembled;
+    if (assembled !== undefined) this.applyAssembled(assembled);
     // A component added or removed can change what the tree shows (the kind icon).
     if (this.structureN === structureBefore) {
       for (const [id, k] of kinds) if (this.entities.get(id)?.kind !== k) this.structural();
     }
     return result;
+  }
+
+  /** Assembled objects replace what the projection holds under their id (or join it); removed ones leave. */
+  private applyAssembled(assembled: { upsert: readonly { sceneId: string; entities: readonly EntityV3[] }[]; removedIds: readonly string[] }): void {
+    for (const group of assembled.upsert) {
+      for (const entity of group.entities) {
+        const p = toProjected(entity);
+        if (this.sceneRows.length > 0) p.sceneId = group.sceneId;
+        // Not filed as created: the group names the scene (the change's own scene may be another).
+        if (!this.entities.has(p.id)) this.order.push(p.id);
+        this.entities.set(p.id, p);
+        this.touch(p.id);
+      }
+    }
+    if (assembled.removedIds.length > 0) {
+      const gone = new Set(assembled.removedIds);
+      for (const id of gone) {
+        this.entities.delete(id);
+        this.touch(id);
+      }
+      this.order = this.order.filter((id) => !gone.has(id));
+    }
+    this.structural();
   }
 
   private applyChangeInner(change: ChangeData, kinds: Map<string, ProjectedEntity['kind']>): boolean {

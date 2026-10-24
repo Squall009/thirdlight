@@ -92,3 +92,5 @@ export { SCRIPT_NAMED_LABEL } from './upgrade-loadable';
 // A block layer's level checks (the backend's Problems after block edits).
 export { layerLevelChecks, type BlockCheckContent, type BlockLayerCheck } from './block-checks';
 export { paintMismatches, type PaintMeshCache, type PaintMismatchRow } from './paint-checks';
+// Linked prefab copies as Play, export and the editor see them (assembled; what assembly could not do).
+export { assembledChange, PrefabViews, type AssembledChange, type PrefabView, type ScenePrefabProblem } from './prefab-view';

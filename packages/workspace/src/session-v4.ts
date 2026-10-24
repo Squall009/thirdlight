@@ -78,6 +78,7 @@ import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
 import { buildIndex, updateIndex } from './project-index';
 import { serveQueryIndex } from './query-index';
+import { prefabViewOf } from './prefab-view';
 import type { OwnershipRecord } from './ownership';
 import type { QueryResult } from './types';
 
@@ -1050,7 +1051,7 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
 // ---- queries ------------------------------------------------------------------------
 
 /** The scene holding an entity (null when no scene does). */
-export function sceneOfEntity(state: V4State, entityId: string): SceneV4 | null {
+export function sceneOfEntity(state: { scenes: ReadonlyMap<string, SceneV4> }, entityId: string): SceneV4 | null {
   for (const scene of state.scenes.values()) if (scene.entities.some((e) => e.id === entityId)) return scene;
   return null;
 }
@@ -1188,11 +1189,14 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
       tags,
     } as unknown as QueryResult;
   }
+  // The editor's view of the scenes: linked prefab copies assembled into the objects they make.
+  const viewed = prefabViewOf(s);
+  const scenesViewed = viewed !== null && viewed.linked ? viewed.scenes : state.scenes;
   if (op === 'queryEntity') {
     for (const k of Object.keys(a)) if (k !== 'entityId' && k !== 'includeSubtree') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entityId, includeSubtree'));
     const entityId = a['entityId'];
     if (typeof entityId !== 'string' || entityId.length === 0) return failure(op, projectId, fieldTypeError('/args/entityId', entityId, 'string'));
-    const scene = sceneOfEntity(state, entityId);
+    const scene = sceneOfEntity({ scenes: scenesViewed }, entityId);
     if (scene === null) return failure(op, projectId, entityNotFound(entityId));
     const entity = scene.entities.find((e) => e.id === entityId)!;
     const byId = new Map(scene.entities.map((e) => [e.id, e]));
@@ -1237,10 +1241,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     offset = o;
   }
   const sceneId = a['sceneId'];
-  if (sceneId !== undefined && (typeof sceneId !== 'string' || !state.scenes.has(sceneId))) {
+  if (sceneId !== undefined && (typeof sceneId !== 'string' || !scenesViewed.has(sceneId))) {
     return failure(op, projectId, fieldValueType('/args/sceneId', sceneId, 'a scene id of the project', 'no such scene'));
   }
-  const scenes = sceneId !== undefined ? [state.scenes.get(sceneId as string)!] : [...state.scenes.values()];
+  const scenes = sceneId !== undefined ? [scenesViewed.get(sceneId as string)!] : [...scenesViewed.values()];
   let rows = scenes.flatMap((sc) => sc.entities.map((entity) => ({ entity, sceneId: sc.sceneId })));
   if (a['component'] !== undefined) {
     const f = filterEntitiesByComponent(rows.map((r) => r.entity) as unknown as readonly { components: Record<string, unknown> }[], a['component']);

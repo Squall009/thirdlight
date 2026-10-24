@@ -93,6 +93,7 @@ import { assetRecordOf } from './catalog-lookup';
 import { isWithin } from './registry';
 import { WatchedAssets, type WatchedAssetsStats } from './watched-assets';
 import { erodeWorkInput } from './terrain-layer-reads';
+import { prefabViewOf } from './prefab-view';
 
 /** The session as the content-store operations need it. */
 /**
@@ -115,6 +116,21 @@ export function contentCtx(s: ProjectSession): ContentContext {
     ...(s.watchedAssets ? { watched: s.watchedAssets } : {}),
     ...(s.v4 ? { scenes: [...s.v4.scenes.values()] } : {}),
   };
+}
+
+/**
+ * The captured read with every linked prefab copy assembled into plain
+ * objects and the spawnable prefabs flattened: what Play and export build
+ * from, so the runtime never meets a link.
+ */
+function readAssembled(s: ProjectSession): CapturedV3ReadResult {
+  const ctx = contentCtx(s);
+  const view = prefabViewOf(s);
+  if (view === null || !view.linked || ctx.content === null) return readCapturedV3(ctx);
+  const scenes = [...view.scenes.values()];
+  const read = readCapturedV3({ ...ctx, content: { ...ctx.content, prefabs: view.prefabs as ContentCatalogV4['prefabs'] }, scenes, scene: ctx.scene !== null ? (view.scenes.get(ctx.scene.sceneId) ?? ctx.scene) : null });
+  if (!read.ok || view.problems.length === 0) return read;
+  return { ok: true, read: { ...read.read, prefabProblems: view.problems } };
 }
 
 function realDir(dir: string): string {
@@ -579,7 +595,7 @@ export function contentOps(core: Core) {
     fileStampStats: (projectId: string): { files: number; hashes: number; watch: WatchedAssetsStats | null } | null =>
       withOpenSession(projectId, (s) => ({ files: stampsOfSession(s).size, hashes: stampsOfSession(s).hashes, watch: s.watchedAssets?.stats() ?? null }), () => null),
     /** The single acknowledged project read (scenes + content). */
-    readCapturedV3: (projectId: string): CapturedV3ReadResult => run(projectId, (s) => readCapturedV3(contentCtx(s))),
+    readCapturedV3: (projectId: string): CapturedV3ReadResult => run(projectId, (s) => readAssembled(s)),
     assetFiles,
     assetFilesYielding,
     missingAssetFiles,

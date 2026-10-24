@@ -417,3 +417,30 @@ export function assembleSceneEntities(entities: readonly AssemblyEntity[], assem
   return { entities: out, problems };
 }
 
+
+/**
+ * A prefab as the runtime spawns it: its nested copies and variants expanded
+ * into plain parts, so `ctx.spawn` copies a flat list as it always has. The
+ * root keeps its local id; every other part's local id is the id a copy whose
+ * id is the root's local id gives that part (derived from its path), and
+ * entity references inside the prefab name those ids. Each part's `prefab`
+ * provenance is left for the spawn to write.
+ */
+export function flatPrefabEntities(assembler: PrefabAssembler, prefab: AssemblyPrefab): { entities: AssemblyPrefabEntity[]; problems: PrefabAssemblyProblem[] } {
+  const root = prefab.entities[0];
+  if (root === undefined) return { entities: [], problems: [] };
+  const transform = (root.components as { transform?: unknown }).transform;
+  const made = assembler.assembleCopy({ id: root.localId, components: { transform: clone(transform), prefab: { prefabId: prefab.prefabId } } });
+  const entities = made.entities.map((e, i): AssemblyPrefabEntity => {
+    const { prefab: _provenance, ...components } = e.components as Record<string, unknown>;
+    void _provenance;
+    return {
+      localId: e.id,
+      ...(e.name !== undefined ? { name: e.name } : {}),
+      ...(i > 0 && e.parentId !== undefined ? { parentLocalId: e.parentId } : {}),
+      ...(e.tags !== undefined ? { tags: e.tags } : {}),
+      components,
+    };
+  });
+  return { entities, problems: made.problems };
+}

@@ -420,8 +420,8 @@ export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadabl
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 // Linked copies: the override format, part paths and ids, nesting cycles, and assembly into plain objects.
-export { isPartKey, isPrefabLink, partPathKey, partPathOf, prefabNestingCycles, prefabPartId, validatePrefabLink, PART_PATH_SEPARATOR, type PrefabFieldOverride, type PrefabFieldRemoval, type PrefabLinkComponent, type PrefabOverride, type PrefabPartRemoval } from './prefab-links';
-export { assembleSceneEntities, createPrefabAssembler, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
+export { isPartKey, isPrefabLink, nestedPrefabIds, partPathKey, partPathOf, prefabNestingCycles, prefabPartId, validatePrefabLink, PART_PATH_SEPARATOR, type PrefabFieldOverride, type PrefabFieldRemoval, type PrefabLinkComponent, type PrefabOverride, type PrefabPartRemoval } from './prefab-links';
+export { assembleSceneEntities, createPrefabAssembler, flatPrefabEntities, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
 export { declarationBytes } from './content-behaviors';
 export {
   INSTANCE_FLOATS,

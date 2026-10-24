@@ -11,6 +11,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 import { audioPlaybackProblems } from './audio-gaps';
 import type { AssetFileCheck } from './asset-files';
 import { createBlockProblemChecker } from './block-problems';
+import { createPrefabProblemChecker } from './prefab-problems';
 import { createHeightAlphaProblems, type HeightAlphaChecks } from './height-alpha';
 import { createHeldImagesChecker } from './held-images';
 import { createKitChecker } from './kit-check';
@@ -108,6 +109,8 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
   const kitProblems = createKitProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed, pieceErrors: kitChecker.pieceErrors });
   // Block layers' floating blocks, empty regions and unreachable places (checked on load and after block edits settle).
   const blockProblems = createBlockProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
+  // Linked prefab copies assembly could not make as stored (checked on load and after changes to copies or prefabs).
+  const prefabProblems = createPrefabProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
   const paintProblems = createPaintProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
@@ -167,6 +170,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       kitProblems.loaded(projectId);
       heldImages.loaded(projectId);
       blockProblems.loaded(projectId);
+      prefabProblems.loaded(projectId);
       paintProblems.loaded(projectId);
       heightProblems.loaded(projectId);
       occluderProblems.loaded(projectId);
@@ -190,6 +194,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       kitProblems.changed(projectId, change);
       heldImages.changed(projectId, change);
       blockProblems.changed(projectId, change);
+      prefabProblems.changed(projectId, change);
       paintProblems.changed(projectId, change);
       heightProblems.changed(projectId, change);
       occluderProblems.changed(projectId, change);

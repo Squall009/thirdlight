@@ -258,7 +258,10 @@ steady loop's allocation sites.
   its "before" side (the HTTP result and the undo history keep it), and a
   change to a keyed list (materials, animators) carries only the items that
   changed plus the order, so one material edit in a project with 500
-  materials is one material on the wire.
+  materials is one material on the wire. When linked prefab copies change
+  (a copy edited, its prefab edited, a copy deleted), the change also
+  carries `assembled`: only the copies' objects that differ, whole, and the
+  ids of those that are gone.
 - *The editor's projection* updates incrementally: a change replaces only the
   entities it touched, the Hierarchy rebuilds its rows only when the tree's
   shape or names change and draws only the rows in view (above 400 rows),

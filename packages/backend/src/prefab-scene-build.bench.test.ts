@@ -13,9 +13,12 @@
  * is served from a cache.
  *
  * Not a pass/fail test: it prints the numbers (the plan records them).
- * `TL_BENCH_COPIES` changes the copy count.
+ * `TL_BENCH_COPIES` changes the copy count. `TL_BENCH_LINKED=1` places
+ * linked copies instead (written into the scene file while the project is
+ * closed, as no command writes links yet), so the numbers include assembly.
  */
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -27,6 +30,7 @@ const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PREFABS = 10;
 const COPIES = Number(process.env.TL_BENCH_COPIES ?? 1000);
 const RUNS = 5;
+const LINKED = process.env.TL_BENCH_LINKED === '1';
 
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] as number;
 
@@ -53,10 +57,19 @@ describe.skipIf(process.env.TL_BENCH !== '1')('prefab scene build timings', () =
       await send('deleteEntity', { entityId: rootId });
     }
     const started = performance.now();
-    for (let i = 0; i < COPIES; i++) {
-      await send('instantiatePrefab', { prefabId: `bench-${i % PREFABS}`, sceneId: 'scene-main', transform: { position: [(i % 40) * 3, 0, Math.floor(i / 40) * 3] } });
+    const at = (i: number): [number, number, number] => [(i % 40) * 3, 0, Math.floor(i / 40) * 3];
+    if (LINKED) {
+      expect(tb.backend._test.service.releaseWorkspace(PID).ok).toBe(true);
+      const file = join(tb.root, 'data', 'projects', PID, 'scenes', 'scene-main.json');
+      const doc = JSON.parse(readFileSync(file, 'utf8')) as { scene: { entities: unknown[] } };
+      for (let i = 0; i < COPIES; i++) doc.scene.entities.push({ id: `copy-${i}`, components: { transform: { position: at(i), rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, prefab: { prefabId: `bench-${i % PREFABS}` } } });
+      writeFileSync(file, JSON.stringify(doc));
+    } else {
+      for (let i = 0; i < COPIES; i++) {
+        await send('instantiatePrefab', { prefabId: `bench-${i % PREFABS}`, sceneId: 'scene-main', transform: { position: at(i) } });
+      }
     }
-    console.log(`[prefab bench] placed ${COPIES} copies in ${Math.round(performance.now() - started)} ms`);
+    console.log(`[prefab bench] placed ${COPIES} ${LINKED ? 'linked' : 'plain'} copies in ${Math.round(performance.now() - started)} ms`);
   }, 900_000);
   afterAll(async () => {
     await tb?.teardown();
@@ -65,6 +78,7 @@ describe.skipIf(process.env.TL_BENCH !== '1')('prefab scene build timings', () =
   it(`builds a scene of ${COPIES} copies of ${PREFABS} prefabs`, async () => {
     const r = tb.backend._test.service.readCapturedV3(PID);
     if (!r.ok) throw new Error(r.error.code);
+    // Linked copies count as the objects they assemble into (the captured read is assembled).
     const objects = (r.read.scene as { entities: unknown[] }).entities.length;
     expect(objects).toBeGreaterThanOrEqual(COPIES * 4);
 
@@ -104,6 +118,7 @@ describe.skipIf(process.env.TL_BENCH !== '1')('prefab scene build timings', () =
     }
     ws.close();
     const report = {
+      linked: LINKED,
       copies: COPIES,
       prefabs: PREFABS,
       objects,

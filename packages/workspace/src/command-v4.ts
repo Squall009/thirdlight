@@ -30,6 +30,7 @@ import { prepareInstanceStroke, prepareModelCollider, publishStrokeBuffer, type 
 import { followCopyPaint, prepareVertexPaint, publishPaintBlobs, verifyPaintBlobs } from './vertex-paint-host';
 import { prepareTerrainEdit, publishTerrainBlobs, verifyTerrainTiles, type TerrainBlob } from './terrain-edits';
 import { verifySplineData, withSplineFollows } from './spline-follows';
+import { assembledChange, prefabViewOf } from './prefab-view';
 import { SCENE_ROUTED_ARG, SCENE_ROUTED_CREATES } from './scene-routing';
 import { prepareErodeEdit } from './terrain-layer-reads';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneRequired, sceneV4Of } from './content-shapes';
@@ -389,8 +390,14 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
     s.history = outcome.state.history;
     return failRequest(request, writeFailed('new-undurable', res.failed.errno));
   }
+  const viewBefore = prefabViewOf(s);
   publishV4(s, nextState());
   s.history = outcome.state.history;
+  // The objects linked prefab copies make, as they changed (a copy edited, a prefab edited, a copy deleted): the editor's
+  // projection applies them with the change. Never recorded: they follow from the stored state.
+  const viewAfter = prefabViewOf(s);
+  const assembled = viewBefore !== null && viewAfter !== null ? assembledChange(viewBefore, viewAfter) : undefined;
+  if (assembled !== undefined) ack = { ...ack, change: { ...ack.change, assembled } as unknown as MutationSuccess['change'] };
   // A committed stage is done (committing it again is refused).
   if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
   // The game folder follows what the command did to an asset: its sidecar, a delete, a move, an undone replace.

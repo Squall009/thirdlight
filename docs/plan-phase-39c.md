@@ -164,6 +164,7 @@ backend.
 |---|---|
 | 39c.0 | Done. three 0.186.1 and Rapier 0.21.0 are still the latest (0.21 stays planned for phase 41). Baseline (`TL_BENCH=1 npx vitest run packages/backend/src/prefab-scene-build.bench.test.ts`, 10 prefabs × 4 parts, 1,000 plain copies = 4,003 objects, medians of 5): editor view (`queryEntities`) 21 ms, Play start backend 105 ms (closure 100 ms, its scene stage 14 ms). Placing the 1,000 copies by command took 56 s. |
 | 39c.1 A | Done: the link format (`prefab: {prefabId, overrides}`, overrides by part path: field set/remove, component add/remove, part removal; added objects carry `parentPart`), nested copies and variants in definitions, catalog cycle refusal (`prefab_cycle`), and `createPrefabAssembler` / `assembleSceneEntities` in project-model (flattened once per prefab, part ids `prefabPartId(copyId, path)`). Vitest at the workspace boundary (`packages/workspace/src/prefab-links.test.ts`, 3 tests). No e2e touched (`delete-content` ran in the fast gate, green; village at the cap: p95 16.7 ms, 0 missed, both renderers). `scan-bounded-log` timed out under load twice and passed alone (D307 watch). Part B (reassembly through the change feed, Play/export/editor wiring) is next. |
+| 39c.1 B | Done: the backend assembles linked copies wherever it builds a scene (workspace `prefab-view.ts`, kept per session: per copy while the copy and its prefab chain are unchanged, per scene): the captured read (Play, export, every check) and the editor's `queryEntities`/`queryEntity`/full state hold plain objects with derived part ids; the spawnable prefabs ship with nested copies and variants flattened. A command's result and its `mutation.applied` carry `change.assembled` (only the copies' objects that differ, whole, and the ids gone), which the editor's projection applies; assembly problems are grouped Problems lines (`prefab_override_stale`, …). Vitest over HTTP/WS (`tests/integration/m39c-linked-prefabs`, 3 tests: editor view, Play, export, a prefab edit reaching every copy and a variant through the feed into the real projection, a deleted copy, `ctx.spawn` of a variant in the runtime). Bench (1,000 copies, medians of 5): plain copies view 19 ms / Play 107 ms, linked copies view 15 ms / Play 103 ms (baseline 21 / 105). No e2e touched. |
 
 ## 5. Decision log
 
@@ -192,6 +193,21 @@ backend.
   prefab; assembly re-parents them, and to the copy's root, with a problem, if the part is gone).
   The copy's own name, tags and flags are its root's; a stale override (its part or field gone)
   is skipped and reported, never fatal. Default chosen, owner to confirm.
+- 2026-10-24 (39c.1 B): **The editor sees assembled objects; commands still address stored ones.**
+  The editor's view (full state, `queryEntities`, `queryEntity`) holds a copy's parts with their
+  derived ids, as Play does. Until 39c.2 writes overrides, a command on a part's id is refused
+  (`entity_not_found`); no project holds links before 39c.3, so nothing reaches that. Default
+  chosen, owner to confirm.
+- 2026-10-24 (39c.1 B): **The change feed.** A command's acknowledgement (HTTP and `mutation.applied`)
+  carries `change.assembled: {upsert: [{sceneId, entities}], removedIds}` worked out from the views
+  before and after; it is never recorded (history, retry records): it follows from the stored state.
+  A part an edit left as it was keeps its object, so only differing objects travel. A prefab edit
+  reaching thousands of copies can pass the 1 MiB frame bound and make the editor re-read the
+  project; 39c.8 measures it against the ≤ 1 s target.
+- 2026-10-24 (39c.1 B): **Spawnable prefabs are flattened** in Play and export: a prefab that nests
+  copies (a variant included) ships as plain parts, the root keeping its local id and every other
+  part taking the id a copy whose id is the root's local id gives it. A spawned part's provenance
+  names the spawned prefab with that id. Default chosen, owner to confirm.
 - 2026-10-24 (lead): order 39c.1 → 39c.3 → 39c.2: schema 8 lands with the migration (39c.3), and
   commands must not write linked copies before that bump.
 

@@ -17,7 +17,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { assembleSceneEntities, createPrefabAssembler, prefabPartId, validateMergedSceneV4, type AssemblyEntity, type AssemblyPrefab } from '@thirdlight/project-model';
 
 import { openWorkspaceService } from './service';
-import type { WorkspaceService } from './index';
+import type { ScenePrefabProblem, WorkspaceService } from './index';
 
 const roots: string[] = [];
 afterAll(() => {
@@ -87,16 +87,17 @@ function editScene(dir: string, edit: (entities: Record<string, unknown>[]) => v
   writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
 }
 
-/** The project's start scene with its linked copies assembled, checked by the runtime's merged-scene validator. */
-function assembled(s: WorkspaceService): { entities: AssemblyEntity[]; problems: ReturnType<typeof assembleSceneEntities>['problems'] } {
+/** The project's start scene as Play and export read it (linked copies assembled), checked by the runtime's merged-scene validator. */
+function assembled(s: WorkspaceService): { entities: AssemblyEntity[]; problems: readonly ScenePrefabProblem[] } {
   const read = s.readCapturedV3(PID);
   if (!read.ok) throw new Error(read.error.code);
-  const content = read.read.content as { prefabs: AssemblyPrefab[] };
   const scene = read.read.scene as { schemaVersion: 4; sceneId: string; revision: number; entities: AssemblyEntity[] };
-  const out = assembleSceneEntities(scene.entities, createPrefabAssembler(content.prefabs));
-  const checked = validateMergedSceneV4({ ...scene, entities: out.entities });
+  const checked = validateMergedSceneV4(scene);
   expect(checked.ok, JSON.stringify(checked).slice(0, 800)).toBe(true);
-  return out;
+  // Nothing in it is a link any more: assembling it again changes nothing.
+  const content = read.read.content as { prefabs: AssemblyPrefab[] };
+  expect(assembleSceneEntities(scene.entities, createPrefabAssembler(content.prefabs)).entities).toEqual(scene.entities);
+  return { entities: scene.entities, problems: read.read.prefabProblems ?? [] };
 }
 const byName = (entities: readonly AssemblyEntity[], name: string): AssemblyEntity[] => entities.filter((e) => e.name === name);
 const posOf = (e: AssemblyEntity | undefined): unknown => (e?.components as { transform?: { position?: unknown } } | undefined)?.transform?.position;

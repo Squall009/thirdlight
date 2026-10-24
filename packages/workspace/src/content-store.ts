@@ -1623,6 +1623,8 @@ export interface CapturedV3Read {
   /** Every scene (index order). */
   scenes?: readonly unknown[];
   startScenes?: readonly string[];
+  /** What assembling the linked prefab copies could not do as stored (absent: nothing). */
+  prefabProblems?: readonly import('./prefab-view').ScenePrefabProblem[];
 }
 
 export type CapturedV3ReadResult = { ok: true; read: CapturedV3Read } | { ok: false; error: CommandError };

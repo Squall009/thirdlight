@@ -163,6 +163,8 @@ export interface ProjectSession {
   lastSplineRebake?: import('./spline-follows').SplineRebakeReport;
   /** The last command's spline meshes and pieces made (diagnostics and the perf tools read it). */
   lastSplineMade?: { splines: number; ms: number };
+  /** The project with its linked prefab copies assembled (Play, export and the editor read it; `prefab-view.ts`). */
+  prefabViews?: import('./prefab-view').PrefabViews;
   /** Stamps' shapes read for terrain edit layers, by the texture blob's digest (a few kept: decoding a large PNG is slow). */
   stampShapes?: Map<string, import('@thirdlight/project-model').Heightmap>;
   /** An erosion the backend ran on its worker, for the next `editTerrain` erode whose input matches `key`. */
