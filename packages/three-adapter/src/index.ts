@@ -238,7 +238,6 @@ export {
 // An editor's edit mode drawing only the objects it edits.
 export { drawOwner, VIEW_OWNER_KEY, type IsolationDiagnostics } from './isolation-view';
 export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
-export { COVER_URL_PARAM, coverGpuFromUrl } from './cover-view';
 export { TERRAIN_HORIZON_URL_PARAM, TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
 export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type ScatterView, type ScatterViewDiagnostics } from './scatter-view';
 export { SPLINES_URL_PARAM, splinesFromUrl, type SplineViewDiagnostics } from './spline-view';

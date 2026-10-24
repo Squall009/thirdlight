@@ -291,7 +291,7 @@ describe('ground cover on the GPU: what the terrain\'s texels do not hold', () =
     expect(far.mask('t', 'g', 0, 0)).toBeNull();
   });
 
-  it('draws no copy where the mask clears the ground, as the cover made on the CPU makes none there', () => {
+  it('draws no copy where the mask clears the ground', () => {
     const gen = generator();
     const mask = gen.mask('t', 'g', 0, 0)!;
     const eye: [number, number] = [40, 60];
@@ -304,14 +304,6 @@ describe('ground cover on the GPU: what the terrain\'s texels do not hold', () =
     // Off the road the same copies are kept.
     const off = (l: typeof open): string[] => l.filter((x) => Math.abs(x.c.z - 60) > 4 + texel).map((x) => `${x.c.x},${x.c.z}`);
     expect(off(masked)).toEqual(off(open));
-    // The CPU path (the generator's own squares) agrees: nothing on the road.
-    const made = gen.make('t', [ORIGIN[0]! + 20, ORIGIN[2]! + 40, ORIGIN[0]! + 60, ORIGIN[2]! + 80]).find((c) => c.rule === 'g')!.copies;
-    let n = 0;
-    for (let i = 0; i < made.length; i += 10) {
-      expect(onRoad(made[i + 2]!)).toBe(false);
-      n += 1;
-    }
-    expect(n).toBeGreaterThan(1000);
   });
 
   it('keeps a rule\'s spacing between its copies, at about the density the stored scatter bakes', () => {

@@ -1,16 +1,23 @@
 /**
- * Ground cover near the camera: squares within a rule's reach are made (on
- * the page here, the worker's generator), drawn one set per rule, dropped
- * once the camera leaves them, and made again where the ground changed (the
- * old copies drawn until the new ones are built);
- * nothing is made where the rule says none.
+ * Ground cover on a block layer, through the one GPU renderer: the chunks
+ * the rule's reach meets get point sets (made on the page here, the
+ * worker's generator), drawn per ring and thinned with distance as a
+ * terrain's cover is; an edit bakes the chunks round it again (the old
+ * points drawn until the new ones arrive), and sets the view left are let
+ * go. The vertex stage's keep test is held to its CPU reference, and its
+ * WGSL builds.
  */
 import * as THREE from 'three';
+import * as TSL from 'three/tsl';
+import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterRule } from '@thirdlight/runtime';
+import { BlockGrid, bakeCoverPoints, blockChunkRect, blockScatterSurface, coverPointAt, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterRule } from '@thirdlight/runtime';
 
-import { CoverGenerator } from './cover-worker';
-import { COVER_CELL_METRES, CoverView } from './cover-view';
+import { COVER_DRAW_KEY, coverPointsPlacement, installCoverPlacement } from './cover-gpu';
+import { coverPointKept, coverShare, planCover } from './cover-placement';
+import { COVER_POINT_BLOCK, listCoverPointBlocks } from './cover-points-gpu';
+import { CoverView } from './cover-view';
+import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 import { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
 
@@ -18,15 +25,16 @@ const GRASS: ScatterRule = { id: 'grass', asset: { assetId: 'tuft' }, density: 2
 const TYPES: BlockType[] = [{ blockId: 'soil', name: 'Soil', variants: [{ color: '#556b2f' }], shape: 'full' } as BlockType, { blockId: 'rock', name: 'Rock', variants: [{ color: '#777777' }], shape: 'full' } as BlockType];
 
 /** A 128 × 128 m layer of 1 m cells, one row of soil (rock from x = 64 on). */
-function layer(): { component: BlockLayerComponent; chunks: BlockChunk[] } {
+function layer(rules: ScatterRule[] = [GRASS]): { component: BlockLayerComponent; chunks: BlockChunk[] } {
   const chunks: BlockChunk[] = [];
-  for (let cz = 0; cz < 8; cz++)
-    for (let cx = 0; cx < 8; cx++) {
-      const columns: number[][] = [];
-      for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) columns.push([x, z, 0, 1, cx < 4 ? 0 : 1]);
-      chunks.push({ cx, cz, palette: [{ block: 'soil' }, { block: 'rock' }], columns });
-    }
-  return { component: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [128, 4, 128] }, scatter: [GRASS] } as BlockLayerComponent, chunks };
+  for (let cz = 0; cz < 8; cz++) for (let cx = 0; cx < 8; cx++) chunks.push(chunkOf(cx, cz, cx < 4 ? 0 : 1));
+  return { component: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [128, 4, 128] }, scatter: rules } as BlockLayerComponent, chunks };
+}
+
+function chunkOf(cx: number, cz: number, block: number): BlockChunk {
+  const columns: number[][] = [];
+  for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) columns.push([x, z, 0, 1, block]);
+  return { cx, cz, palette: [{ block: 'soil' }, { block: 'rock' }], columns };
 }
 
 function view(x: number, z: number): CullView {
@@ -41,68 +49,113 @@ function view(x: number, z: number): CullView {
 
 const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
-describe('ground cover', () => {
-  it('makes the squares near the camera on the soil only, drops them when it leaves, makes them again after an edit', async () => {
-    const root = new THREE.Group();
-    root.add(new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5), new THREE.MeshBasicMaterial()));
-    const template = { glbRoot: root } as unknown as ModelInstance;
+function tuft(): ModelInstance {
+  const root = new THREE.Group();
+  root.add(new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5), new MeshStandardNodeMaterial()));
+  return { glbRoot: root } as unknown as ModelInstance;
+}
+
+describe('ground cover on block layers', () => {
+  it('draws the chunks the reach meets from point sets, bakes them again round an edit, lets go of those the view left', async () => {
+    const template = tuft();
     const listed = new Set<THREE.Object3D>();
-    const cover = new CoverView({ template: () => template, place: (r, on) => void (on ? listed.add(r) : listed.delete(r)), tile: () => undefined });
+    const cover = new CoverView({ template: () => template, place: (r, on) => void (on ? listed.add(r) : listed.delete(r)), tile: () => undefined, surface: () => null });
     cover.setTypes(TYPES);
     const { component, chunks } = layer();
     cover.setBlockLayer('layer', component, [0, 0, 0], chunks);
-    // On the soil, 20 m in: the squares within 40 m are asked (two at a time) and built as they come.
-    for (let i = 0; i < 40; i++) {
-      cover.update(view(20, 20));
-      await flush();
-    }
-    const d = cover.diagnostics();
-    expect(d.cells).toBe(4);
-    expect(d.making).toBe(0);
-    expect(d.copies).toBeGreaterThan(1000);
-    // Every copy stands on soil (x < 64), on its top (y = 1), within the reach of a square near the camera.
-    for (const m of cover.meshes()) {
-      m.updateWorldMatrix(true, false);
-      const p = new THREE.Vector3().setFromMatrixPosition(m.matrixWorld);
-      expect(p.x).toBeLessThan(64);
-    }
-    // Far away (still on the layer): the old squares go.
-    for (let i = 0; i < 40; i++) {
-      cover.update(view(110, 110));
-      await flush();
-    }
-    // Rock there: no cover is made at all.
-    expect(cover.diagnostics().copies).toBe(0);
-    for (const r of listed) expect(r.name.startsWith('cover:layer:')).toBe(true);
-    // Back on the soil, then the soil under the camera turns to rock: its squares are made again, bare.
-    for (let i = 0; i < 40; i++) {
-      cover.update(view(20, 20));
-      await flush();
-    }
-    const before = cover.diagnostics().copies;
-    const rocky = chunks.filter((c) => c.cx < 2 && c.cz < 2).map((c) => ({ cx: c.cx, cz: c.cz, chunk: { ...c, palette: [{ block: 'rock' }, { block: 'rock' }] } }));
-    cover.replaceBlockChunks('layer', rocky);
-    // The old copies stay drawn until the squares' new ones are built (an edit never blinks the cover away).
-    expect(cover.diagnostics().copies).toBe(before);
-    expect([...listed].length).toBeGreaterThan(0);
-    for (let i = 0; i < 40; i++) {
-      cover.update(view(20, 20));
-      await flush();
-    }
-    expect(cover.diagnostics().copies).toBeLessThan(before);
-    cover.remove('layer');
+    const run = async (x: number, z: number, frames: number): Promise<void> => {
+      for (let i = 0; i < frames; i++) {
+        cover.update(view(x, z));
+        await flush();
+      }
+    };
+    // On the soil, 20 m in: the 16 chunks within 40 m (all soil) get their sets, about 2 points a m².
+    await run(20, 20, 3);
+    let g = cover.diagnostics().gpu!;
+    expect(g.pointSets).toBe(16);
+    expect(g.pointsPending).toBe(0);
+    expect(g.points / (16 * 256 * 2)).toBeGreaterThan(0.9);
+    expect(g.points / (16 * 256 * 2)).toBeLessThan(1.1);
+    expect(g.draws).toBeGreaterThan(0);
+    expect(g.candidates).toBeGreaterThan(0);
+    expect(g.candidates % COVER_POINT_BLOCK).toBe(0);
+    expect(listed.size).toBeGreaterThan(0);
+    const before = g.points;
+    // Chunk (0, 0) turned to rock: its old points stay drawn until its new set (none) arrives; the chunks round it are baked again too.
+    cover.replaceBlockChunks('layer', [{ cx: 0, cz: 0, chunk: chunkOf(0, 0, 1) }]);
+    expect(cover.diagnostics().gpu!.points).toBe(before);
+    await run(20, 20, 2);
+    g = cover.diagnostics().gpu!;
+    expect(g.pointsPending).toBe(0);
+    expect(before - g.points).toBeGreaterThan(400);
+    expect(before - g.points).toBeLessThan(620);
+    // Far off the layer: nothing listed, and the sets let go after a while.
+    await run(600, 600, 400);
+    g = cover.diagnostics().gpu!;
+    expect(g.draws).toBe(0);
+    expect(g.pointSets).toBe(0);
     expect(listed.size).toBe(0);
+    cover.dispose();
   });
 
-  it('the generator gives the same copies for the same square every time', () => {
-    const { component, chunks } = layer();
-    const gen = new CoverGenerator();
-    gen.apply({ t: 'coverTypes', types: TYPES });
-    gen.apply({ t: 'coverSource', id: 'l', source: { kind: 'blocks', component, origin: [0, 0, 0], rules: [GRASS], data: { entityId: 'l', chunks } } });
-    const S = COVER_CELL_METRES;
-    const a = gen.make('l', [0, 0, S, S]);
-    const b = gen.make('l', [0, 0, S, S]);
-    expect(a.length).toBe(1);
-    expect(Array.from(a[0]!.copies)).toEqual(Array.from(b[0]!.copies));
+  it('keeps the rule\'s density near the eye and thins it with distance, each point drawn by one ring, every kept point listed', () => {
+    const rule: ScatterRule = { id: 'm', asset: { assetId: 'tuft' }, density: 4, cover: true, coverDistance: 60, blocks: ['soil'] };
+    const all = layer([rule]);
+    const soil = { ...all, chunks: all.chunks.map((c) => chunkOf(c.cx, c.cz, 0)) };
+    const grid = BlockGrid.from(soil.component, { entityId: 'l', chunks: soil.chunks });
+    const surface = blockScatterSurface({ grid, types: new Map(TYPES.map((t) => [t.blockId, t])), origin: [0, 0, 0], topSubdivision: 1 });
+    const plan = planCover(rule, 60, { distances: [0, 20], culls: false, radius: 0.3 }, 16);
+    const eye: [number, number] = [64, 64];
+    const kept: { x: number; z: number; ring: number }[] = [];
+    for (let cz = 0; cz < 8; cz++) {
+      for (let cx = 0; cx < 8; cx++) {
+        const set = bakeCoverPoints(rule, surface, blockChunkRect([0, 0, 0], [1, 1, 1], cx, cz), [0, 0, 0]);
+        plan.rings.forEach((ring, k) => {
+          const out = new Float32Array(4 * 64);
+          const n = listCoverPointBlocks(ring, { cx, cz, set, slots: [...Array(64).keys()] }, out, 0);
+          let listed = 0;
+          for (let i = 0; i < n; i++) listed += out[i * 4 + 1]!;
+          for (let i = 0; i < set.count; i++) {
+            const p = coverPointAt(set, i);
+            if (!coverPointKept(p, ring, plan.thinning, eye)) continue;
+            kept.push({ x: p.x, z: p.z, ring: k });
+            // A kept point lies in the prefix the ring lists.
+            expect(i).toBeLessThan(listed);
+          }
+        });
+      }
+    }
+    const seen = new Set<string>();
+    for (const p of kept) {
+      const key = `${p.x.toFixed(4)},${p.z.toFixed(4)}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
+    const band = (a: number, b: number): number => kept.filter((p) => Math.hypot(p.x - eye[0], p.z - eye[1]) >= a && Math.hypot(p.x - eye[0], p.z - eye[1]) < b).length / (Math.PI * (b * b - a * a));
+    const want = (a: number, b: number): number => {
+      let sum = 0;
+      for (let k = 0; k < 64; k++) {
+        const d = a + ((k + 0.5) / 64) * (b - a);
+        sum += rule.density * coverShare(plan.thinning, d) * d;
+      }
+      return sum / (((a + b) / 2) * 64);
+    };
+    for (const [a, b] of [[0, 15], [15, 30], [30, 42], [42, 52], [52, 57]] as const) expect(band(a, b) / want(a, b)).toBeGreaterThan(0.9), expect(band(a, b) / want(a, b)).toBeLessThan(1.1);
+    expect(kept.every((p) => Math.hypot(p.x - eye[0], p.z - eye[1]) < 60)).toBe(true);
+  });
+
+  it('builds its vertex stage for a mesh of the model (the WGSL three makes from it, the same nodes WebGL 2 builds)', () => {
+    installCoverPlacement();
+    const plan = planCover(GRASS, 40, { distances: [0], culls: false, radius: 0.3 }, 16);
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.8, 0.1), new MeshStandardNodeMaterial());
+    const blocks = new THREE.DataTexture(new Float32Array(1024 * 4), 1024, 1, THREE.RGBAFormat, THREE.FloatType);
+    const points = new THREE.DataTexture(new Float32Array(1024 * 4 * 16), 1024, 16, THREE.RGBAFormat, THREE.FloatType);
+    mesh.userData[COVER_DRAW_KEY] = coverPointsPlacement({ ring: plan.rings[0]!, plan, rule: { ...GRASS, align: 1 }, blocks, points, chunk: [16, 16], eye: TSL.uniform(new THREE.Vector2()), local: new THREE.Matrix4() });
+    (mesh as unknown as { count: number }).count = 512;
+    const scene = litScene();
+    scene.add(mesh);
+    const wgsl = wgslOf(wgslRenderer(), scene, mesh);
+    expect(wgsl).toMatch(/instance_index/);
+    expect(wgsl).toMatch(/textureLoad/);
   });
 });

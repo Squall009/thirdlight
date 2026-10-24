@@ -43,7 +43,7 @@
  *
  * Pure.
  */
-import { SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type ScatterRule, type ScatterSurface } from '@thirdlight/runtime';
+import { SCATTER_MIN_NORMAL_Y, SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type CoverPoint, type ScatterRule, type ScatterSurface } from '@thirdlight/runtime';
 
 /** Where a rule's copies begin to fade out at the end of their reach, as a share of it. */
 export const COVER_FADE_START = 0.6;
@@ -56,7 +56,7 @@ export const COVER_RING_GROWTH = Math.SQRT2;
 /** Cuts closer than this share of their distance to the one before are left out (no sliver of a ring). */
 const COVER_RING_MIN_SHARE = 0.1;
 /** A surface steeper than this (normal Y) takes no copy (a wall), as the stored scatter's. */
-export const COVER_MIN_NORMAL_Y = 0.05;
+export const COVER_MIN_NORMAL_Y = SCATTER_MIN_NORMAL_Y;
 /** Random lanes a candidate reads: jitter x, jitter z, scale, turn, keep, and its priority against neighbours (spacing). */
 export const COVER_LANES = Object.freeze({ jx: 0, jz: 1, scale: 2, yaw: 3, keep: 4, priority: 5 });
 /** Mask texels per terrain sample cell along a side (a road's edge kept to a quarter of a 2 m sample). */
@@ -389,6 +389,17 @@ export function coverGivesWay(seed: number, ring: CoverRing, gx: number, gz: num
     }
   }
   return false;
+}
+
+/**
+ * Whether a baked point (`cover-points.ts`, read back in the source's
+ * frame) is drawn by `ring` with the eye at `eye` (x, z): it lies in the
+ * ring's annulus and its threshold is under the share kept there (the
+ * vertex stage's test; the conditions were decided by the bake).
+ */
+export function coverPointKept(p: Pick<CoverPoint, 'x' | 'z' | 'threshold'>, ring: Pick<CoverRing, 'inner' | 'outer'>, thinning: CoverThinning, eye: readonly [number, number]): boolean {
+  const d = Math.hypot(p.x - eye[0], p.z - eye[1]);
+  return d >= ring.inner && d < ring.outer && p.threshold < coverShare(thinning, d);
 }
 
 /** Whether a cover rule can grow on a terrain (one naming block types or cell metadata grows only on blocks). */

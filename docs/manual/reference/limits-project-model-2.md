@@ -133,6 +133,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-scatter-chunk-meters-default"></a>`SCATTER_CHUNK_METERS_DEFAULT` | `2048` | The chunk size (m) a scatter rule's copies are drawn in when it sets none: few draws, culled inside each (view-cull). |
 | <a id="limit-scatter-cover-distance-default"></a>`SCATTER_COVER_DISTANCE_DEFAULT` | `40` | How far (m) ground cover reaches from the camera when its rule says nothing. |
 | <a id="limit-scatter-limits"></a>`SCATTER_LIMITS` | `{"idLength":32,"density":{"min":0.0001,"max":100},"spacingMax":100,"scale":{"min":0.01,"max":100},"sinkMax":100,"regionName":64,"coverDistance":{"min":1,"max":10000},"shadowDistance":{"min":1,"max":10000},"blobShadow":{"min":0.05,"max":100},"impostorSize":{"min":0.0001,"max":1}}` | Bounds of a rule's values (dimensions of a value, not counts). |
+| <a id="limit-scatter-min-normal-y"></a>`SCATTER_MIN_NORMAL_Y` | `0.05` | A surface steeper than this (normal Y) takes no copy (a wall). |
 
 <a id="limits-project-model--scene-memory"></a>
 ## `scene-memory.ts`

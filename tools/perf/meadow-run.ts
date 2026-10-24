@@ -145,8 +145,6 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   const profileMs = Number(get('profile-ms') ?? 5000);
   const safety = Number(get('safety') ?? 2);
   const only = get('sweep')?.split(',');
-  // `--cover cpu`: the terrain's cover made on the CPU, as before the GPU placed it (a comparison).
-  const coverFlag = get('cover') === 'cpu' ? '&cover=cpu' : '';
   const configs = SWEEP_CONFIGS.filter((c) => only === undefined || c.id === 'none' || only.includes(c.id));
 
   const startedAt = new Date().toISOString();
@@ -184,7 +182,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs[variant]!);
       try {
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${coverFlag}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `meadow-${variant}-${r}.png`) });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), shot: join(runDir, `meadow-${variant}-${r}.png`) });
           (report.exports[variant] ??= {})[r] = res;
           log(`${frameLine(`meadow ${variant} ${r}`, res)}, ${res.frames.missed ?? 0} missed a 60 Hz refresh`);
         }

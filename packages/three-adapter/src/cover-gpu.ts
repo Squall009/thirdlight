@@ -1,6 +1,9 @@
 /**
- * Ground cover on terrains, placed and thinned on the GPU (the arithmetic is
- * `cover-placement.ts`'s; this is its draws and its vertex stage).
+ * Ground cover, placed and thinned on the GPU (the arithmetic is
+ * `cover-placement.ts`'s and `cover-points.ts`'s; this is its draws and
+ * their vertex stages). There is no other path: terrains' cover is placed
+ * from the terrain's own texels, block layers' from point sets baked per
+ * chunk, both through the same rings, model levels, thinning and culling.
  *
  * Per terrain and cover rule: the rule's rings (`planCover`), and per ring
  * one draw per mesh of the model level it shows and per texture page of the
@@ -32,15 +35,23 @@
  * arrives, so an edit never blinks the cover away. Masks of tiles the view
  * left are let go.
  *
+ * A block layer's rule draws, per ring, the blocks of its chunks' point
+ * sets (`cover-points-gpu.ts`) that the ring meets and the view sees: each
+ * point is placed where it was baked (every floor of the layer, so cover
+ * grows indoors too), turned and sized from its own bytes, and kept while
+ * its threshold is under the share at its distance. Sets are baked off the
+ * main thread when the view reaches a chunk and when its ground changes.
+ *
  * Cover draws receive shadows and cast none unless the rule says
  * `castShadow` (contact darkening comes from SSAO).
  */
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
-import { SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
+import { COVER_POINT_STEPS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
 
 import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listCoverPatches, planCover, type CoverPatch, type CoverPlan, type CoverRing, type CoverTileRef } from './cover-placement';
+import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
 import { TAN_HALF_REFERENCE } from './instance-lod';
@@ -273,23 +284,82 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       // Its turn and size (copyRotation: a turn about up, then a lean toward the normal by `align`).
       const sc = rule.scale ?? [1, 1];
       const size = float(sc[0]).add(rnd(COVER_LANES.scale).mul(sc[1] - sc[0]));
-      const half = rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360);
-      const turn = vec4(0, sin(half), 0, cos(half));
-      const align = rule.align ?? 0;
-      let q: N = turn;
-      if (align > 0) {
-        const across = length(normal.xz);
-        const a = acos(clamp(normal.y, -1, 1)).mul(align / 2);
-        const sa = sin(a).div(max(across, 1e-9));
-        q = select(across.lessThan(1e-9), turn, qmulNode(vec4(normal.z.mul(sa), 0, normal.x.negate().mul(sa), cos(a)), turn));
-      }
-      const quat = q.toVar();
+      const quat = copyTurnNode(normal, rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
       const at = vec3(x, ground.sub(rule.sink ?? 0), z);
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(at), vec3(x, DROPPED_Y, z)));
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,
   };
+}
+
+/** What one draw of a block layer's point sets reads. */
+export interface CoverPointDrawInputs {
+  readonly ring: CoverRing;
+  readonly plan: CoverPlan;
+  readonly rule: ScatterRule;
+  /** The ring's listed blocks (block, points in it, chunk x and z) and the rule's point texture. */
+  readonly blocks: THREE.DataTexture;
+  readonly points: THREE.DataTexture;
+  /** A chunk's width and depth (m). */
+  readonly chunk: readonly [number, number];
+  readonly eye: N;
+  readonly local: THREE.Matrix4;
+}
+
+/** The placement of one draw's copies from baked points (`cover-points.ts`): the same thinning, turn and size as on a terrain. */
+export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
+  const local = uniform(d.local);
+  return {
+    place: Fn(() => {
+      const { ring, rule } = d;
+      const B = uint(COVER_POINT_BLOCK);
+      const idx = uint(instanceIndex);
+      const b = idx.div(B);
+      const k = idx.sub(b.mul(B));
+      const entry = textureLoad(d.blocks, ivec2(int(b.mod(uint(PATCH_ROW))), int(b.div(uint(PATCH_ROW))))).toVar();
+      const at = uint(entry.x).mul(B).add(k);
+      const p = textureLoad(d.points, ivec2(int(at.mod(uint(COVER_POINT_ROW))), int(at.div(uint(COVER_POINT_ROW))))).toVar();
+      const q = COVER_POINT_STEPS - 1;
+      const xz = uint(p.x);
+      const x = entry.z.add(float(xz.bitAnd(uint(COVER_POINT_STEPS - 1))).div(q)).mul(d.chunk[0]).toVar();
+      const z = entry.w.add(float(xz.shiftRight(uint(12))).div(q)).mul(d.chunk[1]).toVar();
+      const bytes = uint(p.z);
+      const share = (v: N): N => float(v).add(0.5).div(256);
+      const threshold = share(bytes.bitAnd(uint(255)));
+      const turn01 = share(bytes.shiftRight(uint(8)).bitAnd(uint(255)));
+      const size01 = share(bytes.shiftRight(uint(16)));
+      // The normal (octahedral bytes).
+      const nb = uint(p.w);
+      const ou = float(nb.bitAnd(uint(255))).div(255).mul(2).sub(1).toVar();
+      const ov = float(nb.shiftRight(uint(8))).div(255).mul(2).sub(1).toVar();
+      const oy = float(1).sub(abs(ou)).sub(abs(ov)).toVar();
+      const sgn = (v: N): N => select(v.lessThan(0), float(-1), float(1));
+      const fu = select(oy.lessThan(0), float(1).sub(abs(ov)).mul(sgn(ou)), ou);
+      const fv = select(oy.lessThan(0), float(1).sub(abs(ou)).mul(sgn(ov)), ov);
+      const normal = normalize(vec3(fu, oy, fv)).toVar();
+      const dist = length(vec2(x, z).sub(d.eye));
+      const inRing = dist.greaterThanEqual(ring.inner).and(dist.lessThan(ring.outer));
+      const kept = float(k).lessThan(entry.y).and(inRing).and(threshold.lessThan(shareNode(d.plan.thinning, dist)));
+      const sc = rule.scale ?? [1, 1];
+      const size = float(sc[0]).add(size01.mul(sc[1] - sc[0]));
+      const quat = copyTurnNode(normal, turn01.mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
+      const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
+      const ground = vec3(x, p.y.sub(rule.sink ?? 0), z);
+      positionLocal.assign(select(kept, rotateNode(quat, placed).add(ground), vec3(x, DROPPED_Y, z)));
+      normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
+    }, 'void') as unknown as () => void,
+  };
+}
+
+/** `copyRotation` in the vertex stage: a turn of `half` (half the angle) about up, then a lean toward `normal` by `align`. */
+function copyTurnNode(normal: N, half: N, align: number): N {
+  const turn = vec4(0, sin(half), 0, cos(half));
+  if (align <= 0) return turn;
+  const across = length(normal.xz);
+  const a = acos(clamp(normal.y, -1, 1)).mul(align / 2);
+  const sa = sin(a).div(max(across, 1e-9));
+  return select(across.lessThan(1e-9), turn, qmulNode(vec4(normal.z.mul(sa), 0, normal.x.negate().mul(sa), cos(a)), turn));
 }
 
 /** A mask array texture: a byte a texel, read texel by texel. */
@@ -305,26 +375,25 @@ function maskTexture(bytes: Uint8Array, side: number, layers: number): THREE.Dat
   return tex;
 }
 
-/** A patch list a ring's draws on one page share. */
+/** A list a ring's draws on one page (a terrain's) or of one rule's points (a block layer's) share. */
 interface PagePatches {
   readonly texture: THREE.DataTexture;
   readonly data: Float32Array;
-  /** The textures the draws compiled against (a grown page replaces them: the draws are made again). */
-  heights: THREE.DataArrayTexture | null;
+  /** The texture the draws compiled against (a grown page or point texture replaces it: the draws are made again). */
+  bound: THREE.Texture | null;
   meshes: THREE.Mesh[];
   undress: (() => void) | null;
   readonly root: THREE.Group;
-  /** Candidates a patch holds; patches listed now, and the list's hash. */
+  /** Candidates an entry holds; entries listed now. */
   readonly perPatch: number;
   count: number;
-  key: number;
 }
 
 interface RuleDraws {
   readonly rule: ScatterRule;
   readonly plan: CoverPlan;
   readonly model: InstanceSetPlan;
-  /** Per ring: per page its patches and draws. */
+  /** Per ring: per page its patches and draws (a block layer's: page 0). */
   readonly rings: Map<number, PagePatches>[];
   /** The model parts each ring draws. */
   readonly parts: InstanceSetPlan['parts'][];
@@ -354,19 +423,37 @@ interface MaskAtlas {
   readonly entries: Map<string, MaskEntry>;
 }
 
-interface Source {
+interface SourceBase {
   readonly id: string;
   rules: readonly ScatterRule[];
   rulesKey: string;
   hidden: boolean;
   /** The plans, once the rules' models loaded (null: not yet). */
   draws: RuleDraws[] | null;
-  /** Its eye uniform (x, z in the terrain's frame). */
+  /** Its eye uniform (x, z in the source's frame). */
   readonly eye: N;
-  /** The tile size, LOD bias and terrain place the plans and draws were made for. */
+  /** The tile size, LOD bias and place the plans and draws were made for. */
   planned: string;
+}
+
+/** A terrain: its cover placed from its own texels and masks. */
+interface TerrainSource extends SourceBase {
+  readonly kind: 'terrain';
   masks: MaskAtlas | null;
 }
+
+/** A block layer: its cover drawn from point sets baked per chunk. */
+interface PointSource extends SourceBase {
+  readonly kind: 'points';
+  origin: [number, number, number];
+  /** A chunk's width and depth (m), and the chunks there are ("cx,cz"). */
+  chunk: [number, number];
+  chunks: ReadonlySet<string>;
+  /** Each rule's point sets, by rule id. */
+  readonly atlases: Map<string, CoverPointAtlas>;
+}
+
+type Source = TerrainSource | PointSource;
 
 export interface CoverGpuDeps {
   template(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
@@ -380,29 +467,37 @@ export interface CoverGpuDeps {
   maskWanted?(id: string, rule: ScatterRule, tx: number, tz: number): boolean;
   /** Ask for that mask; `reply` gets it (null: 255 everywhere). False: not asked (a tile under it not decoded yet; asked again next frame). */
   mask?(id: string, rule: ScatterRule, tx: number, tz: number, reply: (data: Uint8Array | null) => void): boolean;
+  /** Ask for rule `rule`'s points over chunk (cx, cz) of block layer `id`; `reply` gets them (null: none). */
+  points?(id: string, rule: ScatterRule, cx: number, cz: number, reply: (set: CoverPointSet | null) => void): void;
 }
 
 export interface CoverGpuDiagnostics {
-  /** Terrains and rules drawn on the GPU, its draws drawing this frame, patches listed and candidates drawn. */
+  /** Sources and rules drawn on the GPU, its draws drawing this frame, patches (a block layer's: blocks of points) listed and candidates drawn. */
   sources: number;
   rules: number;
   draws: number;
   patches: number;
   candidates: number;
-  /** Main-thread ms of the last frame's patch lists. */
+  /** Main-thread ms of the last frame's lists. */
   listMs: number;
   /** Masks held (a layer each), and asked for and not arrived. */
   masks: number;
   masksPending: number;
+  /** Block layers' chunk point sets held, their points, and sets asked for and not arrived. */
+  pointSets: number;
+  points: number;
+  pointsPending: number;
 }
 
-/** Ground cover of terrains drawn on the GPU. */
+/** Ground cover drawn on the GPU: terrains' placed from their texels, block layers' from baked point sets. */
 export class CoverGpu {
   private readonly sources = new Map<string, Source>();
   private listMs = 0;
   private disposed = false;
   private readonly lists = new Map<number, CoverPatch[]>();
   private frame = 0;
+  /** A ring's entries this frame, before they are compared with what its list holds. */
+  private next = new Float32Array(0);
 
   constructor(private readonly deps: CoverGpuDeps) {
     installCoverPlacement();
@@ -410,22 +505,36 @@ export class CoverGpu {
 
   /** Terrain `id`'s cover rules drawn here (an empty list: none). */
   setRules(id: string, rules: readonly ScatterRule[]): void {
+    this.setSource(id, 'terrain', rules);
+  }
+
+  /**
+   * Block layer `id`'s cover rules drawn here (an empty list: none), at
+   * `origin`, its chunks `chunk` metres a side, those that exist named
+   * "cx,cz". A move makes every set again (the rules read world places).
+   */
+  setPoints(id: string, rules: readonly ScatterRule[], origin: readonly number[], chunk: readonly [number, number], chunks: ReadonlySet<string>): void {
+    const src = this.setSource(id, 'points', rules);
+    if (src === null || src.kind !== 'points') return;
+    const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
+    const moved = !src.origin.every((v, i) => v === o[i]) || src.chunk[0] !== chunk[0] || src.chunk[1] !== chunk[1];
+    src.origin = o;
+    src.chunk = [chunk[0], chunk[1]];
+    src.chunks = chunks;
+    if (moved) this.invalidatePoints(id, null);
+  }
+
+  private setSource(id: string, kind: Source['kind'], rules: readonly ScatterRule[]): Source | null {
     const key = JSON.stringify(rules);
     let src = this.sources.get(id);
-    if (src !== undefined && src.rulesKey === key) return;
-    if (src !== undefined) {
-      this.clear(src);
-      this.dropMasks(src);
-    }
-    if (rules.length === 0) {
-      this.sources.delete(id);
-      return;
-    }
-    src ??= { id, rules, rulesKey: key, hidden: false, draws: null, eye: uniform(new THREE.Vector2()), planned: '', masks: null };
-    src.rules = rules;
-    src.rulesKey = key;
+    if (src !== undefined && src.kind === kind && src.rulesKey === key) return src;
+    if (src !== undefined) this.remove(id);
+    if (rules.length === 0) return null;
+    const base = { id, rules, rulesKey: key, hidden: false, draws: null, eye: uniform(new THREE.Vector2()), planned: '' };
+    src = kind === 'terrain' ? { ...base, kind, masks: null } : { ...base, kind, origin: [0, 0, 0], chunk: [1, 1], chunks: new Set(), atlases: new Map() };
     this.sources.set(id, src);
     this.deps.changed?.();
+    return src;
   }
 
   setHidden(id: string, hidden: boolean): void {
@@ -439,7 +548,8 @@ export class CoverGpu {
     const src = this.sources.get(id);
     if (src === undefined) return;
     this.clear(src);
-    this.dropMasks(src);
+    if (src.kind === 'terrain') this.dropMasks(src);
+    else for (const a of src.atlases.values()) a.dispose();
     this.sources.delete(id);
   }
 
@@ -450,7 +560,7 @@ export class CoverGpu {
    */
   invalidateMasks(id: string, rect: readonly [number, number, number, number] | null): void {
     const src = this.sources.get(id);
-    if (src?.masks == null) return;
+    if (src?.kind !== 'terrain' || src.masks === null) return;
     const surface = rect === null ? null : this.deps.surface(id);
     for (const e of src.masks.entries.values()) {
       if (rect !== null && surface !== null) {
@@ -466,6 +576,22 @@ export class CoverGpu {
     this.deps.changed?.();
   }
 
+  /** Block layer `id`'s point sets over a box (world XZ; null: all) are made again; each keeps drawing until its new one arrives. */
+  invalidatePoints(id: string, rect: readonly [number, number, number, number] | null): void {
+    const src = this.sources.get(id);
+    if (src?.kind !== 'points') return;
+    const [w, d] = src.chunk;
+    for (const atlas of src.atlases.values()) {
+      for (const e of atlas.entries.values()) {
+        const x0 = src.origin[0] + e.cx * w;
+        const z0 = src.origin[2] + e.cz * d;
+        if (rect !== null && (rect[0] >= x0 + w || rect[2] <= x0 || rect[1] >= z0 + d || rect[3] <= z0)) continue;
+        atlas.invalidate(e);
+      }
+    }
+    this.deps.changed?.();
+  }
+
   ids(): string[] {
     return [...this.sources.keys()];
   }
@@ -476,62 +602,153 @@ export class CoverGpu {
     const t0 = performance.now();
     this.frame += 1;
     for (const src of this.sources.values()) {
-      const surface = this.deps.surface(src.id);
-      if (surface === null) continue;
-      if (src.masks !== null && src.masks.side !== coverMaskSide(surface.samples)) {
-        this.clear(src);
-        this.dropMasks(src);
-      }
-      src.masks ??= { side: coverMaskSide(surface.samples), texture: null, layers: 0, free: [], entries: new Map() };
-      const planned = `${surface.tileSize}|${this.deps.tuning?.bias ?? 1}|${surface.origin.join(',')}`;
-      if (src.draws !== null && src.planned !== planned) this.clear(src);
-      if (src.draws === null && !this.plan(src, surface)) continue;
-      src.planned = planned;
-      const o = surface.origin;
-      const eye: [number, number] = [view.eye[0]! - (o[0] ?? 0), view.eye[2]! - (o[2] ?? 0)];
-      (src.eye.value as THREE.Vector2).set(eye[0], eye[1]);
-      const visible = (x: number, y: number, z: number, r: number): boolean => view.side(x + (o[0] ?? 0), y + (o[1] ?? 0), z + (o[2] ?? 0), r) !== SphereSide.Outside;
-      for (const rd of src.draws!) {
-        const rise = rd.model.radius * 2 * Math.max(...(rd.rule.scale ?? [1, 1]));
-        // A tile is listed with the rule's mask layer there; one whose mask is on its way is not drawn yet.
-        const ref = { page: 0, layer: 0, low: 0, high: 0, mask: -1 };
-        const tileAt = (tx: number, tz: number, x0: number, z0: number, x1: number, z1: number): CoverTileRef | undefined => {
-          const t = surface.tileAt(tx, tz, x0, z0, x1, z1);
-          if (t === undefined || t.layer < 0) return t;
-          const mask = this.maskOf(src, rd.rule, tx, tz);
-          if (mask === undefined) return undefined;
-          ref.page = t.page;
-          ref.layer = t.layer;
-          ref.low = t.low;
-          ref.high = t.high;
-          ref.mask = mask;
-          return ref;
-        };
-        rd.plan.rings.forEach((ring, k) => {
-          this.lists.clear();
-          listCoverPatches(ring, eye, surface.tileSize, rise, tileAt, visible, this.lists);
-          const byPage = rd.rings[k]!;
-          for (const [page, pp] of byPage) if (!this.lists.has(page)) this.write(src, pp, []);
-          for (const [page, list] of this.lists) {
-            const tex = surface.pages[page];
-            if (tex === undefined) continue;
-            let pp = byPage.get(page);
-            if (pp !== undefined && pp.heights !== tex.heights) {
-              this.dropPage(pp);
-              byPage.delete(page);
-              pp = undefined;
-            }
-            if (pp === undefined) {
-              pp = this.makePage(src, rd, k, surface, tex);
-              byPage.set(page, pp);
-            }
-            this.write(src, pp, list);
-          }
-        });
-      }
-      if (src.draws !== null) this.forgetMasks(src);
+      if (src.kind === 'terrain') this.updateTerrain(src, view);
+      else this.updatePoints(src, view);
     }
     this.listMs = performance.now() - t0;
+  }
+
+  private updateTerrain(src: TerrainSource, view: CullView): void {
+    const surface = this.deps.surface(src.id);
+    if (surface === null) return;
+    if (src.masks !== null && src.masks.side !== coverMaskSide(surface.samples)) {
+      this.clear(src);
+      this.dropMasks(src);
+    }
+    src.masks ??= { side: coverMaskSide(surface.samples), texture: null, layers: 0, free: [], entries: new Map() };
+    const planned = `${surface.tileSize}|${this.deps.tuning?.bias ?? 1}|${surface.origin.join(',')}`;
+    if (src.draws !== null && src.planned !== planned) this.clear(src);
+    if (src.draws === null && !this.plan(src, surface.tileSize)) return;
+    src.planned = planned;
+    const o = surface.origin;
+    const eye: [number, number] = [view.eye[0]! - (o[0] ?? 0), view.eye[2]! - (o[2] ?? 0)];
+    (src.eye.value as THREE.Vector2).set(eye[0], eye[1]);
+    const visible = (x: number, y: number, z: number, r: number): boolean => view.side(x + (o[0] ?? 0), y + (o[1] ?? 0), z + (o[2] ?? 0), r) !== SphereSide.Outside;
+    for (const rd of src.draws!) {
+      const rise = rd.model.radius * 2 * Math.max(...(rd.rule.scale ?? [1, 1]));
+      // A tile is listed with the rule's mask layer there; one whose mask is on its way is not drawn yet.
+      const ref = { page: 0, layer: 0, low: 0, high: 0, mask: -1 };
+      const tileAt = (tx: number, tz: number, x0: number, z0: number, x1: number, z1: number): CoverTileRef | undefined => {
+        const t = surface.tileAt(tx, tz, x0, z0, x1, z1);
+        if (t === undefined || t.layer < 0) return t;
+        const mask = this.maskOf(src, rd.rule, tx, tz);
+        if (mask === undefined) return undefined;
+        ref.page = t.page;
+        ref.layer = t.layer;
+        ref.low = t.low;
+        ref.high = t.high;
+        ref.mask = mask;
+        return ref;
+      };
+      rd.plan.rings.forEach((ring, k) => {
+        this.lists.clear();
+        listCoverPatches(ring, eye, surface.tileSize, rise, tileAt, visible, this.lists);
+        const byPage = rd.rings[k]!;
+        for (const [page, pp] of byPage) if (!this.lists.has(page)) this.write(src, pp, 0);
+        for (const [page, list] of this.lists) {
+          const tex = surface.pages[page];
+          if (tex === undefined) continue;
+          let pp = byPage.get(page);
+          if (pp !== undefined && pp.bound !== tex.heights) {
+            this.dropPage(pp);
+            byPage.delete(page);
+            pp = undefined;
+          }
+          if (pp === undefined) {
+            const masks = src.masks?.texture ?? null;
+            const maskSide = src.masks?.side ?? 1;
+            // A terrain with no mask yet reads none (its first one makes the draws again).
+            pp = this.makePage(src, rd, k, Math.max(1, Math.ceil(ring.maxPatches / PATCH_ROW)), surface.origin, tex.heights, (part, patches) =>
+              coverDrawPlacement({ ring, plan: rd.plan, rule: rd.rule, seed: scatterRuleSeed(rd.rule), surface, page: tex, patches, masks, maskSide, eye: src.eye, local: part.local.clone() }),
+            );
+            byPage.set(page, pp);
+          }
+          const n = Math.min(list.length, pp.data.length / 4);
+          const out = this.scratch(n);
+          for (let i = 0; i < n; i++) {
+            const p = list[i]!;
+            out[i * 4] = p.gx;
+            out[i * 4 + 1] = p.gz;
+            out[i * 4 + 2] = p.layer;
+            out[i * 4 + 3] = p.mask;
+          }
+          this.write(src, pp, n);
+        }
+      });
+    }
+    this.forgetMasks(src);
+  }
+
+  private updatePoints(src: PointSource, view: CullView): void {
+    const [W, D] = src.chunk;
+    const planned = `${W}|${this.deps.tuning?.bias ?? 1}`;
+    if (src.draws !== null && src.planned !== planned) this.clear(src);
+    if (src.draws === null && !this.plan(src, W)) return;
+    src.planned = planned;
+    const o = src.origin;
+    const ex = view.eye[0]! - o[0];
+    const ez = view.eye[2]! - o[2];
+    (src.eye.value as THREE.Vector2).set(ex, ez);
+    for (const rd of src.draws!) {
+      let atlas = src.atlases.get(rd.rule.id);
+      if (atlas === undefined) src.atlases.set(rd.rule.id, (atlas = new CoverPointAtlas()));
+      const reach = rd.plan.thinning.reach;
+      const rise = rd.model.radius * 2 * Math.max(...(rd.rule.scale ?? [1, 1]));
+      // The chunks the rule's reach meets: their sets asked for (again where their ground changed).
+      const near: { e: ReturnType<CoverPointAtlas['entry']>; dmin: number; dmax: number }[] = [];
+      for (let cz = Math.floor((ez - reach) / D); cz <= Math.floor((ez + reach) / D); cz++) {
+        for (let cx = Math.floor((ex - reach) / W); cx <= Math.floor((ex + reach) / W); cx++) {
+          if (!src.chunks.has(`${cx},${cz}`)) continue;
+          const dx = Math.max(cx * W - ex, 0, ex - (cx + 1) * W);
+          const dz = Math.max(cz * D - ez, 0, ez - (cz + 1) * D);
+          const dmin = Math.hypot(dx, dz);
+          if (dmin >= reach) continue;
+          const e = atlas.entry(cx, cz, this.frame);
+          if (e.stale && !e.asked) this.askPoints(src, rd.rule, atlas, e);
+          if (e.set === null || e.set.count === 0) continue;
+          const fx = Math.max(Math.abs(cx * W - ex), Math.abs((cx + 1) * W - ex));
+          const fz = Math.max(Math.abs(cz * D - ez), Math.abs((cz + 1) * D - ez));
+          // Culled by its box (the points' heights and the copies' rise over them).
+          const half = (e.set.high - e.set.low + rise) / 2;
+          if (view.side(o[0] + (cx + 0.5) * W, o[1] + (e.set.low + e.set.high + rise) / 2, o[2] + (cz + 0.5) * D, Math.sqrt((W * W + D * D) / 4 + half * half)) === SphereSide.Outside) continue;
+          near.push({ e, dmin, dmax: Math.hypot(fx, fz) });
+        }
+      }
+      rd.plan.rings.forEach((ring, k) => {
+        const byPage = rd.rings[k]!;
+        let pp = byPage.get(0);
+        if (pp !== undefined && pp.bound !== atlas.texture) {
+          this.dropPage(pp);
+          byPage.delete(0);
+          pp = undefined;
+        }
+        if (pp === undefined) {
+          const points = atlas.texture;
+          pp = this.makePage(src, rd, k, Math.max(1, Math.ceil(atlas.capacity / PATCH_ROW)), o, points, (part, blocks) => coverPointsPlacement({ ring, plan: rd.plan, rule: rd.rule, blocks, points, chunk: [W, D], eye: src.eye, local: part.local.clone() }));
+          byPage.set(0, pp);
+        }
+        const out = this.scratch(pp.data.length / 4);
+        let n = 0;
+        for (const c of near) if (c.dmin < ring.outer && c.dmax >= ring.inner) n = listCoverPointBlocks(ring, c.e, out, n);
+        this.write(src, pp, n);
+      });
+      if (this.frame % 60 === 0) atlas.forget(this.frame);
+    }
+  }
+
+  private askPoints(src: PointSource, rule: ScatterRule, atlas: CoverPointAtlas, e: ReturnType<CoverPointAtlas['entry']>): void {
+    if (this.deps.points === undefined) {
+      atlas.store(e, null);
+      return;
+    }
+    e.asked = true;
+    const token = e.token;
+    this.deps.points(src.id, rule, e.cx, e.cz, (set) => {
+      if (this.sources.get(src.id) !== src || src.atlases.get(rule.id) !== atlas || atlas.entries.get(`${e.cx},${e.cz}`) !== e || e.token !== token) return;
+      // A grown texture: the draws read the new one (made again next frame).
+      if (atlas.store(e, set)) for (const rd of src.draws ?? []) if (rd.rule.id === rule.id) for (const ring of rd.rings) for (const pp of ring.values()) pp.bound = null;
+      this.deps.changed?.();
+    });
   }
 
   diagnostics(): CoverGpuDiagnostics {
@@ -539,28 +756,41 @@ export class CoverGpu {
     let draws = 0;
     let patches = 0;
     let candidates = 0;
+    let masks = 0;
+    let masksPending = 0;
+    let pointSets = 0;
+    let points = 0;
+    let pointsPending = 0;
     for (const src of this.sources.values()) {
       rules += src.rules.length;
       for (const rd of src.draws ?? []) {
-        rd.rings.forEach((byPage, k) => {
+        rd.rings.forEach((byPage) => {
           for (const pp of byPage.values()) {
             if (pp.count === 0 || src.hidden) continue;
             draws += pp.meshes.length;
             patches += pp.count;
-            candidates += pp.count * rd.plan.rings[k]!.perPatch;
+            candidates += pp.count * pp.perPatch;
           }
         });
       }
-    }
-    let masks = 0;
-    let masksPending = 0;
-    for (const src of this.sources.values()) {
-      for (const e of src.masks?.entries.values() ?? []) {
-        if (e.slot >= 0) masks += 1;
-        if (e.asked) masksPending += 1;
+      if (src.kind === 'terrain') {
+        for (const e of src.masks?.entries.values() ?? []) {
+          if (e.slot >= 0) masks += 1;
+          if (e.asked) masksPending += 1;
+        }
+      } else {
+        for (const a of src.atlases.values()) {
+          for (const e of a.entries.values()) {
+            if (e.set !== null) {
+              pointSets += 1;
+              points += e.set.count;
+            }
+            if (e.asked) pointsPending += 1;
+          }
+        }
       }
     }
-    return { sources: this.sources.size, rules, draws, patches, candidates, listMs: Math.round(this.listMs * 100) / 100, masks, masksPending };
+    return { sources: this.sources.size, rules, draws, patches, candidates, listMs: Math.round(this.listMs * 100) / 100, masks, masksPending, pointSets, points, pointsPending };
   }
 
   meshes(): THREE.Mesh[] {
@@ -577,8 +807,8 @@ export class CoverGpu {
 
   // ---- internals ------------------------------------------------------------------------
 
-  /** Plan a source's rules once their models loaded (false: one is loading). */
-  private plan(src: Source, surface: TerrainCoverSurface): boolean {
+  /** Plan a source's rules once their models loaded (false: one is loading); `tile` the side (m) patches are cut to fit. */
+  private plan(src: Source, tile: number): boolean {
     const out: RuleDraws[] = [];
     for (const rule of src.rules) {
       const template = this.deps.template(rule.asset.assetId, rule.asset.piece, () => this.deps.changed?.());
@@ -587,7 +817,7 @@ export class CoverGpu {
       const g = model.groups[0];
       const levels = { distances: g?.distances ?? [0], culls: g?.culls ?? false, radius: model.radius };
       const screenFull = rule.densityStart !== undefined && model.radius > 0 ? model.radius / (TAN_HALF_REFERENCE * rule.densityStart) : undefined;
-      const plan = planCover(rule, rule.coverDistance ?? SCATTER_COVER_DISTANCE_DEFAULT, levels, surface.tileSize, this.deps.tuning?.bias ?? 1, screenFull);
+      const plan = planCover(rule, rule.coverDistance ?? SCATTER_COVER_DISTANCE_DEFAULT, levels, tile, this.deps.tuning?.bias ?? 1, screenFull);
       // Each ring's meshes: those of its level in the first LOD, another LOD's at its level there, and those in none.
       const parts = plan.rings.map((ring) =>
         model.parts.filter((p) => {
@@ -604,9 +834,9 @@ export class CoverGpu {
     return true;
   }
 
-  private makePage(src: Source, rd: RuleDraws, k: number, surface: TerrainCoverSurface, page: TerrainCoverSurface['pages'][number]): PagePatches {
+  /** A ring's draws (one per mesh part) over a list texture of `rows` rows, placed by `placement`, compiled against `bound`. */
+  private makePage(src: Source, rd: RuleDraws, k: number, rows: number, origin: readonly number[], bound: THREE.Texture, placement: (part: InstanceSetPlan['parts'][number], list: THREE.DataTexture) => CoverPlacement): PagePatches {
     const ring = rd.plan.rings[k]!;
-    const rows = Math.max(1, Math.ceil(ring.maxPatches / PATCH_ROW));
     const data = new Float32Array(PATCH_ROW * rows * 4);
     const texture = new THREE.DataTexture(data, PATCH_ROW, rows, THREE.RGBAFormat, THREE.FloatType);
     texture.magFilter = THREE.NearestFilter;
@@ -616,7 +846,6 @@ export class CoverGpu {
     const root = new THREE.Group();
     root.name = `cover-gpu:${src.id}:${rd.rule.id}:${k}`;
     root.matrixAutoUpdate = false;
-    const seed = scatterRuleSeed(rd.rule);
     const meshes = rd.parts[k]!.map((part) => {
       const mesh = new THREE.Mesh(part.mesh.geometry, part.mesh.material);
       mesh.name = `${root.name}:${part.mesh.name}`;
@@ -625,34 +854,31 @@ export class CoverGpu {
       mesh.castShadow = rd.rule.castShadow === true;
       mesh.receiveShadow = true;
       mesh.visible = false;
-      // A terrain with no mask yet reads none (its first one makes the draws again).
-      mesh.userData[COVER_DRAW_KEY] = coverDrawPlacement({ ring, plan: rd.plan, rule: rd.rule, seed, surface, page, patches: texture, masks: src.masks?.texture ?? null, maskSide: src.masks?.side ?? 1, eye: src.eye, local: part.local.clone() });
+      mesh.userData[COVER_DRAW_KEY] = placement(part, texture);
       root.add(mesh);
       return mesh;
     });
     const undress = this.deps.dress?.(root, rd.rule.asset.assetId) ?? null;
-    root.matrix.makeTranslation(surface.origin[0] ?? 0, surface.origin[1] ?? 0, surface.origin[2] ?? 0);
+    root.matrix.makeTranslation(origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0);
     root.updateMatrixWorld(true);
-    return { texture, data, heights: page.heights, meshes, undress, root, perPatch: ring.perPatch, count: 0, key: 0 };
+    return { texture, data, bound, meshes, undress, root, perPatch: src.kind === 'terrain' ? ring.perPatch : COVER_POINT_BLOCK, count: 0 };
   }
 
-  /** Put a list in a ring's patch texture (only when it changed) and size its draws. */
-  private write(src: Source, pp: PagePatches, list: readonly CoverPatch[]): void {
-    const cap = pp.data.length / 4;
-    const n = Math.min(list.length, cap);
-    let key = n;
-    for (let i = 0; i < n; i++) key = (Math.imul(key, 31) + Math.imul(list[i]!.gx, 0x9e3779b1) + Math.imul(list[i]!.gz, 0x85ebca6b) + list[i]!.layer + Math.imul(list[i]!.mask + 1, 0x27d4eb2d)) | 0;
+  /** The scratch list a frame's entries are written into before {@link write} (at least `n` entries). */
+  private scratch(n: number): Float32Array {
+    if (this.next.length < n * 4) this.next = new Float32Array(Math.max(n * 4, this.next.length * 2));
+    return this.next;
+  }
+
+  /** Put the scratch list's first `n` entries in a ring's list texture (only when they changed) and size its draws. */
+  private write(src: Source, pp: PagePatches, n: number): void {
+    n = Math.min(n, pp.data.length / 4);
     const was = pp.count;
-    if (key !== pp.key || n !== pp.count) {
-      for (let i = 0; i < n; i++) {
-        const p = list[i]!;
-        pp.data[i * 4] = p.gx;
-        pp.data[i * 4 + 1] = p.gz;
-        pp.data[i * 4 + 2] = p.layer;
-        pp.data[i * 4 + 3] = p.mask;
-      }
+    let same = n === pp.count;
+    for (let i = 0; same && i < n * 4; i++) same = pp.data[i] === this.next[i];
+    if (!same) {
+      pp.data.set(this.next.subarray(0, n * 4));
       pp.texture.needsUpdate = true;
-      pp.key = key;
       pp.count = n;
     }
     // A draw of one copy or none would be keyed apart from the others (three keys a draw of several by its mesh): hidden instead.
@@ -678,7 +904,7 @@ export class CoverGpu {
   }
 
   /** Rule `rule`'s mask layer over tile (tx, tz) (-1: none needed), asking for it when it is wanted; undefined: not arrived yet. */
-  private maskOf(src: Source, rule: ScatterRule, tx: number, tz: number): number | undefined {
+  private maskOf(src: TerrainSource, rule: ScatterRule, tx: number, tz: number): number | undefined {
     const atlas = src.masks!;
     const key = `${rule.id}|${tx},${tz}`;
     let e = atlas.entries.get(key);
@@ -710,7 +936,7 @@ export class CoverGpu {
   }
 
   /** Put a mask in its entry's layer (one taken, the texture grown when full: the draws are made again with it). */
-  private store(src: Source, atlas: MaskAtlas, e: MaskEntry, data: Uint8Array): void {
+  private store(src: TerrainSource, atlas: MaskAtlas, e: MaskEntry, data: Uint8Array): void {
     const side = atlas.side;
     if (e.slot < 0) {
       if (atlas.free.length === 0) {
@@ -739,7 +965,7 @@ export class CoverGpu {
   }
 
   /** Let go of the masks of tiles not listed for a while. */
-  private forgetMasks(src: Source): void {
+  private forgetMasks(src: TerrainSource): void {
     const atlas = src.masks;
     if (atlas === null || this.frame % 60 !== 0) return;
     for (const [key, e] of atlas.entries) {
@@ -749,7 +975,7 @@ export class CoverGpu {
     }
   }
 
-  private dropMasks(src: Source): void {
+  private dropMasks(src: TerrainSource): void {
     src.masks?.texture?.dispose();
     src.masks = null;
   }

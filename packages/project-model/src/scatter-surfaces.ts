@@ -123,22 +123,34 @@ export function blockScatterSurface(src: BlockScatterSource, excluded?: ScatterS
       return shares[l]! / 255;
     },
   };
+  const ground = (x: number, z: number, hit: ReturnType<typeof surfaceBelow>): ScatterGround | null => {
+    if (hit === null) return null;
+    g.x = x;
+    g.y = origin[1]! + hit.height;
+    g.z = z;
+    g.slope = hit.slope;
+    [g.nx, g.ny, g.nz] = hit.normal;
+    cell = hit.cell;
+    shares = null;
+    const c = grid.get(cell[0], cell[1], cell[2]);
+    if (c?.block !== undefined) g.block = c.block;
+    else delete g.block;
+    g.meta = (key: string): CellMetaValue | undefined => c?.meta?.[key] ?? (c?.block !== undefined ? types.get(c.block)?.metadata?.[key] : undefined);
+    return g;
+  };
   return {
-    at(x: number, z: number): ScatterGround | null {
-      const hit = surfaceBelow(grid, types, x - origin[0]!, top, z - origin[2]!);
-      if (hit === null) return null;
-      g.x = x;
-      g.y = origin[1]! + hit.height;
-      g.z = z;
-      g.slope = hit.slope;
-      [g.nx, g.ny, g.nz] = hit.normal;
-      cell = hit.cell;
-      shares = null;
-      const c = grid.get(cell[0], cell[1], cell[2]);
-      if (c?.block !== undefined) g.block = c.block;
-      else delete g.block;
-      g.meta = (key: string): CellMetaValue | undefined => c?.meta?.[key] ?? (c?.block !== undefined ? types.get(c.block)?.metadata?.[key] : undefined);
-      return g;
+    at: (x, z) => ground(x, z, surfaceBelow(grid, types, x - origin[0]!, top, z - origin[2]!)),
+    under(x: number, z: number, y: number): ScatterGround | null {
+      // Down through the blocks under the ground at `y` to the first open cell; the ground below it is the next floor.
+      const lx = x - origin[0]!;
+      const lz = z - origin[2]!;
+      const ix = Math.floor(lx / cs[0]!);
+      const iz = Math.floor(lz / cs[2]!);
+      for (let iy = Math.floor((y - origin[1]!) / cs[1]! - 1e-6); iy >= grid.min[1]!; iy--) {
+        if (grid.get(ix, iy, iz)?.block !== undefined) continue;
+        return ground(x, z, surfaceBelow(grid, types, lx, (iy + 0.5) * cs[1]!, lz));
+      }
+      return null;
     },
     ...(excluded !== undefined ? { excluded } : {}),
     ...(cleared !== undefined ? { cleared } : {}),

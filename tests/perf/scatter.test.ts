@@ -7,7 +7,7 @@
  *   three tree and rock rules, whole, and the part a 16 m raise bakes again (as dense as the class, and 16 times).
  * - Drawing: a 2,048 m group's instance sets built from its stored copies (what an edit's re-bake costs), on the
  *   page alone and split as the scatter view runs it (the arithmetic on its worker, the draws on the page's main
- *   thread), a ground cover square made (the worker's share) and built.
+ *   thread), and a block chunk's ground cover points baked (the worker's share).
  * The numbers go to ~/.cache/thirdlight-perf/scatter.jsonl and the phase plan's progress table.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -115,24 +115,21 @@ describe.skipIf(!ON)('rule scatter costs', () => {
     record(`scatter group build (density ×${dense}; 2,048 m, 3 rules, ${n} copies): ${times.join(' + ')} ms on the page alone; prepared on the worker ${worker.join(' + ')} ms, then the page ${page.join(' + ')} ms`);
   });
 
-  it('makes and builds a ground cover square', () => {
-    const tile = hills();
-    const template = kit();
-    // Ground cover: a 32 m square of grass at 2 per m² made by the generator (the worker's share), then built on the page.
+  it('bakes a block layer chunk\'s cover points', () => {
+    // Ground cover on a block layer: a 16 m chunk of 1 m floor blocks, every other one under a roof, moss at 8 per m²
+    // baked as a point set (the worker's share; the GPU thins and places it).
     const gen = new CoverGenerator();
-    const grass: ScatterRule = { id: 'grass', asset: { assetId: 'kit' }, density: 2, align: 0.7, slope: { max: 30, fade: 5 }, cover: true };
-    gen.apply({ t: 'coverTile', digest: 'd', tile });
-    gen.apply({ t: 'coverSource', id: 't', source: { kind: 'terrain', component: { ...COMP, tiles: [{ x: 0, z: 0, data: 'd' }] }, origin: [0, 0, 0], rules: [grass] } });
-    gen.make('t', [0, 0, 32, 32]);
-    buildInstanceSet(template, gen.make('t', [32, 32, 64, 64])[0]!.copies, 100, 'warm', { chunkSize: 32 }).dispose();
-    let t0 = performance.now();
-    const made = gen.make('t', [64, 64, 96, 96]);
-    const makeMs = ms(t0);
-    const m = made[0]!;
-    t0 = performance.now();
-    const coverSet = buildInstanceSet(template, m.copies, m.copies.length / 10, 'cover', { chunkSize: 32, densityDistance: { start: 24, end: 40, min: 0 }, lodPerCopy: true });
-    const buildMs = ms(t0);
-    coverSet.dispose();
-    record(`ground cover 32 m square at 2/m²: ${m.copies.length / 10} copies, made in ${makeMs} ms (worker), built in ${buildMs} ms (page)`);
+    const moss: ScatterRule = { id: 'moss', asset: { assetId: 'kit' }, density: 8, align: 1, cover: true };
+    const columns: number[][] = [];
+    for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) columns.push((x + z) % 2 === 0 ? [x, z, 0, 1, 0, 3, 1, 0] : [x, z, 0, 1, 0]);
+    const chunks = [0, 1].map((cx) => ({ cx, cz: 0, palette: [{ block: 'floor' }], columns }));
+    gen.apply({ t: 'coverTypes', types: [{ blockId: 'floor', name: 'Floor', variants: [{ color: '#886644' }], shape: 'full' } as never] });
+    gen.apply({ t: 'coverSource', id: 'b', source: { kind: 'blocks', component: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [32, 8, 16] }, scatter: [moss] } as never, origin: [0, 0, 0], rules: [moss], data: { entityId: 'b', chunks } } });
+    gen.points('b', 'moss', 0, 0);
+    const t0 = performance.now();
+    const set = gen.points('b', 'moss', 1, 0)!;
+    const bakeMs = ms(t0);
+    expect(set.count).toBeGreaterThan(1500);
+    record(`ground cover points, a 16 m block chunk at 8/m² on two floors: ${set.count} points (${set.data.byteLength} B), baked in ${bakeMs} ms (worker)`);
   });
 });

@@ -735,6 +735,7 @@
 "limit.SCATTER_CHUNK_METERS_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--scatter"},
 "limit.SCATTER_COVER_DISTANCE_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--scatter"},
 "limit.SCATTER_LIMITS": {"page":"limits-project-model-2.md","section":"limits-project-model--scatter"},
+"limit.SCATTER_MIN_NORMAL_Y": {"page":"limits-project-model-2.md","section":"limits-project-model--scatter"},
 "limit.SCATTER_NEAR_MAX": {"page":"limits-runtime.md","section":"limits-runtime--scatter-copies"},
 "limit.SCENE_LIMITS_V3": {"page":"limits-project-model-2.md","section":"limits-project-model--types-v3"},
 "limit.SCENE_OBJECT_BUDGET_BYTES": {"page":"limits-project-model-2.md","section":"limits-project-model--scene-memory"},

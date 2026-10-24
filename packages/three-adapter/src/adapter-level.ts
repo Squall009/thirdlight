@@ -107,7 +107,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
     changed,
     drawn: opts.scatter !== false,
     // The terrains' view is made below (it hands its sources to this host); cover reads its page textures.
-    ...(opts.coverGpu !== false ? { surface: (id: string) => terrains.coverSurface(id) } : {}),
+    surface: (id: string) => terrains.coverSurface(id),
   });
   // Splines: what they make (meshes, pieces' copies), and terrain ground cover kept clear of their scatter bands.
   const splines = new SplineView({

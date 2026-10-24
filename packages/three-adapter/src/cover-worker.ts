@@ -1,16 +1,16 @@
 /**
- * Ground cover made off the page's main thread: the cover rules of a
- * terrain or a block layer (`scatter.ts`, `cover: true`) placed over one
- * square of ground near the camera, with the same rule code and the same
- * surfaces the stored scatter is baked with — only never stored.
+ * What ground cover needs worked out off the page's main thread, with the
+ * same rule code and the same surfaces the stored scatter is baked with:
+ * for a terrain, a cover rule's mask over one tile (`coverMask`: what the
+ * GPU cannot read from the terrain's texels); for a block layer, a cover
+ * rule's point set over one chunk (`bakeCoverPoints`: every floor its
+ * conditions keep, at the rule's full density), which the GPU thins.
  *
  * The page hands each source over as it gets it (a terrain's tile list and,
- * before it asks for a square, the decoded tiles under it; a block layer's
- * chunks and the block types), then asks for squares one at a time; each
- * answer is the square's copies per rule (10 floats each, the source's
- * frame), handed over, not copied. For a terrain's cover drawn on the GPU
- * it makes a rule's mask over one tile instead (`coverMask`: what the GPU
- * cannot read from the terrain's texels). A terrain's cover keeps off the block
+ * before it asks for a mask, the decoded tiles under it; a block layer's
+ * chunks and the block types), then asks for masks and point sets one at a
+ * time, as the view reaches them and again when their ground changes; each
+ * answer is handed over, not copied. A terrain's cover keeps off the block
  * layers its blocks layers meet (`TerrainBlockSeam.covered`, the test its
  * stored scatter was baked with); the page hands those block layers over
  * too. It runs in the view's worker script
@@ -25,7 +25,8 @@ import {
   TERRAIN_BLOCKS_BLEND_DEFAULT,
   TerrainBlockSeam,
   TerrainField,
-  bakeScatterCell,
+  bakeCoverPoints,
+  blockChunkRect,
   blockScatterSurface,
   regionExcluder,
   SplineScatterBands,
@@ -35,7 +36,7 @@ import {
   type BlockLayerComponent,
   type BlockLayerData,
   type BlockType,
-  type ScatterRect,
+  type CoverPointSet,
   type ScatterRule,
   type ScatterSurface,
   type SplineComponent,
@@ -66,19 +67,12 @@ export type CoverRequest =
   | { readonly t: 'coverForget'; readonly digest: string }
   | { readonly t: 'coverDrop'; readonly id: string }
   | { readonly t: 'coverSplines'; readonly splines: readonly CoverSpline[] }
-  | { readonly t: 'coverMake'; readonly job: number; readonly id: string; readonly rect: ScatterRect }
+  | { readonly t: 'coverPoints'; readonly job: number; readonly id: string; readonly rule: string; readonly cx: number; readonly cz: number }
   | { readonly t: 'coverMask'; readonly job: number; readonly id: string; readonly rule: string; readonly tx: number; readonly tz: number };
-
-/** One square's copies per rule. */
-export interface CoverCopies {
-  readonly rule: string;
-  readonly copies: Float32Array;
-}
 
 /** Worker → page. */
 export type CoverReply =
-  | { readonly t: 'coverMade'; readonly job: number; readonly ok: true; readonly made: readonly CoverCopies[]; readonly ms: number; readonly looked?: number }
-  | { readonly t: 'coverMade'; readonly job: number; readonly ok: false; readonly message: string }
+  | { readonly t: 'coverPointed'; readonly job: number; readonly points: CoverPointSet | null; readonly message?: string }
   | { readonly t: 'coverMasked'; readonly job: number; readonly mask: Uint8Array | null; readonly message?: string };
 
 interface Held {
@@ -88,17 +82,14 @@ interface Held {
   grid: BlockGrid | null;
 }
 
-/** The sources, tiles and types a generator holds, and the squares it makes. */
+/** The sources, tiles and types a generator holds, and the masks and point sets it makes. */
 export class CoverGenerator {
   private readonly sources = new Map<string, Held>();
   private readonly tiles = new Map<string, TerrainTile>();
   private types = new Map<string, BlockType>();
   /** The splines' scatter bands (terrain cover keeps clear of them, as the stored scatter does). */
   private bands: SplineScatterBands | null = null;
-  /** Candidate places looked at so far (diagnostics). */
-  looked = 0;
-
-  apply(m: Exclude<CoverRequest, { t: 'coverMake' | 'coverMask' }>): void {
+  apply(m: Exclude<CoverRequest, { t: 'coverPoints' | 'coverMask' }>): void {
     switch (m.t) {
       case 'coverSource':
         this.sources.set(m.id, { source: m.source, surface: null, grid: null });
@@ -170,22 +161,14 @@ export class CoverGenerator {
     return this.tiles.has(digest);
   }
 
-  /** The cover copies over one square (world XZ) of a source, per rule. */
-  make(id: string, rect: ScatterRect): CoverCopies[] {
+  /** Rule `rule`'s points over chunk (cx, cz) of block layer `id` (null: no such layer or rule). */
+  points(id: string, rule: string, cx: number, cz: number): CoverPointSet | null {
     const h = this.sources.get(id);
-    if (h === undefined) return [];
-    const s = h.source;
-    if (s.rules.length === 0) return [];
+    if (h === undefined || h.source.kind !== 'blocks') return null;
+    const r = h.source.rules.find((x) => x.id === rule);
+    if (r === undefined) return null;
     h.surface ??= this.surfaceOf(h);
-    const baked = bakeScatterCell(s.rules, h.surface, null, rect, null, s.origin);
-    this.looked += baked.looked;
-    const cell = baked.cell;
-    const out: CoverCopies[] = [];
-    for (const r of s.rules) {
-      const c = cell.get(r.id);
-      if (c !== undefined && c.copies.length > 0) out.push({ rule: r.id, copies: c.copies });
-    }
-    return out;
+    return bakeCoverPoints(r, h.surface, blockChunkRect(h.source.origin, h.source.component.cellSize, cx, cz), h.source.origin);
   }
 
   /** Rule `rule`'s mask over tile (tx, tz) of terrain `id` (`coverMask`; null: none needed, or no such rule). */
@@ -251,17 +234,15 @@ export function runCoverWorker(endpoint: CoverEndpoint): void {
       }
       return;
     }
-    if (req.t !== 'coverMake') {
+    if (req.t !== 'coverPoints') {
       gen.apply(req);
       return;
     }
-    const t0 = performance.now();
     try {
-      const made = gen.make(req.id, req.rect);
-      const reply: CoverReply = { t: 'coverMade', job: req.job, ok: true, made, ms: performance.now() - t0, looked: gen.looked };
-      endpoint.post(reply, made.map((c) => c.copies.buffer as ArrayBuffer));
+      const points = gen.points(req.id, req.rule, req.cx, req.cz);
+      endpoint.post({ t: 'coverPointed', job: req.job, points } satisfies CoverReply, points !== null ? [points.data.buffer as ArrayBuffer] : undefined);
     } catch (e) {
-      endpoint.post({ t: 'coverMade', job: req.job, ok: false, message: e instanceof Error ? e.message : String(e) } satisfies CoverReply);
+      endpoint.post({ t: 'coverPointed', job: req.job, points: null, message: e instanceof Error ? e.message : String(e) } satisfies CoverReply);
     }
   });
 }

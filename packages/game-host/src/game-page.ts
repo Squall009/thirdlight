@@ -34,7 +34,7 @@ import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, 
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort } from '@thirdlight/physics-rapier';
-import { architectureFromUrl, batchingFromUrl, coverGpuFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, batchingFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -876,8 +876,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           qualityPinned: pinnedQuality,
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
           batching: batchingFromUrl(pageSearch()),
-          // Terrains drawn unless the page says ?terrain=off, their cover placed on the GPU unless ?cover=cpu (diagnostic comparisons); their tiles are the build's buffers.
-          terrain: terrainDrawn, coverGpu: coverGpuFromUrl(pageSearch()),
+          // Terrains drawn unless the page says ?terrain=off (a diagnostic comparison); their tiles are the build's buffers.
+          terrain: terrainDrawn,
           // The far ground's horizon light unless the page says ?terrainHorizon=off (a diagnostic comparison).
           terrainHorizon: terrainHorizonFromUrl(pageSearch()),
           terrainTiles,

@@ -475,11 +475,16 @@ area and the terrain around it are dressed alike.
   is higher, the stored scatter's rule judged on the candidate's own
   conditions (about the same density). `blobShadow` is not drawn under
   cover (SSAO gives the contact). The reach has no bound of its own past
-  the rule's `coverDistance` (up to 10 km). Block layers' cover is made on
-  the CPU: squares of 32 m round the camera (to 1 km at most) made on a
-  worker and drawn one instance set per rule and square; an edit of the
-  ground makes the squares over it again. The page flag `?cover=cpu` makes
-  every terrain's cover that way too (a comparison). No
+  the rule's `coverDistance` (up to 10 km). Block layers' cover goes
+  through the same draws: a worker bakes each chunk's **point set** per
+  rule when the view's reach meets the chunk (every candidate its
+  conditions keep at the rule's full density, on **every floor** of a
+  column — a floor under a roof or a ceiling grows cover too, so interiors
+  have it — with its place, normal, turn, size and a threshold, 16 bytes a
+  point), and the GPU thins the points by distance as it thins a terrain's
+  candidates; an edit bakes the chunks round it again (the old points drawn
+  until the new ones arrive), and sets the view left are let go. A block
+  layer's `spacing` is kept exactly, between points of any floor. No
   colliders, no hand edits.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
   are one instance set, 2,048 m chunks by default (`chunkSize`), each copy

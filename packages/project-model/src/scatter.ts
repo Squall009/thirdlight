@@ -308,6 +308,13 @@ export interface ScatterSurface {
   excluded?(x: number, z: number, names: readonly string[]): boolean;
   /** Whether a spline keeps world point (x, z) clear of rule `rule`'s copies (absent: none does). */
   cleared?(x: number, z: number, rule: string): boolean;
+  /**
+   * The next ground under world height `y` at (x, z) with open space over
+   * it — a floor under a ceiling — or null (absent: the surface has one
+   * ground per point). Ground cover reads every floor; the stored scatter
+   * only the highest.
+   */
+  under?(x: number, z: number, y: number): ScatterGround | null;
 }
 
 /** A world XZ rectangle [x0, z0, x1, z1]: a point is inside when x0 ≤ x < x1 and z0 ≤ z < z1. */
@@ -418,7 +425,7 @@ class RulePlacer {
     if (!this.erased.has(key)) {
       const [x, z] = this.point(ix, iz);
       const g = this.surface.at(x, z);
-      if (g !== null && g.ny > MIN_NORMAL_Y) {
+      if (g !== null && g.ny > SCATTER_MIN_NORMAL_Y) {
         if (this.added.has(key)) out = 1;
         else if ((this.rule.exclude === undefined || this.surface.excluded?.(x, z, this.rule.exclude) !== true) && this.surface.cleared?.(x, z, this.rule.id) !== true) {
           let f = ruleConditionsAt(this.rule, g, this.blocks, (r) => g.cavity(r));
@@ -472,7 +479,7 @@ class RulePlacer {
 }
 
 /** A surface steeper than this (normal Y) takes no copy (a wall). */
-const MIN_NORMAL_Y = 0.05;
+export const SCATTER_MIN_NORMAL_Y = 0.05;
 
 /** The candidate cells of a grid whose points may fall in `r` (cells overlapping it). */
 function cellRange(size: number, r: ScatterRect): [number, number, number, number] {

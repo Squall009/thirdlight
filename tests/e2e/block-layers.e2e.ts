@@ -46,7 +46,7 @@
  * game reads back, on WebGPU and (on a GPU host) WebGL 2.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
@@ -287,6 +287,14 @@ const ROOF_B = [12, 15, 13, 15, 16, 16];
 /** The banner: a white slab level with the pink roof, on the map's other side (violet under the burnt kit). */
 const BANNER = [2, 15, 13, 5, 16, 16];
 const PIT = [0, -16, 0, 24, 0, 24];
+/**
+ * Ground cover on the floor under the pink roof only (its 3 × 3 m are the only floor blocks): moss and debris, whose
+ * points the cover worker bakes for every floor of a column — the roof above is the highest ground there.
+ */
+const COVER = [
+  { id: 'moss', asset: { assetId: 'moss' }, density: 6, cover: true, coverDistance: 60, blocks: ['floor'], scale: [0.8, 1.2] },
+  { id: 'debris', asset: { assetId: 'beacon-base' }, density: 1, cover: true, coverDistance: 60, blocks: ['floor'], scale: [0.2, 0.4] },
+];
 
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
 async function buildMap(): Promise<{ layer: string; player: string }> {
@@ -311,6 +319,9 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('setBlockType', { block: { blockId: 'gate', name: 'Gate', variants: [{ prefab: 'gate' }], shape: 'full', placement: 'edge', live: true } });
   await cmd('setBlockType', { block: { blockId: 'roof-a', name: 'Roof A', variants: [{ color: '#9090ff' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'roof-b', name: 'Roof B', variants: [{ color: '#ffb4d2' }], shape: 'full' } });
+  // The floor under the pink roof (an interior), where moss and debris grow as ground cover.
+  await cmd('setBlockType', { block: { blockId: 'floor', name: 'Floor', variants: [{ color: '#8a6a40' }], shape: 'full' } });
+  await publishBytes(be!, new Uint8Array(multiPieceGlb([{ name: 'moss', lods: [[0.3, 0.06, 0.3]], colors: [[0.25, 0.5, 0.1]] }], { centred: true })), 'model', 'moss', 'Moss');
   await cmd('setBlockType', { block: { blockId: 'banner-burnt', name: 'Banner (burnt)', variants: [{ color: '#5a00b4' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'banner', name: 'Banner', variants: [{ color: '#f2f2f2' }], shape: 'full', kits: { burnt: { block: 'banner-burnt' } } } });
   await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#303030', weight: 1000 }, { color: '#f0e000', weight: 0.001 }, { color: '#e01010', weight: 0.001 }, { color: '#1020ff', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 }, t: { variant: 3 } } } } });
@@ -326,7 +337,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; name?: string }[] }).entities;
   const id = (name: string): string => ents.find((e) => e.name === name)!.id;
   await cmd('setComponent', { entityId: id('Player'), component: 'controller', value: {} });
-  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 1 } } });
+  await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 1 }, scatter: COVER } });
   // The player is the camera's target (what the cut-aways test): a track rig whose framed point is held at the spawn,
   // so the view stays where it was.
   await cmd('setComponent', { entityId: cam, component: 'virtualCamera', value: { ...(camEntity.components['virtualCamera'] as object), rig: 'track', target: id('Player'), boundsMin: [8.5, 6, 8.5], boundsMax: [8.5, 6, 8.5] } });
@@ -347,6 +358,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
       { kind: 'cells', at: [...RAMPART], cell: { block: 'rampart' } },
       { kind: 'fill', box: [...ROOF_A], cell: { block: 'roof-a' } },
       { kind: 'fill', box: [...ROOF_B], cell: { block: 'roof-b' } },
+      { kind: 'fill', box: [ROOF_B[0]!, 2, ROOF_B[2]!, ROOF_B[3]!, ROOF_B[1]!, ROOF_B[5]!], cell: { block: 'floor' }, mode: 'replace' },
       { kind: 'fill', box: [...BANNER], cell: { block: 'banner' } },
       { kind: 'region', regionId: 'roof.a', op: 'set', boxes: [[...ROOF_A]] },
       { kind: 'region', regionId: 'roof.b', op: 'set', boxes: [[...ROOF_B]] },
@@ -562,6 +574,15 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   // Play draws through the same runtime as the export, whose pictures below check every piece (the posts, the edge
   // wall, the live gate, the connected wall) on both renderers; here the blocks are seen once.
   await expect.poll(() => inPlay(greenPixels), { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' }).toBeGreaterThan(500);
+  // The interior's cover: point sets of both rules over the chunk, all on the roofed floor (about 7 points a m² of its 9).
+  const coverGpu = async (): Promise<{ pointSets?: number; points?: number; pointsPending?: number; draws?: number } | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { cover?: { gpu?: { pointSets?: number; points?: number; pointsPending?: number; draws?: number } } } } }).diagnostics?.renderer?.cover?.gpu;
+  await expect.poll(async () => { const g = await coverGpu(); return (g?.pointSets ?? 0) === 2 && (g?.pointsPending ?? 1) === 0 && (g?.draws ?? 0) > 0; }, { timeout: 30_000, message: 'the interior\'s ground cover drawn' }).toBe(true);
+  const cover = await coverGpu();
+  console.log(`interior cover in Play: ${JSON.stringify(cover)}`);
+  expect(cover!.points!).toBeGreaterThan(40);
+  expect(cover!.points!).toBeLessThan(90);
+  // The picture for a look by eye (the moss and debris under the pink roof).
+  writeFileSync(test.info().outputPath('interior-cover.png'), Buffer.from(String((await relay(`${psid}/screenshot`, { maxWidth: 960 })).json.dataUrl ?? '').split(',')[1] ?? '', 'base64'));
   await expectFallsThrough(read, 'Play');
   await expectRoofsCut(playShot, 'Play', roofInPlay);
   await expectBurntBanner(playShot, 'Play');

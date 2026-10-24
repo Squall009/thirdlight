@@ -1431,6 +1431,7 @@ export {
   FOLIAGE_NEAR_METRES,
   SCATTER_BAKE_MAX_CANDIDATES,
   SCATTER_BLOB_DISTANCE,
+  SCATTER_MIN_NORMAL_Y,
   SCATTER_BLOB_MAGIC,
   SCATTER_CHUNK_METERS_DEFAULT,
   SCATTER_COVER_DISTANCE_DEFAULT,
@@ -1465,6 +1466,7 @@ export {
   type ScatterStroke,
   type ScatterSurface,
 } from './scatter';
+export { COVER_POINT_FLOATS, COVER_POINT_STEPS, bakeCoverPoints, coverPointAt, coverPointCopy, coverPointNormal, coverPointsBelow, type CoverPoint, type CoverPointSet } from './cover-points';
 export { blockScatterSurface, regionExcluder, terrainScatterSurface, type BlockScatterSource, type ScatterRegionLayer } from './scatter-surfaces';
 export { SURFACE_TIE_METRES, surfaceAt, type SurfaceAt, type SurfaceBlockSource, type SurfaceSource, type SurfaceTerrainSource } from './surface-query';
 export { bakeTerrainScatter, isScatterBlob, scatterBlobOf, scatterCellOfBlob, terrainChangedSamples, terrainTileRect } from './terrain-scatter';
