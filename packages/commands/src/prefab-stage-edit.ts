@@ -72,7 +72,10 @@ export function routeStageEdit(
   if (state.otherScene !== undefined) return { ok: false, error: prefabOverrideUnsupported(first.id, "a prefab's objects stay in the prefab") };
   const root = stageRoot(prefabId, transform);
   const bare = JSON.stringify(root);
-  const stage = { ...state.scene, entities: [root] } as SceneDocument;
+  // The stage holds the copy alone: the scene's block cells belong to layers it does not hold.
+  const { blocks: _blocks, ...rest } = state.scene as SceneDocument & { blocks?: unknown };
+  void _blocks;
+  const stage = { ...rest, entities: [root] } as SceneDocument;
   const fresh = { entries: [], cursor: 0, seq: 1 };
   const edited = run({ ...state, scene: stage, history: fresh }, request);
   if (!edited.ok) return { ok: false, error: edited.result.error };

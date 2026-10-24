@@ -36,7 +36,7 @@ import { layerPatch, patchDelta, patchedLayer, patchIsEmpty, type BlockLayerPatc
 import { contentOf } from './content-ops';
 import { fieldValue, type CommandError } from './errors';
 import { gateResultState } from './ops';
-import { assembledView } from './prefab-copy-edit';
+import { keptAssembledView } from './prefab-copy-edit';
 import { deepEqual } from './properties';
 import type { ChangeData, ContentDocument, SceneDocument } from './types';
 
@@ -173,7 +173,7 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
  * written into the stored scene.
  */
 export function writeSceneFootprints(before: SceneDocument, after: SceneDocument, contentBefore: ContentDocument | undefined, contentAfter: ContentDocument | undefined, manifest: Manifest | undefined): FootprintOutcome {
-  const shown = (scene: SceneDocument, content: ContentDocument | undefined): SceneDocument => (prefabsCarryFootprints(content) ? (assembledView(scene, content) ?? scene) : scene);
+  const shown = (scene: SceneDocument, content: ContentDocument | undefined): SceneDocument => (prefabsCarryFootprints(content) ? (keptAssembledView(scene, content) ?? scene) : scene);
   const viewBefore = shown(before, contentBefore);
   const viewAfter = shown(after, contentAfter);
   if (viewBefore === before && viewAfter === after) return writeFootprints(before, after, contentAfter, manifest);

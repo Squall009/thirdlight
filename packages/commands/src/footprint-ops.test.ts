@@ -4,7 +4,7 @@
  * `rebased` count of `editBlocks` surface and sculpt edits.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, type BlockLayerComponent, type SceneV4 } from '@thirdlight/project-model';
+import { BlockGrid, prefabPartId, prefabStageId, type BlockLayerComponent, type SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, EditBlocksChange, FootprintChunks, MutationSuccess } from './index';
@@ -161,6 +161,10 @@ describe('prop footprints in the command layer', () => {
     const deleted = ok(applied.state, 'deleteEntity', { entityId: copy });
     expect(markedCells(deleted.state, layer)).toEqual(['22,20']);
     expect(ok(deleted.state, 'undo').state.scene.blocks).toEqual(applied.state.scene.blocks);
+    // An edit on the prefab's own stage (which holds no layer) moves the remaining copy's cells too.
+    const porchLocal = (deleted.state.content as unknown as { prefabs: { prefabId: string; entities: { localId: string; components: { blockFootprint?: unknown } }[] }[] }).prefabs.find((p) => p.prefabId === 'hut')!.entities.find((e) => e.components.blockFootprint !== undefined)!.localId;
+    const staged = ok(deleted.state, 'setTransform', { entityId: prefabPartId(prefabStageId('hut'), porchLocal), transform: { position: [0.5, 0, 2.5] } });
+    expect(markedCells(staged.state, layer)).toEqual(['20,22']);
   });
 
   it('a footprint set with a field outside the cell schema is refused, naming the field and the layer', () => {

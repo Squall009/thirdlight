@@ -289,3 +289,47 @@ export function assembledView(scene: SceneDocument, content: ContentDocument | u
   if (loc === null) return undefined;
   return { ...scene, entities: expandCopies(scene, loc, new Set(loc.links.keys())) } as SceneDocument;
 }
+
+/**
+ * Each catalog's assembler for readers that assemble whole scenes on every
+ * command (block footprints), kept per prefab and behavior list, with each
+ * copy's assembly kept while the stored copy is the same (the same object, or
+ * an equal value: a command's result scene holds new objects for copies it
+ * did not change). So a scene of thousands of copies is assembled once, then
+ * only where it changed. Its results are shared: never mutated.
+ */
+const keptAssemblers = new WeakMap<object, { behaviors: unknown; assembler: PrefabAssembler }>();
+function keptCatalogAssembler(content: ContentDocument | undefined): PrefabAssembler {
+  const c = contentOf(content);
+  const hit = keptAssemblers.get(c.prefabs);
+  if (hit !== undefined && hit.behaviors === c.behaviors) return hit.assembler;
+  const base = catalogAssembler(content);
+  let made = new Map<string, { ref: object; json: string; made: ReturnType<PrefabAssembler['assembleCopy']> }>();
+  const assembler: PrefabAssembler = {
+    assembleCopy: (copy) => {
+      const kept = made.get(copy.id);
+      if (kept !== undefined && kept.ref === copy) return kept.made;
+      const json = JSON.stringify(copy);
+      if (kept !== undefined && kept.json === json) {
+        kept.ref = copy;
+        return kept.made;
+      }
+      const m = base.assembleCopy(copy);
+      made.set(copy.id, { ref: copy, json, made: m });
+      return m;
+    },
+    invalidate: (prefabIds) => {
+      made = new Map();
+      base.invalidate(prefabIds);
+    },
+  };
+  keptAssemblers.set(c.prefabs, { behaviors: c.behaviors, assembler });
+  return assembler;
+}
+
+/** `assembledView` through the kept assembler: for whole-scene reads on every command. */
+export function keptAssembledView(scene: SceneDocument, content: ContentDocument | undefined): SceneDocument | undefined {
+  const loc = locateCopies(scene, content, keptCatalogAssembler(content));
+  if (loc === null) return undefined;
+  return { ...scene, entities: expandCopies(scene, loc, new Set(loc.links.keys())) } as SceneDocument;
+}
