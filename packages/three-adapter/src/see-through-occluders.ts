@@ -251,21 +251,25 @@ interface Hit {
 
 /**
  * What the search asks of a layer's cells, remembered while its cells stay as they are (a grid lookup builds a
- * chunk key; the rays of every subject and frame cross the same cells). Cells and edges by a numeric key.
+ * chunk key; the rays of every subject and frame cross the same cells). Cells and edges by a numeric key; a cell
+ * outside the packed range is read from the grid each time (a layer can be any size, a key never names two cells).
  */
-class CellMemo {
+export class CellMemo {
   private readonly cells = new Map<number, boolean>();
   private readonly edges = new Map<number, boolean>();
   constructor(private readonly g: OccluderGrid) {}
 
+  /** A cell's key (−1: outside the packed range, not remembered). */
   private static key(x: number, y: number, z: number, axis: number): number {
-    // Layers span at most a few thousand cells a side: 2^13 per axis (offset to stay positive) and the edge axis.
-    return (((x + 4096) * 8192 + (z + 4096)) * 2048 + (y + 1024)) * 2 + axis;
+    // 2^13 cells per level axis and 2^11 up (offset to stay positive), and the edge axis: 2^40, exact in a double.
+    if (x < -MEMO_XZ || x >= MEMO_XZ || z < -MEMO_XZ || z >= MEMO_XZ || y < -MEMO_Y || y >= MEMO_Y) return -1;
+    return (((x + MEMO_XZ) * 2 * MEMO_XZ + (z + MEMO_XZ)) * 2 * MEMO_Y + (y + MEMO_Y)) * 2 + axis;
   }
 
   solid(x: number, y: number, z: number): boolean {
     if (this.cells.size > MEMO_CELLS) this.cells.clear();
     const k = CellMemo.key(x, y, z, 0);
+    if (k < 0) return this.g.get(x, y, z)?.block !== undefined;
     let v = this.cells.get(k);
     if (v === undefined) this.cells.set(k, (v = this.g.get(x, y, z)?.block !== undefined));
     return v;
@@ -275,6 +279,7 @@ class CellMemo {
     if (this.g.edgeCount === 0) return false;
     if (this.edges.size > MEMO_CELLS) this.edges.clear();
     const k = CellMemo.key(x, y, z, axis);
+    if (k < 0) return this.g.edgeIndexAt(x, y, z, axis) >= 0;
     let v = this.edges.get(k);
     if (v === undefined) this.edges.set(k, (v = this.g.edgeIndexAt(x, y, z, axis) >= 0));
     return v;
@@ -283,6 +288,9 @@ class CellMemo {
 
 /** Cells a layer's memo holds before it starts again. */
 const MEMO_CELLS = 1 << 16;
+/** The memo's packed range: cells −MEMO_XZ … MEMO_XZ − 1 across x and z, −MEMO_Y … MEMO_Y − 1 up. */
+const MEMO_XZ = 4096;
+const MEMO_Y = 1024;
 
 /**
  * Walk one ray (world, from `eye` toward `to`, `length` metres) through a layer's cells, calling `hit` for every
@@ -537,11 +545,64 @@ export interface PackedBox {
   fade: number;
 }
 
+/** Two boxes as one: their union, the smaller nudge, the larger fade (into `a`). */
+function absorb(a: PackedBox, b: PackedBox): void {
+  a.min.min(b.min);
+  a.max.max(b.max);
+  a.nudge = Math.min(a.nudge, b.nudge);
+  a.fade = Math.max(a.fade, b.fade);
+}
+
+/**
+ * Boxes the pairwise merge takes at most: above it they are first grouped by place (a cut at the middle box along
+ * the widest spread of centres, again in each half), O(n log² n), so a row of hundreds of instanced members costs
+ * a sort, not n³ pair tests.
+ */
+export const MERGE_PAIRWISE = 32;
+
+/** `boxes[from, to)` grouped by place into `groups` boxes, each the union of its group (written to `out`). */
+function groupByPlace(boxes: PackedBox[], from: number, to: number, groups: number, out: PackedBox[]): void {
+  if (groups <= 1 || to - from <= 1) {
+    const a = boxes[from]!;
+    for (let i = from + 1; i < to; i++) absorb(a, boxes[i]!);
+    out.push(a);
+    return;
+  }
+  // Centres doubled (min + max): only their order and spread matter.
+  const spread = (axis: 'x' | 'y' | 'z'): number => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = from; i < to; i++) {
+      const c = boxes[i]!.min[axis] + boxes[i]!.max[axis];
+      lo = Math.min(lo, c);
+      hi = Math.max(hi, c);
+    }
+    return hi - lo;
+  };
+  const sx = spread('x');
+  const sy = spread('y');
+  const sz = spread('z');
+  const axis = sx >= sy && sx >= sz ? 'x' : sy >= sz ? 'y' : 'z';
+  const part = boxes.slice(from, to).sort((p, q) => p.min[axis] + p.max[axis] - (q.min[axis] + q.max[axis]));
+  for (let i = 0; i < part.length; i++) boxes[from + i] = part[i]!;
+  const left = groups >> 1;
+  const mid = from + Math.round(((to - from) * left) / groups);
+  groupByPlace(boxes, from, mid, left, out);
+  groupByPlace(boxes, mid, to, groups - left, out);
+}
+
 /**
  * Fit `boxes` into `size`: while there are more, the two whose union adds the least volume become their union
- * (the smaller nudge, the larger fade), so no occluder is ever left out. Changes `boxes` in place.
+ * (the smaller nudge, the larger fade), so no occluder is ever left out. More than {@link MERGE_PAIRWISE} are
+ * grouped by place first. Changes `boxes` in place.
  */
 export function mergeToFit(boxes: PackedBox[], size: number): void {
+  if (boxes.length > MERGE_PAIRWISE && boxes.length > size) {
+    const grouped: PackedBox[] = [];
+    groupByPlace(boxes, 0, boxes.length, Math.max(size, MERGE_PAIRWISE), grouped);
+    boxes.length = 0;
+    for (const b of grouped) boxes.push(b);
+  }
   while (boxes.length > size) {
     let bi = 0;
     let bj = 1;
@@ -555,12 +616,7 @@ export function mergeToFit(boxes: PackedBox[], size: number): void {
           bj = j;
         }
       }
-    const a = boxes[bi]!;
-    const b = boxes[bj]!;
-    a.min.min(b.min);
-    a.max.max(b.max);
-    a.nudge = Math.min(a.nudge, b.nudge);
-    a.fade = Math.max(a.fade, b.fade);
+    absorb(boxes[bi]!, boxes[bj]!);
     boxes.splice(bj, 1);
   }
 }

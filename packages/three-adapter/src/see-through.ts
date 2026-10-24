@@ -901,7 +901,10 @@ export class SeeThroughView implements SeeThroughControl {
     this.followed = false;
     this.followScript();
     const ahead = this.ahead && this.d.pinned !== false;
-    if (!this.s.enabled && this.armed === null && !ahead) return;
+    if (!this.s.enabled && this.armed === null && !ahead) {
+      this.forgetMemberDraws();
+      return;
+    }
     if ((this.s.enabled || ahead) && this.armed !== r && r.contextNode !== undefined) {
       // A script turned it on in a page that did not build the mask ahead: every program is built again now.
       if (!ahead && this.armed === null && this.script?.settings.enabled === true && this.d.pinned === undefined) {
@@ -916,6 +919,7 @@ export class SeeThroughView implements SeeThroughControl {
     if (!this.s.enabled && this.slots.every((sl) => sl === null)) {
       this.live = 0;
       this.count = 0;
+      this.forgetMemberDraws();
       return;
     }
     this.frame += 1;
@@ -930,6 +934,7 @@ export class SeeThroughView implements SeeThroughControl {
     const layers = this.d.occluderLayers?.() ?? [];
     this.pieces.keep(new Set(layers.map((l) => l.id)));
     this.pruneMemberDraws();
+    this.memberStamps();
     this.live = 0;
     this.count = 0;
     for (let i = 0; i < this.slots.length; i++) {
@@ -956,6 +961,31 @@ export class SeeThroughView implements SeeThroughControl {
     this.membersChanged = false;
     this.searchMs = searched ? performance.now() - t0 : 0;
     if (easing) this.d.onChange?.();
+  }
+
+  /** Off: hold no draws (an unloaded instanced draw is let go now, not when see-through comes back on). */
+  private forgetMemberDraws(): void {
+    if (this.memberDraws.size === 0) return;
+    this.memberDraws.clear();
+    this.membersChanged = true;
+  }
+
+  /**
+   * A member draw whose members moved since the search read them (its stamp, or the draw itself): search again,
+   * though the camera and the subjects stand still (a script moving instances). A draw without a stamp is read
+   * again with each search only.
+   */
+  private memberStamps(): void {
+    if (this.membersChanged) return;
+    for (const draw of this.memberDraws.keys()) {
+      const m = this.memberBounds.get(draw);
+      const members = draw.userData[SEE_THROUGH_MEMBERS_KEY] as SeeThroughMembers | undefined;
+      if (m === undefined || members === undefined || m.stamp === undefined) continue;
+      if (m.members !== members || m.stamp !== members.stamp?.() || !m.matrix.equals(draw.matrixWorld)) {
+        this.membersChanged = true;
+        return;
+      }
+    }
   }
 
   /** Drop the member draws not drawn for a while (gone, or out of view). */
@@ -1417,6 +1447,7 @@ export class SeeThroughView implements SeeThroughControl {
     for (const objects of this.alone.values()) for (const o of objects) this.drawAlone(o, false);
     this.alone.clear();
     this.slots.fill(null);
+    this.memberDraws.clear();
     this.live = 0;
   }
 }

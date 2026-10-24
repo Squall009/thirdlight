@@ -21,7 +21,7 @@ import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } f
 import { digestOf } from './material-graph';
 import { STATIC_KEY } from './static-merge';
 import { applyObjectSeeThrough, circleRect, emptyPack, mayFade, objectSeeThrough, packSubject, SEE_THROUGH_KEY, seeThroughBoxBit, seeThroughEntitiesOf, seeThroughFadeAt, seeThroughOfComponents, SeeThroughView, subjectExtent, type SeeThroughEntities, type SeeThroughScripted, type SubjectExtent, type SubjectPack } from './see-through';
-import { mergeToFit, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
+import { CellMemo, MERGE_PAIRWISE, mergeToFit, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
 import { RenderGraph } from './render-graph';
 import { graphDef, libraryScene, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, observerOf, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, wgslOf, wgslRenderer } from './test-wgsl';
 
@@ -323,8 +323,8 @@ function pitched(at: readonly number[], pitch = 52, dist = 9): THREE.Perspective
 }
 
 /** A block layer of filled cell boxes (`[x0, y0, z0, x1, y1, z1]`, max exclusive), its cell (0, 0, 0) at `origin`. */
-function blocks(origin: readonly number[], boxes: readonly (readonly number[])[], cell = 1): OccluderLayer {
-  const grid = new BlockGrid({ bounds: { min: [-64, -8, -64], max: [64, 40, 64] }, cellSize: [cell, cell, cell] } as unknown as BlockLayerComponent);
+function blocks(origin: readonly number[], boxes: readonly (readonly number[])[], cell = 1, bounds = { min: [-64, -8, -64], max: [64, 40, 64] }): OccluderLayer {
+  const grid = new BlockGrid({ bounds, cellSize: [cell, cell, cell] } as unknown as BlockLayerComponent);
   for (const b of boxes) for (let x = b[0]!; x < b[3]!; x++) for (let y = b[1]!; y < b[4]!; y++) for (let z = b[2]!; z < b[5]!; z++) grid.set(x, y, z, { block: 'wall' });
   return { id: 'walls', origin, cellSize: [cell, cell, cell], grid, version: 1 };
 }
@@ -535,11 +535,64 @@ describe('see-through fades only true occluders (a 52° follow camera)', () => {
     // Moved in front of the hero without a new stamp: the bounds read stand (the provider says they did not change).
     crate.translate(new THREE.Vector3(-3.5, 0, 0));
     expect(frame(32)).toBe(0);
+    // A new stamp searches again though the camera and the hero stand still (a script moved the instances).
     stamp += 1;
-    // The camera moves past the search's grain, so the slot is searched again, with the members read again.
-    camera.position.x += 0.1;
-    camera.updateMatrixWorld(true);
     expect(frame(48)).toBe(1);
+    crate.translate(new THREE.Vector3(3.5, 0, 0));
+    stamp += 1;
+    expect(frame(64)).toBe(0);
+  });
+
+  it('a layer far from its origin (cells past ±4096 across, ±1024 up) finds its walls, and no cell answers for another', () => {
+    // The hero 6,000 cells from the layer's origin across x and z: a wall in front of him, at cells far out of the memo's packed range.
+    const { fadeAt, occluders } = occluderView([blocks([-6000, -2000, -5999.2], [[5996, 2000, 6000, 6004, 2003, 6001]], 1, { min: [5900, 1900, 5900], max: [6100, 2100, 6100] })]);
+    expect(occluders()).toBe(1);
+    expect(fadeAt([0, 2.6, 1.8], FRONT)).toBeCloseTo(ON.maxFade, 6);
+    // Cells a packed key in 2^13 per axis would give one number: each read for itself.
+    const filled = new Set(['0,0,4096', '5000,1500,0']);
+    const memo = new CellMemo({ min: [-9000, -2000, -9000], max: [9000, 2000, 9000], edgeCount: 0, get: (x, y, z) => (filled.has(`${x},${y},${z}`) ? { block: 'wall' } : null), edgeIndexAt: () => -1 });
+    expect(memo.solid(0, 0, 4096)).toBe(true);
+    expect(memo.solid(1, 0, -4096)).toBe(false);
+    expect(memo.solid(5000, 1500, 0)).toBe(true);
+    expect(memo.solid(5000 - 8192, 1500, 0)).toBe(false);
+    expect(memo.solid(0, 1500 - 2048, 0)).toBe(false);
+  });
+
+  it('hundreds of members of an instanced draw in front: every one fades, merged into the boxes by place, in bounded time', () => {
+    const { view, camera, fadeAt } = occluderView([]);
+    // A hedge of 600 small instanced bushes between the camera and the hero (6 deep, 10 across, 10 up).
+    const bushes: THREE.Box3[] = [];
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) for (let k = 0; k < 6; k++) bushes.push(new THREE.Box3(new THREE.Vector3(-0.5 + i * 0.1, j * 0.3, 1 + k * 0.1), new THREE.Vector3(-0.42 + i * 0.1, j * 0.3 + 0.25, 1.08 + k * 0.1)));
+    const draw = new THREE.Mesh(new THREE.BoxGeometry(1, 3, 0.6));
+    draw.position.set(0, 1.5, 1.3);
+    draw.updateMatrixWorld(true);
+    let stamp = 0;
+    draw.userData[SEE_THROUGH_MEMBERS_KEY] = { count: () => bushes.length, box: (i, out) => (out.copy(bushes[i]!), true), stamp: () => stamp } satisfies SeeThroughMembers;
+    view.bitsFor(draw, camera);
+    view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 16);
+    view.fill(camera);
+    const found = view.diagnostics().subjects[0]!.occluders;
+    expect(found).toBeGreaterThan(200);
+    // A bush on the line of sight to the waist fades.
+    expect(fadeAt([0.04, 1.03, 1.54], [0, 0, 0], draw)).toBeGreaterThan(0);
+    // Each search over them (a moved stamp each frame) stays well inside a frame.
+    const times: number[] = [];
+    for (let f = 0; f < 10; f++) {
+      stamp += 1;
+      const t = performance.now();
+      view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, 32 + f * 16);
+      times.push(performance.now() - t);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[5]!).toBeLessThan(5);
+    // The merge alone, over more boxes than it compares pairwise: every box is held by one of the merged ones.
+    const many: PackedBox[] = bushes.map((b) => ({ min: b.min.clone(), max: b.max.clone(), nudge: 0, fade: 1 }));
+    expect(many.length).toBeGreaterThan(MERGE_PAIRWISE * 10);
+    const t = performance.now();
+    mergeToFit(many, SEE_THROUGH_OCCLUDERS);
+    expect(performance.now() - t).toBeLessThan(20);
+    expect(many).toHaveLength(SEE_THROUGH_OCCLUDERS);
+    for (const a of bushes) expect(many.some((b) => b.min.x <= a.min.x && b.min.y <= a.min.y && b.min.z <= a.min.z && b.max.x >= a.max.x && b.max.y >= a.max.y && b.max.z >= a.max.z)).toBe(true);
   });
 
   it('the CPU reference and the per-draw test agree: a draw\'s bits never leave out a pixel the view\'s boxes fade', () => {
