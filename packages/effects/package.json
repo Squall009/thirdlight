@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight phase 20.1: the CPU reference semantics of visual-effect graphs (content.effects, graph kind `effect`) — a deterministic-per-seed particle evaluator over typed arrays (spawn, initialize, update, kill, events between systems) plus the output helpers (flipbook frames, billboard axes, light selection, trails). Visual only: never part of the deterministic game simulation. Runtime-safe and pure: no three.js, no Node built-ins, no I/O (imports @thirdlight/project-model only).",
+  "description": "Thirdlight visual effects: the CPU reference semantics of effect graphs, a deterministic-per-seed particle evaluator plus output helpers (flipbooks, billboards, lights, trails). Visual only, never part of the game simulation; pure, no three.js, no I/O.",
   "exports": {
     ".": "./src/index.ts"
   },

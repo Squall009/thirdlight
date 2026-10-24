@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight project data model (docs/contracts/project-model.md, M1 schemaVersion 1): strict byte parsing, validation, normalization, canonical serialization, migration entry points, and the fixed M1 component registry. Pure data/logic - no I/O, no three.js (dependencies.md §2/§4.1 leaf).",
+  "description": "Thirdlight project model: strict parsing, validation, normalization, canonical serialization and migration of project data, the component registry, limits, and the pure graph, material and kit helpers other packages share. Pure data and logic; no I/O, no three.js.",
   "exports": {
     ".": "./src/index.ts",
     "./png": "./src/png-decode.ts",

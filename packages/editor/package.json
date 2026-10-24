@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight minimal visual editor (packet 10): React panels (decision 0001 §10) + imperative framework-free three.js viewport/gizmos/picking; browser state is a projection of backend state; separate-origin isolated play preview.",
+  "description": "Thirdlight editor: the React panels, the framework-free three.js viewport with gizmos, picking and full-screen edit modes, and the isolated play preview. Browser state is a projection of backend state; every edit is sent as a command.",
   "exports": {
     ".": "./src/index.tsx",
     "./bridge": "./src/preview/bridge.ts",

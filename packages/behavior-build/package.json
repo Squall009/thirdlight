@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight behavior build: the Node-side behavior source parser and static analyzer, the canonical digest-bound `BehaviorManifest` builder and the shared `compileBehavior` over supplied in-memory bytes, and the script type check. It reads no project path, clock, network endpoint or environment, never imports, executes or evaluates project source; the pinned `esbuild@0.28.2` is only a parser/transformer through an in-memory resolver, and the pinned `typescript@5.9.3` only a type checker over the same in-memory files (the one file read is the compiler's own standard-library typings, through TypeScript). Its edges are `project-model`, `esbuild` and `typescript`; it imports no Node built-in, and has no runtime, three, editor, backend, workspace, commands or protocol edge, and no browser globals.",
+  "description": "Thirdlight behavior build: parses, analyzes, type-checks and compiles game scripts over in-memory sources (esbuild as a transformer, TypeScript as a type checker) into a digest-bound behavior manifest. Never executes project source; no project I/O.",
   "exports": {
     ".": "./src/index.ts",
     "./api-typings": "./src/behavior-api-typings.generated.ts",

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight M1 standalone export (docs/contracts/export.md, packet 12): exportProject(ctx) reads the authoring state through the INJECTED workspace service, freezes one runtime snapshot, builds the export bundle (same runtime as play mode \u2014 export.md \u00a75), runs the validation pipeline (graph + forbidden-content scan, \u00a74/\u00a75.4), and atomically writes the static output tree. The `.` subpath is the export operation invoked by the backend (sessions.md \u00a76.3) \u2014 the browser export bundle entry (src/export-bootstrap.ts) is NOT a public export (it is reached by file path at build time, \u00a74.2).",
+  "description": "Thirdlight exporter: builds a standalone game from a project (one runtime snapshot, the same runtime as play mode), validates the bundle and writes the static output atomically. Reads project state through the injected workspace service.",
   "exports": {
     ".": "./src/index.ts"
   },

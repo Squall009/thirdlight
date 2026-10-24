@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight pure command validation/application and history (docs/contracts/commands.md, M1): strict request validation, the five mutation ops (createEntity, setTransform, deleteEntity, undo, redo), change/inverse data, the in-memory history model, and structured errors. Pure logic - no filesystem, transport, UI, or three.js; the workspace package (packet 07) owns request serialization, durable revision/dedup state, and persistence (dependencies.md S2/S4.1/S4.3).",
+  "description": "Thirdlight commands: strict validation and pure application of every editing command (the one mutation path for the editor and MCP), with change and inverse data, history, and structured errors. No I/O; the workspace service persists the results.",
   "exports": {
     ".": "./src/index.ts",
     "./mutation-ops": "./src/mutation-ops.ts"

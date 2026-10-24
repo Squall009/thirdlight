@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight bounded GLB import pipeline (project-model.md \u00a718.7/\u00a718.8, dependencies.md \u00a72/\u00a73): pure glTF 2.0 GLB inspection over supplied bytes and the immutable import proposal + import recipe. No I/O, no Node built-ins, no three.js/GLTFLoader, no cache writes, no asset-ID decisions (dependencies.md \u00a74.1 leaf edge: @thirdlight/project-model types only); meshoptimizer's simplifier (pinned WebAssembly build) makes generated levels of detail.",
+  "description": "Thirdlight GLB import pipeline: pure glTF 2.0 inspection of supplied bytes, the import proposal and recipe, and generated levels of detail (meshoptimizer simplifier). No I/O, no three.js.",
   "exports": {
     ".": "./src/index.ts"
   },
