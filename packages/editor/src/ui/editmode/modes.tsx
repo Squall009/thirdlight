@@ -151,6 +151,11 @@ export interface ObjectEditModeKind extends EditModeBase {
    * view would otherwise often miss.
    */
   readonly framesOnEnter?: boolean;
+  /**
+   * The object is shown on a stage of its own, not at a place in the scene
+   * (a prefab): closing the mode puts the Scene view back where it was.
+   */
+  readonly ownStage?: boolean;
   /** The settings column of the mode shown. */
   column(view: EditModeView): ReactNode;
   /**

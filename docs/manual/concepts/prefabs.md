@@ -122,11 +122,15 @@ override the second copy's input actions so it reads its own keys.
   (also in the Hierarchy's right-click menu). A selection may hold copies:
   they become nested copies.
 - The prefab appears in the Project window, with its model's thumbnail.
-  Choose it to see it in the Inspector; **place copy** puts one copy at the
-  scene root. Drag it into the Scene view to place a copy where it lands.
+  Choose it to see it in the Inspector (its **name** field renames it);
+  **place copy** puts one copy at the scene root. Drag it into the Scene view
+  to place a copy where it lands.
 - **GameObject → Prefab copy…** opens the Project window on your prefabs.
 - Right-click a prefab (or press **create variant** in its Inspector) for a
   variant, named "<base> Variant".
+- While a prefab is open in its edit mode, the GameObject menu makes objects
+  inside it, under the chosen object of the prefab (else its root). Leaving
+  the mode puts the Scene view back where it was.
 - A copy's Inspector header names its prefab (a variant with its base) and
   holds **Open prefab**, **Unpack** and the **Overrides** list; right-click a
   marked field for **Revert** or **Apply to prefab**.
@@ -157,7 +161,9 @@ The editor and MCP send the same commands; each is one undo step.
   `{basePrefabId, prefabId, displayName}`.
 - [`updatePrefab`](../reference/ops-detail.md#op-updatePrefab) is kept as an
   alias: from a linked copy of the prefab it applies all its overrides; from
-  other objects it replaces the prefab's contents with them, keeping the id.
+  other objects it replaces the prefab's contents with them, keeping the id;
+  without `fromEntity` it renames the prefab (`displayName`), as the Project
+  window's name field does.
 - `tl_content_query` `{"target": "prefabs", "prefabId": "<id>", "stage": true}`
   returns the prefab opened on its own, as the prefab editor shows it; a
   `tl_command` that names those objects' ids changes the prefab itself.

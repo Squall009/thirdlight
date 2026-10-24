@@ -87,6 +87,9 @@ export function usePrefabCopy(d: PrefabCopyDeps): { header: ReactNode; marks: Fi
 
   if (copy === null) return { header: null, marks: null, menu: null };
   const c = clientRef.current;
+  // An object under one of the copy's parts that is no part itself was added to this copy.
+  const parts = new Set(Object.values(copy.partIds));
+  const added = entities.filter((e) => e.parentId !== null && parts.has(e.parentId) && !parts.has(e.id)).map((e) => ({ id: e.id, name: e.name ?? e.id }));
   const nameOf = (entityId: string | undefined): string => (entityId === undefined ? '?' : (entities.find((e) => e.id === entityId)?.name ?? entityId));
   const header = (
     <PrefabCopyHeader
@@ -94,8 +97,10 @@ export function usePrefabCopy(d: PrefabCopyDeps): { header: ReactNode; marks: Fi
       copyName={nameOf(copy.copyId)}
       chain={(read?.chain ?? [copy.prefabId]).map((p) => c?.prefabs.getDefinition(p)?.displayName ?? p)}
       partName={(key) => nameOf(copy.partIds[key])}
+      added={added}
       onRevert={revert}
       onApply={apply}
+      onApplyAdded={(entityId) => void run('applyPrefabOverrides', { entityId }, 'Apply to prefab')}
       onOpen={() => openPrefab(copy.prefabId)}
       onUnpack={() => void run('unpackPrefab', { entityId: copy.copyId }, 'Unpack')}
     />

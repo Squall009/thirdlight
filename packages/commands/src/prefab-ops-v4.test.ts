@@ -365,6 +365,19 @@ describe('createPrefab', () => {
     expect(redone.state.content?.prefabs).toEqual([definition]);
   });
 
+  it('updatePrefab without fromEntity renames the prefab and keeps its contents; one undo puts the name back', () => {
+    const state = stateThrough('M5');
+    const before = state.content!.prefabs.find((d) => d.prefabId === 'prefab-0001')!;
+    const renamed = ok(mutation(state, 'updatePrefab', { prefabId: 'prefab-0001', displayName: 'Locked door' }));
+    const after = renamed.state.content!.prefabs.find((d) => d.prefabId === 'prefab-0001')!;
+    expect(after.displayName).toBe('Locked door');
+    expect(after.entities).toEqual(before.entities);
+    const undone = ok(mutation(renamed.state, 'undo', {}));
+    expect(undone.state.content!.prefabs.find((d) => d.prefabId === 'prefab-0001')!.displayName).toBe(before.displayName);
+    // Neither new contents nor a name: nothing to do.
+    expect(failError(mutation(state, 'updatePrefab', { prefabId: 'prefab-0001' }))).toMatchObject({ path: '/args/fromEntity' });
+  });
+
   it('rejects the forbidden capture contents with the codes; a camera is captured like any object', () => {
     const state = stateThrough('M5');
     // A placed copy captured nests it: the new prefab is made of one linked copy (with its overrides).

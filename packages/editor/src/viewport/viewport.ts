@@ -204,7 +204,8 @@ export class Viewport {
   private readonly look: ViewportLook;
   private readonly blocks = new ViewportBlocks({ adapter: () => this.adapter, requestRender: () => this.requestRender() });
   private readonly queries: SceneQueries;
-  private readonly framing: ViewFraming;
+  /** Framing, focus and the view's pose. */
+  readonly framing: ViewFraming;
   private readonly cameras: CameraOverlay;
   private readonly copies: CopySelection;
   private readonly pointer: ViewPointer;

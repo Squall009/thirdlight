@@ -91,6 +91,7 @@ export const prefabMode: ObjectEditModeKind = {
   action: 'Open prefab',
   applies: (e) => onPrefabStage(e) && e.parentId === null,
   framesOnEnter: true,
+  ownStage: true,
   meta: () => 'Every copy follows its edits',
   rail: [{ id: 'objects', label: 'Objects', glyph: 'stack', hint: 'Pick an object of the prefab and change it in the column; every copy follows.', navigate: 'A drag orbits; a click picks an object of the prefab.' }],
   tools: [],

@@ -22,6 +22,12 @@ export const WORK_VIEW_SKY = 0.12;
 
 type LocalBox = { min: readonly number[]; max: readonly number[] };
 
+/** Where the camera is and the point it orbits. */
+export interface ViewPose {
+  readonly position: readonly [number, number, number];
+  readonly target: readonly [number, number, number];
+}
+
 export interface ViewFramingHost {
   readonly adapter: () => SceneAdapter;
   readonly camera: THREE.PerspectiveCamera;
@@ -39,6 +45,20 @@ export class ViewFraming {
   private insets: (() => FrameInsets) | null = null;
 
   constructor(private readonly host: ViewFramingHost) {}
+
+  /** The view as it is now (a mode on a stage of its own puts it back when it closes). */
+  pose(): ViewPose {
+    const { camera, orbit } = this.host;
+    return { position: [camera.position.x, camera.position.y, camera.position.z], target: [orbit.target.x, orbit.target.y, orbit.target.z] };
+  }
+
+  setPose(pose: ViewPose): void {
+    const { camera, orbit, requestRender } = this.host;
+    camera.position.set(...pose.position);
+    orbit.target.set(...pose.target);
+    orbit.update();
+    requestRender();
+  }
 
   setInsets(read: (() => FrameInsets) | null): void {
     this.insets = read;

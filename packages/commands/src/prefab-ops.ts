@@ -504,7 +504,7 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
 /**
  * Replace a prefab's contents with the subtree under `fromEntity`, keeping
  * its id (scripts that spawn it by name spawn the new contents) and its
- * name unless one is given. Copies already placed or spawned are
+ * name unless one is given; without `fromEntity` the contents stay (a rename). Copies already placed or spawned are
  * independent and keep what they have. One undo puts the old contents back.
  */
 export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOutcome {
@@ -513,7 +513,9 @@ export function applyUpdatePrefab(input: OpInput, args: UpdatePrefabArgs): OpOut
   const previous = catalog.prefabs.find((d) => d.prefabId === args.prefabId);
   if (previous === undefined) return { ok: false, error: prefabNotFound(args.prefabId) };
   if (args.displayName !== undefined && !isValidName(args.displayName)) return { ok: false, error: displayNameError(args.displayName) };
-  const captured = capturePrefabEntities(input, catalog, args.prefabId, args.fromEntity, previous);
+  const captured = args.fromEntity === undefined
+    ? { ok: true as const, entities: previous.entities, depth: previous.depth, nextLocalNumber: undefined }
+    : capturePrefabEntities(input, catalog, args.prefabId, args.fromEntity, previous);
   if (!captured.ok) return captured;
   const replaced: PrefabDefinition = {
     prefabId: args.prefabId,

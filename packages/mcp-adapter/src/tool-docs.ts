@@ -156,8 +156,8 @@ export const TOOL_DETAILS = {
     'applyPrefabOverrides (same args) writes them into the prefab, all: true also the objects added to the copy; an object added to a copy (a linked copy too) named alone becomes a part of that copy\'s prefab (a nesting); ' +
     'unpackPrefab {entityId} turns a copy into plain objects (ids kept); createPrefabVariant {basePrefabId, prefabId, displayName} makes a prefab that is one linked copy of the base ' +
     '(it follows the base). A prefab nests another when its objects held a linked copy at capture (createPrefab, updatePrefab) or an added copy is applied; a prefab that ' +
-    'would contain itself is refused (prefab_cycle). updatePrefab {prefabId, fromEntity, displayName?} from a linked copy of that prefab applies all its overrides; from other ' +
-    'objects it replaces the prefab\'s contents with their capture (keeping its id). Each is one undo step. ' +
+    'would contain itself is refused (prefab_cycle). updatePrefab {prefabId, fromEntity?, displayName?} from a linked copy of that prefab applies all its overrides; from other ' +
+    'objects it replaces the prefab\'s contents with their capture (keeping its id); without fromEntity it renames the prefab (displayName). Each is one undo step. ' +
     'Component fields, defaults, the GameObject menu\'s create entries (label, size, value) and icons: tl_content_query target="game" includeDescriptors. ' +
     'Generic primitives (both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
     'health {max, start?} on any object (scripts: ctx.health.get/damage/heal, damaged/healed/died events), patrol {mode: waypoints|edges, speed, ...}, ' +

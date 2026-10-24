@@ -27,8 +27,6 @@ const EDITOR_SRC = resolve(import.meta.dirname, '..', 'packages', 'editor', 'src
 const API_ONLY: Readonly<Record<string, string>> = {
   importResources:
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
-  updatePrefab:
-    "an alias kept for older callers: from a linked copy it is applyPrefabOverrides with all, which the copy's Inspector sends; from other objects it is a capture into an existing prefab, which the editor makes a new prefab of instead",
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

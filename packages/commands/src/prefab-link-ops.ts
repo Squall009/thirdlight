@@ -428,6 +428,7 @@ function asAdded(part: { components: object }, was: EntityV3 | undefined): Obj {
  * prefab's contents are replaced by the capture as before).
  */
 export function applyUpdatePrefabFromCopy(input: OpInput, args: UpdatePrefabArgs): OpOutcome | null {
+  if (args.fromEntity === undefined) return null;
   const from = input.scene.entities.find((e) => e.id === args.fromEntity);
   const link = (from?.components as { prefab?: unknown } | undefined)?.prefab;
   if (!isPrefabLink(link) || link.prefabId !== args.prefabId) return null;

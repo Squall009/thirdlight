@@ -119,6 +119,15 @@ export function EditModeShell(p: EditModeShellProps): JSX.Element | null {
     return () => p.viewportRef.current?.setIsolation(null);
   }, [entityId, context, component, companions, p.viewportRef]);
 
+  // A stage of its own is no place in the scene: the scene's view comes back when the mode closes (before framing moves it).
+  const ownStage = kind !== undefined && !isSceneMode(kind) && kind.ownStage === true;
+  useEffect(() => {
+    const framing = p.viewportRef.current?.framing;
+    if (entityId === null || !ownStage || framing === undefined) return undefined;
+    const before = framing.pose();
+    return () => framing.setPose(before);
+  }, [entityId, ownStage, p.viewportRef]);
+
   /** Whether the object shows in the view now (a few points over its middle find it). */
   const onScreen = (id: string): boolean => {
     const r = viewHost.current?.getBoundingClientRect();

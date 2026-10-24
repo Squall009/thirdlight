@@ -239,7 +239,16 @@ export function useEditorModel() {
   }, []);
 
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
-  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities });
+  const openPrefabRef = useRef(prefabStage.stage);
+  openPrefabRef.current = prefabStage.stage;
+  // While a prefab is open on its own, what the GameObject menu makes goes into the prefab: under its chosen object, else its root.
+  const createParent = useCallback((): string | null => {
+    const s = openPrefabRef.current;
+    if (s === null) return null;
+    const chosen = selectedIdRef.current;
+    return chosen !== null && s.entities.some((e) => e.id === chosen) ? chosen : s.rootId;
+  }, [selectedIdRef]);
+  const sceneEditing = useSceneEditing({ clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities, createParent });
   const { editCopiesRef, rename, move, sceneAction } = sceneEditing;
   useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
   // An object's full-screen editor on the Scene view (terrain): set aside while the Scene view is not in front.

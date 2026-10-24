@@ -217,6 +217,14 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   const copies = await entities();
   await inspector(page).getByRole('button', { name: 'place copy', exact: true }).click();
   await expect.poll(entities).toBeGreaterThan(copies);
+  // Its name field renames it (one command; the contents stay).
+  const prefabNow = async (): Promise<{ displayName: string; entities: unknown[] }> => ((await be.command({ op: 'queryPrefabs', projectId: be.projectId, args: { prefabId: 'crate', includeEntities: true } }))['prefabs'] as { displayName: string; entities: unknown[] }[])[0]!;
+  const prefabName = inspector(page).getByLabel('prefab name', { exact: true });
+  await prefabName.fill('Crate box');
+  await prefabName.press('Enter');
+  await expect.poll(async () => (await prefabNow()).displayName).toBe('Crate box');
+  await cmd('undo', {});
+  await expect.poll(async () => (await prefabNow()).displayName).toBe('Crate');
 
   // Opened on its own (a double-click): only the prefab is shown; a field changed in its Inspector changes the prefab
   // (one command), the placed copy shows it once the editor is back on the scene; Esc leaves.
@@ -233,6 +241,12 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   await size.fill('7');
   await size.press('Enter');
   await expect.poll(sizeOf).toBe(7);
+  // The GameObject menu makes an object inside the open prefab (under its chosen object), not in the scene.
+  await page.getByRole('menuitem', { name: 'GameObject', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Box', exact: true }).click();
+  await expect.poll(async () => (await prefabNow()).entities.length).toBe(2);
+  await cmd('undo', {});
+  await expect.poll(async () => (await prefabNow()).entities.length).toBe(1);
   await page.keyboard.press('Escape');
   await expect(mode).toHaveCount(0);
   const row = page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${copyId}"]`);

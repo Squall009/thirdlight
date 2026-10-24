@@ -29,25 +29,28 @@ export interface SceneEditingDeps {
   reportFailure: ReportFailure;
   registry: DescriptorRegistry | null;
   refreshEntities: () => void;
+  /** The object new objects are made under (null: a scene's root): an open prefab's, which they join. */
+  createParent: () => string | null;
 }
 
 export function useSceneEditing(deps: SceneEditingDeps) {
-  const { clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities } = deps;
+  const { clientRef, viewportRef, modelFilesRef, selectedIdRef, selectionRef, setSelectedId, selectLater, setSelectedCopy, setNotice, reportFailure, registry, refreshEntities, createParent } = deps;
   // ---- toolbar actions (all delegated to the backend) ---------------------
   const newBox = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
-    // Spawn where the camera is looking (on the 0.25 m grid) so new boxes don't stack at the origin.
+    // Spawn where the camera is looking (on the 0.25 m grid) so new boxes don't stack at the origin; in a prefab, at its parent.
+    const parentId = createParent();
     const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
-    const position = focus.map((v) => Math.round(v * 4) / 4);
+    const position = parentId !== null ? [0, 0, 0] : focus.map((v) => Math.round(v * 4) / 4);
     const select = selectLater();
     const res = await c.command(
       'createEntity',
-      { kind: 'box', parentId: null, name: `box-${Date.now() % 10000}`, transform: { position } },
+      { kind: 'box', parentId, name: `box-${Date.now() % 10000}`, transform: { position } },
       c.projection.revision,
     );
     if (res.ok && res.createdId !== undefined) select(res.createdId);
-  }, [clientRef, selectLater, viewportRef]);
+  }, [clientRef, createParent, selectLater, viewportRef]);
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
@@ -80,14 +83,15 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     async (what: string, args: Record<string, unknown>, position?: number[]) => {
       const c = clientRef.current;
       if (!c) return;
+      const parentId = createParent();
       const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
-      const at = position ?? focus.map((v) => Math.round(v * 4) / 4);
+      const at = position ?? (parentId !== null ? [0, 0, 0] : focus.map((v) => Math.round(v * 4) / 4));
       const select = selectLater();
-      const res = await c.command('createEntity', { parentId: null, transform: { position: at }, ...args }, c.projection.revision);
+      const res = await c.command('createEntity', { parentId, transform: { position: at }, ...args }, c.projection.revision);
       if (res.ok && res.createdId !== undefined) select(res.createdId);
       else reportFailure(what, res);
     },
-    [clientRef, reportFailure, selectLater, viewportRef],
+    [clientRef, createParent, reportFailure, selectLater, viewportRef],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
   // The lights are the descriptor's add value and presets (one table for this menu and "+ Add component").

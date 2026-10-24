@@ -281,13 +281,15 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
           return ['setDialogue', { dialogue: { dialogueId: id, name } }];
         case 'library':
           return ['setScriptLibrary', { libraryId: id, name }];
+        case 'prefab':
+          return ['updatePrefab', { prefabId: id, displayName: name }];
         default:
           return null;
       }
     },
     [materials, graphs, animators, timelines, uiDocuments, uiThemes, kits],
   );
-  const canRename = useCallback((kind: string) => ['material', 'graph', 'animator', 'timeline', 'ui', 'uitheme', 'effect', 'dialogue', 'library', 'kit'].includes(kind), []);
+  const canRename = useCallback((kind: string) => ['material', 'graph', 'animator', 'timeline', 'ui', 'uitheme', 'effect', 'dialogue', 'library', 'kit', 'prefab'].includes(kind), []);
   const rename = useCallback(
     async (item: ProjectItem, rawName: string): Promise<string | null> => {
       const c = clientRef.current;

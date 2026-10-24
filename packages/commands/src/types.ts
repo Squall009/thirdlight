@@ -1645,8 +1645,8 @@ export interface CreatePrefabArgs {
 export interface UpdatePrefabArgs {
   /** An existing prefab; its id stays. */
   prefabId: string;
-  /** The object whose subtree becomes the prefab's contents. */
-  fromEntity: string;
+  /** The object whose subtree becomes the prefab's contents (absent: the contents stay, and `displayName` renames it). */
+  fromEntity?: string;
   /** A new name (absent: the prefab keeps its own). */
   displayName?: string;
 }
