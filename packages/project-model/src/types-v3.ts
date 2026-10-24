@@ -374,6 +374,9 @@ export interface AssetVersionV3 extends Omit<AssetVersion, 'importRecipe' | 'met
   metrics: AssetMetricsV3;
 }
 
+/** A model's stored COLOR_0 setting (absent: data); see `AssetRecordV3.vertexColors`. */
+export type StoredVertexColors = 'tint' | 'trim';
+
 export interface AssetRecordV3 {
   assetId: string;
   kind: AssetKind;
@@ -383,9 +386,12 @@ export interface AssetRecordV3 {
   /**
    * Model only: how COLOR_0 is used. Absent = `data` (the attribute is shader
    * data such as foliage bend weights, never multiplied into the albedo);
-   * `tint` = the glTF default (vertex colour multiplies the base colour).
+   * `tint` = the glTF default (vertex colour multiplies the base colour);
+   * `trim` = the file was authored with trim data in COLOR_0 (R occlusion,
+   * B wetness): it moves off COLOR_0 into the trim data attribute as the
+   * model loads, so COLOR_0 means layer weights and wetness everywhere.
    */
-  vertexColors?: 'tint';
+  vertexColors?: StoredVertexColors;
   /** Model only: the default material mapping of every placement (source material name or "*" → materialId). */
   materials?: Record<string, string>;
   /**

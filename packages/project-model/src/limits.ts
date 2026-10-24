@@ -58,6 +58,7 @@ export { RENDERING_SETTINGS_GROUP, extractTexturesEverywhere } from './content-s
 export { RUNTIME_CONTENT_MANIFEST_MAX_BYTES } from './manifest';
 export { MANIFEST_CONTENT_FILE_MAX_BYTES } from './manifest-v2';
 export { MAX_TAGS, INSTANCE_FLOATS } from './types-v3';
+export { TRIM_DATA_GLTF_ATTRIBUTE } from './trim-sheet';
 export { BEHAVIOR_GRAPH_LIMITS } from './behavior-graph-nodes';
 export { EFFECT_LIMITS } from './effects';
 export { GRAPH_LIMITS } from './graph';

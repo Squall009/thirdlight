@@ -63,6 +63,7 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from './tim
 import { canonicalEventCues, validateEventCues, type EventCue } from './event-cues';
 import { canonicalShell, validateShell, type GameShell } from './shell';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
+import { isStoredVertexColors } from './content-assets';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
 import { knownSceneEntities, rememberSceneEntities, viewDigestOf, viewRowOf } from './view-memo';
@@ -76,6 +77,7 @@ import type {
   SceneV3,
   TagDefinition,
   ContentCatalogV4,
+  StoredVertexColors,
 } from './types-v3';
 import type { GameplaySettings, PrefabDefinition } from './types-v2';
 import {
@@ -252,8 +254,8 @@ export interface CapturedAssetV3 {
   /** The recipe identity `{id, version}` (the deprecated `recipeDigest` derives from it). */
   recipe: { id: string; version: number };
   metricsDigest: string;
-  /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
-  vertexColors?: 'tint';
+  /** Model only: COLOR_0 multiplies the albedo (`tint`) or is trim data (`trim`); absent = shader data. */
+  vertexColors?: StoredVertexColors;
   /** Model only: the default material mapping. */
   materials?: Record<string, string>;
   /** Model only: the texture asset each extracted image became (image index → texture assetId). */
@@ -310,8 +312,8 @@ export interface ManifestAssetInputV2 {
   recipe?: { id: string; version: number };
   recipeDigest?: string;
   metricsDigest: string;
-  /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
-  vertexColors?: 'tint';
+  /** Model only: COLOR_0 multiplies the albedo (`tint`) or is trim data (`trim`); absent = shader data. */
+  vertexColors?: StoredVertexColors;
   /** Model only: the default material mapping. */
   materials?: Record<string, string>;
   /** Model only: the texture asset each extracted image became (image index → texture assetId). */
@@ -689,7 +691,7 @@ export function captureContentViewV3(
       sourceByteLength: version.sourceByteLength,
       recipe: { id: importRecipe.profile, version: importRecipe.recipeVersion },
       metricsDigest: metricsDigestOf(version.metrics, sha256),
-      ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(isStoredVertexColors(record.vertexColors) ? { vertexColors: record.vertexColors } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.textures !== undefined ? { textures: { ...record.textures } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
@@ -822,7 +824,7 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     recipeDigest: a.recipeDigest ?? recipeDigestOf(a.recipe ?? { id: 'unknown', version: 0 }),
     metricsDigest: a.metricsDigest,
     path: `content/sha256/${a.sourceDigest}`,
-    ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+    ...(isStoredVertexColors(a.vertexColors) ? { vertexColors: a.vertexColors } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),

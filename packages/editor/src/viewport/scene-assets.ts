@@ -164,12 +164,12 @@ export function createSceneViewAssets(o: {
     const a = client.content.getAsset(assetId);
     const key = `${assetId}@${v.version}`;
     const hit = rows.get(key);
-    if (hit !== undefined && hit.materials === a?.materials && hit.textures === a?.textures && hit.vertexColors === (a?.vertexColors === 'tint' ? 'tint' : undefined) && hit.clipsFor === a?.clipsFor && hit.lod === a?.lod && hit.occluder === a?.occluder) return hit;
+    if (hit !== undefined && hit.materials === a?.materials && hit.textures === a?.textures && hit.vertexColors === a?.vertexColors && hit.clipsFor === a?.clipsFor && hit.lod === a?.lod && hit.occluder === a?.occluder) return hit;
     const row: SceneAdapterModelAsset = {
       assetId,
       version: v.version,
       sourceDigest: v.sourceDigest,
-      ...(a?.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(a?.vertexColors !== undefined ? { vertexColors: a.vertexColors } : {}),
       ...(a?.materials !== undefined ? { materials: a.materials } : {}),
       ...(a?.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a?.textures !== undefined ? { textures: a.textures } : {}),

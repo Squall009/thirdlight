@@ -40,11 +40,14 @@
  * gutter in the image (the designer repeats their edges), not the rows'
  * padding.
  *
- * Trim data on trim meshes: R occlusion (0 open, 1 fully occluded), G grime
- * weight, B wetness; A is unused — generated architecture's in an attribute
- * of its own (the renderer's `TRIM_DATA_ATTRIBUTE`), a model's in COLOR_0. A
- * mesh without them reads (0, 0, 0, 1): clean, dry, unoccluded. The material
- * blends them with no texture read of their own.
+ * Trim data on trim meshes: R occlusion (0 open, 1 fully occluded), A
+ * wetness; G and B are unused. It is an attribute of its own
+ * (`TRIM_DATA_GLTF_ATTRIBUTE` in a model file), never COLOR_0: COLOR_0 always
+ * means layer weights and wetness. Generated architecture writes it; a model
+ * authored with the trim data in COLOR_0 (R occlusion, B wetness) has it
+ * moved there when its file is checked. A mesh without it reads
+ * (0, 0, 0, 0): dry and unoccluded. The material blends it with no texture
+ * read of its own.
  *
  * Pure data rules, no I/O: the editor, the backend's padding check, the
  * renderer and the generator share them (`@thirdlight/project-model/trim-sheet`).
@@ -137,10 +140,14 @@ export const TRIM_STARTER_ROWS: readonly Readonly<TrimRow>[] = Object.freeze([
  * its own height and a part tied to a style slider is a problem.
  */
 export const TRIM_HEIGHT_TOLERANCE = 0.05;
-/** COLOR_0 channels on trim meshes (see the module comment). */
-export const TRIM_COLOUR_OCCLUSION = 0;
-export const TRIM_COLOUR_GRIME = 1;
-export const TRIM_COLOUR_WETNESS = 2;
+/** Trim data channels (see the module comment). */
+export const TRIM_DATA_OCCLUSION = 0;
+export const TRIM_DATA_WETNESS = 3;
+/**
+ * The glTF attribute a model file keeps its trim data in (an application
+ * attribute: the leading underscore); three's loader names it in lower case.
+ */
+export const TRIM_DATA_GLTF_ATTRIBUTE = '_TL_TRIM_DATA';
 
 /** A problem with a row table: where (a JSON pointer below the table) and what. */
 export interface TrimSheetError {
@@ -428,13 +435,13 @@ export function writeTrimStripUvs(sheet: TrimSheet, row: TrimRow, along: ArrayLi
   }
 }
 
-/** A vertex's COLOR_0 for trim meshes into `out` at vertex `i` (RGBA floats; each weight clamped to 0–1). */
-export function writeTrimVertexColour(out: Float32Array, i: number, occlusion: number, grime: number, wetness: number): void {
+/** A vertex's trim data into `out` at vertex `i` (RGBA floats; each value clamped to 0–1). */
+export function writeTrimVertexColour(out: Float32Array, i: number, occlusion: number, wetness: number): void {
   const c = (x: number): number => (x > 0 ? (x < 1 ? x : 1) : 0);
-  out[i * 4 + TRIM_COLOUR_OCCLUSION] = c(occlusion);
-  out[i * 4 + TRIM_COLOUR_GRIME] = c(grime);
-  out[i * 4 + TRIM_COLOUR_WETNESS] = c(wetness);
-  out[i * 4 + 3] = 1;
+  out[i * 4 + TRIM_DATA_OCCLUSION] = c(occlusion);
+  out[i * 4 + 1] = 0;
+  out[i * 4 + 2] = 0;
+  out[i * 4 + TRIM_DATA_WETNESS] = c(wetness);
 }
 
 /** The mip levels a sheet's textures have (a full chain down to 1 × 1). */

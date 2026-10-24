@@ -728,7 +728,7 @@ Declared in `packages/commands/src/types.ts`.
 ```ts
 interface SetAssetOptionsArgs {
   assetId: string;
-  vertexColors?: 'data' | 'tint';
+  vertexColors?: 'data' | StoredVertexColors;
   /** The default material mapping of every placement (null = none). */
   materials?: Record<string, string> | null;
   /** An animation-only file whose clips play on this model asset's rig (null = its clips are its own). */
@@ -1001,6 +1001,16 @@ interface SkyConfig {
   /** Image-based lighting strength from the sky (0 = none). */
   environmentIntensity?: number;
 }
+```
+
+<a id="type-stored-vertex-colors"></a>
+### StoredVertexColors
+
+Declared in `packages/project-model/src/types-v3.ts`.
+
+```ts
+/** A model's stored COLOR_0 setting (absent: data); see `AssetRecordV3.vertexColors`. */
+type StoredVertexColors = 'tint' | 'trim';
 ```
 
 <a id="type-stroke-surface-sample"></a>

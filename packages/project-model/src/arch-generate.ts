@@ -55,7 +55,7 @@ import { INSTANCE_FLOATS } from './types-v3';
 import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
-export const ARCHITECTURE_GENERATOR_VERSION = 3;
+export const ARCHITECTURE_GENERATOR_VERSION = 4;
 /** The most metres between a sweep's cross-sections (its vertex density for AO and paint). */
 export const ARCHITECTURE_SWEEP_CELL = 1;
 

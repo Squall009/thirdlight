@@ -33,8 +33,8 @@
  * — the base (layer 1) is what the others leave, 1 − (R + G + B) clamped,
  * then R, G, B are layers 2–4 and A is the wetness; an unpainted mesh shows
  * its base, or its own vertex colours as weights where it has them.
- * Generated architecture's trim data (`tlTrimData`: R the baked occlusion,
- * B the wall paint's wetness) adds its wetness to the paint's and its
+ * Trim data (generated architecture's and a model's own attribute: R the
+ * baked occlusion, A the wetness) adds its wetness to the paint's and its
  * occlusion darkens the indirect light. There is no built-in grime: dirt is
  * a layer painted like any other.
  *
@@ -324,8 +324,8 @@ const colourOf = (v: unknown, d: string): string => (typeof v === 'string' && /^
  * it as a graph.
  *
  * What it draws, term by term: the sheet tinted by `color`; wetness — the
- * trim data's (generated architecture's B, else a model's COLOR_0 B) plus the
- * vertex paint's A (the layered surface's wetness channel; a trim material
+ * trim data's A (generated architecture's wall paint, a model's own trim
+ * data) plus the vertex paint's A (the layered surface's wetness channel; a trim material
  * has no layers 2–4 for R, G and B), or the material's own, the larger, plus
  * the scene's — darkens the albedo, smooths the surface and flattens the
  * normal map; occlusion is the ORM's (× its intensity) times the vertex's
@@ -359,7 +359,7 @@ export function trimSurfaceMaterial(m: MaterialDef): MaterialDef {
   b.wire([b.add('vertexData', 'vertexColor', { absent: 'zero', set: 'trim' }), 'rgba'], data, 'in');
   const paint = b.add('paintSplit', 'split');
   b.wire([b.add('paint', 'vertexColor', { set: 'paint' }), 'rgba'], paint, 'in');
-  const wetIn = b.op('min', 'wetVertex', b.op('add', 'wetVertexSum', [data, 'z'], [paint, 'w']), b.float('wetVertexCap', 1));
+  const wetIn = b.op('min', 'wetVertex', b.op('add', 'wetVertexSum', [data, 'w'], [paint, 'w']), b.float('wetVertexCap', 1));
   const wetAll = b.add('wetTotal', 'saturate');
   b.wire(b.op('add', 'wetWithScene', b.op('max', 'wet', wetIn, b.param('wetness', 'float', numOf(p['wetness'], 0))), [b.add('sceneWet', 'sceneWetness'), 'wetness']), wetAll, 'in');
   const wet: GraphOut = [wetAll, 'out'];

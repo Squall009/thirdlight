@@ -96,8 +96,8 @@ export interface SceneAdapterModelAsset {
   readonly version: number;
   /** 64 lowercase hex (the manifest row's digest). */
   readonly sourceDigest: string;
-  /** COLOR_0 multiplies the albedo (absent = shader data). */
-  readonly vertexColors?: 'tint';
+  /** COLOR_0 multiplies the albedo (`tint`) or is trim data moved off it (`trim`); absent = shader data. */
+  readonly vertexColors?: 'tint' | 'trim';
   /** The asset's default material mapping. */
   readonly materials?: Readonly<Record<string, string>>;
   /** An animation-only file whose clips play on this model asset's rig. */
@@ -600,7 +600,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   };
   const instanceOptions = (assetId: string, piece: string | undefined): CreateInstanceOptions => ({
     ...(piece !== undefined ? { piece } : {}),
-    vertexColors: rowsByAsset.get(assetId)?.vertexColors === 'tint' ? 'tint' : 'data',
+    vertexColors: rowsByAsset.get(assetId)?.vertexColors ?? 'data',
     ...(rowsByAsset.get(assetId)?.lod !== undefined ? { lod: rowsByAsset.get(assetId)!.lod! } : {}),
     ...(rowsByAsset.get(assetId)?.occluder !== undefined ? { occluder: rowsByAsset.get(assetId)!.occluder! } : {}),
   });

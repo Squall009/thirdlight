@@ -8,7 +8,7 @@
  *
  * Pure.
  */
-import { TRIM_COLOUR_OCCLUSION, type TrimRow, type TrimSheet, trimRowDensity, trimRowV } from './trim-sheet';
+import { TRIM_DATA_OCCLUSION, type TrimRow, type TrimSheet, trimRowDensity, trimRowV } from './trim-sheet';
 
 /** How much the arrays grow when full (no per-vertex allocation: a few growths per chunk). */
 const GROW = 2;
@@ -22,7 +22,7 @@ export interface ArchMeshArrays {
   positions: Float32Array;
   normals: Float32Array;
   uvs: Float32Array;
-  /** COLOR_0 as the trim material reads it, normalized bytes: R occlusion, G grime, B wetness, A 255. */
+  /** The trim data (`trim-sheet.ts`), normalized bytes: R occlusion, A wetness (0 until wall paint is read), G and B 0. */
   colors: Uint8Array;
   indices: Uint32Array;
   farIndices: Uint32Array;
@@ -85,8 +85,7 @@ export class ArchMeshWriter {
     this.uv[i * 2] = u;
     this.uv[i * 2 + 1] = v;
     const o = occlusion > 0 ? (occlusion < 1 ? occlusion : 1) : 0;
-    this.col[i * 4 + TRIM_COLOUR_OCCLUSION] = Math.round(o * 255);
-    this.col[i * 4 + 3] = 255;
+    this.col[i * 4 + TRIM_DATA_OCCLUSION] = Math.round(o * 255);
     const b = this.bounds;
     if (px < b[0]!) b[0] = px;
     if (py < b[1]!) b[1] = py;
@@ -153,7 +152,7 @@ export class ArchMeshWriter {
       const nx = sn[i * 3]!;
       const nz = sn[i * 3 + 2]!;
       const k = this.vertex(x * cos - z * sin + tx, sp[i * 3 + 1]! + ty, x * sin + z * cos + tz, nx * cos - nz * sin, sn[i * 3 + 1]!, nx * sin + nz * cos, src.uv[i * 2]!, src.uv[i * 2 + 1]!, 0);
-      this.col[k * 4 + TRIM_COLOUR_OCCLUSION] = src.col[i * 4 + TRIM_COLOUR_OCCLUSION]!;
+      this.col[k * 4 + TRIM_DATA_OCCLUSION] = src.col[i * 4 + TRIM_DATA_OCCLUSION]!;
     }
     if (this.indexCount + src.indexCount > this.idx.length) this.idx = grown(this.idx, this.indexCount + src.indexCount);
     for (let i = 0; i < src.indexCount; i++) this.idx[this.indexCount++] = src.idx[i]! + base;

@@ -422,7 +422,7 @@ export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIR
 export { SCENE_OBJECT_BUDGET_BYTES, sceneDocumentBytes, sceneObjectBytes } from './scene-memory';
 export { validateContentV4, isNormalizedContent, ENGINE_TIMING_DEFAULTS } from './content';
 // Texture arrays and packed textures.
-export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, canonicalLabels, isAssetLabel, type Ktx2Encoding } from './content';
+export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, canonicalLabels, isAssetLabel, isStoredVertexColors, type Ktx2Encoding } from './content';
 // Addresses and labels: what a script may load by name (assets on their records, resources beside theirs).
 export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadable, loadableAssetIds, loadableResourceIds, loadableRows, loadableRowsProblem, RESOURCE_KIND_TABLE, resourceKindDef, resourceRecordsOf, type LoadableEntry, type LoadableRow, type ResourceKindDef } from './loadable';
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
@@ -433,6 +433,7 @@ export {
   MAX_INSTANCES,
   type ContentCatalogV4,
   type SceneIndexEntry,
+  type StoredVertexColors,
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
@@ -1189,9 +1190,9 @@ export { chunkMeshAO, type AoGeometry } from './block-ao';
 export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintAt, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';
 // Trim sheets: the trim material's row table, strip coordinates, mip bounds, padding checks; generated meshes' paint.
 export {
-  TRIM_COLOUR_GRIME,
-  TRIM_COLOUR_OCCLUSION,
-  TRIM_COLOUR_WETNESS,
+  TRIM_DATA_GLTF_ATTRIBUTE,
+  TRIM_DATA_OCCLUSION,
+  TRIM_DATA_WETNESS,
   TRIM_DENSITY_MAX,
   TRIM_DENSITY_MIN,
   TRIM_PADDING_MAX,
@@ -1232,7 +1233,7 @@ export {
   type TrimSheetError,
   type TrimSheetProblem,
 } from './trim-sheet';
-export { TRIM_GRIME_PAINT_LAYER, paintArchitectureColours, trimColoursFromWallPaint, type TrimWallPaintOptions } from './trim-paint';
+export { paintArchitectureColours } from './trim-paint';
 export { cutWallPolygon, type CutVertex } from './block-wall-cut';
 export { SEE_THROUGH_DEFAULTS, SEE_THROUGH_FIELDS, SEE_THROUGH_LIMITS, SEE_THROUGH_NUMBER_FIELDS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOf, seeThroughSettingsOfProject, type SeeThroughSettings } from './see-through';
 export { CUTAWAY_FADE_RANGE, CUTAWAY_FADE_SECONDS, canonicalBlockCutaway, cutawayCuts, cutawayPlaneKey, cutawaySeams, cutawayZoneKeys, cutawayZones, validateBlockCutaway, type BlockCutaway, type BlockCutawayRegion, type CutawayBox, type CutawayZone } from './block-cutaway';

@@ -233,8 +233,10 @@ describe('trim strip coordinates', () => {
     const [v0, v1] = trimRowV(UNEQUAL, floor);
     expect([...uv]).toEqual([0, 0, 0, v0, 0.5, v0, 0.5, v1, 0, v1].map((x) => Math.fround(x)));
     const c = new Float32Array(8);
-    writeTrimVertexColour(c, 1, 0.25, 2, -1);
-    expect([...c]).toEqual([0, 0, 0, 0, 0.25, 1, 0, 1]);
+    c.fill(0.5);
+    writeTrimVertexColour(c, 1, 0.25, 2);
+    // R occlusion, A wetness (clamped); G and B carry nothing.
+    expect([...c]).toEqual([0.5, 0.5, 0.5, 0.5, 0.25, 0, 0, 1]);
   });
 });
 

@@ -290,8 +290,12 @@ anisotropy.
 A trim material draws as a [layered surface](#layered-surface) with one
 layer — the sheet at the mesh's UVs, inside its rows: the same three reads.
 
-The mesh's COLOR_0 is data: **R occlusion** (0 open), **B wetness** (a mesh
-without it is clean and dry; G is not read). The vertex paint means what it
+Its trim data is an attribute of its own: **R occlusion** (0 open), **A
+wetness** — generated architecture's (its baked corners, the block layer's
+wall-paint wetness), or a model's whose COLOR_0 was authored as trim data
+and is read so (import setting **Vertex colours: trim data**; see the
+[trim sheet spec](../guides/trim-sheet-spec.md#vertex-colours-the-engine-reserves)).
+A mesh without it is dry and unoccluded. The vertex paint means what it
 means on any layered surface: a trim material is one layer, so only its
 **A** (wetness) shows. There is no built-in grime: dirt is a layer of a
 layered surface, painted like any other (make the trim material a layered
@@ -355,7 +359,9 @@ its baked corner shading darkens the indirect light (**occlusion**). There
 is no built-in grime: dirt, moss or soot is one of the layers, painted.
 Projects stored with grime (a trim material's **grime** and **grimeColor**,
 a layered graph's grime mix) lose it at the open, and one Problems line
-names the materials whose grime was set. Wetness — painted, the **wetness**
+names the materials whose grime was set. Paint stored on trim surfaces with
+the old meaning (G grime, B wetness) has its wetness moved to A at the open
+(one Problems line counts the surfaces). Wetness — painted, the **wetness**
 parameter or the scene's — pools in the low parts first, darkens and
 smooths the surface and flattens the normal maps.
 

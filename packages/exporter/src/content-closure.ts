@@ -28,7 +28,7 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
+import { isStoredVertexColors, MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -905,7 +905,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       sourceByteLength: a.sourceByteLength,
       recipe: a.recipe,
       metricsDigest: a.metricsDigest,
-      ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+      ...(isStoredVertexColors(a.vertexColors) ? { vertexColors: a.vertexColors } : {}),
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),

@@ -111,7 +111,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     doubleSided: bool(false),
   },
   // A trim sheet (`trim-sheet.ts`): its three maps read once each, the footprint capped at the sheet's safe mip
-  // level; COLOR_0 is data — R occlusion, B wetness — blended with no read of its own. Roughness and metalness
+  // level; its trim data (`trim-sheet.ts`: R occlusion, A wetness) is blended with no read of its own. Roughness and metalness
   // scale the ORM's (1: the sheet's own). No grime: dirt is a painted layer of a layered surface.
   trim: {
     color: color('#ffffff'),
@@ -121,7 +121,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     aoIntensity: num(0, 2, 1),
     // How much of the vertex occlusion (R) darkens the indirect light.
     occlusion: num(0, 1, 1),
-    // Rain on this material, over the vertex wetness (COLOR_0 B, paint A); the scene's wetness adds to both.
+    // Rain on this material, over the vertex wetness (trim data A, paint A); the scene's wetness adds to both.
     wetness: num(0, 1, 0),
     // How much wetness flattens the normal map.
     wetFlatten: num(0, 1, 0.7),
@@ -183,7 +183,7 @@ export const MATERIAL_SHADER_LABELS: Readonly<Record<MaterialShader, string>> = 
  *   block layer's stored weights, a mesh's vertex colours, vertex paint);
  * - `vertexPaint`: the object's vertex paint;
  * - `trimRows`: a trim sheet's row table;
- * - `vertexAO`: occlusion baked into the vertex colours (COLOR_0 R);
+ * - `vertexAO`: occlusion baked into the vertices (trim data R);
  * - `writesDecal`: it draws as a decal over the surface under it;
  * - `alphaIsHeight` / `alphaIsOpacity`: what its albedo's alpha means — a
  *   layer's height in a height blend, or coverage (cut-out, transparent).
@@ -208,7 +208,7 @@ export const MATERIAL_DECLARATIONS: Readonly<Record<MaterialShader, Readonly<Par
   kit: { alphaIsOpacity: ALPHA_COVERAGE },
   unlit: { alphaIsOpacity: ALPHA_COVERAGE },
   water: {},
-  // COLOR_0 R is occlusion; vertex paint's A adds to the wetness. The albedo's alpha is not read.
+  // Trim data R is occlusion; its A and vertex paint's A add to the wetness. The albedo's alpha is not read.
   trim: { trimRows: true, vertexAO: true, vertexPaint: true, alphaIsOpacity: { param: 'alphaMode', in: ['cutout'] } },
   decal: { writesDecal: true, alphaIsOpacity: true },
 };

@@ -100,11 +100,12 @@ export function AssetInspector(p: AssetInspectorProps): JSX.Element | null {
           />
         )}
         {a.kind === 'model' && (
-          <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights and the like) or as a tint multiplied into the base colour">
+          <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights, layer weights and wetness), as a tint multiplied into the base colour, or as trim data authored for a trim sheet (R occlusion, B wetness), moved off COLOR_0 as the model loads">
             <span className="tl-field__label">vertex colour</span>
-            <select className="tl-input" aria-label="vertex colour" value={a.vertexColors === 'tint' ? 'tint' : 'data'} onChange={(e) => void p.assetOptions.setVertexColors(a.assetId, e.target.value === 'tint' ? 'tint' : 'data')}>
+            <select className="tl-input" aria-label="vertex colour" value={a.vertexColors ?? 'data'} onChange={(e) => void p.assetOptions.setVertexColors(a.assetId, e.target.value === 'tint' || e.target.value === 'trim' ? e.target.value : 'data')}>
               <option value="data">data (not colour)</option>
               <option value="tint">tint the albedo</option>
+              <option value="trim">trim data (occlusion, wetness)</option>
             </select>
           </label>
         )}

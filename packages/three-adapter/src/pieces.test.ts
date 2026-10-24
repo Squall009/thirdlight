@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/runtime';
 
 import { LOD_CULL_LEVEL_KEY } from './lod-switch';
+import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
 import {
   applyLodGroups,
   applyVertexColorMode,
@@ -145,6 +146,26 @@ describe('vertex colours', () => {
     applyVertexColorMode(root, 'tint');
     expect(material.vertexColors).toBe(true);
     applyVertexColorMode(root, 'data');
+  });
+
+  it('trim moves COLOR_0 authored as trim data (R occlusion, B wetness) into the trim data attribute, once per geometry', () => {
+    const mesh = boxMesh('wall', 1, 1, false);
+    const n = mesh.geometry.getAttribute('position').count;
+    mesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(Array.from({ length: n }, () => [0.5, 1, 0.25, 1]).flat(), 4));
+    const copy = mesh.clone();
+    const root = new THREE.Group().add(mesh, copy);
+    applyVertexColorMode(root, 'trim');
+    const g = mesh.geometry;
+    expect(g.getAttribute('color')).toBeUndefined();
+    const data = g.getAttribute(TRIM_DATA_ATTRIBUTE);
+    expect(data.itemSize).toBe(4);
+    expect(data.normalized).toBe(true);
+    // R occlusion and A wetness; the old G (grime) and B go.
+    expect([...(data.array as Uint8Array).subarray(0, 4)]).toEqual([128, 0, 0, 64]);
+    // The copy shares the geometry: moved once.
+    expect(copy.geometry).toBe(g);
+    applyVertexColorMode(root, 'trim');
+    expect(g.getAttribute(TRIM_DATA_ATTRIBUTE)).toBe(data);
   });
 });
 

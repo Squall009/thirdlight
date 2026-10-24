@@ -68,10 +68,10 @@ describe('the layered surface', () => {
       expect(nodeOf(drawn, into(drawn, r.id, 'mode')!.from.node)?.data?.['value']).toBe(UV_SOURCES.geometry);
       expect(nodeOf(drawn, into(drawn, r.id, 'layer')!.from.node)?.data?.['value']).toBe(0);
     }
-    // One layer, no mix: the tinted sheet, darkened by wetness (the trim data's B plus the paint's A); cut out by the albedo's alpha.
+    // One layer, no mix: the tinted sheet, darkened by wetness (the trim data's A plus the paint's A); cut out by the albedo's alpha.
     expect(drawn.graph!.nodes.some((n) => n.type === 'weightedMix' || n.id.startsWith('grime'))).toBe(false);
     expect(into(drawn, 'wetColour', 'a')?.from).toEqual({ node: 'tint', port: 'out' });
-    expect(into(drawn, 'wetVertexSum', 'a')?.from).toEqual({ node: 'trimData', port: 'z' });
+    expect(into(drawn, 'wetVertexSum', 'a')?.from).toEqual({ node: 'trimData', port: 'w' });
     expect(into(drawn, 'wetVertexSum', 'b')?.from).toEqual({ node: 'paintSplit', port: 'w' });
     expect(into(drawn, 'output', 'alphaClip')).toBeDefined();
     const { trim: _rows, ...graphOnly } = drawn;

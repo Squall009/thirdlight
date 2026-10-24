@@ -2947,6 +2947,7 @@
 "type.ShellScreen": {"page":"types-p-u.md","section":"type-shell-screen"},
 "type.ShellSimulate": {"page":"types-p-u.md","section":"type-shell-simulate"},
 "type.SkyConfig": {"page":"types-p-u.md","section":"type-sky-config"},
+"type.StoredVertexColors": {"page":"types-p-u.md","section":"type-stored-vertex-colors"},
 "type.StrokeSurfaceSample": {"page":"types-p-u.md","section":"type-stroke-surface-sample"},
 "type.SurfacePresetName": {"page":"types-p-u.md","section":"type-surface-preset-name"},
 "type.SurfaceRule": {"page":"types-p-u.md","section":"type-surface-rule"},

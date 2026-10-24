@@ -14,7 +14,7 @@
  *   The meshes stand still and cast into the cached static shadow map.
  *   They wear the object's materials for their slots (`architecture` or
  *   `*`): the trim material reads the generator's trim data (baked AO,
- *   wall paint's grime and wetness: `TRIM_DATA_ATTRIBUTE`). Kit
+ *   wall paint's wetness: `TRIM_DATA_ATTRIBUTE`). Kit
  *   copies wear their models' own.
  * - An export that ships meshes names its blob (`baked`): its chunks are
  *   drawn as they are, nothing is generated.

@@ -239,7 +239,7 @@ export function useEditorMount(deps: EditorMountDeps): void {
       read: (digest, piece, make) => client.thumbnail(digest, piece, make),
       store: (digest, piece, png) => client.storeThumbnail(digest, piece, png),
       modelBytes: (assetId, version) => client.assetBytes(assetId, version),
-      vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
+      vertexColorsFor: (assetId) => client.content.getAsset(assetId)?.vertexColors ?? 'data',
       renderer: () => editorRendererChoice(),
       extractedImages: (assetId) => extractedImagePictures(client, assetId),
     });

@@ -160,7 +160,7 @@ Paint changes nothing until a material reads it. Four readers:
 | Material | What it does with the paint |
 |---|---|
 | a standard material with **Paint tint** (`paintTint: true`) | multiplies its albedo by the paint's RGB, by the paint's A (A 0: no tint). Off by default. |
-| the trim shader (generated walls) | one layer: adds A to its wetness (on top of the generator's `COLOR_0`), as A is the wetness on every layered surface. R, G and B (layers 2–4) need a layered surface. |
+| the trim shader (generated walls) | one layer: adds A to its wetness (on top of the trim data's A), as A is the wetness on every layered surface. R, G and B (layers 2–4) need a layered surface. Paint stored with the old trim meaning (B wetness) moves to A at the open. |
 | a graph's **Vertex colour** node, set **paint** | gives the paint as RGBA (an unpainted vertex reads (0, 0, 0, 0), whatever *Without the set* says). |
 | a graph's **Height blend** node with its weights unwired | takes the paint as the four layers' weights (an unpainted vertex shows the first layer). |
 

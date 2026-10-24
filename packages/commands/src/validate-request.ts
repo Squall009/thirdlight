@@ -991,10 +991,10 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   if (clipsFor !== undefined && clipsFor !== null && typeof clipsFor !== 'string') {
     return { ok: false, error: fieldType('/args/clipsFor', clipsFor, 'string (the model assetId whose rig the clips are for) or null') };
   }
-  if (args['vertexColors'] !== undefined && args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint') {
+  if (args['vertexColors'] !== undefined && args['vertexColors'] !== 'data' && args['vertexColors'] !== 'tint' && args['vertexColors'] !== 'trim') {
     return {
       ok: false,
-      error: fieldValue('/args/vertexColors', args['vertexColors'], '"data" or "tint"', 'vertexColors is "data" (COLOR_0 is shader data) or "tint" (it multiplies the base colour)'),
+      error: fieldValue('/args/vertexColors', args['vertexColors'], '"data", "tint" or "trim"', 'vertexColors is "data" (COLOR_0 is shader data), "tint" (it multiplies the base colour) or "trim" (it is trim data: R occlusion, B wetness)'),
     };
   }
   const materials = args['materials'];

@@ -63,6 +63,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
 import { buildPaintSource, paintNode, withPaint } from './vertex-paint-draw';
+import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
 import { LAYER_NOT_READ, localLightModeOf, TEXTURE_ABSENT_VALUES, trimMaxFootprint, UV_SOURCES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent, type TrimSheet } from '@thirdlight/runtime';
 
 // TSL's typings do not follow values whose width is known only at run time.
@@ -719,12 +720,7 @@ export const LIGHTING_TYPES: ReadonlySet<string> = new Set(['mainLight', 'lightS
  * Compile a material graph to TSL slot nodes. Pure (no GPU): the result's
  * nodes go on a node material (`buildGraphMaterial`) or are inspected by tests.
  */
-/**
- * The vertex attribute generated architecture keeps its trim data in (the
- * trim sheet's convention: R occlusion, B wetness; G is not read), apart from
- * COLOR_0, which a mesh's own vertex colours (layer weights, a tint) use.
- */
-export const TRIM_DATA_ATTRIBUTE = 'tlTrimData';
+export { TRIM_DATA_ATTRIBUTE };
 
 /**
  * The vertex paint as a layered surface's weights: layer 1 (the base) is what
@@ -1131,8 +1127,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const absent = str(field(node, 'absent'), 'white');
         const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
         if (str(field(node, 'set'), 'COLOR_0') === 'trim') {
-          // Trim data: generated architecture's own attribute, else COLOR_0 (a model made for a trim sheet).
-          const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(TRIM_DATA_ATTRIBUTE) === true ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : builder.geometry?.hasAttribute('color') === true ? T.attribute('color', 'vec4') : missing()))();
+          // Trim data: its own attribute only; a mesh without it is dry and unoccluded (0, 0, 0, 0), whatever Without says.
+          const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(TRIM_DATA_ATTRIBUTE) === true ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : T.vec4(0, 0, 0, 0)))();
           return { rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, alpha: { t: 'float', n: c.w } };
         }
         // COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
@@ -1163,7 +1159,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const has = (b: B, attr: string): boolean => b.geometry?.hasAttribute(attr) === true;
         // Stored weights: a painted block layer's COLOR_0 beside its wetness in COLOR_1.
         const stored = (b: B): boolean => has(b, 'color') && has(b, 'color_1');
-        // Generated architecture's trim data (R occlusion, B wetness).
+        // Trim data (R occlusion, A wetness): generated architecture's, a converted model's.
         const trimData = (b: B): N | null => (has(b, TRIM_DATA_ATTRIBUTE) ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : null);
         const weights = T.Fn((b: B) => {
           if (stored(b)) return T.attribute('color', 'vec4');
@@ -1180,8 +1176,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           if (stored(b)) return T.attribute('color_1', 'vec4').x;
           const data = trimData(b);
           const painted = buildPaintSource(b) !== null;
-          if (!painted) return data === null ? T.float(0) : data.z;
-          return data === null ? paintNode().w : T.max(paintNode().w, data.z);
+          if (!painted) return data === null ? T.float(0) : data.w;
+          return data === null ? paintNode().w : T.max(paintNode().w, data.w);
         })();
         const occlusion = T.Fn((b: B) => trimData(b)?.x ?? T.float(0))();
         return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion } };

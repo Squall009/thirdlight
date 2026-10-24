@@ -11,10 +11,11 @@
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
-import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, type ModelLodSettings } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, TRIM_DATA_OCCLUSION, TRIM_DATA_WETNESS, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
 import { LOD_CULL_LEVEL_KEY, LOD_MODEL_SCALE_KEY } from './lod-switch';
+import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
 import { maxScaleOf } from './view-cull';
 
 const LOD_RE = /^(.*)_LOD(\d+)$/i;
@@ -265,15 +266,37 @@ function boundingRadius(object: THREE.Object3D): number {
 /**
  * How COLOR_0 is used: `data` (default) never multiplies the albedo — the
  * attribute stays on the geometry for shaders that read it (foliage bend
- * weights etc.); `tint` is the glTF behaviour.
+ * weights, layer weights and wetness); `tint` is the glTF behaviour; `trim`
+ * says the file was authored with trim data in COLOR_0 (R occlusion,
+ * B wetness), which moves into the trim data attribute (R occlusion,
+ * A wetness) so COLOR_0 keeps one meaning on every mesh.
  */
-export type VertexColorMode = 'data' | 'tint';
+export type VertexColorMode = 'data' | 'tint' | 'trim';
+
+/** COLOR_0 authored as trim data, moved into the trim data attribute (once: a shared geometry has no COLOR_0 after). */
+function colourToTrimData(geometry: THREE.BufferGeometry): void {
+  const colour = geometry.getAttribute('color');
+  if (colour === undefined) return;
+  const n = colour.count;
+  const data = new Uint8Array(n * 4);
+  const byte = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
+  for (let i = 0; i < n; i++) {
+    data[i * 4 + TRIM_DATA_OCCLUSION] = byte(colour.getX(i));
+    data[i * 4 + TRIM_DATA_WETNESS] = byte(colour.getZ(i));
+  }
+  geometry.setAttribute(TRIM_DATA_ATTRIBUTE, new THREE.BufferAttribute(data, 4, true));
+  geometry.deleteAttribute('color');
+}
 
 export function applyVertexColorMode(root: THREE.Object3D, mode: VertexColorMode): void {
   const want = mode === 'tint';
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh || mesh.geometry?.getAttribute('color') === undefined) return;
+    if (mode === 'trim') {
+      colourToTrimData(mesh.geometry);
+      return;
+    }
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of materials) {
       if (m !== undefined && m.vertexColors !== want) {

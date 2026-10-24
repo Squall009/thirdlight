@@ -32,9 +32,11 @@
  * colour at every distance — the grazing angle that asks for the deepest
  * mips. The same strips with the standard material and the same sheet
  * (no footprint cap) show their neighbours' colours far away, so the
- * picture can see a bleed. A strip patch with the old vertex grime (COLOR_0
- * G) draws as the plain one — there is no built-in grime — and one with
- * vertex wetness is darker, with no texture of its own.
+ * picture can see a bleed. The strips are a model authored with trim data in
+ * COLOR_0 (R occlusion, G the old grime, B wetness), set to read it as trim
+ * data (moved off COLOR_0 as it loads): a patch with the old vertex grime
+ * draws as the plain one — there is no built-in grime — and one with vertex
+ * wetness is darker, with no texture of its own.
  *
  * Generated architecture on the same sheet (one object, only parameters
  * stored): a profile swept along a path (a moulding: a wall face, a bevel,
@@ -61,8 +63,8 @@
  * tool on a floor of cells — two rooms sharing a wall, an arch in the
  * front one and a door in the shared wall, a fence path — the door edited
  * in the room inspector, a wall dragged (only the rooms object made again,
- * timed from each input), paint layer 3 (the old grime) painted on a wall with the block editor's
- * Paint mode. In Play and the export: the front wall's rows, that paint drawing nothing, the shared
+ * timed from each input), wetness painted on a wall with the block editor's
+ * Paint mode. In Play and the export: the front wall's rows, that wall darker where wet, the shared
  * wall's front face through the arch, the back room through the door and a
  * fence post each show their colour.
  *
@@ -714,9 +716,9 @@ function readRooms(img: Image): { colours: Record<string, [number, number, numbe
   const lum = (c: readonly number[]): number => c[0]! + c[1]! + c[2]!;
   const ok =
     rowHue(ROOM_READS.front.slot, colours.front) &&
-    // Paint layer 3 on the wall (the old grime) draws nothing: there is no built-in grime.
-    rowHue(ROOM_READS.grime.slot, colours.grime) &&
-    lum(colours.grime) > lum(colours.front) * 0.9 &&
+    // The wall paint's wetness (the generated wall's trim data A) darkens the row where it was painted.
+    rowHue(ROOM_READS.wet.slot, colours.wet) &&
+    lum(colours.wet) < lum(colours.front) * 0.85 &&
     rowHue(ROOM_READS.shared.slot, colours.shared) &&
     rowHue(ROOM_READS.door.slot, colours.door) &&
     rowHue(ROOM_READS.post.slot, colours.post);
@@ -772,6 +774,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   // ---- Play: the strips at a grazing angle, the trim material's and the standard material's.
   await cmd('setMaterial', { material: { materialId: 'mat-trim-std', name: 'Trim sheet, standard', shader: 'standard', params: { roughness: 1 }, textures: { map: 'trim-sheet' } } });
   await publishBytes(be!, new Uint8Array(trimStripsGlb(TEST_TRIM_SHEET, TRIM_PATCHES, 32)), 'model', 'trim-strips', 'Trim strips');
+  await cmd('setAssetOptions', { assetId: 'trim-strips', vertexColors: 'trim' });
   for (const [at, mat, name] of [[TRIM_AT, trimId, 'Trim strips'], [STANDARD_AT, 'mat-trim-std', 'Standard strips']] as const) {
     const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'model', name, model: { asset: { assetId: 'trim-strips' } }, transform: { position: [...at] } }))['createdId']);
     await cmd('setComponent', { entityId: id, component: 'materials', value: { '*': mat } });
@@ -937,7 +940,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     throw e;
   });
   console.log(`styled walls ${variant} Play: low ${fmtColours(styled.low)} high ${fmtColours(styled.high)}`);
-  // The rooms: the shared wall made once with the door through it, the arch, the grime painted on the layer, the fence.
+  // The rooms: the shared wall made once with the door through it, the arch, the wetness painted on the layer, the fence.
   let roomsPlay = readRooms(decodePng(await canvas.screenshot()));
   let roomsPng: Buffer | null = null;
   await expect.poll(async () => (roomsPlay = readRooms(decodePng((roomsPng = await canvas.screenshot())))).ok, { timeout: 30_000, intervals: [500], message: 'the Play picture of the rooms' }).toBe(true).catch((e: unknown) => {

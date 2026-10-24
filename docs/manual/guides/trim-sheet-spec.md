@@ -290,23 +290,31 @@ stand-in and the piece's own surfaces.
 
 ## Vertex colours the engine reserves
 
-The engine reads vertex colours as data, not as a tint:
+`COLOR_0` (and vertex paint) always means **layer weights and wetness**:
+R, G, B = layers 2–4, A = wetness over every layer; the base layer is what
+R, G and B leave. A trim material is one layer, so only A (wetness) shows
+on it. There is no built-in grime: dirt is a painted layer of a layered
+surface.
 
-- **On a trim material** a model's `COLOR_0` is **R occlusion** (0 open,
-  1 fully occluded) and **B wetness**; G and A are not read (there is no
-  built-in grime: dirt is a painted layer of a layered surface).
-- **On a layered surface** a model's `COLOR_0` is the layer weights:
-  **R, G, B = layers 2–4**, **A = wetness**; the base layer is what R, G and
-  B leave.
-- **Generated architecture** keeps its own occlusion and wetness in
-  an attribute of its own, and **block layers** write theirs (`COLOR_0` the
-  four layer weights, `COLOR_1` red the wetness). You never author those.
+**Trim data** — R occlusion (0 open, 1 fully occluded), A wetness — lives in
+an attribute of its own, never in `COLOR_0`:
+
+- **Generated architecture** writes it: its baked corner occlusion in R and
+  the block layer's wall-paint wetness in A. You never author it.
+- **A kit piece authored with trim data in `COLOR_0`** (R occlusion,
+  B wetness, the old convention) has the import setting **Vertex colours:
+  trim data** (`setAssetOptions {vertexColors: "trim"}`): the model's
+  `COLOR_0` moves into the trim data as it loads, and the model keeps its
+  file as it is. Opening a project sets it on every model mapped to a trim
+  material whose file carries `COLOR_0` there; set it yourself on one you
+  import into an open project. A file may also carry the trim data directly
+  in a `_TL_TRIM_DATA` attribute (VEC4, R occlusion, A wetness).
+- **Block layers** write their own paint (`COLOR_0` the four layer weights,
+  `COLOR_1` red the wetness). You never author those.
 
 So **leave `COLOR_0` out of kit pieces** unless you mean it: a model with
-no vertex colours reads clean, dry and unoccluded. A colour attribute left
-at Blender's default white reads as fully occluded, grimy and wet on a trim
-material. Paint wetness and layers in the editor's
-[vertex paint editor](vertex-paint.md) instead.
+no vertex colours reads clean, dry and unoccluded. Paint wetness and layers
+in the editor's [vertex paint editor](vertex-paint.md) instead.
 
 ## Checklist
 

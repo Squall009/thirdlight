@@ -233,7 +233,7 @@ describe('rooms on a block layer', () => {
     expect(off.component.elements.filter((e) => e.kind === 'fill' && e.shape === 'flat' && (e.face ?? 'up') === 'up').map((f) => (f.kind === 'fill' ? (f.height ?? 0) : NaN))).toEqual([0, 0]);
   });
 
-  it('the layer\'s wall paint shows on the generated faces (grime, wetness), in the chunks\' keys, and survives regeneration', () => {
+  it('the layer\'s wall paint shows on the generated faces (its wetness in the trim data A), in the chunks\' keys, and survives regeneration', () => {
     const c = twoRooms();
     // Paint the layer's wall points on the plane x = 0 (A's west wall), side 1 (the columns x = 0's −x sides), rows 0-2.
     const st = wallPaintSteps([1, 1, 1]);
@@ -250,19 +250,21 @@ describe('rooms on a block layer', () => {
     const k = kPainted.get('0,0')!;
     const chunk = generateArchitectureChunk(architectureChunkInput(painted, k), SHEETS, 0, 0);
     const m = chunk.meshes[0]!.mesh;
-    let grimy = 0;
+    let reached = 0;
     let wet = 0;
     for (let i = 0; i < m.positions.length / 3; i++) {
       const [x, y, z] = [m.positions[i * 3]!, m.positions[i * 3 + 1]!, m.positions[i * 3 + 2]!];
-      const g = m.colors[i * 4 + 1]!;
+      // The paint's layers are not trim data: G and B stay 0 (layer 3 painted full here).
+      expect([m.colors[i * 4 + 1], m.colors[i * 4 + 2]]).toEqual([0, 0]);
+      const a = m.colors[i * 4 + 3]!;
       // Only the outer face of A's west wall (x = -0.1, looking −x; its foot moulding too), under 3 m, is painted.
-      if (g > 0) {
+      if (a > 0) {
         expect(x < 0 && m.normals[i * 3]! < -0.5 && z >= -0.2 && z <= 4.2 && y <= 3 + 1e-6).toBe(true);
-        grimy++;
-        if (m.colors[i * 4 + 2]! > 150) wet++;
+        reached++;
+        if (a > 150) wet++;
       }
     }
-    expect(grimy).toBeGreaterThan(0);
+    expect(reached).toBeGreaterThan(0);
     expect(wet).toBeGreaterThan(0);
     // The same bytes made again (a worker, the page, an export).
     const again = generateArchitectureChunk(architectureChunkInput(painted, k), SHEETS, 0, 0);

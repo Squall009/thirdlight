@@ -15,7 +15,11 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
+import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model/trim-sheet';
+
+import { writeGlb } from './glb-images';
+import { api, AUTHORING_ORIGIN, exportContentOf, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
+import { createTestBackend } from './testing';
 
 const FIXTURES = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase24');
 
@@ -711,4 +715,137 @@ describe('a project with built-in grime opened over HTTP', () => {
     const text = JSON.stringify(set.json);
     expect(text, text).toContain('shader \\"trim\\" has no parameter \\"grime\\"');
   }, 60_000);
+});
+
+/**
+ * Trim data left in its old places moves at the open, the way a real project
+ * held it: a kit model authored with trim data in COLOR_0 (R occlusion,
+ * B wetness) on its trim-sheet surface, painted with the old trim meaning
+ * (G grime, B wetness) there and with layers on its other surface. Built by
+ * one backend through the commands, opened by a new one.
+ */
+describe('a project with trim data in COLOR_0 and old trim paint opened over HTTP', () => {
+  const PID = 'demo-0001';
+  /** Two surfaces of four vertices each: `sheet` (mapped to a trim material) and `stone`, both with COLOR_0. */
+  const kitPiece = (): Uint8Array => {
+    const quad = (z: number): number[] => [-1, 0, z, 1, 0, z, 1, 2, z, -1, 2, z];
+    const positions = new Float32Array([...quad(0), ...quad(-0.5)]);
+    // COLOR_0 as authored for a trim sheet: R occlusion 0.5, G grime 1, B wetness 0.25.
+    const colours = new Float32Array(Array.from({ length: 8 }, () => [0.5, 1, 0.25, 1]).flat());
+    const index = new Uint16Array([0, 1, 2, 0, 2, 3]);
+    const bin = new Uint8Array(positions.byteLength + colours.byteLength + index.byteLength * 2);
+    bin.set(new Uint8Array(positions.buffer), 0);
+    bin.set(new Uint8Array(colours.buffer), positions.byteLength);
+    bin.set(new Uint8Array(index.buffer), positions.byteLength + colours.byteLength);
+    bin.set(new Uint8Array(index.buffer), positions.byteLength + colours.byteLength + index.byteLength);
+    const P = positions.byteLength, C = colours.byteLength, I = index.byteLength;
+    return writeGlb(
+      {
+        asset: { version: '2.0' },
+        buffers: [{ byteLength: bin.byteLength }],
+        bufferViews: [
+          { buffer: 0, byteOffset: 0, byteLength: P / 2 },
+          { buffer: 0, byteOffset: P / 2, byteLength: P / 2 },
+          { buffer: 0, byteOffset: P, byteLength: C },
+          { buffer: 0, byteOffset: P + C, byteLength: I },
+        ],
+        accessors: [
+          { bufferView: 0, componentType: 5126, count: 4, type: 'VEC3', min: [-1, 0, 0], max: [1, 2, 0] },
+          { bufferView: 1, componentType: 5126, count: 4, type: 'VEC3', min: [-1, 0, -0.5], max: [1, 2, -0.5] },
+          { bufferView: 2, componentType: 5126, count: 8, type: 'VEC4' },
+          { bufferView: 3, componentType: 5123, count: 6, type: 'SCALAR' },
+        ],
+        materials: [{ name: 'sheet' }, { name: 'stone' }],
+        meshes: [{ name: 'piece', primitives: [{ attributes: { POSITION: 0, COLOR_0: 2 }, indices: 3, material: 0 }, { attributes: { POSITION: 1, COLOR_0: 2 }, indices: 3, material: 1 }] }],
+        nodes: [{ name: 'piece', mesh: 0 }],
+        scenes: [{ nodes: [0] }],
+        scene: 0,
+      },
+      bin,
+    );
+  };
+  // The second primitive's COLOR_0 reads the same accessor from the start: its vertices are the first four colours.
+
+  it('reads the model\'s COLOR_0 as trim data and moves the trim paint\'s wetness from B to A; the other surface\'s paint stays', async () => {
+    const tb = await startBackend({ tokens: [] });
+    let closed = false;
+    try {
+      const revision = (): number => {
+        const r = tb.backend._test.service.readCapturedV3(PID);
+        if (!r.ok) throw new Error(r.error.code);
+        return r.read.revision;
+      };
+      const ok = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+        const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'trim-data-upgrade' }, args }, token: tb.adminToken, origin: null });
+        expect(r.status, JSON.stringify(r.json).slice(0, 400)).toBe(200);
+        return r.json as Record<string, unknown>;
+      };
+      const glb = kitPiece();
+      const stage = (await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages`, { body: {}, token: tb.adminToken, origin: null })).json as { stageId: string };
+      const put = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stage.stageId}/bytes`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(glb.length) },
+        body: new Uint8Array(glb),
+      });
+      expect(put.status).toBe(200);
+      const inspected = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stage.stageId}/inspect`, { body: {}, token: tb.adminToken, origin: null });
+      expect(inspected.status, JSON.stringify(inspected.json).slice(0, 400)).toBe(200);
+      const p = (inspected.json as { proposal: Record<string, unknown> }).proposal;
+      await ok('publishAsset', { mode: 'create', assetId: 'kit-piece', kind: 'model', displayName: 'Kit piece', sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: '2026-10-01T00:00:00Z' });
+      const trim = { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 4, bottom: 124 }] };
+      await ok('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: {}, trim } });
+      await ok('setMaterial', { material: { materialId: 'mat-stone', name: 'Stone', shader: 'standard', params: {}, textures: {} } });
+      await ok('setAssetOptions', { assetId: 'kit-piece', materials: { sheet: 'mat-sheet', stone: 'mat-stone' } });
+      const id = String((await ok('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Infirmary wall', model: { asset: { assetId: 'kit-piece' } } }))['createdId']);
+      // Paint as the old trim tiles did: G (grime) at half, B (wetness) full; on both surfaces (one stroke reaches every mesh).
+      await ok('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 1, channel: 2 } });
+      await ok('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 0.5, channel: 1 } });
+      const paintOf = (): { mesh: string; paint: string }[] => {
+        const r = tb.backend._test.service.readCapturedV3(PID);
+        if (!r.ok) throw new Error(r.error.code);
+        const e = (r.read.scene as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((x) => x.id === id)!;
+        return (e.components['vertexPaint'] as { meshes: { mesh: string; paint: string }[] }).meshes;
+      };
+      const before = paintOf();
+      expect(before.map((m) => m.mesh)).toEqual(['piece#0', 'piece#1']);
+      const blob = (digest: string): number[] => [...readFileSync(join(tb.root, 'data', 'projects', PID, 'sources', 'sha256', digest))];
+      const old = blob(before[0]!.paint);
+      for (let v = 0; v < 4; v++) expect(old[v * 4 + 1]! > 0 && old[v * 4 + 2]! > 0 && old[v * 4 + 3] === 0, String(old.slice(v * 4, v * 4 + 4))).toBe(true);
+
+      // The same data root, a new backend: its first read of the project opens (and upgrades) it.
+      await tb.backend.close();
+      closed = true;
+      const second = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
+      try {
+        const url = `http://127.0.0.1:${second.backend.portAuthoring}`;
+        const s = await api(`${url}/api/v1/sessions`, { body: { projectId: PID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'trim-data-upgrade' } }, token: tb.adminToken });
+        expect(s.status, JSON.stringify(s.json).slice(0, 400)).toBe(200);
+        const r = second.backend._test.service.readCapturedV3(PID);
+        if (!r.ok) throw new Error(r.error.code);
+        const asset = (r.read.content as { assets: { assetId: string; vertexColors?: string }[] }).assets.find((a) => a.assetId === 'kit-piece')!;
+        expect(asset.vertexColors).toBe('trim');
+        const e = (r.read.scene as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((x) => x.id === id)!;
+        const after = (e.components['vertexPaint'] as { meshes: { mesh: string; paint: string }[] }).meshes;
+        // The trim surface: wetness on A, nothing on G or B. The stone surface keeps its layers as painted.
+        expect(after[0]!.paint).not.toBe(before[0]!.paint);
+        const sheet = blob(after[0]!.paint);
+        for (let v = 0; v < 4; v++) expect(sheet.slice(v * 4, v * 4 + 4)).toEqual([old[v * 4]!, 0, 0, old[v * 4 + 2]!]);
+        expect(after[1]!.paint).toBe(before[1]!.paint);
+        // The model file is the game's and stays as it was (the renderer moves its COLOR_0 as it loads).
+        const file = readdirSync(join(tb.root, 'data', 'projects', PID), { recursive: true }).map(String).find((f) => f.endsWith('.glb'));
+        if (file !== undefined) expect(readFileSync(join(tb.root, 'data', 'projects', PID, file)).includes(Buffer.from(TRIM_DATA_GLTF_ATTRIBUTE))).toBe(false);
+        const problems = await api(`${url}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+        const lines = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((x) => x.code === 'project_upgraded').map((x) => x.message);
+        expect(lines).toEqual(expect.arrayContaining([
+          expect.stringContaining('1 model mapped to a trim material read its COLOR_0 as trim data now'),
+          expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
+        ]));
+      } finally {
+        await second.teardown();
+      }
+    } finally {
+      if (closed) rmSync(tb.root, { recursive: true, force: true });
+      else await tb.teardown();
+    }
+  }, 120_000);
 });

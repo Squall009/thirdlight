@@ -523,6 +523,10 @@ export {
   MAX_POLYGON_VERTICES,
   // The trim material's sampling cap and the wet look the renderer draws (trim-sheet.ts, materials.ts).
   trimMaxFootprint,
+  // The attribute trim data is kept in, in a model file and on generated architecture (trim-sheet.ts).
+  TRIM_DATA_GLTF_ATTRIBUTE,
+  TRIM_DATA_OCCLUSION,
+  TRIM_DATA_WETNESS,
   // A block layer's walls and tops as trim strips, for a material that draws them (trim-sheet.ts).
   trimRowDensity,
   trimRowMetres,

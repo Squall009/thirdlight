@@ -30,7 +30,7 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_2D_MODULE_ID, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_2D_MODULE_ID, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import type { RapierPhysicsInitConfig, RapierPhysicsPort } from '@thirdlight/physics-rapier';
@@ -323,7 +323,7 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
 /** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
 function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
   const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown; lod?: unknown; occluder?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}), ...(x.occluder === 'occ' || x.occluder === 'none' ? { occluder: x.occluder } : {}) };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(isStoredVertexColors(x.vertexColors) ? { vertexColors: x.vertexColors } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}), ...(x.occluder === 'occ' || x.occluder === 'none' ? { occluder: x.occluder } : {}) };
 }
 
 /**

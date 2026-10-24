@@ -61,6 +61,7 @@ import type {
   UiTheme,
   GameMode,
   TimelineAsset,
+  StoredVertexColors,
 } from '@thirdlight/project-model';
 import type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
 
@@ -283,8 +284,8 @@ export type CommandAssetVersion = Omit<AssetVersion, 'importRecipe'> & {
 export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
   kind: AssetKind;
   versions: CommandAssetVersion[];
-  /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
-  vertexColors?: 'tint';
+  /** Model only: `tint` = COLOR_0 multiplies the albedo, `trim` = it is trim data (absent = shader data). */
+  vertexColors?: StoredVertexColors;
   /** The labels a script may load the asset by (ascending, unique). */
   labels?: string[];
   /** Model only: the "extract textures" import setting (stored only as true). */
@@ -1416,8 +1417,9 @@ export interface PreparedBehaviorSourceFact {
 
 /**
  * `setAssetOptions`: per-asset render options. `vertexColors` (model only):
- * `data` (default: COLOR_0 is shader data, never multiplied into the albedo)
- * or `tint` (the glTF default).
+ * `data` (default: COLOR_0 is shader data, never multiplied into the albedo),
+ * `tint` (the glTF default) or `trim` (COLOR_0 was authored as trim data:
+ * R occlusion, B wetness; it is moved into the trim data as the model loads).
  */
 /**
  * `pasteEntities`: create copies of full entity values in one transaction
@@ -1433,7 +1435,7 @@ export interface PasteEntitiesArgs {
 
 export interface SetAssetOptionsArgs {
   assetId: string;
-  vertexColors?: 'data' | 'tint';
+  vertexColors?: 'data' | StoredVertexColors;
   /** The default material mapping of every placement (null = none). */
   materials?: Record<string, string> | null;
   /** An animation-only file whose clips play on this model asset's rig (null = its clips are its own). */

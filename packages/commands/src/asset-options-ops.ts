@@ -3,7 +3,8 @@
  *
  * `vertexColors` (model only): `data` (the default, stored as absence) keeps
  * COLOR_0 as shader data that never multiplies the albedo; `tint` restores the
- * glTF behaviour.
+ * glTF behaviour; `trim` reads it as trim data authored for a trim sheet
+ * (R occlusion, B wetness), moved off COLOR_0 as the model loads.
  *
  * `clipsFor` (model only, v4): marks an animation-only file whose
  * clips play on another model asset's rig (matched by bone names); null
@@ -56,7 +57,7 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   let next: CommandAssetRecord = deepClone(existing);
   if (args.vertexColors !== undefined) {
     const { vertexColors: _old, ...rest } = next;
-    next = args.vertexColors === 'tint' ? { ...rest, vertexColors: 'tint' } : rest;
+    next = args.vertexColors === 'data' ? rest : { ...rest, vertexColors: args.vertexColors };
   }
   if (args.materials !== undefined) {
     const { materials: _m, ...rest } = next as CommandAssetRecord & { materials?: Record<string, string> };

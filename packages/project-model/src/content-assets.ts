@@ -28,7 +28,10 @@ import type {
   ImportRecipe,
 } from './types-v2';
 import { ID_RE_V2 } from './components';
-import type { AssetRecordV3, AssetVersionV3 } from './types-v3';
+import type { AssetRecordV3, AssetVersionV3, StoredVertexColors } from './types-v3';
+
+/** A stored `vertexColors` value (`tint` or `trim`; absent is data). */
+export const isStoredVertexColors = (v: unknown): v is StoredVertexColors => v === 'tint' || v === 'trim';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, canonicalAudioMetrics, validateAudioLoadFields, validateAudioMetrics, validateAudioRecipe, type AudioMetrics } from './audio-assets';
 import { validateTextureStreamingField } from './texture-streaming';
 import { LOD_SCREEN_SIZES_MAX, canonicalModelLod, validateModelLodField } from './model-lod';
@@ -562,8 +565,8 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
   const vertexColors = a['vertexColors'];
   if (vertexColors !== undefined) {
     if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/vertexColors`, 'vertexColors', 'only a v3/v4 model asset has vertexColors'));
-    else if (vertexColors !== 'tint') {
-      errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" (absent = data)', 'vertexColors is stored only as "tint"; the default treats COLOR_0 as shader data'));
+    else if (!isStoredVertexColors(vertexColors)) {
+      errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" or "trim" (absent = data)', 'vertexColors is stored only as "tint" or "trim"; the default treats COLOR_0 as shader data'));
     }
   }
   validateExtractedTextures(a, path, errors, v3 && kind === 'model');
@@ -706,7 +709,7 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     displayName: a.displayName,
     currentVersion: a.currentVersion,
     versions: a.versions.map((v) => canonicalVersionV3(v, kind)),
-    ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+    ...(isStoredVertexColors(a.vertexColors) ? { vertexColors: a.vertexColors } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     ...(a.extractTextures === true ? { extractTextures: true as const } : {}),
     ...(a.textures !== undefined ? { textures: canonicalImageMap(a.textures) } : {}),

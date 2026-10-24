@@ -19,7 +19,7 @@ export function useAssetOptions(clientRef: MutableRefObject<SessionClient | null
     [clientRef, reportFailure],
   );
   const setAssetMaterials = useCallback((assetId: string, mapping: Record<string, string> | null) => setOptions('Default materials', { assetId, materials: mapping }), [setOptions]);
-  const setVertexColors = useCallback((assetId: string, mode: 'data' | 'tint') => setOptions('Vertex colours', { assetId, vertexColors: mode }), [setOptions]);
+  const setVertexColors = useCallback((assetId: string, mode: 'data' | 'tint' | 'trim') => setOptions('Vertex colours', { assetId, vertexColors: mode }), [setOptions]);
   /** Null: the default for the file's length. */
   const setAudioLoadType = useCallback((assetId: string, loadType: AudioLoadTypeChoice) => setOptions('Audio load type', { assetId, loadType }), [setOptions]);
   const setAudioPreload = useCallback((assetId: string, preload: boolean) => setOptions('Audio preload', { assetId, preload }), [setOptions]);

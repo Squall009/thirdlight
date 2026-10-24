@@ -760,7 +760,7 @@ Arguments (`args`):
 ```ts
 interface SetAssetOptionsArgs {
   assetId: string;
-  vertexColors?: 'data' | 'tint';
+  vertexColors?: 'data' | StoredVertexColors;
   /** The default material mapping of every placement (null = none). */
   materials?: Record<string, string> | null;
   /** An animation-only file whose clips play on this model asset's rig (null = its clips are its own). */

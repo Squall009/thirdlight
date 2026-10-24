@@ -6,6 +6,7 @@
  * (inspect.ts) so a format rule is changed in one short file.
  */
 import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/project-model/decal-clip-glb';
+import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model/limits';
 
 export const GLB_MAGIC = 0x46546c67; // 'glTF' little-endian
 export const GLB_VERSION = 2;
@@ -44,6 +45,8 @@ export const ATTRIBUTE_ALLOWLIST = new Set([
   'WEIGHTS_0',
   // A baked clipped decal's per-vertex fade (the engine's own custom attribute: decal materials read it).
   DECAL_FADE_GLTF_ATTRIBUTE,
+  // Trim data (R occlusion, A wetness): what the file check moves a trim model's authored COLOR_0 into.
+  TRIM_DATA_GLTF_ATTRIBUTE,
 ]);
 
 export const ANIMATION_PATHS = new Set(['translation', 'rotation', 'scale', 'weights']);
