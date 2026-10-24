@@ -33,8 +33,14 @@ Two ship, neither with game rules:
   a follow / orbit camera on a spawn point, a sun and a gradient sky, a
   ground block layer on the Basic Kit (added from `packs/basic-kit` when the
   project is made), and a 64 m terrain with a layered ground material
-  (grass, soil, rock by slope; 512² KTX2 maps, 1.4 MB). Rebuilt by
-  `templates/starter-3d/tools/build-template.mts`. The engine ships no sample
+  (grass, soil, rock by slope; 512² KTX2 maps, 1.4 MB). It also holds
+  grass for ground cover, placed nowhere until a cover rule uses it: the
+  model `meadow-grass` (pieces `grass_a`, `grass_b`, `grass_c`, tall to
+  short, each `_LOD0..2` of 55–70 / 21 / 6 triangles, wind weights in
+  COLOR_0, no collider; 26 KB) and its `meadow-grass` foliage material
+  with a 64×256 KTX2 colour texture (4 KB). Rebuilt by
+  `templates/starter-3d/tools/build-template.mts` (the grass from
+  `templates/starter-3d/tools/grass.py`, run in Blender with `bpipe`). The engine ships no sample
 games: games live in their own repositories.
 
 A project directory holds:

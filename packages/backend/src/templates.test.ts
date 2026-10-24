@@ -264,6 +264,11 @@ describe('the 3D starter', () => {
     expect(content['settings']['physics_dimension']).toBe(3);
     expect(content['kits'].map((k: { kitId: string }) => k.kitId)).toEqual(['basic-kit']);
     expect(content['materials'].map((m: { materialId: string }) => m.materialId)).toEqual(expect.arrayContaining(['basic-trim', 'starter-ground']));
+    // The grass clumps for ground cover: a model of three pieces with three levels each, wearing the foliage material and its KTX2 colour.
+    const grass = content['assets'].find((a: { assetId: string }) => a.assetId === 'meadow-grass');
+    expect(grass?.kind).toBe('model');
+    expect(content['materials'].find((m: { materialId: string }) => m.materialId === 'meadow-grass')).toMatchObject({ shader: 'foliage', textures: { map: 'meadow-grass-albedo' } });
+    expect(content['assets'].find((a: { assetId: string }) => a.assetId === 'meadow-grass-albedo')?.kind).toBe('texture');
     const entities = (read.read.scene as { entities: unknown }).entities as { id: string; name: string; components: Record<string, any> }[];
     const named = (n: string): { id: string; components: Record<string, any> } => entities.find((e) => e.name === n)!;
     expect(named('Ground blocks').components['blockLayer'].kitId).toBe('basic-kit');

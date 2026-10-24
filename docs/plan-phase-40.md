@@ -221,6 +221,7 @@ is one step in the terrain or scatter e2e.
 | Item | Status |
 |---|---|
 | 40.0 | Done 2026-10-24: three.js 0.186.1 still latest (`@types/three` 0.186.0); Rapier 0.21.0 out, pinned 0.20.0 stays (minor; phase 41). New perf class `node tools/perf/run.mjs meadow` (`tools/perf/meadow.ts`, `meadow-run.ts`, probe `bare/grass.js`; vitest `tests/perf/meadow.test.ts`): 1 km² terrain, 4 blended layers, stand-in clump 60/21/6 tris, cover 8 /m² to 60 m on the CPU path. At the 60 Hz cap, 1080p, Iris Xe: CPU cover holds (p95 16.7–16.8 ms, 0 missed, both renderers): 17,250 copies in view, 431k tris, 67 draws (45 scene), main thread 2.64 / 2.22 ms (ground alone 2.12 / 1.38), WebGPU GPU 8.3 ms (scene pass 3.99 vs 2.38 without grass). At 150 m reach it still holds on an idle host (966k tris, 153 draws, 131 scene; main 3.08 / 2.68 ms; under load average ~20 WebGPU missed 219). GPU sweep (one draw per ring): holds to ~2.1–2.9M tris in view; first misses at near 32 /m² on WebGL 2 (2.69M tris, 29 missed) and near 8 + mid 8 /m² to 150 m (4.8M, both). Proposed: near 8 /m² LOD0 to 30 m + mid 2 /m² LOD1 to 80 m (1.22M tris in view, 5 draws). Regression record at the cap (idle): landscape p95 16.7, 0 missed, 343 draws, 547k tris, main 4.2 / 4.29 ms, WebGPU GPU 9.9 ms; village 16.8, 0 missed, 222 draws, main 4.65 / 4.33 ms, GPU 7.8 ms (`~/.cache/thirdlight-phase40/baseline.md`). Fast gate green (19 min); D311 watch. |
+| 40.1 | Done 2026-10-24 (look: owner): the grass in Blender (`templates/starter-3d/tools/grass.py`, bpipe, bp.foliage strips): GLB `meadow-grass`, pieces `grass_a` tall 0.85 m / `grass_b` 0.65 m / `grass_c` 0.5 m with dry blades, 14/12/11 blades; triangles LOD0/1/2 70/21/6, 60/21/6, 55/21/6 (vertices 98/35/18, 84/35/18, 77/35/18); COLOR_0 R height share (linear, the shader squares it), G phase per blade, B flutter, A 0.9; no `_COL`, nothing hidden; 26,424 B (266 tris, 418 verts). Colour: 64×256 KTX2 ETC1S sRGB, 9 mips, 3,700 B; material `meadow-grass` foliage, roughness 0.6, subsurface 0.35, wind to `FOLIAGE_NEAR_METRES`. Ships in the 3D starter's setup pack, placed nowhere (vitest `templates.test.ts`); job export inspected and published on a real backend (`ok`, no diagnostics or warnings, problems []), looked at in the editor (`acceptance/40.1-editor-*.jpg`). Meadow `--grass template` vs stand-in, CPU cover, build of 56f45f29, at the cap, load 1.5–4.8 on 10 cores, 2 interleaved rounds: both hold (p95 16.7–16.8 ms, 0 missed, both renderers); template 1,144k tris / 38 draws (16 scene) vs 767k / 28 (6), main 2.08–2.32 / 1.77–2.02 ms vs 1.92–2.25 / 1.38–1.60, WebGPU GPU 10.5–10.7 vs 10.4–11.5 ms. No e2e file touched. |
 
 ## 5. Decision log
 
@@ -249,3 +250,18 @@ is one step in the terrain or scatter e2e.
 - 2026-10-21: The owner added one placement pipeline (stored scatter, cover
   and the instance brush through one renderer), after the maintainability
   review counted three placement systems.
+- 2026-10-24 (40.1): The grass ships in the 3D starter's setup pack as
+  content (model, KTX2 colour texture, foliage material), placed nowhere,
+  so a new project looks and costs the same until a cover rule uses it;
+  the meadow class takes it with `--grass template`. Default chosen, owner
+  to confirm. Its colour is a separate texture asset bound by the material
+  (as the Basic Kit does), not embedded in the GLB; the GLB's own colour is
+  the texture's mean green so it reads alone. COLOR_0 R is written linear in
+  height because the foliage shader squares it (`bp.foliage` writes it
+  squared, so the script overrides it). Re-running the whole
+  `build-template.mts` today also rewrites the ground material to the
+  engine's current layered material; only the grass lines were taken.
+  With three pieces the meadow draws 1.5× the triangles of the stand-in
+  (not traced; likely its wider clumps keep LOD0 further out) and 10 more
+  draws;
+  it still holds the cap on the CPU path.

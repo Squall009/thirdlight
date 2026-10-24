@@ -229,7 +229,9 @@ instance index, the patch it falls in and a heights texture, one draw per
 ring. The log ends with the budget proposed from the sweep: the heaviest
 config that held the cap, at most half the triangles of the lightest one
 that missed it (`--safety`). `--density`, `--cover-distance`, `--sweep
-id,…`, `--no-export` and `--no-sweep` narrow a run. GPU timestamps at the
+id,…`, `--no-export` and `--no-sweep` narrow a run; `--grass template`
+covers the meadow with the 3D starter's grass asset instead of the stand-in
+(one rule per clump piece, the density shared). GPU timestamps at the
 cap follow the GPU's clock, which drops when it idles, so the sweep is read
 by frames at the cap, not by GPU time.
 

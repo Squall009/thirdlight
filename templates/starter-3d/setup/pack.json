@@ -2,7 +2,7 @@
  "format": 1,
  "packId": "starter-3d",
  "name": "3D starter setup",
- "description": "What the 3D starter makes by commands once a project exists: the scene’s sky, the block ground, the terrain and its material, the camera.",
+ "description": "What the 3D starter makes by commands once a project exists: the scene’s sky, the block ground, the terrain and its material, the grass clumps for ground cover, the camera.",
  "source": {
   "designer": "art-factory Texture Designer",
   "graphs": [
@@ -12,7 +12,8 @@
   ],
   "size": 512,
   "packing": "albedo + height in A, normal, ORM (a shared packing of the designer)",
-  "note": "Original content rendered from the shared library graphs (no downloaded or third-party textures)."
+  "note": "Original content rendered from the shared library graphs (no downloaded or third-party textures).",
+  "grass": "Original content modelled by templates/starter-3d/tools/grass.py in Blender (the art-factory pipeline, bpipe)."
  },
  "folder": "assets/ground",
  "assets": [
@@ -87,6 +88,25 @@
    "file": "textures/ground-rock-orm.ktx2",
    "sha256": "f94de010c29de4231e53cb47f1fcf96cb71f6f2c22122959d3f7b83c5f83e1ed",
    "bytes": 78608
+  },
+  {
+   "assetId": "meadow-grass-albedo",
+   "kind": "texture",
+   "displayName": "Meadow grass: colour",
+   "file": "textures/meadow-grass-albedo.ktx2",
+   "sha256": "be9681e027026add3fd59957cd8dc958494d7dd6fcb2e86425042de78fffb692",
+   "bytes": 3700
+  },
+  {
+   "assetId": "meadow-grass",
+   "kind": "model",
+   "displayName": "Meadow grass (three clumps)",
+   "file": "models/meadow-grass.glb",
+   "sha256": "752d3df616338d63ab1c219631dcaa2616b2ccd59a0785bc45b1d36d65f94f4b",
+   "bytes": 26424,
+   "materials": {
+    "grass": "meadow-grass"
+   }
   }
  ],
  "commands": [
@@ -2705,6 +2725,26 @@
       }
      }
     ]
+   }
+  },
+  {
+   "op": "setMaterial",
+   "args": {
+    "material": {
+     "materialId": "meadow-grass",
+     "name": "Meadow grass",
+     "shader": "foliage",
+     "params": {
+      "color": "#ffffff",
+      "roughness": 0.6,
+      "metalness": 0,
+      "subsurface": 0.35,
+      "windDistance": 40
+     },
+     "textures": {
+      "map": "meadow-grass-albedo"
+     }
+    }
    }
   },
   {

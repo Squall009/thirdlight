@@ -20,13 +20,20 @@
  * The script (1) encodes the ground textures to KTX2 from the Texture
  * Designer's PNGs when a folder of them is given (`--textures <dir>`, holding
  * `starter3d_{grass,soil,rock}_{albedo_height,normal,orm}.png`; the KTX2
- * files are kept in the repository, the PNGs are not), (2) captures the base
- * project and (3) writes the setup pack. Re-running it gives the same bytes.
+ * files are kept in the repository, the PNGs are not), (2) takes the grass
+ * clumps from the Blender output of `grass.py` when its folder is given
+ * (`--grass <dir>`: the model is copied, its colour texture encoded to KTX2),
+ * (3) captures the base project and (4) writes the setup pack. Re-running it
+ * gives the same bytes.
+ *
+ * The grass ships as content for ground cover (a model of three clump pieces
+ * and a foliage material); the setup places none of it, so a new project
+ * looks and costs the same until a cover rule uses it.
  *
  * Run (from the repository root):
  *   npx esbuild templates/starter-3d/tools/build-template.mts --bundle --platform=node \
  *     --format=esm --external:ktx2-encoder --outfile=node_modules/.cache/tl-starter-3d.mjs \
- *     && node node_modules/.cache/tl-starter-3d.mjs [--textures <dir>]
+ *     && node node_modules/.cache/tl-starter-3d.mjs [--textures <dir>] [--grass <dir>]
  */
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -34,7 +41,7 @@ import { join, resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
 import * as ktx2 from 'ktx2-encoder';
-import { LAYERED_TEXTURES, layeredMaterial, NEW_PROJECT_ENVIRONMENT, type MaterialDef } from '@thirdlight/project-model';
+import { FOLIAGE_NEAR_METRES, LAYERED_TEXTURES, layeredMaterial, NEW_PROJECT_ENVIRONMENT, type MaterialDef } from '@thirdlight/project-model';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
 import { capture, newAuthor, run } from '../../tools/author.mts';
@@ -67,31 +74,65 @@ const MAPS = [
 const textureId = (layer: string, map: string): string => `ground-${layer}-${map}`;
 const textureFile = (layer: string, map: string): string => `textures/ground-${layer}-${map}.ktx2`;
 
+/** One PNG to KTX2: ETC1S for colour and data (small), UASTC for a normal map (the engine's colour encoding). */
+async function encodePng(path: string, mode: 'color' | 'normal' | 'data'): Promise<{ bytes: Uint8Array; width: number; height: number }> {
+  const r = decodePngRgba(new Uint8Array(readFileSync(path)), { maxPixels: 4096 * 4096, inflate: (d, max) => new Uint8Array(inflateSync(d, { maxOutputLength: max })) });
+  if (!r.ok) throw new Error(`${path}: ${r.message}`);
+  const { width, height, rgba } = r.png;
+  const colour = mode === 'color';
+  const uastc = mode === 'normal';
+  const bytes = await ktx2.encodeToKTX2(new Uint8Array(0), {
+    imageDecoder: async () => ({ width, height, data: rgba }),
+    isUASTC: uastc,
+    generateMipmap: true,
+    isKTX2File: true,
+    isNormalMap: uastc,
+    isPerceptual: colour,
+    isSetKTX2SRGBTransferFunc: colour,
+    ...(uastc ? { needSupercompression: true, enableRDO: true, rdoQualityLevel: 4 } : { qualityLevel: colour ? 128 : 255 }),
+    enableDebug: false,
+  });
+  return { bytes, width, height };
+}
+
 async function encodeTextures(dir: string): Promise<void> {
   mkdirSync(join(ROOT, 'setup', 'assets', 'textures'), { recursive: true });
   for (const l of LAYERS) {
     for (const m of MAPS) {
-      const png = `starter3d_${l.key}_${m.suffix}.png`;
-      const r = decodePngRgba(new Uint8Array(readFileSync(join(dir, png))), { maxPixels: 4096 * 4096, inflate: (d, max) => new Uint8Array(inflateSync(d, { maxOutputLength: max })) });
-      if (!r.ok) throw new Error(`${png}: ${r.message}`);
-      const { width, height, rgba } = r.png;
-      const colour = m.mode === 'color';
-      const uastc = m.mode === 'normal';
-      const out = await ktx2.encodeToKTX2(new Uint8Array(0), {
-        imageDecoder: async () => ({ width, height, data: rgba }),
-        isUASTC: uastc,
-        generateMipmap: true,
-        isKTX2File: true,
-        isNormalMap: uastc,
-        isPerceptual: colour,
-        isSetKTX2SRGBTransferFunc: colour,
-        ...(uastc ? { needSupercompression: true, enableRDO: true, rdoQualityLevel: 4 } : { qualityLevel: colour ? 128 : 255 }),
-        enableDebug: false,
-      });
-      writeFileSync(join(ROOT, 'setup', 'assets', textureFile(l.key, m.id)), out);
-      console.log(`  ${textureFile(l.key, m.id)}: ${width}×${height}, ${out.byteLength} B`);
+      const { bytes, width, height } = await encodePng(join(dir, `starter3d_${l.key}_${m.suffix}.png`), m.mode);
+      writeFileSync(join(ROOT, 'setup', 'assets', textureFile(l.key, m.id)), bytes);
+      console.log(`  ${textureFile(l.key, m.id)}: ${width}×${height}, ${bytes.byteLength} B`);
     }
   }
+}
+
+/* ------------------------------------------------------------ grass --- */
+
+/** The grass clumps (grass.py's output): one model, pieces `grass_a..c` with three levels each, one material `grass`. */
+const GRASS = { model: 'meadow-grass', texture: 'meadow-grass-albedo', material: 'meadow-grass', modelFile: 'models/meadow-grass.glb', textureFile: 'textures/meadow-grass-albedo.ktx2' } as const;
+
+async function takeGrass(dir: string): Promise<void> {
+  mkdirSync(join(ROOT, 'setup', 'assets', 'models'), { recursive: true });
+  copyFileSync(join(dir, 'meadow-grass.glb'), join(ROOT, 'setup', 'assets', GRASS.modelFile));
+  const { bytes, width, height } = await encodePng(join(dir, 'grass_albedo.png'), 'color');
+  writeFileSync(join(ROOT, 'setup', 'assets', GRASS.textureFile), bytes);
+  console.log(`  ${GRASS.textureFile}: ${width}×${height}, ${bytes.byteLength} B`);
+}
+
+/**
+ * The grass's material: the foliage shader with the clumps' colour texture
+ * and the values of a real blade (a waxy leaf of roughness about 0.6, thin
+ * enough to let some light through); wind near the camera only, the engine's
+ * foliage policy. The look is the texture's and the model's, not the shader's.
+ */
+function grassMaterial(): MaterialDef {
+  return {
+    materialId: GRASS.material,
+    name: 'Meadow grass',
+    shader: 'foliage',
+    params: { color: '#ffffff', roughness: 0.6, metalness: 0, subsurface: 0.35, windDistance: FOLIAGE_NEAR_METRES },
+    textures: { map: GRASS.texture },
+  };
 }
 
 /** The ground material: the layered surface template with the three layers' textures in its arrays, named and tiled. */
@@ -202,6 +243,8 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
         ],
       },
     },
+    // The grass clumps' material (the model's `grass` is mapped to it with the pack's assets).
+    { op: 'setMaterial', args: { material: grassMaterial() } },
     // The camera: follows and orbits the player.
     { op: 'createEntity', args: { sceneId: 'scene-main', kind: 'group', name: 'Follow camera', transform: T(0, 4, 9), components: { virtualCamera: { rig: 'follow', target: playerId, targetOffset: [0, 1.2, 0], distance: 8, pitch: 18, damping: 0.15, priority: 10 } } } },
   ];
@@ -210,25 +253,30 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
 async function main(): Promise<void> {
   const at = process.argv.indexOf('--textures');
   if (at >= 0) await encodeTextures(resolve(process.argv[at + 1] ?? '.'));
+  const grassAt = process.argv.indexOf('--grass');
+  if (grassAt >= 0) await takeGrass(resolve(process.argv[grassAt + 1] ?? '.'));
   const playerId = captureBase();
-  const assets = LAYERS.flatMap((l) =>
-    MAPS.map((m) => {
-      const bytes = new Uint8Array(readFileSync(join(ROOT, 'setup', 'assets', textureFile(l.key, m.id))));
-      return { assetId: textureId(l.key, m.id), kind: 'texture', displayName: `Ground ${l.name.toLowerCase()}: ${m.label}`, file: textureFile(l.key, m.id), sha256: sha256Hex(bytes), bytes: bytes.byteLength };
-    }),
-  );
+  const entry = (file: string): { file: string; sha256: string; bytes: number } => {
+    const bytes = new Uint8Array(readFileSync(join(ROOT, 'setup', 'assets', file)));
+    return { file, sha256: sha256Hex(bytes), bytes: bytes.byteLength };
+  };
+  const assets: Record<string, unknown>[] = [
+    ...LAYERS.flatMap((l) => MAPS.map((m) => ({ assetId: textureId(l.key, m.id), kind: 'texture', displayName: `Ground ${l.name.toLowerCase()}: ${m.label}`, ...entry(textureFile(l.key, m.id)) }))),
+    { assetId: GRASS.texture, kind: 'texture', displayName: 'Meadow grass: colour', ...entry(GRASS.textureFile) },
+    { assetId: GRASS.model, kind: 'model', displayName: 'Meadow grass (three clumps)', ...entry(GRASS.modelFile), materials: { grass: GRASS.material } },
+  ];
   const pack = {
     format: 1,
     packId: PROJECT_ID,
     name: '3D starter setup',
-    description: 'What the 3D starter makes by commands once a project exists: the scene’s sky, the block ground, the terrain and its material, the camera.',
-    source: { designer: 'art-factory Texture Designer', graphs: LAYERS.map((l) => l.graph), size: 512, packing: 'albedo + height in A, normal, ORM (a shared packing of the designer)', note: 'Original content rendered from the shared library graphs (no downloaded or third-party textures).' },
+    description: 'What the 3D starter makes by commands once a project exists: the scene’s sky, the block ground, the terrain and its material, the grass clumps for ground cover, the camera.',
+    source: { designer: 'art-factory Texture Designer', graphs: LAYERS.map((l) => l.graph), size: 512, packing: 'albedo + height in A, normal, ORM (a shared packing of the designer)', note: 'Original content rendered from the shared library graphs (no downloaded or third-party textures).', grass: 'Original content modelled by templates/starter-3d/tools/grass.py in Blender (the art-factory pipeline, bpipe).' },
     folder: 'assets/ground',
     assets,
     commands: setupCommands(playerId),
   };
   writeFileSync(join(ROOT, 'setup', 'pack.json'), `${JSON.stringify(pack, null, 1)}\n`);
-  console.log(`setup: ${assets.length} textures (${assets.reduce((s, a) => s + a.bytes, 0)} B), ${pack.commands.length} commands`);
+  console.log(`setup: ${assets.length} assets (${assets.reduce((s, a) => s + (a['bytes'] as number), 0)} B), ${pack.commands.length} commands`);
 }
 
 void main();
