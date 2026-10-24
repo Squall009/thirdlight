@@ -119,6 +119,7 @@ export const MAX_INTENSITY = 8;
 export const MAX_EMISSIVE_INTENSITY = 4;
 export const MAX_ZONE_SPAN = 1e6; // size bound
 export const MIN_BOUND_SPAN = 1e-6; // bounds span
+/** The shortest light or sun direction vector that still names a direction. */
 export const MIN_DIRECTION_NORM = 1e-6;
 export const SURFACE_DEFAULTS = Object.freeze({
   color: '#b0b0b0',

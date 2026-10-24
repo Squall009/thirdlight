@@ -9,6 +9,13 @@
 import { Rng } from './rng';
 import type { Vec3 } from './math';
 
+/**
+ * The curl's central-difference step and the offsets of its three potentials
+ * (noise units). The GPU executor reads these, so both evaluate the same field.
+ */
+export const CURL_STEP = 1e-3;
+export const CURL_OFFSETS: readonly [Vec3, Vec3, Vec3] = [[0, 0, 0], [31.416, 47.853, 12.679], [-19.37, 71.19, -53.11]];
+
 export class GradientNoise {
   private readonly perm = new Uint8Array(512);
   constructor(seed: number) {
@@ -67,11 +74,9 @@ export class GradientNoise {
    * noise units): a divergence-free vector field.
    */
   curl(p: Vec3, octaves = 1): Vec3 {
-    const e = 1e-3;
-    const O1: Vec3 = [31.416, 47.853, 12.679];
-    const O2: Vec3 = [-19.37, 71.19, -53.11];
+    const e = CURL_STEP;
     const psi = (i: 0 | 1 | 2, x: number, y: number, z: number): number => {
-      const o = i === 0 ? [0, 0, 0] : i === 1 ? O1 : O2;
+      const o = CURL_OFFSETS[i];
       return this.fbm(x + o[0]!, y + o[1]!, z + o[2]!, octaves);
     };
     const d = (i: 0 | 1 | 2, axis: 0 | 1 | 2): number => {

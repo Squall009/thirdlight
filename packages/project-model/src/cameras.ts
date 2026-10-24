@@ -134,6 +134,13 @@ export const DEFAULT_VIEW_POSE = Object.freeze({ position: Object.freeze([0, 1.6
  */
 export const DEFAULT_VIEW_ID = 'main';
 
+/**
+ * A view's forward flattened onto the ground shorter than this means it looks
+ * straight down or up, and the screen's up is read as the way forward instead.
+ * The runtime's view and the scene upgrade read a view's heading the same way.
+ */
+export const GROUND_FORWARD_MIN = 1e-3;
+
 /** The project's default lens from its settings (absent keys: `VIEW_LENS_DEFAULTS`). */
 export function viewLensOf(settings: unknown): { fovY: number; near: number; far: number } {
   const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};

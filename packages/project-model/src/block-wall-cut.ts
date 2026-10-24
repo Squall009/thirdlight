@@ -15,11 +15,10 @@
  * exactly.
  */
 
+import { GEOMETRY_EPS as ON_LINE } from './geometry-tolerance';
+
 /** A vertex while cutting: position and normal. */
 export type CutVertex = [number, number, number, number, number, number];
-
-/** A vertex closer than this (metres) to a line counts as on it. */
-const ON_LINE = 1e-6;
 
 function split(poly: CutVertex[], axis: number, value: number): [CutVertex[], CutVertex[]] {
   const below: CutVertex[] = [];

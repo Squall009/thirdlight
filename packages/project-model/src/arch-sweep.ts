@@ -22,6 +22,7 @@ import type { PathSamples } from './arch-path';
 import type { ArchitectureProfile } from './architecture';
 import type { TrimRow, TrimSheet } from './trim-sheet';
 import { trimRowDensity, trimRowV, trimRunMapping } from './trim-sheet';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** A profile ready to sweep (chamfer applied or not). */
 export interface SweepProfile {
@@ -234,8 +235,8 @@ function columnsOf(s: PathSamples, extra: readonly number[]): Column[] {
     const d0 = s.dist[j]!;
     const d1 = s.dist[j + 1]!;
     cols.push({ seg: j, f: 0, d: d0 });
-    while (x < xs.length && xs[x]! <= d0 + 1e-6) x++;
-    while (x < xs.length && xs[x]! < d1 - 1e-6) {
+    while (x < xs.length && xs[x]! <= d0 + GEOMETRY_EPS) x++;
+    while (x < xs.length && xs[x]! < d1 - GEOMETRY_EPS) {
       const d = xs[x]!;
       cols.push({ seg: j, f: (d - d0) / (d1 - d0), d });
       x++;
@@ -337,7 +338,7 @@ export function sweepProfile(w: ArchMeshWriter, s: PathSamples, p: SweepProfile,
       const hasNext = p.closed || i < np - 1;
       const px = p.pts[i * 2]!;
       const py = p.pts[i * 2 + 1]!;
-      if ((o.ground ?? true) && py <= ymin + 1e-6) corner[i] = 1;
+      if ((o.ground ?? true) && py <= ymin + GEOMETRY_EPS) corner[i] = 1;
       // A smooth profile bends gradually: no inside corner to darken.
       if (!hasPrev || !hasNext || p.smooth) continue;
       const a = (i - 1 + np) % np;

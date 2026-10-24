@@ -20,6 +20,7 @@
  */
 import type { DescriptorJson, DescriptorRegistry, FieldCondition, FieldDescriptor, HandleDescriptor, HandleKind, ObjectFieldDescriptor } from '@thirdlight/project-model';
 
+import { MIN_POLYGON_AREA } from '@thirdlight/project-model/limits';
 import { applies, deepEqual, fieldAt, setAt, type FieldPath, type Level } from './descriptor-fields';
 import type { ProjectedEntity } from './projection';
 import { getSnapSettings } from './snapping';
@@ -429,7 +430,7 @@ export function polygonProblem(pts: readonly { x: number; y: number }[]): string
     twice += a.x * b.y - b.x * a.y;
   }
   if (twice <= 0) return 'the corners must go counter-clockwise (the shape turned inside out)';
-  if (twice / 2 < 1e-6) return 'the polygon has no area';
+  if (twice / 2 < MIN_POLYGON_AREA) return 'the polygon has no area';
   for (let i = 0; i < n; i++) {
     const a = pts[i]!;
     const b = pts[(i + 1) % n]!;

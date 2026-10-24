@@ -50,6 +50,9 @@ import { GradientNoise } from './noise';
 import { compileEffect, POST_INTEGRATION_BLOCKS, type CompiledNode, type CompileOptions, type EffectDiagnostic, type EffectProgram, type SystemProgram } from './program';
 import { hash32, hashFloat, Rng } from './rng';
 
+/** The shortest particle life (seconds): a zero or negative lifetime range still gets one sliver of life. The GPU executor clamps the same. */
+export const MIN_PARTICLE_LIFETIME = 1e-3;
+
 /** A triangle mesh of a model asset (the Mesh surface position block samples it). */
 export interface EffectMesh {
   /** x, y, z per vertex. */
@@ -963,7 +966,7 @@ export class EffectInstance {
           addVelocity(scale(normalize(direction), range(this.num(b, 'speedMin', ctx), this.num(b, 'speedMax', ctx))));
           break;
         case 'init.lifetime':
-          sys.lifetime[i] = Math.max(1e-3, range(this.num(b, 'min', ctx), this.num(b, 'max', ctx)));
+          sys.lifetime[i] = Math.max(MIN_PARTICLE_LIFETIME, range(this.num(b, 'min', ctx), this.num(b, 'max', ctx)));
           break;
         case 'init.size': {
           const s = Math.max(0, range(this.num(b, 'min', ctx), this.num(b, 'max', ctx)));

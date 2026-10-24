@@ -27,6 +27,7 @@
  */
 import { distanceToEdges, pointInPolygon } from './arch-mesh';
 import type { ArchitectureRoomPlan } from './arch-style';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** The outside: the portals' other side when no room lies across them. */
 export const ROOM_OUTSIDE = -1;
@@ -270,10 +271,10 @@ function doorEdges(o: RoomGraphObject, ax: number, az: number, bx: number, bz: n
   const row = Math.ceil((y0 - ly) / cs1 - 0.5 - 1e-9);
   const out: number[] = [];
   const onLine = (v: number): boolean => Math.abs(v - Math.round(v)) < 1e-3;
-  if (Math.abs(pax - pbx) < 1e-6 && onLine(pax)) {
+  if (Math.abs(pax - pbx) < GEOMETRY_EPS && onLine(pax)) {
     const line = Math.round(pax);
     for (let k = Math.floor(Math.min(paz, pbz) - 0.5 + 1e-9) + 1; k + 0.5 < Math.max(paz, pbz) - 1e-9; k++) out.push(line, row, k, 0);
-  } else if (Math.abs(paz - pbz) < 1e-6 && onLine(paz)) {
+  } else if (Math.abs(paz - pbz) < GEOMETRY_EPS && onLine(paz)) {
     const line = Math.round(paz);
     for (let k = Math.floor(Math.min(pax, pbx) - 0.5 + 1e-9) + 1; k + 0.5 < Math.max(pax, pbx) - 1e-9; k++) out.push(k, row, line, 1);
   } else return null;

@@ -28,7 +28,7 @@
  *
  * Later format changes of the same version add their step here.
  */
-import { VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
+import { GROUND_FORWARD_MIN, VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
 
 export interface UpgradeSceneModelResult {
   /** The upgraded documents (deep copies; the inputs are untouched). */
@@ -200,7 +200,7 @@ function headingTurned(entity: Obj): boolean {
   const [x, y, z, w] = [0, 1, 2, 3].map((i) => (typeof q[i] === 'number' && Number.isFinite(q[i]) ? (q[i] as number) : i === 3 ? 1 : 0)) as [number, number, number, number];
   let fx = -2 * (x * z + w * y);
   let fz = -(1 - 2 * (x * x + y * y));
-  if (!(Math.hypot(fx, fz) > 1e-3)) {
+  if (!(Math.hypot(fx, fz) > GROUND_FORWARD_MIN)) {
     // Looking straight down (or up): the screen's up is the way forward on the ground, as the view reads it.
     fx = 2 * (x * y - w * z);
     fz = 2 * (y * z + w * x);

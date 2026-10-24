@@ -15,6 +15,8 @@
  * quaternions, presentation.md rule 2).
  */
 
+import { MIN_DIRECTION_NORM } from '@thirdlight/runtime';
+
 /** The single conservative shadow profile. Changing a value is a
  * contract change; the frozen configuration a real-browser probe ran. */
 export const SHADOW_PROFILE = Object.freeze({
@@ -151,7 +153,7 @@ export function deriveShadowCamera(
   const dy = direction[1];
   const dz = direction[2];
   const norm = Math.hypot(dx, dy, dz);
-  const valid = Number.isFinite(norm) && norm >= 1e-6;
+  const valid = Number.isFinite(norm) && norm >= MIN_DIRECTION_NORM;
   const nx = valid ? dx / norm : 0;
   const ny = valid ? dy / norm : 0;
   const nz = valid ? dz / norm : 0;

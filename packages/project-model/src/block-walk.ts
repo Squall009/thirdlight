@@ -32,6 +32,7 @@ import { blockTypeIsEdge, edgeBlocks, edgeOfSide, type BlockEdgeSide } from './b
 import { cellKeyOf, type BlockGridReader } from './block-grid';
 import { rotatedFootprint, type BlockCell, type BlockType } from './block-layers';
 import { anchoredTopAt } from './block-surface';
+import { GEOMETRY_EPS as EPS } from './geometry-tolerance';
 
 /** How a walker moves (metres and degrees). */
 export interface WalkSettings {
@@ -76,7 +77,6 @@ interface Place extends WalkPlace {
 /** The side across from each of `SIDES`. */
 const OPPOSITE = [1, 0, 3, 2] as const;
 
-const EPS = 1e-6;
 const SIDES: readonly (readonly [number, number, BlockEdgeSide])[] = [
   [1, 0, '+x'],
   [-1, 0, '-x'],

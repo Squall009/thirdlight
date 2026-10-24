@@ -17,7 +17,7 @@
  */
 import * as TSLTyped from 'three/tsl';
 
-import { srgbToLinear } from '@thirdlight/effects';
+import { CURL_OFFSETS, CURL_STEP, srgbToLinear } from '@thirdlight/effects';
 
 export type N = any;
 /** TSL untyped: node types here follow the effect graph's port types, which the checker cannot see. */
@@ -221,8 +221,8 @@ export class TslNoise {
 
   /** The curl of (fbm(p), fbm(p + O1), fbm(p + O2)) by central differences (the reference's). */
   curl(p: N, octaves: number): N {
-    const e = 1e-3;
-    const O = [vec3(0, 0, 0), vec3(31.416, 47.853, 12.679), vec3(-19.37, 71.19, -53.11)];
+    const e = CURL_STEP;
+    const O = CURL_OFFSETS.map((o) => vec3(o[0], o[1], o[2]));
     const axis = [vec3(e, 0, 0), vec3(0, e, 0), vec3(0, 0, e)];
     const d = (i: number, a: number): N => this.fbm(p.add(axis[a]!).add(O[i]!), octaves).sub(this.fbm(p.sub(axis[a]!).add(O[i]!), octaves)).div(2 * e);
     return vec3(d(2, 1).sub(d(1, 2)), d(0, 2).sub(d(2, 0)), d(1, 0).sub(d(0, 1)));

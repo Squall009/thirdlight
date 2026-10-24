@@ -40,7 +40,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { compileEffect, EffectInstance, Rng, type CompiledNode, type EffectOrigin, type EffectProgram, type SystemProgram, type WireSource } from '@thirdlight/effects';
+import { compileEffect, EffectInstance, MIN_PARTICLE_LIFETIME, Rng, type CompiledNode, type EffectOrigin, type EffectProgram, type SystemProgram, type WireSource } from '@thirdlight/effects';
 
 import { releaseStorage } from './dispose';
 import { curveNode, gradientNode, hash32, hashFloat, hexLinear, normalize0, permutationTable, rotate, toLocalPoint, toLocalVector, toWorldDirection, toWorldPoint, toWorldVector, TslNoise, TslRng, type N, type OriginNodes } from './effects-tsl';
@@ -889,7 +889,7 @@ export class GpuSystem {
         addVelocity(normalize0(p.dir!).mul(rng.range(num(ctx, blk, 'speedMin'), num(ctx, blk, 'speedMax'))));
         return;
       case 'init.lifetime':
-        p.life.assign(TSL.max(float(1e-3), rng.range(num(ctx, blk, 'min'), num(ctx, blk, 'max'))));
+        p.life.assign(TSL.max(float(MIN_PARTICLE_LIFETIME), rng.range(num(ctx, blk, 'min'), num(ctx, blk, 'max'))));
         return;
       case 'init.size': {
         const s = TSL.max(float(0), rng.range(num(ctx, blk, 'min'), num(ctx, blk, 'max'))).toVar();

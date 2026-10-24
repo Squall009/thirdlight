@@ -4,7 +4,7 @@
  * prefab definition into fresh runtime entities. A spawned copy is in the
  * running game only (never in the project, never in a save). No I/O.
  */
-import type { EntityV3, PrefabDefinition } from '@thirdlight/project-model';
+import { PLANE_ROTATION_TOLERANCE, type EntityV3, type PrefabDefinition } from '@thirdlight/project-model';
 
 /**
  * Engine limit: spawns one step may request (every script together), a
@@ -87,7 +87,7 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
   }
   // A collider needs what the scene rules ask of a physics entity.
   if (def.entities[0]!.components.collider !== undefined) {
-    if (Math.abs(rotation[0]) > 1e-6 || Math.abs(rotation[1]) > 1e-6) return { ok: false, message: `prefab "${def.prefabId}" has a collider: rotate it about Z only` };
+    if (Math.abs(rotation[0]) > PLANE_ROTATION_TOLERANCE || Math.abs(rotation[1]) > PLANE_ROTATION_TOLERANCE) return { ok: false, message: `prefab "${def.prefabId}" has a collider: rotate it about Z only` };
     if (scale[0] !== 1 || scale[1] !== 1 || scale[2] !== 1) return { ok: false, message: `prefab "${def.prefabId}" has a collider: its scale stays [1, 1, 1]` };
   }
   return { ok: true, placement: { position, rotation, scale, ...(o['keepLoaded'] === true ? { keepLoaded: true as const } : {}), ...(properties !== undefined ? { properties } : {}) } };

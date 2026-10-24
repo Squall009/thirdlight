@@ -15,7 +15,7 @@
  * step), so replays, a second run and the simulation worker see the same view
  * and the same screen rays.
  */
-import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE, SEE_THROUGH_DEFAULTS, type SeeThroughSettings } from '@thirdlight/project-model';
+import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE, GROUND_FORWARD_MIN, SEE_THROUGH_DEFAULTS, type SeeThroughSettings } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
 import { CameraBrain, type BaseLens, type CameraViewInfo, type CameraWorld } from './camera-brain';
@@ -142,7 +142,7 @@ export class RuntimeViews {
     const [x, y, z, w] = [q[0]!, q[1]!, q[2]!, q[3]!];
     let fx = -2 * (x * z + w * y);
     let fz = -(1 - 2 * (x * x + y * y));
-    if (!(Math.hypot(fx, fz) > 1e-3)) {
+    if (!(Math.hypot(fx, fz) > GROUND_FORWARD_MIN)) {
       // Looking straight down (or up): the screen's up is the way forward on the ground.
       fx = 2 * (x * y - w * z);
       fz = 2 * (y * z + w * x);

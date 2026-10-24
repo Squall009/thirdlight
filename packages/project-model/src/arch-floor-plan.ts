@@ -28,6 +28,7 @@
 import { hashString, seededRandom } from './arch-math';
 import { pointInPolygon } from './arch-mesh';
 import type { RoomProgramDef, RoomTypeDef } from './arch-plan-kinds';
+import { GEOMETRY_EPS as EPS } from './geometry-tolerance';
 
 /** [x0, z0, x1, z1], x0 < x1, z0 < z1 (metres, the object's frame). */
 export type PlanRect = [number, number, number, number];
@@ -100,7 +101,6 @@ const STAIR_WIDTH = 1;
 const STAIR_WIDTH_MIN = 0.6;
 /** Metres of wall kept either side of a door. */
 const DOOR_JAMB = 0.1;
-const EPS = 1e-6;
 
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 const area = (r: PlanRect): number => (r[2] - r[0]) * (r[3] - r[1]);

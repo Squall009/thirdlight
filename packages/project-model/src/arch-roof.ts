@@ -36,6 +36,7 @@ import { type ArchMeshWriter, fillPlanarPolygon, pointInPolygon, polygonArea2, t
 import type { ArchitectureFill } from './architecture';
 import type { TrimRow } from './trim-sheet';
 import type { FillContext, PathRect } from './arch-fill';
+import { GEOMETRY_EPS as EPS } from './geometry-tolerance';
 
 /** Mansard: the lower slope's share of the rise. */
 export const MANSARD_BREAK_DEFAULT = 0.7;
@@ -43,8 +44,6 @@ export const MANSARD_BREAK_DEFAULT = 0.7;
 /** The roof shapes this module makes. */
 export const ROOF_SHAPES: ReadonlySet<string> = new Set(['gable', 'hip', 'mansard']);
 
-/** Lengths closer than this are one (metres): footprints are drawn on cells, so sides meet exactly. */
-const EPS = 1e-6;
 
 /** Fill a 3D planar polygon whose first edge is its along axis; the face looks to the side with `facing` (positive dot). */
 export function fillPlane(w: ArchMeshWriter, pts: readonly number[][], facing: readonly number[], ctx: FillContext, row: TrimRow, edgesAo: boolean): void {

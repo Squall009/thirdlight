@@ -246,7 +246,7 @@ export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf, contro
 export { createTagQuery } from './behavior';
 export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, modelBoundsFromAssetRows, physics2DConfigOf, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext, type PhysicsInitConfig2D } from './scene-set';
 // The tuning defaults hosts and editors read (the values are project-model's).
-export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, controllerTuningOf } from '@thirdlight/project-model';
+export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, MIN_DIRECTION_NORM, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';
 // Animators and ctx.input.
 export { AnimatorMachine, ANIMATOR_SPEED_LIMITS, MAX_SCRIPT_MORPHS, type AnimatorControllerLike, type AnimatorLayerLike, type AnimatorPose, type AnimatorPoseLayer } from './animator';

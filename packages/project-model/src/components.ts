@@ -37,6 +37,9 @@ export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 export const MAX_ENTITIES_V2 = 1024;
 
+/** How far a quaternion's x and y may stray from 0 and still turn about Z only (a 2D-plane physics rotation). */
+export const PLANE_ROTATION_TOLERANCE = 1e-6;
+
 const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
@@ -838,7 +841,7 @@ export function physicsRotationErrors(comps: Record<string, unknown>, path: stri
     }
     return;
   }
-  const zOnly = Math.abs(qx) <= 1e-6 && Math.abs(qy) <= 1e-6;
+  const zOnly = Math.abs(qx) <= PLANE_ROTATION_TOLERANCE && Math.abs(qy) <= PLANE_ROTATION_TOLERANCE;
   if (!zOnly) {
     errors.push(
       withFound(
@@ -847,7 +850,7 @@ export function physicsRotationErrors(comps: Record<string, unknown>, path: stri
           path: `${path}/transform/rotation`,
           message: 'a physics-bearing entity may be rotated about the Z axis only',
           reason: 'rotation',
-          expected: '[x, y, z, w] with |x| <= 1e-6 and |y| <= 1e-6',
+          expected: `[x, y, z, w] with |x| <= ${PLANE_ROTATION_TOLERANCE} and |y| <= ${PLANE_ROTATION_TOLERANCE}`,
         },
         t.rotation,
       ),

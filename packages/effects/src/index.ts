@@ -8,10 +8,10 @@
  * Visual only: never imported by the deterministic runtime simulation.
  */
 export { compileEffect, POST_INTEGRATION_BLOCKS, type CompiledNode, type CompileOptions, type EffectDiagnostic, type EffectProgram, type SystemProgram, type TrailSpec, type WireSource } from './program';
-export { convertValue, EffectInstance, SystemState, type EffectEvent, type EffectInstanceOptions, type EffectMesh, type SpawnPlan, type StepInput } from './evaluator';
+export { convertValue, EffectInstance, MIN_PARTICLE_LIFETIME, SystemState, type EffectEvent, type EffectInstanceOptions, type EffectMesh, type SpawnPlan, type StepInput } from './evaluator';
 export { billboardAxes, flipbookFrame, flipbookRect, lightParticles, ribbonOrder } from './output';
 export { EFFECT_LIGHT_LIMIT } from '@thirdlight/project-model';
 export { evalCurve, evalGradient, evalGradientSrgb, hexToLinear, srgbToLinear } from './curves';
-export { GradientNoise } from './noise';
+export { CURL_OFFSETS, CURL_STEP, GradientNoise } from './noise';
 export { hash32, hashFloat, hashString, Rng } from './rng';
 export { IDENTITY_ORIGIN, rotate, toLocalPoint, toLocalVector, toWorldDirection, toWorldPoint, toWorldVector, type EffectOrigin, type Quat, type Vec3, type Vec4 } from './math';

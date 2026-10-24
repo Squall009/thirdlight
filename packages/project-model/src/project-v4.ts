@@ -28,7 +28,7 @@ import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
 import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { validateSceneV4 } from './scene-v3';
-import { ID_RE_V2, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
+import { ID_RE_V2, PLANE_ROTATION_TOLERANCE, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
@@ -508,7 +508,7 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
       }
       // A shape on the plane turns about Z, as its object does.
       const q = p['rotation'];
-      if (Array.isArray(q) && (Math.abs(Number(q[0])) > 1e-6 || Math.abs(Number(q[1])) > 1e-6)) {
+      if (Array.isArray(q) && (Math.abs(Number(q[0])) > PLANE_ROTATION_TOLERANCE || Math.abs(Number(q[1])) > PLANE_ROTATION_TOLERANCE)) {
         errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/rotation`, message: 'a shape on the 2D plane turns about the Z axis only', expected: '[0, 0, z, w]' } as ModelErrorV3, q));
       }
     });

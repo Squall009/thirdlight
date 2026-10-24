@@ -23,6 +23,7 @@
  * Pure: no I/O.
  */
 import { ID_RE } from './validate';
+import { MIN_DIRECTION_NORM } from './scene-v3';
 import type { ModelErrorV2 } from './errors';
 import { canonicalSceneEnvironment, validateFog, validateHeightFog, validatePost, validateSky, validateWetness, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from './materials';
 
@@ -105,7 +106,7 @@ function validateLight(value: unknown, path: string, errors: ModelErrorV2[]): vo
   if (value['groundColor'] !== undefined && !isColor(value['groundColor'])) err(errors, 'field_value', `${path}/groundColor`, 'groundColor must be a colour "#rrggbb"', value['groundColor']);
   if (value['intensity'] !== undefined && !num(value['intensity'], 0, ENVIRONMENT_PRESET_LIMITS.intensity)) err(errors, 'field_value', `${path}/intensity`, `intensity must be a number in [0, ${ENVIRONMENT_PRESET_LIMITS.intensity}]`, value['intensity']);
   const d = value['direction'];
-  if (d !== undefined && (!Array.isArray(d) || d.length !== 3 || !d.every((x) => num(x, -1, 1)) || Math.hypot(d[0] as number, d[1] as number, d[2] as number) < 1e-6)) {
+  if (d !== undefined && (!Array.isArray(d) || d.length !== 3 || !d.every((x) => num(x, -1, 1)) || Math.hypot(d[0] as number, d[1] as number, d[2] as number) < MIN_DIRECTION_NORM)) {
     err(errors, 'field_value', `${path}/direction`, 'direction is [x, y, z], each in [-1, 1], not all 0', d);
   }
 }

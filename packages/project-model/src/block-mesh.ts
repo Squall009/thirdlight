@@ -27,6 +27,7 @@ import { blockTypeIsEdge, edgeCollides, edgeFrame, edgeLookMetres, type BlockEdg
 import { cutWallPolygon, type CutVertex } from './block-wall-cut';
 import { wallPaintSteps, type WallSteps } from './block-wall-paint';
 import { blockTopAt, cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, subdividedGradientAt, subdividedHeightAt, topSubSquare, type CellCorners } from './block-surface';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** Steps per metre of the grid mesh positions are welded on (0.1 mm): points closer than a step are one point. */
 export const MESH_WELD = 1e4;
@@ -79,7 +80,7 @@ function quadsToSource(quads: readonly Quad[]): BlockMeshSource {
 function withoutInnerFaces(boxes: readonly number[][]): Quad[] {
   const all = boxes.map((b) => box(b[0]!, b[1]!, b[2]!, b[3]!, b[4]!, b[5]!));
   const out: Quad[] = [];
-  const eps = 1e-6;
+  const eps = GEOMETRY_EPS;
   all.forEach((faces, i) => {
     for (const f of faces) {
       const axis = f.n[0] !== 0 ? 0 : f.n[1] !== 0 ? 1 : 2;

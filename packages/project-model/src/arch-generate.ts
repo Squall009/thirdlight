@@ -53,6 +53,7 @@ import {
 import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { INSTANCE_FLOATS } from './types-v3';
 import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** Bumped whenever the generator's output for the same parameters changes: part of every cache key. */
 export const ARCHITECTURE_GENERATOR_VERSION = 4;
@@ -120,7 +121,7 @@ function reachOf(e: ArchitectureElement, c: ArchitectureComponent, s: PathSample
 
 /** Whether a path's samples all lie at one height. */
 function levelPath(s: PathSamples): boolean {
-  for (let i = 1; i < s.n; i++) if (Math.abs(s.pos[i * 3 + 1]! - s.pos[1]!) > 1e-6) return false;
+  for (let i = 1; i < s.n; i++) if (Math.abs(s.pos[i * 3 + 1]! - s.pos[1]!) > GEOMETRY_EPS) return false;
   return true;
 }
 
@@ -614,7 +615,7 @@ export function repeatPlaces(e: ArchitectureRepeat, c: ArchitectureComponent, s:
       if (s.sharp[i] !== 1) continue;
       const d = s.dist[i]!;
       if (d < start - 1e-9 || d > end + 1e-9) continue;
-      if (!ds.some((x) => Math.abs(x - d) < 1e-6)) ds.push(d);
+      if (!ds.some((x) => Math.abs(x - d) < GEOMETRY_EPS)) ds.push(d);
     }
     ds.sort((a, b) => a - b);
   }
@@ -1129,7 +1130,7 @@ function steppedColliders(e: ArchitectureSweep, def: ArchitectureProfile, s: Pat
       const bx = pts[k1 * 2]!;
       const by = pts[k1 * 2 + 1]!;
       // Level and looking up: walked right to left (faces look right of their direction, rotated to up).
-      if (Math.abs(ay - by) > 1e-6 || !(bx < ax) || ay <= y0 + 1e-6) continue;
+      if (Math.abs(ay - by) > GEOMETRY_EPS || !(bx < ax) || ay <= y0 + GEOMETRY_EPS) continue;
       const box = boxCollider(`${e.id}:${n}`, p, t, len, bx, ax, y0, ay);
       if (box !== null) {
         out.push(box);

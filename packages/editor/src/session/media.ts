@@ -9,7 +9,7 @@
  */
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
-import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
+import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
 
 // ---------------------------------------------------------------------------
 // Drop validation (the extension decides the kind; the bytes are checked at import)
@@ -89,7 +89,7 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
 
 export const LIGHT_INTENSITY_MAX = MAX_INTENSITY;
 export const LIGHT_DIRECTION_ABS_MAX = 1;
-export const LIGHT_DIRECTION_MIN_NORM = 1e-6;
+export const LIGHT_DIRECTION_MIN_NORM = MIN_DIRECTION_NORM;
 
 export interface LightView {
   type: 'directional' | 'ambient';

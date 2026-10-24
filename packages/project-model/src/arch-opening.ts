@@ -12,6 +12,7 @@ import { type PathSamples, samplePath } from './arch-path';
 import { profileBounds, resolveProfile, type SweepFrames, sweepPointAt, sweepProfile, segmentAt } from './arch-sweep';
 import type { ArchitectureOpening, ArchitectureProfile } from './architecture';
 import { type TrimRow, type TrimSheet, trimRowDensity, trimRowV } from './trim-sheet';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** The opening's span along a path `length` metres long, kept inside it (an opening past an end is cut there, never wrapped round). */
 export function openingAlong(o: ArchitectureOpening, length: number): { a: number; b: number } {
@@ -63,14 +64,14 @@ export function writeReveals(w: ArchMeshWriter, s: PathSamples, fr: SweepFrames,
   quad(w, [P(span.b, x1, span.bottom), P(span.b, x0, span.bottom), P(span.b, x0, span.top), P(span.b, x1, span.top)], [-tb[0]!, -tb[1]!, -tb[2]!], sheet, row, 0, h);
   // Head and sill follow the path between the jambs (a curved wall's opening curves with it).
   const ds = [span.a];
-  for (let i = 0; i < s.dist.length; i++) if (s.dist[i]! > span.a + 1e-6 && s.dist[i]! < span.b - 1e-6) ds.push(s.dist[i]!);
+  for (let i = 0; i < s.dist.length; i++) if (s.dist[i]! > span.a + GEOMETRY_EPS && s.dist[i]! < span.b - GEOMETRY_EPS) ds.push(s.dist[i]!);
   ds.push(span.b);
   for (let k = 0; k + 1 < ds.length; k++) {
     const da = ds[k]!;
     const db = ds[k + 1]!;
     const u = upAt((da + db) / 2);
     quad(w, [P(da, x0, span.top), P(db, x0, span.top), P(db, x1, span.top), P(da, x1, span.top)], [-u[0]!, -u[1]!, -u[2]!], sheet, row, da - span.a, db - span.a);
-    if (span.bottom > y0 + 1e-6) quad(w, [P(da, x1, span.bottom), P(db, x1, span.bottom), P(db, x0, span.bottom), P(da, x0, span.bottom)], u, sheet, row, da - span.a, db - span.a);
+    if (span.bottom > y0 + GEOMETRY_EPS) quad(w, [P(da, x1, span.bottom), P(db, x1, span.bottom), P(db, x0, span.bottom), P(da, x0, span.bottom)], u, sheet, row, da - span.a, db - span.a);
   }
 }
 
@@ -101,7 +102,7 @@ export function writeFrame(
   const j = segmentAt(s, mid);
   const sign = side === 'outer' ? 1 : -1;
   const out = [fr.sr[j * 3]! * sign, fr.sr[j * 3 + 1]! * sign, fr.sr[j * 3 + 2]! * sign];
-  const door = span.bottom <= y0 + 1e-6;
+  const door = span.bottom <= y0 + GEOMETRY_EPS;
   let pts: [number, number, number][] = [P(span.a, span.bottom), P(span.a, span.top), P(span.b, span.top), P(span.b, span.bottom)];
   // The profile's right (travel × out) must look away from the hole: walk the other way round if it looks in.
   const t = [pts[1]![0] - pts[0]![0], pts[1]![1] - pts[0]![1], pts[1]![2] - pts[0]![2]];

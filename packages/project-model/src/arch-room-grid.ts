@@ -28,6 +28,7 @@ import { profileBounds, resolveProfile } from './arch-sweep';
 import type { ArchitectureComponent, ArchitectureOpening, ArchitecturePaint, ArchitecturePath } from './architecture';
 import { cellKeyOf } from './block-grid';
 import type { BlockRegion } from './block-layers';
+import { GEOMETRY_EPS } from './geometry-tolerance';
 
 /** How close to a cell line (in cells) a wall's path must run to stand on it. */
 const ON_LINE = 1e-3;
@@ -52,17 +53,17 @@ function forEachLineCell(s: PathSamples, offset: readonly number[], cellSize: re
     const pz = s.pos[a * 3 + 2]! + oz;
     const qx = s.pos[b * 3]! + ox;
     const qz = s.pos[b * 3 + 2]! + oz;
-    if (Math.abs(s.pos[b * 3 + 1]! - s.pos[a * 3 + 1]!) > 1e-6) continue;
+    if (Math.abs(s.pos[b * 3 + 1]! - s.pos[a * 3 + 1]!) > GEOMETRY_EPS) continue;
     let axis: 0 | 1;
     let line: number;
     let lo: number;
     let hi: number;
     let start: number;
-    if (Math.abs(px - qx) < 1e-6 && Math.abs(px / cs0 - Math.round(px / cs0)) < ON_LINE) {
+    if (Math.abs(px - qx) < GEOMETRY_EPS && Math.abs(px / cs0 - Math.round(px / cs0)) < ON_LINE) {
       axis = 0;
       line = Math.round(px / cs0);
       [lo, hi, start] = [Math.min(pz, qz), Math.max(pz, qz), pz];
-    } else if (Math.abs(pz - qz) < 1e-6 && Math.abs(pz / cs2 - Math.round(pz / cs2)) < ON_LINE) {
+    } else if (Math.abs(pz - qz) < GEOMETRY_EPS && Math.abs(pz / cs2 - Math.round(pz / cs2)) < ON_LINE) {
       axis = 1;
       line = Math.round(pz / cs2);
       [lo, hi, start] = [Math.min(px, qx), Math.max(px, qx), px];
