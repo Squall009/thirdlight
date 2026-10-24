@@ -3,9 +3,18 @@
  *
  * The selected entity's name, flags, tags and gizmo mode, then
  * one section per component built from its descriptor (`DescriptorFields`),
- * with descriptor-keyed extensions where a custom widget adds something (the
- * capsule's "Fit to model", an exit's editor, the material mapping, the
- * script's declared properties), and "+ Add component".
+ * with descriptor-keyed extensions where a custom widget adds something, and
+ * "+ Add component". Every field a descriptor describes is drawn from it; the
+ * hand-built parts are the declared exceptions, each because a descriptor
+ * cannot carry it:
+ * - name, flags and tags: entity fields, not a component (`updateEntity`);
+ * - the script's properties: their schema is the published declaration of the
+ *   chosen script, edited one property per `setBehaviorProperties`;
+ * - the capsule's "Fit to model" and "Default": actions, not fields;
+ * - the instance set's copy count and copy tools: live state and actions;
+ * - the bodies and extensions the dock passes in (the material mapping knows
+ *   the model's own material names; the rest are actions and Scene-view hints);
+ * - the parent-capsule note: a fact about another object.
  * Every control is **schema-driven from published declaration data** — nothing
  * here evaluates behavior code or discovers a schema at runtime. Edits flow
  * through typed commands issued by the app (one `setBehaviorProperties` per
@@ -22,7 +31,6 @@ import type { ProjectedEntity } from '../session/projection';
 import type { EffectiveEntityFlags } from '../session/hierarchy';
 import { deriveBehaviorControls } from '../session/property-controls';
 import { addEntries, componentOp, componentPatch, firstReference, removable, seedsOf, type FieldPath } from '../session/descriptor-fields';
-import { CAPSULE_LIMITS } from '@thirdlight/runtime';
 import type { GizmoMode } from '../viewport/viewport';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 import { AddComponent, ComponentSection, type AddExtra, type FieldContext } from './DescriptorFields';
@@ -199,15 +207,14 @@ function CommitField(props: { value: string; label: string; className: string; o
 }
 
 /**
- * A descriptor-keyed extension of the controller section: the capsule
- * note, "Fit to model" and "Default" next to the generic capsule fields.
+ * A descriptor-keyed extension of the controller section: "Fit to model" and
+ * "Default" next to the capsule fields (their ranges and rules are the descriptor's).
  */
 function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: () => void }): JSX.Element {
-  const L = CAPSULE_LIMITS;
   return (
     <>
       <p className="tl-inspector__hint">
-        A capsule {props.stored ? '' : '(the default: an adult human) '}that every system uses: physics, spawns, triggers, collectibles and hitboxes. Drag its top or side handle in the Scene view. Radius {L.minRadius}–{L.maxRadius} m, height {L.minHeight}–{L.maxHeight} m (at least twice the radius), offset up to ±{L.maxOffset} m.
+        {props.stored ? 'This object\'s own capsule' : 'The default capsule'}: drag its top or side handle in the Scene view.
       </p>
       <div className="tl-inspector__modes">
         <button className="tl-btn" onClick={props.onFit} title="Size the capsule to this object's models: their height, half the smaller of width and depth, feet at their lowest point">

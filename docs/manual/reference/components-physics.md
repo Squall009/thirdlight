@@ -101,9 +101,9 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `capsule` | object |  |  | **Capsule.** The collision capsule (absent: 0.3 m radius, 1.8 m tall — an adult human). (scripts read; rules: height ≥ 2 × radius) |
+| `capsule` | object |  |  | **Capsule.** The collision capsule every system uses: physics, spawns, triggers, collectibles and hitboxes (absent: 0.3 m radius, 1.8 m tall — an adult human). (scripts read; rules: height ≥ 2 × radius) |
 | `capsule.radius` | number | `0.3` | 0.05 – 5, step 0.01, m | **Radius.** Half the capsule width. (required; Scene handle: capsule) |
-| `capsule.height` | number | `1.8` | 0.1 – 20, step 0.01, m | **Height.** Total height, both end caps included. (required; Scene handle: capsule) |
+| `capsule.height` | number | `1.8` | 0.1 – 20, step 0.01, m | **Height.** Total height, both end caps included (at least twice the radius). (required; Scene handle: capsule) |
 | `capsule.offset` | vec3 [x, y, z] (last may be left out) | `[0,0]` | -5 – 5, step 0.01, m | **Offset.** The capsule centre from the object origin (z: in a 3D project). (Scene handle: capsule) |
 | `acceleration` | number | `40` | 0.1 – 1000, step 1, m/s² | **Acceleration.** How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s). (scripts read) |
 | `deceleration` | number | `60` | 0.1 – 1000, step 1, m/s² | **Deceleration.** How fast it slows down when the input eases or stops. (scripts read) |
