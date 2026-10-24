@@ -253,8 +253,8 @@ its regions, its wall paint shows on their faces.
   (`ctx.grid.regions/region/inRegion`: the outline's id, `-s1`, `-s2`… up).
   A room's ground floor lies 1 cm over the cells it stands on. The layer's
   **wall paint** (the block editor's Paint, Paint on: Walls) reaches the rooms' walls and is
-  read onto the generated vertices (paint layer 3 as grime, the wetness as
-  wetness), made again with them, so it stays where it was painted; a
+  read onto the generated vertices (its wetness as their wetness; there is
+  no built-in grime), made again with them, so it stays where it was painted; a
   chunk's key carries the paint it reads (a stroke re-makes only those).
 - **Starters**: `starter-fence` (posts and a rail) and `starter-pipe` (a
   round section, capped) join the room, hall and rail; the style graph has

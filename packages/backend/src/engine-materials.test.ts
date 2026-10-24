@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { layeredMaterial } from '@thirdlight/project-model/layered-surface';
 import { defaultTrimSheet } from '@thirdlight/project-model/trim-sheet';
 
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
@@ -161,6 +162,24 @@ describe('graph materials\' problems on the backend', () => {
     expect((await materials('?materialId=mat-trim')).materials[0]!.problems).toEqual([]);
     problems = (await get(`/api/v1/projects/${P}/problems`)).json as typeof problems;
     expect(problems.materialProblems.map((r) => r.materialId)).not.toContain('mat-trim');
+  });
+
+  it('trim sheets with other rows in one layered material are an error naming the rows that differ and why', async () => {
+    const rows = defaultTrimSheet();
+    const other = { ...rows, rows: rows.rows.map((r, i) => (i === 0 ? { ...r, bottom: r.bottom - 8 } : r)) };
+    expect((await command('setMaterial', { material: { materialId: 'mat-sheet-a', name: 'Sheet A', shader: 'trim', params: { color: '#ffffff' }, textures: {}, trim: rows } })).ok).toBe(true);
+    expect((await command('setMaterial', { material: { materialId: 'mat-sheet-b', name: 'Sheet B', shader: 'trim', params: { color: '#ffffff' }, textures: {}, trim: other } })).ok).toBe(true);
+    const layered = { ...layeredMaterial('mat-two-sheets', 'Two sheets'), layerSheets: ['mat-sheet-a', 'mat-sheet-b'] };
+    expect((await command('setMaterial', { material: layered })).ok).toBe(true);
+    await settle();
+    // (Its layers have no textures yet: those problems are not this test's.)
+    const sheetProblems = async (): Promise<Row['problems']> => (await materials('?materialId=mat-two-sheets')).materials[0]!.problems.filter((p) => p.message.includes('trim sheet'));
+    expect(await sheetProblems()).toEqual([{ severity: 'error', message: `layer 2's trim sheet "mat-sheet-b" has other rows than layer 1's "mat-sheet-a": trim sheets blended on one mesh share its trim UVs, so they need one row layout (e.g. a clean and a worn version of one sheet) — ${rows.rows[0]!.slot} differ` }]);
+    // The same sheet twice (a clean and a worn version share its rows) is fine.
+    expect((await command('setMaterial', { material: { ...layered, layerSheets: ['mat-sheet-a', 'mat-sheet-a'] } })).ok).toBe(true);
+    await settle();
+    expect(await sheetProblems()).toEqual([]);
+    expect((await command('deleteMaterial', { materialId: 'mat-two-sheets' })).ok).toBe(true);
   });
 
   it('a project loaded by a new backend is checked at its load', async () => {

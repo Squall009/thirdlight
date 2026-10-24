@@ -176,7 +176,7 @@ function sheetProblems(m: { readonly layerSheets?: readonly string[] }, material
   });
   const first = m.layerSheets.findIndex((id) => id !== '' && sheetOf(id) !== null);
   for (const x of layerSheetMismatches(m, sheetOf)) {
-    out.push({ severity: 'error', message: `layer ${x.layer + 1}'s trim sheet "${x.sheet}" has other rows than layer ${first + 1}'s "${m.layerSheets[first]}" (one row table is read for every trim layer): ${x.differ.join(', ')} differ` });
+    out.push({ severity: 'error', message: `layer ${x.layer + 1}'s trim sheet "${x.sheet}" has other rows than layer ${first + 1}'s "${m.layerSheets[first]}": trim sheets blended on one mesh share its trim UVs, so they need one row layout (e.g. a clean and a worn version of one sheet) — ${x.differ.join(', ')} differ` });
   }
   return out;
 }

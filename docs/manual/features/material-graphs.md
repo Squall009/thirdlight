@@ -288,24 +288,22 @@ multisampled pixel never reads past its row). Textures are sampled without
 anisotropy.
 
 A trim material draws as a [layered surface](#layered-surface) with one
-layer — the sheet at the mesh's UVs, inside its rows — and a layer of grime
-colour: the same three reads and the same pixels as before.
+layer — the sheet at the mesh's UVs, inside its rows: the same three reads.
 
-The mesh's COLOR_0 is data: **R occlusion** (0 open), **G grime**, **B
-wetness** (a mesh without it is clean and dry). On a trim material the
-vertex paint keeps the meaning it was painted with: its **G** adds to the
-grime and its **B** to the wetness. The material blends them
-with no texture read of its own: grime takes the **grimeColor** and roughens
-(crevices of the ORM's occlusion first; **grime** scales it), wetness — the
+The mesh's COLOR_0 is data: **R occlusion** (0 open), **B wetness** (a mesh
+without it is clean and dry; G is not read). The vertex paint means what it
+means on any layered surface: a trim material is one layer, so only its
+**A** (wetness) shows. There is no built-in grime: dirt is a layer of a
+layered surface, painted like any other (make the trim material a layered
+surface in the vertex paint editor, then paint a dirt layer). Wetness — the
 vertex's or the material's **wetness**, the larger, plus the scene's —
 darkens the albedo ×0.55, smooths toward roughness 0.1 and flattens the
 normal map (**wetFlatten**), occlusion darkens the indirect light
 (**occlusion** strength). **roughness**/**metalness** scale the ORM's (1:
 the sheet's own). No lightmaps: probes and the generator's vertex occlusion
-light it. Generated meshes on a block layer take the layer's wall paint
-([Blocks](blocks.md)) at their vertices each time they are made (grime from the third
-paint layer by default, the painted wetness), so paint survives
-regeneration.
+light it. Generated meshes on a block layer take the layer's painted
+wetness ([Blocks](blocks.md)) at their vertices each time they are made, so
+paint survives regeneration.
 
 Cost (`node tools/perf/run.mjs trim`, one mesh of strips filling ~85 % of a
 1920 × 1080 view on the Iris Xe): WebGPU scene pass 2.76 ms against 2.51 ms
@@ -341,20 +339,23 @@ edit mode's **Layer settings…**):
 - **trim sheet**: the trim material a layer follows — picking one puts the
   sheet's textures in the layer and sets mesh UVs; the layer then reads
   inside the sheet's rows (no bleeding at a distance), and generated walls
-  wearing the material lay their strips on those rows. Every sheet a
-  material names shares one row table: sheets whose rows differ are a
-  problem that lists the rows;
+  wearing the material lay their strips on those rows. Any layer can be a
+  trim sheet or a tiling texture. **Trim sheets blended on one mesh share
+  that mesh's trim UVs**, so every sheet a material names must have the same
+  row layout (a clean and a worn version of one sheet, say): sheets whose
+  rows differ are an error in Problems that lists the rows;
 - tiling (metres per repeat), normal strength, height contrast and offset.
 
 **What blends them**: a terrain's and a painted block layer's stored
 weights; on anything else the **vertex paint** — layer 1 is the base (what
 the others leave, 1 − (R + G + B)), **R**, **G** and **B** are layers 2–4,
 and **A** is the wetness (an unpainted model's own vertex colours are its
-weights). Generated architecture's own vertex data adds its wetness, its
-baked corner shading darkens the indirect light (**occlusion**), and its
-grime (the block layer's path paint under it) pulls the colour toward
-**grimeColor** and the surface toward matte, by **grime** — grime, never one
-of the layers. Wetness — painted, the **wetness**
+weights). Generated architecture's own vertex data adds its wetness and
+its baked corner shading darkens the indirect light (**occlusion**). There
+is no built-in grime: dirt, moss or soot is one of the layers, painted.
+Projects stored with grime (a trim material's **grime** and **grimeColor**,
+a layered graph's grime mix) lose it at the open, and one Problems line
+names the materials whose grime was set. Wetness — painted, the **wetness**
 parameter or the scene's — pools in the low parts first, darkens and
 smooths the surface and flattens the normal maps.
 

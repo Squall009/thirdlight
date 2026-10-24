@@ -76,7 +76,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     fresnel: num(0, 10, 3),
     doubleSided: bool(false),
   },
-  // A trim sheet: three reads, the footprint capped at the sheet's safe mip level; COLOR_0 R occlusion, G grime, B wetness.
+  // A trim sheet: three reads, the footprint capped at the sheet's safe mip level; COLOR_0 R occlusion, B wetness.
   trim: {
     color: color('#ffffff'),
     roughness: num(0, 1, 1),
@@ -84,8 +84,6 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     normalScale: num(0, 4, 1),
     aoIntensity: num(0, 2, 1),
     occlusion: num(0, 1, 1),
-    grimeColor: color('#3b3328'),
-    grime: num(0, 2, 1),
     wetness: num(0, 1, 0),
     wetFlatten: num(0, 1, 0.7),
     alphaMode: { kind: 'enum', values: ['opaque', 'cutout'], default: 'opaque' },

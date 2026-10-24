@@ -423,7 +423,7 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   time: { inputs: [], outputs: [P('time', 'float')] },
   uv: { inputs: [], outputs: [P('uv', 'vec2')] },
   vertexColor: { inputs: [], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3'), P('alpha', 'float')] },
-  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float'), P('grime', 'float')] },
+  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float')] },
   position: { inputs: [], outputs: [P('position', 'vec3')] },
   normal: { inputs: [], outputs: [P('normal', 'vec3')] },
   viewDirection: { inputs: [], outputs: [P('direction', 'vec3')] },
@@ -721,7 +721,7 @@ export const LIGHTING_TYPES: ReadonlySet<string> = new Set(['mainLight', 'lightS
  */
 /**
  * The vertex attribute generated architecture keeps its trim data in (the
- * trim sheet's convention: R occlusion, G grime, B wetness), apart from
+ * trim sheet's convention: R occlusion, B wetness; G is not read), apart from
  * COLOR_0, which a mesh's own vertex colours (layer weights, a tint) use.
  */
 export const TRIM_DATA_ATTRIBUTE = 'tlTrimData';
@@ -1157,13 +1157,13 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           // A terrain's per-pixel weights (and its wetness where it keeps one); no vertex occlusion.
           const w = env.surface.vertexColor('color') ?? T.vec4(1, 0, 0, 0);
           const wet = env.surface.vertexColor('color_1');
-          return { weights: { t: 'vec4', n: w }, wetness: { t: 'float', n: wet !== null ? wet.x : T.float(0) }, occlusion: { t: 'float', n: T.float(0) }, grime: { t: 'float', n: T.float(0) } };
+          return { weights: { t: 'vec4', n: w }, wetness: { t: 'float', n: wet !== null ? wet.x : T.float(0) }, occlusion: { t: 'float', n: T.float(0) } };
         }
         type B = { geometry?: THREE.BufferGeometry };
         const has = (b: B, attr: string): boolean => b.geometry?.hasAttribute(attr) === true;
         // Stored weights: a painted block layer's COLOR_0 beside its wetness in COLOR_1.
         const stored = (b: B): boolean => has(b, 'color') && has(b, 'color_1');
-        // Generated architecture's trim data (R occlusion, G grime, B wetness).
+        // Generated architecture's trim data (R occlusion, B wetness).
         const trimData = (b: B): N | null => (has(b, TRIM_DATA_ATTRIBUTE) ? T.attribute(TRIM_DATA_ATTRIBUTE, 'vec4') : null);
         const weights = T.Fn((b: B) => {
           if (stored(b)) return T.attribute('color', 'vec4');
@@ -1172,8 +1172,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           // A mesh's own vertex colours, unpainted, are its weights.
           if (!painted && has(b, 'color')) return T.attribute('color', 'vec4');
           if (data === null && !painted) return T.vec4(1, 0, 0, 0);
-          // The trim data's grime is not a layer: it is the grime output's (a layered surface's second layer is whatever
-          // the user put there — a second trim sheet would show the path paint as that sheet).
+          // The trim data holds no weights: its G (old path-paint grime) is not read — a layered surface's second layer is
+          // whatever the user put there, and dirt is a layer painted like any other.
           return paintLayers(painted ? paintNode() : T.vec4(0, 0, 0, 0));
         })();
         const wetness = T.Fn((b: B) => {
@@ -1184,8 +1184,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
           return data === null ? paintNode().w : T.max(paintNode().w, data.z);
         })();
         const occlusion = T.Fn((b: B) => trimData(b)?.x ?? T.float(0))();
-        const grime = T.Fn((b: B) => trimData(b)?.y ?? T.float(0))();
-        return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion }, grime: { t: 'float', n: grime } };
+        return { weights: { t: 'vec4', n: weights }, wetness: { t: 'float', n: wetness }, occlusion: { t: 'float', n: occlusion } };
       }
       case 'position': {
         const space = str(field(node, 'space'), 'world');

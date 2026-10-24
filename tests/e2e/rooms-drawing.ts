@@ -24,7 +24,7 @@
  * pieces (picked in the column, the holes sized to them) in the back room's west wall, Wall piece puts
  * the window on a segment of the front room's west wall (out of the Play camera's reads); a third room with a
  * wall piece is deleted, its piece with it. The block
- * editor's Paint mode paints grime (paint layer 3) on the front wall's outer face.
+ * editor's Paint mode paints layer 3 (the old grime, drawn as nothing now) on the front wall's outer face.
  * Draw-to-visible and the drag's regeneration are timed from the marks.
  */
 import { readFileSync } from 'node:fs';
@@ -88,8 +88,8 @@ const preset = (style: string, sheet: string): Record<string, unknown> => ({ nod
 
 /**
  * Where the rooms are read in a picture of the fixed camera (world points)
- * and the row each shows: the front wall's outer face, the grime painted on
- * it, the shared wall's front-room face seen through the arch, the back
+ * and the row each shows: the front wall's outer face, the paint layer 3 (the
+ * old grime, drawn as nothing now) painted on it, the shared wall's front-room face seen through the arch, the back
  * room seen through the door in it, and a fence post.
  */
 export const ROOM_READS = {
@@ -508,7 +508,7 @@ export async function drawRooms(page: Page, cmd: Cmd, query: Query, trimId: stri
   expect((await roomsObject())?.architecture.overrides?.map((o) => o.element.startsWith('room-1-'))).toEqual([true]);
   await expect(rooms.getByLabel('room room-3', { exact: true })).toHaveCount(0);
 
-  // Grime: the Paint mode, layer 3 on walls, one dab on the front wall's outer face.
+  // The old grime: the Paint mode, layer 3 on walls, one dab on the front wall's outer face (it draws nothing now).
   await editModeTab(page, 'Paint');
   await blocks.getByRole('radio', { name: 'paint layer 3', exact: true }).click();
   await blocks.getByRole('radiogroup', { name: 'paint target' }).getByRole('radio', { name: 'Walls', exact: true }).click();

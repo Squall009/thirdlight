@@ -89,8 +89,8 @@ const BEFORE: Readonly<Record<string, string>> = {
   tinted: '2a9c50218bd57d29',
   'tinted@columns': '08b843b05c8ac840',
   // The trim material as the layered surface it draws as (test-wgsl.ts).
-  trim: '67e7a99af8a145f6',
-  'trim@columns': '3d6ef8d55fd866f8',
+  trim: '691c974d9e47a45f',
+  'trim@columns': '3f3312602eb3b5aa',
   unlit: 'c2f4be09abc549e7',
   'unlit@columns': 'f911970bc22982aa',
   vertexTint: '206d520177dbc150',

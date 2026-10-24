@@ -26,7 +26,6 @@ import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
-import { GRIME_COLOUR } from './layered-surface';
 import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
 import { DECAL_BLENDS, DECAL_DEFAULTS, DECAL_LIMITS, validateDecalCellRef, type DecalCellRef } from './decals';
 
@@ -112,8 +111,8 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     doubleSided: bool(false),
   },
   // A trim sheet (`trim-sheet.ts`): its three maps read once each, the footprint capped at the sheet's safe mip
-  // level; COLOR_0 is data — R occlusion, G grime, B wetness — blended with no read of its own. Roughness and
-  // metalness scale the ORM's (1: the sheet's own).
+  // level; COLOR_0 is data — R occlusion, B wetness — blended with no read of its own. Roughness and metalness
+  // scale the ORM's (1: the sheet's own). No grime: dirt is a painted layer of a layered surface.
   trim: {
     color: color('#ffffff'),
     roughness: num(0, 1, 1),
@@ -122,10 +121,7 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     aoIntensity: num(0, 2, 1),
     // How much of the vertex occlusion (R) darkens the indirect light.
     occlusion: num(0, 1, 1),
-    grimeColor: color(GRIME_COLOUR),
-    // Scales the vertex grime (G); crevices (the ORM's occlusion) take it first.
-    grime: num(0, 2, 1),
-    // Rain on this material, over the vertex wetness (B); the scene's wetness adds to both.
+    // Rain on this material, over the vertex wetness (COLOR_0 B, paint A); the scene's wetness adds to both.
     wetness: num(0, 1, 0),
     // How much wetness flattens the normal map.
     wetFlatten: num(0, 1, 0.7),
@@ -212,7 +208,7 @@ export const MATERIAL_DECLARATIONS: Readonly<Record<MaterialShader, Readonly<Par
   kit: { alphaIsOpacity: ALPHA_COVERAGE },
   unlit: { alphaIsOpacity: ALPHA_COVERAGE },
   water: {},
-  // COLOR_0 R is occlusion; vertex paint adds to the grime and wetness tints. The albedo's alpha is not read.
+  // COLOR_0 R is occlusion; vertex paint's A adds to the wetness. The albedo's alpha is not read.
   trim: { trimRows: true, vertexAO: true, vertexPaint: true, alphaIsOpacity: { param: 'alphaMode', in: ['cutout'] } },
   decal: { writesDecal: true, alphaIsOpacity: true },
 };

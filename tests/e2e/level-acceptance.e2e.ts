@@ -47,8 +47,8 @@
  * red), and an instance set of three (the middle copy red: still one draw);
  * (the pair's other block and the kerb's west half are painted blue in the
  * editor, below);
- * the shed's front wall painted with grime (G) over the trim sheet, which
- * stays when the swap makes its facade anew; and a kerb (a spline's strip)
+ * the shed's front wall painted with G over the trim sheet (the old grime: it
+ * draws nothing now, the sheet shows), also when the swap makes its facade anew; and a kerb (a spline's strip)
  * painted red along its east half. (At this distance generated meshes draw
  * their far levels, whose vertices are fewer: paint shows at those
  * vertices, so the strokes cover whole faces.) Play's diagnostics count the painted
@@ -159,7 +159,7 @@ const PAINT_TOP = BASE + 0.7;
 const CORNER_DECAL = { at: [ROOM.x[1] + 0.1, BASE + 1.6, ROOM.z[1] + 0.1] as V3, size: [1.2, 3.4, 1.6], rotation: [0, Math.sin(Math.PI / 8), 0, Math.cos(Math.PI / 8)], edgeFade: [0.1, 0.1] } as const;
 /** A shed (a building, an object of its own) whose facade alone names a swapped preset. */
 const SHED = { x: [6, 10], z: [-7, -4] } as const;
-/** The shed's front wall painted with grime around this point (both faces of its outline), and the kerb's red half (from `spot`). */
+/** The shed's front wall painted with G (the old grime) around this point (both faces of its outline), and the kerb's red half (from `spot`). */
 const WALL_PAINT_AT: V3 = [(SHED.x[0] + SHED.x[1]) / 2, BASE + 1.5, SHED.z[1]];
 const KERB = { at: [-2, BASE, -3.2] as V3, half: 3, width: 2, spot: 1.5 } as const;
 
@@ -207,11 +207,11 @@ const isSkyBlue: Pred = (r, g, b) => b > 110 && b > 1.4 * r && b > 1.15 * g;
 const isSheetA: Pred = (r, g, b) => g > 70 && g > 1.5 * r && g > 1.5 * b;
 /** Sheet B's purple: trim draws at the sheet's own colour (a white tint), so its sunlit faces (the pipe, the shed roof) read a brighter, paler purple than the walls. */
 const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.35 * g && b > 1.8 * g;
-/** The paint's red and blue tints over white; the white of an unpainted block; the trim's grime (a dark brown). */
+const isSheet: Pred = (r, g, b) => isSheetA(r, g, b) || isSheetB(r, g, b);
+/** The paint's red and blue tints over white; the white of an unpainted block. */
 const isPaintRed: Pred = (r, g, b) => r > 90 && g < 0.4 * r && b < 0.4 * r;
 const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.5 * b && g < 0.5 * b;
 const isPaintPlain: Pred = (r, g, b) => Math.min(r, g, b) > 90 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
-const isGrime: Pred = (r, g, b) => r > 20 && r < 150 && g <= 1.1 * r && g >= 0.55 * r && b <= r && b >= 0.4 * r;
 /** The decals' yellow (lit, in the light or the shade). */
 const isDecalYellow: Pred = (r, g, b) => r > 80 && g > 0.7 * r && g < 1.2 * r && b < 0.6 * Math.min(r, g);
 /** The corner mark's orange, lit or in the shade of the room's east face (dim, red well over green and blue). */
@@ -308,7 +308,7 @@ async function paintThings(shed: string): Promise<{ pair: string; kerb: string }
   const buffer = ((await res.json()) as { digest: string }).digest;
   const set = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Painted set', transform: { position: [...PAINT_SET.at] }, components: { instances: { asset: { assetId: 'acc-paint', piece: 'block' }, buffer, count: PAINT_SET.copies.length }, ...tinted } }))['createdId']);
   await stroke(set, centre(PAINT_SET.at[0], PAINT_SET.at[2]), RED, 0.8, { copy: 1 });
-  // The shed's front wall: grime (G) on both sides of its outline, the whole face (its far level's vertices are its corners).
+  // The shed's front wall: G (the old grime) on both sides of its outline, the whole face (its far level's vertices are its corners).
   for (const side of ['left', 'right']) await stroke(shed, WALL_PAINT_AT, [1], 3, { path: 'building:shed-1', side });
   // The kerb: a strip along x on the paved strip, red at one spot of its top.
   const kerb = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Kerb', static: true, transform: { position: [...KERB.at] } }))['createdId']);
@@ -559,7 +559,11 @@ function judgeArchitecture(img: Image, sheet: Pred, near = reader(img, CAMERA).n
   };
 }
 
-/** The painted blocks, the room's grime and the kerb's spot (the same with either sheet: the paint survives the room made anew). */
+/**
+ * The painted blocks, the shed wall's G and the kerb's spot (the same with either sheet: the paint survives the room
+ * made anew). The wall's G was grime; there is no built-in grime, so a sheet shows there (the shed's front wall keeps
+ * sheet A through the swap).
+ */
 function judgePaint(near: (label: string, p: V3, t: Pred, size?: number) => number): Reads {
   const top = (x: number, z = PAINT_ROW_Z): V3 => [x, PAINT_TOP, z];
   return {
@@ -571,7 +575,7 @@ function judgePaint(near: (label: string, p: V3, t: Pred, size?: number) => numb
     paintMergedBlue: near('merged blue (editor)', top(PAINT_PAIR_X[1]), isPaintBlue, 4),
     paintCopyRed: near('copy red', top(PAINT_SET.at[0], PAINT_SET.at[2]), isPaintRed, 4),
     paintCopyPlain: near('copy plain', top(PAINT_SET.at[0] + PAINT_SET.copies[2], PAINT_SET.at[2]), isPaintPlain, 4),
-    paintWall: near('wall grime', [WALL_PAINT_AT[0], WALL_PAINT_AT[1], SHED.z[1] + 0.12], isGrime, 6),
+    paintWall: near('wall G (no grime)', [WALL_PAINT_AT[0], WALL_PAINT_AT[1], SHED.z[1] + 0.12], isSheet, 6),
     paintKerb: near('kerb red', [KERB.at[0] + KERB.half - 0.3, BASE + 0.06, KERB.at[2]], isPaintRed, 4),
     paintKerbBlue: near('kerb blue (editor)', [KERB.at[0] - KERB.half + 0.3, BASE + 0.06, KERB.at[2]], isPaintBlue, 4),
   };

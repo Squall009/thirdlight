@@ -384,16 +384,6 @@
        "default": "#ffffff"
       },
       {
-       "key": "grime",
-       "type": "float",
-       "default": 1
-      },
-      {
-       "key": "grimeColor",
-       "type": "color",
-       "default": "#3b3328"
-      },
-      {
        "key": "wetness",
        "type": "float",
        "default": 0
@@ -705,52 +695,6 @@
         ]
        },
        {
-        "id": "grimeAmount",
-        "type": "saturate",
-        "position": [
-         -720,
-         240
-        ]
-       },
-       {
-        "id": "grime",
-        "type": "parameter",
-        "position": [
-         -1200,
-         240
-        ],
-        "data": {
-         "key": "grime"
-        }
-       },
-       {
-        "id": "grimeScaled",
-        "type": "multiply",
-        "position": [
-         -960,
-         240
-        ]
-       },
-       {
-        "id": "grimeColourMix",
-        "type": "lerp",
-        "position": [
-         -480,
-         0
-        ]
-       },
-       {
-        "id": "grimeColor",
-        "type": "parameter",
-        "position": [
-         -720,
-         360
-        ],
-        "data": {
-         "key": "grimeColor"
-        }
-       },
-       {
         "id": "wetness",
         "type": "parameter",
         "position": [
@@ -1052,25 +996,6 @@
          -240,
          0
         ]
-       },
-       {
-        "id": "grimeRoughMix",
-        "type": "lerp",
-        "position": [
-         -480,
-         720
-        ]
-       },
-       {
-        "id": "grimeRoughness",
-        "type": "float",
-        "position": [
-         -720,
-         1320
-        ],
-        "data": {
-         "value": 0.95
-        }
        },
        {
         "id": "wetGloss",
@@ -1593,72 +1518,6 @@
         "to": {
          "node": "albedoMix",
          "port": "weights"
-        }
-       },
-       {
-        "id": "w42",
-        "from": {
-         "node": "layerWeights",
-         "port": "grime"
-        },
-        "to": {
-         "node": "grimeScaled",
-         "port": "a"
-        }
-       },
-       {
-        "id": "w43",
-        "from": {
-         "node": "grime",
-         "port": "value"
-        },
-        "to": {
-         "node": "grimeScaled",
-         "port": "b"
-        }
-       },
-       {
-        "id": "w44",
-        "from": {
-         "node": "grimeScaled",
-         "port": "out"
-        },
-        "to": {
-         "node": "grimeAmount",
-         "port": "in"
-        }
-       },
-       {
-        "id": "w45",
-        "from": {
-         "node": "albedoMix",
-         "port": "out"
-        },
-        "to": {
-         "node": "grimeColourMix",
-         "port": "a"
-        }
-       },
-       {
-        "id": "w46",
-        "from": {
-         "node": "grimeColor",
-         "port": "value"
-        },
-        "to": {
-         "node": "grimeColourMix",
-         "port": "b"
-        }
-       },
-       {
-        "id": "w47",
-        "from": {
-         "node": "grimeAmount",
-         "port": "out"
-        },
-        "to": {
-         "node": "grimeColourMix",
-         "port": "t"
         }
        },
        {
@@ -2522,7 +2381,7 @@
        {
         "id": "w126",
         "from": {
-         "node": "grimeColourMix",
+         "node": "albedoMix",
          "port": "out"
         },
         "to": {
@@ -2553,43 +2412,10 @@
         }
        },
        {
-        "id": "w129",
+        "id": "w132",
         "from": {
          "node": "ormSplit",
          "port": "y"
-        },
-        "to": {
-         "node": "grimeRoughMix",
-         "port": "a"
-        }
-       },
-       {
-        "id": "w130",
-        "from": {
-         "node": "grimeRoughness",
-         "port": "value"
-        },
-        "to": {
-         "node": "grimeRoughMix",
-         "port": "b"
-        }
-       },
-       {
-        "id": "w131",
-        "from": {
-         "node": "grimeAmount",
-         "port": "out"
-        },
-        "to": {
-         "node": "grimeRoughMix",
-         "port": "t"
-        }
-       },
-       {
-        "id": "w132",
-        "from": {
-         "node": "grimeRoughMix",
-         "port": "out"
         },
         "to": {
          "node": "wetGloss",

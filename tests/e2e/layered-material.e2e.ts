@@ -32,8 +32,9 @@
  * colour at every distance — the grazing angle that asks for the deepest
  * mips. The same strips with the standard material and the same sheet
  * (no footprint cap) show their neighbours' colours far away, so the
- * picture can see a bleed. A strip patch with vertex grime takes the grime
- * colour, one with vertex wetness is darker, with no texture of their own.
+ * picture can see a bleed. A strip patch with the old vertex grime (COLOR_0
+ * G) draws as the plain one — there is no built-in grime — and one with
+ * vertex wetness is darker, with no texture of its own.
  *
  * Generated architecture on the same sheet (one object, only parameters
  * stored): a profile swept along a path (a moulding: a wall face, a bevel,
@@ -60,8 +61,8 @@
  * tool on a floor of cells — two rooms sharing a wall, an arch in the
  * front one and a door in the shared wall, a fence path — the door edited
  * in the room inspector, a wall dragged (only the rooms object made again,
- * timed from each input), grime painted on a wall with the block editor's
- * Paint mode. In Play and the export: the front wall's rows, the grime, the shared
+ * timed from each input), paint layer 3 (the old grime) painted on a wall with the block editor's
+ * Paint mode. In Play and the export: the front wall's rows, that paint drawing nothing, the shared
  * wall's front face through the arch, the back room through the door and a
  * fence post each show their colour.
  *
@@ -373,7 +374,7 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
   expect(refusedObjects(logged), 'no object three refuses to draw').toEqual([]);
 });
 
-/** The trim patches in Play: the material's six (four rows, then floor with vertex grime, floor with vertex wetness), the standard material's four. */
+/** The trim patches in Play: the material's six (four rows, then floor with the old vertex grime, floor with vertex wetness), the standard material's four. */
 const TRIM_PATCHES = [{ slot: 'floor' }, { slot: 'baseboard' }, { slot: 'crown' }, { slot: 'lower_wall' }, { slot: 'floor', colour: [0, 1, 0] as const }, { slot: 'floor', colour: [0, 0, 1] as const }];
 /** Where the strips lie (world): the trim model's and the standard model's corners, the eye, its pitch and lens. */
 const TRIM_AT = [196, 0, 0] as const;
@@ -383,12 +384,13 @@ const PITCH = (-12 * Math.PI) / 180;
 const FOV_Y = 50;
 /**
  * The trim strips as the trim shader drew them on the GPU host, both renderers alike (the four rows near, the floor
- * plain, with vertex grime, with vertex wetness): the layered surface the trim material draws as since gives these.
+ * plain, with vertex grime, with vertex wetness): the layered surface the trim material draws as since gives these; the
+ * grime patch now draws as the plain one (no built-in grime).
  */
 const TRIM_SHADER_PIXELS = {
   near: [[179, 62, 53], [82, 156, 61], [35, 75, 182], [168, 87, 167]],
   plain: [179, 62, 53],
-  grime: [55, 47, 38],
+  grime: [179, 62, 53],
   wet: [141, 23, 19],
 } as const;
 /** Distances along the strips the patches are read at (metres from their near edge): near, middle, far. */
@@ -712,9 +714,9 @@ function readRooms(img: Image): { colours: Record<string, [number, number, numbe
   const lum = (c: readonly number[]): number => c[0]! + c[1]! + c[2]!;
   const ok =
     rowHue(ROOM_READS.front.slot, colours.front) &&
-    // Painted grime: no longer the wall's magenta, darker.
-    !rowHue(ROOM_READS.grime.slot, colours.grime) &&
-    lum(colours.grime) < lum(colours.front) &&
+    // Paint layer 3 on the wall (the old grime) draws nothing: there is no built-in grime.
+    rowHue(ROOM_READS.grime.slot, colours.grime) &&
+    lum(colours.grime) > lum(colours.front) * 0.9 &&
     rowHue(ROOM_READS.shared.slot, colours.shared) &&
     rowHue(ROOM_READS.door.slot, colours.door) &&
     rowHue(ROOM_READS.post.slot, colours.post);
@@ -893,8 +895,8 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       trimClean: near.every((c, i) => rowHue(TRIM_PATCHES[i]!.slot, c)) && trim.every((row) => row.every((c, i) => sameColour(c, near[i]!))),
       // Near, the standard material shows the same rows; far, at least two of red, green and blue take their neighbours' colours.
       standardBleeds: standard[0]!.every((c, i) => sameColour(c, near[i]!)) && standard[2]!.slice(0, 3).filter((c, i) => !sameColour(c, near[i]!)).length >= 2,
-      // Grime: the dark brown grime colour, no longer the row's red; wetness: the red row, darker.
-      grime: !rowHue('floor', grimed) && lum(grimed) < lum(plain),
+      // The old grime channel draws nothing (the plain red row); wetness: the red row, darker.
+      grime: sameColour(grimed, plain),
       wet: rowHue('floor', wet) && lum(wet) < lum(plain) * 0.8,
     };
   };

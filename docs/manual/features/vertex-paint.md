@@ -6,15 +6,15 @@ Paint on placed models, instance copies and generated meshes
 checked against reimports, drawn in the Scene view, Play and the export,
 and shipped with an export. How-to: [Vertex paint](../guides/vertex-paint.md).
 
-Vertex paint puts per-vertex values on meshes — colour, grime, wetness,
-blend weights for a height blend — without new textures. Each painted
+Vertex paint puts per-vertex values on meshes — colour, wetness, blend
+weights for a height blend (dirt and moss are layers) — without new textures. Each painted
 vertex holds 4 bytes (R, G, B, A, 0–255). What a channel means is up to
 the material that reads it; an unpainted vertex reads (0, 0, 0, 0), which
 changes nothing.
 
 Paint is a stream of its own, stored beside the mesh. It never replaces a
 model's own vertex colours (`COLOR_0`), which keep their meaning (a tint,
-the foliage shader's wind, the trim shader's occlusion, grime and wetness).
+the foliage shader's wind, the trim shader's occlusion (R) and wetness (B)).
 
 ## Painting: `paintVertices`
 
@@ -69,7 +69,7 @@ live Scene view showing only the painted object:
   anywhere else is the view's);
 - the palette shows what the paint means on the object's material
   (`materialReads`): a layered surface's Base, layers 2–4 (R, G, B) and Wet
-  (A); a trim sheet's grime (G) and wetness (B); a paint tint's colour and
+  (A); a trim sheet's wetness (A: it is one layer); a paint tint's colour and
   amount; a graph's raw channels. A material that reads no paint turns
   painting off and offers **Make it paintable** (a layered surface whose
   base keeps the old maps, one undo step);
@@ -160,7 +160,7 @@ Paint changes nothing until a material reads it. Four readers:
 | Material | What it does with the paint |
 |---|---|
 | a standard material with **Paint tint** (`paintTint: true`) | multiplies its albedo by the paint's RGB, by the paint's A (A 0: no tint). Off by default. |
-| the trim shader (generated walls) | adds G to its grime and B to its wetness (on top of the generator's `COLOR_0`). |
+| the trim shader (generated walls) | one layer: adds A to its wetness (on top of the generator's `COLOR_0`), as A is the wetness on every layered surface. R, G and B (layers 2–4) need a layered surface. |
 | a graph's **Vertex colour** node, set **paint** | gives the paint as RGBA (an unpainted vertex reads (0, 0, 0, 0), whatever *Without the set* says). |
 | a graph's **Height blend** node with its weights unwired | takes the paint as the four layers' weights (an unpainted vertex shows the first layer). |
 
@@ -221,7 +221,7 @@ in the generated reference, which holds this build's value.
   [Drawing it](#drawing-it).
 
 Best practice: paint where a material reads it (a `paintTint` standard
-material, the trim shader's grime and wetness, a graph's **Vertex colour
+material, the trim shader's wetness, a graph's **Vertex colour
 (paint)**, height-blend weights); generated walls have a vertex about every
 metre along, so paint on them is soft — use a [decal](decals.md) for a sharp
 mark.

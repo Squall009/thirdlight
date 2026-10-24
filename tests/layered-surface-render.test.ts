@@ -145,7 +145,8 @@ describe('the layered surface', () => {
     expect(library.graphProblems('mat-trim')).toEqual([]);
     expect(library.trimSheetOf('mat-trim')).toEqual(defaultTrimSheet());
     const reads = textureReads((mesh.material as unknown as { colorNode: unknown }).colorNode);
-    expect(reads.length).toBe(2);
+    // The colour reads the sheet's albedo only (no grime took the ORM's crevices into it).
+    expect(reads.length).toBe(1);
     expect(reads.every((r) => r.grad)).toBe(true);
   });
 

@@ -1,7 +1,7 @@
 /**
  * Vertex paint: four bytes a vertex painted on placed models, instance
  * copies and generated meshes, stored beside the mesh and read by materials
- * (colour, grime, wetness, blend weights: what each channel means is the
+ * (colour, wetness, blend weights: what each channel means is the
  * material's). It is a stream of its own, never the model's `COLOR_0`; an
  * unpainted vertex reads (0, 0, 0, 0), which changes nothing.
  *

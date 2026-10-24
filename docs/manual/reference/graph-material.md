@@ -50,8 +50,8 @@ Implicit conversions:
 - Colour (`color`): A constant colour (sRGB, converted to linear) and an alpha.
 - Time (`time`): Seconds since the game started (scaled by the game clock).
 - UV (`uv`): A texture coordinate set of the mesh.
-- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture's, else the mesh's COLOR_0.
-- Layer weights (`layerWeights`): What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion and grime: generated architecture's baked corner shading and path-paint grime (its trim data R and G; its B adds to the wetness); 0 elsewhere. Feed the weights to a Height blend.
+- Vertex colour (`vertexColor`): A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, B wetness): generated architecture's, else the mesh's COLOR_0.
+- Layer weights (`layerWeights`): What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion: generated architecture's baked corner shading (its trim data R; its B adds to the wetness); 0 elsewhere. There is no grime output: dirt is a layer, painted like any other. Feed the weights to a Height blend.
 - Position (`position`): The surface position in object, world or view space.
 - Normal (`normal`): The surface normal in object, world or view space.
 - View direction (`viewDirection`): The direction from the surface to the camera (normalized).
@@ -183,7 +183,7 @@ Fields:
 <a id="node-material--vertex-color"></a>
 ### Vertex colour (`vertexColor`)
 
-A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture's, else the mesh's COLOR_0.
+A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer's wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object's vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, B wetness): generated architecture's, else the mesh's COLOR_0.
 
 Outputs:
 
@@ -201,14 +201,13 @@ Fields:
 <a id="node-material--layer-weights"></a>
 ### Layer weights (`layerWeights`)
 
-What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion and grime: generated architecture's baked corner shading and path-paint grime (its trim data R and G; its B adds to the wetness); 0 elsewhere. Feed the weights to a Height blend.
+What a layered surface blends by, for any mesh it is on. Weights: a terrain's or a painted block layer's stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint's A. Occlusion: generated architecture's baked corner shading (its trim data R; its B adds to the wetness); 0 elsewhere. There is no grime output: dirt is a layer, painted like any other. Feed the weights to a Height blend.
 
 Outputs:
 
 - `weights` (vec4)
 - `wetness` (float)
 - `occlusion` (float)
-- `grime` (float)
 
 <a id="node-material--position"></a>
 ### Position (`position`)

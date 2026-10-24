@@ -255,7 +255,7 @@ Scene-view handles:
 <a id="component-vertexPaint"></a>
 ## vertexPaint — Vertex paint
 
-Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its materials read it (colour, grime, wetness, blend weights). Painted with paintVertices.
+Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its materials read it (colour, wetness, blend weights). Painted with paintVertices.
 
 - Category: Rendering
 - Added: by a tool: paintVertices (the vertex paint brush)

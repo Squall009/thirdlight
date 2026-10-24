@@ -30,7 +30,7 @@ const CUTAWAY_FADE_WGSL: Readonly<Record<string, string>> = {
   kit: 'ebc9eeb5d658504a',
   water: 'dcba6a50d68dd17f',
   unlit: 'be8b2e98cadf7608',
-  trim: '0bd900d315f7d38b',
+  trim: 'cfe10f4e1b8e6820',
   'graph-plain': 'aff1f297436c8757',
   'graph-tinted': 'bf26be093ff0e6de',
   'graph-everySlot': 'b1c118d25813fedd',

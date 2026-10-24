@@ -102,6 +102,7 @@ export { validateManifest, normalizeManifest, boundedFound } from './validate';
 export * from './limits';
 export { lightLayerMaskOf, validateLightLayerMask, validateLightLayerNames } from './light-layers';
 export { localLightModeOf, upgradeVertexLocalLights, validateLocalLightMode, type LocalLightMode, type MaterialLocalLightMode } from './local-lights';
+export { graphWithoutGrime, upgradeBuiltInGrime } from './grime-upgrade';
 
 export {
   M2_SETTINGS_KEYS,

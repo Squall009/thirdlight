@@ -16,7 +16,7 @@
  * - water: a scrolling normal map and a fresnel mix of two colours.
  * - trim: drawn as the layered surface it is, a graph material
  *   (project-model `trimSurfaceMaterial`): the sheet's three maps, each read
- *   once inside its rows; COLOR_0 as occlusion, grime and wetness.
+ *   once inside its rows; COLOR_0 R as occlusion, B as wetness.
  * - unlit: MeshBasicMaterial.
  *
  * Wind and time are one shared uniform block updated by `tick()`.

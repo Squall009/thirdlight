@@ -3,12 +3,14 @@
  * material as the layered surface it draws as, the row table a layered
  * material's trim layers follow (and where its sheets disagree), the
  * `layerSheets` field, and the material as drawn — only the layers it uses,
- * trim layers and tiling layers in arrays of their own.
+ * trim layers and tiling layers in arrays of their own; stored materials with
+ * the built-in grime of before, upgraded at the load.
  */
 import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import type { GraphEdge, GraphNode } from './graph';
+import { graphWithoutGrime, upgradeBuiltInGrime } from './grime-upgrade';
 import { LAYER_NOT_READ, LAYERED_TEXTURES, layeredMaterial, layerSheetMismatches, layerSheetRows, trimSurfaceMaterial, UV_SOURCES } from './layered-surface';
 import { canonicalMaterials, materialGraphContext, resolveMaterialInstances, validateMaterials, type MaterialDef } from './materials';
 import { heightAlphaTextures, layeredForDraw, materialTextureSlotSets, TRIM_GROUP_KEY, withAssembledSlots } from './texture-slots';
@@ -48,15 +50,17 @@ describe('the layered surface', () => {
     expect(m.graph!.nodes.some((n) => n.type === 'vertexColor')).toBe(false);
   });
 
-  it('a trim material draws as a layered surface: one mesh-UV layer of its sheet, a grime colour layer, its data kept', () => {
-    const trim: MaterialDef = { materialId: 'mat-trim', name: 'Trim', shader: 'trim', params: { grime: 1.5, alphaMode: 'cutout' }, textures: { map: 'sheet', normalMap: 'sheet-n', ormMap: 'sheet-orm' }, trim: defaultTrimSheet() };
+  it('a trim material draws as a layered surface: one mesh-UV layer of its sheet, wetness from the paint\'s A, no grime, its data kept', () => {
+    const trim: MaterialDef = { materialId: 'mat-trim', name: 'Trim', shader: 'trim', params: { wetness: 0.25, alphaMode: 'cutout' }, textures: { map: 'sheet', normalMap: 'sheet-n', ormMap: 'sheet-orm' }, trim: defaultTrimSheet() };
     const drawn = trimSurfaceMaterial(trim);
     // The material's own data stays (the generator, decal cells and the editor read it); a graph is added.
     expect({ ...drawn, graph: undefined, parameters: undefined }).toEqual({ ...trim, graph: undefined, parameters: undefined });
     expect(param(drawn, LAYERED_TEXTURES.albedo)).toBe('sheet');
     expect(param(drawn, LAYERED_TEXTURES.normals)).toBe('sheet-n');
     expect(param(drawn, LAYERED_TEXTURES.orm)).toBe('sheet-orm');
-    expect(param(drawn, 'grime')).toBe(1.5);
+    expect(param(drawn, 'wetness')).toBe(0.25);
+    expect(drawn.parameters!.map((p) => p.key)).not.toContain('grime');
+    expect(drawn.parameters!.map((p) => p.key)).not.toContain('grimeColor');
     // Every read is at the mesh's own UVs (mode 3), layer 0.
     const reads = drawn.graph!.nodes.filter((n) => n.type === 'projectedSample');
     expect(reads.map((n) => n.id).sort()).toEqual(['albedo1', 'normal1', 'orm1']);
@@ -64,8 +68,11 @@ describe('the layered surface', () => {
       expect(nodeOf(drawn, into(drawn, r.id, 'mode')!.from.node)?.data?.['value']).toBe(UV_SOURCES.geometry);
       expect(nodeOf(drawn, into(drawn, r.id, 'layer')!.from.node)?.data?.['value']).toBe(0);
     }
-    // Two layers: the sheet and grime, weighted by COLOR_0's grime plus the paint's G; cut out by the albedo's alpha.
-    expect(into(drawn, 'colourMix', 'weights')?.from.node).toBe('layerWeights');
+    // One layer, no mix: the tinted sheet, darkened by wetness (the trim data's B plus the paint's A); cut out by the albedo's alpha.
+    expect(drawn.graph!.nodes.some((n) => n.type === 'weightedMix' || n.id.startsWith('grime'))).toBe(false);
+    expect(into(drawn, 'wetColour', 'a')?.from).toEqual({ node: 'tint', port: 'out' });
+    expect(into(drawn, 'wetVertexSum', 'a')?.from).toEqual({ node: 'trimData', port: 'z' });
+    expect(into(drawn, 'wetVertexSum', 'b')?.from).toEqual({ node: 'paintSplit', port: 'w' });
     expect(into(drawn, 'output', 'alphaClip')).toBeDefined();
     const { trim: _rows, ...graphOnly } = drawn;
     const errors = errorsOf([{ ...graphOnly, materialId: 'mat-g', shader: 'standard', params: {} }]);
@@ -197,5 +204,107 @@ describe('textures read with a height in alpha', () => {
     const m = walls(['sheet-a', 'moss'], [3, 1]);
     const plain: MaterialDef = { materialId: 'p', name: 'P', shader: 'standard', params: {}, textures: { map: 'sheet-b' } };
     expect([...heightAlphaTextures([m, plain])].sort()).toEqual(['moss', 'sheet-a']);
+  });
+});
+
+/**
+ * The layered template as it was stored with built-in grime: the colour mixed toward `grimeColor` and the roughness
+ * toward matte by the Layer weights node's grime × `grime` (the graph the load upgrades).
+ */
+function withOldGrime(m: MaterialDef): MaterialDef {
+  const g = m.graph!;
+  const node = (id: string, type: string, data?: Record<string, unknown>): GraphNode => ({ id, type, position: [0, 0], ...(data !== undefined ? { data } : {}) }) as GraphNode;
+  let n = 0;
+  const edge = (from: [string, string], to: [string, string]): GraphEdge => ({ id: `g${++n}`, from: { node: from[0], port: from[1] }, to: { node: to[0], port: to[1] } });
+  const edges = g.edges.map((e) => {
+    if (e.to.node === 'wetColour' && e.to.port === 'a') return { ...e, from: { node: 'grimeColourMix', port: 'out' } };
+    if (e.to.node === 'wetGloss' && e.to.port === 'a') return { ...e, from: { node: 'grimeRoughMix', port: 'out' } };
+    return e;
+  });
+  return {
+    ...m,
+    parameters: [...m.parameters!, { key: 'grime', type: 'float', default: 1 }, { key: 'grimeColor', type: 'color', default: '#3b3328' }],
+    graph: {
+      nodes: [...g.nodes, node('grime', 'parameter', { key: 'grime' }), node('grimeColor', 'parameter', { key: 'grimeColor' }), node('grimeScaled', 'multiply'), node('grimeAmount', 'saturate'), node('grimeColourMix', 'lerp'), node('grimeRoughMix', 'lerp'), node('grimeRoughness', 'float', { value: 0.95 })],
+      edges: [
+        ...edges,
+        edge(['layerWeights', 'grime'], ['grimeScaled', 'a']),
+        edge(['grime', 'value'], ['grimeScaled', 'b']),
+        edge(['grimeScaled', 'out'], ['grimeAmount', 'in']),
+        edge(['albedoMix', 'out'], ['grimeColourMix', 'a']),
+        edge(['grimeColor', 'value'], ['grimeColourMix', 'b']),
+        edge(['grimeAmount', 'out'], ['grimeColourMix', 't']),
+        edge(['ormSplit', 'y'], ['grimeRoughMix', 'a']),
+        edge(['grimeRoughness', 'value'], ['grimeRoughMix', 'b']),
+        edge(['grimeAmount', 'out'], ['grimeRoughMix', 't']),
+      ],
+    },
+  };
+}
+const wiring = (m: { graph?: { edges: readonly GraphEdge[] } }): string[] => m.graph!.edges.map((e) => `${e.from.node}.${e.from.port}>${e.to.node}.${e.to.port}`).sort();
+
+describe('stored built-in grime, upgraded at the load', () => {
+  it('a layered surface stored with grime becomes the template of today: the same nodes, wiring and parameters', () => {
+    const today = layeredMaterial('mat-l', 'Walls');
+    const old = withOldGrime(today);
+    // The old graph is not valid any more (the Layer weights node has no grime output).
+    expect(errorsOf([old]).length).toBeGreaterThan(0);
+    const u = upgradeBuiltInGrime({ materials: [old] }, []);
+    expect(u.changed).toBe(true);
+    expect(u.named).toEqual(['"Walls" (mat-l)']);
+    const [m] = (u.content as { materials: MaterialDef[] }).materials;
+    expect(m!.graph!.nodes.map((x) => x.id).sort()).toEqual(today.graph!.nodes.map((x) => x.id).sort());
+    expect(wiring(m!)).toEqual(wiring(today));
+    expect(m!.parameters).toEqual(today.parameters);
+    expect(errorsOf([m!])).toEqual([]);
+    // Today's documents come back as given.
+    const again = upgradeBuiltInGrime(u.content, []);
+    expect(again.changed).toBe(false);
+    expect(again.content).toBe(u.content);
+  });
+
+  it('a grime amount of 0 is not named; a graph that read the grime output otherwise reads a 0 there', () => {
+    const today = layeredMaterial('mat-z', 'Zero');
+    const zero = withOldGrime(today);
+    zero.parameters = zero.parameters!.map((p) => (p.key === 'grime' ? { ...p, default: 0 } : p));
+    const custom: MaterialDef = {
+      materialId: 'mat-c',
+      name: 'Custom',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      graph: {
+        nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }, { id: 'w', type: 'layerWeights', position: [0, 0] }, { id: 'sum', type: 'add', position: [0, 0] }],
+        edges: [
+          { id: 'e1', from: { node: 'w', port: 'grime' }, to: { node: 'sum', port: 'a' } },
+          { id: 'e2', from: { node: 'w', port: 'wetness' }, to: { node: 'sum', port: 'b' } },
+          { id: 'e3', from: { node: 'sum', port: 'out' }, to: { node: 'out', port: 'roughness' } },
+        ],
+      },
+    };
+    const u = upgradeBuiltInGrime({ materials: [zero, custom] }, []);
+    expect(u.named).toEqual(['"Custom" (mat-c)']);
+    const c = (u.content as { materials: MaterialDef[] }).materials[1]!;
+    expect(wiring(c)).toEqual(['noGrime.value>sum.a', 'sum.out>out.roughness', 'w.wetness>sum.b']);
+    expect(c.graph!.nodes.find((x) => x.id === 'noGrime')).toMatchObject({ type: 'float', data: { value: 0 } });
+    expect(graphWithoutGrime(c.graph)).toBeNull();
+  });
+
+  it('a trim material\'s grime params, an instance\'s values and objects\' overrides of the dropped parameters go', () => {
+    const walls = withOldGrime(layeredMaterial('mat-w', 'Walls'));
+    const trim = { materialId: 'mat-t', name: 'Sheet', shader: 'trim', params: { grime: 0.6, grimeColor: '#302010', roughness: 0.5 }, textures: {} };
+    const clean = { materialId: 'mat-t0', name: 'Clean', shader: 'trim', params: { grime: 0 }, textures: {} };
+    const inst = { materialId: 'mat-wi', name: 'Walls 2', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-w', values: { grime: 2, wetness: 0.5 } };
+    const scene = { entities: [{ id: 'box-1', components: { materialParams: { 'mat-wi': { grime: 1 }, 'mat-w': { grimeColor: '#000000', color: '#ff0000' } } } }, { id: 'box-2', components: {} }] };
+    const u = upgradeBuiltInGrime({ materials: [walls, trim, clean, inst] }, [scene]);
+    const [w, t, t0, i] = (u.content as { materials: Record<string, unknown>[] }).materials;
+    expect(u.named).toEqual(['"Walls" (mat-w)', '"Sheet" (mat-t)']);
+    expect(t!['params']).toEqual({ roughness: 0.5 });
+    expect(t0!['params']).toEqual({});
+    expect(i!['values']).toEqual({ wetness: 0.5 });
+    expect((w!['parameters'] as { key: string }[]).map((p) => p.key)).not.toContain('grime');
+    const s = u.scenes[0] as typeof scene;
+    expect(s.entities[0]!.components).toEqual({ materialParams: { 'mat-w': { color: '#ff0000' } } });
+    expect(s.entities[1]).toBe(scene.entities[1]);
   });
 });

@@ -7,7 +7,7 @@ import { paintChannels, paintMaterialSlots, tileOf } from './vertex-paint-channe
 
 const plain: MaterialDef = { materialId: 'm-plain', name: 'Mill walls', shader: 'standard', params: {}, textures: { map: 'mill', normalMap: 'mill-n' } };
 const tint: MaterialDef = { materialId: 'm-tint', name: 'Tint', shader: 'standard', params: { paintTint: true }, textures: {} };
-const trim: MaterialDef = { materialId: 'm-trim', name: 'Sheet', shader: 'trim', params: { grimeColor: '#302010' }, textures: { map: 'sheet', normalMap: 'sheet-n', ormMap: 'sheet-orm' }, trim: { size: [256, 256], texelDensity: 256, padding: 8, rows: [{ slot: 'a', top: 8, bottom: 120 }] } as MaterialDef['trim'] };
+const trim: MaterialDef = { materialId: 'm-trim', name: 'Sheet', shader: 'trim', params: {}, textures: { map: 'sheet', normalMap: 'sheet-n', ormMap: 'sheet-orm' }, trim: { size: [256, 256], texelDensity: 256, padding: 8, rows: [{ slot: 'a', top: 8, bottom: 120 }] } as MaterialDef['trim'] };
 
 describe('what vertex paint means on a material', () => {
   it('a layered surface: Base, layers 2–4 on R, G, B by their names and pictures, Wet on A; the base erases R, G and B', () => {
@@ -28,13 +28,12 @@ describe('what vertex paint means on a material', () => {
     expect(tileOf(c, { channel: 1 })).toBe(2);
     expect(tileOf(c, { channel: 0, channels: [1, 2] })).toBe(0);
   });
-  it('a trim sheet keeps G grime and B wetness; a paint tint names its channels; a material that reads no paint says so', () => {
+  it('a trim sheet is one layer: its paint is wetness on A; a paint tint names its channels; a material that reads no paint says so', () => {
     const t = paintChannels({ '*': 'm-trim' }, [trim]);
     expect(t.meaning).toBe('trim');
-    expect(t.tiles.map((x) => x.name)).toEqual(['Grime', 'Wetness']);
-    expect(t.targets).toEqual([{ channel: 1 }, { channel: 2 }]);
-    expect(t.tiles[0]!.colour).toBe('#302010');
-    expect(t.tiles[1]!.wet).toBe(true);
+    expect(t.tiles.map((x) => x.name)).toEqual(['Wetness']);
+    expect(t.targets).toEqual([{ channel: 3 }]);
+    expect(t.tiles[0]!.wet).toBe(true);
     const n = paintChannels({ '*': 'm-tint' }, [tint]);
     expect(n.meaning).toBe('tint');
     expect(n.tiles.map((x) => x.name)).toEqual(['Tint red', 'Tint green', 'Tint blue', 'Tint amount']);
@@ -72,7 +71,7 @@ describe('what vertex paint means on a material', () => {
     expect(slotTexture(m, 'albedoHeight', 0)).toBe('mill-red');
     expect(slotTexture(m, 'normals', 0)).toBe('mill-n');
     expect(m.layerNames?.[0]).toBe('Mill walls red');
-    // A trim instance: paint means grime and wetness (its root's), and its base follows the instance (its textures, the root's rows).
+    // A trim instance: paint means wetness (its root's), and its base follows the instance (its textures, the root's rows).
     const trimInst: MaterialDef = { materialId: 'm-trim-i', name: 'Sheet dark', shader: 'trim', params: {}, textures: { map: 'sheet-dark' }, instanceOf: 'm-trim' };
     expect(paintChannels({ '*': 'm-trim-i' }, [trim, trimInst]).meaning).toBe('trim');
     const t = paintableMaterial(paletteSource({ '*': 'm-trim-i' }, [trim, trimInst]).material, 'm-new4', 'Dark layers');

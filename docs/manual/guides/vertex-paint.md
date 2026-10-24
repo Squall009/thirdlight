@@ -42,7 +42,7 @@ material, read from the material itself:
 | The material | The tiles | The channels |
 |---|---|---|
 | a **Layered surface** | **Base**, layers 2–4 (named and pictured as in the material), **Wet** | R, G, B = layers 2–4, A = wetness; the base is what R, G and B leave |
-| a **Trim sheet** material | **Grime**, **Wetness** | G = grime, B = wetness (as before) |
+| a **Trim sheet** material | **Wetness** | A = wetness (a trim sheet is one layer; for dirt or a second sheet make it a layered surface) |
 | a **Standard** material with *Paint tint* | **Tint red / green / blue**, **Tint amount** | RGB = the tint, A = how much (A alone darkens) |
 | a graph that reads the paint otherwise | **Paint R / G / B / A** | as its Vertex colour (paint) node reads them |
 
@@ -89,8 +89,8 @@ Alt+drag orbits, `Home` frames the object, Esc drops a stroke in progress.
 ## Channels
 
 **Channels** shows one channel of the paint as grey over the view (white:
-full, black: none) — for paint a material shows only faintly (wetness,
-grime, a soft blend). In Paint the same list is the **Channel view** panel
+full, black: none) — for paint a material shows only faintly (wetness, a
+soft blend). In Paint the same list is the **Channel view** panel
 at the top left of the view; `V` cycles it. The panels **What the channels
 mean** (R, G, B and A on the material) and **Stored paint** (what the object
 keeps painted) sit on the view's right edge.

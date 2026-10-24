@@ -293,11 +293,12 @@ stand-in and the piece's own surfaces.
 The engine reads vertex colours as data, not as a tint:
 
 - **On a trim material** a model's `COLOR_0` is **R occlusion** (0 open,
-  1 fully occluded), **G grime**, **B wetness**; A is unused.
+  1 fully occluded) and **B wetness**; G and A are not read (there is no
+  built-in grime: dirt is a painted layer of a layered surface).
 - **On a layered surface** a model's `COLOR_0` is the layer weights:
   **R, G, B = layers 2–4**, **A = wetness**; the base layer is what R, G and
   B leave.
-- **Generated architecture** keeps its own occlusion, grime and wetness in
+- **Generated architecture** keeps its own occlusion and wetness in
   an attribute of its own, and **block layers** write theirs (`COLOR_0` the
   four layer weights, `COLOR_1` red the wetness). You never author those.
 

@@ -20,7 +20,7 @@ export const instancePaintField: JsonFieldDescriptor = json(
 export const vertexPaint: ComponentDescriptor = {
   name: 'vertexPaint',
   label: 'Vertex paint',
-  tooltip: 'Paint on the object\'s vertices, 4 bytes (R, G, B, A) each, beside the mesh: its materials read it (colour, grime, wetness, blend weights). Painted with paintVertices.',
+  tooltip: 'Paint on the object\'s vertices, 4 bytes (R, G, B, A) each, beside the mesh: its materials read it (colour, wetness, blend weights). Painted with paintVertices.',
   category: 'Rendering',
   value: obj('vertexPaint', 'Vertex paint', 'Per model mesh a blob of 4 bytes a vertex, or per generated path a grid in path space.', [
     json('meshes', 'Meshes', 'A model\'s painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch).', { readOnly: true, shape: 'VertexPaintMesh[]' }),

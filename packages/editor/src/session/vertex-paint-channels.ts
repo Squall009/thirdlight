@@ -9,7 +9,8 @@
  *   base (layer 1, what the others leave), layers 2–4 on R, G and B, and
  *   wetness on A. The tiles take the layers' names and pictures.
  *   Painting the base takes layers 2–4 off at once.
- * - **A trim sheet** keeps its own meaning: G is grime, B is wetness.
+ * - **A trim sheet** is one layer: its paint is wetness on A, as on a
+ *   layered surface (it has no layers 2–4 for R, G and B).
  * - **A standard material with paint tint**: R, G, B tint the colour, A is
  *   how much.
  * - **A graph that reads the paint otherwise**: the bytes as its Vertex
@@ -121,13 +122,8 @@ export function paintChannels(mapping: Readonly<Record<string, string>> | undefi
   }
   const shader = material !== null ? (MATERIAL_SHADER_LABELS[material.shader] ?? material.shader) : null;
   if (material !== null && reads && material.graph === undefined && material.shader === 'trim') {
-    const grime = typeof material.params['grimeColor'] === 'string' ? material.params['grimeColor'] : '#3b3328';
-    const t = channelTiles([
-      [1, 'Grime', 'G'],
-      [2, 'Wetness', 'B'],
-    ]);
-    const tiles = t.tiles.map((x, i) => (i === 0 ? { ...x, colour: grime } : x));
-    return { meaning: 'trim', material, ...t, tiles, summary: `${shader} · grime and wetness`, hint: 'A trim sheet reads paint as grime (G) and wetness (B). For layers of other materials on it, make it a layered surface (Material).' };
+    const t = channelTiles([[3, 'Wetness', 'A']]);
+    return { meaning: 'trim', material, ...t, summary: `${shader} · wetness`, hint: 'A trim sheet is one layer: paint reads as wetness (A). For dirt, moss or a second sheet on it, make it a layered surface (Material) and paint those layers.' };
   }
   if (material !== null && reads && material.graph === undefined) {
     const t = channelTiles([

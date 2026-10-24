@@ -139,7 +139,7 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     label: 'Vertex colour',
     category: 'Inputs',
     description:
-      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object\'s vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, G grime, B wetness): generated architecture\'s, else the mesh\'s COLOR_0.',
+      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer). Set paint reads the object\'s vertex paint instead (painted props, instance copies, generated walls and roads): an unpainted vertex reads (0, 0, 0, 0) whatever Without the set says. Set trim reads trim data (R occlusion, B wetness): generated architecture\'s, else the mesh\'s COLOR_0.',
     inputs: [],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
     // White multiplies to no change (a tint); zero means "no effect" for data channels.
@@ -155,9 +155,9 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     label: 'Layer weights',
     category: 'Inputs',
     description:
-      'What a layered surface blends by, for any mesh it is on. Weights: a terrain\'s or a painted block layer\'s stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint\'s A. Occlusion and grime: generated architecture\'s baked corner shading and path-paint grime (its trim data R and G; its B adds to the wetness); 0 elsewhere. Feed the weights to a Height blend.',
+      'What a layered surface blends by, for any mesh it is on. Weights: a terrain\'s or a painted block layer\'s stored weights; else the vertex paint as layers — layer 1 (the base) is what the others leave, 1 − (R + G + B), then R, G and B are layers 2–4; an unpainted mesh shows its own vertex colours as weights, else layer 1. Wetness: the stored wetness, else the paint\'s A. Occlusion: generated architecture\'s baked corner shading (its trim data R; its B adds to the wetness); 0 elsewhere. There is no grime output: dirt is a layer, painted like any other. Feed the weights to a Height blend.',
     inputs: [],
-    outputs: [port('weights', 'weights', 'vec4'), port('wetness', 'wetness', 'float'), port('occlusion', 'occlusion', 'float'), port('grime', 'grime', 'float')],
+    outputs: [port('weights', 'weights', 'vec4'), port('wetness', 'wetness', 'float'), port('occlusion', 'occlusion', 'float')],
   },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'normal', label: 'Normal', category: 'Inputs', description: 'The surface normal in object, world or view space.', inputs: [], outputs: [port('normal', 'normal', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },

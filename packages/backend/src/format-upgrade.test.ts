@@ -12,7 +12,7 @@
  *   nothing is dropped silently, and the files stay as they were.
  */
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
@@ -627,5 +627,88 @@ describe('a project with per-vertex local-light settings opened over HTTP', () =
     const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
     const lines = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded' && p.message.includes('per vertex'));
     expect(lines.map((p) => p.message)).toEqual([expect.stringContaining('2 local-light settings (objects, materials, lights) shaded per vertex now shade per pixel')]);
+  }, 60_000);
+});
+
+/**
+ * The built-in grime is gone: a project whose material files still store a
+ * trim material's grime params and a layered graph reading the Layer weights
+ * node's grime output opens with both taken out (the graph's grime mix folded
+ * away, its parameters dropped), the files written back once, and one
+ * Problems line naming the materials whose grime was set.
+ */
+describe('a project with built-in grime opened over HTTP', () => {
+  const REPO = resolve(import.meta.dirname, '..', '..', '..');
+  let tb: TestBackend;
+  const ID = 'legacy-v5-music';
+  const materialFile = (id: string): string => join(tb.root, 'data', 'projects', ID, 'assets', 'materials', `${id}.material.json`);
+  const write = (data: Record<string, unknown>): void => writeFileSync(materialFile(String(data['materialId'])), JSON.stringify({ tlresource: 1, kind: 'material', id: data['materialId'], data }));
+  const edge = (id: string, from: string, fromPort: string, to: string, toPort: string): Record<string, unknown> => ({ id, from: { node: from, port: fromPort }, to: { node: to, port: toPort } });
+
+  beforeAll(async () => {
+    tb = await startBackend({ tokens: [] });
+    cpSync(join(REPO, 'fixtures', 'phase26', ID), join(tb.root, 'data', 'projects', ID), { recursive: true });
+    mkdirSync(join(tb.root, 'data', 'projects', ID, 'assets', 'materials'), { recursive: true });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+  });
+
+  it('drops the grime params and graph nodes, writes the materials back and names them once', async () => {
+    const trim = { size: [256, 256], texelDensity: 128, padding: 4, rows: [{ slot: 'floor', top: 4, bottom: 124 }] };
+    write({ materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: { grime: 0.8, grimeColor: '#302010', roughness: 0.6 }, textures: {}, trim });
+    write({ materialId: 'mat-clean', name: 'Clean', shader: 'trim', params: { roughness: 0.6 }, textures: {}, trim });
+    // A layered graph as stored before: the colour mixed toward grimeColor by the Layer weights node's grime × grime.
+    write({
+      materialId: 'mat-walls',
+      name: 'Walls',
+      shader: 'standard',
+      params: {},
+      textures: {},
+      parameters: [{ key: 'tint', type: 'color', default: '#808080' }, { key: 'grime', type: 'float', default: 1 }, { key: 'grimeColor', type: 'color', default: '#3b3328' }],
+      graph: {
+        nodes: [
+          { id: 'output', type: 'pbr', position: [0, 0] },
+          { id: 'layerWeights', type: 'layerWeights', position: [0, 0] },
+          { id: 'tint', type: 'parameter', position: [0, 0], data: { key: 'tint' } },
+          { id: 'grime', type: 'parameter', position: [0, 0], data: { key: 'grime' } },
+          { id: 'grimeColor', type: 'parameter', position: [0, 0], data: { key: 'grimeColor' } },
+          { id: 'grimeScaled', type: 'multiply', position: [0, 0] },
+          { id: 'grimeColourMix', type: 'lerp', position: [0, 0] },
+        ],
+        edges: [
+          edge('e1', 'layerWeights', 'grime', 'grimeScaled', 'a'),
+          edge('e2', 'grime', 'value', 'grimeScaled', 'b'),
+          edge('e3', 'tint', 'value', 'grimeColourMix', 'a'),
+          edge('e4', 'grimeColor', 'value', 'grimeColourMix', 'b'),
+          edge('e5', 'grimeScaled', 'out', 'grimeColourMix', 't'),
+          edge('e6', 'grimeColourMix', 'out', 'output', 'baseColor'),
+          edge('e7', 'layerWeights', 'wetness', 'output', 'roughness'),
+        ],
+      },
+    });
+    const clean = readFileSync(materialFile('mat-clean'), 'utf8');
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'grime-upgrade' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const read = (id: string): Record<string, unknown> => (JSON.parse(readFileSync(materialFile(id), 'utf8')) as { data: Record<string, unknown> }).data;
+    expect(read('mat-sheet')['params']).toEqual({ roughness: 0.6 });
+    // A material without grime keeps what it stored.
+    expect(read('mat-clean')).toEqual((JSON.parse(clean) as { data: unknown }).data);
+    const walls = read('mat-walls') as { parameters: { key: string }[]; graph: { nodes: { id: string }[]; edges: { from: { node: string; port: string }; to: { node: string; port: string } }[] } };
+    expect(walls.parameters.map((p) => p.key)).toEqual(['tint']);
+    expect(walls.graph.nodes.map((n) => n.id).sort()).toEqual(['layerWeights', 'output', 'tint']);
+    expect(walls.graph.edges.map((e) => `${e.from.node}.${e.from.port}>${e.to.node}.${e.to.port}`).sort()).toEqual(['layerWeights.wetness>output.roughness', 'tint.value>output.baseColor']);
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const lines = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded' && p.message.includes('grime'));
+    expect(lines.map((p) => p.message)).toEqual([expect.stringContaining('built-in grime was removed (dirt is a layer of a layered surface, painted like any other): 2 materials had grime set and draw without it now — "Sheet" (mat-sheet), "Walls" (mat-walls)')]);
+    // The materials as the backend holds them: valid, and the trim material refuses grime now.
+    const q = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op: 'queryProject', projectId: ID, args: {} }, token: tb.adminToken, origin: null });
+    const set = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, {
+      body: { op: 'setMaterial', projectId: ID, requestId: mkRequestId(), expectedRevision: Number((q.json as { revision: number }).revision), args: { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: { grime: 1 }, textures: {}, trim } }, origin: { kind: 'mcp', clientId: 'grime-upgrade' } },
+      token: tb.adminToken,
+      origin: null,
+    });
+    const text = JSON.stringify(set.json);
+    expect(text, text).toContain('shader \\"trim\\" has no parameter \\"grime\\"');
   }, 60_000);
 });

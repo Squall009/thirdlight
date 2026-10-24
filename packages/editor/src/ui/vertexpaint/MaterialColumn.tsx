@@ -2,7 +2,7 @@
  * The vertex paint editor's Material mode: the object's material and its
  * layers — on a layered surface the layer palette's editing (a texture into
  * a layer, its name, tiling and trim sheet in Layer settings); on a
- * material whose paint means something else (a trim sheet's grime, a tint)
+ * material whose paint means something else (a trim sheet's wetness, a tint)
  * the offer to make it a layered surface whose base keeps its look; on one
  * that reads no paint, Make it paintable.
  *
@@ -34,7 +34,7 @@ export function MaterialColumn({ entity, host }: EditModeView): JSX.Element {
       {(channels.meaning === 'trim' || channels.meaning === 'tint' || channels.meaning === 'raw') && (
         <Section title="Layers">
           <p className="tl-hint">
-            {channels.meaning === 'trim' ? `"${channels.material?.name}" reads paint as grime and wetness.` : channels.meaning === 'tint' ? `"${channels.material?.name}" reads paint as a tint.` : `"${channels.material?.name}" reads the paint its own way.`} To blend other materials on {entity.name} (a second trim sheet, moss, rust) make it a layered surface: its base keeps this look{channels.meaning === 'trim' ? ' (the sheet\'s strips and rows)' : ''}, and its paint starts again as layers 2–4 and wetness. One undo step.
+            {channels.meaning === 'trim' ? `"${channels.material?.name}" is one layer: it reads paint as wetness.` : channels.meaning === 'tint' ? `"${channels.material?.name}" reads paint as a tint.` : `"${channels.material?.name}" reads the paint its own way.`} To blend other materials on {entity.name} (a second trim sheet, moss, rust) make it a layered surface: its base keeps this look{channels.meaning === 'trim' ? ' (the sheet\'s strips and rows) and its wetness paint, and layers 2–4 start unpainted' : ', and its paint starts again as layers 2–4 and wetness'}. One undo step.
           </p>
           <button type="button" className="tl-btn tl-btn--primary" aria-label="make it a layered surface" disabled={make.busy || vp.locked} onClick={make.run}>
             {make.busy ? 'Working…' : 'Make it a layered surface'}

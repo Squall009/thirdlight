@@ -3,7 +3,7 @@
  * whether it reads paint (with Make it paintable first when it does not),
  * the tools (Paint, Erase: one brush, X switches), the palette of what the
  * paint means on that material (a layered surface's Base, layers 2–4 and
- * Wet; a trim sheet's grime and wetness; a tint's colour and amount); and as
+ * Wet; a trim sheet's wetness; a tint's colour and amount); and as
  * docked panels over the view the shared brush, its noise mask and the
  * channel view (top left).
  *

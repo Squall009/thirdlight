@@ -59,7 +59,7 @@ reads its file and checks it against the spec's kit piece checklist:
 | `_COL` collision present | there is no `<piece>_COL` node (players walk through it) |
 | LOD 0–2 present | `<piece>_LOD1`/`_LOD2` are missing |
 | UVs inside the sheet's rows | on the parts mapped to the kit's trim sheet, a triangle spans two rows or reaches a gutter |
-| No vertex colours on the sheet | those parts carry `COLOR_0` (read as occlusion, grime and wetness) |
+| No vertex colours on the sheet | those parts carry `COLOR_0` (read as occlusion and wetness) |
 
 Errors are red (it draws wrong), warnings amber. A model whose materials
 are not mapped to the kit's trim sheet is not UV-checked; the check offers

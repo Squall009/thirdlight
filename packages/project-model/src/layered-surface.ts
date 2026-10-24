@@ -33,11 +33,16 @@
  * — the base (layer 1) is what the others leave, 1 − (R + G + B) clamped,
  * then R, G, B are layers 2–4 and A is the wetness; an unpainted mesh shows
  * its base, or its own vertex colours as weights where it has them.
- * Generated architecture's trim data (R occlusion, G grime, B wetness: the
- * trim sheet's convention) adds its wetness to the paint's, its occlusion
- * darkens the indirect light, and its grime (the block layer's path paint
- * under the building) pulls the colour toward a grime colour and the
- * surface toward matte — grime, not a layer, whatever the layers are.
+ * Generated architecture's trim data (`tlTrimData`: R the baked occlusion,
+ * B the wall paint's wetness) adds its wetness to the paint's and its
+ * occlusion darkens the indirect light. There is no built-in grime: dirt is
+ * a layer painted like any other.
+ *
+ * Any layer can be a trim sheet (`geometry`) or a tiling texture. Trim
+ * layers all read the mesh's one set of trim UVs, so the sheets blended on
+ * one mesh must share one row layout (a clean and a worn version of the same
+ * sheet); sheets with other rows are refused in one material
+ * (`layerSheetMismatches`).
  *
  * Only the layers a material uses are read: a material with a trim layer
  * draws up to its last filled colour slot (`layeredForDraw`). Layers with a
@@ -45,9 +50,8 @@
  * their own arrays, so a trim group at the sheet's size and a tiling group at
  * its own size never force each other's size: at most two arrays per map.
  *
- * The old `trim` shader draws as a layered surface with one trim layer
- * (`trimSurfaceMaterial`): same reads, same pixels, its grime a layer of
- * grime colour.
+ * A `trim` shader material draws as a layered surface with one trim layer
+ * (`trimSurfaceMaterial`): the same reads and the same wet look.
  *
  * Pure (graph data only): the editor, the backend and the renderer share it
  * (`@thirdlight/project-model/layered-surface`).
@@ -191,11 +195,6 @@ export const BIPLANAR_DISTANCE = 60;
  */
 export const LAYER_NOT_READ = -1;
 
-/** The roughness grime moves toward (dust and soot are matte). */
-const GRIME_ROUGHNESS = 0.95;
-/** The colour grime pulls toward (a trim material's default `grimeColor`, and the layered surface's). */
-export const GRIME_COLOUR = '#3b3328';
-
 /**
  * The layered surface template — four PBR layers from three texture arrays
  * (public texture parameters `albedoHeight`: albedo RGB with the height in
@@ -267,15 +266,7 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   };
   // The base layer's tint (white: its texture as it is), as a trim material's colour tints its sheet.
   const baseTint = b.op('multiply', 'baseTinted', [albedos[0]!, 'rgb'], b.param('color', 'color', '#ffffff'));
-  const layered = mix('albedoMix', albedos.map((s, i) => (i === 0 ? baseTint : ([s, 'rgb'] as GraphOut))));
-  // Generated architecture's grime (0 on every other mesh): toward the grime colour and matte, by the `grime` amount.
-  const grimeAmount = b.add('grimeAmount', 'saturate');
-  b.wire(b.op('multiply', 'grimeScaled', [source, 'grime'], b.param('grime', 'float', 1)), grimeAmount, 'in');
-  const grimed = b.add('grimeColourMix', 'lerp');
-  b.wire(layered, grimed, 'a');
-  b.wire(b.param('grimeColor', 'color', GRIME_COLOUR), grimed, 'b');
-  b.wire([grimeAmount, 'out'], grimed, 't');
-  const albedo: GraphOut = [grimed, 'out'];
+  const albedo = mix('albedoMix', albedos.map((s, i) => (i === 0 ? baseTint : ([s, 'rgb'] as GraphOut))));
   // Wetness: the stored or painted one, or the parameter (rain on this material), whichever is larger, plus the scene's.
   const wetLocal = b.op('max', 'wet', [source, 'wetness'], b.param('wetness', 'float', 0));
   const wetAll = b.add('wetTotal', 'saturate');
@@ -304,12 +295,8 @@ export function layeredMaterial(materialId: string, name: string): MaterialDef {
   b.wire(b.float('wetAlbedo', WET_ALBEDO_SCALE), darken, 'b');
   b.wire(wet, darken, 't');
   b.wire(b.op('multiply', 'wetColour', albedo, [darken, 'out']), out, 'baseColor');
-  const matte = b.add('grimeRoughMix', 'lerp');
-  b.wire([orm, 'y'], matte, 'a');
-  b.wire(b.float('grimeRoughness', GRIME_ROUGHNESS), matte, 'b');
-  b.wire([grimeAmount, 'out'], matte, 't');
   const gloss = b.add('wetGloss', 'lerp');
-  b.wire([matte, 'out'], gloss, 'a');
+  b.wire([orm, 'y'], gloss, 'a');
   b.wire(b.float('wetRoughness', WET_ROUGHNESS), gloss, 'b');
   b.wire(wet, gloss, 't');
   b.wire([gloss, 'out'], out, 'roughness');
@@ -331,21 +318,19 @@ const colourOf = (v: unknown, d: string): string => (typeof v === 'string' && /^
 /**
  * A `trim` shader material as the layered surface it draws as: one layer —
  * the sheet, read at the mesh's UVs (the strips) with the row-safe mip limit
- * of its row table — and a layer of grime colour over it. The trim
- * material's own data stays as it is (`shader`, `params`, `textures`, `trim`:
- * the generator, the decal cells and the editor read those); the graph and
- * its parameters are added, so the renderer draws it as a graph.
+ * of its row table. The trim material's own data stays as it is (`shader`,
+ * `params`, `textures`, `trim`: the generator, the decal cells and the editor
+ * read those); the graph and its parameters are added, so the renderer draws
+ * it as a graph.
  *
- * What it draws is the trim shader's, term by term: the trim data (generated
- * architecture's, else a model's COLOR_0) is the trim convention's (R occlusion, G grime, B wetness; none: clean, dry,
- * unoccluded) with the vertex paint's G added to the grime and its B to the
- * wetness (the trim material's paint keeps the meaning it was painted
- * with); the grime colour layer's weight is that grime × `grime`, taking the
- * ORM's crevices first (× (2 − occlusion)), mixing the colour toward the grime
- * colour and the roughness toward matte; wetness (the vertex's or the
- * material's, the larger, plus the scene's) darkens the albedo, smooths the
- * surface and flattens the normal map; occlusion is the ORM's (× its
- * intensity) times the vertex's.
+ * What it draws, term by term: the sheet tinted by `color`; wetness — the
+ * trim data's (generated architecture's B, else a model's COLOR_0 B) plus the
+ * vertex paint's A (the layered surface's wetness channel; a trim material
+ * has no layers 2–4 for R, G and B), or the material's own, the larger, plus
+ * the scene's — darkens the albedo, smooths the surface and flattens the
+ * normal map; occlusion is the ORM's (× its intensity) times the vertex's
+ * (the trim data's R). No grime: dirt is a painted layer of a layered
+ * surface.
  */
 export function trimSurfaceMaterial(m: MaterialDef): MaterialDef {
   const b = new GraphBuilder([]);
@@ -374,35 +359,19 @@ export function trimSurfaceMaterial(m: MaterialDef): MaterialDef {
   b.wire([b.add('vertexData', 'vertexColor', { absent: 'zero', set: 'trim' }), 'rgba'], data, 'in');
   const paint = b.add('paintSplit', 'split');
   b.wire([b.add('paint', 'vertexColor', { set: 'paint' }), 'rgba'], paint, 'in');
-  const capped = (id: string, a: GraphOut, c: GraphOut): GraphOut => b.op('min', id, b.op('add', `${id}Sum`, a, c), b.float(`${id}Cap`, 1));
-  const grimeIn = capped('grimeVertex', [data, 'y'], [paint, 'y']);
-  const wetIn = capped('wetVertex', [data, 'z'], [paint, 'z']);
+  const wetIn = b.op('min', 'wetVertex', b.op('add', 'wetVertexSum', [data, 'z'], [paint, 'w']), b.float('wetVertexCap', 1));
   const wetAll = b.add('wetTotal', 'saturate');
   b.wire(b.op('add', 'wetWithScene', b.op('max', 'wet', wetIn, b.param('wetness', 'float', numOf(p['wetness'], 0))), [b.add('sceneWet', 'sceneWetness'), 'wetness']), wetAll, 'in');
   const wet: GraphOut = [wetAll, 'out'];
-  // The grime colour layer's weight: crevices first (at the ORM's full occlusion grime counts double).
-  const grime = b.add('grimeWeight', 'saturate');
-  b.wire(b.op('multiply', 'grimeCrevices', b.op('multiply', 'grimeScaled', grimeIn, b.param('grime', 'float', numOf(p['grime'], 1))), b.op('subtract', 'creviceGain', b.float('two', 2), [orm, 'x'])), grime, 'in');
-  const weights = b.add('layerWeights', 'combine');
-  b.wire(b.op('subtract', 'sheetWeight', b.float('one', 1), [grime, 'out']), weights, 'x');
-  b.wire([grime, 'out'], weights, 'y');
-  const layerMix = (id: string, sheet: GraphOut, grimeValue: GraphOut): GraphOut => {
-    const n = b.add(id, 'weightedMix');
-    b.wire(sheet, n, 'a');
-    b.wire(grimeValue, n, 'b');
-    b.wire([weights, 'xyzw'], n, 'weights');
-    return [n, 'out'];
-  };
   const tint = b.param('color', 'color', colourOf(p['color'], '#ffffff'));
-  const sheetColour: GraphOut = albedo !== null ? b.op('multiply', 'tint', [albedo, 'rgb'], tint) : tint;
-  const colour = layerMix('colourMix', sheetColour, b.param('grimeColor', 'color', colourOf(p['grimeColor'], GRIME_COLOUR)));
+  const colour: GraphOut = albedo !== null ? b.op('multiply', 'tint', [albedo, 'rgb'], tint) : tint;
   const darken = b.add('wetDarken', 'lerp');
   b.wire(b.float('dry', 1), darken, 'a');
   b.wire(b.float('wetAlbedo', WET_ALBEDO_SCALE), darken, 'b');
   b.wire(wet, darken, 't');
   b.wire(b.op('multiply', 'wetColour', colour, [darken, 'out']), out, 'baseColor');
   // Roughness and metalness scale the ORM's (1: the sheet's own), as three's maps do.
-  const rough = layerMix('roughMix', b.op('multiply', 'roughness', b.param('roughness', 'float', numOf(p['roughness'], 1)), [orm, 'y']), b.float('grimeRoughness', GRIME_ROUGHNESS));
+  const rough = b.op('multiply', 'roughness', b.param('roughness', 'float', numOf(p['roughness'], 1)), [orm, 'y']);
   const gloss = b.add('wetGloss', 'lerp');
   b.wire(rough, gloss, 'a');
   b.wire(b.float('wetRoughness', WET_ROUGHNESS), gloss, 'b');

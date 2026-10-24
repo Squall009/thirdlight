@@ -96,8 +96,8 @@ meets the ground, without a new texture. The data and the command:
      base colour and a dirt colour with `alpha` as its `t`;
    - layered surfaces: a **Height blend** node with its weights unwired
      reads the paint as its layers' weights (R, G, B, A one layer each);
-   - generated walls on a trim sheet need nothing: paint G adds grime, B
-     wetness.
+   - generated walls on a trim sheet need nothing: paint A adds wetness
+     (for dirt, wear them with a layered surface and paint its layers).
 2. Paint the objects: one `paintVertices` stroke per channel over MCP,
    e.g. `{ "entityId": "rock-000001", "dabs": [[10, 0.2, 4]], "brush":
    { "radius": 0.8, "strength": 1, "channel": 3 } }` for A, then the same

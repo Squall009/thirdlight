@@ -92,8 +92,6 @@ Project materials.
 | `materials[].params.normalScale` | number | `1` | 0 – 4, step 0.1 | **Normal Scale.** The trim shader's normal scale (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.aoIntensity` | number | `1` | 0 – 2, step 0.1 | **AO Intensity.** The trim shader's ao intensity (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.occlusion` | number | `1` | 0 – 1, step 0.01 | **Occlusion.** The trim shader's occlusion (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
-| `materials[].params.grimeColor` | color | `"#3b3328"` |  | **Grime Color.** The trim shader's grime color (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
-| `materials[].params.grime` | number | `1` | 0 – 2, step 0.1 | **Grime.** The trim shader's grime (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.wetness` | number | `0` | 0 – 1, step 0.01 | **Wetness.** The trim shader's wetness (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.wetFlatten` | number | `0.7` | 0 – 1, step 0.01 | **Wet Flatten.** The trim shader's wet flatten (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |
 | `materials[].params.alphaMode` | enum: `opaque`, `cutout` | `"opaque"` |  | **Alpha Mode.** The trim shader's alpha mode (absent: the file's value or the shader default). (applies when `../shader` is `trim`) |

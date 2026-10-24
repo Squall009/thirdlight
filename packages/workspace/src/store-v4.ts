@@ -61,6 +61,7 @@ import {
   upgradeSceneEnvironments,
   upgradeSceneModel,
   upgradeAudioAssets,
+  upgradeBuiltInGrime,
   upgradeVertexLocalLights,
   canonicalLoadable,
   type LoadableEntry,
@@ -497,6 +498,16 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     upgraded = { ...(upgraded ?? { notes: [] }), documents: true };
     if (vertexLights.upgraded > 0) {
       upgraded.notes = [...upgraded.notes, `${vertexLights.upgraded} local-light setting${vertexLights.upgraded === 1 ? '' : 's'} (objects, materials, lights) shaded per vertex now shade per pixel: per-vertex local lighting was removed (it was not cheaper)`];
+    }
+  }
+  // The built-in grime is gone (dirt is a painted layer): its params and graph nodes go; the materials whose grime was set are named.
+  const grime = upgradeBuiltInGrime(contentDoc, docs);
+  if (grime.changed) {
+    contentDoc = grime.content;
+    docs = grime.scenes;
+    upgraded = { ...(upgraded ?? { notes: [] }), documents: true };
+    if (grime.named.length > 0) {
+      upgraded.notes = [...upgraded.notes, `built-in grime was removed (dirt is a layer of a layered surface, painted like any other): ${grime.named.length} material${grime.named.length === 1 ? '' : 's'} had grime set and draw${grime.named.length === 1 ? 's' : ''} without it now — ${grime.named.slice(0, 8).join(', ')}${grime.named.length > 8 ? ', …' : ''}`];
     }
   }
   // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
