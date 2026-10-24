@@ -14,6 +14,7 @@ An object in a scene.
 | `id` | string, id, 1–64 chars |  |  | **Id.** The stable object id. (required; written by a tool; scripts read; format id) |
 | `name` | string, name, 1–128 chars |  |  | **Name.** The name shown in the Hierarchy. (scripts read; format name) |
 | `parentId` | object id | `null` |  | **Parent.** The parent object (none: a scene root). (may be null; scripts read) |
+| `parentPart` | string |  |  | **Parent part.** Under a linked copy: the path of the copy's part this object hangs from (none: the copy's root). (written by a tool) |
 | `active` | bool | `true` |  | **Active.** Inactive objects are not in the game (an object a script switches off stays loaded but is not drawn, collides with nothing, fires no trigger and does not tick). (stored only when not the default; scripts read and write) |
 | `visible` | bool | `true` |  | **Visible.** Drawn (with its children, their lights and effects). Off: the object starts hidden until a script or a timeline shows it; it still collides, triggers and ticks while hidden. (stored only when not the default; scripts read and write) |
 | `locked` | bool | `false` |  | **Locked.** Cannot be selected in the Scene view. (stored only when not the default) |
@@ -63,7 +64,7 @@ Every component, in "+ Add component" order within its category.
 | [`faceMovement`](components-animation.md#component-faceMovement) | Face movement | Animation | Turns this model to face where its parent (or, at the top, itself) is going: to one of two yaws by the side it moves to, or toward its motion in any direction. |
 | [`modelAnimation`](components-animation.md#component-modelAnimation) | Model animation (old) | Animation | The old idle/run/airborne clip roles. Projects are moved to an animator when opened; this stays only where the clips could not be measured. |
 | [`behavior`](components-scripting.md#component-behavior) | Script | Scripting | Runs a published behavior (script) on this object with per-object property values. |
-| [`prefab`](components-organisation.md#component-prefab) | Prefab link | Organisation | Which prefab (and which of its entities) this object was placed from. |
+| [`prefab`](components-organisation.md#component-prefab) | Prefab link | Organisation | Which prefab this object is a copy of: a linked copy (its parts made from the prefab and its overrides), or one part of a placed copy. |
 | [`folder`](components-organisation.md#component-folder) | Folder | Organisation | Organises objects in the Hierarchy; carries nothing else. |
 | [`blockLayer`](components-rendering-1.md#component-blockLayer) | Block layer | Rendering | A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands. |
 | [`blockFootprint`](components-gameplay.md#component-blockFootprint) | Block footprint | Gameplay | The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked). |

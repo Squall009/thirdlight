@@ -113,6 +113,7 @@ export const ERROR_CODES = [
   'recipe_invalid',
   'prefab_reference_missing',
   'prefab_component_forbidden',
+  'prefab_cycle',
   'behavior_reference_missing',
   'property_unknown',
   'property_type',

@@ -27,7 +27,7 @@ import {
   propertyValue,
   withBoundedFound,
 } from './errors';
-import { declarationBytes, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES } from '@thirdlight/project-model';
+import { declarationBytes, isPrivateProperty, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES } from '@thirdlight/project-model';
 import type { CommandError } from './types';
 import type {
   DeclaredProperty,
@@ -54,10 +54,8 @@ const DECLARED_PROPERTY_FIELDS: readonly string[] = ['key', 'label', 'type', 'de
 /** The optional Inspector texts of a declared property and their caps. */
 const PROPERTY_TEXTS: readonly (readonly ['group' | 'header' | 'tooltip', number])[] = [['group', 64], ['header', 64], ['tooltip', 256]];
 
-/** Whether a declared property is private (absent visibility = public). */
-export function isPrivateProperty(p: { visibility?: string }): boolean {
-  return p.visibility === 'private';
-}
+// Whether a declared property is private: the model owns it (assembly of copies reads it too).
+export { isPrivateProperty };
 
 /** Reference-resolution context for value checks. */
 export interface ValueContext {

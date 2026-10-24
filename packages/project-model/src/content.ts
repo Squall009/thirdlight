@@ -69,6 +69,7 @@ import { MAX_CONTENT_FILE_BYTES, MAX_PREFAB_BYTES } from './content-limits';
 import { canonicalDocBytes, derivedOf, limitsError, sortedRecord } from './content-helpers';
 import { canonicalAssetV3, validateAsset } from './content-assets';
 import { canonicalPrefab, validatePrefabDefinition } from './content-prefabs';
+import { validatePrefabNesting } from './prefab-links';
 import { canonicalBehavior, canonicalTrust, validateBehaviorRecord, validateTrust } from './content-behaviors';
 import { canonicalSettings, M2_SETTINGS_KEYS, validateSettings } from './content-settings';
 export { isValidSourcePath } from './content-helpers';
@@ -210,6 +211,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
           errors.push(limitsError(`/prefabs/${i}`, 'prefab_bytes', canonicalDocBytes(d), MAX_PREFAB_BYTES, 'canonical prefab definition exceeds the byte cap'));
         }
       }
+      // A prefab may not contain itself through nested copies.
+      if (version === 4) validatePrefabNesting(prefabs, '/prefabs', errors);
     }
   }
 

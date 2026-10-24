@@ -162,7 +162,8 @@ backend.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 39c.0 | Done. three 0.186.1 and Rapier 0.21.0 are still the latest (0.21 stays planned for phase 41). Baseline (`TL_BENCH=1 npx vitest run packages/backend/src/prefab-scene-build.bench.test.ts`, 10 prefabs × 4 parts, 1,000 plain copies = 4,003 objects, medians of 5): editor view (`queryEntities`) 21 ms, Play start backend 105 ms (closure 100 ms, its scene stage 14 ms). Placing the 1,000 copies by command took 56 s. |
+| 39c.1 A | Done: the link format (`prefab: {prefabId, overrides}`, overrides by part path: field set/remove, component add/remove, part removal; added objects carry `parentPart`), nested copies and variants in definitions, catalog cycle refusal (`prefab_cycle`), and `createPrefabAssembler` / `assembleSceneEntities` in project-model (flattened once per prefab, part ids `prefabPartId(copyId, path)`). Vitest at the workspace boundary (`packages/workspace/src/prefab-links.test.ts`, 3 tests). No e2e touched (`delete-content` ran in the fast gate, green; village at the cap: p95 16.7 ms, 0 missed, both renderers). `scan-bounded-log` timed out under load twice and passed alone (D307 watch). Part B (reassembly through the change feed, Play/export/editor wiring) is next. |
 
 ## 5. Decision log
 
@@ -172,3 +173,23 @@ backend.
   overrides, an edit mode, nesting, variants, unpack and anything-in-a-prefab.
   Default chosen, owner to confirm: prefabs stay a separate asset (not
   scenes).
+- 2026-10-24 (39c.1 A): **Schema: schema 8, introduced with the migration.** The link is not
+  additive on 7: schema 7's validator refuses `overrides` and a `prefab` without `localId`, and
+  a stored copy changes meaning (from a plain copy that remembers its prefab to a link), so
+  a loader must know which a file holds. The model accepts the link shape now; the version
+  bump and its load upgrade land together with the migration (39c.3), so no file is ever
+  written as 8 before its copies are converted. Phase 41 extends the same version. Until then
+  no command writes links (39c.2 must not ship links without the bump).
+- 2026-10-24 (39c.1 A): **Part paths.** Overrides name a part by local ids joined by `/`,
+  relative to the copy's prefab: the root is its local id, a nested copy's parts are
+  `L/<path in the nested prefab>` and the nested prefab's root is the nested copy itself (`L`).
+  A variant is a prefab whose root `V` is a copy of its base, so the base's parts are `V/…` and
+  never meet the variant's own. A part's scene id is the copy id plus an 11-character hash of
+  the path (stable across prefab edits, ≤ 64 characters); the copy's root keeps the copy's id.
+  Default chosen, owner to confirm.
+- 2026-10-24 (39c.1 A): **Objects added to a copy** stay ordinary scene objects: `parentId` is
+  the copy and the new `parentPart` names the part (the stored scene validates without the
+  prefab; assembly re-parents them, and to the copy's root, with a problem, if the part is gone).
+  The copy's own name, tags and flags are its root's; a stale override (its part or field gone)
+  is skipped and reported, never fatal. Default chosen, owner to confirm.
+

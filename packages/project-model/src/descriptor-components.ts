@@ -141,11 +141,12 @@ export const behavior: ComponentDescriptor = {
 export const prefab: ComponentDescriptor = {
   name: 'prefab',
   label: 'Prefab link',
-  tooltip: 'Which prefab (and which of its entities) this object was placed from.',
+  tooltip: 'Which prefab this object is a copy of: a linked copy (its parts made from the prefab and its overrides), or one part of a placed copy.',
   category: 'Organisation',
   value: obj('prefab', 'Prefab link', 'Written when a prefab is placed.', [
     ref('prefabId', 'Prefab', 'The prefab this object came from.', 'prefab', { required: true, readOnly: true }),
-    str('localId', 'Prefab entity', 'The prefab entity this object is a copy of.', { ...ID, required: true, readOnly: true }),
+    str('localId', 'Prefab entity', 'The prefab entity this object is a copy of (absent on a linked copy, which is the whole prefab).', { ...ID, readOnly: true }),
+    json('overrides', 'Overrides', "A linked copy's differences from its prefab, each on one part (by its local-id path): a changed, added or removed field or component, or a removed part.", { shape: 'PrefabOverride[]', readOnly: true }),
   ]),
   add: { kind: 'tool', tool: 'instantiatePrefab' },
   handles: [],
@@ -1191,6 +1192,7 @@ export const ENTITY: ObjectFieldDescriptor = obj('entity', 'Object', 'An object 
   str('id', 'Id', 'The stable object id.', { ...ID, required: true, readOnly: true }),
   str('name', 'Name', 'The name shown in the Hierarchy.', NAME),
   entity('parentId', 'Parent', 'The parent object (none: a scene root).', { nullable: true, default: null }),
+  str('parentPart', 'Parent part', "Under a linked copy: the path of the copy's part this object hangs from (none: the copy's root).", { readOnly: true }),
   bool('active', 'Active', 'Inactive objects are not in the game (an object a script switches off stays loaded but is not drawn, collides with nothing, fires no trigger and does not tick).', { default: true, omitDefault: true }),
   // The stored value is how the object starts; scripts, timelines and collectibles show and hide it while the game runs.
   bool('visible', 'Visible', 'Drawn (with its children, their lights and effects). Off: the object starts hidden until a script or a timeline shows it; it still collides, triggers and ticks while hidden.', { default: true, omitDefault: true }),

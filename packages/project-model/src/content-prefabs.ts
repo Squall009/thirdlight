@@ -38,6 +38,7 @@ import {
 } from './components';
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
+import { isPrefabLink, PART_PATH_SEPARATOR, validatePrefabLink, type PrefabLinkComponent } from './prefab-links';
 
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'updatedRevision', 'nextLocalNumber', 'entityCount', 'depth', 'entities']);
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'tags', 'components']);
@@ -60,7 +61,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
     if (!e) return 0;
     seen.add(id);
     const parent = e['parentLocalId'];
-    const d = typeof parent === 'string' ? depthOf(parent, seen) + 1 : 1;
+    // A parent inside a nested copy (`L/localId`) counts from the nested copy; its own depth is the nested prefab's.
+    const d = typeof parent === 'string' ? depthOf(parent.split(PART_PATH_SEPARATOR)[0] as string, seen) + 1 : 1;
     depth.set(id, d);
     if (d > max) max = d;
     return d;
@@ -135,7 +137,7 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   }
 }
 
-function validatePrefabEntity(e: unknown, idx: number, path: string, errors: ModelErrorV2[], localIndex: Map<string, number>, version: 3 | 4 = 3): void {
+function validatePrefabEntity(e: unknown, idx: number, path: string, errors: ModelErrorV2[], localIndex: Map<string, number>, nestedCopies: Set<string>, version: 3 | 4 = 3): void {
   if (!isPlainObject(e)) {
     errors.push(fieldType(path, e, 'object'));
     return;
@@ -165,7 +167,12 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
   if (parent !== undefined && parent !== null) {
     if (typeof parent !== 'string') errors.push(fieldType(`${path}/parentLocalId`, parent, 'string or null'));
     else {
-      const pidx = localIndex.get(parent);
+      // A part inside a nested copy is named by its path (`L/localId`); its first local id is the nested copy here.
+      const head = parent.split(PART_PATH_SEPARATOR)[0] as string;
+      if (head !== parent && !nestedCopies.has(head)) {
+        errors.push(withFound({ code: 'prefab_reference_missing', path: `${path}/parentLocalId`, message: 'a parent path starts at an earlier nested copy of this definition', expected: 'an earlier nested copy localId' }, parent));
+      }
+      const pidx = localIndex.get(head);
       if (pidx === undefined) {
         errors.push(
           withFound(
@@ -192,6 +199,13 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
     errors.push(fieldMissing(`${path}/components`, 'components'));
   } else if (!isPlainObject(comps)) {
     errors.push(fieldType(`${path}/components`, comps, 'object'));
+  } else if (version === 4 && isPrefabLink(comps['prefab'])) {
+    // A nested copy (or a variant's root): its placement and its link to the nested prefab, whose parts it is made of.
+    validatePrefabLink(comps['prefab'], `${path}/components/prefab`, errors);
+    if (typeof localId === 'string') nestedCopies.add(localId);
+    if (comps['transform'] === undefined) errors.push({ code: 'component_missing', path: `${path}/components/transform`, message: 'every prefab entity requires the transform component', expected: 'transform present' });
+    const extra = Object.keys(comps).filter((k) => k !== 'transform' && k !== 'prefab');
+    if (extra.length > 0) errors.push(withFound({ code: 'component_conflict', path: `${path}/components`, message: 'a nested copy carries only its transform and its prefab link: a change to one of its parts is an override', expected: 'transform and prefab' }, extra));
   } else {
     const allowed = new Set<string>(['transform', 'model', 'box', 'behavior', ...(version === 4 ? PREFAB_V4_COMPONENTS : [])]);
     const allowedText = version === 4 ? `transform, model, box, behavior, ${PREFAB_V4_COMPONENTS.join(', ')}` : 'transform, model, box, behavior';
@@ -267,8 +281,9 @@ export function validatePrefabDefinition(d: unknown, path: string, errors: Model
       errors.push(limitsError(`${path}/entities`, 'prefab_entities', entities.length, MAX_PREFAB_ENTITIES, `a definition must have 1-${MAX_PREFAB_ENTITIES} entities`));
     }
     const localIndex = new Map<string, number>();
+    const nestedCopies = new Set<string>();
     for (let i = 0; i < entities.length; i++) {
-      validatePrefabEntity(entities[i], i, `${path}/entities/${i}`, errors, localIndex, version);
+      validatePrefabEntity(entities[i], i, `${path}/entities/${i}`, errors, localIndex, nestedCopies, version);
     }
     if (d['entityCount'] !== entities.length) {
       errors.push(fieldValue(`${path}/entityCount`, d['entityCount'], `entities.length (${entities.length})`, 'entityCount is derived and must equal entities.length'));
@@ -314,8 +329,21 @@ export function canonicalPrefabs(defs: readonly PrefabDefinition[]): PrefabDefin
   return sortedRecord([...defs], (d) => d.prefabId).map(canonicalPrefab);
 }
 
+function canonicalPrefabLink(link: PrefabLinkComponent): PrefabLinkComponent {
+  return { prefabId: link.prefabId, ...(link.overrides !== undefined && link.overrides.length > 0 ? { overrides: link.overrides.map((o) => ({ ...o })) } : {}) };
+}
+
 function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   const components: PrefabEntity['components'] = { transform: canonicalTransform(e.components.transform) };
+  if (e.components.prefab !== undefined) {
+    return {
+      localId: e.localId,
+      ...(e.name !== undefined ? { name: e.name } : {}),
+      ...(e.parentLocalId !== undefined ? { parentLocalId: e.parentLocalId } : {}),
+      ...(e.tags !== undefined && e.tags !== 0 ? { tags: e.tags } : {}),
+      components: { ...components, prefab: canonicalPrefabLink(e.components.prefab) },
+    };
+  }
   // The model keeps every stored field (as on a scene entity, which keeps the
   // validated model whole): a placed copy must look and behave like its source
   // (shadows, light layers, occluder, see-through).

@@ -446,6 +446,8 @@ export interface PrefabComponentsV2 extends PrefabComponentsV4Extra {
   model?: ModelComponent;
   box?: BoxComponent;
   behavior?: BehaviorComponent;
+  /** A nested copy of another prefab (then the entity carries only this and its transform). */
+  prefab?: import('./prefab-links').PrefabLinkComponent;
 }
 
 /** The v4-only prefab components (same shapes as on a scene entity). */

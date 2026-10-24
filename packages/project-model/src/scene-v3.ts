@@ -84,6 +84,7 @@ import {
   validatePrefabProvenance,
   validateTransformV2,
 } from './components';
+import { isPartKey, isPrefabLink, validatePrefabLink } from './prefab-links';
 import type {
   BoxComponent,
   CameraComponent,
@@ -136,7 +137,7 @@ const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'ent
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'entities', 'blocks']);
 /** The boolean flags an entity may carry (only a non-default value is stored). */
 export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static', 'keepLoaded'] as const;
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components']);
+const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'parentPart', ...ENTITY_FLAGS, 'tags', 'components']);
 /** The v4 component registry (v3's plus `instances`). */
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
@@ -746,7 +747,14 @@ function validateEntityComponentsV3(
   if (comps['box'] !== undefined) validateBoxV2(comps['box'], `${path}/box`, errors);
   if (comps['camera'] !== undefined) validateCameraV2(comps['camera'], `${path}/camera`, errors);
   if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/behavior`, errors);
-  if (comps['prefab'] !== undefined) validatePrefabProvenance(comps['prefab'], `${path}/prefab`, errors);
+  if (comps['prefab'] !== undefined) {
+    // A linked copy's root names its prefab and overrides and holds nothing else: its parts are made from the prefab.
+    if (isPrefabLink(comps['prefab'])) {
+      validatePrefabLink(comps['prefab'], `${path}/prefab`, errors);
+      const extra = Object.keys(comps).filter((k) => k !== 'transform' && k !== 'prefab');
+      if (extra.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: "a linked copy carries only its transform and its prefab link: a change to one of its parts is an override", expected: 'transform and prefab' }, extra));
+    } else validatePrefabProvenance(comps['prefab'], `${path}/prefab`, errors);
+  }
   if (comps['collider'] !== undefined) {
     // v4: `oneWay: true` on a collider.
     const col = comps['collider'];
@@ -1133,6 +1141,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     id: e['id'] as string,
     ...(typeof name === 'string' ? { name } : {}),
     ...(typeof pid === 'string' ? { parentId: pid } : {}),
+    ...(typeof e['parentPart'] === 'string' ? { parentPart: e['parentPart'] } : {}),
     ...canonicalFlags(e),
     components,
   };
@@ -1256,7 +1265,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.points3d += c.points3d;
       }
       for (const k of Object.keys(e)) {
-        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, ['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components'].join(', ')));
+        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, ['id', 'name', 'parentId', 'parentPart', ...ENTITY_FLAGS, 'tags', 'components'].join(', ')));
       }
     }
 
@@ -1275,6 +1284,16 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       }
     }
     checkHierarchyCycles(entities, idFirstIndex, errors);
+    // An object added to a linked copy sits under one of its parts: its parent is the copy, `parentPart` the part's path.
+    for (let idx = 0; idx < entities.length; idx++) {
+      const e = entities[idx];
+      if (!isPlainObject(e) || e['parentPart'] === undefined) continue;
+      const part = e['parentPart'];
+      const parent = typeof e['parentId'] === 'string' ? entities[idFirstIndex.get(e['parentId']) ?? -1] : undefined;
+      const parentLink = isPlainObject(parent) && isPlainObject(parent['components']) ? parent['components']['prefab'] : undefined;
+      if (typeof part !== 'string' || !isPartKey(part)) errors.push(fieldValue(`/entities/${idx}/parentPart`, part, 'local ids joined by /', "parentPart is the path of one of the copy's parts"));
+      else if (!isPrefabLink(parentLink)) errors.push(fieldValue(`/entities/${idx}/parentPart`, part, 'absent unless parentId names a linked copy', 'parentPart names a part of the linked copy parentId names'));
+    }
     for (let idx = 0; idx < entities.length; idx++) {
       const e = entities[idx];
       if (!isPlainObject(e)) continue;

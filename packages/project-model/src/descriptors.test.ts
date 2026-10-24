@@ -176,8 +176,8 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:', 'blockTypes:*.rotations', 'blockTypes:*.boxes.*']);
 /** Optional fields of an exactly-one-of pair (removing the present one leaves none). */
-// Fields that come in pairs or one of a set: removing one alone is refused.
-const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot', 'blockStamps:*.edgePalette', 'blockStamps:*.edges', 'blockTypes:*.variants.*.prefab']);
+// Fields that come in pairs or one of a set, or that another field needs (a parent part needs its copy): removing one alone is refused.
+const ONE_OF_REMOVAL = new Set(['entity:parentId', 'uiWidget:worldAnchor.point', 'uiWidget:image', 'uiWidget:saveSlot', 'blockStamps:*.edgePalette', 'blockStamps:*.edges', 'blockTypes:*.variants.*.prefab']);
 
 
 interface Ctx {
@@ -579,7 +579,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }, { mode: 'velocity', yawOffset: -90, turnSeconds: 0.2 }],
   modelAnimation: [{ assetId: 'model-a', version: 1, roles: { idle: { clipIndex: 0 }, run: { clipIndex: 1 }, airborne: { clipIndex: 2 } } }],
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],
-  prefab: [{ prefabId: 'pre-a', localId: 'root' }],
+  prefab: [{ prefabId: 'pre-a', localId: 'root' }, { prefabId: 'pre-a', overrides: [{ part: 'root', path: 'name', value: 'Door' }] }],
   folder: [{}],
   // A block layer (every optional flag set to its non-default value).
   blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, planeZ: 1.5, castShadow: false, receiveShadow: false, maxSlope: 30, smoothAngle: 40, topSubdivision: 2, wallPaint: true, lightLayers: 128, cutaway: { regions: [{ region: 'roof', when: 'room' }], planes: [4], fade: 0.5 }, kits: [{ kit: 'ruined', region: 'hall' }], walk: { from: 'spawn', maxStep: 0.5, maxDrop: 1, headroom: 1.8, field: 'walkable', diagonal: true }, vertexAO: 0.6, streaming: { render: 256, collision: 48, scatter: 128, live: 32, hysteresis: 8 } , decalLayers: 1, kitId: 'town', seeThrough: false, furnishing: 'starter-furnishing' }],
@@ -880,7 +880,7 @@ function runAllProbes(): void {
     bases.forEach((b, i) => probe(`${c.name}[${i}]`, sceneErrors, entityScene(c.name, b), `/entities/1/components/${c.name}`, c.value, `${c.name}:`));
   }
   // the entity's own fields
-  probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, visible: false, locked: true, static: true, keepLoaded: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
+  probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T, prefab: { prefabId: 'pre-a' } } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', parentPart: 'root', active: false, visible: false, locked: true, static: true, keepLoaded: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
   // content blocks
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
   SCENE_ENV_BASES.forEach((b, i) => probe(`sceneEnvironment[${i}]`, (v) => errorsOf((e) => validateSceneEnvironment(v, '', e)), b, '', DESCRIPTORS.sceneEnvironment!, 'sceneEnvironment:'));
@@ -1043,8 +1043,9 @@ describe('descriptor registry', () => {
     // a prefab object's tags, about 0.1 KB; a prefab's update revision, about 0.2 KB; a block layer's 2D play plane
     // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB; see-through — the object flag on
     // six kinds and its six settings, about 3 KB; block looks, boxes, turns and cell metadata, a layer's bounds and a
-    // spline's profile as structured fields instead of JSON, about 2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(340_000);
+    // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
+    // object's parent part, about 0.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(341_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

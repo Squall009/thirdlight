@@ -1,4 +1,4 @@
-# Types (PaintTarget to UiEasing)
+# Types (PaintTarget to UiDialogueInput)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -152,6 +152,63 @@ interface PostConfig {
   ssao?: { enabled: boolean; radius?: number; intensity?: number };
   dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
   antialias?: 'none' | 'fxaa' | 'smaa';
+}
+```
+
+<a id="type-prefab-field-override"></a>
+### PrefabFieldOverride
+
+Declared in `packages/project-model/src/prefab-links.ts`.
+
+```ts
+/**
+ * A changed or added field: `path` is `/`-separated from the part —
+ * `name`, `tags`, `components/<component>` (an added or replaced component),
+ * or deeper, `components/<component>/<field>/…` (one changed field; arrays
+ * are replaced whole). The copy root's transform is the copy's own and is
+ * never an override.
+ */
+interface PrefabFieldOverride {
+  part: string;
+  path: string;
+  value: unknown;
+}
+```
+
+<a id="type-prefab-field-removal"></a>
+### PrefabFieldRemoval
+
+Declared in `packages/project-model/src/prefab-links.ts`.
+
+```ts
+/** A removed component or field (`path` as above). */
+interface PrefabFieldRemoval {
+  part: string;
+  path: string;
+  remove: true;
+}
+```
+
+<a id="type-prefab-override"></a>
+### PrefabOverride
+
+Declared in `packages/project-model/src/prefab-links.ts`.
+
+```ts
+/** One difference a copy keeps from its prefab, on the part `part` names. */
+type PrefabOverride = PrefabFieldOverride | PrefabFieldRemoval | PrefabPartRemoval;
+```
+
+<a id="type-prefab-part-removal"></a>
+### PrefabPartRemoval
+
+Declared in `packages/project-model/src/prefab-links.ts`.
+
+```ts
+/** A removed part, with every part under it. Never the root. */
+interface PrefabPartRemoval {
+  part: string;
+  remove: true;
 }
 ```
 
@@ -1560,52 +1617,4 @@ Declared in `packages/project-model/src/ui-documents.ts`.
 
 ```ts
 type UiDialogueInput = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
-```
-
-<a id="type-ui-document"></a>
-### UiDocument
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-interface UiDocument {
-  uiDocumentId: string;
-  name: string;
-  /** Z-order layer (−100–100, higher on top; absent 0). Documents of one layer stack in show order. */
-  layer?: number;
-  /** A modal document blocks the documents under it and takes the focus (absent false). */
-  modal?: boolean;
-  /** Take the keyboard/gamepad focus when shown (absent: `modal`). */
-  focus?: boolean;
-  /** The input action map active while it has the focus (absent: every map stays active). */
-  actionMap?: string;
-  theme?: string;
-  /**
-   * Scale with the view: `reference` [w, h] px drawn to fit the view
-   * (`fit`), its width or its height, to cover it (`cover`: the box larger
-   * than the view, centred) or to fit and grow the box to the view's aspect
-   * (`expand`: anchors 0 and 1 are the view's edges).
-   */
-  scale?: { reference: [number, number]; mode: UiScaleMode };
-  styles?: Record<string, UiStyle>;
-  icons?: Record<string, UiIcon>;
-  tweens?: Record<string, UiTween>;
-  showTween?: string;
-  hideTween?: string;
-  initialFocus?: string;
-  /** What the cancel input (Back, pad B) does while it has the focus. */
-  onCancel?: UiAction | UiAction[];
-  /** The sounds of every widget that takes the pointer or the focus, unless its style or itself names one. */
-  sounds?: UiSounds;
-  root: UiWidget;
-}
-```
-
-<a id="type-ui-easing"></a>
-### UiEasing
-
-Declared in `packages/project-model/src/ui-documents.ts`.
-
-```ts
-type UiEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'back';
 ```

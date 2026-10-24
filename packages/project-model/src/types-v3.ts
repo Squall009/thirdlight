@@ -273,6 +273,8 @@ export interface EntityV3 extends EntityFlagsV3 {
   id: string;
   name?: string;
   parentId?: string;
+  /** Under a linked copy (`parentId`): the path of the copy's part the object hangs from (absent: the copy's root). */
+  parentPart?: string;
   components: EntityComponentsV3;
 }
 
