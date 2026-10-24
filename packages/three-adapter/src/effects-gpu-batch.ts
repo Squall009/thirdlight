@@ -220,6 +220,9 @@ export class GpuEffectBatch {
   private generation = 0;
   private reading: { generation: number; counts: Promise<Int32Array[]> } | null = null;
 
+  /** The options its buffers and passes were built for ({@link batchOptionsKey}): a play with others joins another batch. */
+  readonly optionsKey: string;
+
   constructor(
     readonly effect: EffectDef,
     program: EffectProgram,
@@ -227,6 +230,7 @@ export class GpuEffectBatch {
     options: GpuExecutorOptions,
     slots: number,
   ) {
+    this.optionsKey = batchOptionsKey(options);
     const gpuPrograms = program.systems.filter((s) => !cpuSystems.has(s.index));
     this.table = slotTable(slotLayout(effect.parameters ?? [], gpuPrograms.length), slots);
     this.pool = new SlotPool(slots);
@@ -331,6 +335,24 @@ export class GpuEffectBatch {
   }
 }
 
+const textureKeys = new WeakMap<THREE.Texture, number>();
+let nextTextureKey = 1;
+
+/**
+ * What of a play's options a batch is built with: the capacities (its buffers), the sorted systems (its passes) and
+ * the depth texture (its collide pass). Plays of one effect share a batch only when these match; their parameters,
+ * wind and meshes are each play's own (the slot's constants, the planner).
+ */
+export function batchOptionsKey(options: GpuExecutorOptions): string {
+  const t = options.depthTexture ?? null;
+  let depth = 0;
+  if (t !== null) {
+    depth = textureKeys.get(t) ?? nextTextureKey++;
+    textureKeys.set(t, depth);
+  }
+  return `${options.capacityLimit}|${depth}|${[...options.sortedSystems].sort().join(',')}`;
+}
+
 /** Every batch of a renderer: plays join them, and a frame dispatches each step and the gathers once for all. */
 export class GpuEffectBatches {
   private readonly byEffect = new Map<EffectDef, GpuEffectBatch[]>();
@@ -340,10 +362,11 @@ export class GpuEffectBatches {
   /** `single`: one slot a batch (a play of its own). */
   constructor(private readonly single = false) {}
 
-  /** A free slot in a batch of this effect (a new batch when every one is full). */
-  acquire(effect: EffectDef, make: (slots: number) => GpuEffectBatch, particlesPerPlay: number): { batch: GpuEffectBatch; slot: number } {
+  /** A free slot in a batch of this effect built with these options (`batchOptionsKey`; a new batch when every one is full). */
+  acquire(effect: EffectDef, optionsKey: string, make: (slots: number) => GpuEffectBatch, particlesPerPlay: number): { batch: GpuEffectBatch; slot: number } {
     const list = this.byEffect.get(effect) ?? [];
     for (const batch of list) {
+      if (batch.optionsKey !== optionsKey) continue;
       const slot = batch.pool.acquire();
       if (slot !== null) return { batch, slot };
     }
@@ -442,7 +465,7 @@ export class GpuEffectExecutor {
     this.own = options.batches === undefined;
     this.batches = options.batches ?? new GpuEffectBatches(true);
     const perPlay = program.systems.reduce((n, s) => n + (this.cpuSystems.has(s.index) ? 0 : s.capacity), 0);
-    const { batch, slot } = this.batches.acquire(effect, (slots) => new GpuEffectBatch(effect, program, this.cpuSystems, options, slots), perPlay);
+    const { batch, slot } = this.batches.acquire(effect, batchOptionsKey(options), (slots) => new GpuEffectBatch(effect, program, this.cpuSystems, options, slots), perPlay);
     this.batch = batch;
     this.slot = slot;
     writeSlotConstants(batch.table, slot, (key) => this.planner.parameter(key), this.planner.windConfig());
@@ -503,6 +526,8 @@ export class GpuEffectExecutor {
 
   /** Before drawing: sort (alpha-blended outputs) and gather this play's particles into its draw buffers (with the frame's others). */
   sort(renderer: THREE.WebGPURenderer, cameraPosition: THREE.Vector3): void {
+    // Not stepped since it took its slot (a paused frame, the first one): the slot may still hold an earlier play's particles.
+    if (this.needsReset) this.resetNow(renderer);
     this.batches.requestDraw(this.batch, this.systems);
     if (this.own) this.batches.flushDraw(renderer, cameraPosition);
   }

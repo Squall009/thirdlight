@@ -14,7 +14,7 @@ import { localLightsCacheKey } from './local-lights';
 import { EFFECT_LIGHT_LIMIT } from './effects-draw';
 import { createEffectsPlayer, EFFECT_CAPS, type EffectDefLike } from './effects-player';
 import { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, gpuUnsupportedReason } from './effects-gpu';
-import { GpuEffectExecutor } from './effects-gpu-batch';
+import { batchOptionsKey, GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
 
 type Block = { type: string; data?: Record<string, unknown> };
 function graph(chains: Partial<Record<'spawn' | 'initialize' | 'update' | 'output', Block[]>>): EffectDefLike['systems'][number]['graph'] {
@@ -319,6 +319,55 @@ describe('WebGPU executor plumbing', () => {
     // The CPU-simulated system keeps the CPU executor's cap.
     expect(a.capacity).toBe(Math.min(FIRE.systems[1]!.maxParticles, EFFECT_CAPS.cpu.particlesPerSystem));
     gpu.dispose();
+  });
+
+  it('a play in a slot an earlier play left mid-life clears it before its first gather, on a paused frame too', () => {
+    const { r, computes } = stubRenderer();
+    const batches = new GpuEffectBatches();
+    const eye = new THREE.Vector3();
+    const first = new GpuEffectExecutor(FOUNTAIN, { capacityLimit: 1000, sortedSystems: new Set(), batches });
+    // Another play keeps the batch alive, so the next play takes the first one's slot.
+    const keep = new GpuEffectExecutor(FOUNTAIN, { capacityLimit: 1000, sortedSystems: new Set(), batches });
+    for (let k = 0; k < 6; k++) {
+      first.step(r, 1 / 60, {});
+      batches.flushStep(r);
+    }
+    first.dispose(r);
+    expect(batches.batchCount).toBe(1);
+    const next = new GpuEffectExecutor(FOUNTAIN, { capacityLimit: 1000, sortedSystems: new Set(), batches });
+    computes.length = 0;
+    // A paused frame (no step): the reset is dispatched, then the gathers.
+    next.sort(r, eye);
+    batches.flushDraw(r, eye);
+    expect(computes).toHaveLength(2);
+    expect(Array.isArray(computes[0]!.node) && (computes[0]!.node as unknown[]).length).toBe(2);
+    // Once cleared, a paused frame only gathers.
+    computes.length = 0;
+    next.sort(r, eye);
+    batches.flushDraw(r, eye);
+    expect(computes).toHaveLength(1);
+    next.dispose(r);
+    keep.dispose(r);
+  });
+
+  it('plays of one effect share a batch only when its buffers fit them: other capacities, sorting or depth get their own', () => {
+    const batches = new GpuEffectBatches();
+    const base = { capacityLimit: 1000, sortedSystems: new Set<string>(), batches };
+    const a = new GpuEffectExecutor(FOUNTAIN, base);
+    const b = new GpuEffectExecutor(FOUNTAIN, { ...base, params: { x: 1 } });
+    expect(batches.batchCount).toBe(1);
+    const c = new GpuEffectExecutor(FOUNTAIN, { ...base, capacityLimit: 10 });
+    const d = new GpuEffectExecutor(FOUNTAIN, { ...base, sortedSystems: new Set([FOUNTAIN.systems[0]!.systemId]) });
+    expect(batches.batchCount).toBe(3);
+    expect(c.systems[0]!.capacity).toBe(10);
+    expect(a.systems[0]!.capacity).toBeGreaterThan(10);
+    const t1 = new THREE.Texture();
+    const t2 = new THREE.Texture();
+    expect(batchOptionsKey({ ...base, depthTexture: t1 })).toBe(batchOptionsKey({ ...base, depthTexture: t1 }));
+    expect(batchOptionsKey({ ...base, depthTexture: t1 })).not.toBe(batchOptionsKey({ ...base, depthTexture: t2 }));
+    expect(batchOptionsKey({ ...base, depthTexture: null })).toBe(batchOptionsKey(base));
+    for (const x of [a, b, c, d]) x.dispose();
+    expect(batches.batchCount).toBe(0);
   });
 
   it('each step is one compute call: the update pass, then the spawn pass for exactly the planned births', () => {
