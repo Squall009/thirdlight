@@ -1360,13 +1360,16 @@ export class SeeThroughView implements SeeThroughControl {
     const mask = Fn((builder: { geometry?: { hasAttribute?(name: string): boolean } | null; isFlatShading(): boolean }) => {
       // Kept unless a subject fades it: a draw without a subject's bit never reads the dither.
       const keep = TSL.bool(true).toVar('seeThroughKeep');
+      // The face's normal (view space, toward either side): the geometry's own where it has one. three keeps that in
+      // a shader variable its lighting reads too, set where it is first used: here, before the branch, or every
+      // pixel of a draw outside the branch would be lit with a zero normal.
+      const own = builder.geometry?.hasAttribute?.('normal') === true && !builder.isFlatShading();
+      const geometryNormal = own ? normalViewGeometry.toVar('seeThroughNormalView') : null;
       If(bits.notEqual(int(0)), () => {
         const p = positionView;
-        // The face's normal (view space, toward either side): the geometry's own where it has one; else the cross of
-        // the view position's screen derivatives, taken here, in control flow uniform per draw, as derivatives must
-        // be. Everything else about the face is worked out only inside the boxes.
-        const own = builder.geometry?.hasAttribute?.('normal') === true && !builder.isFlatShading();
-        const faceNormal = own ? normalViewGeometry : p.dFdx().cross(p.dFdy()).toVar('seeThroughFace');
+        // Else the cross of the view position's screen derivatives, taken here, in control flow uniform per draw, as
+        // derivatives must be. Everything else about the face is worked out only inside the boxes.
+        const faceNormal = geometryNormal ?? p.dFdx().cross(p.dFdy()).toVar('seeThroughFace');
         const words = [whole.x, whole.y, whole.z, whole.w];
         fadeSteps(
           TSL_OPS,
