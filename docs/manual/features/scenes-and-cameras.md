@@ -307,16 +307,18 @@ seconds, frequency?, rotation?, seed?)`, `live()`, `blending()`, `get(id)`,
 `worldToScreen(position)` and `screenToRay(x, y)` (screen coordinates 0–1
 from the top left, with the aspect of the view the game is drawn in).
 `setSeeThrough({enabled?, subjects?, radius?, softness?, maxFade?,
-depthMargin?, fadeTime?})` changes see-through over the project's Rendering
+depthMargin?, fadeTime?, padding?})` changes see-through over the project's Rendering
 settings (`subjects`: entity ids; `null` goes back to the camera's target).
 Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.
 
 **See-through.** What stands between the camera and its target (or the
-subjects a script names) thins to a dither in a soft circle round it; only
-what is nearer the camera and higher than half the subject's height above
-its feet fades, so floors never do. It is turned on in Project Settings →
+subjects a script names) thins to a dither in a soft circle round it. Only
+true occluders fade: what stands in the space from the camera to the
+subject's body (widened by the padding), nearer the camera than the body
+along each pixel's own ray, and higher than half the subject's height above
+its feet. Walls behind or beside the subject and floors never do. It is turned on in Project Settings →
 Quality → Rendering, previewed with the Scene view's **see-through** switch
 and changed by scripts with `setSeeThrough`. What fades, the subject list,
 opting out, the setting's effect on loading and the cost are in

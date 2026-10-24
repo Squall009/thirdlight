@@ -46,7 +46,12 @@ player, so doorways and rooms stay readable. Three features work together:
 4. **See-through.** Project Settings → Quality → Rendering → **See-through**
    On. The defaults fit a follow camera (a circle a fifth of the view's
    height, thinning to a 75 % dither); raise **See-through radius** for
-   larger rooms.
+   larger rooms. Only what really stands between the camera and the player
+   fades: a wall behind or beside the player stays solid even inside the
+   circle, so keep **See-through depth margin** small (0.25 m: metres nearer
+   the camera than the body along each pixel's own ray). Raise
+   **See-through padding** (0.3 m) if pieces just beside the line of sight,
+   a door frame or the edge of a pillar, should fade too.
 5. **Look at it while you build.** Select the player and press the Scene
    view's **see-through** toolbar switch: everything between the Scene
    view's camera and the player dithers round them. Move the view round the
@@ -135,6 +140,10 @@ levels the same way.
 - **Low things never fade**, by design: only what is higher than half the
   subject's height above its feet. A low wall in front of a short subject
   stays solid.
+- **Only what is in front fades.** The engine looks for occluders in the
+  space from the camera to the player's body, widened by the padding; a
+  wall behind or beside the player never fades. A piece just off the line
+  of sight that should fade needs a larger padding, not a larger margin.
 - **Turning see-through on from a script with the setting off** rebuilds
   every shader in the middle of the game (a held picture of about half a
   second, and a `see_through_rebuild` Problems line). Keep the setting on
@@ -143,7 +152,7 @@ levels the same way.
   behind them as much as one: the fades share one pattern. Cut the farther
   one away if the room behind must show.
 - **Shadows stay.** A faded wall still casts its shadow into the room.
-- **Cost.** On a large two-storey interior see-through costs about 1 ms GPU
+- **Cost.** On a large two-storey interior see-through costs about 1.4 ms GPU
   on an integrated GPU (see [Rendering](../features/rendering.md#see-through)).
 
 Related: [cameras](cameras.md), [block layers](block-layers.md),

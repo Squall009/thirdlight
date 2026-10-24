@@ -119,22 +119,36 @@ layer's [cut-aways](blocks.md#block-layers) do, and the two combine
 | **See-through radius** | `see_through_radius` | 0.2 | the circle's radius as a share of the view's height at the subject; never less than 0.75 × the subject's height, so it covers the body when zoomed in |
 | **See-through softness** | `see_through_softness` | 0.4 | the share of the radius the edge softens over (0: a hard edge) |
 | **See-through max fade** | `see_through_max_fade` | 0.75 | how far what is in front thins at most (up to 0.95) |
-| **See-through depth margin** | `see_through_depth_margin_m` | 0.25 m | how much nearer the camera than the subject a surface must be to fade (what the subject touches stays solid) |
+| **See-through depth margin** | `see_through_depth_margin_m` | 0.25 m | metres a surface must be nearer the camera than the subject's body, measured along that pixel's own view ray (what the subject touches stays solid) |
 | **See-through fade time** | `see_through_fade_s` | 0.25 s | how long the fade eases in or out round a subject (0: at once) |
+| **See-through padding** | `see_through_padding_m` | 0.3 m | metres the space from the camera to the subject's body is widened by when its occluders are found (larger: pieces just beside the line of sight fade too) |
 
 The defaults and ranges are `SEE_THROUGH_DEFAULTS` and `SEE_THROUGH_LIMITS`
 in [the limits reference](../reference/limits-project-model-2.md#limits-project-model--see-through).
 
-**What fades.** A pixel fades only when all three hold: it is inside a
-subject's circle (centred on the middle of its body), it is nearer the
-camera than the subject by more than the depth margin, and it is **higher
-than half the subject's height above its feet**. A subject's height is its
-character controller's capsule, else the bounds of its meshes. The height
+**What fades: only true occluders.** Each frame (only when the camera or a
+subject moved) the engine finds what really stands between the camera and
+each subject: the space from the camera to the subject's body (its capsule),
+widened by the padding and ending at the body. A block layer's hits are
+grown into whole pieces (a wall run, a pillar, a slab), so a whole wall in
+front fades, not a ragged part of it; a placed model counts by its bounds
+(a merged cell or an instance set by each member's own). A pixel then
+fades only when all of these hold: it belongs to one of the subject's
+occluders, it is inside the subject's circle (centred on the middle of its
+body), it is nearer the camera than the body **along its own view ray** by
+more than the depth margin, and it is **higher than half the subject's
+height above its feet**. A subject's height is its character controller's
+capsule, else the bounds of its meshes. So under a pitched follow camera a
+wall 0.3 m or 1 m behind the subject, or one beside it, stays solid even
+though the circle covers it; only the wall in front dithers. The height
 rule is the same everywhere, in a side view, from above and in 3D, in
 every project kind: floors, ground and anything low round the subject never
-fade. On a multi-storey level a character on the stairs fades the slab of the
-storey above, never the one it stands on or those below; walking up hands
-the fade to the next slab up. What is behind the subject never fades.
+fade. On a multi-storey level a character on the stairs fades the slab of
+the storey above, never the one it stands on or those below; walking up
+hands the fade to the next slab up. Each occluder fades in and out over the
+fade time on its own. The shader holds `SEE_THROUGH_OCCLUDERS` (6) boxes per
+subject, a GPU constant, not a cap: when more pieces stand in front, the
+nearest boxes merge, so none is ever left out.
 
 **A dither, never gone.** The fade stops at the max fade (below 1), so a
 wall, a door or a tree in front stays visible as a see-through pattern. All
@@ -169,7 +183,7 @@ statics keep objects that opt out apart from the rest.
 the shadow maps never take the mask.
 
 **Scripts.** `ctx.camera.setSeeThrough({enabled?, subjects?, radius?,
-softness?, maxFade?, depthMargin?, fadeTime?})` (the visual-script node
+softness?, maxFade?, depthMargin?, fadeTime?, padding?})` (the visual-script node
 **Set see-through**) changes it while the game runs. Each field is optional;
 the rest stay as the project or an earlier call set them, numbers are
 clamped to their ranges, and a wrong argument changes nothing and returns
@@ -213,13 +227,17 @@ without the mask, as a project with the setting off (see
 
 **Cost.** Measured with 4 subjects on an Iris Xe at 1920 × 1080 at the 60 Hz
 cap, both renderers: no added draws, no added shaders after load, p95
-16.7–16.8 ms and no missed frames, as with see-through off. GPU time
-(WebGPU timestamps): the village's open view costs nothing measurable; a
-two-storey interior (rooms stacked, stairs, 800 props, seen from above like
-a follow camera) costs 1.0 ms (11.17 → 12.15 ms): about 0.27 ms is the
-shaders carrying the mask while nothing fades (paid by every project with
-the setting on), 0.4 ms the mask inside the circles and 0.3 ms drawing the
-rooms the circles reveal. That is over the engine's soft 0.3 ms target and
-is an open defect (D297 in the audit list). On WebGL 2 the GPU process time
-moved by no more than ±0.2 ms. A script turning it on with the setting off
-costs the rebuild above.
+16.7–16.8 ms and no missed frames, as with see-through off. Finding the
+occluders on the main thread: about 0.1 ms a frame on WebGPU (0.27 ms on
+WebGL 2) in the village with three subjects moving. GPU time (WebGPU
+timestamps): the village's open view costs nothing measurable; a two-storey
+interior (rooms stacked, stairs, 800 props, seen from above like a follow
+camera) costs **1.43 ms** with see-through on against off, of which 0.41 ms
+is the shaders carrying the mask while nothing fades (paid by every project
+with the setting on). Before the true-occluder rule the same interior cost
+0.90 ms (0.23 ms idle): the box tests for each pixel inside a circle are
+the extra price of never fading what is behind. Both are over the engine's
+soft 0.3 ms target (D297 in the audit list); whether the truer look is worth
+the ~0.5 ms is the owner's call. On WebGL 2 the GPU process time moved by no
+more than ±0.2 ms. A script turning it on with the setting off costs the
+rebuild above.
