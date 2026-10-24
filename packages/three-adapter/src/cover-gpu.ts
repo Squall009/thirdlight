@@ -158,8 +158,8 @@ export interface CoverDrawInputs {
   readonly surface: TerrainCoverSurface;
   readonly page: TerrainCoverSurface['pages'][number];
   readonly patches: THREE.DataTexture;
-  /** The terrain's mask texture (a layer per rule and tile) and its side (texels). */
-  readonly masks: THREE.DataArrayTexture;
+  /** The terrain's mask texture (a layer per rule and tile; null: none yet, nothing read) and its side (texels). */
+  readonly masks: THREE.DataArrayTexture | null;
   readonly maskSide: number;
   /** The view's eye in the terrain's frame (x, z), shared by the source's draws. */
   readonly eye: N;
@@ -236,13 +236,15 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         f = f.mul(rangeNode(rule.noise, noiseNode(at, rule.noise.seed ?? 0)));
       }
       for (const l of rule.layers ?? []) f = f.mul(rangeNode(l, shareOf(l.layer)));
-      // The rule's mask over the tile, where it has one (the patch names its layer).
-      const ms = d.maskSide;
-      const mt = (n * s.spacing) / ms;
-      const mi = int(clamp(floor(x.sub(tileX).div(mt)), 0, ms - 1));
-      const mj = int(clamp(floor(z.sub(tileZ).div(mt)), 0, ms - 1));
-      const masked = textureLoad(d.masks, ivec2(mi, mj)).depth(int(max(texel.w, 0).add(0.5))).r;
-      f = f.mul(select(texel.w.greaterThanEqual(0), masked, float(1)));
+      if (d.masks !== null) {
+        // The rule's mask over the tile, where it has one (the patch names its layer).
+        const ms = d.maskSide;
+        const mt = (n * s.spacing) / ms;
+        const mi = int(clamp(floor(x.sub(tileX).div(mt)), 0, ms - 1));
+        const mj = int(clamp(floor(z.sub(tileZ).div(mt)), 0, ms - 1));
+        const masked = textureLoad(d.masks, ivec2(mi, mj)).depth(int(max(texel.w, 0).add(0.5))).r;
+        f = f.mul(select(texel.w.greaterThanEqual(0), masked, float(1)));
+      }
       const dist = length(vec2(x, z).sub(d.eye));
       const inRing = dist.greaterThanEqual(ring.inner).and(dist.lessThan(ring.outer));
       const odds = f.mul(shareNode(d.plan.thinning, dist)).mul(ring.odds).toVar();
@@ -401,8 +403,6 @@ export class CoverGpu {
   private disposed = false;
   private readonly lists = new Map<number, CoverPatch[]>();
   private frame = 0;
-  /** The mask texture of a terrain with none yet (one layer, never read). */
-  private readonly noMasks = maskTexture(new Uint8Array(1), 1, 1);
 
   constructor(private readonly deps: CoverGpuDeps) {
     installCoverPlacement();
@@ -572,7 +572,6 @@ export class CoverGpu {
   dispose(): void {
     if (this.disposed) return;
     for (const id of [...this.sources.keys()]) this.remove(id);
-    this.noMasks.dispose();
     this.disposed = true;
   }
 
@@ -626,8 +625,8 @@ export class CoverGpu {
       mesh.castShadow = rd.rule.castShadow === true;
       mesh.receiveShadow = true;
       mesh.visible = false;
-      const masks = src.masks?.texture ?? null;
-      mesh.userData[COVER_DRAW_KEY] = coverDrawPlacement({ ring, plan: rd.plan, rule: rd.rule, seed, surface, page, patches: texture, masks: masks ?? this.noMasks, maskSide: masks === null ? 1 : src.masks!.side, eye: src.eye, local: part.local.clone() });
+      // A terrain with no mask yet reads none (its first one makes the draws again).
+      mesh.userData[COVER_DRAW_KEY] = coverDrawPlacement({ ring, plan: rd.plan, rule: rd.rule, seed, surface, page, patches: texture, masks: src.masks?.texture ?? null, maskSide: src.masks?.side ?? 1, eye: src.eye, local: part.local.clone() });
       root.add(mesh);
       return mesh;
     });
