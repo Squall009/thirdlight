@@ -100,6 +100,9 @@ flock -n 9 || { echo "another gate is running (lock $LOGS/gate.lock)"; exit 1; }
 # /tmp is RAM on this host (tmpfs) and doesn't show as used memory, so a gate's test projects, exports and caches
 # there pushed the host into the OOM killer. Every temp file of the run goes to disk instead and is removed at the end.
 GATE_TMP=$HOME/.cache/thirdlight-tmp/gate-$$
+# The EXIT trap does not run when the unit is OOM-killed or sent SIGKILL: an earlier run's folder can be left. Under the
+# lock no other gate runs, so one untouched for an hour is left over.
+find "$HOME/.cache/thirdlight-tmp" -mindepth 1 -maxdepth 1 -type d -name 'gate-*' ! -name "gate-$$" -mmin +60 -exec rm -rf {} + 2> /dev/null
 rm -rf "$GATE_TMP" && mkdir -p "$GATE_TMP" && chmod 700 "$GATE_TMP"
 export TMPDIR=$GATE_TMP TMP=$GATE_TMP TEMP=$GATE_TMP
 trap 'rm -rf "$GATE_TMP"' EXIT
