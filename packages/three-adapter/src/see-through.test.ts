@@ -487,6 +487,61 @@ describe('see-through fades only true occluders (a 52° follow camera)', () => {
     expect(fadeAt([2, 2.4, 1.5], [-1, 0, 0], draw)).toBe(0);
   });
 
+  it('a subject walking in steps below the grains: a draw\'s bits follow it as a fresh view finds them', () => {
+    const camera = pitched([0, 0.9, 0]);
+    const settings = { ...ON, fadeTime: 0 };
+    // A pillar model in front of x = 3, where the hero walks to.
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 3, 0.6));
+    pillar.position.set(3, 1.5, 2);
+    pillar.updateMatrixWorld(true);
+    const viewOf = (hero: THREE.Object3D): SeeThroughView => new SeeThroughView({ ...plain({ hero }), components: () => HERO, cameraTarget: () => 'hero', occluderLayers: () => [] }, settings);
+    const frame = (view: SeeThroughView, t: number): number => {
+      view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, t);
+      view.fill(camera);
+      return view.bitsFor(pillar, camera);
+    };
+    const hero = new THREE.Object3D();
+    const moving = viewOf(hero);
+    let t = 0;
+    expect(frame(moving, t)).toBe(0);
+    for (let x = 0; x <= 3.0001; x += 0.03) {
+      hero.position.x = x;
+      hero.updateMatrixWorld(true);
+      frame(moving, (t += 16));
+    }
+    const there = new THREE.Object3D();
+    there.position.x = 3;
+    there.updateMatrixWorld(true);
+    const fresh = viewOf(there);
+    expect(frame(fresh, 0)).not.toBe(0);
+    expect(frame(moving, t + 16)).toBe(frame(fresh, 16));
+  });
+
+  it('a draw of many members whose members moved (its stamp changed): the boxes follow them', () => {
+    const { view, camera } = occluderView([]);
+    const crate = new THREE.Box3(new THREE.Vector3(3, 0, 1), new THREE.Vector3(4, 3, 2));
+    let stamp = 0;
+    const draw = new THREE.Mesh(new THREE.BoxGeometry(12, 3, 1));
+    draw.position.set(0, 1.5, 1.5);
+    draw.updateMatrixWorld(true);
+    draw.userData[SEE_THROUGH_MEMBERS_KEY] = { count: () => 1, box: (_i, out) => (out.copy(crate), true), stamp: () => stamp } satisfies SeeThroughMembers;
+    const frame = (t: number): number => {
+      view.bitsFor(draw, camera);
+      view.update({ contextNode: { value: {}, needsUpdate: false } }, camera, t);
+      view.fill(camera);
+      return view.diagnostics().subjects[0]?.occluders ?? 0;
+    };
+    expect(frame(16)).toBe(0);
+    // Moved in front of the hero without a new stamp: the bounds read stand (the provider says they did not change).
+    crate.translate(new THREE.Vector3(-3.5, 0, 0));
+    expect(frame(32)).toBe(0);
+    stamp += 1;
+    // The camera moves past the search's grain, so the slot is searched again, with the members read again.
+    camera.position.x += 0.1;
+    camera.updateMatrixWorld(true);
+    expect(frame(48)).toBe(1);
+  });
+
   it('the CPU reference and the per-draw test agree: a draw\'s bits never leave out a pixel the view\'s boxes fade', () => {
     let seed = 7;
     const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);

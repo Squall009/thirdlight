@@ -408,7 +408,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
         if (report.seeThrough !== undefined && prebuiltDir !== null) {
           const pre = await serveStatic(prebuiltDir);
           try {
-            const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), busyMs });
+            const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), busyMs });
             report.seeThrough.byRenderer[r] = await seeThroughRuns(browser, `${site!.url}?renderer=${r}${query}`, `${pre.url}?renderer=${r}${query}`, res, page, `see-through ${r}`, log);
           } finally {
             await pre.close();

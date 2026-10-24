@@ -34,8 +34,39 @@ export interface SeeThroughMembers {
   count(): number;
   /** Member `i`'s world bounds into `out` (false: none, an empty member). */
   box(i: number, out: THREE.Box3): boolean;
-  /** Member `i`'s world bounding sphere into `out`, cheaper than its box (absent: the box is used); tested first. */
-  sphere?(i: number, out: THREE.Sphere): boolean;
+  /**
+   * A value that stays the same (`===`) while every member's bounds do, with the draw's world matrix (absent: the
+   * bounds are read again every frame the search runs). The search keeps the bounds it read while it holds.
+   */
+  stamp?(): unknown;
+}
+
+/** Floats per member in {@link readMemberBounds}: min xyz, max xyz, the centre and radius of the sphere round them. */
+export const MEMBER_FLOATS = 10;
+
+/** Every member's world bounds into `out` (grown when short; an empty member's radius is −1); the array. */
+export function readMemberBounds(members: SeeThroughMembers, out: Float64Array): Float64Array {
+  const n = members.count();
+  const a = out.length >= n * MEMBER_FLOATS ? out : new Float64Array(n * MEMBER_FLOATS);
+  for (let i = 0; i < n; i++) {
+    const o = i * MEMBER_FLOATS;
+    if (!members.box(i, _box) || _box.isEmpty()) {
+      a[o + 9] = -1;
+      continue;
+    }
+    const { min, max } = _box;
+    a[o] = min.x;
+    a[o + 1] = min.y;
+    a[o + 2] = min.z;
+    a[o + 3] = max.x;
+    a[o + 4] = max.y;
+    a[o + 5] = max.z;
+    a[o + 6] = (min.x + max.x) / 2;
+    a[o + 7] = (min.y + max.y) / 2;
+    a[o + 8] = (min.z + max.z) / 2;
+    a[o + 9] = min.distanceTo(max) / 2;
+  }
+  return a;
 }
 
 /** `userData[SEE_THROUGH_PIECES_KEY] = true` on a block layer's chunk draw: it fades only inside its pieces' boxes, never as a whole. */
@@ -475,15 +506,19 @@ export function layerOccluders(layer: OccluderLayer, vol: SubjectVolume, out: Oc
 }
 
 const _box = new THREE.Box3();
-const _memberSphere = new THREE.Sphere();
+const _centre = new THREE.Vector3();
 
-/** A draw's members that meet the volume, appended to `out` as boxes (no nudge: a member's bounds hold it whole). */
-export function memberOccluders(draw: THREE.Object3D, members: SeeThroughMembers, vol: SubjectVolume, out: OccluderBox[]): void {
-  const n = members.count();
-  for (let i = 0; i < n; i++) {
-    if (members.sphere !== undefined && (!members.sphere(i, _memberSphere) || !vol.meetsSphere(_memberSphere.center, _memberSphere.radius))) continue;
-    if (!members.box(i, _box) || _box.isEmpty() || !vol.meetsBox(_box)) continue;
-    out.push({ key: `${draw.id}|m|${i}`, min: _box.min.clone(), max: _box.max.clone(), nudge: 0 });
+/**
+ * A draw's members that meet the volume (by the sphere round each one's box, as {@link SubjectVolume.meetsBox}),
+ * appended to `out` as boxes (no nudge: a member's bounds hold it whole); `bounds` as {@link readMemberBounds}
+ * read them for `count` members.
+ */
+export function memberOccluders(draw: THREE.Object3D, bounds: Float64Array, count: number, vol: SubjectVolume, out: OccluderBox[]): void {
+  for (let i = 0; i < count; i++) {
+    const o = i * MEMBER_FLOATS;
+    const r = bounds[o + 9]!;
+    if (r < 0 || !vol.meetsSphere(_centre.set(bounds[o + 6]!, bounds[o + 7]!, bounds[o + 8]!), r)) continue;
+    out.push({ key: `${draw.id}|m|${i}`, min: new THREE.Vector3(bounds[o], bounds[o + 1], bounds[o + 2]), max: new THREE.Vector3(bounds[o + 3], bounds[o + 4], bounds[o + 5]), nudge: 0 });
   }
 }
 

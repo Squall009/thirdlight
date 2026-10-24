@@ -435,6 +435,13 @@ const sphereOut = new Float64Array(4);
  */
 function withInstanceMembers(handle: AttributeInstancedMesh, source: THREE.BufferGeometry): AttributeInstancedMesh {
   const m = new THREE.Matrix4();
+  // The members' bounds change only when the matrices are marked changed.
+  let changes = 0;
+  const mark = handle.markChanged.bind(handle);
+  handle.markChanged = (bounds) => {
+    changes += 1;
+    mark(bounds);
+  };
   const members: SeeThroughMembers = {
     count: () => handle.count,
     box: (i, out) => {
@@ -444,12 +451,7 @@ function withInstanceMembers(handle: AttributeInstancedMesh, source: THREE.Buffe
       out.copy(b).applyMatrix4(m.fromArray(handle.array, i * INSTANCE_MATRIX_FLOATS).premultiply(handle.mesh.matrixWorld));
       return true;
     },
-    sphere: (i, out) => {
-      const b = source.boundingSphere;
-      if (b === null) return false;
-      out.copy(b).applyMatrix4(m.fromArray(handle.array, i * INSTANCE_MATRIX_FLOATS).premultiply(handle.mesh.matrixWorld));
-      return true;
-    },
+    stamp: () => changes,
   };
   handle.mesh.userData[SEE_THROUGH_MEMBERS_KEY] = members;
   return handle;

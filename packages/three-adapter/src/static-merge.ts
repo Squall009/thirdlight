@@ -230,6 +230,8 @@ interface Built extends ViewCullable {
   /** The slots in the drawn index (in slot order), and the index entries they fill. */
   drawnSlots: Slot[];
   full: number;
+  /** Bumped when a slot is moved in place (its vertices written again). */
+  moves: number;
   /** Every vertex's bounds (the geometry's sphere is moved to sort the draw: `cullableCell`). */
   readonly bounds: THREE.Sphere;
   /** What the view's draw holds, as last culled for `camera` (null: not culled for it; it draws all). */
@@ -477,6 +479,7 @@ function cullableCell(parts: Pick<Built, 'mesh' | 'geometry' | 'template' | 'ind
     ...parts,
     drawnSlots: [],
     full: 0,
+    moves: 0,
     cull(view) {
       if (culledFor === view && culledStamp === view.stamp && seenFor === b.drawnSlots) return false;
       culledFor = view;
@@ -758,8 +761,18 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     cell.built = built;
     // See-through fades the members in front of a subject, by each one's own bounds (where its vertices were written), not the whole cell.
     const memberMatrix = new THREE.Matrix4();
+    let stampSlots: readonly unknown[] | null = null;
+    let slotLists = 0;
     const members: SeeThroughMembers = {
       count: () => built.drawnSlots.length,
+      // The slots drawn (a new list whenever they change) and the moves in place.
+      stamp: () => {
+        if (built.drawnSlots !== stampSlots) {
+          stampSlots = built.drawnSlots;
+          slotLists += 1;
+        }
+        return `${slotLists}:${built.moves}`;
+      },
       box: (i, out) => {
         const slot = built.drawnSlots[i];
         const g = slot?.mesh.geometry;
@@ -820,6 +833,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       // Moved since it was copied (and still now): written again in place.
       if (!sameMatrix(s.matrix, mesh.matrixWorld.elements)) {
         s.matrix.set(mesh.matrixWorld.elements);
+        cell.built.moves += 1;
         const flipped = mesh.matrixWorld.determinant() < 0;
         if (flipped !== s.flipped) {
           s.flipped = flipped;
