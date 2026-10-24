@@ -106,6 +106,15 @@ describe('cover point sets', () => {
     for (let i = 0; i < set.count; i++) for (const k of [0, 2, 3]) expect(Number.isInteger(set.data[i * 4 + k]!) && set.data[i * 4 + k]! < 2 ** 24).toBe(true);
   });
 
+  it('ends a column whose surface answers the same ground again (a block taller than its cell)', () => {
+    const g = { x: 0, y: 3, z: 0, slope: 0, wall: false, nx: 0, ny: 1, nz: 0, cavity: () => 0, layer: () => 0 };
+    const same = { at: (x: number, z: number) => Object.assign(g, { x, z }), under: (x: number, z: number) => Object.assign(g, { x, z }) };
+    const set = bakeCoverPoints({ ...MOSS, blocks: undefined }, same, [0, 0, 4, 4], [0, 0, 0]);
+    // One point per candidate, about 6 a m² over the 16 m²: the column ended after its first ground.
+    expect(set.count).toBeGreaterThan(80);
+    expect(set.count).toBeLessThan(110);
+  });
+
   it('keeps a normal to within a degree or so', () => {
     for (const n of [[0, 1, 0], [0.3, 0.9, 0.1], [-0.6, 0.5, 0.62], [0.9, 0.2, -0.38]]) {
       const len = Math.hypot(n[0]!, n[1]!, n[2]!);

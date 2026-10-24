@@ -146,9 +146,14 @@ export function blockScatterSurface(src: BlockScatterSource, excluded?: ScatterS
       const lz = z - origin[2]!;
       const ix = Math.floor(lx / cs[0]!);
       const iz = Math.floor(lz / cs[2]!);
-      for (let iy = Math.floor((y - origin[1]!) / cs[1]! - 1e-6); iy >= grid.min[1]!; iy--) {
+      const ly = y - origin[1]!;
+      for (let iy = Math.floor(ly / cs[1]! - 1e-6); iy >= grid.min[1]!; iy--) {
         if (grid.get(ix, iy, iz)?.block !== undefined) continue;
-        return ground(x, z, surfaceBelow(grid, types, lx, (iy + 0.5) * cs[1]!, lz));
+        const hit = surfaceBelow(grid, types, lx, (iy + 0.5) * cs[1]!, lz);
+        if (hit === null) return null;
+        // A block whose top stands above its own cell (a taller shape) is the ground at `y` again: on below it.
+        if (hit.height < ly - 1e-6) return ground(x, z, hit);
+        iy = Math.min(iy, hit.cell[1]);
       }
       return null;
     },

@@ -137,6 +137,8 @@ export function bakeCoverPoints(rule: ScatterRule, surface: ScatterSurface, rect
           if (f > 0 && lane(cand, LANE.keep) < f) list.push(cand);
         }
         g = surface.under?.(x, z, y) ?? null;
+        // Each floor lies under the one before (a surface answering otherwise ends the column).
+        if (g !== null && g.y >= y) break;
       }
       if (list.length > 0) kept.set(`${ix},${iz}`, list);
     }
