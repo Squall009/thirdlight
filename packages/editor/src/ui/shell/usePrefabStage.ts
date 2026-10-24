@@ -68,13 +68,19 @@ export function usePrefabStage(clientRef: ClientRef, revision: number) {
     setStage(null);
   }, []);
 
+  /** Read the open stage again now: an object a command just made in it is there once this resolves. */
+  const refresh = useCallback(async (): Promise<void> => {
+    const id = stageRef.current?.prefabId;
+    if (id !== undefined) await read(id);
+  }, [read]);
+
   // Every applied change may have changed the prefab (an edit, an undo, an MCP edit, a nested prefab's edit).
   const prefabId = stage?.prefabId ?? null;
   useEffect(() => {
     if (prefabId !== null) void read(prefabId);
   }, [prefabId, revision, read]);
 
-  return { stage, open, close };
+  return { stage, open, close, refresh };
 }
 
 export type PrefabStageHost = ReturnType<typeof usePrefabStage>;

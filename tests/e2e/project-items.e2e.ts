@@ -245,6 +245,7 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   await page.getByRole('menuitem', { name: 'GameObject', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Box', exact: true }).click();
   await expect.poll(async () => (await prefabNow()).entities.length).toBe(2);
+  await expect(inspector(page).getByLabel('name', { exact: true })).toHaveValue(/^box-/);
   await cmd('undo', {});
   await expect.poll(async () => (await prefabNow()).entities.length).toBe(1);
   await page.keyboard.press('Escape');

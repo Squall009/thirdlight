@@ -91,6 +91,9 @@ export function useEditorModel() {
   const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0, external: null, problems: [] });
   /** A prefab opened on its own: its objects are drawn, picked and inspected beside the scenes' while its editor is open. */
   const prefabStage = usePrefabStage(clientRef, ui.revision);
+  const openPrefabRef = useRef(prefabStage.stage);
+  openPrefabRef.current = prefabStage.stage;
+  const refreshStage = prefabStage.refresh;
   const stageEntities = prefabStage.stage?.entities;
   const entities = useMemo(() => (stageEntities === undefined ? sceneEntities : [...sceneEntities, ...stageEntities]), [sceneEntities, stageEntities]);
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
@@ -208,7 +211,11 @@ export function useEditorModel() {
 
   const { selectedIdRef, selectionRef, iconTable } = useSceneViewFollow({ clientRef, viewportRef, settings, seeThroughPreview, entities, selection, gizmoMode, instanceBrush, registry, setLightingMode, setSelectedCopy });
   const sameWindowTurn = useSelectionAcrossWindow(windowOpen, selection, setSelection, (id) => clientRef.current?.projection.getEntity(id) !== undefined);
-  const selectLater = useCallback(() => sameWindowTurn(setSelectedId), [sameWindowTurn, setSelectedId]);
+  const selectLater = useCallback(() => {
+    const pick = sameWindowTurn(setSelectedId);
+    // An object made in an open prefab is drawn (and selectable) once the stage is read again.
+    return (id: string | null): void => (openPrefabRef.current !== null && id !== null ? void refreshStage().then(() => pick(id)) : pick(id));
+  }, [refreshStage, sameWindowTurn, setSelectedId]);
   // Drop selected ids whose entity is gone (deleted, undone).
   useEffect(() => {
     const present = new Set(entities.map((e) => e.id));
@@ -239,8 +246,6 @@ export function useEditorModel() {
   }, []);
 
   const sceneView = useSceneViewLending(viewportHostRef, viewportRef);
-  const openPrefabRef = useRef(prefabStage.stage);
-  openPrefabRef.current = prefabStage.stage;
   // While a prefab is open on its own, what the GameObject menu makes goes into the prefab: under its chosen object, else its root.
   const createParent = useCallback((): string | null => {
     const s = openPrefabRef.current;
