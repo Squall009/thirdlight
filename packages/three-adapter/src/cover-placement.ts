@@ -4,10 +4,10 @@
  * stage; this module is that arithmetic on the CPU, which plans the draws and
  * is the reference the tests hold the shader's maths to).
  *
- * A cover rule's reach is cut into rings round the view's eye: the first
- * ends where the copies start to thin, the next ones reach √2 times as far,
- * and the model's own level switches cut them too, so each ring draws one
- * level of the model. A ring lays a square grid of candidate cells over the
+ * A cover rule's reach is cut into rings round the view's eye at the
+ * model's own level switches, so each ring draws one level of the model,
+ * and from where the copies start to thin, each ring reaching √2 times as
+ * far as the one before. A ring lays a square grid of candidate cells over the
  * ground at the density its inner edge needs, grouped into square patches
  * (a few hundred candidates each) that never straddle a terrain tile. The
  * patches of a ring in view are listed in a small texture each frame (their
@@ -17,10 +17,12 @@
  * cell and the rule's seed, and from the terrain's height and layer
  * texels: no copy is stored, and nothing per frame grows with their number.
  *
- * Thinning: the share of copies kept is 1 out to the full-density distance,
- * then falls as the square of distance (the copies a pixel sees stay about
- * the same), fades to nothing over the last part of the reach, and never
- * drops below the rule's `densityMin`. A candidate is kept where its random
+ * Thinning: every copy is kept until the last 40 % of the reach, over which
+ * they fade to nothing, never below the rule's `densityMin` (as the cover
+ * made on the CPU thins). A rule with `densityStart` (a screen size, as the
+ * stored scatter's falloff) keeps every copy only out to where its model
+ * covers that size, and past it a share falling as the square of distance
+ * (the copies a pixel sees stay about the same). A candidate is kept where its random
  * threshold is below the share, so copies leave one by one as the eye goes
  * away (no popping).
  *
@@ -133,13 +135,15 @@ export function planCover(rule: Pick<ScatterRule, 'density' | 'densityMin' | 'sc
     end = Math.min(end, switches[switches.length - 1]!);
     switches = switches.slice(0, -1);
   }
-  const full = Math.min(end, screenFull ?? (switches.length > 1 ? switches[1]! : end * COVER_FADE_START));
+  // Every candidate kept to the fade unless the rule's `densityStart` thins them by screen size from nearer.
+  const full = Math.min(end, screenFull ?? end);
   const thinning: CoverThinning = { full: Math.max(full, 1e-3), reach: end, min: Math.min(1, Math.max(0, rule.densityMin ?? 0)) };
-  const cuts = new Set<number>([0, end]);
-  for (let d = thinning.full; d < end; d *= COVER_RING_GROWTH) cuts.add(d);
-  for (const d of switches) if (d > 0 && d < end) cuts.add(d);
+  // The model's switches cut the rings first; then cuts growing from where copies start to thin, unless one is close.
+  const cuts: number[] = [0, end, ...switches.filter((d) => d > 0 && d < end)];
+  const near = (c: number): boolean => cuts.some((k) => Math.abs(k - c) <= COVER_RING_MIN_SHARE * c);
+  for (let d = Math.min(thinning.full, end * COVER_FADE_START); d < end; d *= COVER_RING_GROWTH) if (!near(d)) cuts.push(d);
   const sorted: number[] = [];
-  for (const c of [...cuts].sort((a, b) => a - b)) {
+  for (const c of [...new Set(cuts)].sort((a, b) => a - b)) {
     const last = sorted[sorted.length - 1];
     if (last === undefined || c - last > COVER_RING_MIN_SHARE * c) sorted.push(c);
     else if (c === end && last > 0) sorted[sorted.length - 1] = end;

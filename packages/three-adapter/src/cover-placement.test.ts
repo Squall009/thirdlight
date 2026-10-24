@@ -73,20 +73,26 @@ describe('ground cover placed on the GPU (its arithmetic, on the CPU)', () => {
     expect(rings[0]!.inner).toBe(0);
     expect(rings.at(-1)!.outer).toBe(60);
     for (let k = 1; k < rings.length; k++) expect(rings[k]!.inner).toBe(rings[k - 1]!.outer);
-    // Full density out to the model's first switch, then rings growing by √2 (and cut at the next switch; no sliver at the end).
-    expect(rings.map((r) => [Math.round(r.inner * 100) / 100, Math.round(r.outer * 100) / 100, r.level])).toEqual([[0, 21, 0], [21, 29.7, 1], [29.7, 42, 1], [42, 52.5, 1], [52.5, 60, 2]]);
+    // Cut at the model's switches (at the rule's mean size) and from where the copies thin (60 % of the reach), each
+    // reaching √2 as far (one too close to a switch left out).
+    expect(rings.map((r) => [Math.round(r.inner * 100) / 100, Math.round(r.outer * 100) / 100, r.level])).toEqual([[0, 21, 0], [21, 36, 1], [36, 52.5, 1], [52.5, 60, 2]]);
     for (const r of rings) {
-      expect(Number.isInteger(Math.round(TILE / r.patch)) && Math.abs(TILE / r.patch - Math.round(TILE / r.patch)) < 1e-9).toBe(true);
+      expect(Math.abs(TILE / r.patch - Math.round(TILE / r.patch))).toBeLessThan(1e-9);
       expect(r.perPatch).toBe(r.side * r.side);
       // The grid is as dense as the ring's inner edge needs.
-      expect((r.side / r.patch) ** 2).toBeCloseTo(rule.density * r.gridShare, -0.2);
+      expect((r.side / r.patch) ** 2 / (rule.density * r.gridShare)).toBeGreaterThan(0.8);
+      expect((r.side / r.patch) ** 2 / (rule.density * r.gridShare)).toBeLessThan(1.25);
     }
-    // Thinning: full to its distance, falling with distance, nothing past the reach.
-    expect(coverShare(plan.thinning, 10)).toBe(1);
-    // Past the full distance by the square of distance, faded over the last 40 % of the reach.
-    expect(coverShare(plan.thinning, 30)).toBeCloseTo((21 / 30) ** 2, 6);
-    expect(coverShare(plan.thinning, 42)).toBeCloseTo((21 / 42) ** 2 * (1 - 0.15625), 6);
+    // Every copy to 60 % of the reach, faded to nothing at it (as the cover made on the CPU).
+    expect(coverShare(plan.thinning, 30)).toBe(1);
+    expect(coverShare(plan.thinning, 48)).toBeCloseTo(0.5, 6);
     expect(coverShare(plan.thinning, 60)).toBe(0);
+    expect(coverShare({ ...plan.thinning, min: 0.3 }, 59)).toBe(0.3);
+    // A screen size to thin from (`densityStart`): past where the model covers it, by the square of distance.
+    const screen = planCover(rule, 60, model, TILE, 1, 21);
+    expect(coverShare(screen.thinning, 30)).toBeCloseTo((21 / 30) ** 2, 6);
+    expect(coverShare(screen.thinning, 42)).toBeCloseTo((21 / 42) ** 2 * (1 - 0.15625), 6);
+    expect(screen.rings.map((r) => Math.round(r.outer * 100) / 100)).toEqual([21, 29.7, 42, 52.5, 60]);
   });
 
   it('puts each copy on the ground the terrain\'s queries give, and reads its slope and layer shares as they do', () => {
@@ -172,7 +178,7 @@ describe('ground cover placed on the GPU (its arithmetic, on the CPU)', () => {
       }
       return sum / (((a + b) / 2) * 64);
     };
-    for (const [a, b] of [[0, 15], [15, 30], [30, 42], [42, 52], [52, 58]] as const) expect(band(a, b) / want(a, b)).toBeGreaterThan(0.9), expect(band(a, b) / want(a, b)).toBeLessThan(1.1);
+    for (const [a, b] of [[0, 15], [15, 30], [30, 42], [42, 52], [52, 57]] as const) expect(band(a, b) / want(a, b)).toBeGreaterThan(0.9), expect(band(a, b) / want(a, b)).toBeLessThan(1.1);
     // Across a ring's edge the density goes on (kept within 3 m either side).
     for (const edge of [plan.rings[0]!.outer, plan.rings[1]!.outer]) expect(band(edge - 3, edge) / band(edge, edge + 3)).toBeGreaterThan(0.75);
     expect(kept.every((x) => Math.hypot(x.c.x - eye[0], x.c.z - eye[1]) < 60)).toBe(true);

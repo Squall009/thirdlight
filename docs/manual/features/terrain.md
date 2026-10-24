@@ -447,10 +447,9 @@ area and the terrain around it are dressed alike.
   addresses; a block layer's are in its chunks (`queryBlocks`).
 - **Ground cover** (a rule with `cover: true`, `coverDistance` m, default
   40): never stored. **On a terrain the GPU places it**: the reach is cut
-  into rings round the camera (the first ends where copies start to thin:
-  the model's first level switch, or the rule's `densityStart`; the next
-  ones reach √2 times as far, and the model's level switches cut them too,
-  so a ring draws one level), each ring into square patches of a few
+  into rings round the camera (at the model's level switches, so a ring
+  draws one level, and from where copies start to thin, each ring reaching
+  √2 times as far as the one before), each ring into square patches of a few
   hundred candidates that never straddle a tile. One instanced draw per
   ring and mesh draws every candidate of the patches in view (culled on the
   CPU, a few hundred at most); the vertex stage computes each copy's place,
@@ -458,9 +457,10 @@ area and the terrain around it are dressed alike.
   height, normal, hole and layer textures and the rule's conditions
   (height, slope, noise, layer shares). Nothing per copy lives on the CPU,
   and a sculpt or paint shows in the cover at once (it reads the same
-  textures). Copies thin out one by one past the first ring (their share
-  falls as the square of distance, never below `densityMin`) and fade to
-  nothing over the last 40 % of the reach. Cover casts no shadow unless the
+  textures). Copies fade out one by one over the last 40 % of the reach
+  (never below `densityMin`); with `densityStart` (a screen size, as the
+  stored scatter's falloff) they thin from where the model covers that size,
+  their share falling as the square of distance. Cover casts no shadow unless the
   rule says `castShadow`; it receives them, and SSAO darkens its roots. The
   same on WebGL 2 and WebGPU. A rule that reads more than the GPU has
   (`spacing`, `cavity`, `exclude`, `blobShadow`), or a terrain whose block
