@@ -36,7 +36,7 @@ import {
   type OpInput,
 } from './content-ops';
 import { createHistory, executeRedo, executeUndo, recordForwardEdit } from './history';
-import { withFootprintChunks, writeFootprints } from './footprint-ops';
+import { withFootprintChunks, writeSceneFootprints } from './footprint-ops';
 import { withFollowChange } from './follow-ops';
 import {
   applyCreateEntities,
@@ -178,7 +178,7 @@ function completeForward<S extends SceneDocument>(
   applied: OpSuccess,
 ): ApplyOutcome<S> {
   // Props' block footprints follow them in the same transaction (a cross-scene move leaves its cells).
-  const fp = applied.otherScene === undefined ? writeFootprints(state.scene, applied.scene, applied.content ?? state.content, state.manifest) : null;
+  const fp = applied.otherScene === undefined ? writeSceneFootprints(state.scene, applied.scene, state.content, applied.content ?? state.content, state.manifest) : null;
   if (fp !== null && !fp.ok) return { ok: false, result: failure({ op, projectId, requestId }, fp.error) };
   if (fp !== null && fp.scene !== null) applied = { ...applied, scene: fp.scene, change: withFootprintChunks(applied.change, fp.layers) };
   const entry: HistoryEntry = {

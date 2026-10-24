@@ -10,7 +10,8 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
 
 - **Block types** (`content.blockTypes`, `setBlockType` / `deleteBlockType`):
   up to 8 weighted **looks** each — a model (asset and optional piece), a
-  prefab's root model (or, on a **Live** type, the prefab itself: below), or a
+  prefab's root model (or, on a **Live** type, the prefab itself: below; a
+  variant or a prefab with nested copies counts as assembled), or a
   coloured stand-in shaped like the collision shape; a **collision shape** (`full`, `half`, `ramp`, `stairs` — both rising
   toward +Z —, `custom` boxes, `none`); `solid` (hides the faces of
   neighbours touching it; default for `full`); a **footprint** of several
@@ -662,7 +663,10 @@ stroke or button is one undo step, and MCP can do the same.
   back together. The Inspector's "Write to cells" writes it again after the
   cells were edited by hand. Cells are picked from the object's world place
   (a parent's move counts). A prop that stays keeps its fields on cells it
-  shares with a moved or deleted one. Setting a footprint with a field the
+  shares with a moved or deleted one. A linked prefab copy's parts write
+  their footprints the same way: placing, moving or deleting the copy,
+  moving one of its parts (an override), or editing the prefab (every copy's
+  cells follow). Setting a footprint with a field the
   cell schema lacks is refused (the message names the field and the layer);
   a field dropped from the schema later is skipped when the prop moves. The runtime ignores the component (scripts read
   the cells). An `editBlocks` with surface or sculpt edits reports

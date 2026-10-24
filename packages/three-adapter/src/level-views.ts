@@ -10,6 +10,8 @@
  */
 import * as THREE from 'three';
 
+import { blockLookEntities } from '@thirdlight/runtime';
+
 import { trimWallRowSteps } from './block-cell-uv';
 import { createCutawayFollower, type CutawayFollower } from './block-cutaway-follow';
 import { BlockLayerView, blockLookFromObject, type BlockModelLook } from './block-layers';
@@ -78,8 +80,9 @@ export function createLevelViews(d: LevelViewsDeps): { blockView: BlockLayerView
       return look;
     },
     prefabModel: (prefabId) => {
-      const root = d.prefabs.find((p) => p.prefabId === prefabId)?.entities.find((e) => e.parentLocalId === undefined);
-      const m = root?.components['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
+      // A variant's or a nested copy's root model shows once the prefab is assembled.
+      const root = blockLookEntities(d.prefabs as never, prefabId)?.find((e) => e.parentLocalId === undefined);
+      const m = (root?.components as Record<string, unknown> | undefined)?.['model'] as { asset?: { assetId?: string }; piece?: string } | undefined;
       return typeof m?.asset?.assetId === 'string' ? { assetId: m.asset.assetId, ...(typeof m.piece === 'string' ? { piece: m.piece } : {}) } : null;
     },
     applyMaterials: (mesh, type, assetId) => {

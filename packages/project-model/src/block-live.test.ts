@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { BLOCK_LIMITS, canonicalBlockType, composeBlockContent, rotatedFootprint, validateBlockType, type BlockType } from './block-layers';
-import { blockTypeLive, LIVE_CELL_PART_MAX, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
+import { blockLookEntities, blockTypeLive, LIVE_CELL_PART_MAX, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
@@ -55,6 +55,17 @@ describe('live block types', () => {
     expect(liveBlockPrefabProblem(door({ animator: {} }))).toContain('put moving parts on a child');
     // A child may move.
     expect(liveBlockPrefabProblem(door({}, { mover: { waypoints: [[0, 1, 0]] } }))).toBeNull();
+  });
+
+  it('a look reads the assembled prefab: a variant shows its base root\'s model, a nested part\'s rules hold', () => {
+    const variant = (prefabId: string, base: string) => ({ prefabId, entities: [{ localId: 'base-1', components: { transform: T, prefab: { prefabId: base } } }] });
+    const shown = door({ model: { asset: { assetId: 'm' } } });
+    const still = { ...LIVE, live: false, variants: [{ prefab: 'door-v' }] };
+    expect(errs((e) => composeBlockContent({ blockTypes: [still], prefabs: [shown, variant('door-v', 'door')] }, e))).toEqual([]);
+    expect(blockLookEntities([shown, variant('door-v', 'door')], 'door-v')?.[0]?.components).toMatchObject({ model: { asset: { assetId: 'm' } } });
+    // A live variant whose base has a player part is refused as the base is.
+    const player = door({}, { controller: {} });
+    expect(errs((e) => composeBlockContent({ blockTypes: [{ ...LIVE, variants: [{ prefab: 'door-v' }] }], prefabs: [player, variant('door-v', 'door')] }, e))[0]?.message).toContain('controller');
   });
 
   it('ids come from the cell and fit the id syntax; a long layer id is hashed', () => {

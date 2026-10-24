@@ -241,6 +241,8 @@ export {
 // load; the editor uses the same rules for its viewport and inspector).
 export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, resolveSceneHierarchy, type EffectiveEntityFlags } from '@thirdlight/project-model';
+// A block look's prefab as the renderer draws it (nested copies and variants assembled).
+export { blockLookEntities } from '@thirdlight/project-model';
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf, controllerCapsuleOffsetZ } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';

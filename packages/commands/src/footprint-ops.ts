@@ -36,6 +36,7 @@ import { layerPatch, patchDelta, patchedLayer, patchIsEmpty, type BlockLayerPatc
 import { contentOf } from './content-ops';
 import { fieldValue, type CommandError } from './errors';
 import { gateResultState } from './ops';
+import { assembledView } from './prefab-copy-edit';
 import { deepEqual } from './properties';
 import type { ChangeData, ContentDocument, SceneDocument } from './types';
 
@@ -163,6 +164,34 @@ export function writeFootprints(before: SceneDocument, after: SceneDocument, con
   if (!gate.ok) return gate;
   const layers = touched.map((t) => layerPatch(t.entityId, t.restore, layerDataOf(gate.scene, t.entityId), t.written));
   return { ok: true, scene: gate.scene, layers, chunks: footprintChunks(layers) };
+}
+
+/**
+ * The footprint writes of a command, over what the scene shows: a linked
+ * copy's parts carry their prefab's footprints (placing, moving or deleting a
+ * copy, editing a part, or the prefab itself, moves them). The cells are
+ * written into the stored scene.
+ */
+export function writeSceneFootprints(before: SceneDocument, after: SceneDocument, contentBefore: ContentDocument | undefined, contentAfter: ContentDocument | undefined, manifest: Manifest | undefined): FootprintOutcome {
+  const shown = (scene: SceneDocument, content: ContentDocument | undefined): SceneDocument => (prefabsCarryFootprints(content) ? (assembledView(scene, content) ?? scene) : scene);
+  const viewBefore = shown(before, contentBefore);
+  const viewAfter = shown(after, contentAfter);
+  if (viewBefore === before && viewAfter === after) return writeFootprints(before, after, contentAfter, manifest);
+  const fp = writeFootprints(viewBefore, viewAfter, contentAfter, manifest);
+  if (!fp.ok || fp.scene === null) return fp;
+  const gate = gateResultState({ scene: before, content: contentAfter, manifest }, withFootprintLayers(after, fp.layers, 'next'), contentAfter);
+  if (!gate.ok) return gate;
+  return { ok: true, scene: gate.scene, layers: fp.layers, chunks: fp.chunks };
+}
+
+const footprintPrefabs = new WeakMap<object, boolean>();
+/** Whether some prefab of the content has a part with a block footprint (kept per prefab list). */
+function prefabsCarryFootprints(content: ContentDocument | undefined): boolean {
+  const prefabs = (contentOf(content) as { prefabs?: readonly { entities: readonly { components: object }[] }[] }).prefabs;
+  if (prefabs === undefined || prefabs.length === 0) return false;
+  let hit = footprintPrefabs.get(prefabs);
+  if (hit === undefined) footprintPrefabs.set(prefabs, (hit = prefabs.some((d) => d.entities.some((e) => (e.components as { blockFootprint?: unknown }).blockFootprint !== undefined))));
+  return hit;
 }
 
 function addCell(cells: Map<string, Set<string>>, layerId: string, at: readonly number[], i: number): void {

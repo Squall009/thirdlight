@@ -1185,7 +1185,7 @@ export {
   type ConnectedLook,
   type ConnectGrid,
 } from './block-connect';
-export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
+export { LIVE_BLOCK_PREFAB_REFUSED, LIVE_BLOCK_ROOT_MERGED, LIVE_BLOCK_ROOT_REFUSED, blockLookEntities, blockTypeLive, liveBlockIds, liveBlockPlacement, liveBlockPrefabProblem, liveBlockPrefix, liveBlockRootId, liveEdgeRootId } from './block-live';
 export { chunkMeshPaint, type ChunkPaintOptions, type PaintedGeometry } from './block-paint-mesh';
 export { chunkMeshAO, type AoGeometry } from './block-ao';
 export { UNPAINTED_WALL, WALL_PAINT_MAX_STEPS, WALL_PAINT_STEP_METRES, WALL_POINT_BYTES, WALL_SIDE_AXES, canonicalWallPaint, decodeWallPaint, encodeWallPaint, wallPaintAt, wallPaintDab, wallPaintError, wallPaintSteps, wallPointKey, wallPointOfKey, type WallPaint, type WallPaintSurface, type WallSteps } from './block-wall-paint';

@@ -37,7 +37,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
 import { canonicalWallPaint, wallPaintError } from './block-wall-paint';
-import { liveBlockPrefabProblem } from './block-live';
+import { blockLookEntities, liveBlockPrefabProblem } from './block-live';
 import { canonicalChunkEdges, canonicalPatternEdges, composeChunkEdges, validateBlockPlacement, validateChunkEdges, validatePatternEdges, type BlockEdge, type BlockPlacement } from './block-edges';
 import { canonicalBlockConnect, composeBlockConnect, validateBlockConnect, type BlockConnect } from './block-connect';
 import { canonicalBlockCutaway, validateBlockCutaway, type BlockCutaway } from './block-cutaway';
@@ -1156,14 +1156,15 @@ export function composeBlockContent(content: BlockContentView, errors: ModelErro
     t.variants.forEach((v, j) => {
       if (v.model !== undefined && assets.get(v.model.assetId) !== 'model') err(errors, 'asset_reference_missing', `${p}/variants/${j}/model/assetId`, 'a block variant names a model asset of this project', v.model.assetId);
       if (v.prefab !== undefined) {
-        const pf = prefabs.get(v.prefab);
-        const root = pf?.entities.find((e) => e.parentLocalId === undefined);
-        if (pf === undefined) err(errors, 'prefab_reference_missing', `${p}/variants/${j}/prefab`, 'a block variant names a prefab of this project', v.prefab);
+        // The prefab as the block shows and spawns it (a variant's or a nested copy's parts assembled).
+        const look = prefabs.has(v.prefab) ? blockLookEntities(content.prefabs ?? [], v.prefab) : undefined;
+        const root = look?.find((e) => e.parentLocalId === undefined);
+        if (look === undefined) err(errors, 'prefab_reference_missing', `${p}/variants/${j}/prefab`, 'a block variant names a prefab of this project', v.prefab);
         else if (t.live === true) {
           // A live block's root without a model is a logic-only cell (a trigger, a sound): the chunk draws nothing for it.
-          const problem = liveBlockPrefabProblem(pf);
+          const problem = liveBlockPrefabProblem({ entities: look as never });
           if (problem !== null) err(errors, 'field_value', `${p}/variants/${j}/prefab`, `prefab "${v.prefab}" cannot be a live block: ${problem}`, v.prefab);
-        } else if (root === undefined || root.components['model'] === undefined) err(errors, 'field_value', `${p}/variants/${j}/prefab`, "a block variant's prefab has a model on its root (the block shows that model)", v.prefab);
+        } else if (root === undefined || (root.components as Record<string, unknown>)['model'] === undefined) err(errors, 'field_value', `${p}/variants/${j}/prefab`, "a block variant's prefab has a model on its root (the block shows that model)", v.prefab);
       }
     });
     for (const [slot, id] of Object.entries(t.materials ?? {})) if (!materials.has(id)) err(errors, 'reference_missing', `${p}/materials/${slot}`, 'the material mapping names no material of this project', id);

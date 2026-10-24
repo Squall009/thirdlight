@@ -9,6 +9,7 @@ import { BlockGrid, type BlockLayerComponent, type SceneV4 } from '@thirdlight/p
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, EditBlocksChange, FootprintChunks, MutationSuccess } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
+import { assembledView } from './prefab-copy-edit';
 
 const BEFORE = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
 type State = CommandState<SceneV4>;
@@ -133,6 +134,35 @@ describe('prop footprints in the command layer', () => {
     expect(layerMoved.change.footprints).toBeUndefined();
   });
 
+  it('a linked copy writes its parts\' footprints: placing, moving the copy or a part, a prefab edit, deleting; undo restores', () => {
+    const { s: s0, layer } = setup();
+    // A hut prefab: a root and a porch part with a footprint.
+    const root = ok(s0, 'createEntity', { kind: 'group', name: 'Hut', transform: { position: [0, 1, 0] } });
+    const porch = prop(root.state, [0.5, 0, 0.5], root.createdId!);
+    const s1 = ok(porch.s, 'setComponent', { entityId: porch.id, component: 'blockFootprint', value: { layer, set: { marked: true } } }).state;
+    const made = ok(ok(s1, 'createPrefab', { prefabId: 'hut', displayName: 'Hut', sourceEntityId: root.createdId! }).state, 'deleteEntity', { entityId: root.createdId! }).state;
+    expect(markedCells(made, layer)).toEqual([]);
+    const placed = ok(made, 'instantiatePrefab', { prefabId: 'hut', transform: { position: [4, 1, 3] } });
+    const copy = placed.createdId ?? (placed.change as unknown as { rootId: string }).rootId;
+    expect(markedCells(placed.state, layer)).toEqual(['4,3']);
+    const moved = ok(placed.state, 'setTransform', { entityId: copy, transform: { position: [10, 1, 6] } });
+    expect(markedCells(moved.state, layer)).toEqual(['10,6']);
+    // A part with a footprint moves as an override, its cells with it.
+    const part = porchIdOf(moved.state, copy);
+    const partMoved = ok(moved.state, 'setTransform', { entityId: part, transform: { position: [2.5, 0, 0.5] } });
+    expect(partMoved.change.type).toBe('prefabLinkEdit');
+    expect(markedCells(partMoved.state, layer)).toEqual(['12,6']);
+    expect(markedCells(ok(partMoved.state, 'undo').state, layer)).toEqual(['10,6']);
+    // The prefab's porch moved (applied from the copy): every copy's cells follow.
+    const second = ok(partMoved.state, 'instantiatePrefab', { prefabId: 'hut', transform: { position: [20, 1, 20] } });
+    expect(markedCells(second.state, layer)).toEqual(['12,6', '20,20']);
+    const applied = ok(second.state, 'applyPrefabOverrides', { entityId: copy, all: true });
+    expect(markedCells(applied.state, layer)).toEqual(['12,6', '22,20']);
+    const deleted = ok(applied.state, 'deleteEntity', { entityId: copy });
+    expect(markedCells(deleted.state, layer)).toEqual(['22,20']);
+    expect(ok(deleted.state, 'undo').state.scene.blocks).toEqual(applied.state.scene.blocks);
+  });
+
   it('a footprint set with a field outside the cell schema is refused, naming the field and the layer', () => {
     const { s: s0, layer } = setup();
     const p = prop(s0, [4.5, 1, 3.5]);
@@ -200,3 +230,9 @@ describe('editBlocks rebased count', () => {
     expect((fill.change as unknown as EditBlocksChange).rebased).toBeUndefined();
   });
 });
+
+/** The id of a copy's porch part (the part with a footprint), as the editor's view names it. */
+function porchIdOf(s: State, copyId: string): string {
+  const shown = assembledView(s.scene, s.content)!;
+  return shown.entities.find((e) => e.parentId === copyId && (e.components as { blockFootprint?: unknown }).blockFootprint !== undefined)!.id;
+}

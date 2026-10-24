@@ -182,11 +182,12 @@ export function namedIds(args: Obj): { targets: string[]; places: string[] } {
   return { targets, places };
 }
 
-const nonEntityFields = (scene: SceneDocument): string => {
-  const { entities: _e, revision: _r, ...rest } = scene as unknown as Obj;
+/** A scene's own fields but its objects (and its block cells, when a footprint wrote them). */
+const nonEntityFields = (scene: SceneDocument, footprints: boolean): string => {
+  const { entities: _e, revision: _r, blocks, ...rest } = scene as unknown as Obj;
   void _e;
   void _r;
-  return JSON.stringify(rest);
+  return JSON.stringify(footprints ? rest : { ...rest, blocks });
 };
 
 /**
@@ -226,7 +227,9 @@ export function routeCopyEdit(
   const inner = run({ ...state, scene: working, history: { entries: [], cursor: 0, seq: 1 } }, request);
   if (!inner.ok) return { ok: false, error: inner.result.error };
   const done = inner.state;
-  if (done.content !== state.content || nonEntityFields(done.scene) !== nonEntityFields(working)) {
+  // Cells a part's footprint wrote are written again into the stored scene from the copies' parts (writeSceneFootprints).
+  const footprints = (inner.result.change as { footprints?: unknown }).footprints !== undefined;
+  if (done.content !== state.content || nonEntityFields(done.scene, footprints) !== nonEntityFields(working, footprints)) {
     return { ok: false, error: prefabOverrideUnsupported(first, `${op} on a copy's part changes more than the copy's objects, which a copy cannot keep as overrides`) };
   }
   const after = done.scene.entities as EntityV3[];

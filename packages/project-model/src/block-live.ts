@@ -22,6 +22,8 @@
  */
 import type { BlockType } from './block-layers';
 import { ID_MAX_LENGTH } from './validate';
+import { createPrefabAssembler, flatPrefabEntities, type AssemblyPrefab, type AssemblyPrefabEntity } from './prefab-assembly';
+import { isPrefabLink } from './prefab-links';
 
 /** The root's components that would move or animate the model the chunk draws merged: refused on a live block's prefab root. */
 export const LIVE_BLOCK_ROOT_REFUSED: readonly string[] = Object.freeze(['mover', 'patrol', 'gravity', 'animator', 'modelAnimation', 'socketAttach']);
@@ -118,4 +120,22 @@ export function liveBlockPrefabProblem(prefab: { readonly entities: readonly { r
     if (e.keepLoaded === true) return 'a live block comes and goes with its cell: no object of it is kept loaded';
   }
   return null;
+}
+
+const lookCache = new WeakMap<readonly AssemblyPrefab[], Map<string, readonly AssemblyPrefabEntity[]>>();
+
+/**
+ * A prefab's objects as a block shows and spawns them: its nested copies and
+ * variants assembled (overrides applied), root first; a prefab without nested
+ * copies as it is. Undefined when the list has no such prefab.
+ */
+export function blockLookEntities(prefabs: readonly AssemblyPrefab[], prefabId: string): readonly AssemblyPrefabEntity[] | undefined {
+  const prefab = prefabs.find((p) => p.prefabId === prefabId);
+  if (prefab === undefined) return undefined;
+  if (!prefab.entities.some((e) => isPrefabLink((e.components as { prefab?: unknown }).prefab))) return prefab.entities;
+  let byId = lookCache.get(prefabs);
+  if (byId === undefined) lookCache.set(prefabs, (byId = new Map()));
+  let flat = byId.get(prefabId);
+  if (flat === undefined) byId.set(prefabId, (flat = flatPrefabEntities(createPrefabAssembler(prefabs), prefab).entities));
+  return flat;
 }
