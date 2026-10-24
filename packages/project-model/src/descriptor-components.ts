@@ -674,9 +674,9 @@ export const instances: ComponentDescriptor = {
     decalLayersField(false),
     seeThroughField(),
     // Absent = the project's Instance chunk size (32 m unless set).
-    num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). Each chunk draws one level of detail for its copies unless "Level per copy" is on.', { min: 1, max: 4096, step: 1, unit: 'm' }),
-    // Off by default: a chunk straddling a switch point draws once per level when on (performance first).
-    bool('lodPerCopy', 'Level per copy', 'Each copy picks its own level of detail by its own distance and size, instead of the level its chunk picks at its centre: truer where a chunk spans a switch point, at one more draw per level in each such chunk.', { default: false, omitDefault: true }),
+    num('chunkSize', 'Chunk size', 'The copies are culled in chunks about this wide, each hidden when out of view (absent: the project\'s Instance chunk size). The draws stay one per mesh and level of the model.', { min: 1, max: 4096, step: 1, unit: 'm' }),
+    // Off by default: a block straddling a switch point is then drawn by the draws of both levels (more vertex work).
+    bool('lodPerCopy', 'Level per copy', 'Each copy picks its own level of detail by its own distance and size, instead of the level its block of copies picks at its centre: truer where a block spans a switch point, at more vertex work there (no more draws).', { default: false, omitDefault: true }),
     // Thinning is off unless densityMin is set (model-lod.ts): sets made before it existed keep every copy; the
     // scatter dialog makes new sets with it on.
     num('densityStart', 'Thinning starts at', `Copies start thinning out where they cover less than this share of the screen height (absent: ${INSTANCE_DENSITY_START_DEFAULT}).`, { min: INSTANCE_DENSITY_SIZE_MIN, max: 1, step: 0.001 }),

@@ -1,50 +1,35 @@
 /**
- * Levels of detail and density per copy of an instance set.
+ * Levels of detail of an instance set's chunks (the CPU instance sets that
+ * remain: generated architecture's and splines' pieces).
  *
- * By default a chunk draws one level for all its copies, picked at its
- * centre for the copies' mean size (with the project's bias and hysteresis,
- * against the model's switch distances scaled by size). A set with
- * `lodPerCopy` has every copy pick its own level by its own distance and
- * size instead: a 32 m chunk then no longer switches all its grass at once,
- * but a chunk straddling a switch point draws once per level it holds — a
- * draw more per level in every such chunk, which many small sets of copies of
- * varied size pay in main-thread time on WebGL 2, so it is the set's choice. Either way copies thin out where they are small on screen
- * (the set's density falloff). The chunk keeps one draw per mesh and level;
- * each draw leaves out the copies that are not at its level
- * (`InstanceFilter`), so a pick costs no draw call.
+ * A chunk draws one level for all its copies, picked at its centre for the
+ * copies' mean size (with the project's bias and hysteresis, against the
+ * model's switch distances scaled by size). Copies drawn each at their own
+ * level and thinned by distance are the GPU renderer's (`copies-gpu.ts`):
+ * nothing here walks a chunk's copies per frame.
  *
  * Picks are made once per view and chunk (all of the chunk's draws share
  * them) and only when the chunk's place or the tuning changed, or the eye
  * moved more than {@link REPICK_MOVE_FRACTION} of its distance to the
- * chunk's nearest copy since the last pick: picks depend on distance only, so
- * a camera turning or drifting a little leaves them as they are (re-picking
- * on every camera move would loop over every copy of every chunk each frame). A chunk
- * wholly nearer than its first switch and its density falloff, or wholly
- * past its cull distance, is decided at once without a loop over its copies.
- * Each draw reads the list of the copies at its level (made once per change
- * of the picks), so culling and ordering a draw costs its own copies, not the
- * chunk's.
+ * chunk's nearest copy since the last pick: a camera turning or drifting a
+ * little leaves them as they are. A chunk wholly nearer than its first
+ * switch, or wholly past its cull distance, is decided at once.
  */
-import { LOD_REFERENCE_FOV_DEG, type InstanceDensity } from '@thirdlight/runtime';
+import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/runtime';
 
 import type { LodTuning } from './lod-switch';
 import { maxScaleOf, type CullView } from './view-cull';
 import type { InstanceFilter } from './attribute-instancing';
-import { pickBlocks, PICK_BLOCK, type PreparedPickStats } from './instance-prepare';
-
-export { copyRank } from './instance-prepare';
+import type { PreparedPickStats } from './instance-prepare';
 
 /** tan of half the reference field of view: a sphere of radius r covers size s of the screen at r / (TAN · s). */
 export const TAN_HALF_REFERENCE = Math.tan((LOD_REFERENCE_FOV_DEG * Math.PI) / 360);
 
-/** Not picked yet (before the first view). */
-const UNPICKED = 255;
-
 /**
  * The eye moving less than this fraction of its distance to a chunk's nearest
- * copy since the chunk's last pick keeps the picks: every switch distance and
- * density step it could cross is off by at most this fraction (well inside
- * the project's hysteresis at its default).
+ * copy since the chunk's last pick keeps the picks: every switch distance it
+ * could cross is off by at most this fraction (well inside the project's
+ * hysteresis at its default).
  */
 export const REPICK_MOVE_FRACTION = 0.01;
 
@@ -54,14 +39,10 @@ export interface CopyLodGroup {
   readonly culls: boolean;
 }
 
-/** A chunk's copies as the picker reads them. */
+/** A chunk's copies as the picker reads them: each copy's origin in the chunk node's space (xyz) and its largest scale. */
 export interface ChunkCopies {
-  /** Each copy's origin in the chunk node's space (xyz). */
   readonly origins: Float32Array;
-  /** Each copy's largest scale. */
   readonly scales: Float32Array;
-  /** Each copy's place in the thinning order, in [0, 1) (stable: from its index in the set). */
-  readonly ranks: Float32Array;
   readonly count: number;
 }
 
@@ -71,77 +52,46 @@ export interface ChunkLodCounts {
   readonly byLevel: number[];
   /** Copies past their cull size. */
   readonly culled: number;
-  /** Copies left out by the density falloff. */
-  readonly thinned: number;
 }
 
-/** The share of copies drawn at `distance` for a copy whose falloff runs from `from` to `to` (distances; `min` past it). */
-export function densityAt(distance: number, from: number, to: number, min: number): number {
-  if (distance <= from) return 1;
-  if (distance >= to || to <= from) return min;
-  return 1 - ((1 - min) * (distance - from)) / (to - from);
-}
-
-/**
- * The picks of one chunk: each copy's level in every LOD group of the model
- * and whether the density falloff keeps it.
- */
+/** The picks of one chunk: its level in every LOD group of the model. */
 export class ChunkLodPicker {
-  /** Per LOD group, each copy's level ({@link UNPICKED} before the first view: then level 0). */
-  private readonly levels: Uint8Array[];
-  private readonly kept: Uint8Array;
+  /** Per LOD group, the chunk's level (-1: none picked yet: then level 0). */
+  private readonly levels: Int16Array;
   private readonly world = new Float64Array(16).fill(Number.NaN);
   /** The eye and zoom the picks were last made at, and how far the eye may move before they are made again (squared). */
   private readonly pickedEye = new Float64Array(3).fill(Number.NaN);
   private pickedZoom = Number.NaN;
   private moveSq = 0;
-  /** Per LOD group and level, the slots drawn there (ascending) and how many; the last entry: the meshes outside every group. */
-  private readonly lists: Uint32Array[][];
-  private readonly listCounts: Int32Array[];
+  /** Every slot, ascending (a draw at the chunk's level draws all of them). */
+  private readonly all: Uint32Array;
+  private readonly none = new Uint32Array(0);
   private stamp = -1;
   private view: CullView | null = null;
   private revision = -1;
   /** Bumped whenever a pick changed (the draws put their copies in order again). */
   private version = 0;
-  /** The largest distance of a copy from the chunk's origin, and the copies' smallest and largest scale. */
+  /** The largest distance of a copy from the chunk's origin, and the copies' smallest, largest and summed scale. */
   private reach: number;
   private minScale: number;
   private maxScale: number;
-  /** The copies' mean scale (a chunk's level is picked for it), and per LOD group the level the chunk picked (-1: none yet). */
-  private meanScale: number;
   private scaleSum: number;
-  private readonly chunkLevels: Int16Array;
-  private counts: ChunkLodCounts;
-  /**
-   * Per block of {@link PICK_BLOCK} copies: its sphere in the chunk node's space
-   * (centre xyz, radius), and the eye its picks were made at (NaN: to be made) — a
-   * block the eye moved little toward, for its distance, keeps its picks.
-   */
-  private readonly blocks: Float32Array;
-  private readonly blockEyes: Float64Array;
-  /** The blocks' eyes hold for the current world matrix, zoom and tuning (else every block picks again). */
-  private blocksValid = false;
 
   constructor(
     private readonly copies: ChunkCopies,
     private readonly groups: readonly CopyLodGroup[],
-    /** The model's bounding radius (LOD0) for the density falloff's screen sizes; null: no falloff. */
-    private readonly density: { readonly radius: number; readonly falloff: InstanceDensity } | null,
     private readonly tuning: LodTuning,
-    /** Each copy picks its own level; else the chunk's level for all of them. */
-    private readonly perCopy = false,
     /** The copies' reach and sizes, worked out ahead (`instance-prepare.ts`); absent: worked out here. */
     stats?: PreparedPickStats,
   ) {
-    this.levels = groups.map(() => new Uint8Array(copies.count).fill(UNPICKED));
-    this.kept = new Uint8Array(copies.count).fill(1);
+    this.levels = new Int16Array(groups.length).fill(-1);
+    this.all = Uint32Array.from({ length: copies.count }, (_, i) => i);
     this.scaleSum = 0;
     for (let i = 0; i < copies.count; i += 1) this.scaleSum += copies.scales[i]!;
     if (stats !== undefined) {
       this.reach = stats.reach;
       this.minScale = stats.minScale;
       this.maxScale = stats.maxScale;
-      this.meanScale = stats.meanScale;
     } else {
       let reach = 0;
       let lo = Number.POSITIVE_INFINITY;
@@ -155,43 +105,33 @@ export class ChunkLodPicker {
       this.reach = reach;
       this.minScale = Number.isFinite(lo) ? lo : 1;
       this.maxScale = hi;
-      this.meanScale = copies.count > 0 ? this.scaleSum / copies.count : 1;
     }
-    this.blocks = stats?.blocks ?? pickBlocks(copies.origins, copies.count);
-    this.blockEyes = new Float64Array((this.blocks.length / 4) * 3).fill(Number.NaN);
-    this.chunkLevels = new Int16Array(groups.length).fill(-1);
-    this.counts = { byLevel: [], culled: 0, thinned: 0 };
-    this.lists = [...groups.map((g) => g.distances.map(() => new Uint32Array(copies.count))), [new Uint32Array(copies.count)]];
-    this.listCounts = [...groups.map((g) => new Int32Array(g.distances.length)), new Int32Array(1)];
-    this.count();
+  }
+
+  /** The level the chunk draws in LOD group `group` (0 before the first pick). */
+  private levelOf(group: number): number {
+    return Math.max(0, this.levels[group] ?? 0);
+  }
+
+  /** Whether the chunk's copies are past the cull level of a group (nothing drawn). */
+  private culled(): boolean {
+    for (let g = 0; g < this.groups.length; g += 1) if (this.groups[g]!.culls && this.levelOf(g) === this.groups[g]!.distances.length - 1) return true;
+    return false;
   }
 
   /** The draw of LOD group `group` at `level` (group -1: a mesh outside every group) as an instance filter. */
   filter(group: number, level: number): InstanceFilter {
-    const list = group < 0 ? this.groups.length : group;
-    const at = group < 0 ? 0 : level;
+    const drawn = (): boolean => (group < 0 ? !this.culled() : this.levelOf(group) === level);
     return {
       prepare: (view, world, sameWorld) => this.prepare(view, world, sameWorld),
-      includes: (slot) => this.includes(group, level, slot),
-      slots: () => this.lists[list]![at]!,
-      slotCount: () => this.listCounts[list]![at]!,
+      includes: () => drawn(),
+      slots: () => (drawn() ? this.all : this.none),
+      slotCount: () => (drawn() ? this.copies.count : 0),
       full: group < 0 || level === 0,
     };
   }
 
-  /** Whether copy `copy` is drawn by the draw of `group` at `level`. */
-  includes(group: number, level: number, copy: number): boolean {
-    if (this.kept[copy] !== 1) return false;
-    if (group < 0) {
-      // A mesh outside the LOD groups is drawn while the copy is not culled by any of them.
-      for (let g = 0; g < this.groups.length; g += 1) if (this.groups[g]!.culls && this.levels[g]![copy] === this.groups[g]!.distances.length - 1) return false;
-      return true;
-    }
-    const l = this.levels[group]![copy]!;
-    return (l === UNPICKED ? 0 : l) === level;
-  }
-
-  /** Copy `copy` moved to `x y z` (the chunk node's space) at largest scale `scale`: its picks are made again. */
+  /** Copy `copy` moved to `x y z` (the chunk node's space) at largest scale `scale`: the picks are made again. */
   moveCopy(copy: number, x: number, y: number, z: number, scale: number): void {
     if (copy < 0 || copy >= this.copies.count) return;
     const o = this.copies.origins;
@@ -203,18 +143,17 @@ export class ChunkLodPicker {
     this.reach = Math.max(this.reach, Math.hypot(x, y, z));
     this.minScale = Math.min(this.minScale, scale);
     this.maxScale = Math.max(this.maxScale, scale);
-    this.meanScale = this.copies.count > 0 ? this.scaleSum / this.copies.count : 1;
-    // Its block's sphere grows to hold it (still around all of the block's copies).
-    const b = Math.floor(copy / PICK_BLOCK) * 4;
-    const bl = this.blocks;
-    bl[b + 3] = Math.max(bl[b + 3]!, Math.hypot(x - bl[b]!, y - bl[b + 1]!, z - bl[b + 2]!));
     this.pickedZoom = Number.NaN;
     this.stamp = -1;
   }
 
   /** What the picks hold now. */
   stats(): ChunkLodCounts {
-    return this.counts;
+    const g0 = this.groups[0];
+    const byLevel = new Array<number>(g0 !== undefined ? g0.distances.length : 1).fill(0);
+    if (this.culled()) return { byLevel, culled: this.copies.count };
+    byLevel[g0 !== undefined ? this.levelOf(0) : 0] = this.copies.count;
+    return { byLevel, culled: 0 };
   }
 
   /**
@@ -243,7 +182,6 @@ export class ChunkLodPicker {
       const dz = view.eye[2]! - this.pickedEye[2]!;
       if (dx * dx + dy * dy + dz * dz <= this.moveSq) return this.version;
     }
-    if (!worldSame || revision !== this.revision || view.zoom !== this.pickedZoom) this.blocksValid = false;
     this.revision = revision;
     if (!worldSame) for (let k = 0; k < 16; k += 1) world[k] = w[k]!;
     this.pickedEye.set(view.eye);
@@ -252,178 +190,45 @@ export class ChunkLodPicker {
     return this.version;
   }
 
-  /** Make every pick; true when one changed. */
+  /** Pick the chunk's level in every group; true when one changed. */
   private pick(view: CullView, w: ArrayLike<number>): boolean {
-    const { origins, scales, ranks, count } = this.copies;
     const groups = this.groups;
     const tuning = this.tuning;
     const ws = maxScaleOf(w);
     const toDistance = 1 / (view.zoom * tuning.bias);
-    const ex = view.eye[0]!;
-    const ey = view.eye[1]!;
-    const ez = view.eye[2]!;
     const hys = tuning.hysteresis;
-    // The chunk's distance range (its origin ± the farthest copy), in the units the switch distances are in.
-    const cd = Math.hypot(ex - w[12]!, ey - w[13]!, ez - w[14]!);
+    const cd = Math.hypot(view.eye[0]! - w[12]!, view.eye[1]! - w[13]!, view.eye[2]! - w[14]!);
     const nearWorld = Math.max(0, cd - this.reach * ws);
     const near = nearWorld * toDistance;
     this.moveSq = (nearWorld * REPICK_MOVE_FRACTION) ** 2;
     const far = (cd + this.reach * ws) * toDistance;
     const sLo = this.minScale * ws;
     const sHi = this.maxScale * ws;
-    const dens = this.density;
-    const fromFactor = dens !== null ? dens.radius / (TAN_HALF_REFERENCE * dens.falloff.start) : 0;
-    const toFactor = dens !== null ? dens.radius / (TAN_HALF_REFERENCE * dens.falloff.end) : 0;
-    const thins = dens !== null && dens.falloff.min < 1;
-
-    // Wholly near: every copy at level 0 (whatever it showed) and none thinned.
-    let allNear = !thins || far <= fromFactor * sLo;
+    // Wholly near: level 0; wholly past the cull distance of every group: the cull level.
+    let allNear = true;
     for (const g of groups) if (g.distances.length > 1 && far >= g.distances[1]! * sLo * (1 - hys)) allNear = false;
-    // Wholly past the cull distance of every group (a copy at the cull shows nothing, whatever its other picks).
     let allCulled = groups.length > 0;
     for (const g of groups) if (!g.culls || near < g.distances[g.distances.length - 1]! * sHi) allCulled = false;
-    if (allNear || allCulled) {
-      // Every copy decided at once: the blocks pick afresh when they are needed again.
-      this.blocksValid = false;
-      let changed = false;
-      for (let gi = 0; gi < groups.length; gi += 1) {
-        const target = allNear ? 0 : groups[gi]!.distances.length - 1;
-        this.chunkLevels[gi] = target;
-        const lv = this.levels[gi]!;
-        for (let i = 0; i < count; i += 1) {
-          if (lv[i] === target) continue;
-          if (lv[i] !== UNPICKED) tuning.copySwitches += 1;
-          lv[i] = target;
-          changed = true;
-        }
-      }
-      if (allNear) for (let i = 0; i < count; i += 1) if (this.kept[i] !== 1) {
-        this.kept[i] = 1;
-        changed = true;
-      }
-      if (changed) this.count();
-      return changed;
-    }
-
+    const dc = cd * toDistance;
+    const sc = (this.copies.count > 0 ? this.scaleSum / this.copies.count : 1) * ws;
     let changed = false;
-    if (!this.perCopy) {
-      // One level for the chunk: the rule below at its centre, for the copies' mean size.
-      const dc = cd * toDistance;
-      const sc = this.meanScale * ws;
-      for (let gi = 0; gi < groups.length; gi += 1) {
-        const dist = groups[gi]!.distances;
-        const current = this.chunkLevels[gi]!;
-        let l = 1;
+    for (let gi = 0; gi < groups.length; gi += 1) {
+      const dist = groups[gi]!.distances;
+      const current = this.levels[gi]!;
+      let l: number;
+      if (allNear) l = 0;
+      else if (allCulled) l = dist.length - 1;
+      else {
+        // The rule of `pickLodLevel` at the chunk's centre for the copies' mean size.
+        l = 1;
         for (; l < dist.length; l += 1) if (dc < dist[l]! * sc * (current === l ? 1 - hys : 1)) break;
         l -= 1;
-        this.chunkLevels[gi] = l;
-        const lv = this.levels[gi]!;
-        for (let i = 0; i < count; i += 1) {
-          if (lv[i] === l) continue;
-          if (lv[i] !== UNPICKED) tuning.copySwitches += 1;
-          if (lv[i] !== UNPICKED || l !== 0) changed = true;
-          lv[i] = l;
-        }
       }
-      if (dens === null) {
-        if (changed) this.count();
-        return changed;
-      }
+      if (l === current) continue;
+      if (current >= 0) tuning.copySwitches += this.copies.count;
+      if (current >= 0 || l !== 0) changed = true;
+      this.levels[gi] = l;
     }
-    const w0 = w[0]!, w1 = w[1]!, w2 = w[2]!, w4 = w[4]!, w5 = w[5]!, w6 = w[6]!, w8 = w[8]!, w9 = w[9]!, w10 = w[10]!;
-    const bl = this.blocks;
-    const be = this.blockEyes;
-    const fresh = !this.blocksValid;
-    this.blocksValid = true;
-    for (let b = 0; b * PICK_BLOCK < count; b += 1) {
-      // A block the eye moved toward by less than the margin of its nearest copy's distance keeps its picks.
-      const bx = bl[b * 4]!, by = bl[b * 4 + 1]!, bz = bl[b * 4 + 2]!;
-      const near = Math.max(0, Math.hypot(ex - (w0 * bx + w4 * by + w8 * bz + w[12]!), ey - (w1 * bx + w5 * by + w9 * bz + w[13]!), ez - (w2 * bx + w6 * by + w10 * bz + w[14]!)) - bl[b * 4 + 3]! * ws);
-      if (!fresh) {
-        const mx = ex - be[b * 3]!, my = ey - be[b * 3 + 1]!, mz = ez - be[b * 3 + 2]!;
-        if (mx * mx + my * my + mz * mz <= (near * REPICK_MOVE_FRACTION) ** 2) continue;
-      }
-      be[b * 3] = ex;
-      be[b * 3 + 1] = ey;
-      be[b * 3 + 2] = ez;
-    for (let i = b * PICK_BLOCK; i < Math.min(count, (b + 1) * PICK_BLOCK); i += 1) {
-      const ox = origins[i * 3]!;
-      const oy = origins[i * 3 + 1]!;
-      const oz = origins[i * 3 + 2]!;
-      const dx = ex - (w0 * ox + w4 * oy + w8 * oz + w[12]!);
-      const dy = ey - (w1 * ox + w5 * oy + w9 * oz + w[13]!);
-      const dz = ez - (w2 * ox + w6 * oy + w10 * oz + w[14]!);
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz) * toDistance;
-      const s = scales[i]! * ws;
-      for (let gi = 0; gi < groups.length && this.perCopy; gi += 1) {
-        const dist = groups[gi]!.distances;
-        const lv = this.levels[gi]!;
-        const current = lv[i]!;
-        // The rule of `pickLodLevel` (no per-level margin here: the models' levels carry none).
-        let l = 1;
-        for (; l < dist.length; l += 1) {
-          const at = dist[l]! * s * (current === l ? 1 - hys : 1);
-          if (d < at) break;
-        }
-        l -= 1;
-        if (l !== current) {
-          if (current !== UNPICKED) tuning.copySwitches += 1;
-          if (current !== UNPICKED || l !== 0) changed = true;
-          lv[i] = l;
-        }
-      }
-      if (dens !== null) {
-        const keep = thins && ranks[i]! >= densityAt(d, fromFactor * s, toFactor * s, dens.falloff.min) ? 0 : 1;
-        if (this.kept[i] !== keep) {
-          this.kept[i] = keep;
-          changed = true;
-        }
-      }
-    }
-    }
-    if (changed) this.count();
     return changed;
-  }
-
-  private count(): void {
-    const groups = this.groups;
-    const lists = this.lists;
-    const listCounts = this.listCounts;
-    for (const c of listCounts) c.fill(0);
-    const outside = lists[groups.length]![0]!;
-    let outsideCount = 0;
-    for (let i = 0; i < this.copies.count; i += 1) {
-      if (this.kept[i] !== 1) continue;
-      let cut = false;
-      for (let g = 0; g < groups.length; g += 1) {
-        const raw = this.levels[g]![i]!;
-        const l = raw === UNPICKED ? 0 : raw;
-        if (groups[g]!.culls && l === groups[g]!.distances.length - 1) cut = true;
-        const counts = listCounts[g]!;
-        lists[g]![l]![counts[l]!] = i;
-        counts[l] = counts[l]! + 1;
-      }
-      if (!cut) outside[outsideCount++] = i;
-    }
-    listCounts[groups.length]![0] = outsideCount;
-    const g0 = this.groups[0];
-    const byLevel = new Array<number>(g0 !== undefined ? g0.distances.length : 1).fill(0);
-    let culled = 0;
-    let thinned = 0;
-    for (let i = 0; i < this.copies.count; i += 1) {
-      if (this.kept[i] !== 1) {
-        thinned += 1;
-        continue;
-      }
-      let cut = false;
-      for (let g = 0; g < this.groups.length; g += 1) if (this.groups[g]!.culls && this.levels[g]![i] === this.groups[g]!.distances.length - 1) cut = true;
-      if (cut) {
-        culled += 1;
-        continue;
-      }
-      const l = g0 !== undefined ? this.levels[0]![i]! : 0;
-      byLevel[l === UNPICKED ? 0 : l] = (byLevel[l === UNPICKED ? 0 : l] ?? 0) + 1;
-    }
-    this.counts = { byLevel, culled, thinned };
   }
 }

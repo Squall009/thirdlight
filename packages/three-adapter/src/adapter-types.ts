@@ -401,7 +401,7 @@ export interface SceneAdapterDiagnostics {
   /** Occlusion culling: the setting, the path frames cull on, the draws that could be left out and what the last frame left out. ABSENT after dispose. */
   occlusion?: import('./occlusion').OcclusionDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
-  scatter?: import('./scatter-view').ScatterViewDiagnostics;
+  scatter?: import('./stored-scatter').StoredScatterDiagnostics;
   /** Ground cover made near the camera. */
   cover?: import('./cover-view').CoverViewDiagnostics;
   /**
@@ -581,7 +581,7 @@ export interface SceneAdapter {
   /** The terrains drawn: their fields (picking) and stroke previews (the editor's terrain tools). */
   terrains?(): import('./terrain-view').TerrainView;
   /** The scatter rules' drawn copies (tests read their meshes). */
-  scatter?(): import('./scatter-view').ScatterView;
+  scatter?(): import('./stored-scatter').StoredScatter;
   /** The ground cover near the camera (tests read it). */
   cover?(): import('./cover-view').CoverView;
   /** The renderer drawing now (null before it is ready). */

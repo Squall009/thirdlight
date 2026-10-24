@@ -67,7 +67,8 @@ import {
   type VisualResourceStore,
   createVisualResourceStore,
 } from './visual';
-import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetPaint, type InstanceSetStats } from './instancing';
+import { buildGpuCopySet } from './copies-gpu';
+import { INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetPaint, type InstanceSetStats } from './instancing';
 import { applyModelPaint, instancePaintDigests, instanceSetPaint, modelPaintDigests } from './vertex-paint-models';
 import { copyMatrixOf, copyPreview, modelPreviewMeshes, PreviewLife, relayout, swapInPreview, type MeshPaintPreview } from './vertex-paint-preview';
 import type { InstancePaint, VertexPaintMesh } from '@thirdlight/runtime';
@@ -944,9 +945,10 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   }
 
   /**
-   * One instance set = one instanced mesh per mesh of the
-   * model (sharing its geometry and materials), placed by the buffer's
-   * transforms times the mesh's own offset inside the model.
+   * One instance set = its copies drawn by the GPU renderer scatter and
+   * ground cover draw with (`copies-gpu.ts`): a draw per mesh and level of
+   * the model (sharing its geometry and materials), each copy placed by the
+   * buffer's transform times the mesh's own offset inside the model.
    */
   function attachInstanceSet(entityId: string, ref: InstanceSetRef, paintOf?: (template: THREE.Object3D) => SetPaint | null): void {
     if (disposed || attachedSets.has(entityId)) return;
@@ -960,10 +962,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const template = created.instance;
     const setPaint = setPaintOf(ref);
     const painted = paintOf !== undefined ? paintOf(template.root) : setPaint !== undefined ? instanceSetPaint(template.root, setPaint, paintBlob) : null;
-    const built = buildInstanceSet(template, floats, ref.count, `instances:${entityId}`, {
+    const built = buildGpuCopySet(template, floats, ref.count, `instances:${entityId}`, {
       chunkSize: ref.chunkSize ?? ctx.models.instanceChunkSize ?? INSTANCE_CHUNK_METERS,
-      density: ref.density ?? instanceDensityOf(undefined),
-      lodPerCopy: ref.lodPerCopy === true,
+      density: ref.density ?? instanceDensityOf(undefined), lodPerCopy: ref.lodPerCopy === true,
       ...(ctx.lodTuning !== undefined ? { tuning: ctx.lodTuning } : {}),
       ...(ctx.copiesMoved !== undefined ? { moved: ctx.copiesMoved } : {}),
       ...(painted !== null ? { paint: painted.paint } : {}),

@@ -1,7 +1,8 @@
 /**
- * Rule scatter drawn — the stored copies of terrains' and block layers'
- * scatter rules (`project-model/scatter.ts`) as instance sets (ground cover,
- * made near the camera, is `cover-view.ts`'s).
+ * Rule scatter's stored copies drawn — the baked copies of terrains' and
+ * block layers' scatter rules (`project-model/scatter.ts`: trees, rocks)
+ * through the GPU renderer ground cover and the instance brush draw with
+ * (`copies-gpu.ts`; ground cover, made near the camera, is `cover-view.ts`'s).
  *
  * The block view and the terrain view hand each source over as they get it
  * (a block layer's chunks carry their scatter as text, a terrain's tiles
@@ -9,23 +10,18 @@
  * export draw the same copies from the same data.
  *
  * Copies are drawn per rule in groups of cells {@link SCATTER_GROUP_METRES}
- * wide: one instance set per rule and group, its chunks the rule's chunk
- * size, culled per copy inside each draw (view-cull), each copy at its own
- * level of detail by default. Large groups keep the draws few; a cell that
- * changes (an edit baked again) rebuilds only its group. A set's arithmetic
- * — every copy's matrix per mesh, the chunks, bounds and level inputs, tens
- * of milliseconds for a dense forest's group — is made on a worker
- * (`scatter-worker.ts`); the page only makes the draws from it, a few
- * chunks at a time within {@link SCATTER_BUILD_MS} a frame (a dense group
- * entering the streaming ring is hundreds of draws: more than one frame
- * spares), and the old set stays drawn until the new one is whole and
- * replaces it, so a re-bake or a streamed group never stalls a frame or
- * blinks.
+ * wide: one copies set per rule and group, each copy at its own level of
+ * detail and thinned by distance on the GPU, blocks of copies culled on the
+ * page. A cell that changes (an edit baked again) rebuilds only its group. A
+ * set's arithmetic (its copies put in compact blocks) is made on a worker
+ * (`scatter-worker.ts`); the page makes the set's textures and draws from it
+ * and puts it in place of the old one, which stays drawn until then, so a
+ * re-bake or a streamed group never blinks.
  *
  * Copies a game's scripts hide or remove are shrunk to nothing in place (the
- * set keeps their slot: only that copy's matrices are written and uploaded);
- * a removed copy is left out when its group's set is next made for another
- * reason (a re-bake, the group streamed in again).
+ * set keeps their slot: only that copy's texels are written); a removed copy
+ * is left out when its group's set is next made for another reason (a
+ * re-bake, the group streamed in again).
  */
 import * as THREE from 'three';
 
@@ -33,8 +29,10 @@ import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, d
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { COVER_FADE_START } from './cover-placement';
-import { beginInstanceSet, buildInstanceSet, instanceSetPlan, type BuiltInstanceSet, type InstanceSetBuilder, type InstanceSetOptions, type InstanceSetStats } from './instancing';
-import { blobCopies, blobShadowTemplate, copiesBySquare, distanceToSquare, pickCopies, shadowOnly, SHADOW_RING_METRES } from './scatter-shadows';
+import { buildGpuCopySet, type GpuCopySetHandle, type GpuCopySetOptions } from './copies-gpu';
+import type { CopyChunking } from './copies-prepare';
+import type { InstanceSetStats } from './instancing';
+import { blobCopies, blobShadowTemplate } from './scatter-shadows';
 import { answerScatterPrepare, type ScatterPrepareReply, type ScatterPrepareRequest } from './scatter-worker';
 import type { ImpostorStore } from './impostor';
 import type { CullView } from './view-cull';
@@ -48,18 +46,8 @@ import { SEE_THROUGH_KEY } from './see-through';
 
 /** The width (m) of the squares a rule's copies are drawn together in: a few draws for a landscape, a bounded rebuild per edit. */
 export const SCATTER_GROUP_METRES = 2048;
-/** Main-thread time (ms) a frame may spend making sets' draws (at least one set a frame). */
+/** Main-thread time (ms) a frame may spend making sets (at least one set a frame). */
 export const SCATTER_BUILD_MS = 4;
-/** Copies per instance chunk the count grid aims at where only the chunk size should split (the near shadows' squares). */
-const SCATTER_COPIES_PER_CHUNK = 1 << 20;
-/**
- * Most copies per chunk of a group's set: a chunk is made in one go (its
- * draws, their buffers, its level picks) and culled whole on its first frame,
- * so a dense group (tens of thousands of copies in one rule chunk) is split by
- * count into chunks the page makes a few at a time within
- * {@link SCATTER_BUILD_MS}. A sparse group stays one chunk (its draws few).
- */
-export const SCATTER_SET_CHUNK_COPIES = 4096;
 
 /** The page query that leaves the scatter out (`?scatter=off`: a diagnostic comparison). */
 export const SCATTER_URL_PARAM = 'scatter';
@@ -95,7 +83,7 @@ export interface ScatterViewDeps {
 }
 
 /** What the block and terrain views tell the scatter view (their sources as they get them), and the copies a game's scripts hid, showed or removed. */
-export type ScatterSink = Pick<ScatterView, 'setBlockLayer' | 'replaceBlockChunks' | 'setTerrain' | 'setOrigin' | 'setHidden' | 'remove' | 'setCopyStates'> & {
+export type ScatterSink = Pick<StoredScatter, 'setBlockLayer' | 'replaceBlockChunks' | 'setTerrain' | 'setOrigin' | 'setHidden' | 'remove' | 'setCopyStates'> & {
   /** The block types (ground cover reads a block layer's tops by them). */
   setTypes?(types: readonly BlockType[]): void;
   /** The splines whose scatter bands terrain ground cover keeps clear of (the stored copies are baked clear of them). */
@@ -103,7 +91,7 @@ export type ScatterSink = Pick<ScatterView, 'setBlockLayer' | 'replaceBlockChunk
 };
 
 /** What the view holds (diagnostics). */
-export interface ScatterViewDiagnostics {
+export interface StoredScatterDiagnostics {
   sources: number;
   cells: number;
   groups: number;
@@ -140,19 +128,9 @@ interface Cell {
   group: string;
 }
 
-/** A rule's copies near the camera cast from shadow-only squares (its `shadowDistance`). */
-interface NearShadows {
-  readonly rule: ScatterRule;
-  readonly floats: Float32Array;
-  readonly count: number;
-  /** The copies by square (made on the first frame that needs them). */
-  index: Map<string, number[]> | null;
-  readonly squares: Map<string, { root: THREE.Group; built: BuiltInstanceSet; undress: (() => void) | null }>;
-}
-
 interface RuleSet {
   readonly rule: string;
-  readonly built: BuiltInstanceSet;
+  readonly built: GpuCopySetHandle;
   readonly casts: boolean;
   readonly undress: (() => void) | null;
   /** The blob discs of the rule's set (the same copies, in the same order). */
@@ -177,21 +155,6 @@ interface Build {
   readonly late: ScatterCopyChange[];
 }
 
-/** A prepared rule set of a group being made a few chunks a frame (its sets join the group once all are made). */
-interface Making {
-  readonly src: Source;
-  readonly g: Group;
-  readonly rule: string;
-  readonly b: Build;
-  /** The model's set, then the blobs' (null: none). */
-  readonly main: InstanceSetBuilder;
-  readonly blob: InstanceSetBuilder | null;
-  /** The page's time spent making it so far (ms), the most in one frame, and the frames it took. */
-  ms: number;
-  frameMs: number;
-  frames: number;
-}
-
 interface Group {
   readonly key: string;
   readonly root: THREE.Group;
@@ -204,7 +167,6 @@ interface Group {
   readonly builds: Map<string, Build>;
   shown: boolean;
   sets: RuleSet[];
-  near: NearShadows[];
 }
 
 interface Source {
@@ -242,7 +204,7 @@ const isChunkText = (ref: string): boolean => !/^[0-9a-f]{64}$/.test(ref);
 /** A copy's state key within a source: its rule and candidate cell. */
 const stateKey = (rule: string, ix: number, iz: number): string => `${rule}\u0000${ix},${iz}`;
 
-export class ScatterView {
+export class StoredScatter {
   private readonly sources = new Map<string, Source>();
   /** Copies a game's scripts hid or removed, per source (kept while a source comes and goes). */
   private readonly states = new Map<string, Map<string, 'hidden' | 'removed'>>();
@@ -252,8 +214,6 @@ export class ScatterView {
   private readonly jobs = new Map<number, { src: Source; g: Group; rule: string; gen: number; kind: 'main' | 'blob' }>();
   /** Builds whose answers are all in, in arrival order. */
   private ready: { src: Source; g: Group; rule: string; gen: number }[] = [];
-  /** The set being made a few chunks a frame (null: none). */
-  private making: Making | null = null;
   private buildMs = 0;
   private buildMsMax = 0;
   private preparedSets = 0;
@@ -309,11 +269,6 @@ export class ScatterView {
       g.root.position.set(...at);
       g.root.updateMatrixWorld(true);
       this.show(g, !src.hidden);
-      // The near shadows' squares are where the copies stood: made again where they stand now.
-      for (const n of g.near) {
-        this.dropNear(n);
-        n.index = null;
-      }
     }
     if (this.casts(src)) this.deps.shapeChanged?.();
   }
@@ -377,7 +332,7 @@ export class ScatterView {
   /**
    * Hidden, shown and removed copies written in place into the drawn sets
    * (a hidden or removed copy shrunk to nothing, a shown one back at its
-   * place) and their near shadows' squares made again; returns whether a set
+   * place); returns whether a set
    * that casts into the static shadow map changed.
    */
   private writeStates(changes: readonly ScatterCopyChange[]): boolean {
@@ -403,16 +358,6 @@ export class ScatterView {
         if (w === undefined) writes.set(set, (w = []));
         w.push({ index, transform: t });
       }
-      // The near shadows' copies: written too, their squares made again.
-      for (const n of g.near) {
-        if (n.rule.id !== c.rule) continue;
-        const set = g.sets.find((s) => s.rule === c.rule && !s.blob);
-        const index = set === undefined ? -1 : indexOfAddress(set.addrs, c.cell[0], c.cell[1]);
-        if (index < 0) continue;
-        n.floats.set(original, index * INSTANCE_FLOATS);
-        if (gone) n.floats[index * INSTANCE_FLOATS + 7] = n.floats[index * INSTANCE_FLOATS + 8] = n.floats[index * INSTANCE_FLOATS + 9] = 0;
-        this.dropNear(n);
-      }
     }
     let casts = false;
     for (const [set, list] of writes) {
@@ -423,10 +368,9 @@ export class ScatterView {
   }
 
   /**
-   * Prepare the sets of the groups that changed (on the worker), make those
-   * prepared within the frame's time, and keep the near shadows around the
-   * view's eye (the last frame's). Call once a frame. Returns whether
-   * anything was built.
+   * Prepare the sets of the groups that changed (on the worker) and make
+   * those prepared within the frame's time. Call once a frame. Returns
+   * whether anything was built.
    */
   update(view: CullView | null = null): boolean {
     if (this.disposed) return false;
@@ -445,7 +389,7 @@ export class ScatterView {
           // Sets of rules no longer listed go now.
           g.stale = false;
           const ids = new Set(src.rules.map((r) => r.id));
-          if (g.sets.some((x) => !ids.has(x.rule)) || g.near.some((n) => !ids.has(n.rule.id))) {
+          if (g.sets.some((x) => !ids.has(x.rule))) {
             casts ||= this.replaceRule(src, g, (rule) => !ids.has(rule), null);
             built = true;
           }
@@ -460,32 +404,19 @@ export class ScatterView {
         }
       }
     }
-    // Make what is prepared, oldest first, a few chunks at a time within the frame's time (at least one chunk a frame).
+    // Make what is prepared, oldest first, within the frame's time (at least one set a frame).
     // A game page's streamed arrivals share their time with the block chunks' (world-stream.ts).
     const tm = performance.now();
     const until = Math.min(start + SCATTER_BUILD_MS, tm + (this.deps.stream?.arrivalLeft() ?? Number.POSITIVE_INFINITY));
-    while (this.making !== null || this.ready.length > 0) {
+    while (this.ready.length > 0) {
       if (built && performance.now() > until) break;
-      if (this.making === null) {
-        const r = this.ready.shift()!;
-        const done = this.begin(r.src, r.g, r.rule, r.gen);
-        if (done === null) continue;
-        casts ||= done;
-        built = true;
-        continue;
-      }
-      const m = this.making;
-      const done = this.step(m, until, view);
-      // Still under way: the frame's time is spent.
-      if (this.making === m) break;
+      const r = this.ready.shift()!;
+      const done = this.make(r.src, r.g, r.rule, r.gen);
       if (done === null) continue;
       casts ||= done;
       built = true;
     }
     if (built) this.deps.stream?.arrived(performance.now() - tm);
-    if (view !== null && view.camera !== null) {
-      for (const src of this.sources.values()) for (const g of src.groups.values()) for (const n of g.near) built = this.nearShadows(src, n, view.eye[0]!, view.eye[2]!, start, built) || built;
-    }
     this.buildMs = performance.now() - start;
     if (built) {
       this.buildMsMax = Math.max(this.buildMsMax, this.buildMs);
@@ -493,11 +424,11 @@ export class ScatterView {
       this.deps.changed?.();
     }
     // Answers still to come or to make: another frame.
-    if (this.jobs.size > 0 || this.ready.length > 0 || this.making !== null) this.deps.changed?.();
+    if (this.jobs.size > 0 || this.ready.length > 0) this.deps.changed?.();
     return built;
   }
 
-  diagnostics(): ScatterViewDiagnostics {
+  diagnostics(): StoredScatterDiagnostics {
     let cells = 0;
     let groups = 0;
     let sets = 0;
@@ -541,7 +472,7 @@ export class ScatterView {
       bytes,
       pending,
       preparing: this.jobs.size,
-      prepared: this.ready.length + (this.making !== null ? 1 : 0),
+      prepared: this.ready.length,
       preparedSets: this.preparedSets,
       prepareMsMean: this.preparedSets > 0 ? r2(this.prepareMs / this.preparedSets) : 0,
       prepareMsMax: r2(this.prepareMsMax),
@@ -557,14 +488,13 @@ export class ScatterView {
   /** The built sets' chunk meshes (picking, tests). */
   meshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
-    for (const src of this.sources.values()) for (const g of src.groups.values()) for (const s of g.sets) out.push(...s.built.meshes);
+    for (const src of this.sources.values()) for (const g of src.groups.values()) for (const s of g.sets) out.push(...s.built.drawMeshes);
     return out;
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.dropMaking();
     for (const id of [...this.sources.keys()]) this.remove(id);
     this.port?.terminate();
     this.port = null;
@@ -696,7 +626,7 @@ export class ScatterView {
       root.userData[VIEW_OWNER_KEY] = src.id;
       root.position.set(...src.origin);
       root.updateMatrixWorld(true);
-      g = { key: c.group, root, dirty: new Set(), stale: false, gens: new Map(), builds: new Map(), shown: false, sets: [], near: [] };
+      g = { key: c.group, root, dirty: new Set(), stale: false, gens: new Map(), builds: new Map(), shown: false, sets: [] };
       src.groups.set(c.group, g);
     }
     g.stale = true;
@@ -770,12 +700,14 @@ export class ScatterView {
     return src.rules.some((r) => r.castShadow === true);
   }
 
-  /** A rule's set options (the copies' with their impostor, and the blobs'). */
-  private options(rule: ScatterRule, blob: boolean, impostor: THREE.Mesh | null = null): InstanceSetOptions {
+  /** A rule's set options (the copies' with their impostor and near shadows, and the blobs'). */
+  private options(rule: ScatterRule, blob: boolean, impostor: THREE.Mesh | null = null): GpuCopySetOptions {
     const tuning = this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {};
-    if (blob) return { chunkSize: rule.chunkSize ?? SCATTER_CHUNK_METERS_DEFAULT, copiesPerChunk: SCATTER_SET_CHUNK_COPIES, densityDistance: { start: SCATTER_BLOB_DISTANCE * COVER_FADE_START, end: SCATTER_BLOB_DISTANCE, min: 0 }, ...tuning };
+    if (blob) return { densityDistance: { start: SCATTER_BLOB_DISTANCE * COVER_FADE_START, end: SCATTER_BLOB_DISTANCE, min: 0 }, ...tuning };
     const far = impostor !== null && rule.impostorSize !== undefined ? { impostor: { mesh: impostor, size: rule.impostorSize } } : {};
-    return { chunkSize: rule.chunkSize ?? SCATTER_CHUNK_METERS_DEFAULT, copiesPerChunk: SCATTER_SET_CHUNK_COPIES, density: instanceDensityOf(rule), lodPerCopy: rule.lodPerCopy ?? true, ...far, ...tuning };
+    // A rule that casts near the camera only: its copies there cast into the moving shadow map, the rest never.
+    const near = rule.castShadow === true && rule.shadowDistance !== undefined ? { shadowDistance: rule.shadowDistance } : {};
+    return { density: instanceDensityOf(rule), lodPerCopy: rule.lodPerCopy ?? true, ...far, ...near, ...tuning };
   }
 
   /** Gather a rule's copies in a group (hidden ones shrunk to nothing, removed ones left out) and send them to be prepared. */
@@ -820,17 +752,18 @@ export class ScatterView {
     }
     const used = floats.subarray(0, k * INSTANCE_FLOATS);
     const blobs = rule.blobShadow !== undefined ? blobCopies(used, k, rule.blobShadow) : null;
-    this.send(src, g, rule.id, gen, 'main', template, used.slice(), k, this.options(rule, false, impostor));
-    if (blobs !== null) this.send(src, g, rule.id, gen, 'blob', blobShadowTemplate(), blobs, k, this.options(rule, true));
+    // Culled in pieces of the rule's chunk size (by place only: a dense group's blocks keep its draws whole).
+    const chunking = { chunkSize: rule.chunkSize ?? SCATTER_CHUNK_METERS_DEFAULT, copiesPerChunk: Number.MAX_SAFE_INTEGER };
+    this.send(src, g, rule.id, gen, 'main', used.slice(), k, chunking);
+    if (blobs !== null) this.send(src, g, rule.id, gen, 'blob', blobs, k, chunking);
   }
 
   /** A set's copies to its preparer: the worker's, else the page's own (answered at once). */
-  private send(src: Source, g: Group, rule: string, gen: number, kind: 'main' | 'blob', template: ModelInstance, floats: Float32Array, count: number, options: InstanceSetOptions): void {
-    const plan = instanceSetPlan(template, options);
+  private send(src: Source, g: Group, rule: string, gen: number, kind: 'main' | 'blob', floats: Float32Array, count: number, chunking: CopyChunking): void {
     const job = ++this.serial;
     this.jobs.set(job, { src, g, rule, gen, kind });
     g.builds.get(rule)?.jobs.push(job);
-    const req: ScatterPrepareRequest = { t: 'scatterPrepare', job, floats, count, parts: plan.prepareParts, options: plan.prepareOptions };
+    const req: ScatterPrepareRequest = { t: 'scatterPrepare', job, floats, count, chunking };
     const port = this.workerPort();
     if (port !== null) {
       port.post(req, [floats.buffer as ArrayBuffer]);
@@ -882,12 +815,12 @@ export class ScatterView {
   }
 
   /**
-   * Start making a prepared rule set's draws (a set with no copies left puts
-   * nothing in place of the old ones at once); returns whether what casts into
-   * the static shadow map changed (null: the answer was not wanted any more,
-   * or nothing was put in place yet).
+   * Make a prepared rule set's draws and put them in place of its old ones (a
+   * set with no copies left puts nothing in their place); returns whether
+   * what casts into the static shadow map changed (null: the answer was not
+   * wanted any more).
    */
-  private begin(src: Source, g: Group, rule: string, gen: number): boolean | null {
+  private make(src: Source, g: Group, rule: string, gen: number): boolean | null {
     const b = g.builds.get(rule);
     if (b === undefined || b.gen !== gen || this.sources.get(src.id) !== src || src.groups.get(g.key) !== g) return null;
     // The model changed while it was prepared (reloaded): prepared again.
@@ -895,82 +828,27 @@ export class ScatterView {
       this.markDirty(g, rule);
       return null;
     }
-    if (b.count === 0 || b.main === null || !b.main.ok) {
-      g.builds.delete(rule);
-      return this.replaceRule(src, g, (r) => r === rule, null);
-    }
-    const main = b.main;
-    const blob = b.blob !== null && b.blob !== 'none' && b.blob.ok ? b.blob : null;
-    const t0 = performance.now();
-    this.making = {
-      src,
-      g,
-      rule,
-      b,
-      main: beginInstanceSet(b.template, main.floats, b.count, `scatter:${src.id}:${rule}`, { ...this.options(b.rule, false, b.impostor), prepared: main.prepared }),
-      blob: blob !== null ? beginInstanceSet(blobShadowTemplate(), blob.floats, b.count, `scatter-blob:${src.id}:${rule}`, { ...this.options(b.rule, true), prepared: blob.prepared }) : null,
-      ms: performance.now() - t0,
-      frameMs: 0,
-      frames: 0,
-    };
-    return null;
-  }
-
-  /** Make the set under way until `until`; once whole, it replaces the rule's old sets (see {@link begin} for what it returns). */
-  private step(m: Making, until: number, view: CullView | null): boolean | null {
-    const { src, g, rule, b } = m;
-    // Superseded (copies changed again, the group let go, the source gone): what was made goes.
-    if (g.builds.get(rule) !== b || this.sources.get(src.id) !== src || src.groups.get(g.key) !== g) {
-      this.dropMaking();
-      return null;
-    }
-    const t0 = performance.now();
-    m.frames += 1;
-    let done = m.main.step(until);
-    if (done && m.blob !== null) done = performance.now() < until && m.blob.step(until);
-    // Culled for the view before it is shown: its first frame would work out every copy's sphere and level at once.
-    if (done && view !== null && view.camera !== null) {
-      done = performance.now() < until && m.main.prime(view, g.root.matrixWorld, until);
-      if (done && m.blob !== null) done = performance.now() < until && m.blob.prime(view, g.root.matrixWorld, until);
-    }
-    const spent = performance.now() - t0;
-    m.ms += spent;
-    if (!done) {
-      m.frameMs = Math.max(m.frameMs, spent);
-      return null;
-    }
-    this.making = null;
     g.builds.delete(rule);
-    const t1 = performance.now();
-    let casts = this.replaceRule(src, g, (r) => r === rule, { b, main: m.main.set, blob: m.blob?.set ?? null });
+    if (b.count === 0 || b.main === null || !b.main.ok) return this.replaceRule(src, g, (r) => r === rule, null);
+    const t0 = performance.now();
+    const blob = b.blob !== null && b.blob !== 'none' && b.blob.ok ? b.blob : null;
+    const main = buildGpuCopySet(b.template, b.main.floats, b.count, `scatter:${src.id}:${rule}`, { ...this.options(b.rule, false, b.impostor), preparedCopies: b.main.prepared });
+    const blobs = blob !== null ? buildGpuCopySet(blobShadowTemplate(), blob.floats, b.count, `scatter-blob:${src.id}:${rule}`, { ...this.options(b.rule, true), preparedCopies: blob.prepared }) : null;
+    let casts = this.replaceRule(src, g, (r) => r === rule, { b, main, blob: blobs });
     // Copies hidden, shown or removed since its copies were gathered.
     casts = this.writeStates(b.late) || casts;
-    const swapMs = performance.now() - t1;
-    m.ms += swapMs;
-    m.frameMs = Math.max(m.frameMs, spent + swapMs);
-    // What a set cost (the page's share over its frames, and the worker's), for measurements.
-    const prepareMs = b.main?.ok === true ? b.main.ms : 0;
-    perfMark('tl:scatter:made', { ms: Math.round(m.ms * 100) / 100, frameMs: Math.round(m.frameMs * 100) / 100, frames: m.frames, swapMs: Math.round(swapMs * 100) / 100, prepareMs: Math.round(prepareMs * 100) / 100, copies: b.count });
+    // What a set cost (the page's share, and the worker's), for measurements.
+    const ms = Math.round((performance.now() - t0) * 100) / 100;
+    perfMark('tl:scatter:made', { ms, frameMs: ms, frames: 1, swapMs: ms, prepareMs: Math.round(b.main.ms * 100) / 100, copies: b.count });
     return casts;
   }
 
-  /** The set under way is not wanted: what was made of it goes (it was never shown). */
-  private dropMaking(): void {
-    const m = this.making;
-    if (m === null) return;
-    this.making = null;
-    m.main.set.dispose();
-    m.blob?.set.dispose();
-  }
-
   /** Drop the sets of the rules `goes` names and put the made sets in (null: none); returns whether what casts into the static shadow map changed. */
-  private replaceRule(src: Source, g: Group, goes: (rule: string) => boolean, made: { b: Build; main: BuiltInstanceSet; blob: BuiltInstanceSet | null } | null): boolean {
+  private replaceRule(src: Source, g: Group, goes: (rule: string) => boolean, made: { b: Build; main: GpuCopySetHandle; blob: GpuCopySetHandle | null } | null): boolean {
     const castBefore = g.sets.some((x) => goes(x.rule) && x.casts);
     this.show(g, false);
     for (const x of g.sets) if (goes(x.rule)) this.dropSet(x);
     g.sets = g.sets.filter((x) => !goes(x.rule));
-    for (const n of g.near) if (goes(n.rule.id)) this.dropNear(n);
-    g.near = g.near.filter((n) => !goes(n.rule.id));
     let castAfter = false;
     if (made !== null) castAfter = this.addSets(g, made.b, made.main, made.blob);
     g.root.updateMatrixWorld(true);
@@ -979,13 +857,11 @@ export class ScatterView {
   }
 
   /** A made rule's sets (the model's, and the blobs') into their group; returns whether they cast into the static shadow map. */
-  private addSets(g: Group, b: Build, built: BuiltInstanceSet, blobs: BuiltInstanceSet | null): boolean {
+  private addSets(g: Group, b: Build, built: GpuCopySetHandle, blobs: GpuCopySetHandle | null): boolean {
     const rule = b.rule;
-    const main = b.main as Extract<ScatterPrepareReply, { ok: true }>;
-    // A rule that casts near the camera only: its copies there cast from shadow-only squares, the rest never.
+    // A rule that casts near the camera only casts from its near-shadow draws (the set's own), the rest never.
     const casts = rule.castShadow === true && rule.shadowDistance === undefined;
-    if (rule.castShadow === true && rule.shadowDistance !== undefined) g.near.push({ rule, floats: main.floats, count: b.count, index: null, squares: new Map() });
-    for (const m of built.meshes) {
+    for (const m of built.drawMeshes) {
       m.castShadow = casts;
       m.receiveShadow = true;
       if (casts) m.userData[STATIC_CASTER_KEY] = true;
@@ -1025,62 +901,8 @@ export class ScatterView {
     this.show(g, false);
     for (const s of g.sets) this.dropSet(s);
     g.sets = [];
-    for (const n of g.near) this.dropNear(n);
-    g.near = [];
     g.builds.clear();
     g.dirty.clear();
-  }
-
-  /** Keep a rule's near-shadow squares around the eye: drop the far ones, build the near ones (within the frame's time). */
-  private nearShadows(src: Source, n: NearShadows, ex: number, ez: number, start: number, builtAlready: boolean): boolean {
-    const d = n.rule.shadowDistance!;
-    let built = false;
-    for (const [key, sq] of [...n.squares]) {
-      if (!src.hidden && distanceToSquare(ex, ez, key) <= d + SHADOW_RING_METRES / 2) continue;
-      this.deps.place(sq.root, false);
-      sq.built.dispose();
-      sq.undress?.();
-      n.squares.delete(key);
-    }
-    if (src.hidden) return false;
-    n.index ??= copiesBySquare(n.floats, n.count, src.origin);
-    // Only the squares within the distance are looked up (a group holds thousands; the eye is near a few).
-    const S = SHADOW_RING_METRES;
-    const near: { key: string; indices: number[] }[] = [];
-    for (let iz = Math.floor((ez - d) / S); iz <= Math.floor((ez + d) / S); iz++) {
-      for (let ix = Math.floor((ex - d) / S); ix <= Math.floor((ex + d) / S); ix++) {
-        const key = `${ix},${iz}`;
-        const indices = n.index.get(key);
-        if (indices !== undefined && !n.squares.has(key) && distanceToSquare(ex, ez, key) <= d) near.push({ key, indices });
-      }
-    }
-    for (const { key, indices } of near) {
-      if ((builtAlready || built) && performance.now() - start > SCATTER_BUILD_MS) break;
-      const template = this.deps.template(n.rule.asset.assetId, n.rule.asset.piece, () => this.modelReady(src));
-      if (template === null) break;
-      const set = buildInstanceSet(template, pickCopies(n.floats, indices), indices.length, `scatter-shadow:${src.id}:${n.rule.id}`, { chunkSize: SHADOW_RING_METRES, copiesPerChunk: SCATTER_COPIES_PER_CHUNK, ...(this.deps.tuning !== undefined ? { tuning: this.deps.tuning } : {}) });
-      shadowOnly(set.meshes);
-      const undress = this.deps.dress?.(set.group, n.rule.asset.assetId) ?? null;
-      const root = new THREE.Group();
-      root.name = `scatter-shadow:${src.id}:${key}`;
-      root.userData[VIEW_OWNER_KEY] = src.id;
-      root.position.set(...src.origin);
-      root.add(set.group);
-      root.updateMatrixWorld(true);
-      this.deps.place(root, true);
-      n.squares.set(key, { root, built: set, undress });
-      built = true;
-    }
-    return built;
-  }
-
-  private dropNear(n: NearShadows): void {
-    for (const sq of n.squares.values()) {
-      this.deps.place(sq.root, false);
-      sq.built.dispose();
-      sq.undress?.();
-    }
-    n.squares.clear();
   }
 
   /** A set's chunks go before its materials may (a material released with its last user takes the chunks' render objects). */

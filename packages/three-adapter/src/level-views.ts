@@ -18,7 +18,7 @@ import { BlockLayerView, blockLookFromObject, type BlockModelLook } from './bloc
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import type { LightmapSet } from './lightmaps';
 import type { MaterialLibrary } from './material-library';
-import type { ScatterSink } from './scatter-view';
+import type { ScatterSink } from './stored-scatter';
 import { STATIC_CASTER_KEY, type StaticShadowRevision } from './shadow-casters';
 import { TerrainTileStore } from './terrain-tile-store';
 import { TerrainView } from './terrain-view';

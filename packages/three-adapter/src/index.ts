@@ -239,7 +239,7 @@ export {
 export { drawOwner, VIEW_OWNER_KEY, type IsolationDiagnostics } from './isolation-view';
 export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
 export { TERRAIN_HORIZON_URL_PARAM, TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
-export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type ScatterView, type ScatterViewDiagnostics } from './scatter-view';
+export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type StoredScatter, type StoredScatterDiagnostics } from './stored-scatter';
 export { SPLINES_URL_PARAM, splinesFromUrl, type SplineViewDiagnostics } from './spline-view';
 export { ARCHITECTURE_STAND_IN_COLOUR, ARCHITECTURE_URL_PARAM, architectureFromUrl, type ArchitectureChunkStore, type ArchitectureViewDiagnostics } from './architecture-view';
 export { PORTALS_URL_PARAM, portalsFromUrl, ROOMS_SWITCH_KEY, type RoomCullingDiagnostics, type RoomsSwitch } from './room-culling';

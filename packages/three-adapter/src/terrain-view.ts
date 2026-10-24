@@ -51,7 +51,7 @@
  * removal waits until the next update, and a terrain set again before it
  * only reads the tiles whose digests changed.
  */
-import type { ScatterSink } from './scatter-view';
+import type { ScatterSink } from './stored-scatter';
 import * as THREE from 'three';
 import { markOccludee } from './occludees';
 import type { WebGPURenderer } from 'three/webgpu';

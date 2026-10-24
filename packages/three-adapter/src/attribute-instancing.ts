@@ -68,6 +68,25 @@ export function buildHasInstanceColumns(builder: NodeBuilder): boolean {
   return geometryOfBuild(builder)?.getAttribute(COLUMNS[3]!) !== undefined;
 }
 
+/** Whether a node build reads a copy's columns: an instance set's (its geometry's) or a copies draw's (its copy texture). */
+export function buildReadsCopyColumns(builder: NodeBuilder): boolean {
+  return buildHasInstanceColumns(builder) || gpuCopies?.has(builder) === true;
+}
+
+/** How a draw whose copies are placed from a copy texture (`copies-gpu.ts`) reads a copy's columns and its index. */
+export interface GpuCopyColumns {
+  has(builder: NodeBuilder): boolean;
+  column(i: number): unknown;
+  index(): unknown;
+}
+
+let gpuCopies: GpuCopyColumns | null = null;
+
+/** Install the copy texture's column reader (once: the copies renderer's). */
+export function setGpuCopyColumns(reader: GpuCopyColumns): void {
+  gpuCopies = reader;
+}
+
 /** Whether a node build draws copies the GPU may cull (they are read through a list). */
 function buildReadsCulledCopies(builder: NodeBuilder): boolean {
   return geometryOfBuild(builder)?.getAttribute(CULLED_COPIES_ATTRIBUTE) !== undefined;
@@ -145,12 +164,12 @@ export function culledCopyVec4(name: string, i: number): ReturnType<typeof attri
  * values as drawn: the paint slot in float 3 comes with them).
  */
 export function instanceColumn(i: number): ReturnType<typeof attribute<'vec4'>> {
-  return culledCopyVec4(COLUMNS[i]!, i);
+  return Fn((builder: NodeBuilder) => (gpuCopies?.has(builder) === true ? gpuCopies.column(i) : culledCopyVec4(COLUMNS[i]!, i)))() as unknown as ReturnType<typeof attribute<'vec4'>>;
 }
 
 /** This copy's place in its draw's drawn order (what `instanceIndex` is for a draw drawn whole; vertex stage). */
 export function instanceDrawnIndex(): U {
-  return Fn((builder: NodeBuilder) => (buildReadsCulledCopies(builder) ? culledPlace() : instanceIndex))() as unknown as U;
+  return Fn((builder: NodeBuilder) => (gpuCopies?.has(builder) === true ? gpuCopies.index() : buildReadsCulledCopies(builder) ? culledPlace() : instanceIndex))() as unknown as U;
 }
 
 /** The instance matrix read from the geometry's columns (vertex stage). */

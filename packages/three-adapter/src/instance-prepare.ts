@@ -3,8 +3,8 @@
  * the three.js objects it ends in, so it can run on a worker: the copies
  * split into chunks, each chunk's centre, every copy's matrix per mesh of
  * the model (its place times the mesh's offset in the model), the bounds of
- * each chunk draw, and what the per-copy levels of detail read (each copy's
- * origin, size and thinning rank).
+ * each chunk draw, and what the chunk's level of detail reads (its copies'
+ * origins and sizes).
  *
  * A large set (a landscape's scatter group: tens of thousands of copies)
  * costs tens of milliseconds here; the page then only makes the draws from
@@ -46,48 +46,20 @@ export interface PrepareOptions {
   readonly chunkSize?: number;
   /** Copies per chunk the count grid aims at (absent: {@link INSTANCE_CHUNK_COPIES}). */
   readonly copiesPerChunk?: number;
-  /** Make what per-copy levels and thinning read (origins, sizes, ranks). */
-  readonly perCopy: boolean;
+  /** Make what the chunks' levels read (the copies' origins and sizes). */
+  readonly levels: boolean;
 }
 
-/** What the per-copy levels read of a chunk: its farthest copy from the centre, its copies' sizes, its blocks' spheres ({@link pickBlocks}). */
+/** What a chunk's level reads of its copies: the farthest from the centre, and their smallest, largest and mean size. */
 export interface PreparedPickStats {
   readonly reach: number;
   readonly minScale: number;
   readonly maxScale: number;
   readonly meanScale: number;
-  readonly blocks: Float32Array;
 }
 
-/**
- * Copies per block the per-copy levels are picked in: a block whose
- * distance barely changed keeps its picks, so a moving eye repicks the
- * copies near it every frame and the far ones now and then.
- */
-export const PICK_BLOCK = 64;
-
-/** Each block of {@link PICK_BLOCK} copies' sphere (centre xyz, radius) around their origins (xyz each). */
-export function pickBlocks(origins: ArrayLike<number>, count: number): Float32Array {
-  const out = new Float32Array(Math.ceil(count / PICK_BLOCK) * 4);
-  for (let b = 0; b * PICK_BLOCK < count; b += 1) {
-    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-    const end = Math.min(count, (b + 1) * PICK_BLOCK);
-    for (let i = b * PICK_BLOCK; i < end; i += 1) {
-      const x = origins[i * 3]!, y = origins[i * 3 + 1]!, z = origins[i * 3 + 2]!;
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
-      if (z < z0) z0 = z;
-      if (z > z1) z1 = z;
-    }
-    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
-    let r = 0;
-    for (let i = b * PICK_BLOCK; i < end; i += 1) r = Math.max(r, Math.hypot(origins[i * 3]! - cx, origins[i * 3 + 1]! - cy, origins[i * 3 + 2]! - cz));
-    out.set([cx, cy, cz, r], b * 4);
-  }
-  return out;
-}
+/** Copies a chunk holds before its copies are put in spatial order (the view-cull blocks' size: smaller chunks are one block). */
+const SPATIAL_ORDER_MIN = 64;
 
 /** A 16-bit coordinate's bits spread to the even bits of 32 (Morton order). */
 function spread(v: number): number {
@@ -104,7 +76,7 @@ function spread(v: number): number {
  * of consecutive slots the draws cull and the levels pick by are compact.
  */
 function spatialOrder(copies: Uint32Array, positions: Float32Array): void {
-  if (copies.length <= PICK_BLOCK) return;
+  if (copies.length <= SPATIAL_ORDER_MIN) return;
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
   for (const i of copies) {
@@ -139,10 +111,9 @@ export interface PreparedChunk {
   readonly matrices: Float32Array[];
   /** Per mesh, the sphere around all its copies (centre xyz, radius; radius < 0: empty). */
   readonly bounds: Float64Array;
-  /** With `perCopy`: each copy's origin from the centre (xyz), its largest scale and its thinning rank. */
+  /** With `levels`: each copy's origin from the centre (xyz) and its largest scale. */
   readonly origins: Float32Array | null;
   readonly scales: Float32Array | null;
-  readonly ranks: Float32Array | null;
   readonly stats: PreparedPickStats | null;
 }
 
@@ -213,15 +184,6 @@ export function chunkCopies(positions: Float32Array | readonly number[], count: 
     out[i] = d;
   }
   return out;
-}
-
-/** A copy's place in the thinning order: a hash of its index, so neighbours thin evenly and the order never changes. */
-export function copyRank(index: number): number {
-  let h = Math.imul(index ^ 0x9e3779b9, 0x85ebca6b);
-  h ^= h >>> 13;
-  h = Math.imul(h, 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
 }
 
 /**
@@ -433,12 +395,10 @@ export function prepareInstanceSet(floats: Float32Array, count: number, parts: P
     for (let m = 0; m < meshes; m += 1) instanceSphereBounds(matrices[m]!, k, parts.spheres.subarray(m * 4, m * 4 + 4), bounds, m * 4);
     let origins: Float32Array | null = null;
     let scales: Float32Array | null = null;
-    let ranks: Float32Array | null = null;
     let stats: PreparedPickStats | null = null;
-    if (options.perCopy) {
+    if (options.levels) {
       origins = new Float32Array(k * 3);
       scales = new Float32Array(k);
-      ranks = new Float32Array(k);
       let reach = 0;
       let lo = Number.POSITIVE_INFINITY;
       let hi = 0;
@@ -451,27 +411,15 @@ export function prepareInstanceSet(floats: Float32Array, count: number, parts: P
         origins[j * 3 + 2] = floats[o + 2]! - center[2]!;
         const s = Math.max(Math.abs(floats[o + 7]!), Math.abs(floats[o + 8]!), Math.abs(floats[o + 9]!));
         scales[j] = s;
-        ranks[j] = copyRank(copy);
         // What the picker reads back: the origins and sizes as stored (float32).
         reach = Math.max(reach, Math.hypot(origins[j * 3]!, origins[j * 3 + 1]!, origins[j * 3 + 2]!));
         lo = Math.min(lo, scales[j]!);
         hi = Math.max(hi, scales[j]!);
         sum += scales[j]!;
       }
-      stats = { reach, minScale: Number.isFinite(lo) ? lo : 1, maxScale: hi, meanScale: k > 0 ? sum / k : 1, blocks: pickBlocks(origins, k) };
+      stats = { reach, minScale: Number.isFinite(lo) ? lo : 1, maxScale: hi, meanScale: k > 0 ? sum / k : 1 };
     }
-    chunks.push({ copies, center, matrices, bounds, origins, scales, ranks, stats });
+    chunks.push({ copies, center, matrices, bounds, origins, scales, stats });
   }
   return { count: n, chunkOf, chunks };
-}
-
-/** The buffers of a prepared set (handed over from a worker, not copied). */
-export function preparedBuffers(p: PreparedInstanceSet): ArrayBuffer[] {
-  const out: ArrayBuffer[] = [p.chunkOf.buffer as ArrayBuffer];
-  for (const c of p.chunks) {
-    out.push(c.copies.buffer as ArrayBuffer, c.center.buffer as ArrayBuffer, c.bounds.buffer as ArrayBuffer);
-    for (const m of c.matrices) out.push(m.buffer as ArrayBuffer);
-    for (const a of [c.origins, c.scales, c.ranks, c.stats?.blocks ?? null]) if (a !== null) out.push(a.buffer as ArrayBuffer);
-  }
-  return out;
 }

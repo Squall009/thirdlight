@@ -60,7 +60,7 @@
  * chunk's lightmap on when the chunk's layout is the one the bake was made
  * for (a chunk changed since is drawn without it).
  */
-import type { ScatterSink } from './scatter-view';
+import type { ScatterSink } from './stored-scatter';
 import * as THREE from 'three';
 import { markOccludee } from './occludees';
 import {

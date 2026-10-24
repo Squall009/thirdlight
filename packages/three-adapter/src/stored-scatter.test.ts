@@ -1,20 +1,19 @@
 /**
- * The scatter view: a block layer's chunks and a terrain's tile blobs come
+ * The stored scatter: a block layer's chunks and a terrain's tile blobs come
  * in as the block and terrain views get them; each rule's copies are drawn
- * per group as one instance set, built again only where a cell changed, the
- * copies where the stored data put them.
+ * per group as one copies set on the GPU renderer, built again only where a
+ * cell changed, the copies where the stored data put them.
  */
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bakeScatterCell, decodeChunkScatter, encodeChunkScatter, scatterBlobOf, type BlockChunk, type BlockLayerComponent, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
 
-import type { AttributeInstancedMesh } from './attribute-instancing';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
 import type { MeshWorkerPort } from './block-mesh-pool';
+import { GPU_COPIES_KEY, type GpuCopySet } from './copies-gpu';
 import { runScatterWorker } from './scatter-worker';
-import { ScatterView } from './scatter-view';
-import { SHADOW_RING_METRES } from './scatter-shadows';
-import { CullView, VIEW_CULL_KEY } from './view-cull';
+import { StoredScatter } from './stored-scatter';
+import { CullView, VIEW_CULL_KEY, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 
 // The page's time per frame is a budget: a clock that stands still lets every update make all it can, as a fast
@@ -23,7 +22,7 @@ beforeEach(() => void vi.spyOn(performance, 'now').mockReturnValue(0));
 afterEach(() => void vi.restoreAllMocks());
 
 /** Until the worker answered every job sent (its answers come on later tasks). */
-async function answered(view: ScatterView): Promise<void> {
+async function answered(view: StoredScatter): Promise<void> {
   for (let i = 0; i < 1000 && view.diagnostics().preparing > 0; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
@@ -46,7 +45,7 @@ function host(read?: (digest: string) => Promise<ArrayBuffer>) {
   const listed = new Set<THREE.Object3D>();
   let shapes = 0;
   const t = template();
-  const view = new ScatterView({
+  const view = new StoredScatter({
     template: () => t,
     read: read ?? null,
     place: (root, shown) => void (shown ? listed.add(root) : listed.delete(root)),
@@ -60,7 +59,25 @@ const chunk = (cx: number, cz: number, size: number): BlockChunk => {
   return { cx, cz, palette: [], columns: [], scatter: encodeChunkScatter(cell)! };
 };
 
-describe('scatter view', () => {
+/** The copies set a draw belongs to. */
+const setOf = (m: THREE.Object3D): GpuCopySet => (m.userData[GPU_COPIES_KEY] as { set: GpuCopySet }).set;
+
+/** Cull every draw under the listed roots for `view` (the adapter's view culler, once a frame). */
+function cullAll(roots: Iterable<THREE.Object3D>, view: CullView): void {
+  const done = new Set<ViewCullable>();
+  for (const r of roots) {
+    r.updateMatrixWorld(true);
+    r.traverse((o) => {
+      const c = (o.userData[VIEW_CULL_KEY] as ViewCullable | undefined)?.group;
+      if (c !== undefined && !done.has(c)) {
+        done.add(c);
+        c.cull(view);
+      }
+    });
+  }
+}
+
+describe('stored scatter', () => {
   it('draws a block layer\'s copies, one set per rule and group, rebuilt only where a chunk changed', () => {
     const { view, listed, shapes } = host();
     const comp = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 8, 64] }, scatter: [RULE] } as unknown as BlockLayerComponent;
@@ -71,11 +88,12 @@ describe('scatter view', () => {
     expect(d.copies).toBeGreaterThan(100);
     expect(listed.size).toBe(1);
     expect(shapes()).toBe(1);
-    // The group sits at the layer's origin: a copy's world x is the stored x plus 10.
+    // The set draws at the layer's origin, its copies where the stored data put them.
     const mesh = view.meshes()[0]!;
     mesh.updateWorldMatrix(true, false);
-    const p = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
-    expect(p.x).toBeGreaterThan(10);
+    expect(new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld).x).toBe(10);
+    const stored = decodeChunkScatter(chunk(0, 0, 16).scatter)!.get('trees')!.copies;
+    expect(setOf(mesh).copyTransform(0)!.slice(0, 3)).toEqual(Array.from(stored.subarray(0, 3)));
     // Nothing changed: nothing built.
     expect(view.update()).toBe(false);
     // A chunk's scatter gone: the group is built again with fewer copies.
@@ -111,7 +129,7 @@ describe('scatter view', () => {
     expect(view.diagnostics().sets).toBe(0);
   });
 
-  it('the foliage policy: near copies cast from shadow-only squares around the eye, blobs under every copy', () => {
+  it('the foliage policy: near copies cast from shadow-only draws round the eye, blobs under every copy', () => {
     const near: ScatterRule = { ...RULE, castShadow: true, shadowDistance: 40, blobShadow: 0.5 };
     const { view, listed } = host();
     const comp = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [512, 8, 512] }, scatter: [near] } as unknown as BlockLayerComponent;
@@ -126,35 +144,57 @@ describe('scatter view', () => {
       v.set(cam);
       return v;
     };
-    for (let i = 0; i < 20; i++) view.update(eyeAt(100, 100));
+    view.update(eyeAt(100, 100));
+    cullAll(listed, eyeAt(100, 100));
     const all = view.meshes();
     // The copies' own draws cast nothing; the blobs (a disc each) neither cast nor take shadows.
     expect(all.filter((m) => m.castShadow).length).toBe(0);
     expect(view.diagnostics().sets).toBe(2);
-    // Shadow-only squares: in the shadow cameras' layer, within the distance of the eye (and their copies only near it).
-    const roots = [...listed].filter((r) => r.name.startsWith('scatter-shadow:'));
-    expect(roots.length).toBeGreaterThan(0);
-    for (const r of roots) {
-      const [ix, iz] = r.name.split(':').pop()!.split(',').map(Number) as [number, number];
-      const dx = Math.max(ix * SHADOW_RING_METRES - 100, 0, 100 - (ix + 1) * SHADOW_RING_METRES);
-      const dz = Math.max(iz * SHADOW_RING_METRES - 100, 0, 100 - (iz + 1) * SHADOW_RING_METRES);
-      expect(Math.hypot(dx, dz)).toBeLessThanOrEqual(40);
-      r.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh !== true) return;
-        expect(o.layers.isEnabled(CUTAWAY_LAYER) && !o.layers.isEnabled(0)).toBe(true);
-        expect((o as THREE.Mesh).castShadow).toBe(true);
-      });
-    }
-    // The eye moves: the squares it left go (past the distance and half a square), others come.
-    const before = new Set(roots.map((r) => r.name));
-    for (let i = 0; i < 20; i++) view.update(eyeAt(220, 220));
-    const after = [...listed].filter((r) => r.name.startsWith('scatter-shadow:')).map((r) => r.name);
-    expect(after.some((n) => !before.has(n))).toBe(true);
-    expect([...before].some((n) => !after.includes(n))).toBe(true);
+    // Shadow-only draws: in the shadow cameras' layer, listing only the copies within the distance of the eye.
+    const shadows: THREE.Mesh[] = [];
+    for (const r of listed) r.traverse((o) => void ((o as THREE.Mesh).isMesh === true && o.layers.isEnabled(CUTAWAY_LAYER) && shadows.push(o as THREE.Mesh)));
+    expect(shadows.length).toBe(1);
+    const sh = shadows[0]!;
+    expect(sh.layers.isEnabled(0)).toBe(false);
+    expect(sh.castShadow).toBe(true);
+    const listedCopies = (eyeX: number, eyeZ: number): number[][] => {
+      const set = setOf(sh);
+      sh.onBeforeRender(null as never, null as never, new THREE.OrthographicCamera(), sh.geometry, sh.material as THREE.Material, null as never);
+      const list = (sh.userData[GPU_COPIES_KEY] as { list: { data: Float32Array } }).list.data;
+      const out: number[][] = [];
+      for (let e = 0; e < (sh.geometry as THREE.InstancedBufferGeometry).instanceCount / set.block; e++) {
+        for (let k = 0; k < list[e * 4 + 1]!; k++) {
+          // Slots are in block order; read a slot's place straight from the copy texture.
+          const t = (list[e * 4]! + k) * 12;
+          const x = (set.texture.image.data as Float32Array)[t]!;
+          const z = (set.texture.image.data as Float32Array)[t + 2]!;
+          out.push([x - eyeX, z - eyeZ]);
+        }
+      }
+      return out;
+    };
+    // Every copy within the distance is listed (whole blocks: some a little past it, none far).
+    const within = (eyeX: number, eyeZ: number): number => {
+      let n = 0;
+      for (const c of chunks) {
+        const copies = decodeChunkScatter(c.scatter)!.get('trees')!.copies;
+        for (let i = 0; i < copies.length; i += 10) if (Math.hypot(copies[i]! - eyeX, copies[i + 2]! - eyeZ) <= 40) n += 1;
+      }
+      return n;
+    };
+    const near100 = listedCopies(100, 100);
+    expect(near100.filter(([dx, dz]) => Math.hypot(dx!, dz!) <= 40).length).toBe(within(100, 100));
+    expect(near100.every(([dx, dz]) => Math.hypot(dx!, dz!) < 40 + 64)).toBe(true);
+    // The eye moves: the list follows it.
+    view.update(eyeAt(300, 300));
+    cullAll(listed, eyeAt(300, 300));
+    const near300 = listedCopies(300, 300);
+    expect(near300.filter(([dx, dz]) => Math.hypot(dx!, dz!) <= 40).length).toBe(within(300, 300));
+    expect(near300.every(([dx, dz]) => Math.hypot(dx!, dz!) < 40 + 64)).toBe(true);
   });
 });
 
-describe('scatter view: sets prepared on a worker, copies a game hides', () => {
+describe('stored scatter: sets prepared on a worker, copies a game hides', () => {
   const comp = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 8, 64] }, scatter: [{ ...RULE, blobShadow: 0.5 }] } as unknown as BlockLayerComponent;
 
   /** A worker on the page: the scatter worker's own code behind a message port pair, answering later as a worker does. */
@@ -183,7 +223,7 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     const listed = new Set<THREE.Object3D>();
     const t = template();
     const w = pagedWorker();
-    const view = new ScatterView({ template: () => t, read: null, place: (root, shown) => void (shown ? listed.add(root) : listed.delete(root)), worker: w.factory });
+    const view = new StoredScatter({ template: () => t, read: null, place: (root, shown) => void (shown ? listed.add(root) : listed.delete(root)), worker: w.factory });
     view.setBlockLayer('layer', comp, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
     // Sent, not built: nothing drawn yet.
     expect(view.update()).toBe(false);
@@ -207,35 +247,19 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     view.dispose();
   });
 
-  it('a set of many chunks is made over frames within the frame\'s time, shown once whole; the old one stays drawn until then', () => {
-    // A clock that moves 3 ms each time it is read: a frame's 4 ms make a chunk or two.
+  it('sets are made within the frame\'s time (one a frame at least); the old one stays drawn until its new one replaces it', () => {
+    // A clock that moves 3 ms each time it is read: a frame's 4 ms make one set.
     let t = 0;
     vi.mocked(performance.now).mockImplementation(() => (t += 3));
     const { view, listed } = host();
-    const small = { ...comp, scatter: [{ ...RULE, chunkSize: 8 }] } as unknown as BlockLayerComponent;
-    view.setBlockLayer('layer', small, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
-    let frames = 0;
-    while (view.diagnostics().sets === 0 && frames < 100) {
-      view.update();
-      frames += 1;
-      // Nothing shown until the set (and its blobs) is whole.
-      if (view.diagnostics().sets === 0) expect(listed.size).toBe(0);
-    }
-    expect(frames).toBeGreaterThan(2);
-    expect(view.diagnostics().pending).toBe(0);
-    const before = view.meshes();
-    expect(before.length).toBeGreaterThan(4);
-    // Made again (its rule's settings changed): the old draws stay until the new set is whole, then all go.
-    view.setBlockLayer('layer', { ...comp, scatter: [{ ...RULE, chunkSize: 9 }] } as unknown as BlockLayerComponent, [0, 0, 0], [chunk(0, 0, 16), chunk(1, 0, 16)]);
-    let again = 0;
-    while (view.diagnostics().pending > 0 && again < 100) {
-      expect(view.meshes().every((m, i) => m === before[i])).toBe(true);
-      view.update();
-      again += 1;
-    }
-    expect(again).toBeGreaterThan(2);
-    expect(view.meshes().some((m) => before.includes(m))).toBe(false);
+    // Two groups (2048 m apart): two sets, made over two frames.
+    view.setBlockLayer('layer', comp, [0, 0, 0], [chunk(0, 0, 16), chunk(130, 0, 16)]);
+    view.update();
+    expect(view.diagnostics()).toMatchObject({ groups: 2, prepared: 1, sets: 2 });
     expect(listed.size).toBe(1);
+    view.update();
+    expect(view.diagnostics()).toMatchObject({ pending: 0, prepared: 0, sets: 4 });
+    expect(listed.size).toBe(2);
     view.dispose();
   });
 
@@ -246,12 +270,8 @@ describe('scatter view: sets prepared on a worker, copies a game hides', () => {
     const copies = view.diagnostics().copies;
     const cell = decodeChunkScatter(chunk(0, 0, 16).scatter)!.get('trees')!;
     const at: [number, number] = [cell.cells[0]!, cell.cells[1]!];
-    const drawnScale = (): number[] =>
-      view.meshes().map((m) => {
-        const inst = m.userData[VIEW_CULL_KEY] as AttributeInstancedMesh;
-        // The copy's slot: the first copy of the only chunk (slot order is the copies' order).
-        return new THREE.Vector3().setFromMatrixScale(inst.getMatrixAt(0, new THREE.Matrix4())).length();
-      });
+    // The copy is the set's first (its cell's first copy), in the trees' set and in the blobs'.
+    const drawnScale = (): number[] => view.meshes().map((m) => Math.hypot(...setOf(m).copyTransform(0)!.slice(7)));
     expect(drawnScale().every((s) => s > 0)).toBe(true);
     view.setCopyStates([{ entityId: 'layer', key: '0,0', rule: 'trees', cell: at, state: 'hidden' }]);
     // In place: no set made again, the copy (and its blob) drawn at nothing.

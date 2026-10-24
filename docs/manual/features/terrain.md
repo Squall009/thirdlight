@@ -487,16 +487,19 @@ area and the terrain around it are dressed alike.
   layer's `spacing` is kept exactly, between points of any floor. No
   colliders, no hand edits.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
-  are one instance set, 2,048 m chunks by default (`chunkSize`), each copy
-  at its own level of detail (`lodPerCopy`, default on for scatter) and
-  culled one by one inside its draw — a few draws per rule for a whole
-  landscape. A re-bake makes only its square's sets again: their arithmetic
-  (every copy's matrix, the bounds, the level inputs) on a worker, the draws
-  on the page within 4 ms a frame, the old set drawn until the new one is
-  in, so a re-bake never stalls a frame (a 2,048 m square of 16,000 copies:
-  about 9 ms on the worker, 3.5 ms on the page). Density falloff and levels
-  of detail work as for instance sets. Play and an export ship the tiles'
-  scatter blobs with the tiles.
+  are one copies set drawn by the GPU renderer ground cover draws with
+  (one draw per mesh and level of the model): the page lists, per frame,
+  the blocks of copies each level may draw, culled by the view as blocks
+  (the rule's `chunkSize`, 2,048 m by default, bounds a block's extent),
+  and the vertex stage places each copy, picks its level of detail by its
+  own distance and size (`lodPerCopy`, default on for scatter; off: a
+  block of copies picks one at its centre) and thins it. A re-bake makes only its square's sets again: their
+  arithmetic (the copies put in compact blocks) on a worker, the set made
+  on the page in one go, the old set drawn until the new one is in. Density
+  falloff and levels of detail work as for instance sets. A rule that casts
+  near the camera only (`shadowDistance`) casts from shadow-only draws of
+  the same copies listed within that distance of the eye. Play and an
+  export ship the tiles' scatter blobs with the tiles.
 - **Far copies as impostors** (`impostorSize`, a screen size as the
   density falloff's: 0.03 is a good start for trees): a copy smaller on
   screen than that draws one camera-facing quad showing the model from the
@@ -559,7 +562,7 @@ defaults follow this policy, and games should too:
   says `castShadow`. Grass and small plants never should.
 - **Shadows only near the camera.** A rule that casts sets `shadowDistance`
   (the editor writes 40 m when **Casts shadow** is ticked): only copies
-  within it cast, from shadow-only squares round the camera into the moving
+  within it cast, from shadow-only draws of the copies round the camera into the moving
   shadow map. Without it every copy casts into the cached static map (fine
   for few, large, still things: a dozen boulders).
 - **Contact or blob shadows instead.** `blobShadow` (m, at the copy's scale)

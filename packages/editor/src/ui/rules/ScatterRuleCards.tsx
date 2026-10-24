@@ -173,8 +173,8 @@ function ScatterCard(p: ScatterRuleCardsProps & { rule: ScatterRule; index: numb
                   <SliderField label="least drawn" aria={`${pre} density min`} value={r.densityMin ?? INSTANCE_DENSITY_MIN_DEFAULT} min={0} max={1} step={1} scale={100} unit="%" disabled={off} onChange={(v) => p.set('densityMin', v)} />
                 </>
               )}
-              <Toggle label="Detail level per copy" aria={`${pre} lod per copy`} hint="Each copy picks its own level of detail (off: a chunk's copies switch together)." on={r.lodPerCopy !== false} disabled={off} onChange={(on) => p.set('lodPerCopy', on ? undefined : false)} />
-              <SliderField label="Chunk size" aria={`${pre} chunk size`} value={r.chunkSize ?? SCATTER_CHUNK_METERS_DEFAULT} min={16} max={4096} log limit={[1, 4096]} step={1} unit="m" hint="The squares copies are culled and given levels of detail by." disabled={off} onChange={(v) => p.set('chunkSize', v === SCATTER_CHUNK_METERS_DEFAULT ? undefined : v)} />
+              <Toggle label="Detail level per copy" aria={`${pre} lod per copy`} hint="Each copy picks its own level of detail (off: a block of copies switches together)." on={r.lodPerCopy !== false} disabled={off} onChange={(on) => p.set('lodPerCopy', on ? undefined : false)} />
+              <SliderField label="Chunk size" aria={`${pre} chunk size`} value={r.chunkSize ?? SCATTER_CHUNK_METERS_DEFAULT} min={16} max={4096} log limit={[1, 4096]} step={1} unit="m" hint="The squares copies are culled by (no block of copies spans two)." disabled={off} onChange={(v) => p.set('chunkSize', v === SCATTER_CHUNK_METERS_DEFAULT ? undefined : v)} />
             </>
           )}
           <div className="tl-rule__foot">

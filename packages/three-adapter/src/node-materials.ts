@@ -20,7 +20,7 @@
  * a renderer builds the nodes.
  */
 import * as THREE from 'three';
-import { buildHasInstanceColumns, instanceOriginFromColumns } from './attribute-instancing';
+import { buildReadsCopyColumns, instanceOriginFromColumns } from './attribute-instancing';
 import { installProjectedDecalSteps } from './projected-decals';
 import { buffer, float, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
 import {
@@ -167,7 +167,7 @@ const interleavedMatrices = new WeakMap<THREE.InstancedBufferAttribute, THREE.In
  */
 export const instanceOrigin = Fn((builder: NodeBuilder) => {
   // An automatic batch's instances (instance-matrix columns of its geometry).
-  if (buildHasInstanceColumns(builder)) return instanceOriginFromColumns();
+  if (buildReadsCopyColumns(builder)) return instanceOriginFromColumns();
   const o = (builder as unknown as { object: THREE.Object3D }).object as THREE.InstancedMesh;
   const im = o !== null && o !== undefined && o.isInstancedMesh === true ? o.instanceMatrix : null;
   if (im === null || im.isInstancedBufferAttribute !== true) return vec3(0, 0, 0);

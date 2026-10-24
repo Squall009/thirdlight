@@ -1,5 +1,5 @@
 /**
- * The adapter's rule scatter: the stored copies' view (`scatter-view.ts`)
+ * The adapter's rule scatter: the stored copies' view (`stored-scatter.ts`)
  * and ground cover's (`cover-view.ts`), and the one sink the block and
  * terrain views hand their sources to, which feeds both.
  */
@@ -10,7 +10,7 @@ import type { MeshWorkerPort } from './block-mesh-pool';
 import { ImpostorStore } from './impostor';
 import { CoverView } from './cover-view';
 import type { LodTuning } from './lod-switch';
-import { ScatterView, type ScatterSink } from './scatter-view';
+import { StoredScatter, type ScatterSink } from './stored-scatter';
 import type { TerrainTile } from '@thirdlight/runtime';
 import type { TerrainCoverSurface } from './terrain-view';
 import type { CullView } from './view-cull';
@@ -41,7 +41,7 @@ export interface ScatterHostDeps {
 }
 
 export interface ScatterHost {
-  readonly stored: ScatterView;
+  readonly stored: StoredScatter;
   readonly cover: CoverView;
   /** What the block and terrain views tell (undefined: scatter not drawn). */
   readonly sink: ScatterSink | undefined;
@@ -53,7 +53,7 @@ export interface ScatterHost {
 export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
   // The models' impostors (far copies), baked with the page's renderer when a rule first asks for one.
   const impostors = new ImpostorStore({ renderer: () => deps.renderer?.() ?? null, template: deps.template, dress: deps.dress });
-  const stored = new ScatterView({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, stream: deps.stream ?? null, ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
+  const stored = new StoredScatter({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, stream: deps.stream ?? null, ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
   const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed, surface: deps.surface });
   const sink: ScatterSink | undefined = !deps.drawn
     ? undefined

@@ -55,7 +55,7 @@ detail. Copies have no ids, colliders or scripts.
   back (one per stroke). A set has no count of its own beyond an instance
   set's 65,536 copies. GameObject → **Instance set…** (the rectangle fill) still makes a
   new set.
-- **Chunks**: a set is drawn in chunks, each hidden when out of
+- **Chunks**: a set is culled in chunks, each hidden when out of
   view. The copies are split
   by count (about 2048 per chunk) and by extent: no chunk is wider than the
   chunk size, 32 m unless the project sets **Quality → Rendering → Instance chunk
@@ -63,17 +63,23 @@ detail. Copies have no ids, colliders or scripts.
   (Inspector → Instance set → **Chunk size**, `instances.chunkSize`; `null`
   puts it back to the project's). A set needs at most 256 chunks; a wider one
   gets larger chunks. The Inspector says how many chunks the selected set is
-  drawn in. Smaller chunks cull more finely at the cost of more draw calls
-  where many are in view. Play, the export and the Scene view chunk alike.
-- **Levels of detail and density**: each chunk draws one level of the
-  model for all its copies, picked at its centre for the copies' mean size
-  (against the model's switch points: [Levels of detail](assets.md#levels-of-detail)); **Level per copy**
+  culled in. Smaller chunks cull more finely; the draws stay one per mesh and
+  level of the model whatever the chunks. Play, the export and the Scene view
+  chunk alike.
+- **Drawing**: a set is drawn by the GPU renderer ground cover and rule
+  scatter draw with: the copies' places sit in a texture, each frame the
+  page lists the blocks of up to 256 copies the view (or a shadow map) may
+  draw at each level, and the vertex stage places every copy, picks its
+  level and thins it. The page does no work per copy to draw.
+- **Levels of detail and density**: each block of up to 64 copies draws
+  one level of the model for all its copies, picked at its centre for the
+  copies' mean size (against the model's switch points: [Levels of detail](assets.md#levels-of-detail)); **Level per copy**
   (`lodPerCopy`, default off) has every copy pick its own level by its own
-  distance and size instead — truer where a chunk spans a switch point, at
-  one more draw per level in each such chunk (off by default: on one game's
-  farm it cost 23 draws and ~0.35 ms of main thread a frame on WebGL 2). A
-  copy past the model's cull size is not drawn; a chunk wholly past it is
-  skipped. Copies thin out where they are small on screen: from
+  distance and size instead, exactly at the switch distance — truer where a
+  block spans a switch point, at more vertex work there (the draws stay one
+  per mesh and level either way). A copy past the model's cull size is not
+  drawn; a block wholly past it is not listed. Copies thin out
+  where they are small on screen: from
   **Thinning starts at** (`densityStart`, a share of the screen height,
   default 0.02) to **Thinnest at** (`densityEnd`, default 0.005) the share
   drawn falls to **Thinnest density** (`densityMin`; 1 or absent = no

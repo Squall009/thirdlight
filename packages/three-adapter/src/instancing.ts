@@ -11,9 +11,14 @@
  * copies per chunk, at most {@link INSTANCE_MAX_CHUNKS}), so the renderer's
  * frustum culling skips the chunks out of view. A model with levels of
  * detail (`<piece>_LOD<n>`, a `THREE.LOD` in the instance) gets one draw per
- * mesh and level in each chunk, and every copy is drawn at its own level and
- * thinned out with distance (`instance-lod.ts`). A copy is found again from a picked
+ * mesh and level in each chunk, and each chunk draws the level its centre
+ * asks for (`instance-lod.ts`). A copy is found again from a picked
  * instanced mesh with `copyOf`, and its bounds with `copyBox`.
+ *
+ * These sets draw what the engine generates in pieces (architecture,
+ * splines). Stored scatter and the instance brush's sets, where every copy
+ * takes its own level and thins with distance, are drawn by the GPU
+ * renderer (`copies-gpu.ts`), which shares {@link instanceSetPlan}.
  *
  * The meshes own only their instance matrices; geometry, materials and
  * textures stay owned by the prepared model resource (released with it).
@@ -81,16 +86,8 @@ export interface InstanceSetStats {
   readonly thinned: number;
 }
 
-/**
- * How a set is built: its chunk size (m), the project's LOD tuning, its
- * density falloff (null: none) and whether each copy picks its own level
- * (else each chunk one level for all its copies).
- */
-export interface InstanceSetOptions {
-  readonly chunkSize?: number;
-  /** Copies per chunk the count grid aims at (absent: {@link INSTANCE_CHUNK_COPIES}); a large value leaves the chunks to `chunkSize`. */
-  readonly copiesPerChunk?: number;
-  readonly tuning?: LodTuning;
+/** A set's model as planned: its density falloff (null: none) and a far level drawn as an impostor (the GPU renderer's). */
+export interface InstancePlanOptions {
   readonly density?: InstanceDensity | null;
   /**
    * A density falloff by distance instead (metres at unit scale: all copies
@@ -98,12 +95,6 @@ export interface InstanceSetOptions {
    * that much farther), over `density`.
    */
   readonly densityDistance?: { readonly start: number; readonly end: number; readonly min: number };
-  readonly lodPerCopy?: boolean;
-  /**
-   * The set's arithmetic made ahead (`instance-prepare.ts`, on a worker) from
-   * these copies and {@link instanceSetPlan}'s parts and options; absent: made here.
-   */
-  readonly prepared?: PreparedInstanceSet;
   /**
    * A far level drawn as an impostor (`impostor.ts`): its quad mesh (at the
    * model's origin) and the screen size it takes over below (the share of the
@@ -111,6 +102,14 @@ export interface InstanceSetOptions {
    * model's levels from there on are left out (its cull level, past it, stays).
    */
   readonly impostor?: { readonly mesh: THREE.Mesh; readonly size: number };
+}
+
+/** How a set is built: its chunk size (m), the project's LOD tuning, and what its copies tell. */
+export interface InstanceSetOptions {
+  readonly chunkSize?: number;
+  /** Copies per chunk the count grid aims at (absent: {@link INSTANCE_CHUNK_COPIES}); a large value leaves the chunks to `chunkSize`. */
+  readonly copiesPerChunk?: number;
+  readonly tuning?: LodTuning;
   /**
    * Copies written in place ({@link BuiltInstanceSet.setCopies}) moved: the
    * world spheres (x, y, z, r) of the chunks they were and are in. Nothing
@@ -155,7 +154,7 @@ export interface InstanceSetPlan {
 }
 
 /** The plan of a set of `template` with `options` (cheap: the template's meshes, not its copies). */
-export function instanceSetPlan(template: ModelInstance, options: InstanceSetOptions = {}): InstanceSetPlan {
+export function instanceSetPlan(template: ModelInstance, options: InstanceSetOptions & InstancePlanOptions = {}): InstanceSetPlan {
   template.glbRoot.updateMatrixWorld(true);
   const rootInverse = new THREE.Matrix4().copy(template.glbRoot.matrixWorld).invert();
   // The template's meshes, each with its LOD and level (the nearest LOD above it).
@@ -233,7 +232,7 @@ export function instanceSetPlan(template: ModelInstance, options: InstanceSetOpt
     radius,
     density,
     prepareParts: { locals, spheres },
-    prepareOptions: { perCopy: groups.length > 0 || density !== null, copiesPerChunk: options.copiesPerChunk ?? INSTANCE_CHUNK_COPIES, ...(options.chunkSize !== undefined ? { chunkSize: options.chunkSize } : {}) },
+    prepareOptions: { levels: groups.length > 0, copiesPerChunk: options.copiesPerChunk ?? INSTANCE_CHUNK_COPIES, ...(options.chunkSize !== undefined ? { chunkSize: options.chunkSize } : {}) },
   };
 }
 
@@ -272,9 +271,9 @@ export interface InstanceSetBuilder {
 /** {@link buildInstanceSet} made a step at a time (see {@link InstanceSetBuilder}). */
 export function beginInstanceSet(template: ModelInstance, floats: Float32Array, count: number, name = 'instances', options: InstanceSetOptions = {}): InstanceSetBuilder {
   const plan = instanceSetPlan(template, options);
-  const { parts, groups, radius, density } = plan;
+  const { parts, groups } = plan;
   const tuning = options.tuning ?? new LodTuning();
-  const prepared = options.prepared ?? prepareInstanceSet(floats, count, plan.prepareParts, plan.prepareOptions);
+  const prepared = prepareInstanceSet(floats, count, plan.prepareParts, plan.prepareOptions);
   const n = prepared.count;
   const chunkOf = prepared.chunkOf;
   const group = new THREE.Group();
@@ -297,8 +296,8 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
     });
     chunk.node.name = `${name}:chunk`;
     chunk.node.position.set(pc.center[0]!, pc.center[1]!, pc.center[2]!);
-    if (plan.prepareOptions.perCopy && pc.origins !== null && pc.scales !== null && pc.ranks !== null) {
-      chunk.picker = new ChunkLodPicker({ origins: pc.origins, scales: pc.scales, ranks: pc.ranks, count: pc.copies.length }, groups, density !== null ? { radius, falloff: density } : null, tuning, options.lodPerCopy === true, pc.stats ?? undefined);
+    if (plan.prepareOptions.levels && pc.origins !== null && pc.scales !== null) {
+      chunk.picker = new ChunkLodPicker({ origins: pc.origins, scales: pc.scales, count: pc.copies.length }, groups, tuning, pc.stats ?? undefined);
     }
     group.add(chunk.node);
   };
@@ -372,7 +371,6 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
     stats(): InstanceSetStats {
       let inView = 0;
       let culled = 0;
-      let thinned = 0;
       const byLevel: number[] = [];
       for (const c of chunks) {
         if (c.copies.length === 0) continue;
@@ -384,9 +382,8 @@ export function beginInstanceSet(template: ModelInstance, floats: Float32Array, 
         const s = c.picker.stats();
         s.byLevel.forEach((v, l) => (byLevel[l] = (byLevel[l] ?? 0) + v));
         culled += s.culled;
-        thinned += s.thinned;
       }
-      return { copies: n, inView, byLevel, culled, thinned };
+      return { copies: n, inView, byLevel, culled, thinned: 0 };
     },
     setCopy(index: number, t: readonly number[]): void {
       this.setCopies([{ index, transform: t }]);

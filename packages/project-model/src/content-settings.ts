@@ -144,9 +144,10 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // gets a panner per source with the listener on the active camera. 1 and 2
   // force one or the other (a 2D game may want stereo panning).
   // The size (m) of an instance set's spatial chunks, each culled on its own
-  // (a set's own chunkSize overrides it; each chunk draws one level of detail
-  // for its copies unless the set asks for a level per copy).
-  { key: 'instance_chunk_m', type: 'number', default: INSTANCE_CHUNK_METERS, min: 1, max: MAX_INSTANCE_CHUNK_SIZE, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling, more draw calls. A set can set its own.' },
+  // (a set's own chunkSize overrides it; no block of copies spans two chunks,
+  // and each block draws one level of detail unless the set asks for a level
+  // per copy).
+  { key: 'instance_chunk_m', type: 'number', default: INSTANCE_CHUNK_METERS, min: 1, max: MAX_INSTANCE_CHUNK_SIZE, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are culled in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling (the draws stay one per mesh and level). A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
   // The texture budget of Play and the export (MiB; project-model
   // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed

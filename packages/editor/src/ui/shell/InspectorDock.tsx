@@ -441,7 +441,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                 <div className="tl-inspector__copies" data-copy={selectedCopy ?? ''}>
                   {instanceChunks[selected.id] !== undefined && (
                     <p className="tl-inspector__hint" data-chunks={instanceChunks[selected.id]}>
-                      Drawn in {instanceChunks[selected.id]} chunk{instanceChunks[selected.id] === 1 ? '' : 's'} of at most {String((selected.components['instances'] as { chunkSize?: number } | undefined)?.chunkSize ?? settings?.['instance_chunk_m'] ?? 32)} m, each hidden out of view and given its level of detail on its own.
+                      Culled in {instanceChunks[selected.id]} chunk{instanceChunks[selected.id] === 1 ? '' : 's'} of at most {String((selected.components['instances'] as { chunkSize?: number } | undefined)?.chunkSize ?? settings?.['instance_chunk_m'] ?? 32)} m, each hidden out of view; every copy takes its own level of detail.
                     </p>
                   )}
                   {selectedCopy !== null && (

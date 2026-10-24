@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockGrid, applyBlockEdits, bakeScatterCell, createResourceManager, scatterBlobOf, type BlockType, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
 
 import { BlockLayerView } from './block-layers';
-import { ScatterView, SCATTER_GROUP_METRES } from './scatter-view';
+import { StoredScatter, SCATTER_GROUP_METRES } from './stored-scatter';
 import { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
 import { PageWorldStream, STREAM_ARRIVAL_MS, WORLD_STREAM_HOLDER } from './world-stream';
@@ -150,7 +150,7 @@ describe('scatter view streaming', () => {
       root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 4, 1), new THREE.MeshBasicMaterial()));
       return root;
     })() } as unknown as ModelInstance;
-    const view = new ScatterView({ template: () => t, read: async (d) => (reads.push(d), blobs.get(d)!.slice().buffer), place: () => undefined, stream });
+    const view = new StoredScatter({ template: () => t, read: async (d) => (reads.push(d), blobs.get(d)!.slice().buffer), place: () => undefined, stream });
     const comp = { tileSamples: 257, spacing: 2, heightRange: [0, 10], tiles, scatter: [RULE], streaming: { render: 3000, scatter: 600 } } as TerrainComponent;
     view.setTerrain('ground', comp, [0, 0, 0]);
     const eye = (x: number): CullView => {

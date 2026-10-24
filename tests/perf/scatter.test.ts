@@ -18,8 +18,8 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { TerrainField, bakeTerrainScatter, flatTerrainTile, scatterCellCopies, scatterReach, terrainFlatStep, terrainScatterSurface, terrainTileKey, type ScatterCell, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
-import { buildInstanceSet, instanceSetPlan } from '../../packages/three-adapter/src/instancing';
-import { prepareInstanceSet } from '../../packages/three-adapter/src/instance-prepare';
+import { buildGpuCopySet } from '../../packages/three-adapter/src/copies-gpu';
+import { prepareCopies } from '../../packages/three-adapter/src/copies-prepare';
 import { CoverGenerator } from '../../packages/three-adapter/src/cover-worker';
 import type { ModelInstance } from '../../packages/three-adapter/src/visual';
 
@@ -76,7 +76,7 @@ describe.skipIf(!ON)('rule scatter costs', () => {
     const partMs = ms(t0);
     record(`scatter bake (density ×${dense}) 257² tile at 2 m (512 m), 3 rules: whole ${wholeMs} ms (${copies} copies, ${whole.looked} candidates), a 16 m raise's rectangle ${partMs} ms`);
 
-    // A 2,048 m group of the landscape class holds about 16 such tiles' copies per rule: built as one instance set each.
+    // A 2,048 m group of the landscape class holds about 16 such tiles' copies per rule: built as one copies set each.
     const template = kit();
     const perRule = (id: string): Float32Array => cell.get(id)!.copies;
     const times: number[] = [];
@@ -94,21 +94,21 @@ describe.skipIf(!ON)('rule scatter costs', () => {
           big[(i * k + c) * 10 + 2] = big[(i * k + c) * 10 + 2]! + Math.floor(i / 4) * 512;
         }
       }
-      const opts = { chunkSize: 2048, copiesPerChunk: 1 << 20, density: { start: 0.02, end: 0.005, min: 0.25 }, lodPerCopy: true };
+      const chunking = { chunkSize: 2048, copiesPerChunk: Number.MAX_SAFE_INTEGER };
+      const opts = { ...chunking, density: { start: 0.02, end: 0.005, min: 0.25 }, lodPerCopy: true };
       // Warm (the page has built sets before: its code is compiled by then).
-      buildInstanceSet(template, big, k * 16, 'perf', opts).dispose();
+      buildGpuCopySet(template, big, k * 16, 'perf', opts).dispose();
       t0 = performance.now();
-      const set = buildInstanceSet(template, big, k * 16, 'perf', opts);
+      const set = buildGpuCopySet(template, big, k * 16, 'perf', opts);
       times.push(ms(t0));
       n += k * 16;
       set.dispose();
-      // Split as the scatter view runs it: the arithmetic on the worker, the draws on the page.
-      const plan = instanceSetPlan(template, opts);
+      // Split as the stored scatter runs it: the copies put in blocks on the worker, the set made on the page.
       t0 = performance.now();
-      const prepared = prepareInstanceSet(big, k * 16, plan.prepareParts, plan.prepareOptions);
+      const preparedCopies = prepareCopies(big, k * 16, chunking);
       worker.push(ms(t0));
       t0 = performance.now();
-      const made = buildInstanceSet(template, big, k * 16, 'perf', { ...opts, prepared });
+      const made = buildGpuCopySet(template, big, k * 16, 'perf', { ...opts, preparedCopies });
       page.push(ms(t0));
       made.dispose();
     }
