@@ -340,12 +340,16 @@ export type ScatterCell = Map<string, ScatterCopies>;
 const EMPTY_I32 = new Int32Array(0);
 const EMPTY_F32 = new Float32Array(0);
 
-/** The candidate grid of a rule: cell size (m) and the seed its hashes use. */
-function gridOf(rule: ScatterRule): { size: number; seed: number } {
-  // The id is part of the seed: two rules of one density never share their candidates.
+/** The seed a rule's hashes use: its `seed` with its id, so two rules of one density never share their candidates. */
+export function scatterRuleSeed(rule: Pick<ScatterRule, 'id' | 'seed'>): number {
   let h = rule.seed ?? 0;
   for (let i = 0; i < rule.id.length; i++) h = Math.imul(h ^ rule.id.charCodeAt(i), 0x01000193);
-  return { size: 1 / Math.sqrt(rule.density), seed: h | 0 };
+  return h | 0;
+}
+
+/** The candidate grid of a rule: cell size (m) and the seed its hashes use. */
+function gridOf(rule: ScatterRule): { size: number; seed: number } {
+  return { size: 1 / Math.sqrt(rule.density), seed: scatterRuleSeed(rule) };
 }
 
 const cellKey = (ix: number, iz: number): string => `${ix},${iz}`;

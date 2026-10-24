@@ -181,6 +181,22 @@ export interface TerrainViewDiagnostics {
   macro?: { baked: number; waiting: number; bakes: number; sunBakes: number; bakeMsTotal: number; bakeMs: number; bakeMsMax: number; farNodes: number; draws: number };
 }
 
+/** A terrain as ground cover drawn on the GPU reads it (`TerrainView.coverSurface`). */
+export interface TerrainCoverSurface {
+  readonly uniforms: TerrainUniforms;
+  readonly samples: number;
+  readonly spacing: number;
+  readonly tileSize: number;
+  /** Height of step 0 and of one step (m, the terrain's frame). */
+  readonly low: number;
+  readonly step: number;
+  readonly origin: readonly number[];
+  /** Its texture pages (a page grown holds new textures). */
+  readonly pages: readonly { readonly heights: THREE.DataArrayTexture; readonly layers: THREE.DataArrayTexture; readonly indices: THREE.DataArrayTexture }[];
+  /** A drawn tile's page, layer and the heights' range under a box of it (tile-local metres; heights in the terrain's frame; the answer is reused by the next call). */
+  tileAt(tx: number, tz: number, x0: number, z0: number, x1: number, z1: number): { readonly page: number; readonly layer: number; readonly low: number; readonly high: number } | undefined;
+}
+
 interface TileRec {
   readonly x: number;
   readonly z: number;
@@ -366,6 +382,11 @@ const OVERVIEW_SUFFIX = '#overview';
 
 /** `mesh.userData[PLACED_KEY]`: the page's mesh has its world matrix (it was placed once). */
 const PLACED_KEY = '__tlTerrainPlaced';
+
+/** A tile's decoded neighbours by tile offset (undefined where none is loaded). */
+function neighbourOf(rec: TerrainRec, t: TileRec): (dx: number, dz: number) => TerrainTile | undefined {
+  return (dx, dz) => rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz))?.tile ?? undefined;
+}
 
 const pow2AtLeast = (n: number): number => 2 ** Math.ceil(Math.log2(Math.max(1, n)));
 
@@ -580,6 +601,58 @@ export class TerrainView {
   field(id: string): TerrainField | null {
     const rec = this.terrains.get(id);
     return rec === undefined ? null : this.fieldOf(rec);
+  }
+
+  /**
+   * What ground cover drawn on the GPU reads of terrain `id` (null: no such
+   * terrain): its page textures, its shape values (the same uniforms its
+   * page meshes read) and, per tile, the page and layer it is drawn from.
+   */
+  coverSurface(id: string): TerrainCoverSurface | null {
+    const rec = this.terrains.get(id);
+    if (rec === undefined || rec.leaving) return null;
+    const c = rec.component;
+    const low = terrainHeightOf(c.heightRange, 0);
+    const step = metresPerStep(c.heightRange);
+    const scratch = { page: -1, layer: -1, low: 0, high: 0 };
+    return {
+      uniforms: rec.uniforms,
+      samples: c.tileSamples,
+      spacing: c.spacing,
+      tileSize: terrainTileSize(c),
+      low,
+      step,
+      origin: rec.origin,
+      pages: rec.pages,
+      tileAt: (tx, tz, x0, z0, x1, z1) => {
+        const t = rec.tiles.get(terrainTileKey(tx, tz));
+        if (t === undefined || !t.ready || t.page < 0) return undefined;
+        scratch.page = t.page;
+        scratch.layer = t.layer;
+        if (t.bounds === null) {
+          scratch.low = c.heightRange[0]!;
+          scratch.high = c.heightRange[1]!;
+          return scratch;
+        }
+        // The leaves under the box (tile-local metres): their lowest and highest steps.
+        const leaf = rec.layout.grid * c.spacing;
+        const side = rec.layout.cells / rec.layout.grid;
+        const at = (v: number): number => Math.min(side - 1, Math.max(0, Math.floor(v / leaf)));
+        let lo = 0xffff;
+        let hi = 0;
+        const mins = t.bounds.min[0]!;
+        const maxs = t.bounds.max[0]!;
+        for (let nz = at(z0); nz <= at(z1); nz++) {
+          for (let nx = at(x0); nx <= at(x1); nx++) {
+            lo = Math.min(lo, mins[nz * side + nx]!);
+            hi = Math.max(hi, maxs[nz * side + nx]!);
+          }
+        }
+        scratch.low = low + lo * step;
+        scratch.high = low + hi * step;
+        return scratch;
+      },
+    };
   }
 
   // ---- stroke previews ---------------------------------------------------------------------
@@ -1184,12 +1257,8 @@ export class TerrainView {
     rec.dirty = true;
     rec.field = null;
     // Packed alone: its border normals read the neighbours here; theirs read it.
-    packHeightNormalBorder(t.pending.heights!, tile, this.neighbourOf(rec, t), metresPerStep(rec.component.heightRange), rec.component.spacing);
+    packHeightNormalBorder(t.pending.heights!, tile, neighbourOf(rec, t), metresPerStep(rec.component.heightRange), rec.component.spacing);
     this.neighboursBorder(rec, t);
-  }
-
-  private neighbourOf(rec: TerrainRec, t: TileRec): (dx: number, dz: number) => TerrainTile | undefined {
-    return (dx, dz) => rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz))?.tile ?? undefined;
   }
 
   /** The neighbours' border normals again (a tile came, changed or went): in their pending texels, or in their page and uploaded again. */
@@ -1199,12 +1268,12 @@ export class TerrainView {
       const n = rec.tiles.get(terrainTileKey(t.x + dx, t.z + dz));
       if (n === undefined || n.tile === null || n.layer < 0) continue;
       const pend = n.pending?.heights ?? null;
-      if (pend !== null) packHeightNormalBorder(pend, n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
+      if (pend !== null) packHeightNormalBorder(pend, n.tile, neighbourOf(rec, n), mps, rec.component.spacing);
       else if (n.ready) {
         // A previewed tile keeps the preview's border on the GPU until its own data come (or its copy is uploaded again).
         const size = n.tile.samples * n.tile.samples * TERRAIN_TEXEL_BYTES;
         const p = rec.pages[n.page]!;
-        packHeightNormalBorder((p.heights.image.data as Uint8Array).subarray(n.layer * size, (n.layer + 1) * size), n.tile, this.neighbourOf(rec, n), mps, rec.component.spacing);
+        packHeightNormalBorder((p.heights.image.data as Uint8Array).subarray(n.layer * size, (n.layer + 1) * size), n.tile, neighbourOf(rec, n), mps, rec.component.spacing);
         if (n.preview === null) rec.reheights.add(n);
       }
     }

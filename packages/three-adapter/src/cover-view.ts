@@ -26,10 +26,13 @@ import * as THREE from 'three';
 import { CHUNK_SIZE, SCATTER_COVER_DISTANCE_DEFAULT, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
+import { CoverGpu, type CoverGpuDiagnostics } from './cover-gpu';
+import { COVER_FADE_START, coverOnGpu } from './cover-placement';
 import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
 import { buildInstanceSet, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
 import { blobCopies, blobShadowTemplate } from './scatter-shadows';
 import type { LodTuning } from './lod-switch';
+import type { TerrainCoverSurface } from './terrain-view';
 import type { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
 
@@ -41,8 +44,6 @@ export const COVER_KEEP_FRACTION = 0.5;
 export const COVER_JOBS = 2;
 /** Main-thread time (ms) a frame may spend building squares (at least one a frame). */
 export const COVER_BUILD_MS = 2;
-/** Where a rule's copies begin to thin out, as a share of its reach. */
-export const COVER_FADE_START = 0.6;
 /** Cells round a changed block column whose footprint a terrain's cover reads (a larger block's reach and the corner it shares). */
 const BLOCK_CHANGE_CELLS = 9;
 
@@ -60,6 +61,20 @@ export interface CoverViewDeps {
   tuning?: LodTuning;
   /** Something was built (a frame should be drawn). */
   changed?(): void;
+  /**
+   * A terrain as its view draws it: with it, a terrain's cover rules whose
+   * conditions the GPU reads are drawn there (`cover-gpu.ts`), the rest made
+   * here (absent: all made here).
+   */
+  surface?(id: string): TerrainCoverSurface | null;
+}
+
+/** The page flag that makes every terrain's ground cover on the CPU, as before the GPU drew it (`?cover=cpu`: a comparison). */
+export const COVER_URL_PARAM = 'cover';
+
+/** Whether a page's address asks for terrain cover on the GPU (the default). */
+export function coverGpuFromUrl(search: string): boolean {
+  return new URLSearchParams(search).get(COVER_URL_PARAM) !== 'cpu';
 }
 
 export interface CoverViewDiagnostics {
@@ -82,6 +97,8 @@ export interface CoverViewDiagnostics {
   buildMs: number;
   buildMsMax: number;
   instances: InstanceSetStats;
+  /** Terrain cover drawn on the GPU (absent: none). */
+  gpu?: CoverGpuDiagnostics;
 }
 
 interface Square {
@@ -133,8 +150,15 @@ export class CoverView {
   private types: readonly BlockType[] = [];
   /** The splines with a scatter band, by id: what each was (JSON) and the box its band keeps clear (null: none). */
   private splines = new Map<string, { key: string; rect: ScatterRect | null }>();
+  /** Terrain cover drawn on the GPU (null: all made here). */
+  private readonly gpu: CoverGpu | null;
+  /** Each terrain as last set (its cover goes to the GPU or here again when the splines change). */
+  private readonly terrains = new Map<string, { component: TerrainComponent; origin: number[] }>();
 
-  constructor(private readonly deps: CoverViewDeps) {}
+  constructor(private readonly deps: CoverViewDeps) {
+    const surface = deps.surface;
+    this.gpu = surface === undefined ? null : new CoverGpu({ template: deps.template, ...(deps.dress !== undefined ? { dress: deps.dress } : {}), place: deps.place, surface, ...(deps.tuning !== undefined ? { tuning: deps.tuning } : {}), ...(deps.changed !== undefined ? { changed: deps.changed } : {}) });
+  }
 
   // ---- the sources (ScatterSink) -----------------------------------------------------
 
@@ -162,6 +186,8 @@ export class CoverView {
     this.splines = next;
     if (same) return;
     this.send({ t: 'coverSplines', splines });
+    // A terrain whose cover a band now crosses (or no longer does) is made on the other side.
+    for (const [id, t] of this.terrains) this.setTerrain(id, t.component, t.origin);
     for (const src of this.sources.values()) if (src.kind === 'terrain') for (const r of changed) this.remakeRect(src, r);
   }
 
@@ -233,7 +259,8 @@ export class CoverView {
   }
 
   setTerrain(id: string, component: TerrainComponent, origin: readonly number[]): void {
-    const rules = coverScatterRules(component.scatter);
+    this.terrains.set(id, { component, origin: [...origin] });
+    const all = coverScatterRules(component.scatter);
     const size = (component.tileSamples - 1) * component.spacing;
     let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (const t of component.tiles) {
@@ -243,8 +270,16 @@ export class CoverView {
       z1 = Math.max(z1, t.z + 1);
     }
     const o = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0] as [number, number, number];
+    const extent: ScatterRect = [o[0] + x0 * size, o[2] + z0 * size, o[0] + x1 * size, o[2] + z1 * size];
+    // The GPU reads the rule and the terrain's own texels: a rule reading more (spacing, cavity, regions), or a terrain
+    // its block layers or a spline's band keep cover off, is made here.
+    const keptOff = (component.layers ?? []).some((l) => l.kind === 'blocks' && l.enabled !== false) || [...this.splines.values()].some((sp) => sp.rect !== null && overlaps(sp.rect, extent));
+    const onGpu = this.gpu === null || keptOff ? [] : all.filter(coverOnGpu);
+    this.gpu?.setRules(id, onGpu);
+    const rules = all.filter((r) => !onGpu.includes(r));
+    if (rules.length === 0 && this.sources.has(id)) this.dropSource(id);
     const before = this.sources.get(id)?.terrain ?? null;
-    const src = this.source(id, 'terrain', rules, o, [o[0] + x0 * size, o[2] + z0 * size, o[0] + x1 * size, o[2] + z1 * size], component.spacing);
+    const src = this.source(id, 'terrain', rules, o, extent, component.spacing);
     if (src === null) return;
     src.terrain = component;
     this.send({ t: 'coverSource', id, source: { kind: 'terrain', component, origin: o, rules } });
@@ -264,6 +299,8 @@ export class CoverView {
   }
 
   setOrigin(id: string, origin: readonly number[]): void {
+    const t = this.terrains.get(id);
+    if (t !== undefined) t.origin = [...origin];
     const held = this.blockLayers.get(id);
     if (held !== undefined && !held.origin.every((v, i) => v === (origin[i] ?? 0))) {
       held.origin = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
@@ -279,6 +316,7 @@ export class CoverView {
   }
 
   setHidden(id: string, hidden: boolean): void {
+    this.gpu?.setHidden(id, hidden);
     const src = this.sources.get(id);
     if (src === undefined || src.hidden === hidden) return;
     src.hidden = hidden;
@@ -293,6 +331,13 @@ export class CoverView {
       if (held.sent && !this.sources.has(id)) this.send({ t: 'coverDrop', id });
       for (const t of met) this.remakeAll(t);
     }
+    this.terrains.delete(id);
+    this.gpu?.remove(id);
+    this.dropSource(id);
+  }
+
+  /** A source's squares dropped and the generator's copy of it. */
+  private dropSource(id: string): void {
     const src = this.sources.get(id);
     if (src === undefined) return;
     for (const sq of src.squares.values()) this.drop(sq);
@@ -301,13 +346,14 @@ export class CoverView {
   }
 
   ids(): string[] {
-    return [...this.sources.keys()];
+    return [...new Set([...this.sources.keys(), ...(this.gpu?.ids() ?? [])])];
   }
 
   // ---- the frame ------------------------------------------------------------------------
 
   /** Keep the squares around the view's eye: drop far ones, ask for near ones, build what arrived (call once a frame). */
   update(view: CullView): boolean {
+    if (!this.disposed) this.gpu?.update(view);
     if (this.disposed || this.sources.size === 0) return false;
     const ex = view.eye[0]!;
     const ez = view.eye[2]!;
@@ -386,18 +432,21 @@ export class CoverView {
       }
     }
     const r2 = (v: number): number => Math.round(v * 100) / 100;
-    return { sources: this.sources.size, cells, waiting, madeCopies, looked: this.looked, tilesSent: this.sentTiles.size, making: this.jobs.size, sets, copies, made: this.made, makeMsMean: this.made > 0 ? r2(this.makeMs / this.made) : 0, buildMs: r2(this.buildMs), buildMsMax: r2(this.buildMsMax), instances: { copies, inView, byLevel, culled, thinned } };
+    const gpu = this.gpu !== null && this.gpu.ids().length > 0 ? { gpu: this.gpu.diagnostics() } : {};
+    return { sources: this.sources.size, cells, waiting, madeCopies, looked: this.looked, tilesSent: this.sentTiles.size, making: this.jobs.size, sets, copies, made: this.made, makeMsMean: this.made > 0 ? r2(this.makeMs / this.made) : 0, buildMs: r2(this.buildMs), buildMsMax: r2(this.buildMsMax), instances: { copies, inView, byLevel, culled, thinned }, ...gpu };
   }
 
   meshes(): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
     for (const src of this.sources.values()) for (const sq of src.squares.values()) for (const s of sq.sets) out.push(...s.built.meshes);
+    out.push(...(this.gpu?.meshes() ?? []));
     return out;
   }
 
   dispose(): void {
     if (this.disposed) return;
-    for (const id of [...this.sources.keys()]) this.remove(id);
+    for (const id of this.ids()) this.remove(id);
+    this.gpu?.dispose();
     this.disposed = true;
     this.port?.terminate();
     this.port = null;

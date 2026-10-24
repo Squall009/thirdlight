@@ -687,12 +687,12 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
     const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
     await expectRendererBackend(canvas, renderer);
     // Play's diagnostics: every tile drawn, stored scatter and ground cover, the river's mesh, the live door's objects.
-    type Diag = { renderer?: { terrain?: { tilesDrawn: number }; scatter?: { copies: number }; cover?: { copies: number }; splines?: { meshPieces: number } }; runtime?: { blockMemory?: { liveObjects?: number } } };
+    type Diag = { renderer?: { terrain?: { tilesDrawn: number }; scatter?: { copies: number }; cover?: { copies: number; gpu?: { candidates: number } }; splines?: { meshPieces: number } }; runtime?: { blockMemory?: { liveObjects?: number } } };
     let d: Diag = {};
     await expect
       .poll(async () => {
         d = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: Diag }).diagnostics ?? {};
-        return `${d.renderer?.terrain?.tilesDrawn ?? 0} ${(d.renderer?.scatter?.copies ?? 0) > 0} ${(d.renderer?.cover?.copies ?? 0) > 0} ${(d.renderer?.splines?.meshPieces ?? 0) > 0} ${d.runtime?.blockMemory?.liveObjects ?? 0}`;
+        return `${d.renderer?.terrain?.tilesDrawn ?? 0} ${(d.renderer?.scatter?.copies ?? 0) > 0} ${(d.renderer?.cover?.copies ?? 0) + (d.renderer?.cover?.gpu?.candidates ?? 0) > 0} ${(d.renderer?.splines?.meshPieces ?? 0) > 0} ${d.runtime?.blockMemory?.liveObjects ?? 0}`;
       }, { timeout: 60_000, message: `${renderer} Play: terrain, scatter, cover, river and live door` })
       .toBe(`${TILES * TILES} true true true 2`);
     const diag = { terrain: d.renderer?.terrain?.tilesDrawn, scatter: d.renderer?.scatter?.copies, cover: d.renderer?.cover?.copies, splines: d.renderer?.splines?.meshPieces, live: d.runtime?.blockMemory?.liveObjects };

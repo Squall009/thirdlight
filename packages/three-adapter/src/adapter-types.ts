@@ -75,6 +75,8 @@ export interface SceneAdapterOptions {
   streaming?: { budgetBytes: number; onProblem?: (code: string, message: string) => void };
   /** Draw the scatter rules' copies (default true; false: none, a diagnostic comparison). */
   scatter?: boolean;
+  /** Terrain ground cover placed on the GPU where its rules allow (default true; false: every copy made on the CPU, a comparison). */
+  coverGpu?: boolean;
   /** Draw what splines make, their meshes and pieces (default true; false: none, a diagnostic comparison). */
   splines?: boolean;
   /** Draw generated architecture (default true; false: none, a diagnostic comparison). */

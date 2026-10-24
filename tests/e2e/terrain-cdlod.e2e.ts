@@ -288,8 +288,9 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         .poll(async () => {
           d = (((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: Record<string, unknown> } }).diagnostics ?? {}).renderer;
           const sc = d?.['scatter'] as { copies?: number } | undefined;
-          const cv = d?.['cover'] as { copies?: number } | undefined;
-          return (sc?.copies ?? 0) > 10 && (cv?.copies ?? 0) > 10;
+          // Terrain cover the GPU places counts candidates drawn (the copies it keeps are decided on the GPU).
+          const cv = d?.['cover'] as { copies?: number; gpu?: { candidates?: number } } | undefined;
+          return (sc?.copies ?? 0) > 10 && (cv?.copies ?? 0) + (cv?.gpu?.candidates ?? 0) > 10;
         }, { timeout: 60_000, message: `${renderer} Play: the scatter drawn and the ground cover made` })
         .toBe(true)
         .catch((e: Error) => {

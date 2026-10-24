@@ -446,13 +446,30 @@ area and the terrain around it are dressed alike.
   rule's copies and hand edits, and with a box the copies in it with their
   addresses; a block layer's are in its chunks (`queryBlocks`).
 - **Ground cover** (a rule with `cover: true`, `coverDistance` m, default
-  40): never stored. Squares of 32 m round the camera within its reach are
-  made on a worker (the view worker, from the same rules and ground) and
-  drawn one instance set per rule and square, thinning out to nothing over
-  the last 40 % of the reach; squares the camera leaves are dropped, and an
-  edit of the ground makes the squares over it again. No colliders, no hand
-  edits. Measured: a 32 m square of grass at 2 per m² (712 copies) takes
-  about 4 ms on the worker and 0.7-1.1 ms of the page.
+  40): never stored. **On a terrain the GPU places it**: the reach is cut
+  into rings round the camera (the first ends where copies start to thin:
+  the model's first level switch, or the rule's `densityStart`; the next
+  ones reach √2 times as far, and the model's level switches cut them too,
+  so a ring draws one level), each ring into square patches of a few
+  hundred candidates that never straddle a tile. One instanced draw per
+  ring and mesh draws every candidate of the patches in view (culled on the
+  CPU, a few hundred at most); the vertex stage computes each copy's place,
+  turn, size and whether it is kept from a hash of its cell, the terrain's
+  height, normal, hole and layer textures and the rule's conditions
+  (height, slope, noise, layer shares). Nothing per copy lives on the CPU,
+  and a sculpt or paint shows in the cover at once (it reads the same
+  textures). Copies thin out one by one past the first ring (their share
+  falls as the square of distance, never below `densityMin`) and fade to
+  nothing over the last 40 % of the reach. Cover casts no shadow unless the
+  rule says `castShadow`; it receives them, and SSAO darkens its roots. The
+  same on WebGL 2 and WebGPU. A rule that reads more than the GPU has
+  (`spacing`, `cavity`, `exclude`, `blobShadow`), or a terrain whose block
+  layers or a spline's scatter band keep cover off, is made on the CPU as
+  before: squares of 32 m round the camera made on a worker and drawn one
+  instance set per rule and square; an edit of the ground makes the squares
+  over it again. Block layers' cover is made that way too. The page flag
+  `?cover=cpu` makes every terrain's cover on the CPU (a comparison). No
+  colliders, no hand edits.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
   are one instance set, 2,048 m chunks by default (`chunkSize`), each copy
   at its own level of detail (`lodPerCopy`, default on for scatter) and
