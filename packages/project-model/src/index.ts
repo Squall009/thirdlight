@@ -425,7 +425,7 @@ export { PREFAB_EXCLUDED_COMPONENTS, PREFAB_V4_COMPONENTS, canonicalPrefabs, val
 // Linked copies: the override format, part paths and ids, nesting cycles, and assembly into plain objects.
 export { isPartKey, isPrefabLink, keptPartIds, nestedPrefabIds, partPathKey, partPathOf, prefabNestingCycles, prefabPartId, prefabStageId, prefabStageRootOf, validatePrefabLink, PART_PATH_SEPARATOR, PREFAB_STAGE_ID_PREFIX, type PrefabFieldOverride, type PrefabFieldRemoval, type PrefabLinkComponent, type PrefabOverride, type PrefabPartRemoval } from './prefab-links';
 export { canonicalJson, relinkCopy, type RelinkResult } from './prefab-relink';
-export { applyPartField, assembleSceneEntities, createPrefabAssembler, flatPrefabEntities, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
+export { applyPartField, assembleSceneEntities, createPrefabAssembler, sceneObjectsAssembled, flatPrefabEntities, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
 export { COMPONENT_ENTITY_REFS, componentRefsNaming, mapComponentRefs, mapRefsInValue, valueAtPath, setValueAtPath } from './prefab-entity-refs';
 export { declarationBytes } from './content-behaviors';
 export {

@@ -19,6 +19,7 @@
 import { fail, fieldValue, isPlainObject, pointerSegment, withFound } from './validate';
 import { ID_RE_V2 } from './components';
 import { derivedOf } from './content-helpers';
+import { sceneObjectsAssembled } from './prefab-assembly';
 import { validateManifest } from './validate';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
@@ -336,7 +337,8 @@ function crossBlockChecks(
   scenePart = true,
 ): void {
   const assetIds = ctxIn?.assetIds ?? derivedOf(cc.assets, 'id-set', () => new Set(cc.assets.map((a) => a.assetId)));
-  const entityIds = ctxIn?.entityIds ?? new Set(ss.entities.map((e) => e.id));
+  // A copy's parts are objects of the scene too: a reference may name one.
+  const entityIds = ctxIn?.entityIds ?? new Set(sceneObjectsAssembled(ss.entities as never, (cc.prefabs ?? []) as never).map((e) => e.id));
   const behaviors = ctxIn?.behaviors ?? derivedOf(cc.behaviors, 'declarations', () => new Map(cc.behaviors.map((b) => [b.behaviorId, b.declaration.properties])));
   const prefabById = derivedOf(cc.prefabs, 'by-id', () => new Map(cc.prefabs.map((d) => [d.prefabId, d])));
   const ctx: BehaviorCheckContext = { behaviors, assetIds, entityIds };

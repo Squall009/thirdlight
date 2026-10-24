@@ -28,7 +28,7 @@ import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
 import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { countsOfComponents, EMPTY_COUNTS, sceneCountErrors, validateSceneV4, type EntityV3Counts } from './scene-v3';
-import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity } from './prefab-assembly';
+import { sceneObjectsAssembled, type AssemblyEntity } from './prefab-assembly';
 import { isPrefabLink } from './prefab-links';
 import { ID_RE_V2, PLANE_ROTATION_TOLERANCE, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
@@ -149,7 +149,8 @@ export function composeV4(
   const entityById = (id: string): { entity: SceneEntityV3; sceneId: string } | undefined => {
     if (byId === null) {
       byId = new Map();
-      for (const s of scenes) for (const e of s.entities) if (!byId.has(e.id)) byId.set(e.id, { entity: e, sceneId: s.sceneId });
+      // Assembled: a spawn may be a part of a linked copy (a spawn-point prefab).
+      for (const s of scenes) for (const e of sceneObjectsAssembled(s.entities as unknown as AssemblyEntity[], (content.prefabs ?? []) as never)) if (!byId.has(e.id)) byId.set(e.id, { entity: e as unknown as SceneEntityV3, sceneId: s.sceneId });
     }
     return byId.get(id);
   };
@@ -692,7 +693,6 @@ function prefabCopyCountErrors(s: SceneV4, content: ContentCatalogV4, errors: Mo
     return c.spawns + c.directional + c.ambient + c.local + c.hemisphere + c.fogVolumes + c.points3d > 0;
   })));
   if (!counted || !s.entities.some((e) => isPrefabLink((e.components as { prefab?: unknown }).prefab))) return;
-  const assembler = derivedOf(prefabs, 'count-assembler', () => createPrefabAssembler(prefabs as never));
   const countErrors = (entities: readonly { components: unknown }[]): ModelErrorV3[] => {
     const counts: EntityV3Counts = { ...EMPTY_COUNTS };
     for (const e of entities) {
@@ -705,7 +705,7 @@ function prefabCopyCountErrors(s: SceneV4, content: ContentCatalogV4, errors: Mo
   };
   // The scene's own objects over a limit are the scene's error already.
   const own = new Set(countErrors(s.entities).map((x) => x.message));
-  for (const x of countErrors(assembleSceneEntities(s.entities as unknown as AssemblyEntity[], assembler).entities)) {
+  for (const x of countErrors(sceneObjectsAssembled(s.entities as unknown as AssemblyEntity[], prefabs as never))) {
     if (!own.has(x.message)) errors.push(sceneError(s.sceneId, { ...x, message: `${x.message} (its prefab copies' parts counted)` }));
   }
 }

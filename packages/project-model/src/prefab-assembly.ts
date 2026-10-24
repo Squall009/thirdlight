@@ -16,6 +16,7 @@ import {
   type PrefabLinkComponent,
   type PrefabOverride,
 } from './prefab-links';
+import { derivedOf } from './content-helpers';
 import { componentRefsNaming, setValueAtPath, valueAtPath } from './prefab-entity-refs';
 
 /** Whether a declared property is private (absent visibility = public): never stored on an object, never overridden. */
@@ -429,6 +430,26 @@ export function assembleSceneEntities(entities: readonly AssemblyEntity[], assem
   return { entities: out, problems };
 }
 
+
+/** Each stored scene list's assembled form, with the prefab list it was assembled against. */
+const assembledScenes = new WeakMap<object, { prefabs: object; entities: readonly AssemblyEntity[] }>();
+
+/**
+ * A scene's objects as everything that names an object sees them: its linked
+ * copies assembled, so a behavior's entity reference or a spawn named by a
+ * scene transition or the shell may be one of a copy's parts, as it is in the
+ * Scene view and in the game. The stored list itself when it holds no link.
+ * Both lists are immutable values, so the result is kept per pair.
+ */
+export function sceneObjectsAssembled(entities: readonly AssemblyEntity[], prefabs: readonly AssemblyPrefab[]): readonly AssemblyEntity[] {
+  if (!entities.some((e) => isPrefabLink((e.components as { prefab?: unknown }).prefab))) return entities;
+  const hit = assembledScenes.get(entities);
+  if (hit !== undefined && hit.prefabs === prefabs) return hit.entities;
+  const assembler = derivedOf(prefabs, 'scene-assembler', () => createPrefabAssembler(prefabs));
+  const made = assembleSceneEntities(entities, assembler).entities;
+  assembledScenes.set(entities, { prefabs, entities: made });
+  return made;
+}
 
 /**
  * A prefab as the runtime spawns it: its nested copies and variants expanded

@@ -91,7 +91,7 @@ describe('a schemaVersion 7 project with plain prefab copies opened over HTTP', 
       { id: 'spawner-1', components: { transform: { position: [0, -5, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, behavior: { behaviorId: 'spawner', values: {} } } },
     ];
     const snapshot = { snapshotId: `${PID}@r1`, projectId: PID, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities, blocks: [blocks] }, blockTypes: BLOCK_TYPES, prefabs: game.prefabs };
-    const h = await startHarness('single', { snapshot, settings: SETTINGS, physics: physics3DConfigOf(entities, SETTINGS), behaviors: [behaviorModule('spawner', SPAWNER)], digestSteps: true, host: { buildId: 'b' } });
+    const h = await startHarness('single', { snapshot, settings: SETTINGS, physics: physics3DConfigOf(entities, SETTINGS), behaviors: [behaviorModule('spawner', SPAWNER), behaviorModule('linker', 'export default { step() {} };\n', { properties: [{ key: 'target', label: 'Target', type: 'entityRef', default: null }] })], digestSteps: true, host: { buildId: 'b' } });
     try {
       for (let i = 1; i <= STEPS; i += 1) await h.tick(i * DT);
       const errors = (h.rt.getDiagnostics() as Any).diagnostics?.errors ?? [];
@@ -149,7 +149,18 @@ describe('a schemaVersion 7 project with plain prefab copies opened over HTTP', 
     await command('updateEntity', { entityId: e2.rootId, keepLoaded: true });
     // A crate whose prefab file is lost while the project is closed (below).
     const c1 = await place('crate', 20);
-    Object.assign(ids, { group, d1: d1.rootId, d1Panel: d1.part(1), d2: d2.rootId, d2Panel: d2.part(1), d3: d3.rootId, d3Panel: d3.part(1), lamp, e1: e1.rootId, e2: e2.rootId, c1: c1.rootId, c1Lid: c1.part(1) });
+    // Objects outside the copies that name a copy's part: a lever whose target is a door's panel, and a scene
+    // transition whose spawn is a placed spawn-point prefab (the copy's root, whose playerSpawn is the prefab's).
+    await command('publishBehavior', { behaviorId: 'linker', displayName: 'Linker', mode: 'declaration-create', declaration: { properties: [{ key: 'target', label: 'Target', type: 'entityRef', default: null }] } });
+    const lever = (await command('createEntity', { kind: 'box', name: 'Lever', sceneId: 'scene-main', transform: { position: [-4, 0, 0] } })).createdId as string;
+    await command('setBehaviorProperties', { entityId: lever, behaviorId: 'linker', values: { target: d1.part(1) } });
+    const padRoot = (await command('createEntity', { kind: 'group', name: 'Pad', sceneId: 'scene-main', components: { playerSpawn: {} } })).createdId as string;
+    await command('createEntity', { kind: 'box', name: 'Marker', parentId: padRoot, sceneId: 'scene-main' });
+    await command('createPrefab', { prefabId: 'pad', displayName: 'Pad', sourceEntityId: padRoot });
+    await command('deleteEntity', { entityId: padRoot });
+    const pad = await place('pad', -8);
+    const exit = (await command('createEntity', { kind: 'group', name: 'Exit', sceneId: 'scene-main', transform: { position: [-12, 1, 0] }, components: { trigger: { size: [1, 2, 2], signal: 'exit', sceneTransition: { scene: 'scene-main', spawn: pad.rootId } } } })).createdId as string;
+    Object.assign(ids, { group, d1: d1.rootId, d1Panel: d1.part(1), d2: d2.rootId, d2Panel: d2.part(1), d3: d3.rootId, d3Panel: d3.part(1), lamp, e1: e1.rootId, e2: e2.rootId, c1: c1.rootId, c1Lid: c1.part(1), lever, pad: pad.rootId, exit });
 
     before.view = await queryEntities();
     before.game = await exported();
@@ -192,6 +203,12 @@ describe('a schemaVersion 7 project with plain prefab copies opened over HTTP', 
     // The crate's prefab is gone: its objects stay plain, no longer naming it.
     expect(stored.get(ids['c1']!).components.prefab).toBeUndefined();
     expect(stored.has(ids['c1Lid']!)).toBe(true);
+    // The references to copies' parts still name them, though the parts are no stored objects now.
+    // The spawn point is a copy's root: stored, it is only its link (its playerSpawn comes from the prefab).
+    expect(stored.get(ids['pad']!).components).toEqual({ transform: expect.any(Object), prefab: { prefabId: 'pad', partIds: expect.any(Object) } });
+    expect(stored.has(ids['d1Panel']!)).toBe(false);
+    expect(stored.get(ids['lever']!).components.behavior.values).toEqual({ target: ids['d1Panel'] });
+    expect(stored.get(ids['exit']!).components.trigger.sceneTransition.spawn).toBe(ids['pad']);
 
     expect(await queryEntities()).toEqual(withoutCrate(before.view));
     const after = await exported();

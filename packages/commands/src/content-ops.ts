@@ -10,7 +10,7 @@
  * workspace: `publishAsset` takes digest-addressed facts only, and behavior
  * **source** publication is refused before any stage/digest work.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, sceneObjectsAssembled } from '@thirdlight/project-model';
 import type { ComponentFollow } from './follow-ops';
 
 import {
@@ -128,7 +128,8 @@ export function valueContext(
   scene: SceneDocument,
   content: ContentDocument,
 ): ValueContext {
-  const entityIds = new Set<string>(scene.entities.map((e) => e.id));
+  // A linked copy's parts are objects of the scene: a reference may name one.
+  const entityIds = new Set<string>(sceneObjectsAssembled(scene.entities as never, content.prefabs as never).map((e) => e.id));
   for (const d of content.prefabs) for (const e of d.entities) entityIds.add(e.localId);
   return { entityIds, assetIds: new Set(content.assets.map((a) => a.assetId)) };
 }
