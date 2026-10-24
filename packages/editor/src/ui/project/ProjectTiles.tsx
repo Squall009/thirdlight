@@ -1,16 +1,18 @@
 /**
  * The project window's tiles and rows: a folder, an asset (its picture from
  * the import cache, its summary read while it is on screen), a piece of a
- * multi-piece model file, and a resource or scene. Every one can be chosen,
+ * multi-piece model file, and a resource or scene (a prefab shows its model's
+ * picture). Every one can be chosen,
  * opened with a double-click and dragged; a folder is also a drop target.
  *
  * Browser-only (React).
  */
-import type { DragEvent, JSX, MouseEvent } from 'react';
+import { useEffect, type DragEvent, type JSX, type MouseEvent } from 'react';
 
 import type { IndexEntryView } from '../../session/catalog';
 import type { TileThumbnails } from '../../viewport/thumbnails';
-import { useAssetSummaries } from '../catalog/catalog-context';
+import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
+import { prefabPicture } from '../../session/prefab-copy';
 import { TileImage } from '../assets/TileImage';
 import { kindIcon } from '../../session/item-icons';
 
@@ -137,8 +139,29 @@ export function PieceTile(p: { view: ProjectView; assetId: string; name: string;
   );
 }
 
-/** A resource or a scene. */
-export function ItemTile(p: Common & { e: IndexEntryView }): JSX.Element {
+/**
+ * A prefab's picture: the thumbnail of the model it shows first (its own
+ * objects, else a nested copy's or its base's), read while the tile is on
+ * screen; the prefab icon when it has no model.
+ */
+function PrefabPicture(p: { prefabId: string; thumbnails: TileThumbnails | null }): JSX.Element {
+  const view = useCatalog();
+  const { model, missing } = prefabPicture(p.prefabId, (id) => view.catalog?.prefab(id));
+  const key = missing.join('\u0000');
+  useEffect(() => {
+    if (view.catalog !== null && key !== '') void view.catalog.ensurePrefabs(key.split('\u0000'));
+  }, [view.catalog, view.version, key]);
+  const [a] = useAssetSummaries(model !== null ? [model.assetId] : []);
+  if (model === null) return <Glyph kind="prefab" />;
+  return (
+    <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true">
+      <TileImage summary={a} kind="prefab" piece={model.piece} thumbnails={p.thumbnails} />
+    </span>
+  );
+}
+
+/** A resource or a scene (a prefab with its picture). */
+export function ItemTile(p: Common & { e: IndexEntryView; thumbnails?: TileThumbnails | null }): JSX.Element {
   return (
     <li
       className={classOf('tl-project__item', p)}
@@ -151,7 +174,7 @@ export function ItemTile(p: Common & { e: IndexEntryView }): JSX.Element {
       draggable
       onDragStart={p.onDragStart}
     >
-      <Glyph kind={p.e.kind} />
+      {p.e.kind === 'prefab' ? <PrefabPicture prefabId={p.e.id} thumbnails={p.thumbnails ?? null} /> : <Glyph kind={p.e.kind} />}
       <span className="tl-tile__name">{p.e.name}</span>
       {p.view === 'list' && <span className="tl-project__cell tl-project__cell--path">{p.e.path ?? ''}</span>}
       <span className={p.view === 'grid' ? 'tl-tile__meta' : 'tl-project__cell tl-project__cell--kind'}>{p.e.kind}</span>

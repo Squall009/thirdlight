@@ -92,8 +92,8 @@ always a script's job.
 
 ## Pitfalls
 
-- **An edit of a copy is that copy's override.** Its Inspector's **Apply to
-  prefab** (MCP: [`applyPrefabOverrides`](../reference/ops-detail.md#op-applyPrefabOverrides)
+- **An edit of a copy is that copy's override.** Its Inspector marks it;
+  right-click it, or use the **Overrides** list, for **Apply to prefab** (MCP: [`applyPrefabOverrides`](../reference/ops-detail.md#op-applyPrefabOverrides)
   `{"entityId": "<the copy>", "all": true}`, or `updatePrefab`
   `{"prefabId": "barrel", "fromEntity": "<the copy>"}`) writes it into the
   prefab: every copy and every `ctx.spawn("barrel")` from the next Play

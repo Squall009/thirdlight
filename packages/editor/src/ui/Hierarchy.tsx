@@ -80,6 +80,8 @@ interface Props {
   icons?: IconTable;
   /** A row's context menu (right-click): the entries for the selection as it is when the menu shows. */
   contextMenu?: () => MenuEntry[];
+  /** The prefab a row starts a copy of (a placed copy's root, or a copy nested in a prefab), by display name; null: none. */
+  copyOf?: (e: ProjectedEntity) => { prefabId: string; name: string } | null;
 }
 
 const NO_ICONS: IconTable = [];
@@ -174,11 +176,13 @@ interface RowProps {
   draft: string | null;
   dropClass: string;
   icons: IconTable;
+  /** The prefab this row starts a copy of (null: none). */
+  copy: { prefabId: string; name: string } | null;
   handlers: { current: RowHandlers };
 }
 
 /** One entity row; memoised on its data (the handlers are a stable ref). */
-const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, selected, primary, collapsed: isCollapsed, draft, dropClass, icons, handlers }: RowProps): JSX.Element {
+const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, selected, primary, collapsed: isCollapsed, draft, dropClass, icons, copy, handlers }: RowProps): JSX.Element {
   const inactive = f !== undefined && !f.active;
   const locked = f?.locked === true;
   return (
@@ -187,7 +191,8 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
       data-block-layer={e.components['blockLayer'] !== undefined ? '' : undefined}
       aria-selected={selected}
       style={{ paddingLeft: `${4 + r.depth * 14}px` }}
-      className={['tl-row', selected ? 'is-selected' : '', primary ? 'is-primary' : '', inactive ? 'is-inactive' : '', dropClass].join(' ').replace(/\s+/g, ' ').trim()}
+      data-prefab-part={e.prefab !== undefined ? e.prefab.prefabId : undefined}
+      className={['tl-row', e.prefab !== undefined ? 'is-prefab-part' : '', selected ? 'is-selected' : '', primary ? 'is-primary' : '', inactive ? 'is-inactive' : '', dropClass].join(' ').replace(/\s+/g, ' ').trim()}
       onClick={(ev) => handlers.current.click(ev, r.id)}
       onContextMenu={(ev) => handlers.current.contextMenu(ev, r.id)}
       onDoubleClick={() => handlers.current.activate(r.id, e.name)}
@@ -234,7 +239,12 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
           }}
         />
       ) : (
-        <span className="tl-row__name" title={e.id}>{e.name}</span>
+        <span className="tl-row__name" title={e.prefab !== undefined ? `${e.id} — part of a prefab copy` : e.id}>{e.name}</span>
+      )}
+      {copy !== null && (
+        <span className="tl-row__prefab" data-prefab={copy.prefabId} title={`a copy of the prefab ${copy.name} (double-click to open it)`}>
+          {copy.name}
+        </span>
       )}
       {locked && (
         <span className="tl-row__flag" role="img" aria-label="locked" title={f?.inheritedFrom.locked ? 'locked by a folder above' : 'locked'}>
@@ -255,7 +265,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
   );
 });
 
-export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onActivate, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS, contextMenu }: Props): JSX.Element {
+export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onActivate, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS, contextMenu, copyOf }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
   /** Where the context menu shows (null: closed). */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
@@ -513,7 +523,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
         draft={renaming?.id === r.id ? renaming.draft : null}
         dropClass={dropClass(r.id)}
         icons={icons}
-        handlers={handlers}
+        copy={copyOf?.(e) ?? null} handlers={handlers}
       />
     );
   };

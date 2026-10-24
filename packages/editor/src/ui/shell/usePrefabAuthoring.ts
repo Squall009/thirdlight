@@ -1,11 +1,12 @@
 /**
- * Prefab authoring: make a prefab from the selection, apply a placed copy
- * back to its prefab, choose one in the project window, place a copy with
- * overridden declared properties, delete a definition.
+ * Prefab authoring: make a prefab from the selection, choose one in the
+ * project window, place a copy with overridden declared properties (or where
+ * it is dropped), delete a definition. (A copy's own overrides are the Inspector's,
+ * `usePrefabCopy`.)
  */
 import { useCallback, useMemo, useState, type MutableRefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
-import { collectOverrides, copyRootOf, newPrefabDraft, overrideDraftKey, planCreatePrefab, planInstantiatePrefab, type CaptureEntityView } from '../../session/prefab-authoring';
+import { collectOverrides, newPrefabDraft, overrideDraftKey, planCreatePrefab, planInstantiatePrefab, type CaptureEntityView } from '../../session/prefab-authoring';
 import { deriveOverrideTargets } from '../../session/property-controls';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 import { refusal, type ClientRef, type SetNotice, type UiError } from './commands';
@@ -86,28 +87,12 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
     setNotice(`Prefab “${plan.command.args.displayName}” created from ${sel.name ?? sel.id}.`);
   }, [clientRef, runTypedCommand, selectedIdRef, setNotice]);
 
-  /**
-   * Inspector → Apply to prefab, on a placed copy: the copy (from its root
-   * down, as it is now) becomes the prefab's contents, under the same id.
-   * Other copies keep what they have; new copies and spawns use the new
-   * contents. One undo puts the old contents back.
-   */
-  const applyToPrefab = useCallback(async (entityId: string) => {
-    const c = clientRef.current;
-    const prefabId = c?.projection.getEntity(entityId)?.prefab?.prefabId;
-    if (!c || prefabId === undefined) return;
-    // The definition names the root part that marks where a copy starts.
-    await c.catalog.ensurePrefabs([prefabId]);
-    const rootLocalId = c.prefabs.getDefinition(prefabId)?.entities[0]?.localId;
-    if (rootLocalId === undefined) return setNotice(`Apply to prefab: prefab “${prefabId}” could not be read.`);
-    const root = copyRootOf(entityId, (id) => c.projection.getEntity(id), rootLocalId);
-    if (root === undefined) return;
+  /** A prefab dragged from the project window into the Scene view: one linked copy where it was dropped. */
+  const placeAt = useCallback(async (prefabId: string, position: readonly number[]) => {
     let failure: UiError | null = null;
-    const ok = await runTypedCommand('updatePrefab', { prefabId, fromEntity: root.id }, (e) => (failure = e));
-    const name = c.prefabs.getDefinition(prefabId)?.displayName ?? prefabId;
-    if (!ok) return setNotice(`Apply to prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
-    setNotice(`Prefab “${name}” updated from ${root.name ?? root.id}; copies already placed keep what they have.`);
-  }, [clientRef, runTypedCommand, setNotice]);
+    const ok = await runTypedCommand('instantiatePrefab', { prefabId, transform: { position: [...position] } }, (e) => (failure = e));
+    if (!ok) setNotice(`Place prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
+  }, [runTypedCommand, setNotice]);
 
   const overrideTargets = useMemo(() => {
     const c = clientRef.current;
@@ -161,7 +146,7 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
 
   return {
     selectedPrefabId, setSelectedPrefabId, choosePrefab, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
-    deletePrefab, createPrefabFromSelection, applyToPrefab, overrideTargets, commitOverride, placeCopy,
+    deletePrefab, createPrefabFromSelection, placeAt, overrideTargets, commitOverride, placeCopy,
   };
 }
 

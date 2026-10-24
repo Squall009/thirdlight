@@ -1,13 +1,10 @@
 /**
- * A prefab in the Inspector (chosen in the project window): place a
+ * A prefab in the Inspector (chosen in the project window): place a linked
  * **copy** of it (`instantiatePrefab`), optionally with **declared-property**
- * initial overrides, or delete the definition. A definition is made from the
+ * overrides, or delete the definition. A definition is made from the
  * selection by GameObject → Create prefab from selection or the Hierarchy's
- * context menu (`createPrefab`).
- *
- * The terminology is the contract's: copies, never linked prefabs. There is
- * deliberately no Link, Apply, Revert, variant or propagation control —
- * definitions are immutable and a definition change never rewrites a copy.
+ * context menu (`createPrefab`). A copy follows every edit of its prefab
+ * except what it overrides; its own overrides are in its Inspector.
  *
  * Display + intent only: every action is an ordinary typed command issued by
  * the app through the session client (the sole mutation path).
@@ -35,21 +32,20 @@ export interface PrefabInspectorProps {
 
 /**
  * A prefab chosen in the project window, in the Inspector: place a copy (with
- * initial overrides of its declared properties), or delete the definition.
- * Copies are independent: there is no link back to the definition.
+ * overrides of its declared properties), or delete the definition.
  */
 export function PrefabInspector(p: PrefabInspectorProps): JSX.Element {
   const d = p.definition;
   return (
     <div className="tl-prefabs__override" aria-label="prefab" data-prefab-id={p.prefabId}>
       <div className="tl-prop__caption" title={p.prefabId}>
-        {d !== null ? `${d.displayName} — ${d.entityCount} object${d.entityCount === 1 ? '' : 's'}, depth ${d.depth}` : p.prefabId} · copies are independent
+        {d !== null ? `${d.displayName} — ${d.entityCount} object${d.entityCount === 1 ? '' : 's'}, depth ${d.depth}` : p.prefabId} · copies follow its edits
       </div>
       {/* A prefab made in the editor gets a generated id, and scripts spawn it by that id, so it is shown to copy. */}
       <div className="tl-prop__caption" aria-label="prefab id">
         id <code>{p.prefabId}</code> — the name <code>ctx.spawn</code> takes
       </div>
-      <div className="tl-prop__caption">Initial override (optional) — applies to the copy placed next, not to the definition.</div>
+      <div className="tl-prop__caption">Override (optional) — kept by the copy placed next, not written to the prefab.</div>
       {p.targets.length === 0 && <div className="tl-inspector__empty">this definition has no declared properties</div>}
       {p.targets.map((t) => (
         <div className="tl-prefabs__target" key={t.localId}>
@@ -67,7 +63,7 @@ export function PrefabInspector(p: PrefabInspectorProps): JSX.Element {
         </div>
       ))}
       <div className="tl-prefabs__row">
-        <button className="tl-btn tl-btn--small" onClick={() => p.onPlaceCopy(p.prefabId)} title="Materialize one independent copy at the scene root">
+        <button className="tl-btn tl-btn--small" onClick={() => p.onPlaceCopy(p.prefabId)} title="Place one linked copy at the scene root (or drag the prefab into the Scene view)">
           place copy
         </button>
         <span className="tl-prop__caption">{p.overrideCount} override(s)</span>

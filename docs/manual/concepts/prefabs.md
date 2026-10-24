@@ -37,9 +37,16 @@ in [prefabs in the reference](../reference/content-blocks-settings.md#content-pr
 - The prefab appears in the Project window. Choose it to see it in the
   Inspector; **place copy** puts one copy at the scene root.
 - **GameObject → Prefab copy…** opens the Project window on your prefabs.
-- On a placed copy, the Inspector's **Apply to prefab** makes the copy (from
-  its root down, as it is now) the prefab's contents. One undo puts the old
-  contents back.
+- Drag a prefab from the Project window into the Scene view to place a
+  copy where it lands. Right-click it (or press **create variant** in its
+  Inspector) for a **variant**: a new prefab made of one copy of it.
+- A copy's Inspector names its prefab (a variant with its base), and marks
+  the fields the copy overrides; right-click one for **Revert** or **Apply
+  to prefab**. Its **Overrides** list holds every override of the copy, each
+  reverted or applied (or all of them). **Open prefab** opens the prefab;
+  **Unpack** makes the copy plain objects. Each is one undo step.
+- The Hierarchy marks a copy's objects in the prefab colour, and a copy
+  (nested ones too) shows its prefab's name.
 
 ## Through the API and in scripts
 

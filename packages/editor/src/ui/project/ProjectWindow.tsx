@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { ASSET_KINDS, INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
 
 import type { FolderView, IndexEntryView, IndexQuery } from '../../session/catalog';
-import { ASSET_DRAG_TYPE } from '../../session/placement';
+import { ASSET_DRAG_TYPE, PREFAB_DRAG_TYPE } from '../../session/placement';
 import { PROJECT_KINDS, parseSearch, typeOf, withType } from '../../session/project-search';
 import { folderKey, folderTrail, freeFolderName, isAssetKind, isWithin, itemKey, parseProjectDrag, PROJECT_DRAG_TYPE, selectionOf, type ProjectItem, type ProjectSelection } from '../../session/project-items';
 import type { TileThumbnails } from '../../viewport/thumbnails';
@@ -70,6 +70,17 @@ interface Props {
 }
 
 type Sort = '' | 'name' | 'kind' | 'path';
+
+/**
+ * What one dragged item also is besides a project item: a model or texture
+ * drops into the Scene view, the Hierarchy and texture fields; a material
+ * onto an object; a prefab into the Scene view as a linked copy.
+ */
+function setOneItemDrag(dt: DataTransfer, entry: IndexEntryView, piece: string | null): void {
+  if (entry.kind === 'model' || entry.kind === 'texture') dt.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId: entry.id, kind: entry.kind } : { assetId: entry.id, kind: entry.kind, piece }));
+  if (entry.kind === 'material') dt.setData(MATERIAL_DRAG_TYPE, entry.id);
+  if (entry.kind === 'prefab') dt.setData(PREFAB_DRAG_TYPE, entry.id);
+}
 const TILE_GAP = 8;
 const TILE_PADDING = 8;
 const ROW_STRIDE = 26;
@@ -232,11 +243,7 @@ export function ProjectWindow(p: Props): JSX.Element {
     const keys = chosen.has(key) && piece === null ? [...chosen] : [key];
     const sel = selectionOf(keys);
     ev.dataTransfer.setData(PROJECT_DRAG_TYPE, JSON.stringify(sel));
-    // One model or texture also drops into the Scene view, the Hierarchy and texture fields; one material onto an object.
-    if (entry !== null && keys.length === 1 && (entry.kind === 'model' || entry.kind === 'texture')) {
-      ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId: entry.id, kind: entry.kind } : { assetId: entry.id, kind: entry.kind, piece }));
-    }
-    if (entry !== null && keys.length === 1 && entry.kind === 'material') ev.dataTransfer.setData(MATERIAL_DRAG_TYPE, entry.id);
+    if (entry !== null && keys.length === 1) setOneItemDrag(ev.dataTransfer, entry, piece);
     ev.dataTransfer.effectAllowed = 'copyMove';
   };
   const dragOver = (ev: DragEvent<HTMLElement>, target: string): void => {
@@ -335,6 +342,7 @@ export function ProjectWindow(p: Props): JSX.Element {
     ...(item !== null
       ? ([
           { label: 'Open', onSelect: () => p.onOpen(item) },
+          ...(item.kind === 'prefab' && p.actions !== undefined ? [{ label: 'Create variant', onSelect: () => void run(p.actions!.createVariant(item.id)) }] : []),
           ...(p.actions?.canDelete(item.kind) === true ? [{ label: 'Delete', onSelect: () => void deleteItem(item) }] : []),
           'separator',
         ] as MenuEntry[])
@@ -558,7 +566,7 @@ export function ProjectWindow(p: Props): JSX.Element {
               onOpen: () => p.onOpen({ kind: e.kind, id: e.id }),
               onDragStart: (ev: DragEvent<HTMLLIElement>) => dragStart(ev, key, e, null),
             };
-            if (!isAssetKind(e.kind)) return <ItemTile key={key} {...common} chosen={chosen.has(key)} e={e} />;
+            if (!isAssetKind(e.kind)) return <ItemTile key={key} {...common} chosen={chosen.has(key)} e={e} thumbnails={p.thumbnails} />;
             const index = at.entry;
             return (
               <AssetTile

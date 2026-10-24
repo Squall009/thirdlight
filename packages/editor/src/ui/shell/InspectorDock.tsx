@@ -43,6 +43,7 @@ import type { CuePreview } from './useCuePreview';
 import type { AssetsWindow } from './useAssetsWindow';
 import type { AssetActions } from './useAssetActions';
 import type { PrefabAuthoring } from './usePrefabAuthoring';
+import { usePrefabCopy } from './usePrefabCopy';
 import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 import type { ProjectContent } from './useProjectContent';
 import type { ProjectSettings } from './useProjectSettings';
@@ -95,6 +96,8 @@ export interface InspectorDockProps {
   assets: AssetsWindow;
   assetActions: AssetActions;
   prefab: PrefabAuthoring;
+  /** Open a prefab in the prefab editor. */
+  openPrefab: (prefabId: string) => void;
   tileThumbnails: TileThumbnails | null;
   /** The kit editor: while a kit's tab is in front, the Inspector shows what is picked in it. */
   kit: KitEditor;
@@ -299,8 +302,9 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
 /** The Inspector of the selected object (several selected: the primary one). */
 function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, instanceBrush, reportFailure, setNotice } = props;
-  const { declarations, materials, prefabSummaries, registry } = props.content;
+  const { declarations, materials, registry } = props.content;
   const { settings, tags } = props.settings;
+  const copy = usePrefabCopy({ clientRef, selected, entities, runTypedCommand: props.entity.runTypedCommand, setNotice, openPrefab: props.openPrefab });
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
   const { writeFootprint, snapLocal } = props.blocks;
@@ -319,14 +323,16 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
     return <RoomsObjectSection component={arch} host={host} objectSheet={mats?.[ARCHITECTURE_MATERIAL_SLOT] ?? mats?.['*'] ?? null} onChange={(next) => void editComponent(selected.id, 'architecture', Object.fromEntries((['outlines', 'buildings'] as const).filter((k) => arch[k] !== undefined || next[k] !== undefined).map((k) => [k, next[k] ?? null])))} onDerive={derive} />;
   })();
   return (
+    <>
+    {copy.menu}
     <Inspector
       entity={selected}
       editAction={props.editMode}
       gizmoMode={gizmoMode}
       onGizmoMode={setGizmoMode}
       declarations={declarations}
-      prefabDisplayName={(prefabId) => prefabSummaries.find((d) => d.prefabId === prefabId)?.displayName ?? prefabId}
-      onApplyToPrefab={(entityId) => void props.prefab.applyToPrefab(entityId)}
+      copyHeader={copy.header}
+      fieldMarks={copy.marks}
       propertyError={propertyError}
       componentError={componentError}
       onEditProperty={(entityId, key, raw) => void editProperty(entityId, key, raw)}
@@ -511,5 +517,6 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
             }
       }
     />
+    </>
   );
 }

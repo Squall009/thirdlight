@@ -45,8 +45,8 @@
  *     reference / a too-long string into a control and confirm the bounded
  *     `property_value`/`reference_missing`/`property_type` error is shown and
  *     no command is sent; (b) attempt to capture the scene camera and confirm
- *     `prefab_camera_capture_forbidden`; (c) attempt to capture an existing
- *     copy and confirm `prefab_nested_forbidden`; (d) force a stale revision
+ *     `prefab_camera_capture_forbidden`; (c) capture an existing copy and
+ *     confirm the new prefab nests it; (d) force a stale revision
  *     (edit from MCP between selecting and releasing) and confirm exactly one
  *     re-read + re-issue with a fresh `requestId` and then a surfaced
  *     `revision_conflict`; (e) drive the scene to the 1024-entity bound and

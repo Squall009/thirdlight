@@ -10,8 +10,8 @@
  *  - a whole GLB is placed by `createEntity` with `kind: "model"` and a
  *    resolving `model.asset.assetId` reference: one placement = one undoable transaction with a
  *    backend-assigned `model-N` ID and an independent transform;
- *  - a prefab copy is placed by `instantiatePrefab`: a definition may carry `components.model` references and
- *    instantiation materializes independent copies.
+ *  - a prefab copy is placed by `instantiatePrefab` (a linked copy; a prefab
+ *    tile dropped in the Scene view places one where it lands).
  *
  * Pure: no DOM, no I/O, no Node builtins.
  */
@@ -93,6 +93,9 @@ export function planPrefabPlacement(prefabId: string, options: PlacementOptions 
 
 /** The DataTransfer type an asset tile drags. */
 export const ASSET_DRAG_TYPE = 'application/x-thirdlight-asset';
+
+/** The DataTransfer type a prefab tile drags (its prefab id): dropped in the Scene view it places a linked copy. */
+export const PREFAB_DRAG_TYPE = 'application/x-thirdlight-prefab';
 
 /** What an asset tile drags: a whole model file or one piece of it. */
 export interface AssetDragPayload {

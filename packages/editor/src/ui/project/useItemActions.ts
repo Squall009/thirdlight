@@ -1,7 +1,7 @@
 /**
  * What the project window does to its items besides moving them: make a new
  * one of a kind in the folder shown (Unity's Create menu, Godot's "New
- * Resource"), rename one, delete one. Each is one command through the session
+ * Resource"), rename one, delete one, make a prefab's variant. Each is one command through the session
  * client (the one mutation path) and one undo; each resolves to the refusal's
  * message, or null.
  *
@@ -113,6 +113,8 @@ export interface ItemActions {
   remove(item: ProjectItem): Promise<string | null>;
   /** The last refused delete (the Inspector shows it under the item). */
   readonly deleteError: { item: ProjectItem; message: string } | null;
+  /** A prefab's variant: a new prefab made of one copy of it, shown in the Inspector after. */
+  createVariant(basePrefabId: string): Promise<string | null>;
 }
 
 export function useItemActions(deps: ItemActionsDeps): ItemActions {
@@ -321,5 +323,20 @@ export function useItemActions(deps: ItemActionsDeps): ItemActions {
     [clientRef, workspaceDispatch, onDeleted],
   );
 
-  return useMemo(() => ({ createKinds, create, canRename, rename, canDelete, remove, deleteError }), [createKinds, create, canRename, rename, canDelete, remove, deleteError]);
+  const createVariant = useCallback(
+    async (basePrefabId: string): Promise<string | null> => {
+      const c = clientRef.current;
+      if (c === null) return 'not connected';
+      await c.catalog.ensurePrefabs([basePrefabId]);
+      const baseName = c.prefabs.getDefinition(basePrefabId)?.displayName ?? basePrefabId;
+      const displayName = `${baseName} Variant`.slice(0, NAME_MAX);
+      const prefabId = await freeItemId(displayName, 'prefab', (ids) => c.catalog.taken(ids, ['prefab']));
+      const err = refusal(await c.command('createPrefabVariant', { basePrefabId, prefabId, displayName }, c.projection.revision));
+      if (err === null) inspect({ kind: 'prefab', id: prefabId });
+      return err;
+    },
+    [clientRef, inspect],
+  );
+
+  return useMemo(() => ({ createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant }), [createKinds, create, canRename, rename, canDelete, remove, deleteError, createVariant]);
 }

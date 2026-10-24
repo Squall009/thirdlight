@@ -21,7 +21,7 @@ walks through it.
 | You want | Use | Why |
 |---|---|---|
 | Something the player uses, a script drives, or that moves | An object (box, model, prefab copy) | Each has an id, components, a collider and scripts |
-| The same object many times, each with its own behaviour | A [prefab](prefabs.md) | One definition; new copies and every spawn use its latest contents (placed copies are independent) |
+| The same object many times, each with its own behaviour | A [prefab](prefabs.md) | One definition; placed copies follow its edits except what they override, and every spawn uses its latest contents |
 | A door, lamp or trigger that belongs to the level's grid | A **live** block type ([block layers](block-layers.md)) | Spawned per cell; its id comes from the cell |
 | Many copies placed by hand: rocks, crates, grass patches | An [instance set](instance-sets.md) | Up to 65,536 copies of one model in a few draws; no ids or colliders |
 | Copies laid by rules over the ground: forests, rocks, grass | Rule scatter ([terrain guide](terrain.md#rule-scatter-and-ground-cover)) | Baked from rules, re-baked when the ground changes; ground cover made near the camera; per-copy colliders and script addresses (`ctx.scatter`) |

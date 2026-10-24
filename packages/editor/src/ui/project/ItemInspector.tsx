@@ -167,6 +167,9 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
           <button className="tl-btn tl-btn--small" onClick={() => p.open(item)} title="Edit the prefab on its own; every copy follows (or double-click it in the project window)">
             open prefab
           </button>
+          <button className="tl-btn tl-btn--small" onClick={() => void actions.createVariant(e.id)} title="A new prefab made of one copy of this one: it follows this prefab and keeps what it changes (or right-click the prefab in the project window)">
+            create variant
+          </button>
         </div>
       )}
       {e.kind === 'prefab' && (

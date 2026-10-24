@@ -20,8 +20,9 @@
  * through typed commands issued by the app (one `setBehaviorProperties` per
  * property edit), never through a direct scene write.
  *
- * A materialized prefab copy is labelled "Copy of <displayName> — copies are
- * independent"; there is no Link/Apply/Revert/variant affordance.
+ * An object of a linked prefab copy shows the copy's header (its prefab, the
+ * Overrides list, Open prefab, Unpack) and its overridden fields marked, with
+ * a right-click Revert / Apply to prefab (`usePrefabCopy`).
  *
  * Browser-only (React).
  */
@@ -34,7 +35,7 @@ import { addEntries, componentOp, componentPatch, firstReference, removable, see
 import type { GizmoMode } from '../viewport/viewport';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 import { AddComponent, ComponentSection, type AddExtra, type FieldContext } from './DescriptorFields';
-import { onPrefabStage } from './shell/usePrefabStage';
+import { FieldMarksContext, type FieldMarks } from './field-marks';
 
 /** A field edit's patch made again from a component value (null: nothing to change there). */
 export type PatchRebase = (current: Record<string, unknown>) => Record<string, unknown> | null;
@@ -52,10 +53,10 @@ interface Props {
   fieldContext: FieldContext;
   /** Published declarations (the only schema source), keyed by behaviorId. */
   declarations: ReadonlyMap<string, PropertyDeclaration>;
-  /** Display name of a definition, for the copy provenance label. */
-  prefabDisplayName: (prefabId: string) => string;
-  /** Make the prefab's contents this copy (its root down), keeping the prefab's id. */
-  onApplyToPrefab?: (entityId: string) => void;
+  /** The linked prefab copy's header (null: the object is no copy's). */
+  copyHeader?: ReactNode;
+  /** The fields the copy overrides (null: none marked). */
+  fieldMarks?: FieldMarks | null;
   /** The last property-command error (bounded), when one occurred. */
   propertyError: ControlErrorView | null;
   componentError: ControlErrorView | null;
@@ -229,7 +230,7 @@ function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: (
   );
 }
 
-export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry, fieldContext, declarations, prefabDisplayName, onApplyToPrefab, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
+export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry, fieldContext, declarations, copyHeader, fieldMarks, propertyError, componentError, onEditProperty, onComponentEdit, onAddComponent, onFitCapsule, capsuleOwner, onRename, onEditTransform, flags, entityName, selectionCount, onSetFlag, tags, onSetTags, bodies, extensions, alwaysShow, addExtras }: Props): JSX.Element {
   const isFolder = entity?.kind === 'folder';
   const behavior =
     entity?.behaviorId !== undefined
@@ -296,19 +297,10 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
           <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
           {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}
-          {/* A prefab's own objects (its editor) are no copy of it. */}
-          {entity.prefab && !onPrefabStage(entity) && (
-            <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>
-              Copy of {prefabDisplayName(entity.prefab.prefabId)} — copies are independent
-              {onApplyToPrefab !== undefined && (
-                <button type="button" className="tl-btn" title="Make the prefab's contents this copy (from its root down); copies already placed keep what they have, new copies and spawns use the new contents" onClick={() => onApplyToPrefab(entity.id)}>
-                  Apply to prefab
-                </button>
-              )}
-            </div>
-          )}
+          {copyHeader}
           {registry === null && <p className="tl-inspector__hint">Loading the component descriptions…</p>}
 
+          <FieldMarksContext.Provider value={fieldMarks ?? null}>
           {sections.map((c) => {
             const value = (components[c.name] ?? {}) as Record<string, unknown>;
             const op = componentOp(c.name);
@@ -386,6 +378,7 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
             const extension = extensions?.[c.name];
             return <ComponentSection key={c.name} {...common} {...(body !== undefined ? { body } : {})} {...(extension !== undefined ? { extension } : {})} />;
           })}
+          </FieldMarksContext.Provider>
 
           {entity.controller !== true && (capsuleOwner ?? null) !== null && !isFolder && (
             <div className="tl-inspector__section tl-inspector__collision" aria-label="collision" data-capsule="parent">

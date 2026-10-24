@@ -1725,3 +1725,20 @@ canvas.tl-viewport[data-lent="look"] { pointer-events: none; }
 .tl-rooms__opening > .tl-field:has(select) { grid-column: 1 / -1; }
 .tl-rooms__opening > .tl-field { margin-bottom: 6px; min-width: 0; }
 .tl-rooms__opening .tl-input--num { width: 100%; min-width: 0; }
+
+/* A linked prefab copy: its overridden fields are marked (a bar on the left and a bold label, as Unity does). */
+.tl-desc__overridden { display: contents; }
+.tl-desc__overridden > * { box-shadow: inset 2px 0 0 var(--kind-prefab); }
+.tl-desc__overridden > * > .tl-field__label, .tl-desc__overridden > * > .tl-desc__legend { font-weight: 600; color: var(--text); }
+.tl-desc__section.is-overridden > .tl-desc__head .tl-panel__title::after { content: ' •'; color: var(--kind-prefab); }
+.tl-copy { margin: 4px 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-left: 2px solid var(--kind-prefab); border-radius: 3px; font-size: 11px; }
+.tl-copy__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.tl-copy__name { color: var(--kind-prefab); font-weight: 600; }
+.tl-copy__base { color: var(--text-dim); }
+.tl-copy__overrides { margin-top: 6px; }
+.tl-copy__overrides > summary { cursor: pointer; color: var(--text-dim); }
+.tl-copy__list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.tl-copy__item { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.tl-copy__item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-row.is-prefab-part .tl-row__name { color: var(--kind-prefab); }
+.tl-row__prefab { font-size: 10px; padding: 0 4px; border: 1px solid var(--kind-prefab); border-radius: 3px; color: var(--kind-prefab); flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

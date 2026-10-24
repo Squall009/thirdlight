@@ -1,19 +1,16 @@
 /**
  * Prefab capture/instantiation planning.
  *
- * Prefab copies, never links: `createPrefab` captures one definition
- * from a **selected subtree** and `instantiatePrefab` materializes independent
- * scene entities. This module only *plans* those typed commands and preflights
- * them against the projection so the UI can surface the contract's actionable
- * errors before a round trip; the workspace remains the sole executor and the
- * only authority. `updatePrefab` replaces a definition's contents from a
- * subtree (the Inspector's "Apply to prefab"); there is no variant, no
- * revert and no propagation — a definition change never rewrites a copy.
+ * `createPrefab` captures one definition from a **selected subtree** (a
+ * linked copy inside it is nested in the new prefab, by the backend) and
+ * `instantiatePrefab` places a linked copy. This module only *plans* those
+ * typed commands and preflights them against the projection so the UI can
+ * surface the contract's actionable errors before a round trip; the
+ * workspace remains the sole executor and the only authority.
  *
  * Normative rules implemented here:
  *
- *  - capture rejects a nested copy and an external
- *    `entityRef` atomically and enforces the
+ *  - capture rejects an external `entityRef` and enforces the
  *    `prefab_entities`/`prefab_depth`/`prefabs` limits;
  *  - instantiation accepts only the contract's three configurables — the root
  *    parent, the root's partial transform and declared-property overrides —
@@ -202,18 +199,6 @@ export function preflightCreatePrefab(input: CaptureInput): PlanResult<CapturePr
     return {
       ok: false,
       error: { code: 'entity_not_found', message: `the source entity ${input.sourceEntityId} does not exist in the current scene`, entityId: input.sourceEntityId },
-    };
-  }
-  const nested = closure.entities.filter((e) => e.prefab !== null).map((e) => e.id);
-  if (nested.length > 0) {
-    return {
-      ok: false,
-      error: {
-        code: 'prefab_nested_forbidden',
-        message: 'the captured subtree contains a prefab copy; nested prefab definitions are not supported',
-        sourceEntityId: input.sourceEntityId,
-        prefabInstanceIds: nested,
-      },
     };
   }
   const inside = new Set(closure.entities.map((e) => e.id));
@@ -495,38 +480,6 @@ export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ com
   if (input.transform !== undefined) args.transform = input.transform;
   if (checked.length > 0) args.overrides = checked;
   return { ok: true, command: { op: 'instantiatePrefab', args } };
-}
-
-// ---- apply a copy back to its prefab --------------------------------------------
-
-/** What finding a copy's root reads of a scene object. */
-export interface CopyRootView {
-  id: string;
-  parentId: string | null;
-  prefab?: { prefabId: string; localId: string } | null;
-}
-
-/**
- * The object "Apply to prefab" captures for the copy `entityId` is part of:
- * the nearest object at or above it that is a copy's root (its provenance
- * names the prefab's root part, `rootLocalId`, which an update never
- * renames), climbing only through objects copied from the same prefab. A
- * copy placed under another copy of the same prefab is a copy of its own,
- * never more parts of the outer one. With no root on the way (it was deleted,
- * or the part was moved out of its copy) the topmost object of the climb is
- * taken. Undefined when `entityId` is not a copy.
- */
-export function copyRootOf<T extends CopyRootView>(entityId: string, getEntity: (id: string) => T | undefined, rootLocalId: string): T | undefined {
-  let at = getEntity(entityId);
-  const prefabId = at?.prefab?.prefabId;
-  if (at === undefined || prefabId === undefined) return undefined;
-  // A scene is at most MAX_SCENE_DEPTH deep; the bound only guards a broken projection.
-  for (let depth = 1; depth < MAX_SCENE_DEPTH && at.prefab?.localId !== rootLocalId && at.parentId !== null; depth += 1) {
-    const parent: T | undefined = getEntity(at.parentId);
-    if (parent?.prefab?.prefabId !== prefabId) break;
-    at = parent;
-  }
-  return at;
 }
 
 // ---- initial-override draft collection ----------------------------------------

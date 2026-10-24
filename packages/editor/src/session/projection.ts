@@ -62,10 +62,10 @@ export interface ProjectedEntity {
   /** The gameplay block components present on the entity (mover, trigger, switch, health, collectible, patrol, hitbox…). */
   blocks?: Partial<Record<BlockName, Record<string, unknown>>>;
   /**
-   * The informational prefab provenance a materialized copy
-   * carries (`components.prefab`). It is what lets the
-   * inspector label the entity "Copy of <displayName> — copies are
-   * independent"; it grants no inheritance, override or revert behavior.
+   * Which prefab part the object is (`components.prefab`, written by
+   * assembly on every part of a linked copy; a copy's root names the prefab
+   * the copy links). The Hierarchy marks prefab parts by it; the copy's
+   * stored link and overrides are read with `queryEntity`.
    */
   prefab?: { prefabId: string; localId: string };
   /** The box primitive's authored size and base color (the runtime draws both). */

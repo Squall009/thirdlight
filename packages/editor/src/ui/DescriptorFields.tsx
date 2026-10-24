@@ -11,7 +11,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { CellField, CellMetaValue, ComponentDescriptor, FieldDescriptor, MapFieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { defaultOf as cellFieldDefault } from '../session/block-overlay';
@@ -19,6 +19,7 @@ import { MetaValueField } from './blocks/RegionsColumn';
 import { lightLayerLabel } from '@thirdlight/project-model/limits';
 import { RefPicker } from './catalog/RefPicker';
 import { OpenItemButton } from './catalog/item-opener';
+import { FieldMarksContext } from './field-marks';
 import {
   entityChoices,
   firstReference,
@@ -784,6 +785,7 @@ export function ObjectFields(p: {
   skip?: readonly string[];
 }): JSX.Element {
   const level: Level = { desc: p.desc, value: p.value, ...(p.parent !== undefined ? { parent: p.parent } : {}) };
+  const marks = useContext(FieldMarksContext);
   // A field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
   const dimension = p.ctx.physicsDimension ?? 2;
   const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key) && (f.dimension === undefined || f.dimension === dimension));
@@ -792,20 +794,40 @@ export function ObjectFields(p: {
       {groupFields(fields).map((g) => (
         <div className="tl-desc__group" key={g.group ?? ''} {...(g.group !== null ? { 'aria-label': `${fieldAria(p.component, p.path)} ${g.group}`.trim() } : {})}>
           {g.group !== null && <div className="tl-desc__group-title">{g.group}</div>}
-          {g.fields.map((f) => (
-            <FieldRow
-              key={f.key}
-              f={f}
-              value={p.value[f.key]}
-              level={level}
-              path={[...p.path, f.key]}
-              component={p.component}
-              ctx={p.ctx}
-              onEdit={p.onEdit}
-              onFail={p.onFail}
-              {...(p.expandAbsent !== undefined ? { expandAbsent: p.expandAbsent } : {})}
-            />
-          ))}
+          {g.fields.map((f) => {
+            const path = [...p.path, f.key];
+            const row = (
+              <FieldRow
+                key={f.key}
+                f={f}
+                value={p.value[f.key]}
+                level={level}
+                path={path}
+                component={p.component}
+                ctx={p.ctx}
+                onEdit={p.onEdit}
+                onFail={p.onFail}
+                {...(p.expandAbsent !== undefined ? { expandAbsent: p.expandAbsent } : {})}
+              />
+            );
+            if (marks === null || !marks.overridden(p.component, path)) return row;
+            // An overridden field of a prefab copy: marked, and its right-click reverts it or applies it to the prefab.
+            return (
+              <div
+                key={f.key}
+                className="tl-desc__overridden"
+                data-overridden={f.key}
+                title="Overridden on this copy (right-click: Revert, Apply to prefab)"
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  marks.menu(p.component, path, { x: ev.clientX, y: ev.clientY });
+                }}
+              >
+                {row}
+              </div>
+            );
+          })}
         </div>
       ))}
     </>
@@ -839,9 +861,16 @@ export function ComponentSection(p: {
   const valueKey = JSON.stringify(p.value);
   useEffect(() => setError(null), [valueKey]);
   const desc = p.desc.value;
+  const marks = useContext(FieldMarksContext);
+  // A prefab copy that overrides anything of this component marks its title; a right-click there names the whole component.
+  const overridden = marks !== null && marks.overridden(p.desc.name, []);
   return (
-    <div className={`tl-inspector__section tl-desc__section${p.className !== undefined ? ` ${p.className}` : ''}`} aria-label={`${p.desc.name} component`} data-component={p.desc.name} {...Object.fromEntries(Object.entries(p.data ?? {}).map(([k, v]) => [`data-${k}`, v]))}>
-      <div className="tl-desc__head" title={p.desc.tooltip}>
+    <div className={`tl-inspector__section tl-desc__section${p.className !== undefined ? ` ${p.className}` : ''}${overridden ? ' is-overridden' : ''}`} aria-label={`${p.desc.name} component`} data-component={p.desc.name} {...Object.fromEntries(Object.entries(p.data ?? {}).map(([k, v]) => [`data-${k}`, v]))}>
+      <div
+        className="tl-desc__head"
+        title={overridden ? `${p.desc.tooltip ?? ''}\nOverridden on this copy (right-click: Revert, Apply to prefab)`.trim() : p.desc.tooltip}
+        {...(overridden ? { onContextMenu: (ev: { preventDefault(): void; clientX: number; clientY: number }) => { ev.preventDefault(); marks.menu(p.desc.name, [], { x: ev.clientX, y: ev.clientY }); } } : {})}
+      >
         <span className="tl-panel__title">{p.desc.label}</span>
         {p.onRemove !== undefined && (
           <button type="button" className="tl-btn tl-btn--small" aria-label={`remove ${p.desc.name}`} title={`Remove ${p.desc.label}`} onClick={p.onRemove}>

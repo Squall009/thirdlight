@@ -235,8 +235,42 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   await expect.poll(sizeOf).toBe(7);
   await page.keyboard.press('Escape');
   await expect(mode).toHaveCount(0);
-  await page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${copyId}"]`).click();
+  const row = page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${copyId}"]`);
+  await row.click();
   await expect(inspector(page).getByLabel('box size w', { exact: true })).toHaveValue('7');
+
+  // The copy: its Inspector names its prefab, the Hierarchy marks it a prefab part with the prefab's name.
+  const copyBox = inspector(page).getByLabel('prefab copy', { exact: true });
+  await expect(copyBox.getByLabel('copy prefab', { exact: true })).toHaveText('Crate');
+  await expect(row).toHaveClass(/is-prefab-part/);
+  await expect(row.locator('.tl-row__prefab')).toHaveText('Crate');
+  // A field changed on the copy is its override, marked in the Inspector; its right-click menu reverts it.
+  const overrides = async (): Promise<number> => (((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: copyId } }))['prefabCopy'] as { overrides: unknown[] } | undefined)?.overrides ?? []).length;
+  const height = inspector(page).getByLabel('box size h', { exact: true });
+  const marked = inspector(page).locator('[data-component="box"] [data-overridden="size"] > *');
+  await height.fill('3');
+  await height.press('Enter');
+  await expect.poll(overrides).toBe(1);
+  await expect(marked).toHaveCount(1);
+  await marked.click({ button: 'right', position: { x: 4, y: 4 } });
+  await page.getByRole('menu', { name: 'override menu', exact: true }).getByRole('menuitem', { name: 'Revert', exact: true }).click();
+  await expect.poll(overrides).toBe(0);
+  await expect(marked).toHaveCount(0);
+  // Another, applied to the prefab from the Overrides list: the prefab has it and the copy no longer overrides it.
+  const heightOf = async (): Promise<number | undefined> => ((await be.command({ op: 'queryPrefabs', projectId: be.projectId, args: { prefabId: 'crate', includeEntities: true } }))['prefabs'] as { entities: { components: { box?: { size: number[] } } }[] }[])[0]!.entities[0]!.components.box?.size[1];
+  await height.fill('4');
+  await height.press('Enter');
+  await expect.poll(overrides).toBe(1);
+  await copyBox.getByText('Overrides (1)', { exact: true }).click();
+  await copyBox.getByRole('button', { name: /^apply .*: box size$/ }).click();
+  await expect.poll(heightOf).toBe(4);
+  await expect.poll(overrides).toBe(0);
+  // Unpacked: plain objects that no longer follow the prefab; one undo links the copy again (the delete below needs it).
+  await copyBox.getByRole('button', { name: 'Unpack', exact: true }).click();
+  await expect(row).not.toHaveClass(/is-prefab-part/);
+  await expect(copyBox).toHaveCount(0);
+  await cmd('undo', {});
+  await expect(row).toHaveClass(/is-prefab-part/);
 
   // A resource: renamed in the Inspector (one command), its address set.
   await chooseItem(page, 'effect', 'Effect One');

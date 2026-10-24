@@ -11,6 +11,7 @@ import type { FolderImportView } from './folder-upload';
 import { makeRequestId, type MutationResponse, type Origin } from './envelope';
 import { type AssetView } from './content-projection';
 import type { DecalAtlasView } from './decal-atlas';
+import type { PrefabCopyView } from './prefab-copy';
 import {
   beginImport,
   beginProjectFileImport,
@@ -139,13 +140,13 @@ export class SessionClient extends SessionClientCore {
   }
 
   /** One entity with its full components (read-only). */
-  async queryEntity(entityId: string): Promise<{ ok: true; entity: Record<string, unknown>; parentChain: string[] } | { ok: false; error: { code: string; message: string } }> {
+  async queryEntity(entityId: string): Promise<{ ok: true; entity: Record<string, unknown>; parentChain: string[]; prefabCopy: PrefabCopyView | null } | { ok: false; error: { code: string; message: string } }> {
     try {
-      const r = await this.api<{ ok: true; entity: Record<string, unknown>; parentChain: string[] }>(
+      const r = await this.api<{ ok: true; entity: Record<string, unknown>; parentChain: string[]; prefabCopy?: PrefabCopyView }>(
         `/projects/${this.cfg.projectId}/commands`,
         { op: 'queryEntity', projectId: this.cfg.projectId, args: { entityId } },
       );
-      return { ok: true, entity: r.entity, parentChain: r.parentChain };
+      return { ok: true, entity: r.entity, parentChain: r.parentChain, prefabCopy: r.prefabCopy ?? null };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }

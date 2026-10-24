@@ -110,11 +110,8 @@ describe('capture planning from a real projected subtree', () => {
 
     // A camera is a shot: it is captured like any object.
     expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'cam-main', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({ ok: true });
-    // A materialized copy is itself a copy: nested capture is forbidden.
-    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'group-000002', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({
-      ok: false,
-      error: { code: 'prefab_nested_forbidden' },
-    });
+    // A placed copy in the selection is nested in the new prefab by the backend: the pre-check lets it through.
+    expect(preflightCreatePrefab({ prefabId: 'prefab-0002', displayName: 'x', sourceEntityId: 'group-000002', scene, existingPrefabIds: [], declarations: DECLARATIONS })).toMatchObject({ ok: true });
   });
 });
 

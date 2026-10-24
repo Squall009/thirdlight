@@ -11,7 +11,8 @@
  */
 import type { JSX } from 'react';
 import type { SessionClient } from '../../session/client';
-import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
+import { ASSET_DRAG_TYPE, PREFAB_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
+import { startsCopy } from '../../session/prefab-copy';
 import { publishBakeTexture } from '../../viewport/bake-run';
 import { MenuBar } from '../MenuBar';
 import { Hierarchy, type SceneAction } from '../Hierarchy';
@@ -138,7 +139,7 @@ function renderSceneStage(m: EditorModel): JSX.Element {
           ev.dataTransfer.dropEffect = 'copy';
           return;
         }
-        if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
+        if (centerTab !== 'scene' || !(ev.dataTransfer.types.includes(ASSET_DRAG_TYPE) || ev.dataTransfer.types.includes(PREFAB_DRAG_TYPE))) return;
         ev.preventDefault();
         ev.dataTransfer.dropEffect = 'copy';
         if (!assetDropActive) setAssetDropActive(true);
@@ -158,6 +159,14 @@ function renderSceneStage(m: EditorModel): JSX.Element {
             void entityEditing.setEntityMaterials(target.id, { ...(target.materials ?? {}), '*': materialId });
             setSelectedId(target.id);
           } else setNotice('Drop a material on a model or a box.');
+          return;
+        }
+        if (centerTab === 'scene' && ev.dataTransfer.types.includes(PREFAB_DRAG_TYPE)) {
+          // A prefab: one linked copy where it is dropped.
+          ev.preventDefault();
+          const prefabId = ev.dataTransfer.getData(PREFAB_DRAG_TYPE);
+          const at = viewportRef.current?.dropPoint(ev.clientX, ev.clientY);
+          if (prefabId !== '' && at !== undefined) void m.prefab.placeAt(prefabId, at);
           return;
         }
         if (centerTab !== 'scene' || !ev.dataTransfer.types.includes(ASSET_DRAG_TYPE)) return;
@@ -343,6 +352,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
       assets={assets}
       assetActions={assetActions}
       prefab={prefab}
+      openPrefab={(prefabId) => void m.openPrefab(prefabId)}
       tileThumbnails={tileThumbnails}
       kit={kitEditor}
       select={setSelectedId}
@@ -350,11 +360,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
       editMode={(() => {
         // A prefab's own objects are edited in the prefab editor, which is open.
         if (selected === null || onPrefabStage(selected)) return null;
-        // A prefab's copy with no editor of its own opens its prefab.
-        if (selectedEditMode === undefined && selectedVia === undefined && selected.prefab !== undefined) {
-          const prefabId = selected.prefab.prefabId;
-          return { label: 'Open prefab', enter: () => void m.openPrefab(prefabId) };
-        }
+        // A prefab's copy opens its prefab from the copy's header in the Inspector.
         const own = selectedEditMode === undefined ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) };
         if (selectedVia === undefined) return own;
         // The editor of the object it belongs to first (the rooms' block editor); its own (vertex paint) beside it.
@@ -436,6 +442,12 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
           }}
           {...(sceneHeaders !== null ? { scenes: sceneHeaders, closedScenes, onSceneAction: (a: SceneAction) => void sceneAction(a) } : {})}
           contextMenu={() => hierarchyContextMenu(sceneEditing, () => void prefab.createPrefabFromSelection())}
+          copyOf={(e) => {
+            // A row that starts a copy shows its prefab (the definitions of the prefabs a scene holds are read with it).
+            const defs = clientRef.current?.prefabs;
+            if (e.prefab === undefined || defs === undefined || !startsCopy(e.prefab, (id) => defs.getDefinition(id))) return null;
+            return { prefabId: e.prefab.prefabId, name: defs.getDefinition(e.prefab.prefabId)?.displayName ?? e.prefab.prefabId };
+          }}
         />
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />

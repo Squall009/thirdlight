@@ -160,7 +160,7 @@ class ByIdReader<T> {
 
 export interface CatalogStores {
   readonly assets: { has(id: string): boolean; put(summaries: readonly AssetSummary[]): void };
-  readonly prefabs: { hasDefinition(id: string): boolean; putDefinitions(defs: readonly PrefabDefinition[]): void };
+  readonly prefabs: { hasDefinition(id: string): boolean; getDefinition(id: string): PrefabDefinition | undefined; putDefinitions(defs: readonly PrefabDefinition[]): void };
   /** Resource records read by id (conversations, …): whether one is held, and where they go. */
   readonly resources: { has(kind: string, id: string): boolean; put(kind: string, records: readonly Record<string, unknown>[]): void };
 }
@@ -352,6 +352,11 @@ export class Catalog {
   /** Prefab definitions by id. */
   ensurePrefabs(ids: Iterable<string>): Promise<void> {
     return this.prefabReader.ensure(ids);
+  }
+
+  /** A prefab definition read so far (undefined: not read yet, or none). */
+  prefab(prefabId: string): PrefabDefinition | undefined {
+    return this.stores.prefabs.getDefinition(prefabId);
   }
 
   /** Resource records of one kind by id (`queryIndex {kind, ids, records: true}`). */

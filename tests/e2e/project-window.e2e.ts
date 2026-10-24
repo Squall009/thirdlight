@@ -243,6 +243,8 @@ test('a double-click opens each kind of item in its editor, an edit there is sav
   await cmd('setUiTheme', { theme: { uiThemeId: 'theme-one', name: 'Theme One', styles: {} } });
   await cmd('createScene', { name: 'Scene Two', sceneId: 'scene-two', folder: 'levels' });
   await cmd('createPrefab', { prefabId: 'prefab-one', displayName: 'Prefab One', sourceEntityId: STARTER.groundId });
+  const statue = String((await cmd('createEntity', { kind: 'model', name: 'Statue', sceneId: 'scene-main', model: { asset: { assetId: model } } }))['createdId']);
+  await cmd('createPrefab', { prefabId: 'prefab-model', displayName: 'Prefab Model', sourceEntityId: statue });
   await openAssets(page);
   await treeFolder(page, '').click();
   const search = page.getByLabel('search the project');
@@ -292,6 +294,22 @@ test('a double-click opens each kind of item in its editor, an edit there is sav
   await expect(page.locator('section.tl-editmode[data-edit-mode="prefab"]')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('section.tl-editmode')).toHaveCount(0);
+  // A prefab's tile shows its model's picture.
+  await projectWindow(page);
+  await expect(itemTile(page, 'prefab-model').locator('img')).toHaveAttribute('data-thumb', 'ready', { timeout: 30_000 });
+  // Its right-click makes a variant; the variant dragged into the Scene view is a linked copy where it lands, and the
+  // copy's Hierarchy row and Inspector name the variant and its base.
+  await itemTile(page, 'prefab-one').click({ button: 'right' });
+  await page.getByRole('menu', { name: 'project window menu', exact: true }).getByRole('menuitem', { name: 'Create variant', exact: true }).click();
+  await expect(itemTile(page, 'prefab-one-variant')).toBeVisible();
+  const variantCopies = async (): Promise<string[]> =>
+    ((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 500 } }))['entities'] as { id: string; components: { prefab?: { prefabId: string } } }[]).filter((e) => e.components.prefab?.prefabId === 'prefab-one-variant').map((e) => e.id);
+  await itemTile(page, 'prefab-one-variant').dragTo(page.locator('.tl-app__stage'));
+  await expect.poll(variantCopies).toHaveLength(1);
+  const variantRow = page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${(await variantCopies())[0]!}"]`);
+  await expect(variantRow.locator('.tl-row__prefab')).toHaveText('Prefab One Variant');
+  await variantRow.click();
+  await expect(inspector(page).getByLabel('variant base', { exact: true })).toHaveText('variant of Prefab One');
   await projectWindow(page);
   await search.fill('t:material mat-plain');
   await itemTile(page, 'mat-plain').dblclick();

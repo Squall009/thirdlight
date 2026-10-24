@@ -12,7 +12,6 @@ import type { PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-
 import {
   captureClosure,
   collectOverrides,
-  copyRootOf,
   MAX_PREFAB_ENTITIES,
   entityRefLinks,
   makePrefabId,
@@ -130,7 +129,7 @@ describe('capture closure and preflight', () => {
     });
   });
 
-  it('rejects a nested copy and an external reference atomically', () => {
+  it('lets a copy through (the backend nests it) and rejects an external reference', () => {
     const base = {
       prefabId: 'prefab-0002',
       displayName: 'Kit',
@@ -140,8 +139,9 @@ describe('capture closure and preflight', () => {
     };
 
     const nestedScene = [...SCENE, view({ id: 'group-0002', prefab: { prefabId: 'prefab-0001', localId: 'group-0001' } })];
+    // A linked copy in the selection is nested in the new prefab (the backend links it): no refusal here.
     const nested = preflightCreatePrefab({ ...base, scene: nestedScene, sourceEntityId: 'group-0002' });
-    expect(nested).toMatchObject({ ok: false, error: { code: 'prefab_nested_forbidden', prefabInstanceIds: ['group-0002'] } });
+    expect(nested).toMatchObject({ ok: true });
 
     const externalScene = SCENE.map((e) =>
       e.id === 'model-0001' ? { ...e, behavior: { behaviorId: 'behavior-0001', values: { speed: 4.5, target: 'group-0000', material: 'asset-7f3a2c9e1b4d5068' } } } : e,
@@ -359,29 +359,3 @@ describe('capture drafts', () => {
   });
 });
 
-describe('Apply to prefab captures the copy the object is part of', () => {
-  // Copy A of "crate" (root part "r", part "lid"); copy B of "crate" placed under A's lid; an unrelated parent above A.
-  const scene: CaptureEntityView[] = [
-    { id: 'group-1', parentId: null, prefab: null, behavior: null },
-    { id: 'a-root', parentId: 'group-1', prefab: { prefabId: 'crate', localId: 'r' }, behavior: null },
-    { id: 'a-lid', parentId: 'a-root', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
-    { id: 'b-root', parentId: 'a-lid', prefab: { prefabId: 'crate', localId: 'r' }, behavior: null },
-    { id: 'b-lid', parentId: 'b-root', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
-    { id: 'loose-lid', parentId: 'group-1', prefab: { prefabId: 'crate', localId: 'lid' }, behavior: null },
-  ];
-  const byId = new Map(scene.map((e) => [e.id, e]));
-  const root = (id: string): string | undefined => copyRootOf(id, (x) => byId.get(x), 'r')?.id;
-
-  it('stops at the nearest copy root, never climbing into an outer copy of the same prefab', () => {
-    expect(root('b-lid')).toBe('b-root');
-    expect(root('b-root')).toBe('b-root');
-    expect(root('a-lid')).toBe('a-root');
-    expect(root('a-root')).toBe('a-root');
-  });
-
-  it('takes the part itself when its copy root is gone, and nothing for an object that is no copy', () => {
-    expect(root('loose-lid')).toBe('loose-lid');
-    expect(root('group-1')).toBeUndefined();
-    expect(root('missing')).toBeUndefined();
-  });
-});

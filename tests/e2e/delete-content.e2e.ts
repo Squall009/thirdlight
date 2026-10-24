@@ -6,7 +6,7 @@
  * refusal (`reference_in_use`) and the same deletion. Project Settings →
  * Script trust lists the acknowledged sources as the backend has them (read
  * at load) and revokes one, refused while a published script still uses it.
- * A placed copy's Inspector applies the copy to its prefab (`updatePrefab`).
+ * A placed copy's Inspector applies its overrides to its prefab (`applyPrefabOverrides`).
  * A `createEntities` batch over MCP is one revision and one undo, and the
  * editor shows its objects.
  */
@@ -105,8 +105,8 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   expect(byMcp.isError).toBe(true);
   expect(JSON.stringify(byMcp.body)).toContain('reference_in_use');
 
-  // Apply to prefab: the copy, made taller over MCP, becomes the prefab's contents from its Inspector (the same id, still
-  // in use); an MCP undo puts the old contents back.
+  // Apply to prefab: the copy, made taller over MCP (an override), writes it into the prefab from its Inspector's
+  // Overrides list (the same id, still in use); an MCP undo puts the old contents back.
   const rootId = String(((placed.body.result ?? placed.body) as { change?: { rootId?: string } }).change?.rootId ?? '');
   expect(rootId).not.toBe('');
   const crateSize = async (): Promise<unknown> => {
@@ -117,7 +117,9 @@ test('assets: the editor refuses a used one and deletes an unused one; MCP gets 
   const sizeBefore = await crateSize();
   expect((await command('setComponent', { entityId: rootId, component: 'box', value: { size: [1, 4, 1] } })).isError).toBe(false);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${rootId}"]`).click();
-  await inspector(page).getByRole('button', { name: 'Apply to prefab' }).click();
+  const copyBox = inspector(page).getByLabel('prefab copy', { exact: true });
+  await copyBox.getByText('Overrides (1)').click();
+  await copyBox.getByRole('button', { name: 'Apply all', exact: true }).click();
   await expect.poll(crateSize).toEqual([1, 4, 1]);
   expect((await command('undo', {})).isError).toBe(false);
   await expect.poll(crateSize).toEqual(sizeBefore);

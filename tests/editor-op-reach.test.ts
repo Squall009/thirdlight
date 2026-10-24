@@ -27,11 +27,8 @@ const EDITOR_SRC = resolve(import.meta.dirname, '..', 'packages', 'editor', 'src
 const API_ONLY: Readonly<Record<string, string>> = {
   importResources:
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
-  // The linked-copy commands come before the Inspector's overrides list, Unpack and Create variant that will send them; MCP sends them now.
-  revertPrefabOverrides: 'the overrides list in the Inspector is not built yet; MCP sends it',
-  applyPrefabOverrides: "the Inspector's Apply to prefab sends updatePrefab from the copy, which applies all; per-field apply waits for the overrides list",
-  unpackPrefab: 'the Inspector has no Unpack action yet; MCP sends it',
-  createPrefabVariant: 'the Project window has no Create variant action yet; MCP sends it',
+  updatePrefab:
+    "an alias kept for older callers: from a linked copy it is applyPrefabOverrides with all, which the copy's Inspector sends; from other objects it is a capture into an existing prefab, which the editor makes a new prefab of instead",
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
