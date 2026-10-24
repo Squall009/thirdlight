@@ -6,16 +6,39 @@ replacements. The rule: [Existing projects keep their look](../concepts/existing
 
 ## Migration notes
 
-### Opening a project with this engine (schemaVersion 7)
+### Opening a project with this engine (schemaVersion 8)
 
-Opening a project of schemaVersion 6 upgrades it on open and writes it back
-as 7 (Problems notes it once, `project_upgraded`, naming what changed).
-Commit what it wrote. A project older than 6 (schemaVersion 2 to 5) is not
-opened: the open error and the project list say so and name the last engine
-that upgrades it, git tag `upgrades-project-schema-2-to-5` (commit
-`f3d40136`). Open it once with that engine (it writes the project back as 7),
-commit, then open it here; its files are left untouched until then. The
-upgrade of a 6:
+Opening a project of schemaVersion 6 or 7 upgrades it on open and writes it
+back as 8 (Problems notes it once, `project_upgraded`, naming what changed).
+Commit what it wrote. A 7 with nothing to change only gets the new number in
+`project.json` (no new revision). A project older than 6 (schemaVersion 2 to
+5) is not opened: the open error and the project list say so and name the
+last engine that upgrades it, git tag `upgrades-project-schema-2-to-5`
+(commit `f3d40136`). Open it once with that engine (it writes the project
+back as 7), commit, then open it here; its files are left untouched until
+then.
+
+The upgrade of a 7 (and of a 6, after the steps below) links prefab copies.
+A placed copy was a set of plain objects that remembered their prefab; now a
+copy is one object linking its prefab, and editing the prefab reaches it:
+
+- every copy becomes a linked copy. What it differed in from the prefab as
+  it is now (a changed field, an added or removed component, a deleted part,
+  its own name) is kept as an override, so it looks and plays as before. Its
+  objects keep their ids (`partIds` in the link), so scripts, saves and
+  references naming them keep working; an object added under one of its
+  parts hangs from the copy (`parentPart`);
+- Problems has one line per prefab listing the copies that came out with
+  overrides (tidy them up: revert what was never meant to differ);
+- a copy a link cannot reproduce exactly (a part moved under another parent,
+  an object placed between its parts) stays plain objects, as do parts found
+  outside any copy: one Problems line per prefab names them;
+- objects whose prefab is gone stay plain objects and no longer name it (a
+  project naming a missing prefab does not load); one line per prefab.
+
+Prefabs themselves, `ctx.spawn`, live blocks and block looks are unchanged.
+
+The upgrade of a 6:
 
 - turns each scene `camera` entity into a fixed `virtualCamera` shot at the
   lowest priority (−1000), where it was placed: the view whenever no other

@@ -40,11 +40,12 @@ import { effectComponentErrors } from './effects';
 import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, refusedProjectSchemaMessage } from './project-schema';
 import { nextFreeEntityIdOf } from './entity-ids';
 import { upgradeSceneModel } from './upgrade-scene-model';
+import { upgradeToSchema8 } from './upgrade-schema-8';
 
 /**
  * `project.json` — scenes are the files in `scenes/`. Its schemaVersion is
- * `PROJECT_SCHEMA_VERSION` (`project-schema.ts`: the loader upgrades a 6
- * before validating and refuses older formats).
+ * `PROJECT_SCHEMA_VERSION` (`project-schema.ts`: the loader upgrades a 6 or
+ * a 7 before validating and refuses older formats).
  */
 export interface ProjectManifestV2 {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
@@ -70,7 +71,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
       isUpgradedProjectSchemaVersion(doc['schemaVersion'])
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (upgradeSceneModel)`)
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (upgradeSceneModel, upgradeToSchema8)`)
         : isRefusedProjectSchemaVersion(doc['schemaVersion'])
           ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), refusedProjectSchemaMessage(doc['schemaVersion']))
           : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
@@ -759,5 +760,8 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
   };
   // A v3 scene holds the scene camera: it becomes a shot, as the open upgrades a 6 (one shape for new and upgraded projects).
   const model = upgradeSceneModel(contentV4, [sceneV4]);
-  return { project: { manifest: manifestV2, content: model.content as ContentCatalogV4, scenes: model.scenes as SceneV4[] }, notes };
+  // Its prefab copies are plain, as a 7's: they become linked.
+  const linked = upgradeToSchema8(model.content, model.scenes);
+  notes.push(...linked.notes);
+  return { project: { manifest: manifestV2, content: linked.content as ContentCatalogV4, scenes: linked.scenes as SceneV4[] }, notes };
 }

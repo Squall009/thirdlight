@@ -61,6 +61,14 @@ export interface PrefabPartRemoval {
 export interface PrefabLinkComponent {
   prefabId: string;
   overrides?: PrefabOverride[];
+  /**
+   * The scene ids a placed copy's parts keep, by part path key (absent key:
+   * the derived id, `prefabPartId`). A copy made from a plain copy of an
+   * older project keeps the ids its objects had, so the scripts, saves and
+   * references that named them keep working. A placed copy's only: a copy
+   * nested inside a prefab has no scene ids of its own.
+   */
+  partIds?: Record<string, string>;
 }
 
 /** The `/`-joined key of a part path. Local ids never hold a `/`. */
@@ -79,7 +87,7 @@ export function isPrefabLink(value: unknown): value is PrefabLinkComponent {
   return isPlainObject(value) && typeof value['prefabId'] === 'string' && value['localId'] === undefined;
 }
 
-const KNOWN_LINK_FIELDS = new Set(['prefabId', 'overrides']);
+const KNOWN_LINK_FIELDS = new Set(['prefabId', 'overrides', 'partIds']);
 const KNOWN_OVERRIDE_FIELDS = new Set(['part', 'path', 'value', 'remove']);
 /** The fields of a part an override may change besides its components. */
 const PART_FIELDS = new Set(['name', 'tags', 'components']);
@@ -103,7 +111,7 @@ function validFieldPath(path: string): boolean {
  * its parts exist is the prefab's matter: assembly skips an override whose
  * part or field is gone and reports it.
  */
-export function validatePrefabLink(c: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validatePrefabLink(c: unknown, path: string, errors: ModelErrorV2[], where: 'scene' | 'prefab' = 'scene'): void {
   if (!isPlainObject(c)) {
     errors.push(fieldType(path, c, 'object'));
     return;
@@ -113,8 +121,9 @@ export function validatePrefabLink(c: unknown, path: string, errors: ModelErrorV
   else if (typeof prefabId !== 'string') errors.push(fieldType(`${path}/prefabId`, prefabId, 'string'));
   else if (!ID_RE_V2.test(prefabId)) errors.push(idInvalid(`${path}/prefabId`, prefabId));
   for (const k of Object.keys(c)) {
-    if (!KNOWN_LINK_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'prefabId, overrides'));
+    if (!KNOWN_LINK_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'prefabId, overrides, partIds'));
   }
+  validatePartIds(c['partIds'], `${path}/partIds`, errors, where);
   const overrides = c['overrides'];
   if (overrides === undefined) return;
   if (!Array.isArray(overrides)) {
@@ -155,6 +164,28 @@ export function validatePrefabLink(c: unknown, path: string, errors: ModelErrorV
       seen.add(key);
     }
   });
+}
+
+/** A placed copy's kept part ids: part keys to distinct scene ids (never the root's: that is the copy's own id). */
+function validatePartIds(ids: unknown, path: string, errors: ModelErrorV2[], where: 'scene' | 'prefab'): void {
+  if (ids === undefined) return;
+  if (where === 'prefab') {
+    errors.push(fieldValue(path, ids, 'absent in a prefab', "kept part ids are a placed copy's: a copy nested in a prefab has no scene ids of its own"));
+    return;
+  }
+  if (!isPlainObject(ids)) {
+    errors.push(fieldType(path, ids, 'object'));
+    return;
+  }
+  const seen = new Set<string>();
+  for (const [key, id] of Object.entries(ids)) {
+    const at = `${path}/${pointerSegment(key)}`;
+    if (!isPartKey(key)) errors.push(fieldValue(at, key, 'local ids joined by /', 'a key is the local-id path of a part of the prefab'));
+    if (typeof id !== 'string') errors.push(fieldType(at, id, 'string'));
+    else if (!ID_RE_V2.test(id)) errors.push(idInvalid(at, id));
+    else if (seen.has(id)) errors.push(withFound({ code: 'id_duplicate', path: at, message: 'each part of a copy keeps its own id', expected: 'distinct ids' }, id));
+    else seen.add(id);
+  }
 }
 
 /** The longest scene id (the project id syntax). */

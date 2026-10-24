@@ -147,6 +147,7 @@ export const prefab: ComponentDescriptor = {
     ref('prefabId', 'Prefab', 'The prefab this object came from.', 'prefab', { required: true, readOnly: true }),
     str('localId', 'Prefab entity', 'The prefab entity this object is a copy of (absent on a linked copy, which is the whole prefab).', { ...ID, readOnly: true }),
     json('overrides', 'Overrides', "A linked copy's differences from its prefab, each on one part (by its local-id path): a changed, added or removed field or component, or a removed part.", { shape: 'PrefabOverride[]', readOnly: true }),
+    json('partIds', 'Part ids', "A linked copy's parts that keep the ids they had as plain objects (by local-id path; a copy made by the schema 8 upgrade). Absent: each part's id is derived from the copy's id and its path.", { shape: 'Record<string, string>', readOnly: true }),
   ]),
   add: { kind: 'tool', tool: 'instantiatePrefab' },
   handles: [],

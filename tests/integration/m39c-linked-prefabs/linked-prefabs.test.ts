@@ -133,6 +133,8 @@ describe('linked prefab copies at the backend', () => {
   const frames: Any[] = [];
 
   it('the editor view, Play and the export carry the assembled objects; a stale override is a Problem', async () => {
+    // The project was released to write its files: the next read on the command path re-claims it (a query never re-opens one).
+    revision();
     const sessionId = mkSessionId();
     const est = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: PID, sessionId, clientInfo: { kind: 'browser', label: 'linked-prefabs' } }, token: tb.authToken });
     expect(est.status, JSON.stringify(est.json).slice(0, 400)).toBe(200);

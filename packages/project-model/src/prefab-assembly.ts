@@ -319,7 +319,8 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
       prefab.rootKey,
       (o, why) => problems.push({ code: 'override_stale', entityId: copy.id, prefabId: link.prefabId, part: o.part, ...('path' in o ? { path: o.path } : {}), message: `an override is skipped: ${why}` }),
     );
-    const idOf = (key: string): string => (key === prefab.rootKey ? copy.id : prefabPartId(copy.id, key));
+    const kept = link.partIds;
+    const idOf = (key: string): string => (key === prefab.rootKey ? copy.id : kept !== undefined && Object.prototype.hasOwnProperty.call(kept, key) ? (kept[key] as string) : prefabPartId(copy.id, key));
     const partIds = new Map(parts.map((p) => [p.key, idOf(p.key)]));
     const entities: AssemblyEntity[] = parts.map((p) => {
       if (p.refs !== undefined) {
@@ -381,7 +382,20 @@ export function assembleSceneEntities(entities: readonly AssemblyEntity[], assem
   const problems: PrefabAssemblyProblem[] = [];
   /** Each assembled copy's part ids, for the objects added under its parts (they come after it). */
   const copies = new Map<string, ReadonlyMap<string, string>>();
-  for (const e of entities) {
+  for (const stored of entities) {
+    let e = stored;
+    const part = stored['parentPart'];
+    if (typeof part === 'string') {
+      // An object (or a copy) added under a copy's part: parented to that part's id (to the copy's root when the part is gone).
+      const { parentPart: _part, ...plain } = stored;
+      void _part;
+      const partId = stored.parentId !== undefined ? copies.get(stored.parentId)?.get(part) : undefined;
+      if (partId === undefined && stored.parentId !== undefined) {
+        const link = (entities.find((x) => x.id === stored.parentId)?.components as { prefab?: PrefabLinkComponent } | undefined)?.prefab;
+        problems.push({ code: 'override_stale', entityId: stored.id, prefabId: link?.prefabId ?? '', part, message: `the object's part "${part}" is gone from the copy: it hangs from the copy's root` });
+      }
+      e = partId !== undefined ? { ...plain, parentId: partId } : plain;
+    }
     if (isPrefabLink((e.components as { prefab?: unknown }).prefab)) {
       const made = assembler.assembleCopy(e);
       copies.set(e.id, made.partIds);
@@ -389,20 +403,7 @@ export function assembleSceneEntities(entities: readonly AssemblyEntity[], assem
       for (const p of made.problems) problems.push(p);
       continue;
     }
-    const part = e['parentPart'];
-    if (typeof part !== 'string') {
-      out.push(e);
-      continue;
-    }
-    // An object added under a copy's part: parented to that part's id (to the copy's root when the part is gone).
-    const { parentPart: _part, ...plain } = e;
-    void _part;
-    const partId = e.parentId !== undefined ? copies.get(e.parentId)?.get(part) : undefined;
-    if (partId === undefined && e.parentId !== undefined) {
-      const link = (entities.find((x) => x.id === e.parentId)?.components as { prefab?: PrefabLinkComponent } | undefined)?.prefab;
-      problems.push({ code: 'override_stale', entityId: e.id, prefabId: link?.prefabId ?? '', part, message: `the object's part "${part}" is gone from the copy: it hangs from the copy's root` });
-    }
-    out.push(partId !== undefined ? { ...plain, parentId: partId } : plain);
+    out.push(e);
   }
   if (copies.size > 0) {
     const seen = new Set<string>();

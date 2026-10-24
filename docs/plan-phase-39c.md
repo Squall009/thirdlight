@@ -165,6 +165,7 @@ backend.
 | 39c.0 | Done. three 0.186.1 and Rapier 0.21.0 are still the latest (0.21 stays planned for phase 41). Baseline (`TL_BENCH=1 npx vitest run packages/backend/src/prefab-scene-build.bench.test.ts`, 10 prefabs × 4 parts, 1,000 plain copies = 4,003 objects, medians of 5): editor view (`queryEntities`) 21 ms, Play start backend 105 ms (closure 100 ms, its scene stage 14 ms). Placing the 1,000 copies by command took 56 s. |
 | 39c.1 A | Done: the link format (`prefab: {prefabId, overrides}`, overrides by part path: field set/remove, component add/remove, part removal; added objects carry `parentPart`), nested copies and variants in definitions, catalog cycle refusal (`prefab_cycle`), and `createPrefabAssembler` / `assembleSceneEntities` in project-model (flattened once per prefab, part ids `prefabPartId(copyId, path)`). Vitest at the workspace boundary (`packages/workspace/src/prefab-links.test.ts`, 3 tests). No e2e touched (`delete-content` ran in the fast gate, green; village at the cap: p95 16.7 ms, 0 missed, both renderers). `scan-bounded-log` timed out under load twice and passed alone (D307 watch). Part B (reassembly through the change feed, Play/export/editor wiring) is next. |
 | 39c.1 B | Done: the backend assembles linked copies wherever it builds a scene (workspace `prefab-view.ts`, kept per session: per copy while the copy and its prefab chain are unchanged, per scene): the captured read (Play, export, every check) and the editor's `queryEntities`/`queryEntity`/full state hold plain objects with derived part ids; the spawnable prefabs ship with nested copies and variants flattened. A command's result and its `mutation.applied` carry `change.assembled` (only the copies' objects that differ, whole, and the ids gone), which the editor's projection applies; assembly problems are grouped Problems lines (`prefab_override_stale`, …). Vitest over HTTP/WS (`tests/integration/m39c-linked-prefabs`, 3 tests: editor view, Play, export, a prefab edit reaching every copy and a variant through the feed into the real projection, a deleted copy, `ctx.spawn` of a variant in the runtime). Bench (1,000 copies, medians of 5): plain copies view 19 ms / Play 107 ms, linked copies view 15 ms / Play 103 ms (baseline 21 / 105). No e2e touched. |
+| 39c.3 | Done: schema 8. A 7 (and a 6 after its own step) upgrades on open through `upgradeToSchema8` (project-model `upgrade-schema-8.ts`, named steps; 41 adds its own): `linkPrefabCopies` turns each plain copy into a link whose overrides are its differences from today's prefab, its objects keeping their ids (`partIds`), objects under a part getting `parentPart`; a copy is linked only if the link assembles to exactly the stored objects (else it stays plain), objects of a gone prefab drop the name. One `project_upgraded` line per prefab and outcome. A 7 without copies: only project.json says 8 (no new revision). Vitest: `upgrade-linked-copies.test.ts` (game-shaped scene) and over HTTP `tests/integration/m39c-linked-prefabs/migration.test.ts` (editor view, export, shipped prefabs and 40 step digests of a run with a spawning script and live door blocks equal before/after; grouped lines; reopen writes nothing). e2e: `project-upgrade` assertion only (schemaVersion 8; 8.4 s → 5.9 s), `delete-content` 5.4 s; fast gate green (village at the cap p95 16.8/16.7 ms, 0 missed, both renderers); `scan-bounded-log` timed out once more under load and passed alone (D307). |
 
 ## 5. Decision log
 
@@ -210,4 +211,24 @@ backend.
   names the spawned prefab with that id. Default chosen, owner to confirm.
 - 2026-10-24 (lead): order 39c.1 → 39c.3 → 39c.2: schema 8 lands with the migration (39c.3), and
   commands must not write linked copies before that bump.
-
+- 2026-10-24 (39c.3): **One schema 8 upgrade, named steps.** `SCHEMA_8_STEPS` in project-model
+  `upgrade-schema-8.ts` runs in order on the raw documents before validation (a 6 runs its own
+  step to 7 first); phase 41 adds its step to the list and shares the version. The open writes the
+  result back as the 6 → 7 upgrade did (a 7 that needs nothing gets only the new number in
+  project.json, no new revision); the notes are `project_upgraded` Problems lines.
+- 2026-10-24 (39c.3): **Migrated copies keep their objects' ids** (`partIds` in the link, by part
+  path; the root keeps the copy's id), so scripts, saves and entityRefs naming a part keep working.
+  New copies derive part ids as 39c.1 decided. `partIds` is refused on a copy nested in a prefab.
+  39c.2's commands must address parts through the assembled ids (`partIds` first). Default chosen,
+  owner to confirm.
+- 2026-10-24 (39c.3): **Exact or plain.** A copy is linked only when its link assembles to exactly the
+  objects stored (ids, values, order); otherwise (an object between its parts, parts out of order)
+  it stays plain objects, named in a Problems line. A part moved under another part of its copy
+  becomes an object hanging from that part, its place in the copy removed. Strictness means a copy
+  placed before a behavior property was added keeps "no value" as an override (assembly fills
+  declared defaults): tidying is the game's (the Problems line names the copies). Objects of a
+  prefab that is gone drop the `prefab` name (a 7 naming a missing prefab does not load), with a
+  line. Default chosen, owner to confirm.
+- 2026-10-24 (39c.3): Assembly now re-parents a linked copy placed under another copy's part
+  (`parentPart` on a copy root), which the upgrade produces for copies nested in the hierarchy.
+  Until 39c.2, `instantiatePrefab` still writes plain copies, which stay plain objects on 8.

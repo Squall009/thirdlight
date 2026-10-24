@@ -7,7 +7,7 @@
 //   expected.json index) as byte-exact files with REAL SHA-256 digests, in
 //   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
 //
-//     project.json            manifest schemaVersion 7 (the engine owns the view: no scene camera entity; 5: assets as game-folder files)
+//     project.json            manifest schemaVersion 8 (prefab copies are linked; 7: the engine owns the view; 5: assets as game-folder files)
 //     content.json            { storageVersion 5, type "project-content",
 //                               projectId, revision, content, retry }
 //     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
@@ -148,7 +148,7 @@ function defaultContent() {
 }
 
 function manifestObj(id, name, createdAt) {
-  return { schemaVersion: 7, engineVersion: "0.1.0", id, name, createdAt };
+  return { schemaVersion: 8, engineVersion: "0.1.0", id, name, createdAt };
 }
 
 const RETENTION = 128;
@@ -1035,7 +1035,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
   const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
     indexVersion: 2,
-    storage: "v4: project.json (manifest schemaVersion 7), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+    storage: "v4: project.json (manifest schemaVersion 8), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
       commands: "docs/contracts/commands.md",
       workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",

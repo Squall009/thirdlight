@@ -37,9 +37,10 @@
  *   changed resources as commands (`resource-check.ts`).
  *
  * Validation is the model's (`validateProjectV4`); nothing here repairs data.
- * A schemaVersion 6 project is upgraded by the model's pure
- * `upgradeSceneModel` before it is validated (the open writes the result
- * back); an older one is refused untouched (`refusedProjectSchemaMessage`).
+ * A schemaVersion 6 or 7 project is upgraded by the model's pure
+ * `upgradeSceneModel` (a 6) and `upgradeToSchema8` before it is validated
+ * (the open writes the result back); an older one is refused untouched
+ * (`refusedProjectSchemaMessage`).
  */
 
 import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
@@ -51,6 +52,7 @@ import {
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   isUpgradedProjectSchemaVersion,
+  upgradeToSchema8,
   isRefusedProjectSchemaVersion,
   refusedProjectSchemaMessage,
   upgradeSceneModel,
@@ -397,7 +399,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   if (!man.ok) return blocked('manifest_invalid', [man.error]);
   const fromVersion = man.value['schemaVersion'];
   if (isRefusedProjectSchemaVersion(fromVersion)) {
-    return blocked('storage_version_unsupported', [{ code: 'storage_version_unsupported', path: '/schemaVersion', document: 'manifest', message: refusedProjectSchemaMessage(fromVersion), expected: `${PROJECT_SCHEMA_VERSION_SCENE_CAMERA} or ${PROJECT_SCHEMA_VERSION}` }]);
+    return blocked('storage_version_unsupported', [{ code: 'storage_version_unsupported', path: '/schemaVersion', document: 'manifest', message: refusedProjectSchemaMessage(fromVersion), expected: `${PROJECT_SCHEMA_VERSION_SCENE_CAMERA} to ${PROJECT_SCHEMA_VERSION}` }]);
   }
   const content = readJson(ops, join(dir, CONTENT_REL));
   if (!content.ok) return blocked('envelope_invalid', [content.error]);
@@ -443,7 +445,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     sceneRetry.push({ rel, retry: f.value['retry'], revision: r });
     if (r > revision) revision = r;
   }
-  // A schemaVersion 6 project is upgraded before it is validated.
+  // A schemaVersion 6 or 7 project is upgraded before it is validated.
   let manifestDoc: unknown = man.value;
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
@@ -487,14 +489,26 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
       upgraded.notes = [...upgraded.notes, `built-in grime was removed (dirt is a layer of a layered surface, painted like any other): ${grime.named.length} material${grime.named.length === 1 ? '' : 's'} had grime set and draw${grime.named.length === 1 ? 's' : ''} without it now — ${grime.named.slice(0, 8).join(', ')}${grime.named.length > 8 ? ', …' : ''}`];
     }
   }
-  // A 6: the engine owns the view (each scene camera becomes a shot) and what was never unloaded keeps loaded.
   if (isUpgradedProjectSchemaVersion(fromVersion)) {
-    const u = upgradeSceneModel(contentDoc, docs);
-    contentDoc = u.content;
-    docs = u.scenes;
+    let documents = false;
+    const notes: string[] = [];
+    // A 6: the engine owns the view (each scene camera becomes a shot) and what was never unloaded keeps loaded.
+    if (fromVersion === PROJECT_SCHEMA_VERSION_SCENE_CAMERA) {
+      const u = upgradeSceneModel(contentDoc, docs);
+      contentDoc = u.content;
+      docs = u.scenes;
+      documents = u.notes.length > 0;
+      notes.push(...u.notes);
+    }
+    // To 8: prefab copies become linked (and whatever later steps of the version change).
+    const u8 = upgradeToSchema8(contentDoc, docs);
+    contentDoc = u8.content;
+    docs = u8.scenes;
+    documents ||= u8.changed;
+    notes.push(...u8.notes);
     manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
-    // A project with nothing to change keeps its documents (and its revision): only project.json says 7.
-    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_SCENE_CAMERA} → ${PROJECT_SCHEMA_VERSION}`, ...u.notes] };
+    // A project with nothing to change keeps its documents (and its revision): only project.json says 8.
+    upgraded = { ...(upgraded ?? {}), ...(documents ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${String(fromVersion)} → ${PROJECT_SCHEMA_VERSION}`, ...notes] };
   }
   // An older content.json holds the resources itself: the open writes each to its own file.
   if (content.value['storageVersion'] !== CONTENT_STORAGE_VERSION) {

@@ -12,13 +12,13 @@ describe('script access marks', () => {
   it('is versioned with the project schema and pinned for it', () => {
     const t = scriptAccessTable();
     expect(t.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);
-    expect(SCRIPT_ACCESS_SCHEMA_VERSION).toBe(7);
+    expect(SCRIPT_ACCESS_SCHEMA_VERSION).toBe(8);
     // A field renamed, unmarked or newly marked changes this digest. A rename or an unmarked field is a
     // schema change (bump the project schemaVersion with an upgrade, then re-pin here for the new version);
     // a new optional field or component only adds to what scripts read — nothing they read before
     // changes — and re-pins for the same version.
     const digest = fnv(JSON.stringify(t));
-    expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 7, digest: PINNED_V7 });
+    expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 8, digest: PINNED_V8 });
   });
 
   it('writable fields are exactly the listed first set, all of them readable', () => {
@@ -82,8 +82,8 @@ describe('script access marks', () => {
   });
 });
 
-// The pinned digest of what scripts may read on schemaVersion 7 objects and components: a change to it is a change scripts can see.
-const PINNED_V7 = '8e79a8be2dc4427e';
+// The pinned digest of what scripts may read on schemaVersion 8 objects and components: a change to it is a change scripts can see.
+const PINNED_V8 = '942828ccb71a8396';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

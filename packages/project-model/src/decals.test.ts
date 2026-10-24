@@ -15,7 +15,7 @@ import { validateSceneV4 } from './scene-v3';
 import type { ModelErrorV2 } from './errors';
 
 const T = (position: number[] = [0, 0, 0]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
-const MANIFEST = { schemaVersion: 7, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-10-10T00:00:00Z' };
+const MANIFEST = { schemaVersion: 8, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-10-10T00:00:00Z' };
 const CAMERA = { id: 'cam-main', components: { transform: T([0, 2, 10]), virtualCamera: { rig: 'fixed' } } };
 const SHEET = { size: [512, 512], texelDensity: 256, padding: 8, rows: [{ slot: 'floor', top: 8, bottom: 248 }], cells: [{ name: 'crack', rect: [8, 264, 128, 128] }, { name: 'stain', rect: [144, 264, 64, 64] }] };
 const MATERIALS: MaterialDef[] = [

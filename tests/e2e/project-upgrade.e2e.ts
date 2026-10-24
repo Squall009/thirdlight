@@ -3,7 +3,7 @@
  * `fixtures/phase28/legacy-v6-title-player`, written by that engine through
  * its own backend: a title scene holding the camera and the player, a second
  * scene with a spawn and the ground) opened in the editor in a real browser:
- * it upgrades to 7 on open, Problems says so, the last recorded command
+ * it upgrades (to 8) on open, Problems says so, the last recorded command
  * replays from its record, and a recorded run plays back to the same digests
  * (`tl_playtest`, two runs in the simulation worker and two on one thread,
  * against this editor's Play).
@@ -45,7 +45,7 @@ test('a version-6 project opens in the editor, upgrades and replays the same', a
   test.setTimeout(180_000);
   await page.goto(`${be.origin}/?project=${ID}#token=${be.token}`);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  expect(JSON.parse(readFileSync(join(dirname(be.projectDir), ID, 'project.json'), 'utf8'))['schemaVersion']).toBe(7);
+  expect(JSON.parse(readFileSync(join(dirname(be.projectDir), ID, 'project.json'), 'utf8'))['schemaVersion']).toBe(8);
 
   // Problems names the upgrade: the scene camera became a shot, the camera and the player keep loaded.
   await openWindow(page, 'Problems');

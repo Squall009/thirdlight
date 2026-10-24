@@ -39,7 +39,7 @@ games: games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 7; a 6 is
+- `project.json`: id, name, engine version (schemaVersion 8; a 6 or 7 is
   upgraded on open, an older one is refused, see [Migration notes](migration.md)),
   and `upgrades`: the one-time data upgrades the project has had (`trim-data`:
   old trim paint and COLOR_0 moved, see [Vertex paint](vertex-paint.md); also
@@ -127,7 +127,7 @@ outside `.thirdlight/`.
 **A project older than schemaVersion 6** (from before the asset database,
 the engine/game separation or the per-scene looks) does not open with this
 engine: open it once with the last engine that upgrades it (see [Migration
-notes](migration.md#opening-a-project-with-this-engine-schemaversion-7)),
+notes](migration.md#opening-a-project-with-this-engine-schemaversion-8)),
 which writes it back as 7, then open it here.
 
 ### What a project can hold

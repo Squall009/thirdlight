@@ -201,7 +201,7 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
     errors.push(fieldType(`${path}/components`, comps, 'object'));
   } else if (version === 4 && isPrefabLink(comps['prefab'])) {
     // A nested copy (or a variant's root): its placement and its link to the nested prefab, whose parts it is made of.
-    validatePrefabLink(comps['prefab'], `${path}/components/prefab`, errors);
+    validatePrefabLink(comps['prefab'], `${path}/components/prefab`, errors, 'prefab');
     if (typeof localId === 'string') nestedCopies.add(localId);
     if (comps['transform'] === undefined) errors.push({ code: 'component_missing', path: `${path}/components/transform`, message: 'every prefab entity requires the transform component', expected: 'transform present' });
     const extra = Object.keys(comps).filter((k) => k !== 'transform' && k !== 'prefab');

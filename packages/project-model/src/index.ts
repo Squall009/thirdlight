@@ -394,9 +394,10 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
-// The project.json schemaVersion this build writes, upgrades (6) and refuses (older).
+// The project.json schemaVersion this build writes, upgrades (6, 7) and refuses (older).
 export {
   PROJECT_SCHEMA_VERSION,
+  PROJECT_SCHEMA_VERSION_PLAIN_PREFAB_COPIES,
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   LAST_ENGINE_UPGRADING_OLD_PROJECTS,
   isUpgradedProjectSchemaVersion,
@@ -406,6 +407,8 @@ export {
 // Game data the engine no longer has (refused with a text naming it).
 export { REMOVED_FROM_ENGINE, REMOVED_COMPONENTS, removedComponentMessage, isRemovedComponent } from './removed-game-data';
 export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type UpgradeSceneModelResult } from './upgrade-scene-model';
+export { upgradeToSchema8, SCHEMA_8_STEPS, type Schema8Step, type UpgradeToSchema8Result } from './upgrade-schema-8';
+export { linkPrefabCopies, type LinkPrefabCopiesResult } from './upgrade-linked-copies';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).
