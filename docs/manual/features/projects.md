@@ -39,8 +39,8 @@ games: games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 7; an older one
-  is upgraded on open, see [Migration notes](migration.md));
+- `project.json`: id, name, engine version (schemaVersion 7; a 6 is
+  upgraded on open, an older one is refused, see [Migration notes](migration.md));
 - `content.json`: the project-wide settings: settings, tags, the scene list
   and the start scenes, the environment (its presets' order), input, the game
   shell, event sounds, modes, the save schema, speakers and dialogue
@@ -120,24 +120,11 @@ trigger below the level whose `enter` event a script answers with
 `ctx.lifecycle.respawn`). Take a backup first if you want the old files
 outside `.thirdlight/`.
 
-**A project from before the asset database** (`project.json` schemaVersion
-4, or an earlier 5 whose `content.json` still holds every record) is upgraded
-on open too, and **the upgrade writes into the game folder**: each asset's
-current version becomes a file with its `.tlasset` sidecar (bytes the
-project stored are written to `assets/<name>.<ext>`; a file already
-referenced in place stays where it is and gets a sidecar next to it; an FBX
-or a PNG/JPEG with a KTX2 encode keeps its original as the file and what was
-made from it in the import cache); each prefab, script, material, animator,
-graph, effect, library, UI document and theme, dialogue, timeline and
-environment preset becomes its own file in `assets/<kind>/`; `content.json`
-keeps only the project-wide settings. `music` records and the old 2 s WAV
-sounds become `audio` with their ids; an asset a script names by id gets the
-label `script-named`, so it keeps shipping. Ids do not change, so scenes,
-recorded retries and replays stay valid. Older versions of an asset stay in
-`sources/sha256/` untouched and are listed in `upgrade-report.json` next to
-`project.json`; Problems notes the upgrade once (`project_upgraded`). So
-opening an older game's folder with this engine adds files and sidecars to
-it: commit (or back it up) before, and commit what the upgrade wrote after.
+**A project older than schemaVersion 6** (from before the asset database,
+the engine/game separation or the per-scene looks) does not open with this
+engine: open it once with the last engine that upgrades it (see [Migration
+notes](migration.md#opening-a-project-with-this-engine-schemaversion-7)),
+which writes it back as 7, then open it here.
 
 ### What a project can hold
 
@@ -197,18 +184,15 @@ project scripts (in its own repository when it has one).
   `runAction` in 3D; defaults `move`, `jump`, `run`).
 - **Local co-op**: any number of player controllers share the view (see
   [Several player controllers](scenes-and-cameras.md#several-player-controllers-local-co-op)).
-- **Older projects**: a schemaVersion 2 project is upgraded on open (a
-  pickup becomes a collectible and its counter, a spawn's left/right facing
-  a yaw, a pickup's sound an event sound) and written back once. Game data
-  the engine no longer has — a game block, a level flow, enemies, game
-  zones, the session camera follow, and pickup rules such as healing or
-  "back on death" — is refused: the project does not open; the open error names each
-  problem and the picker shows the first (… "removed from the engine: build
-  it as project scripts"). Rebuild those parts as project scripts on the
+- **Removed game data**: a game block, a level flow, enemies, game zones,
+  the session camera follow and pickups are refused where a document still
+  holds them: the project does not open; the open error names each problem
+  and the picker shows the first (… "removed from the engine: build it as
+  project scripts"). Rebuild those parts as project scripts on the
   primitives, then open it again.
 - The build fails when a package's source uses genre words (coin, enemy,
   checkpoint, score, platformer, …; `tools/check-boundaries.mjs`, with a
-  short reviewed allowlist for the upgrade code).
+  short reviewed allowlist for the refusal text).
 
 ## Projects in a game's own folder
 

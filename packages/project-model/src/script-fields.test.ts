@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DESCRIPTORS } from './descriptors';
 import { SCRIPT_ACCESS_SCHEMA_VERSION, checkScriptPatch, scriptAccessTable, scriptComponentAccess, scriptSnapshot } from './script-fields';
-import { PROJECT_SCHEMA_VERSION } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION } from './project-schema';
 
 describe('script access marks', () => {
   it('is versioned with the project schema and pinned for it', () => {

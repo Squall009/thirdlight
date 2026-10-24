@@ -18,7 +18,7 @@
  */
 
 import { DESCRIPTORS, type FieldCondition, type FieldDescriptor } from './descriptors';
-import { PROJECT_SCHEMA_VERSION } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION } from './project-schema';
 
 /** The project schema version the script access marks belong to. */
 export const SCRIPT_ACCESS_SCHEMA_VERSION = PROJECT_SCHEMA_VERSION;

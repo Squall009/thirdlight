@@ -87,7 +87,7 @@ import {
   serveQueryV4,
   type OpenV4Outcome,
 } from './session-v4';
-import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
+import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
 
 // ---- internal state ------------------------------------------------------------
 
@@ -433,17 +433,19 @@ export function loadManifest(
 }
 
 /**
- * Validate a parsed manifest value: a v4 project's manifest (schemaVersion
- * 4, or an older 2/3 the project load upgrades; no scene list — returned as its v1-shaped view) or a v3 project's
+ * Validate a parsed manifest value: a v4 project's manifest (the current
+ * schemaVersion, or an older one the project load upgrades or refuses; no scene list — returned as its v1-shaped view) or a v3 project's
  * manifest (schemaVersion 1, read for the upgrade). At most 10 errors.
  */
 export function validateAnyManifest(
   value: unknown,
 ): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
   const sv = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
-  // schemaVersion 4; a 3 or 2 reads the same way (the project load upgrades it).
-  if (sv === PROJECT_SCHEMA_VERSION || isUpgradedProjectSchemaVersion(sv)) {
-    const v2 = validateManifestV2Project(isUpgradedProjectSchemaVersion(sv) ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
+  // The current schemaVersion; a 6 reads the same way (the project load upgrades it), and so does an
+  // older one, so that the load refuses it with the engine that upgrades it rather than as a broken manifest.
+  const older = isUpgradedProjectSchemaVersion(sv) || isRefusedProjectSchemaVersion(sv);
+  if (sv === PROJECT_SCHEMA_VERSION || older) {
+    const v2 = validateManifestV2Project(older ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
     if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
     return { ok: true, manifest: legacyManifestOf(v2.normalized, 'scene-main') };
   }

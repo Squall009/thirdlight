@@ -35,7 +35,7 @@ import {
   type ListFieldDescriptor,
   type ObjectFieldDescriptor,
 } from './descriptors';
-import { REMOVED_COMPONENTS } from './upgrade-v24';
+import { REMOVED_COMPONENTS } from './removed-game-data';
 import type { ModelErrorV2 } from './errors';
 import { validateInput } from './input';
 import { validateModes } from './modes';

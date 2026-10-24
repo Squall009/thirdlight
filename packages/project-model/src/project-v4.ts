@@ -37,14 +37,14 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors, resolveMaterial } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
-import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, refusedProjectSchemaMessage } from './project-schema';
 import { nextFreeEntityIdOf } from './entity-ids';
 import { upgradeSceneModel } from './upgrade-scene-model';
 
 /**
- * `project.json` — scenes are the files in `scenes/`. schemaVersion 3 (the
- * format without the genre layer; `upgrade-v24.ts`: the loader upgrades a 2
- * before validating).
+ * `project.json` — scenes are the files in `scenes/`. Its schemaVersion is
+ * `PROJECT_SCHEMA_VERSION` (`project-schema.ts`: the loader upgrades a 6
+ * before validating and refuses older formats).
  */
 export interface ProjectManifestV2 {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
@@ -63,8 +63,10 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
       isUpgradedProjectSchemaVersion(doc['schemaVersion'])
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (each upgrade step from ${String(doc['schemaVersion'])} to ${PROJECT_SCHEMA_VERSION}: upgradeProjectDocsV24, upgradeProjectDocsV25, the asset-file upgrade of the open, upgradeSceneEnvironments, upgradeSceneModel)`)
-        : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (upgradeSceneModel)`)
+        : isRefusedProjectSchemaVersion(doc['schemaVersion'])
+          ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), refusedProjectSchemaMessage(doc['schemaVersion']))
+          : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
     );
   }
   for (const k of MANIFEST_V2_FIELDS) if (doc[k] === undefined) errors.push(fieldMissing(`/${k}`, k));

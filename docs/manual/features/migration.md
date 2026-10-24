@@ -8,9 +8,14 @@ replacements. The rule: [Existing projects keep their look](../concepts/existing
 
 ### Opening a project with this engine (schemaVersion 7)
 
-Opening a project of schemaVersion 6 or older upgrades it on open and writes
-it back as 7 (Problems notes it once, `project_upgraded`, naming what
-changed). Commit what it wrote. The upgrade:
+Opening a project of schemaVersion 6 upgrades it on open and writes it back
+as 7 (Problems notes it once, `project_upgraded`, naming what changed).
+Commit what it wrote. A project older than 6 (schemaVersion 2 to 5) is not
+opened: the open error and the project list say so and name the last engine
+that upgrades it, git tag `upgrades-project-schema-2-to-5` (commit
+`f3d40136`). Open it once with that engine (it writes the project back as 7),
+commit, then open it here; its files are left untouched until then. The
+upgrade of a 6:
 
 - turns each scene `camera` entity into a fixed `virtualCamera` shot at the
   lowest priority (−1000), where it was placed: the view whenever no other

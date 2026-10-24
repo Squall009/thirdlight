@@ -1,17 +1,9 @@
 /**
- * The project format after the engine/game separation, at the
- * HTTP boundary. A schemaVersion 2 project (written by hand in
- * `fixtures/phase24`, not copied from a game) is copied into the backend's
- * data root and opened with POST /api/v1/sessions:
- *
- * - generic data is upgraded (pickups → collectibles with the old counter
- *   names, a spawn facing → a yaw, the session player's health fields and
- *   `content.game: null` dropped) and written back as schemaVersion 4;
- * - game data is refused: the open fails with problems that name each
- *   removed component and tell the user to build it as project scripts —
- *   nothing is dropped silently, and the files stay as they were.
+ * Project formats at the HTTP boundary: a format older than the oldest this
+ * engine opens is refused untouched with the engine that upgrades it; the
+ * current format's per-scene looks; the schemaVersion 6 upgrade; and the
+ * open-time upgrades of shapes the current format dropped.
  */
-import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -21,348 +13,62 @@ import { writeGlb } from './glb-images';
 import { api, AUTHORING_ORIGIN, exportContentOf, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
 import { createTestBackend } from './testing';
 
-const FIXTURES = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase24');
+/** The per-scene look project (stored as schemaVersion 7), under the id it was written with. */
+const SCENE_LOOKS = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase27', 'scene-looks');
+const SCENE_LOOKS_ID = 'legacy-v5-environment';
 
-describe('a schemaVersion 2 project opened over HTTP', () => {
+/**
+ * A project older than schemaVersion 6 (every template and game was at 7 when
+ * the upgraders for 2 to 5 were dropped): the open is refused with a message
+ * naming the engine that still upgrades it, nothing is written, and the
+ * project list says why it does not load.
+ */
+describe('a project older than schemaVersion 6 opened over HTTP', () => {
   let tb: TestBackend;
-  const projectDir = (id: string): string => join(tb.root, 'data', 'projects', id);
-  const readJson = (id: string, rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(projectDir(id), rel), 'utf8')) as Record<string, unknown>;
+  const dir = (): string => join(tb.root, 'data', 'projects', SCENE_LOOKS_ID);
 
   beforeAll(async () => {
     tb = await startBackend({ tokens: [] });
-    for (const id of ['legacy-v2-upgradable', 'legacy-v2-refused']) cpSync(join(FIXTURES, id), projectDir(id), { recursive: true });
+    cpSync(SCENE_LOOKS, dir(), { recursive: true });
+    const manifest = JSON.parse(readFileSync(join(dir(), 'project.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(dir(), 'project.json'), `${JSON.stringify({ ...manifest, schemaVersion: 5 }, null, 2)}\n`);
   });
   afterAll(async () => {
     await tb.teardown();
   });
 
-  it('upgrades the generic data and writes the project back as schemaVersion 7', async () => {
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, {
-      body: { projectId: 'legacy-v2-upgradable', sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade' } },
-      token: tb.adminToken,
-    });
-    expect(r.status, JSON.stringify(r.json)).toBe(200);
-    const j = r.json as { revision: number; scene: { entities: Array<{ id: string; components: Record<string, unknown> }> }; content?: Record<string, unknown> };
-    // One new revision for the upgrade (the files were at 3).
-    expect(j.revision).toBe(4);
-    const comps = (id: string): Record<string, unknown> => j.scene.entities.find((e) => e.id === id)!.components;
-    expect(comps('spawn-0001')['playerSpawn']).toEqual({ yaw: 90 });
-    expect(comps('box-0001')['pickup']).toBeUndefined();
-    expect(comps('box-0001')['collectible']).toEqual({ counter: 'coins', size: [0.5, 0.5] });
-    expect(comps('box-0002')['collectible']).toEqual({ counter: 'stars', amount: 5 });
-    expect(comps('box-0003')['health']).toEqual({ max: 3 });
-
-    // On disk: the manifest says 7 (2 → 3 → 4 → 5 → 6 → 7 in one open), content.json has no game key, the scene file the upgraded components.
-    expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(7);
-    const content = readJson('legacy-v2-upgradable', 'content.json');
-    expect(content['revision']).toBe(4);
-    expect('game' in (content['content'] as Record<string, unknown>)).toBe(false);
-    const scene = readJson('legacy-v2-upgradable', 'scenes/scene-main.json')['scene'] as { entities: Array<{ id: string; components: Record<string, unknown> }> };
-    expect(scene.entities.find((e) => e.id === 'box-0001')!.components['collectible']).toEqual({ counter: 'coins', size: [0.5, 0.5] });
-    expect(scene.entities.find((e) => e.id === 'spawn-0001')!.components['playerSpawn']).toEqual({ yaw: 90 });
-  });
-
-  it('refuses the game data, naming each removed component, and leaves the files untouched', async () => {
-    const before = readFileSync(join(projectDir('legacy-v2-refused'), 'scenes', 'scene-main.json'));
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, {
-      body: { projectId: 'legacy-v2-refused', sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade' } },
-      token: tb.adminToken,
-    });
+  it('is refused naming the last engine that upgrades it, and its files stay untouched', async () => {
+    const files = ['project.json', 'content.json', 'scenes/scene-main.json', 'scenes/scene-two.json'];
+    const before = files.map((f) => readFileSync(join(dir(), f)));
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: SCENE_LOOKS_ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-refusal' } }, token: tb.adminToken });
     expect(r.status).not.toBe(200);
-    const err = (r.json as { error: { code: string; reason: string; details?: Array<{ path: string; message: string; sceneId?: string }>; detailCount?: number } }).error;
-    expect(err.code, JSON.stringify(err)).toBe('project_unavailable');
-    const details = err.details ?? [];
-    expect(details.length, JSON.stringify(err)).toBe(5);
-    const byPath = new Map(details.map((d) => [d.path, d.message]));
-    expect(byPath.get('/game')).toContain('content.game');
-    expect(byPath.get('/entities/0/components/cameraFollow')).toContain('component "cameraFollow"');
-    expect(byPath.get('/entities/2/components/enemy')).toContain('component "enemy"');
-    expect(byPath.get('/entities/3/components/gameZone')).toContain('component "gameZone"');
-    expect(byPath.get('/entities/4/components/pickup')).toContain('a heart healed the player');
-    for (const d of details) expect(d.message).toContain('removed from the engine: build it as project scripts');
-    // Nothing was written.
-    expect(readFileSync(join(projectDir('legacy-v2-refused'), 'scenes', 'scene-main.json')).equals(before)).toBe(true);
-    expect(readJson('legacy-v2-refused', 'project.json')['schemaVersion']).toBe(2);
+    const err = (r.json as { error: { code: string; reason: string; message: string; details?: Array<{ path: string; message: string }> } }).error;
+    expect(err, JSON.stringify(err)).toMatchObject({ code: 'project_unavailable', reason: 'storage_version_unsupported' });
+    expect(err.details?.[0]?.path).toBe('/schemaVersion');
+    expect(err.details?.[0]?.message).toContain('schemaVersion 5 is too old: open the project once with Thirdlight');
+    expect(err.details?.[0]?.message).toContain('git tag upgrades-project-schema-2-to-5 (commit f3d40136)');
+    files.forEach((f, i) => expect(readFileSync(join(dir(), f)).equals(before[i]!), f).toBe(true));
 
-    // The project list says why it does not load.
     const list = await fetch(`${tb.authUrl}/api/v1/projects`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
     const body = (await list.json()) as { projects: Array<{ projectId: string; loadable: boolean; code?: string; note?: string }> };
-    const refused = body.projects.find((p) => p.projectId === 'legacy-v2-refused');
-    expect(refused).toMatchObject({ loadable: false, code: 'content_invalid' });
-    expect(refused?.note).toContain('removed from the engine');
-    expect(body.projects.find((p) => p.projectId === 'legacy-v2-upgradable')).toMatchObject({ loadable: true });
+    const refused = body.projects.find((p) => p.projectId === SCENE_LOOKS_ID);
+    expect(refused).toMatchObject({ loadable: false, code: 'storage_version_unsupported' });
+    expect(refused?.note).toContain('upgrades-project-schema-2-to-5');
   });
 });
 
 /**
- * A schemaVersion 3 project with the old four-digit ids
- * (`fixtures/phase25/legacy-v3-ids`, written by hand) opens over HTTP, is
- * written back as schemaVersion 4 with every id and reference unchanged, and
- * new objects get six-digit ids, unique across the project's scenes.
+ * Each scene its own look (`fixtures/phase27/scene-looks`: two scenes with a
+ * gradient sky, linear fog, post and wind, quality medium and a preset)
+ * opened over HTTP: the content keeps the quality and the preset, the
+ * queries give each scene's look, the recorded command replays from its
+ * record, the file check finds nothing, and the export ships each scene with
+ * its look; new scenes copy a look or start from the engine defaults.
  */
-describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () => {
-  const FIXTURES_25 = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase25');
-  const ID = 'legacy-v3-ids';
-  let tb: TestBackend;
-  const projectDir = (): string => join(tb.root, 'data', 'projects', ID);
-  const readJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(projectDir(), rel), 'utf8')) as Record<string, unknown>;
-  type Ent = { id: string; parentId?: string; components: Record<string, unknown> };
-
-  beforeAll(async () => {
-    tb = await startBackend({ tokens: [] });
-    cpSync(join(FIXTURES_25, ID), projectDir(), { recursive: true });
-  });
-  afterAll(async () => {
-    await tb.teardown();
-  });
-
-  it('keeps the old ids, writes schemaVersion 7, and gives new objects six-digit ids unique across scenes', async () => {
-    const before = readJson('scenes/scene-b.json');
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, {
-      body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-25' } },
-      token: tb.adminToken,
-    });
-    expect(r.status, JSON.stringify(r.json)).toBe(200);
-    const j = r.json as { revision: number; scene: { entities: Ent[] } };
-    // One new revision for the upgrade (the files were at 3).
-    expect(j.revision).toBe(4);
-    // The session's scene view carries every scene's objects.
-    expect(j.scene.entities.map((e) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002', 'spawn-0001', 'box-0001', 'group-0001', 'box-0002', 'box-0003', 'spawn-0002']);
-    expect(j.scene.entities.find((e) => e.id === 'box-0002')!.parentId).toBe('group-0001');
-
-    // On disk: the manifest says 7; the scene files keep their ids.
-    expect(readJson('project.json')['schemaVersion']).toBe(7);
-    const sceneB = readJson('scenes/scene-b.json')['scene'] as { revision: number; entities: Ent[] };
-    expect(sceneB.revision).toBe(4);
-    expect(sceneB.entities).toEqual((before['scene'] as { entities: Ent[] }).entities);
-
-    const command = async (revision: number, args: Record<string, unknown>): Promise<{ ok: boolean; revision: number; createdId: string }> => {
-      const res = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, {
-        body: { op: 'createEntity', projectId: ID, requestId: `req-${String(revision).padStart(32, 'a')}`, expectedRevision: revision, args, origin: { kind: 'mcp', clientId: 'format-upgrade-25' } },
-        token: tb.adminToken,
-        origin: null,
-      });
-      expect(res.status, JSON.stringify(res.json)).toBe(200);
-      return res.json as { ok: boolean; revision: number; createdId: string };
-    };
-    // New ids: six digits, never colliding with the old ones or with another scene's.
-    const a = await command(4, { kind: 'box', name: 'New Crate', parentId: 'group-0001' });
-    expect(a.createdId).toBe('box-000001');
-    const b = await command(5, { kind: 'box', name: 'Far Crate', sceneId: 'scene-b' });
-    expect(b.createdId).toBe('box-000002');
-    const c = await command(6, { kind: 'group', name: 'Far Group', sceneId: 'scene-b' });
-    expect(c.createdId).toBe('group-000001');
-    const main = (readJson('scenes/scene-main.json')['scene'] as { entities: Ent[] }).entities;
-    expect(main.find((e) => e.id === 'box-000001')!.parentId).toBe('group-0001');
-    const far = (readJson('scenes/scene-b.json')['scene'] as { entities: Ent[] }).entities.map((e) => e.id);
-    expect(far).toEqual(['box-0003', 'spawn-0002', 'box-000002', 'group-000001']);
-  });
-});
-
-/**
- * A schemaVersion 4 project whose assets are stored versions in
- * `sources/sha256/` (`fixtures/phase26/legacy-v4-assets`, written by the
- * engine before the asset-file format) opens over HTTP as schemaVersion 7 (5, 6, then 7 on the same open):
- * each asset's current version becomes a file with its `.tlasset` sidecar
- * (the KTX2 texture's PNG is the file, the KTX2 goes to the import cache),
- * the older version stays in `sources/` and is listed in the report, the
- * recorded retry replays, and the export ships the same asset bytes.
- */
-describe('a schemaVersion 4 project with stored asset versions opened over HTTP', () => {
-  const FIXTURE = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase26', 'legacy-v4-assets');
-  const ID = 'legacy-v4-assets';
-  let tb: TestBackend;
-  let exportRoot: string;
-  const dir = (): string => join(tb.root, 'data', 'projects', ID);
-  const readJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), rel), 'utf8')) as Record<string, unknown>;
-  const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
+describe('a project whose scenes each have their own look opened over HTTP', () => {
   const REPO = resolve(import.meta.dirname, '..', '..', '..');
-
-  beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-upgrade-export-'));
-    tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
-    cpSync(FIXTURE, dir(), { recursive: true });
-  });
-  afterAll(async () => {
-    await tb.teardown();
-    rmSync(exportRoot, { recursive: true, force: true });
-  });
-
-  it('writes each current version as a file with its sidecar, keeps the older bytes, replays, exports the same bytes', async () => {
-    const blobsBefore = new Map(readdirSync(join(FIXTURE, 'sources', 'sha256')).map((n) => [n, readFileSync(join(FIXTURE, 'sources', 'sha256', n))]));
-    const before = JSON.parse(readFileSync(join(FIXTURE, 'content.json'), 'utf8')) as { content: { assets: Array<{ assetId: string; currentVersion: number; versions: Array<{ version: number; sourceDigest: string; convertedFrom?: { sourceDigest: string } }> }> } };
-    const current = new Map(before.content.assets.map((a) => [a.assetId, a.versions.find((v) => v.version === a.currentVersion)!]));
-
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-26' } }, token: tb.adminToken });
-    expect(r.status, JSON.stringify(r.json)).toBe(200);
-    expect((r.json as { revision: number }).revision).toBe(8);
-    expect(readJson('project.json')['schemaVersion']).toBe(7);
-
-    // Each asset's current version is a file in the project's own folder with its sidecar.
-    const crate = readFileSync(join(dir(), 'assets', 'Crate.glb'));
-    expect(sha(crate)).toBe(current.get('crate')!.sourceDigest);
-    expect(readFileSync(join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v2.glb')).equals(crate)).toBe(true);
-    const png = readFileSync(join(dir(), 'assets', 'Wall-checker.png'));
-    expect(sha(png)).toBe(current.get('wall')!.convertedFrom!.sourceDigest);
-    expect(sha(readFileSync(join(dir(), 'assets', 'Beep.wav')))).toBe(current.get('beep')!.sourceDigest);
-    const sidecar = (f: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), 'assets', `${f}.tlasset`), 'utf8')) as Record<string, unknown>;
-    expect(sidecar('Crate.glb')).toMatchObject({ tlasset: 3, id: 'crate', kind: 'model' });
-    expect(sidecar('Wall-checker.png')).toMatchObject({ id: 'wall', kind: 'texture', importSettings: { ktx2: 'color' } });
-    expect(sidecar('Beep.wav')).toMatchObject({ id: 'beep', kind: 'audio' });
-
-    // The records keep the current version only, with its path; each is in its sidecar (content.json keeps the project-wide settings).
-    type AssetRow = { assetId: string; currentVersion: number; versions: Array<{ version: number; sourcePath?: string; convertedFrom?: { sourcePath?: string } }> };
-    expect(readJson('content.json')['content']).toMatchObject({ assets: [] });
-    const content = { assets: ['Crate.glb', 'Wall-checker.png', 'Beep.wav'].map((f) => sidecar(f)['record'] as AssetRow) };
-    const crateRecord = content.assets.find((a) => a.assetId === 'crate')!;
-    expect(crateRecord.currentVersion).toBe(2);
-    expect(crateRecord.versions).toMatchObject([{ version: 2, sourcePath: 'assets/Crate.glb' }]);
-    expect(content.assets.find((a) => a.assetId === 'wall')!.versions[0]!.convertedFrom?.sourcePath).toBe('assets/Wall-checker.png');
-
-    // The older version stays in sources/ (every blob untouched) and is listed in the report.
-    for (const [name, bytes] of blobsBefore) expect(readFileSync(join(dir(), 'sources', 'sha256', name)).equals(bytes), name).toBe(true);
-    const report = readJson('upgrade-report.json') as { from: number; to: number; files: unknown[]; olderVersions: unknown[]; notMoved: unknown[] };
-    // The upgrade is reported where the user and MCP look: the project's Problems, naming the report.
-    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
-    const upgraded = ((problems.json as { problems: { code: string; message: string }[] }).problems).filter((p) => p.code === 'project_upgraded');
-    expect(upgraded.map((p) => p.message).join('\n')).toContain('upgrade-report.json');
-    expect(upgraded.some((p) => p.message.includes('1 older asset versions'))).toBe(true);
-    expect(report).toMatchObject({ from: 4, to: 5, notMoved: [] });
-    expect(report.files).toHaveLength(3);
-    const v1 = before.content.assets.find((a) => a.assetId === 'crate')!.versions[0]!;
-    expect(report.olderVersions).toEqual([{ assetId: 'crate', version: 1, sourceDigest: v1.sourceDigest, stored: `sources/sha256/${v1.sourceDigest}` }]);
-
-    // The KTX2 made from the PNG is in the import cache, and reads back verified.
-    const read = async (assetId: string, version: number): Promise<Uint8Array> => {
-      const res = await fetch(`${tb.authUrl}/api/v1/projects/${ID}/content/assets/${assetId}/versions/${version}/bytes`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
-      expect(res.status, assetId).toBe(200);
-      return new Uint8Array(await res.arrayBuffer());
-    };
-    expect(sha(await read('wall', 1))).toBe(current.get('wall')!.sourceDigest);
-    expect(existsSync(join(dir(), 'cache', 'imported', current.get('wall')!.convertedFrom!.sourceDigest))).toBe(true);
-    expect(sha(await read('crate', 2))).toBe(current.get('crate')!.sourceDigest);
-
-    // The last recorded command, sent again, replays its recorded result.
-    const replay = JSON.parse(readFileSync(join(FIXTURE, 'replay.json'), 'utf8')) as Record<string, unknown>;
-    const again = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: replay, token: tb.adminToken, origin: null });
-    expect(again.status, JSON.stringify(again.json)).toBe(200);
-    expect(again.json).toMatchObject({ ok: true, duplicated: true, revision: 7, requestId: replay['requestId'] });
-
-    // The file check finds nothing to do.
-    const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
-    expect(check.status, JSON.stringify(check.json)).toBe(200);
-    expect((check.json as { check: unknown }).check).toEqual({ resources: { followed: [], adopted: [], reloaded: [], removed: [], problems: [], paused: null }, relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [], checked: { scope: 'all', visited: 3, reason: 'no full check since the watch started' } });
-
-    // The export ships the placed model's current bytes (what the v4 project shipped), not the older version.
-    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
-    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
-    const shipped = readdirSync(join(exportRoot, String((exported.json as { outputDir: string }).outputDir), 'content', 'sha256'));
-    expect(shipped).toContain(current.get('crate')!.sourceDigest);
-    expect(shipped).not.toContain(v1.sourceDigest);
-  }, 120_000);
-});
-
-/**
- * One audio kind. A schemaVersion 5 project written before it
- * (`fixtures/phase26/legacy-v5-music`, made by that engine's folder import:
- * an Ogg Vorbis, an Ogg Opus and a 3 s WAV as `music`, a short WAV of the
- * fixed short-sound profile as `audio`, an object whose audio source plays
- * the long WAV) opens over HTTP with every record `audio`, ids and files
- * kept; the sidecars are written back with their load settings, the audio
- * source still plays its file, the recorded command replays, and Play's
- * manifest carries each file's load settings. The v4 fixture's short-sound
- * record comes through the same upgrade.
- */
-describe('a project with music and short-sound records opened over HTTP', () => {
-  const REPO = resolve(import.meta.dirname, '..', '..', '..');
-  let tb: TestBackend;
-  let exportRoot: string;
-  const dir = (id: string): string => join(tb.root, 'data', 'projects', id);
-  const sidecar = (id: string, f: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(id), 'assets', ...f.split('/')) + '.tlasset', 'utf8')) as Record<string, unknown>;
-  type Rec = { assetId: string; kind: string; versions: { sourcePath?: string; importRecipe: { profile: string }; metrics: Record<string, unknown> }[] };
-
-  beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-audio-upgrade-export-'));
-    tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
-    for (const id of ['legacy-v5-music', 'legacy-v4-assets']) cpSync(join(REPO, 'fixtures', 'phase26', id), dir(id), { recursive: true });
-  });
-  afterAll(async () => {
-    await tb.teardown();
-    rmSync(exportRoot, { recursive: true, force: true });
-  });
-
-  it('makes every music and short-sound record audio, ids and files kept, and replays', async () => {
-    const ID = 'legacy-v5-music';
-    const before = new Map(['audio/Theme.ogg', 'audio/Voice.ogg', 'audio/Rain.wav', 'audio/Hit.wav'].map((f) => [f, readFileSync(join(dir(ID), 'assets', ...f.split('/')))]));
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'audio-upgrade' } }, token: tb.adminToken });
-    expect(r.status, JSON.stringify(r.json)).toBe(200);
-    // One new revision for the upgrade (the files were at 3).
-    expect((r.json as { revision: number }).revision).toBe(4);
-
-    const expected: Record<string, [string, Record<string, unknown>, Record<string, unknown>]> = {
-      'audio/Theme.ogg': ['theme', { format: 'ogg-vorbis', channels: 2, sampleRate: 44100, durationMs: 3000 }, { loadType: 'decode-on-load', preload: true }],
-      'audio/Voice.ogg': ['voice', { format: 'ogg-opus', channels: 2, sampleRate: 48000, durationMs: 1000 }, { loadType: 'decode-on-load', preload: true }],
-      'audio/Rain.wav': ['rain', { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 3000 }, { loadType: 'decode-on-load', preload: true }],
-      'audio/Hit.wav': ['hit', { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 100 }, { loadType: 'decode-on-load', preload: true }],
-    };
-    for (const [file, [id, metrics, settings]] of Object.entries(expected)) {
-      const doc = sidecar(ID, file);
-      expect(doc, file).toMatchObject({ tlasset: 3, id, kind: 'audio', importSettings: settings });
-      const rec = doc['record'] as Rec;
-      expect(rec, file).toMatchObject({ assetId: id, kind: 'audio', versions: [{ sourcePath: `assets/${file}`, importRecipe: { profile: 'audio' } }] });
-      expect(rec.versions[0]!.metrics, file).toEqual(metrics);
-      // The file itself is untouched.
-      expect(readFileSync(join(dir(ID), 'assets', ...file.split('/'))).equals(before.get(file)!)).toBe(true);
-    }
-    // The audio source still plays its file; the upgrade is reported where the user and MCP look.
-    const scene = JSON.parse(readFileSync(join(dir(ID), 'scenes', 'scene-main.json'), 'utf8')) as { scene: { entities: { components: Record<string, unknown> }[] } };
-    expect(scene.scene.entities.some((e) => (e.components['audioSource'] as { assetId?: string } | undefined)?.assetId === 'rain')).toBe(true);
-    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
-    const upgraded = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded');
-    expect(upgraded.map((p) => p.message).join('\n')).toContain('4 audio asset records took the one audio kind');
-
-    // The last recorded command, sent again, replays its recorded result.
-    const replay = JSON.parse(readFileSync(join(REPO, 'fixtures', 'phase26', ID, 'replay.json'), 'utf8')) as Record<string, unknown>;
-    const again = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: replay, token: tb.adminToken, origin: null });
-    expect(again.status, JSON.stringify(again.json)).toBe(200);
-    expect(again.json).toMatchObject({ ok: true, duplicated: true, revision: 3, requestId: replay['requestId'] });
-
-    // The file check finds nothing to do; a second open changes nothing.
-    const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
-    expect(check.status, JSON.stringify(check.json)).toBe(200);
-    expect((check.json as { check: { reimported: unknown[]; failed: unknown[]; sidecarProblems: unknown[] } }).check).toMatchObject({ reimported: [], failed: [], sidecarProblems: [] });
-
-    // The export's manifest carries each audio file's load settings for the runtime's audio loading.
-    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
-    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
-    const out = join(exportRoot, String((exported.json as { outputDir: string }).outputDir));
-    const manifest = exportContentOf(out);
-    expect(manifest.assets.find((a) => a['assetId'] === 'rain')).toMatchObject({ kind: 'audio', loadType: 'decode-on-load', preload: true, durationMs: 3000 });
-  }, 120_000);
-
-  it("turns the v4 project's short-sound record into audio on the same open that writes its files", async () => {
-    const ID = 'legacy-v4-assets';
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'audio-upgrade-v4' } }, token: tb.adminToken });
-    expect(r.status, JSON.stringify(r.json)).toBe(200);
-    const doc = sidecar(ID, 'Beep.wav');
-    expect(doc).toMatchObject({ id: 'beep', kind: 'audio', importSettings: { loadType: 'decode-on-load', preload: true } });
-    expect((doc['record'] as Rec).versions[0]!.metrics).toEqual({ format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 100 });
-  }, 60_000);
-});
-
-/**
- * Each scene its own look. A schemaVersion 5 project with one project-wide
- * environment (`fixtures/phase27/legacy-v5-environment`, written by that
- * engine through its own backend: two scenes, a gradient sky, linear fog, post,
- * wind, quality medium and a preset) opens over HTTP as schemaVersion 7: the
- * sky, fog, post and wind are copied into both scene files, the content keeps
- * the quality and the preset, the upgrade is reported, the recorded command
- * replays from its record, and the export ships each scene with its look.
- */
-describe('a schemaVersion 5 project with one project-wide environment opened over HTTP', () => {
-  const REPO = resolve(import.meta.dirname, '..', '..', '..');
-  const FIXTURE = join(REPO, 'fixtures', 'phase27', 'legacy-v5-environment');
-  const ID = 'legacy-v5-environment';
+  const FIXTURE = SCENE_LOOKS;
+  const ID = SCENE_LOOKS_ID;
   let tb: TestBackend;
   let exportRoot: string;
   const dir = (): string => join(tb.root, 'data', 'projects', ID);
@@ -375,7 +81,7 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-env-upgrade-export-'));
+    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-scene-looks-export-'));
     tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
     cpSync(FIXTURE, dir(), { recursive: true });
   });
@@ -384,38 +90,16 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
     rmSync(exportRoot, { recursive: true, force: true });
   });
 
-  it('copies the look into every scene, keeps quality and presets, replays, and exports each scene with its look', async () => {
-    const before = JSON.parse(readFileSync(join(FIXTURE, 'content.json'), 'utf8')) as { content: { environment: Record<string, unknown> } };
-    // The fixture is the old format: the look is the project's.
-    expect(Object.keys(before.content.environment)).toEqual(['wind', 'sky', 'fog', 'post', 'quality', 'presets']);
-    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'env-upgrade' } }, token: tb.adminToken });
+  it('keeps quality and presets in the content, a look in each scene file, replays, and exports each scene with its look', async () => {
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'scene-looks' } }, token: tb.adminToken });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
-    // One new revision for the upgrade (the files were at 4).
+    // A current project opens as it is: no upgrade, no new revision.
     expect((r.json as { revision: number }).revision).toBe(5);
     expect(readJson('project.json')['schemaVersion']).toBe(7);
-
-    // The content keeps the quality and the preset's id (the preset is its own file, untouched).
     expect((readJson('content.json')['content'] as { environment: unknown }).environment).toEqual({ quality: 'medium', presets: ['dusk'] });
-    expect(readFileSync(join(dir(), 'assets', 'environment', 'dusk.envpreset.json')).equals(readFileSync(join(FIXTURE, 'assets', 'environment', 'dusk.envpreset.json')))).toBe(true);
-    // Every scene file carries the old look, the objects as they were.
-    for (const sceneId of ['scene-main', 'scene-two']) {
-      const scene = readJson(`scenes/${sceneId}.json`)['scene'] as { revision: number; environment?: unknown; entities: unknown[] };
-      const old = (JSON.parse(readFileSync(join(FIXTURE, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { entities: unknown[] } }).scene;
-      expect(scene.environment, sceneId).toEqual(LOOK);
-      // The objects as they were, the scene camera the shot the same open made of it (5 → 6 → 7).
-      const asShot = (e: unknown): unknown => {
-        const o = e as { id: string; components: Record<string, unknown> };
-        if (o.components['camera'] === undefined) return e;
-        const { camera: _camera, ...rest } = o.components;
-        return { ...o, keepLoaded: true, components: { ...rest, virtualCamera: { rig: 'fixed', priority: -1000 } } };
-      };
-      expect(scene.entities, sceneId).toEqual(old.entities.map(asShot));
-      expect(scene.revision, sceneId).toBe(5);
-    }
-    // The upgrade is reported where the user and MCP look.
+    for (const sceneId of ['scene-main', 'scene-two']) expect((readJson(`scenes/${sceneId}.json`)['scene'] as { environment?: unknown }).environment, sceneId).toEqual(LOOK);
     const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
-    const upgraded = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded');
-    expect(upgraded.map((p) => p.message).join('\n')).toContain('copied into 2 scenes');
+    expect((problems.json as { problems: { code: string }[] }).problems.filter((p) => p.code === 'project_upgraded')).toEqual([]);
 
     // The queries: the project part, and each scene's look on request.
     const q = async (op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> => (await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op, projectId: ID, ...(args !== undefined ? { args } : {}) }, token: tb.adminToken, origin: null })).json as Record<string, unknown>;
@@ -424,13 +108,13 @@ describe('a schemaVersion 5 project with one project-wide environment opened ove
     expect(rows.map((x) => [x.sceneId, x.environment])).toEqual([['scene-main', LOOK], ['scene-two', LOOK]]);
     expect(((await q('queryProject'))['scenes'] as Record<string, unknown>[]).some((x) => 'environment' in x)).toBe(false);
 
-    // The last recorded command (the old project-wide setEnvironment), sent again, replays its recorded result.
+    // The last recorded command (a setEnvironment of the project-wide look it was written with), sent again, replays its recorded result.
     const replay = JSON.parse(readFileSync(join(FIXTURE, 'replay.json'), 'utf8')) as Record<string, unknown>;
     const again = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: replay, token: tb.adminToken, origin: null });
     expect(again.status, JSON.stringify(again.json)).toBe(200);
     expect(again.json).toMatchObject({ ok: true, duplicated: true, revision: 4, requestId: replay['requestId'] });
 
-    // The file check finds nothing to do; the files stay as the upgrade wrote them.
+    // The file check finds nothing to do; the files stay as they were.
     const files = ['project.json', 'content.json', 'scenes/scene-main.json', 'scenes/scene-two.json'].map((f) => readFileSync(join(dir(), f)));
     const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
     expect(check.status, JSON.stringify(check.json)).toBe(200);
@@ -598,15 +282,14 @@ describe('a schemaVersion 6 project with a scene camera opened over HTTP', () =>
  * them.
  */
 describe('a project with per-vertex local-light settings opened over HTTP', () => {
-  const REPO = resolve(import.meta.dirname, '..', '..', '..');
   let tb: TestBackend;
-  // A small project from before; its scene gets the old settings written into it.
-  const ID = 'legacy-v5-music';
+  // A small project; its scene gets the old settings written into it.
+  const ID = SCENE_LOOKS_ID;
   const sceneFile = (): string => join(tb.root, 'data', 'projects', ID, 'scenes', 'scene-main.json');
 
   beforeAll(async () => {
     tb = await startBackend({ tokens: [] });
-    cpSync(join(REPO, 'fixtures', 'phase26', ID), join(tb.root, 'data', 'projects', ID), { recursive: true });
+    cpSync(SCENE_LOOKS, join(tb.root, 'data', 'projects', ID), { recursive: true });
   });
   afterAll(async () => {
     await tb.teardown();
@@ -642,16 +325,15 @@ describe('a project with per-vertex local-light settings opened over HTTP', () =
  * Problems line naming the materials whose grime was set.
  */
 describe('a project with built-in grime opened over HTTP', () => {
-  const REPO = resolve(import.meta.dirname, '..', '..', '..');
   let tb: TestBackend;
-  const ID = 'legacy-v5-music';
+  const ID = SCENE_LOOKS_ID;
   const materialFile = (id: string): string => join(tb.root, 'data', 'projects', ID, 'assets', 'materials', `${id}.material.json`);
   const write = (data: Record<string, unknown>): void => writeFileSync(materialFile(String(data['materialId'])), JSON.stringify({ tlresource: 1, kind: 'material', id: data['materialId'], data }));
   const edge = (id: string, from: string, fromPort: string, to: string, toPort: string): Record<string, unknown> => ({ id, from: { node: from, port: fromPort }, to: { node: to, port: toPort } });
 
   beforeAll(async () => {
     tb = await startBackend({ tokens: [] });
-    cpSync(join(REPO, 'fixtures', 'phase26', ID), join(tb.root, 'data', 'projects', ID), { recursive: true });
+    cpSync(SCENE_LOOKS, join(tb.root, 'data', 'projects', ID), { recursive: true });
     mkdirSync(join(tb.root, 'data', 'projects', ID, 'assets', 'materials'), { recursive: true });
   });
   afterAll(async () => {

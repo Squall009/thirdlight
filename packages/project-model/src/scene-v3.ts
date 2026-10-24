@@ -106,7 +106,7 @@ import {
   isFolderEntity,
   MAX_INSTANCES,
 } from './types-v3';
-import { isRemovedComponent, removedComponentMessage } from './upgrade-v24';
+import { isRemovedComponent, removedComponentMessage } from './removed-game-data';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';

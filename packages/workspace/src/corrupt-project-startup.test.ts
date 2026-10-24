@@ -89,13 +89,13 @@ function corruptEnvelopeEntities(root: string, projectId: string): string {
   return text;
 }
 
-/** The same valid v2 manifest, but `name` is the 4000-level chain
+/** The same valid manifest, but `name` is the 4000-level chain
  * (written as JSON text; the other project files stay healthy). */
 function corruptManifestPath(root: string, projectId: string): string {
   const dir = join(root, 'projects', projectId);
   const text = [
     '{',
-    '  "schemaVersion": 2,',
+    '  "schemaVersion": 7,',
     '  "engineVersion": "0.1.0",',
     `  "id": "${projectId}",`,
     `  "name": ${DEEP},`,

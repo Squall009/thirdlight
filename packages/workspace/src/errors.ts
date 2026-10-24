@@ -132,8 +132,8 @@ function reasonHint(reason: UnavailableReason): string {
     case 'external_change_unresolved':
       return 'an operator must resolve the pending external change (acceptExternalState or discardExternalState)';
     case 'storage_version_unsupported':
-      // Storage v1/v2 projects are no longer opened; the bytes are left untouched.
-      return 'the project files use a storage version this version does not open (storage v1/v2, or a newer one); the files are left untouched — convert a v1/v2 project to storage v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3), then open it here (v3 is upgraded to v4 on open)';
+      // Formats too old to upgrade here (storage v1/v2, project.json schemaVersion 2 to 5) are not opened; the bytes are left untouched.
+      return 'the project files use a format this version does not open (storage v1/v2, a project.json schemaVersion older than 6, or a newer format); the files are left untouched — convert a storage v1/v2 project to v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3); open a schemaVersion 2 to 5 project once with the engine the details name; then open it here';
     default:
       return 'the authoring state on disk is invalid or unreadable; the bytes are retained untouched — repair the file by hand (a recovery snapshot or backup, if available) and re-open';
   }

@@ -1,15 +1,16 @@
 /**
- * A schemaVersion 5 project (one project-wide look; the fixture
- * `fixtures/phase27/legacy-v5-environment`, written by that engine through
- * its own backend: two scenes, a gradient sky, linear fog, post, wind) opened
- * in the editor in a real browser: it upgrades on open, Problems says so, the
- * Environment window shows each scene with the old look, the last recorded
- * command replays from its record, and a recorded run plays back to the same
- * digests (`tl_playtest`, two runs in the simulation worker and two on one
- * thread, against this editor's Play).
+ * A schemaVersion 6 project (a scene `camera` entity; the fixture
+ * `fixtures/phase28/legacy-v6-title-player`, written by that engine through
+ * its own backend: a title scene holding the camera and the player, a second
+ * scene with a spawn and the ground) opened in the editor in a real browser:
+ * it upgrades to 7 on open, Problems says so, the last recorded command
+ * replays from its record, and a recorded run plays back to the same digests
+ * (`tl_playtest`, two runs in the simulation worker and two on one thread,
+ * against this editor's Play).
  *
- * The files themselves (each scene file, the content, the export) are checked
- * over HTTP in packages/backend/src/format-upgrade.test.ts.
+ * The files themselves (each scene file, the export), and the refusal of a
+ * format older than 6, are checked over HTTP in
+ * packages/backend/src/format-upgrade.test.ts.
  */
 import { cpSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -19,11 +20,11 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
-import { openWindow, toolWindow, toolWindowScene } from './ui';
+import { openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
-const FIXTURE = join(REPO, 'fixtures', 'phase27', 'legacy-v5-environment');
-const ID = 'legacy-v5-environment';
+const FIXTURE = join(REPO, 'fixtures', 'phase28', 'legacy-v6-title-player');
+const ID = 'legacy-v6-title-player';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -40,24 +41,16 @@ const post = async (path: string, body: unknown): Promise<{ status: number; json
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 };
 
-test('a version-5 project opens in the editor, upgrades, shows each scene with its look and replays the same', async ({ page }) => {
+test('a version-6 project opens in the editor, upgrades and replays the same', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto(`${be.origin}/?project=${ID}#token=${be.token}`);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   expect(JSON.parse(readFileSync(join(dirname(be.projectDir), ID, 'project.json'), 'utf8'))['schemaVersion']).toBe(7);
 
-  // Problems names the upgrade.
+  // Problems names the upgrade: the scene camera became a shot, the camera and the player keep loaded.
   await openWindow(page, 'Problems');
-  await expect(page.locator('.tl-dock--bottom')).toContainText('copied into 2 scenes');
-
-  // Each scene has the old look: the Environment window names the scene it edits.
-  await openWindow(page, 'Environment');
-  const env = toolWindow(page, 'Environment');
-  await expect(toolWindowScene(page, 'Environment')).toHaveAttribute('data-scene-id', 'scene-main');
-  await expect(env.getByRole('combobox', { name: 'fog mode' })).toHaveValue('linear');
-  await toolWindowScene(page, 'Environment').getByRole('combobox').selectOption('scene-two');
-  await expect(toolWindowScene(page, 'Environment')).toHaveAttribute('data-scene-id', 'scene-two');
-  await expect(env.getByRole('combobox', { name: 'fog mode' })).toHaveValue('linear');
+  await expect(page.locator('.tl-dock--bottom')).toContainText('became a fixed virtual camera');
+  await expect(page.locator('.tl-dock--bottom')).toContainText('keep loaded when their scene unloads');
 
   // The last recorded command, sent again, replays its recorded result.
   const replay = JSON.parse(readFileSync(join(FIXTURE, 'replay.json'), 'utf8')) as Record<string, unknown>;

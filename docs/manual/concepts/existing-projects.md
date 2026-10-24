@@ -36,5 +36,7 @@ A project made with an older engine is upgraded the first time it is
 opened, and written back in the current format. Ids do not change, so
 references, recorded commands and replays stay valid. Problems says once
 what the upgrade changed. In a game's own folder, commit what the upgrade
-wrote (and commit or back up before opening). The details for each format
-version are in [Migration notes](../features/migration.md#migration-notes).
+wrote (and commit or back up before opening). A project older than
+schemaVersion 6 is not upgraded by this engine: the open names the last
+engine that does. The details for each format version are in [Migration
+notes](../features/migration.md#migration-notes).

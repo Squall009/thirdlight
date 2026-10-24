@@ -10,15 +10,12 @@ import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, readModelGeometry, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
-import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { loadPreparedSources, publishBlob, readBlob, readSourceBlob, type ContentContext } from './content-store';
 import { upgradeTrimData } from './trim-data-upgrade';
 import { loadabilityNotes, SCRIPT_NAMED_LABEL, upgradeLoadability, writeLoadabilityReport } from './upgrade-loadable';
 import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type RecoveryProblem } from './asset-recovery';
-import { CACHE_GITIGNORE_LINES } from './registry';
-import { upgradeAssetsToFiles } from './upgrade-assets';
 import { sha256Hex } from './digest';
 import type { RetryRecord } from './envelope';
 import {
@@ -222,21 +219,15 @@ export function openV4(
   const recovered = loadRecoveringSidecars(core, dir, thirdlightDir, projectId, gameRoot);
   const l = recovered.load;
   if (l.kind === 'blocked') return l;
-  let loaded = l.state;
-  let loadNotes = l.upgraded?.notes ?? [];
-  if (l.upgraded?.assetFiles === true) {
-    const files = upgradeAssetFilesOnOpen(core, dir, thirdlightDir, projectId, loaded);
-    loaded = files.state;
-    loadNotes = [...loadNotes, ...files.notes];
-  }
+  const loaded = l.state;
   // A layout change alone (resources out of content.json) is no edit: the revision stays.
-  const bump = l.upgraded?.documents === true || l.upgraded?.assetFiles === true;
-  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump, l.upgraded.manifest === true) : { state: loaded, notes: [] };
+  const bump = l.upgraded?.documents === true;
+  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, l.upgraded.notes, bump, l.upgraded.manifest === true) : { state: loaded, notes: [] };
   const animations = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
   const trimData = upgradeTrimDataOnOpen(core, dir, thirdlightDir, projectId, animations.state);
   const migrated = { state: trimData.state, notes: [...animations.notes, ...trimData.notes] };
   // Assets from before addresses and labels decided what ships: the ones scripts name keep shipping.
-  const legacy = l.upgraded?.assetFiles === true || l.upgraded?.resourceFiles === true ? 'all' : l.preAddressSidecars !== undefined ? new Set(l.preAddressSidecars.keys()) : null;
+  const legacy = l.upgraded?.resourceFiles === true ? 'all' : l.preAddressSidecars !== undefined ? new Set(l.preAddressSidecars.keys()) : null;
   const loadable = legacy === null ? { state: migrated.state, notes: [] } : upgradeLoadabilityOnOpen(core, dir, thirdlightDir, projectId, migrated.state, legacy, l.preAddressSidecars ?? new Map());
   const session = makeSessionV4(core, dir, projectId, loadable.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes, ...loadable.notes]);
   const skipped = (l.skipped ?? []).map((f): RecoveryProblem => ({ code: 'resource_file_invalid', message: `${f.message}; the file was left out of the project` }));
@@ -285,47 +276,6 @@ function contentRevisionOnDisk(core: Core, dir: string): number {
     return typeof r === 'number' && Number.isSafeInteger(r) && r >= 0 ? r : 0;
   } catch {
     return 0;
-  }
-}
-
-/**
- * A schemaVersion 4 project's assets become files in the game folder with
- * their sidecars (`upgrade-assets.ts`); the result must validate like any
- * command's, else the project opens as it was and the notes say why.
- */
-function upgradeAssetFilesOnOpen(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State): { state: V4State; notes: string[] } {
-  const ctx: ContentContext = {
-    projectId,
-    dir,
-    thirdlightDir,
-    storageVersion: 4,
-    revision: state.revision,
-    scene: primaryScene(state),
-    content: state.content,
-    scenes: [...state.scenes.values()],
-    gameFolder: core.registry.get(projectId)?.folder ?? null,
-  };
-  const u = upgradeAssetsToFiles(core, ctx, state.content, state.scenes.values());
-  const v = validateContentV4(u.content);
-  if (!v.ok) return { state, notes: [...u.notes, `the assets stay stored in sources/sha256: the upgraded content does not validate (${v.errors[0]?.message ?? 'unknown'})`] };
-  ensureCacheIgnored(dir);
-  return { state: { ...state, content: v.normalized }, notes: u.notes };
-}
-
-/** A folder project's `.gitignore` names the import cache (it is rebuilt, never committed). */
-function ensureCacheIgnored(dir: string): void {
-  const path = join(dir, '.gitignore');
-  let text: string;
-  try {
-    text = readFileSync(path, 'utf8');
-  } catch {
-    return;
-  }
-  if (/^cache\/?$/m.test(text)) return;
-  try {
-    writeFileSync(path, `${text.endsWith('\n') || text.length === 0 ? text : `${text}\n`}${CACHE_GITIGNORE_LINES}`);
-  } catch {
-    // the cache is then only unignored; nothing else depends on it
   }
 }
 

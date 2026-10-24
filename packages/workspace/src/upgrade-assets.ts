@@ -1,24 +1,20 @@
 /**
- * The open's upgrade of a `project.json` schemaVersion 4 project to 5: the
- * asset versions stored in `sources/sha256/` become files in the game folder.
+ * A template's assets become files in the new project's game folder: a
+ * template keeps its asset versions as stored bytes (by digest), a project
+ * keeps each asset as a file with its `.tlasset` sidecar.
  *
- * For each asset its current version is written out as a file with its
- * `.tlasset` sidecar: a stored version to `assets/<name>.<ext>`, a file
- * already referenced in place stays where it is, a converted version (an FBX
- * converted to GLB, a PNG/JPEG encoded to KTX2) writes its original as the
- * file and puts what the importer made into the import cache, a packed
- * texture writes its KTX2. The record keeps only that version (and a version
- * a legacy `modelAnimation` binding still names). Older versions stay in
- * `sources/sha256/` untouched and are listed in `upgrade-report.json` in the
- * project folder, so nothing is lost. An asset whose bytes cannot be written
- * keeps its stored version (it stays readable from the blob store) and is
- * listed as not moved.
+ * For each asset its current version is written out as a file: a stored
+ * version to `assets/<name>.<ext>`, a file already referenced in place stays
+ * where it is, a converted version (an FBX converted to GLB, a PNG/JPEG
+ * encoded to KTX2) writes its original as the file and puts what the
+ * importer made into the import cache, a packed texture writes its KTX2. The
+ * record keeps only that version (and a version a legacy `modelAnimation`
+ * binding still names). An asset whose bytes cannot be written is listed as
+ * not moved (the creation refuses it).
  *
- * Idempotent: an interrupted upgrade (the files written, `project.json` still
- * 4) finds its files at the chosen paths with the right bytes and reuses them.
+ * Idempotent: an interrupted creation finds its files at the chosen paths
+ * with the right bytes and reuses them.
  */
-import { join } from 'node:path';
-
 import type { ContentCatalogV4, SceneV4 } from '@thirdlight/project-model';
 
 import {
@@ -37,17 +33,14 @@ import {
   type RecordLike,
   type VersionLike,
 } from './asset-files';
-import { readBlobBytes, type ContentConfig, type ContentContext } from './content-store';
+import type { ContentConfig, ContentContext } from './content-store';
 import { sha256Hex } from './digest';
-import { writeAtomic, type WriteOps } from './write';
+import type { WriteOps } from './write';
 
-/** The report of the upgrade, written next to `project.json`. */
+/** The report of an open's upgrade, written next to `project.json`. */
 export const UPGRADE_REPORT_FILE = 'upgrade-report.json';
 
 export interface AssetUpgradeReport {
-  from: 4;
-  to: 5;
-  at: string;
   /** Each asset's file (written from the blob store, or already in place). */
   files: { assetId: string; file: string; written: boolean }[];
   /** Versions the records no longer keep; their bytes stay where they were. */
@@ -59,15 +52,9 @@ export interface AssetUpgradeReport {
 export interface AssetUpgradeResult {
   content: ContentCatalogV4;
   report: AssetUpgradeReport;
-  notes: string[];
 }
 
 type Core = { ops: WriteOps; content: ContentConfig };
-
-function blob(ctx: ContentContext, digest: string): Uint8Array | null {
-  const r = readBlobBytes(join(ctx.dir, 'sources', 'sha256', digest));
-  return r.ok && sha256Hex(r.bytes) === digest ? r.bytes : null;
-}
 
 /** Versions a legacy `modelAnimation` binding names, by asset id. */
 function boundVersions(scenes: Iterable<SceneV4>, content: ContentCatalogV4): Map<string, Set<number>> {
@@ -84,19 +71,9 @@ function boundVersions(scenes: Iterable<SceneV4>, content: ContentCatalogV4): Ma
   return out;
 }
 
-/**
- * `readStored` reads a stored version's bytes by digest (the project's blob
- * store by default; a template's bytes when a project is made from one);
- * `report: false` writes no report (a new project has nothing to report).
- */
-export interface AssetUpgradeOptions {
-  readStored?: (digest: string) => Uint8Array | null;
-  report?: boolean;
-}
-
-export function upgradeAssetsToFiles(core: Core, ctx: ContentContext, content: ContentCatalogV4, scenes: Iterable<SceneV4>, options: AssetUpgradeOptions = {}): AssetUpgradeResult {
-  const readStored = options.readStored ?? ((digest: string) => blob(ctx, digest));
-  const report: AssetUpgradeReport = { from: 4, to: 5, at: new Date(core.content.now()).toISOString().replace(/\.\d{3}Z$/, 'Z'), files: [], olderVersions: [], notMoved: [] };
+/** `readStored` reads a stored version's bytes by digest (the template's). */
+export function upgradeAssetsToFiles(core: Core, ctx: ContentContext, content: ContentCatalogV4, scenes: Iterable<SceneV4>, readStored: (digest: string) => Uint8Array | null): AssetUpgradeResult {
+  const report: AssetUpgradeReport = { files: [], olderVersions: [], notMoved: [] };
   const taken = takenPaths(content);
   const bound = boundVersions(scenes, content);
   const records = content.assets as unknown as RecordLike[];
@@ -131,14 +108,7 @@ export function upgradeAssetsToFiles(core: Core, ctx: ContentContext, content: C
   }
   const next = { ...content, assets: upgraded as unknown as ContentCatalogV4['assets'] };
   // The sidecars (each holding its record) are written with the project files that follow.
-  if (options.report !== false) writeAtomic({ dir: ctx.dir, target: join(ctx.dir, UPGRADE_REPORT_FILE), bytes: new TextEncoder().encode(`${JSON.stringify(report, null, 2)}\n`), allowedPreHashes: [], previousHash: null, ops: core.ops });
-  const written = report.files.filter((f) => f.written).length;
-  const notes = [
-    `project schemaVersion 4 → 5: every asset is a file in the game folder with a .tlasset sidecar (${written} written from sources/sha256, ${report.files.length - written} already in place; ${UPGRADE_REPORT_FILE} in the project folder lists them)`,
-    ...(report.olderVersions.length > 0 ? [`${report.olderVersions.length} older asset versions are no longer listed; their bytes stay in sources/sha256 (see ${UPGRADE_REPORT_FILE})`] : []),
-    ...report.notMoved.map((n) => `asset ${n.assetId} stays stored: ${n.reason}`),
-  ];
-  return { content: next, report, notes };
+  return { content: next, report };
 }
 
 /** The current version with its file in the game folder (written from the blob store when needed). */

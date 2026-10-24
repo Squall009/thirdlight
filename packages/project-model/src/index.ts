@@ -393,26 +393,17 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
-// The project format after the engine/game separation (the loader's upgrade).
+// The project.json schemaVersion this build writes, upgrades (6) and refuses (older).
 export {
   PROJECT_SCHEMA_VERSION,
-  PROJECT_SCHEMA_VERSION_UPGRADED,
-  PROJECT_SCHEMA_VERSION_V24,
-  PROJECT_SCHEMA_VERSION_V25,
-  PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
+  LAST_ENGINE_UPGRADING_OLD_PROJECTS,
   isUpgradedProjectSchemaVersion,
-  REMOVED_FROM_ENGINE,
-  REMOVED_COMPONENTS,
-  removedComponentMessage,
-  isRemovedComponent,
-  upgradeProjectDocsV24,
-  type UpgradeV24Result,
-} from './upgrade-v24';
-// project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
-export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
-// project.json schemaVersion 6 (a 5's project-wide look is copied into every scene on load).
-export { upgradeSceneEnvironments, type UpgradeSceneEnvironmentResult } from './upgrade-scene-environment';
+  isRefusedProjectSchemaVersion,
+  refusedProjectSchemaMessage,
+} from './project-schema';
+// Game data the engine no longer has (refused with a text naming it).
+export { REMOVED_FROM_ENGINE, REMOVED_COMPONENTS, removedComponentMessage, isRemovedComponent } from './removed-game-data';
 export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type UpgradeSceneModelResult } from './upgrade-scene-model';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';

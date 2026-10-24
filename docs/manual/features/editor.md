@@ -54,9 +54,7 @@ window), **Console** and **Problems** (Window menu lists just those).
   applies: the first start scene, or the one `ctx.scenes.setActive(id,
   {blend})` names, blended over the given time; a new scene starts from the
   engine defaults or copies another's (`createScene {environmentFrom}`).
-  The Scene view, Play and the export draw the same look. A schemaVersion 5
-  project is upgraded on open (its one look copied into every scene, noted
-  in Problems; recorded commands and runs replay unchanged).
+  The Scene view, Play and the export draw the same look.
 - **Missing files are listed, not discovered one by one**: Problems shows
   every asset whose file is missing (path, asset, who uses it; paged, also
   `GET problems/missing-files` and `tl_diagnostics`) at open and after each

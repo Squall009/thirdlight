@@ -64,7 +64,7 @@ import { validateLightLayerNames } from './light-layers';
 import { validateDecalCells } from './decals';
 import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
-import { REMOVED_FROM_ENGINE } from './upgrade-v24';
+import { REMOVED_FROM_ENGINE } from './removed-game-data';
 import { MAX_CONTENT_FILE_BYTES, MAX_PREFAB_BYTES } from './content-limits';
 import { canonicalDocBytes, derivedOf, limitsError, sortedRecord } from './content-helpers';
 import { canonicalAssetV3, validateAsset } from './content-assets';

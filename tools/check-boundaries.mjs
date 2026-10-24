@@ -1104,19 +1104,9 @@ export const GENRE_VOCABULARY =
  */
 export const VOCABULARY_ALLOWLIST = Object.freeze([
   {
-    file: 'packages/project-model/src/upgrade-v24.ts',
-    pattern: /^(coins?|gems?|lives|stomp|enemy|hazard|checkpoint|goal|score)$/i,
-    reason: 'the schemaVersion 2 → 3 upgrade must name the removed components, pickup kinds and counters it converts or refuses',
-  },
-  {
-    file: 'packages/project-model/src/upgrade-v24.test.ts',
-    pattern: /^(coins?|gems?|lives|enemy|enemies|goal)$/i,
-    reason: 'tests of that upgrade: old pickup kinds, the counters they become, the refused enemy component',
-  },
-  {
-    file: 'packages/backend/src/format-upgrade.test.ts',
-    pattern: /^(coins?|enemy)$/i,
-    reason: 'the upgrade over HTTP: an old coin pickup becomes a counter, an old enemy component is refused by name',
+    file: 'packages/project-model/src/removed-game-data.ts',
+    pattern: /^(stomp|enemy|hazard|checkpoint|goal)$/i,
+    reason: 'the refusal of the removed genre components must say what each one was',
   },
 ]);
 

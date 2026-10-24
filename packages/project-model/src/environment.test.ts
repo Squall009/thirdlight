@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 
 import { canonicalEnvironment, canonicalSceneEnvironment, environmentTextureRefs, validateEnvironment, validateSceneEnvironment, type SceneEnvironment } from './materials';
 import { validateSceneV4 } from './scene-v3';
-import { upgradeSceneEnvironments } from './upgrade-scene-environment';
 
 const check = (value: unknown): string[] => {
   const errors: { path: string }[] = [];
@@ -133,24 +132,6 @@ describe('grading lift/gamma/gain, fog volume height falloff, scene looks', () =
     expect(validateSceneV4(scene({ wind: { direction: [0, 0], strength: 1, gust: 0, gustFrequency: 0, turbulence: 0 } })).ok).toBe(false);
     expect(validateSceneV4(scene({ sky: { mode: 'texture' } })).ok).toBe(false);
     expect(environmentTextureRefs({ sky: { mode: 'texture', texture: 'asset-0001' }, post: { grading: { lut: 'asset-0002' } } })).toEqual(['asset-0001', 'asset-0002']);
-  });
-
-  it('the schemaVersion 5 upgrade copies the project look into every scene and keeps quality and presets', () => {
-    const look = { sky: { mode: 'color', color: '#112233' }, fog: { mode: 'linear', color: '#ffffff', near: 1, far: 50 } };
-    const preset = { presetId: 'dusk', name: 'Dusk', sky: { mode: 'color', color: '#000000' } };
-    const content = { scenes: [], environment: { ...look, quality: 'high', presets: [preset] } };
-    const scenes = [{ sceneId: 'a', entities: [] }, { sceneId: 'b', entities: [], environment: { sky: { mode: 'color', color: '#ffffff' } } }];
-    const u = upgradeSceneEnvironments(content, scenes);
-    expect(u.content).toEqual({ scenes: [], environment: { quality: 'high', presets: [preset] } });
-    expect((u.scenes[0] as { environment?: unknown }).environment).toEqual(look);
-    // A scene with its own look keeps it.
-    expect((u.scenes[1] as { environment?: unknown }).environment).toEqual({ sky: { mode: 'color', color: '#ffffff' } });
-    expect(u.notes[0]).toContain('copied into 1 scene');
-    // The inputs are untouched; a project without a look changes nothing.
-    expect(content.environment).toHaveProperty('sky');
-    expect(upgradeSceneEnvironments({ environment: { quality: 'low' } }, [{ sceneId: 'a' }])).toEqual({ content: { environment: { quality: 'low' } }, scenes: [{ sceneId: 'a' }], notes: [] });
-    // The look alone: the content keeps no environment block.
-    expect(upgradeSceneEnvironments({ environment: look }, [{ sceneId: 'a' }]).content).toEqual({});
   });
 
   it('a fog volume keeps heightFalloff (0–10 per metre)', () => {

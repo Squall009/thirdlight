@@ -7,7 +7,7 @@
  *   shard whose id range holds it.
  * - A v4 build (`fixtures/phase26/legacy-v4-build`, written by the engine
  *   before the catalog) opens on the page into the same content as the v5
- *   build the engine makes now of the same project: every asset row, block,
+ *   build the engine makes now of the same project (stored as schemaVersion 7): every asset row, block,
  *   scene row and what the simulation reads of each asset, so a recorded run
  *   replays the same. The project's last command replays from its record.
  */
@@ -207,7 +207,7 @@ describe('a v4 build opens on the page as the v5 build of the same project', () 
     for (const k of ['settings', 'tags', 'prefabs', 'materials', 'media', 'behaviors', 'projectId']) expect(b.manifest[k], k).toEqual(a.manifest[k]);
     const sceneRow = (s: { sceneId: string; path: string; digest: string; byteLength: number; start: boolean }) => ({ sceneId: s.sceneId, start: s.start });
     expect(b.manifest.scenes!.map(sceneRow)).toEqual(a.manifest.scenes!.map(sceneRow));
-    // The same scene files, but for the scene camera: the project opened as schemaVersion 7 (the engine owns the view),
+    // The same scene files, but for the scene camera: the project is stored as schemaVersion 7 now (the engine owns the view),
     // so the camera is the lowest-priority shot, kept loaded (its default lens is the project's).
     const asShot = (e: { components: Record<string, unknown> }): unknown => {
       if (e.components['camera'] === undefined) return e;
@@ -218,7 +218,7 @@ describe('a v4 build opens on the page as the v5 build of the same project', () 
       const v4Scene = JSON.parse(readFileSync(join(FIXTURE, 'build', row.path), 'utf8')) as { entities: { components: Record<string, unknown> }[] };
       const v5Row = b.manifest.scenes!.find((x) => x.sceneId === row.sceneId)!;
       const v5Scene = JSON.parse(readFileSync(join(out, v5Row.path), 'utf8')) as { revision?: number; entities: unknown[] };
-      // The upgrade wrote the scene at a new revision.
+      // The upgrade to 7 wrote the scene at a new revision.
       expect(v5Scene, row.sceneId).toEqual({ ...v4Scene, ...(v5Scene.revision !== undefined ? { revision: v5Scene.revision } : {}), entities: v4Scene.entities.map(asShot) });
     }
     expect(b.manifest['start']).toEqual(a.manifest['start']);

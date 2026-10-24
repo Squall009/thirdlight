@@ -21,6 +21,8 @@ fixed virtual camera at the lowest priority (its lens the project's camera
 settings where it differs from the default), the camera and the player keep
 loaded, the upgrade is reported in Problems, the recorded command replays from
 its record and the export ships the shots and the lens settings.
+`tests/e2e/project-upgrade.e2e.ts` opens `legacy-v6-title-player` in the editor
+(the upgrade in Problems, the replay, a recorded run played back the same).
 
 `move-frame/` — two schemaVersion 6 documents shaped the same way but 3D with
 a scene camera turned about Y (`title-player.json`: the title scene holds the

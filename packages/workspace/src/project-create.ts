@@ -172,7 +172,7 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     const put = publishBlob(core, ctx, { digest: b.source.sourceDigest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
     if (!put.ok) return { ok: false, error: put.error };
   }
-  const filed = upgradeAssetsToFiles(core, ctx, project.normalized.content as unknown as ContentCatalogV4, [], { readStored: (digest) => source.blobs.get(digest) ?? null, report: false });
+  const filed = upgradeAssetsToFiles(core, ctx, project.normalized.content as unknown as ContentCatalogV4, [], (digest) => source.blobs.get(digest) ?? null);
   if (filed.report.notMoved.length > 0) {
     const first = filed.report.notMoved[0]!;
     return { ok: false, error: invalidRequest('', undefined, 'template assets written into the project folder', `asset ${first.assetId}: ${first.reason}`) };

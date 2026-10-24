@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { canonicalPrefabs, validatePrefabDefinitions } from './content';
 import type { ModelErrorV2 } from './errors';
-import { REMOVED_COMPONENTS } from './upgrade-v24';
+import { REMOVED_COMPONENTS } from './removed-game-data';
 
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const def = (components: Record<string, unknown>, extra: Record<string, unknown>[] = [], prefabId = 'thing') => ({

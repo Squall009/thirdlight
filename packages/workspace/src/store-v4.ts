@@ -1,8 +1,8 @@
 /**
  * Storage version 4 — a project is several files.
  *
- *   project.json            manifest schemaVersion 5 (id, name, engine, createdAt;
- *                           a 2, 3 or 4 is upgraded on open)
+ *   project.json            manifest schemaVersion 7 (id, name, engine, createdAt;
+ *                           a 6 is upgraded on open, older ones are refused)
  *   content.json            { storageVersion: 5, type: "project-content", projectId,
  *                             revision, content (the project-wide settings), retry }
  *   <game folder>/…/<name>.<kind>.json   one project resource each (prefab,
@@ -36,13 +36,9 @@
  *   changed resources as commands (`resource-check.ts`).
  *
  * Validation is the model's (`validateProjectV4`); nothing here repairs data.
- * A schemaVersion 2 project is upgraded by the model's pure
- * `upgradeProjectDocsV24` before it is validated (the open writes the result
- * back); game data it refuses blocks the load with the model's problems.
- * A schemaVersion 3 project (and a 2 after that upgrade) goes
- * through `upgradeProjectDocsV25` to 4 (no document changes); a 4 is marked
- * for the open's asset-file upgrade to 5 (`upgrade-assets.ts`), which writes
- * files into the game folder and so is not a pure document step.
+ * A schemaVersion 6 project is upgraded by the model's pure
+ * `upgradeSceneModel` before it is validated (the open writes the result
+ * back); an older one is refused untouched (`refusedProjectSchemaMessage`).
  */
 
 import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
@@ -52,21 +48,16 @@ import {
   migrateModelAnimations,
   migrateProjectV3ToV4,
   PROJECT_SCHEMA_VERSION,
-  PROJECT_SCHEMA_VERSION_UPGRADED,
-  PROJECT_SCHEMA_VERSION_V24,
-  PROJECT_SCHEMA_VERSION_V25,
-  PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   isUpgradedProjectSchemaVersion,
-  upgradeSceneEnvironments,
+  isRefusedProjectSchemaVersion,
+  refusedProjectSchemaMessage,
   upgradeSceneModel,
   upgradeAudioAssets,
   upgradeBuiltInGrime,
   upgradeVertexLocalLights,
   canonicalLoadable,
   type LoadableEntry,
-  upgradeProjectDocsV24,
-  upgradeProjectDocsV25,
   parseDocumentBytes,
   serializeCanonical,
   validateContentV3,
@@ -353,14 +344,13 @@ export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
 export type LoadV4Outcome =
   /**
    * `upgraded`: an older project read through the pure upgrades (not yet
-   * written back; its notes); `assetFiles`: its assets still have to become
-   * files; `resourceFiles`: its resources are still inside `content.json`
+   * written back; its notes); `resourceFiles`: its resources are still inside `content.json`
    * (a layout change only: `documents` says the documents changed too).
    */
   | {
       kind: 'loaded';
       state: V4State;
-      upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true; manifest?: true };
+      upgraded?: { notes: string[]; documents?: true; resourceFiles?: true; manifest?: true };
       skipped?: { path: string; message: string }[];
       /** The assets read from sidecars written before the record held the address (id → the address beside it, or null). */
       preAddressSidecars?: Map<string, string | null>;
@@ -404,6 +394,10 @@ function checkFileKeys(doc: Record<string, unknown>, keys: readonly string[], ty
 export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: string): LoadV4Outcome {
   const man = readJson(ops, join(dir, MANIFEST_REL_V4));
   if (!man.ok) return blocked('manifest_invalid', [man.error]);
+  const fromVersion = man.value['schemaVersion'];
+  if (isRefusedProjectSchemaVersion(fromVersion)) {
+    return blocked('storage_version_unsupported', [{ code: 'storage_version_unsupported', path: '/schemaVersion', document: 'manifest', message: refusedProjectSchemaMessage(fromVersion), expected: `${PROJECT_SCHEMA_VERSION_SCENE_CAMERA} or ${PROJECT_SCHEMA_VERSION}` }]);
+  }
   const content = readJson(ops, join(dir, CONTENT_REL));
   if (!content.ok) return blocked('envelope_invalid', [content.error]);
   const ce = checkFileKeys(content.value, CONTENT_FILE_KEYS, 'project-content', projectId, CONTENT_REL);
@@ -448,11 +442,11 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     sceneRetry.push({ rel, retry: f.value['retry'], revision: r });
     if (r > revision) revision = r;
   }
-  // A schemaVersion 2 project is upgraded before it is validated.
+  // A schemaVersion 6 project is upgraded before it is validated.
   let manifestDoc: unknown = man.value;
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
-  let upgraded: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true; manifest?: true } | undefined;
+  let upgraded: { notes: string[]; documents?: true; resourceFiles?: true; manifest?: true } | undefined;
   // The resources: their own files in the game folder, or (an older content.json) still inside it.
   const resourcePaths = new Map<string, Map<string, string>>();
   const skipped: { path: string; message: string }[] = [];
@@ -463,24 +457,6 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     contentDoc = joined.content;
     skipped.push(...joined.skipped);
     if (joined.preAddress.size > 0) preAddressSidecars = joined.preAddress;
-  }
-  const fromVersion = man.value['schemaVersion'];
-  if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED) {
-    const u = upgradeProjectDocsV24(contentDoc, sceneDocs);
-    if (u.errors.length > 0) {
-      const first = u.errors[0] as { document?: string };
-      return blocked(first.document === 'scene' ? 'scene_invalid' : 'content_invalid', u.errors as unknown as LoadDetail[]);
-    }
-    contentDoc = u.content;
-    docs = u.scenes;
-    upgraded = { documents: true, notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (the engine has no game rules)`, ...u.notes] };
-  }
-  // A schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
-  if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED || fromVersion === PROJECT_SCHEMA_VERSION_V24) {
-    const u = upgradeProjectDocsV25(contentDoc, docs);
-    contentDoc = u.content;
-    docs = u.scenes;
-    upgraded = { documents: true, notes: [...(upgraded?.notes ?? [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} to ${PROJECT_SCHEMA_VERSION_V25}`]), ...u.notes] };
   }
   // One audio kind: a `music` record (and a record of the fixed short-sound profile) becomes `audio`, its id kept.
   const audio = upgradeAudioAssets(contentDoc);
@@ -510,19 +486,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
       upgraded.notes = [...upgraded.notes, `built-in grime was removed (dirt is a layer of a layered surface, painted like any other): ${grime.named.length} material${grime.named.length === 1 ? '' : 's'} had grime set and draw${grime.named.length === 1 ? 's' : ''} without it now — ${grime.named.slice(0, 8).join(', ')}${grime.named.length > 8 ? ', …' : ''}`];
     }
   }
-  // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
-  if (isUpgradedProjectSchemaVersion(fromVersion) && fromVersion !== PROJECT_SCHEMA_VERSION_PROJECT_LOOK) {
-    upgraded = { ...(upgraded ?? {}), notes: upgraded?.notes ?? [], assetFiles: true };
-  }
-  // A 5 (or older, just upgraded to 5): each scene gets the project's look (sky, fog, post, wind), the content keeps the quality and presets.
-  if (isUpgradedProjectSchemaVersion(fromVersion) && fromVersion !== PROJECT_SCHEMA_VERSION_SCENE_CAMERA) {
-    const u = upgradeSceneEnvironments(contentDoc, docs);
-    contentDoc = u.content;
-    docs = u.scenes;
-    // A project without a look of its own keeps its documents (and its revision) at this step.
-    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_PROJECT_LOOK} → ${PROJECT_SCHEMA_VERSION_SCENE_CAMERA}`, ...u.notes] };
-  }
-  // A 6 (or older, just upgraded to 6): the engine owns the view (each scene camera becomes a shot) and what was never unloaded keeps loaded.
+  // A 6: the engine owns the view (each scene camera becomes a shot) and what was never unloaded keeps loaded.
   if (isUpgradedProjectSchemaVersion(fromVersion)) {
     const u = upgradeSceneModel(contentDoc, docs);
     contentDoc = u.content;
