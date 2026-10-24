@@ -7,6 +7,7 @@
 import { useCallback, useRef, type MutableRefObject } from 'react';
 import { draggedRoots, subtreeOrder } from '../../session/hierarchy';
 import { deleteEntitiesArgs } from '../../session/delete-entities';
+import { pasteValuesOf, type SelectionRead } from '../../session/copy-values';
 import { presetValue } from '../../session/descriptor-fields';
 import { withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
 import type { DescriptorRegistry, InstanceStroke } from '@thirdlight/project-model';
@@ -105,7 +106,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
     [createEntityAt, registry, setNotice],
   );
 
-  /** The full values of the selection's subtrees (parents first), read from the backend. */
+  /** The full values of the selection's subtrees (parents first), read from the backend; a linked copy stays one. */
   const selectionValues = useCallback(async (): Promise<Record<string, unknown>[] | null> => {
     const c = clientRef.current;
     if (!c) return null;
@@ -118,7 +119,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
       setNotice(`Copy failed: ${failed.error.message}`);
       return null;
     }
-    return read.map((r) => (r as { entity: Record<string, unknown> }).entity);
+    return pasteValuesOf(read as unknown as SelectionRead[]);
   }, [clientRef, selectedIdRef, selectionRef, setNotice]);
 
   /** Edit → Duplicate (Ctrl+D): the whole selection with its children, 0.5 m to the right, one undo. */

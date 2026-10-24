@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { prefabPartId, prefabStageId } from '@thirdlight/project-model';
 
+import { pasteValuesOf, type SelectionRead } from '../../../packages/editor/src/session/copy-values';
 import { Projection } from '../../../packages/editor/src/session/projection';
 import { api, connectWs, mkRequestId, mkSessionId, startBackend, type TestBackend, type TestWs } from '../../../packages/backend/src/test-helpers';
 import type { Any } from '../m23-3d/character-kit';
@@ -180,6 +181,35 @@ describe('linked-copy commands at the backend', () => {
     const alias = await send('updatePrefab', { prefabId: 'door', fromEntity: b });
     expect(alias.change).toMatchObject({ type: 'prefabLinkEdit', copyIds: [b] });
     expect((await view(panelOf(a))).components.box.material.color).toBe('#22cc22');
+    expect(stored(b).components.prefab.overrides).toBeUndefined();
+  }, 120_000);
+
+  it('Duplicate and Copy/Paste of a linked copy make a linked copy with the same overrides; a part alone pastes as a plain object', async () => {
+    await send('setComponent', { entityId: panelOf(b), component: 'box', value: { material: { color: '#123456' } } });
+    const tag = (await send('createEntity', { kind: 'group', name: 'Tag', parentId: panelOf(b) })).createdId as string;
+    // What the editor's Duplicate sends: the subtree read entity by entity (parents first), as values to paste.
+    const all = await fresh();
+    const inside = new Set([b]);
+    for (const e of all) if (e.parentId !== undefined && inside.has(e.parentId)) inside.add(e.id);
+    const read = async (id: string): Promise<SelectionRead> => (await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryEntity', projectId: PID, args: { entityId: id } }, token: tb.adminToken, origin: null })).json as SelectionRead;
+    const reads = await Promise.all(all.filter((e) => inside.has(e.id)).map((e) => read(e.id)));
+    const dup = (await send('pasteEntities', { entities: pasteValuesOf(reads), offset: [0.5, 0, 0], sceneId: 'scene-main' })).createdId as string;
+    expect(stored(dup).components.prefab).toEqual({ prefabId: 'door', overrides: stored(b).components.prefab.overrides });
+    expect(stored(dup).components.transform.position).toEqual([5.5, 0, 0]);
+    expect(stored(prefabPartId(dup, panel))).toBeUndefined();
+    expect((await view(prefabPartId(dup, panel))).components.box.material.color).toBe('#123456');
+    const tagCopy = (readJson(join(dir(), 'scenes', 'scene-main.json')).scene.entities as Any[]).find((e) => e.name === 'Tag' && e.id !== tag);
+    expect(tagCopy).toMatchObject({ parentId: dup, parentPart: panel });
+    // The copy follows its prefab: an edit of the prefab reaches the duplicate too.
+    await send('setComponent', { entityId: panelOf(a), component: 'box', value: { size: [0.3, 2, 0.3] } });
+    await send('applyPrefabOverrides', { entityId: panelOf(a), path: 'components/box/size' });
+    expect((await view(prefabPartId(dup, panel))).components.box.size).toEqual([0.3, 2, 0.3]);
+    // A part on its own: an ordinary object beside it, no longer naming the prefab part.
+    const lone = (await send('pasteEntities', { entities: pasteValuesOf([await read(panelOf(b))]), offset: [0.5, 0, 0], sceneId: 'scene-main' })).createdId as string;
+    expect(stored(lone)).toMatchObject({ parentId: b, name: 'Panel' });
+    expect(stored(lone).components.prefab).toBeUndefined();
+    for (let i = 0; i < 6; i++) await send('undo', {});
+    expect(stored(dup)).toBeUndefined();
     expect(stored(b).components.prefab.overrides).toBeUndefined();
   }, 120_000);
 

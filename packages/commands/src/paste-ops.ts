@@ -82,6 +82,8 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
     const parent = isRoot ? (args.parentId !== undefined ? args.parentId : (e.parentId ?? null)) : (idMap.get(e.parentId as string) as string);
     if (parent === null) delete copy.parentId;
     else copy.parentId = parent;
+    // An object added under a copy's part keeps that part only while it stays under the same copy.
+    if (isRoot && parent !== (e.parentId ?? null)) delete (copy as { parentPart?: unknown }).parentPart;
     const comps = copy.components;
     if (comps['camera'] !== undefined) {
       return { ok: false, error: fieldValue('/args/entities', e.id, 'entities without a camera', 'a scene has one camera; copy the objects without it') };
