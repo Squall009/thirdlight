@@ -1,6 +1,6 @@
 # Phase 39c — Linked prefabs
 
-Status: planned 2026-10-22.
+Status: **done 2026-10-24, owner look pending** (full gate GREEN at `ea083106`, review 2 H + 3 M fixed in 39c.11).
 
 Goal: prefabs become linked assets, as in Unity and Godot:
 - editing a prefab updates every copy, except what a copy deliberately
