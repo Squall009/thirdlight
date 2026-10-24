@@ -3,17 +3,34 @@
  * backend: set with commands over HTTP (the one mutation path the editor and
  * MCP share), refused out of range or of the wrong type, kept (a new session
  * opens the objects' flags), and carried into Play (the content's settings, the
- * snapshot's components) — what the game page reads to draw it.
+ * snapshot's components) — what the game page reads to draw it. A prefab
+ * keeps the flag and every other stored model field, so its placed copies
+ * look like the object it was made from.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOfProject } from '@thirdlight/project-model/limits';
 
+import { writeGlb } from './glb-images';
 import { FakeEditor } from './test-editor';
 import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
 
 type Any = any;
 const PID = 'demo-0001';
+/** A small model file the import takes: one triangle. */
+const COURIER = writeGlb(
+  {
+    asset: { version: '2.0' },
+    buffers: [{ byteLength: 36 }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36, target: 34962 }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] }],
+    meshes: [{ name: 'courier', primitives: [{ attributes: { POSITION: 0 } }] }],
+    nodes: [{ name: 'courier', mesh: 0 }],
+    scenes: [{ nodes: [0] }],
+    scene: 0,
+  },
+  new Uint8Array(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer),
+);
 
 describe('see-through settings and the object flag (real backend)', () => {
   let tb: TestBackend;
@@ -102,4 +119,36 @@ describe('see-through settings and the object flag (real backend)', () => {
       editor.close();
     }
   }, 120_000);
+  it('a prefab keeps every stored model field: its definition, a placed copy, and an applied update', async () => {
+    // A model asset, uploaded and published the way the editor imports one.
+    const stage = (await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages`, { body: {}, token: tb.adminToken, origin: null })).json as { stageId: string };
+    const put = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stage.stageId}/bytes`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${tb.adminToken}`, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(COURIER.length) },
+      body: new Uint8Array(COURIER),
+    });
+    expect(put.status).toBe(200);
+    const inspected = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stage.stageId}/inspect`, { body: {}, token: tb.adminToken, origin: null });
+    expect(inspected.status, JSON.stringify(inspected.json).slice(0, 400)).toBe(200);
+    const p = (inspected.json as Any).proposal;
+    await ok('publishAsset', { mode: 'create', assetId: 'courier', kind: 'model', displayName: 'Courier', sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: '2026-10-01T00:00:00Z' });
+
+    // A character that never thins, casts no shadow and sits in light layer 2.
+    const model = { asset: { assetId: 'courier' }, seeThrough: false, castShadow: false, lightLayers: 2 };
+    const source = (await ok('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Courier', model: { asset: { assetId: 'courier' } } })).createdId as string;
+    await ok('setComponent', { entityId: source, component: 'model', value: model });
+    const made = await ok('createPrefab', { prefabId: 'courier', displayName: 'Courier', sourceEntityId: source });
+    expect(made.change.definition.entities[0].components.model).toEqual(model);
+
+    const modelOf = async (id: string): Promise<Any> => (await open()).scene.entities.find((e: Any) => e.id === id).components.model;
+    const copy = (await ok('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'courier' })).change.rootId as string;
+    expect(await modelOf(copy)).toEqual(model);
+
+    // An applied update keeps the copy's fields too (and a field it changed).
+    const updated = { ...model, receiveShadow: false, decalLayers: 1 };
+    await ok('setComponent', { entityId: copy, component: 'model', value: updated });
+    await ok('updatePrefab', { prefabId: 'courier', fromEntity: copy });
+    const again = (await ok('instantiatePrefab', { sceneId: 'scene-main', prefabId: 'courier' })).change.rootId as string;
+    expect(await modelOf(again)).toEqual(updated);
+  }, 60_000);
 });

@@ -316,10 +316,10 @@ export function canonicalPrefabs(defs: readonly PrefabDefinition[]): PrefabDefin
 
 function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   const components: PrefabEntity['components'] = { transform: canonicalTransform(e.components.transform) };
-  if (e.components.model !== undefined) {
-    const piece = e.components.model.piece;
-    components.model = { asset: { assetId: e.components.model.asset.assetId }, ...(piece !== undefined ? { piece } : {}) };
-  }
+  // The model keeps every stored field (as on a scene entity, which keeps the
+  // validated model whole): a placed copy must look and behave like its source
+  // (shadows, light layers, occluder, see-through).
+  if (e.components.model !== undefined) components.model = { ...e.components.model, asset: { assetId: e.components.model.asset.assetId } };
   if (e.components.box !== undefined) components.box = canonicalBox(e.components.box);
   if (e.components.behavior !== undefined) {
     const values: Record<string, PropertyValue> = {};
