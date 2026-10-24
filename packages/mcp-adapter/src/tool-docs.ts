@@ -145,8 +145,9 @@ export const TOOL_DETAILS = {
     'graph to TypeScript (the same compiler, limits and trust per digest) through the editor\'s Publish (HTTP POST content/behaviors/source {graph: true, ...}); ' +
     'the published source record has kind "graph". A script error in a graph behavior names its node (nodeId in tl_diagnostics errors). ' +
     'Prefabs: ' +
-    'instantiatePrefab (a prefab keeps the source\'s components that may sit on a prefab (the descriptors\' prefab flag: collider, surface, materials, animator, mover, trigger, switch, ' +
-    'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider on any of its objects; never the player controller or scene wiring). ' +
+    'instantiatePrefab (a prefab holds anything a scene object carries: models, colliders, materials, animators, scripts, the gameplay components, a player controller, ' +
+    'virtual cameras, lights, spawns, decals; a component naming an object of the prefab names that object of each copy. Only what the scene itself keeps stays out: ' +
+    'block layer cells, instance sets, terrains, vertex paint and folders. Scene rules count copies\' parts: a player controller is a root object, one hemisphere light). ' +
     'Copies are linked: instantiatePrefab places one object naming the prefab; its parts are assembled from the prefab with ids derived from the copy\'s (the mapping ' +
     'in the result; queryEntities shows them, each part\'s components.prefab names its prefab part). Editing a copy\'s part with the ordinary commands (setComponent, ' +
     'setBehaviorProperties, setTransform, updateEntity name, createEntity under a part, deleteEntity of a part) stores an override on the copy (change type prefabLinkEdit); ' +
