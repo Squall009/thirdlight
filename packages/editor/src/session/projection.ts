@@ -176,7 +176,7 @@ function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
   return { radius: c.radius, height: c.height, ...(o !== undefined ? { offset: [o[0] ?? 0, o[1] ?? 0] as [number, number] } : {}) };
 }
 
-function toProjected(e: EntityV3): ProjectedEntity {
+export function toProjected(e: EntityV3): ProjectedEntity {
   const flags = e as { active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; keepLoaded?: boolean; tags?: number };
   const c = e.components as {
     folder?: unknown;

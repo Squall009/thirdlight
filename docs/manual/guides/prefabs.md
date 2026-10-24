@@ -29,6 +29,18 @@ edit of the prefab reaches every copy, except what a copy overrides.
    4 of the API path shows one).
 5. Press **▶ play**.
 
+To change the prefab itself, open it: double-click it in the project window
+(or press its **open prefab**), double-click a copy in the Hierarchy or the
+Scene view, or press **Open prefab** in a copy's Inspector. The prefab editor
+shows the prefab alone. Pick an object in its column and change it in the
+Inspector: each change is one command and one undo step, and every copy
+follows at once, except what a copy overrides. A copy of another prefab
+inside it shows as a copy, and its edits are overrides on that copy. The
+root's place, name and tags stay each copy's own. **Done** or Esc goes back
+to the scene. Through MCP: `tl_content_query`
+`{"target": "prefabs", "prefabId": "barrel", "stage": true}` returns the
+prefab's objects; a `tl_command` that names their ids changes the prefab.
+
 ## Through the API
 
 1. The object ([`createEntity`](../reference/ops-detail.md#op-createEntity)):

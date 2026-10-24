@@ -1,6 +1,7 @@
 /**
  * The one Inspector — on the default view's right dock, or on the right of
- * the editor window while that shows (moved there, never a second copy). With a graph-like document in front
+ * the editor window while that shows, or in the prefab editor's column while
+ * that shows (moved there, never a second copy). With a graph-like document in front
  * (an Animator controller, a visual script, a graph, a conversation, an
  * effect, a graph material) it shows that document's selection; with an
  * item chosen in the project window since the last selection, that item
@@ -57,8 +58,8 @@ import type { KitEditor } from '../kit/useKitEditor';
 
 export interface InspectorDockProps {
   width: number;
-  /** Where the one Inspector stands: the default view's right dock, or the editor window's right side. */
-  placement: 'dock' | 'window';
+  /** Where the one Inspector stands: the default view's right dock, the editor window's right side, or the prefab editor's column. */
+  placement: 'dock' | 'window' | 'edit';
   clientRef: ClientRef;
   viewportRef: ViewportRef;
   content: ProjectContent;
@@ -126,7 +127,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
       ? { materials: new Map(materials.map((m) => [m.materialId, m.name])), graphs: new Map(graphs.map((g) => [g.graphId, g.name])), blockTypes: new Map(props.blocks.blockTypes.map((t) => [t.blockId, t.name])) }
       : NO_KIT_NAMES;
   return (
-    <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
+    <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : placement === 'edit' ? 'tl-editmode__inspector' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={placement === 'edit' ? undefined : { width: width }}>
     {placement === 'window' && props.kit.kit !== null ? (
       <KitInspectorLink editor={props.kit} kit={props.kit.kit} />
     ) : activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (

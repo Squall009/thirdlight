@@ -16,7 +16,8 @@
  */
 
 import { applyMoveEntitiesScene } from './move-scene-ops';
-import { assembledView, routeCopyEdit, withKeptPartIds } from './prefab-copy-edit';
+import { assembledView, withKeptPartIds } from './prefab-copy-edit';
+import { routeLinkedEdit } from './prefab-stage-edit';
 import type { Manifest } from '@thirdlight/project-model';
 
 import {
@@ -291,8 +292,8 @@ export function applyMutation<S extends SceneDocument>(
   if (reserved !== undefined) input.reservedIds = reserved;
   if (state.scriptLibraryStages !== undefined) input.scriptLibraryStages = state.scriptLibraryStages;
 
-  // A command naming a linked copy's part runs on the copy's assembled objects and is stored as overrides.
-  const routed = routeCopyEdit(state, request, va.validated.op, env.args, (s, r) => applyMutation(s, r));
+  // Naming a linked copy's part: stored as overrides (assembled first); naming a prefab stage's objects: the prefab changes.
+  const routed = routeLinkedEdit(state, request, va.validated.op, env.args, (s, r) => applyMutation(s, r));
   if (routed !== null) {
     if (!routed.ok) return { ok: false, result: failure(request, routed.error) };
     return completeForward(state, va.validated.op as ForwardOp, envelope.projectId, envelope.requestId, revision, envelope.origin, routed.op);

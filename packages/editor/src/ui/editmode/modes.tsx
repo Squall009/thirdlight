@@ -27,6 +27,7 @@ import type { TerrainTools } from '../shell/useTerrainTools';
 import type { VertexPaintTools } from '../shell/useVertexPaintTools';
 import { blockMode } from './block-mode';
 import { decalMode } from './decal-mode';
+import { prefabMode, type PrefabModeHost } from './prefab-mode';
 import { terrainMode } from './terrain-mode';
 import { vertexPaintMode } from './vertex-paint-mode';
 import type { RailItem } from './ToolRail';
@@ -53,6 +54,8 @@ export interface EditModeHost {
   blockLayers: readonly { entityId: string; name: string }[];
   /** What the layer palette reads and sends (materials, thumbnails, commands). */
   palette: PaletteHost;
+  /** The prefab editor's wiring: the prefab opened on its own, the object picked, the Inspector. */
+  prefab: PrefabModeHost;
 }
 
 /** One mode of an editor's rail. */
@@ -185,7 +188,8 @@ export type EditModeKind = ObjectEditModeKind | SceneEditModeKind;
 export const isSceneMode = (k: EditModeKind): k is SceneEditModeKind => k.scope === 'scene';
 
 /** Every edit mode, in the order one is chosen for an object that several would edit. */
-export const EDIT_MODES: readonly EditModeKind[] = [terrainMode, blockMode, vertexPaintMode, decalMode];
+// The prefab editor first: a prefab's root on its stage is edited as the prefab, whatever else it is.
+export const EDIT_MODES: readonly EditModeKind[] = [prefabMode, terrainMode, blockMode, vertexPaintMode, decalMode];
 
 const BY_KIND = new Map(EDIT_MODES.map((k) => [k.kind, k]));
 

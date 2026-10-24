@@ -35,6 +35,7 @@ import { editorMenus, hierarchyContextMenu } from './menus';
 import { AssetsTab, type AssetsTabProps } from './AssetsTab';
 import { BottomDock } from './BottomDock';
 import { InspectorDock } from './InspectorDock';
+import { onPrefabStage } from './usePrefabStage';
 import type { BottomTab } from './dock-tabs';
 import type { EditorModel } from './useEditorModel';
 
@@ -101,7 +102,7 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
 }
 
 /** What the edit modes read from the app. */
-function makeEditModeHost(m: EditorModel): EditModeHost {
+function makeEditModeHost(m: EditorModel): Omit<EditModeHost, 'prefab'> {
   const { terrainTools, vertexPaint, decalTools, decalAtlas, entities, activeScene, hierarchyFlags, blocks, tileThumbnails, materials, newMaterialId, openDocument, clientRef } = m;
   return {
     terrain: terrainTools,
@@ -306,7 +307,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
   });
 
   /** The one Inspector, on the right dock or on the editor window's right side. */
-  const inspector = (placement: 'dock' | 'window'): JSX.Element => (
+  const inspector = (placement: 'dock' | 'window' | 'edit'): JSX.Element => (
     <InspectorDock
       placement={placement}
       width={placement === 'dock' ? sizes.right : sizes.window}
@@ -347,7 +348,13 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
       editMode={(() => {
-        if (selected === null) return null;
+        // A prefab's own objects are edited in the prefab editor, which is open.
+        if (selected === null || onPrefabStage(selected)) return null;
+        // A prefab's copy with no editor of its own opens its prefab.
+        if (selectedEditMode === undefined && selectedVia === undefined && selected.prefab !== undefined) {
+          const prefabId = selected.prefab.prefabId;
+          return { label: 'Open prefab', enter: () => void m.openPrefab(prefabId) };
+        }
         const own = selectedEditMode === undefined ? null : { label: selectedEditMode.action, enter: () => void editMode.enter(selected.id), ...(!isSceneMode(selectedEditMode) && selectedEditMode.inspectorSkips !== undefined ? { skips: selectedEditMode.inspectorSkips } : {}) };
         if (selectedVia === undefined) return own;
         // The editor of the object it belongs to first (the rooms' block editor); its own (vertex paint) beside it.
@@ -358,7 +365,17 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
   );
 
   /** What the edit modes read from the app. */
-  const editModeHost = makeEditModeHost(m);
+  const prefabMode = editMode.shown && editMode.state?.kind === 'prefab';
+  const editModeHost: EditModeHost = {
+    ...makeEditModeHost(m),
+    prefab: {
+      stage: m.prefabStage.stage,
+      prefabName: (id) => m.prefabSummaries.find((p) => p.prefabId === id)?.displayName ?? id,
+      selectedId: selection.primary,
+      select: (id) => setSelection({ ids: id === null ? [] : [id], primary: id }),
+      inspector: () => inspector('edit'),
+    },
+  };
   // The project window, in the bottom dock and in an edit mode's Project panel (assets are dragged in from either).
   const assetsTab: AssetsTabProps = { clientRef, assets, actions: assetActions, folderImport: fileCheck.checkable, tileThumbnails, inspect, items, search: projectSearch };
 
@@ -401,14 +418,14 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
           <div className="tl-app__row">
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
             <Hierarchy
-          entities={entities}
+          entities={m.sceneEntities}
           structureKey={structureKey}
           flags={hierarchyFlags}
           projectId={projectId}
           selectedIds={selection.ids}
           primaryId={selection.primary}
           onSelect={(ids, primary) => setSelection({ ids, primary })}
-          onActivate={(id) => editMode.enter(id, undefined, true)}
+          onActivate={(id) => m.activate(id, undefined, true)}
           onRename={(id, name) => void rename(id, name)}
           onMove={(ids, parentId, beforeId, sceneId) => void move(ids, parentId, beforeId, sceneId)}
           icons={iconTable}
@@ -448,7 +465,7 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
           />
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
-        {windowOpen ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
+        {windowOpen || prefabMode ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
       </div>
       {/* Scene settings float over the Scene view while it is in front (the editor window, Project Settings and the Game view set them aside). */}
       {/* An object's edit mode over the work area, the Scene view lent to it. */}

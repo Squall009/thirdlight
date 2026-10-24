@@ -464,7 +464,8 @@ export const TOOL_DETAILS = {
   tl_content_query:
     `Bounded, read-only content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
     'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
-    'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
+    'summaries (includeEntities optional; stage=true with prefabId returns the prefab opened on its own: its objects, whose ids ' +
+    'tl_command edits name to change the prefab itself, as the editor\'s prefab edit mode does); target="behaviors" pages behavior summaries (includeDeclaration ' +
     'optional; includeTrust adds trust: every acknowledged script source digest with its revision); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
     'ok / changed / missing); with check=true the backend first brings the catalog in step with the game folder, as the editor\'s ' +
     '"check files" does (a file moved together with its .tlasset sidecar keeps its asset, a changed file is imported again, the ' +

@@ -163,6 +163,13 @@ function ResourceInspector(p: ItemInspectorProps & { deleteError: string | null 
         </div>
       )}
       {e.kind === 'prefab' && (
+        <div className="tl-assets__row">
+          <button className="tl-btn tl-btn--small" onClick={() => p.open(item)} title="Edit the prefab on its own; every copy follows (or double-click it in the project window)">
+            open prefab
+          </button>
+        </div>
+      )}
+      {e.kind === 'prefab' && (
         <PrefabInspector
           prefabId={e.id}
           definition={p.prefab.definitions.find((d) => d.prefabId === e.id) ?? null}

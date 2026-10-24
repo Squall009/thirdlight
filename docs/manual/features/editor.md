@@ -46,7 +46,9 @@ window), **Console** and **Problems** (Window menu lists just those).
   editor](decals.md#the-decal-editor), a full-screen edit mode on the
   Scene view. A block layer's tools show in its Inspector while it
   is selected; **GameObject → Create prefab from selection** (also the
-  Hierarchy's right-click menu); an audio asset's load type, preload and
+  Hierarchy's right-click menu), and a prefab opens in the [prefab
+  editor](../guides/prefabs.md#in-the-editor), a full-screen edit mode
+  that shows it alone (double-click it or a copy); an audio asset's load type, preload and
   listening are in its Inspector.
 - **Each scene has its own look** (sky, fog, post, wind, wetness, in its scene file;
   `setEnvironment {sceneId}`); the quality level and environment presets

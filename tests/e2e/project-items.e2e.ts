@@ -218,6 +218,26 @@ test('a chosen item shows in the Inspector: assets, shader materials, prefabs an
   await inspector(page).getByRole('button', { name: 'place copy', exact: true }).click();
   await expect.poll(entities).toBeGreaterThan(copies);
 
+  // Opened on its own (a double-click): only the prefab is shown; a field changed in its Inspector changes the prefab
+  // (one command), the placed copy shows it once the editor is back on the scene; Esc leaves.
+  const sizeOf = async (): Promise<number | undefined> => ((await be.command({ op: 'queryPrefabs', projectId: be.projectId, args: { prefabId: 'crate', includeEntities: true } }))['prefabs'] as { entities: { components: { box?: { size: number[] } } }[] }[])[0]!.entities[0]!.components.box?.size[0];
+  const copyId = ((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 500 } }))['entities'] as { id: string; components: { prefab?: { prefabId: string } } }[]).find((e) => e.id !== STARTER.groundId && e.components.prefab?.prefabId === 'crate')!.id;
+  await chooseItem(page, 'prefab', 'Crate');
+  await page.locator('.tl-assets li[data-item-id="crate"]').dblclick();
+  const mode = page.locator('section.tl-editmode[data-edit-mode="prefab"]');
+  await expect(mode).toBeVisible();
+  await expect(page.locator('[data-tl-inspector]')).toHaveCount(0);
+  await mode.getByRole('tree', { name: 'prefab objects', exact: true }).getByRole('button').first().click();
+  await expect(inspector(page)).toHaveAttribute('data-tl-inspector', 'edit');
+  const size = inspector(page).getByLabel('box size w', { exact: true });
+  await size.fill('7');
+  await size.press('Enter');
+  await expect.poll(sizeOf).toBe(7);
+  await page.keyboard.press('Escape');
+  await expect(mode).toHaveCount(0);
+  await page.locator(`.tl-hierarchy__list li.tl-row[data-entity-id="${copyId}"]`).click();
+  await expect(inspector(page).getByLabel('box size w', { exact: true })).toHaveValue('7');
+
   // A resource: renamed in the Inspector (one command), its address set.
   await chooseItem(page, 'effect', 'Effect One');
   const name = inspector(page).getByLabel('effect name', { exact: true });

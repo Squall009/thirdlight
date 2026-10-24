@@ -231,6 +231,28 @@ export function prefabPartId(copyId: string, partKey: string): string {
   return `${copyId.slice(0, MAX_ID_LENGTH - PART_HASH_LENGTH - 1)}-${hash}`;
 }
 
+/** What every prefab stage's root id starts with (see `prefabStageId`). */
+export const PREFAB_STAGE_ID_PREFIX = 'prefab-stage_';
+
+/**
+ * The id of a prefab's stage: the copy a prefab is opened as for editing on
+ * its own (no scene holds it; an edit of its parts changes the prefab). The
+ * prefab's id is hashed, not spelled out, so the root stays short enough that
+ * every part id starts with it followed by `-` (no `-` inside it), which is
+ * how a part id finds its stage. A stored object would need this exact id
+ * to be mistaken for one.
+ */
+export function prefabStageId(prefabId: string): string {
+  return `${PREFAB_STAGE_ID_PREFIX}${hash53(`stage\u0000${prefabId}`).toString(36).padStart(PART_HASH_LENGTH, '0')}`;
+}
+
+/** The stage root an id is or belongs to (null: not a stage's id). */
+export function prefabStageRootOf(id: string): string | null {
+  if (!id.startsWith(PREFAB_STAGE_ID_PREFIX)) return null;
+  const dash = id.indexOf('-', PREFAB_STAGE_ID_PREFIX.length);
+  return dash < 0 ? id : id.slice(0, dash);
+}
+
 /** The prefabs a definition nests (its entities that are links), in order. */
 export function nestedPrefabIds(definition: { entities: readonly { components: object }[] }): string[] {
   const out: string[] = [];

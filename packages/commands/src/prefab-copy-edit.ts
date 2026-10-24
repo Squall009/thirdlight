@@ -170,7 +170,7 @@ const NOT_ROUTED = new Set(['undo', 'redo', 'createPrefab', 'updatePrefab', 'rev
 const ROOT_OWN_OPS = new Set(['setTransform', 'updateEntity', 'moveEntities', 'deleteEntity']);
 
 /** The ids an op edits, and the ids it puts objects under or beside. */
-function namedIds(args: Obj): { targets: string[]; places: string[] } {
+export function namedIds(args: Obj): { targets: string[]; places: string[] } {
   const str = (v: unknown): string[] => (typeof v === 'string' ? [v] : []);
   const targets = [...str(args['entityId']), ...(Array.isArray(args['entityIds']) ? args['entityIds'].filter((x): x is string => typeof x === 'string') : [])];
   for (const k of ['animation', 'bakeDecal']) {

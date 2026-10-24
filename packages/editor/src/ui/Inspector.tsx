@@ -34,6 +34,7 @@ import { addEntries, componentOp, componentPatch, firstReference, removable, see
 import type { GizmoMode } from '../viewport/viewport';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 import { AddComponent, ComponentSection, type AddExtra, type FieldContext } from './DescriptorFields';
+import { onPrefabStage } from './shell/usePrefabStage';
 
 /** A field edit's patch made again from a component value (null: nothing to change there). */
 export type PatchRebase = (current: Record<string, unknown>) => Record<string, unknown> | null;
@@ -295,7 +296,8 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
           <FlagControls entity={entity} flags={flags} entityName={entityName} onSetFlag={onSetFlag} />
           <TagControls entity={entity} flags={flags} tags={tags} onSetTags={onSetTags} />
           {isFolder && <p className="tl-inspector__hint">A folder only organises: it has no transform, and filing objects in it keeps where they are. Active, Locked and Static set here reach everything inside.</p>}
-          {entity.prefab && (
+          {/* A prefab's own objects (its editor) are no copy of it. */}
+          {entity.prefab && !onPrefabStage(entity) && (
             <div className="tl-inspector__copy" title={`${entity.prefab.prefabId} / ${entity.prefab.localId}`}>
               Copy of {prefabDisplayName(entity.prefab.prefabId)} — copies are independent
               {onApplyToPrefab !== undefined && (

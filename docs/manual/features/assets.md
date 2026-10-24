@@ -115,8 +115,9 @@ pieces load when it is chosen, not to draw its tile).
 - **Opening**: a double-click opens a folder, or the item's editor (a
   material, animator, graph, effect, script or visual script, library, UI
   document or theme, dialogue, timeline) in the editor window; a scene opens
-  in the Scene view; a prefab, a shader material, an environment preset or
-  an asset shows in the Inspector.
+  in the Scene view; a prefab opens in the prefab editor (it alone, edited
+  for every copy: [prefabs](../guides/prefabs.md)); a shader material, an
+  environment preset or an asset shows in the Inspector.
 - **Creating**: **create ▾** (or a right-click on the list) is the Create
   menu for every kind of resource and scenes; the new item is named in place
   and opens in its editor (or the Inspector).

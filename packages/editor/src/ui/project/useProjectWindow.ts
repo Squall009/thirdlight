@@ -3,7 +3,7 @@
  * new scenes and resources are created (Unity's Create menu uses the project
  * window's folder) and where uploads land — its file commands, and what a
  * double-click opens for each kind of item (its editor; the Scene view for a
- * scene; the Inspector for an asset, a prefab or a shader material).
+ * scene; the prefab editor for a prefab; the Inspector for an asset or a shader material).
  *
  * Browser-only (React).
  */
@@ -25,7 +25,9 @@ export interface ProjectOpeners {
   opensMaterialTab(materialId: string): boolean;
   /** Open a scene in the Scene view and make it the active one. */
   openScene(sceneId: string): void;
-  /** Show an item in the Inspector (a prefab, a shader material, an asset). */
+  /** Open a prefab in the prefab editor, on its own. */
+  openPrefab(prefabId: string): void;
+  /** Show an item in the Inspector (a shader material, an asset). */
   inspect(item: ProjectItem): void;
   /** Show the environment panel (its presets). */
   showEnvironment(): void;
@@ -58,8 +60,9 @@ export function useProjectWindow(clientRef: MutableRefObject<SessionClient | nul
       return openers.previewAsset(item.id);
     }
     if (item.kind === 'scene') return openers.openScene(item.id);
-    // A prefab has no editor (copies are placed from its Inspector); nor has a shader material but a trim sheet (its values are its Inspector).
-    if (item.kind === 'prefab' || (item.kind === 'material' && !openers.opensMaterialTab(item.id))) return openers.inspect(item);
+    // A prefab opens in the prefab editor; a shader material but a trim sheet has no editor (its values are its Inspector).
+    if (item.kind === 'prefab') return openers.openPrefab(item.id);
+    if (item.kind === 'material' && !openers.opensMaterialTab(item.id)) return openers.inspect(item);
     if (item.kind === 'envpreset') return openers.showEnvironment();
     const doc = documentOfItem(item);
     // A kind without an editor of its own (a kit) is shown in the Inspector.

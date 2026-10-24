@@ -282,15 +282,17 @@ test('a double-click opens each kind of item in its editor, an edit there is sav
   await opens('anim-one', 'animator', 'Animator One', 'animator');
   await opens('script-one', 'behavior', 'Script One');
   await opens('lib-one', 'library', 'Library One', 'library');
-  // A scene opens in the Scene view (its header in the Hierarchy); a prefab and a shader material have no editor: the Inspector shows them.
+  // A scene opens in the Scene view (its header in the Hierarchy); a prefab in the prefab editor (Esc leaves); a shader material has no editor: the Inspector shows it.
   await search.fill('t:scene scene-two');
   await itemTile(page, 'scene-two').dblclick();
   await expect(page.locator('.tl-scene-header', { hasText: 'Scene Two' })).toBeVisible();
   await projectWindow(page);
   await search.fill('t:prefab');
   await itemTile(page, 'prefab-one').dblclick();
-  await expect(inspector(page).getByLabel('prefab inspector')).toBeVisible();
-  await expect(inspector(page).getByRole('button', { name: 'place copy', exact: true })).toBeVisible();
+  await expect(page.locator('section.tl-editmode[data-edit-mode="prefab"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('section.tl-editmode')).toHaveCount(0);
+  await projectWindow(page);
   await search.fill('t:material mat-plain');
   await itemTile(page, 'mat-plain').dblclick();
   await expect(editorWindow(page)).toHaveCount(0);

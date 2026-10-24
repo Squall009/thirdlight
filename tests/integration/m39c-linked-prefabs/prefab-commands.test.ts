@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { prefabPartId } from '@thirdlight/project-model';
+import { prefabPartId, prefabStageId } from '@thirdlight/project-model';
 
 import { Projection } from '../../../packages/editor/src/session/projection';
 import { api, connectWs, mkRequestId, mkSessionId, startBackend, type TestBackend, type TestWs } from '../../../packages/backend/src/test-helpers';
@@ -221,5 +221,38 @@ describe('linked-copy commands at the backend', () => {
     expect((await refused('applyPrefabOverrides', { entityId: b, all: true })).code).toBe('prefab_copy_required');
     await send('undo', {});
     expect(stored(b).components.prefab).toEqual({ prefabId: 'door' });
+  }, 120_000);
+
+  it('a prefab opened on its own: the ordinary commands on its stage change the prefab, every copy follows, one undo step each', async () => {
+    const stage = async (prefabId: string): Promise<Any> => (await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryPrefabs', projectId: PID, args: { prefabId, stage: true } }, token: tb.adminToken, origin: null })).json.stage;
+    const door = await stage('door');
+    expect(door.rootId).toBe(prefabStageId('door'));
+    const named = (st: Any, name: string): Any => (st.entities as Any[]).find((e) => e.name === name);
+    const stagePanel = named(door, 'Panel').id as string;
+    const copies = (await fresh()).filter((e) => e.components.prefab?.prefabId === 'door' && e.components.prefab.localId === panel).map((e) => e.id as string);
+    expect(copies.length).toBeGreaterThan(1);
+    // A field of a part: the prefab changes, no scene object is stored differently, every copy shows it.
+    const scene = JSON.stringify(readJson(join(dir(), 'scenes', 'scene-main.json')).scene.entities);
+    const before = (await send('setComponent', { entityId: stagePanel, component: 'box', value: { size: [0.6, 2.4, 0.2] } })).history.undoDepth as number;
+    expect((prefab('door').entities as Any[]).find((e) => e.localId === panel).components.box.size).toEqual([0.6, 2.4, 0.2]);
+    expect(JSON.stringify(readJson(join(dir(), 'scenes', 'scene-main.json')).scene.entities)).toBe(scene);
+    for (const id of copies) expect((await view(id)).components.box.size, id).toEqual([0.6, 2.4, 0.2]);
+    expect(named(await stage('door'), 'Panel').components.box.size).toEqual([0.6, 2.4, 0.2]);
+    expect((await send('undo', {})).history.undoDepth).toBe(before - 1);
+    for (const id of copies) expect((await view(id)).components.box.size, id).not.toEqual([0.6, 2.4, 0.2]);
+    await send('redo', {});
+    // The nested handle is a copy in the prefab: its edit is an override on that nested copy.
+    const stageHandle = named(door, 'Handle').id as string;
+    await send('setComponent', { entityId: stageHandle, component: 'box', value: { material: { color: '#3355ff' } } });
+    const nested = (prefab('door').entities as Any[]).find((e) => e.components.prefab?.prefabId === 'handle');
+    expect(nested.components.prefab.overrides).toEqual([expect.objectContaining({ path: 'components/box/material/color', value: '#3355ff' })]);
+    expect(prefab('handle').entities[0].components.box.material?.color).not.toBe('#3355ff');
+    // A new object under a part becomes a part of the prefab, named by its stage id.
+    const made = (await send('createEntity', { kind: 'box', name: 'Hinge', parentId: stagePanel })).createdId as string;
+    expect(named(await stage('door'), 'Hinge')).toMatchObject({ id: made, parentId: stagePanel });
+    expect((prefab('door').entities as Any[]).some((e) => e.name === 'Hinge')).toBe(true);
+    // What each copy keeps as its own (the root's place) is not the prefab's; a stage edit names only its prefab.
+    expect((await refused('setTransform', { entityId: door.rootId, transform: { position: [5, 0, 0] } })).code).toBe('prefab_override_unsupported');
+    expect((await refused('deleteEntity', { entityId: made, entityIds: [copies[0]] })).code).toBe('prefab_override_unsupported');
   }, 120_000);
 });

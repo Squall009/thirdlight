@@ -34,7 +34,7 @@ import { planAssetQuery } from './asset-browser';
 import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
 import { fromWireChange } from '@thirdlight/protocol';
-import type { BehaviorRecord, DialogueDocument, PrefabDefinition, TrustEntry } from '@thirdlight/project-model';
+import type { BehaviorRecord, DialogueDocument, EntityV3, PrefabDefinition, TrustEntry } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 import { SessionProjectState, type BlockLayerView } from './project-state';
 import { SessionSocket } from './session-socket';
@@ -183,6 +183,8 @@ export interface PrefabQueryResult {
   offset: number;
   limit: number;
   prefabs: PrefabDefinition[];
+  /** With `stage`: the prefab opened on its own, its objects assembled (edits naming them change the prefab). */
+  stage?: { prefabId: string; rootId: string; entities: EntityV3[] };
 }
 
 /** The bounded `queryBehaviors` result with `includeDeclaration`. */
@@ -1010,7 +1012,7 @@ export class SessionClientCore extends SessionProjectState {
    * capture/instantiation source; never bytes and never a projection.
    */
   async queryPrefabs(
-    options: { limit?: number; offset?: number; includeEntities?: boolean; prefabId?: string } = {},
+    options: { limit?: number; offset?: number; includeEntities?: boolean; prefabId?: string; stage?: boolean } = {},
   ): Promise<PrefabQueryResult> {
     return this.api<PrefabQueryResult>(`/projects/${this.cfg.projectId}/commands`, {
       op: 'queryPrefabs',
@@ -1019,6 +1021,7 @@ export class SessionClientCore extends SessionProjectState {
         ...planAssetQuery({ limit: options.limit, offset: options.offset }),
         ...(options.includeEntities ? { includeEntities: true } : {}),
         ...(options.prefabId ? { prefabId: options.prefabId } : {}),
+        ...(options.stage ? { stage: true } : {}),
       },
     });
   }

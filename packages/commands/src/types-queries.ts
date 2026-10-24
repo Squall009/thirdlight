@@ -98,6 +98,8 @@ export type QueryResult<T> =
       assets?: readonly T[];
       behaviors?: readonly T[];
       prefabs?: readonly T[];
+      /** `queryPrefabs` with `stage`: the prefab opened on its own, its objects assembled (`prefabStage`); edits naming them change the prefab. */
+      stage?: { prefabId: string; rootId: string; entities: readonly unknown[] };
       /** With `ids`: the ids asked for that name no record. */
       missing?: readonly string[];
       /** `queryBehaviors` with `includeTrust`: every acknowledged script source (not paged). */

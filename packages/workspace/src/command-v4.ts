@@ -9,7 +9,7 @@
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
 import type { AdoptedScene, CommandError, DeletedKind, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument, VertexPaintBlob } from '@thirdlight/commands';
 import type { InstancePaint, ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
-import { composeV4, INSTANCE_FLOATS, keptPartIds, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
+import { composeV4, INSTANCE_FLOATS, keptPartIds, prefabStageRootOf, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
 import { readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
@@ -100,7 +100,8 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   const op = typeof req.op === 'string' ? req.op : '';
   const args = (req.args !== null && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}) as Record<string, unknown>;
   // A linked copy's part is no stored object: the assembled view says which scene holds it.
-  const target = targetSceneV4(state, s.history, op, args, (id) => prefabViewOf(s)?.derived.get(id)?.sceneId ?? null);
+  // A prefab stage's object is in no scene: the edit changes the prefab, carried by the primary scene as any catalog edit.
+  const target = targetSceneV4(state, s.history, op, args, (id) => prefabViewOf(s)?.derived.get(id)?.sceneId ?? (prefabStageRootOf(id) !== null ? primarySceneIdV4(state) : null));
   if (!target.ok) return failRequest(request, target.error);
   // `sceneId` on a create names the scene; the pure layer never sees it.
   let pureRequest = request;

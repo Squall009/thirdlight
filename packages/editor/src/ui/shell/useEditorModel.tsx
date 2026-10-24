@@ -44,6 +44,7 @@ import { useSceneViewLending } from './useSceneViewLending';
 import { useEditMode } from '../editmode/useEditMode';
 import { useEntityEditing } from './useEntityEditing';
 import { usePrefabAuthoring } from './usePrefabAuthoring';
+import { onPrefabStage, usePrefabStage } from './usePrefabStage';
 import { useAssetsWindow } from './useAssetsWindow';
 import { useItemActions } from '../project/useItemActions';
 import { freeItemId, type ProjectItem } from '../../session/project-items';
@@ -79,7 +80,8 @@ export function useEditorModel() {
   const [gate, setGate] = useState<{ kind: 'token' | 'projects'; message?: string } | null>(
     cfg.current.ok || cfg.current.needs === 'page' ? null : { kind: cfg.current.needs === 'token' ? 'token' : 'projects' },
   );
-  const [entities, setEntities] = useState<ProjectedEntity[]>([]);
+  /** The open scenes' objects (the Hierarchy's). */
+  const [sceneEntities, setEntities] = useState<ProjectedEntity[]>([]);
   /** The transform a Scene-view gesture shows while it runs (the Inspector readout), until the change lands. */
   const [liveTransform, setLiveTransform] = useState<{ id: string; position: number[]; rotation: number[]; scale: number[] } | null>(null);
   /** The hierarchy selection (several ids) and its primary entity (inspector, gizmo). */
@@ -87,6 +89,10 @@ export function useEditorModel() {
   const selectedId = selection.primary;
   const setSelectedId = useCallback((id: string | null) => setSelection({ ids: id === null ? [] : [id], primary: id }), []);
   const [ui, setUi] = useState<ClientUiState>({ connection: 'idle', save: 'idle', error: null, conflict: null, revision: 0, undoDepth: 0, redoDepth: 0, external: null, problems: [] });
+  /** A prefab opened on its own: its objects are drawn, picked and inspected beside the scenes' while its editor is open. */
+  const prefabStage = usePrefabStage(clientRef, ui.revision);
+  const stageEntities = prefabStage.stage?.entities;
+  const entities = useMemo(() => (stageEntities === undefined ? sceneEntities : [...sceneEntities, ...stageEntities]), [sceneEntities, stageEntities]);
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
@@ -238,8 +244,42 @@ export function useEditorModel() {
   useEditorShortcuts({ viewportRef, gestureRef, shiftRef, workspaceRef, editModeShownRef, selectedIdRef, setSelectedId, setGizmoMode, scene: sceneEditing });
   // An object's full-screen editor on the Scene view (terrain): set aside while the Scene view is not in front.
   const editMode = useEditMode({ entities, selection, setSelection, workspaceDispatch, closeSettings, sceneInFront: centerTab === 'scene' && !windowOpen && !settingsWindow.open });
-  enterEditModeRef.current = editMode.enter;
+  /** Open a prefab in the prefab editor (from the project window, a copy, the Inspector). */
+  const { open: openStage, close: closeStage } = prefabStage;
+  const enterMode = editMode.enter;
+  const openPrefab = useCallback(
+    async (prefabId: string): Promise<void> => {
+      const rootId = await openStage(prefabId);
+      if (rootId !== null) enterMode(rootId, 'prefab');
+    },
+    [openStage, enterMode],
+  );
+  const entitiesRef = useRef(entities);
+  entitiesRef.current = entities;
+  /**
+   * A double-click (Hierarchy, Scene view) opens the object's editor; a prefab's copy with none opens its prefab
+   * (a nested copy's, from inside a prefab).
+   */
+  const activate = useCallback(
+    (entityId: string, kind?: string, activated = false, railMode?: string): boolean => {
+      const e = entitiesRef.current.find((x) => x.id === entityId);
+      const stagePrefab = prefabStage.stage?.prefabId;
+      const onStage = onPrefabStage(e);
+      if (!onStage && enterMode(entityId, kind, activated, railMode)) return true;
+      const prefabId = activated ? e?.prefab?.prefabId : undefined;
+      if (prefabId === undefined) return onStage;
+      if (!onStage || prefabId !== stagePrefab) void openPrefab(prefabId);
+      return true;
+    },
+    [enterMode, openPrefab, prefabStage.stage?.prefabId],
+  );
+  enterEditModeRef.current = activate;
   editModeShownRef.current = editMode.shown;
+  // The stage is kept only while the prefab editor is open (leaving it, or opening another editor, closes it).
+  const modeKind = editMode.state?.kind;
+  useEffect(() => {
+    if (modeKind !== 'prefab' && prefabStage.stage !== null) closeStage();
+  }, [modeKind, prefabStage.stage, closeStage]);
 
   const dialogs = useEditorDialogs({ clientRef, play, createEntityAt: sceneEditing.createEntityAt });
   const resync = useCallback(() => {
@@ -297,6 +337,7 @@ export function useEditorModel() {
         const m = materials.find((x) => x.materialId === id);
         return m !== undefined && (m.graph !== undefined || m.shader === 'trim');
       },
+      openPrefab: (prefabId) => void openPrefab(prefabId),
       inspect,
       showEnvironment: () => showToolWindow('environment'),
     },
@@ -371,6 +412,7 @@ export function useEditorModel() {
   const uiPreviewAssets = useUiPreviewAssets(clientRef, uiDocuments, uiThemes, catalogTick);
 
   return {
+    activate, openPrefab, prefabStage, sceneEntities,
     activeScene, animatorTools, assetActions, assetDropActive, assetSummary, assets, bake, blockHandlersRef, blocks, bottomTab, centerTab, cfg, clientRef, closeSettings, closedScenes, content, cue, decalAtlas, decalTools, dialogs, docCmds, docState, dropAsset, editMode, effectPreview, entities, entityEditing, fieldContext, fileCheck, filePicker, gizmoMode, gizmos, groupUsage, hierarchyFlags, iconTable, inspect, inspectedItem, instanceBrush, instanceChunks, items, kitEditor, layerUsage, lightingMode, loadTextureRef, materials, modelFilesRef, modes, move, newMaterialId, notice, occlusionView, openDocument, play, playIframeRef, playInfo, playMode, playRenderer, playSession, playing, prefab, prefabSummaries, previewSrc, previewTextureRef, problems, projectSearch, projectSettings, registry, rename, reportFailure, resync, saveSchema, sceneAction, sceneEditing, sceneHeaders, sceneRenderer, sceneView, scripting, seeThroughPreview, selectedCopy, selectedEntity, selectedId, selection, sessionClient, setAssetDropActive, setBottomTab, setCenterTab, setEffectPreview, setFilePicker, setGizmoMode, setGizmos, setLightingMode, setNotice, setOcclusionView, setProjectSearch, setSeeThroughPreview, setSelectedCopy, setSelectedId, setSelection, setSnapSettingsState, setSnapping, settings, settingsWindow, showToolWindow, sizes, snapSettings, snapping, splitter, stageRef, stop, structureKey, tagUsage, terrainTools, tileThumbnails, toolWindows, ui, uiPreviewAssets, vertexPaint, viewFailures, viewportHostRef, viewportRef, windowOpen, workareaRef, workspace, workspaceDispatch, gate,
   };
 }

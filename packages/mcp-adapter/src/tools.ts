@@ -170,6 +170,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         offset: { type: 'integer', minimum: 0 },
         includeVersions: { type: 'boolean' },
         includeEntities: { type: 'boolean' },
+        stage: { type: 'boolean', description: 'target="prefabs" with prefabId: the prefab opened on its own (its stage), its objects assembled; tl_command edits naming them change the prefab' },
         includeDeclaration: { type: 'boolean' },
         includeTrust: { type: 'boolean', description: 'target="behaviors": also return the acknowledged script sources' },
         includeDescriptors: { type: 'boolean', description: 'target="game": also return the descriptor registry' },
@@ -880,6 +881,10 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     if (a.includeEntities !== undefined) {
       if (typeof a.includeEntities !== 'boolean') return toolError('includeEntities must be a boolean');
       args.includeEntities = a.includeEntities;
+    }
+    if (a.stage !== undefined) {
+      if (typeof a.stage !== 'boolean') return toolError('stage must be a boolean');
+      args.stage = a.stage;
     }
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;

@@ -15,6 +15,7 @@ import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, audioSummaryOf, texture
 import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObject } from './errors';
 import { assetKindOf } from './v3';
 import { contentOf } from './content-ops';
+import { prefabStage } from './prefab-stage-edit';
 import type {
   AssetSummary,
   BehaviorQueryEntry,
@@ -384,12 +385,15 @@ export function queryPrefabs(
   const parsed = parseQueryRequest('queryPrefabs', request);
   if (!parsed.ok) return { ok: false, projectId: parsed.projectId, error: parsed.error };
   const { projectId, args } = parsed.base;
-  const page = parsePageArgs(args, ['limit', 'offset', 'includeEntities', 'prefabId', 'ids']);
+  const page = parsePageArgs(args, ['limit', 'offset', 'includeEntities', 'prefabId', 'ids', 'stage']);
   if (!page.ok) return { ok: false, op: 'queryPrefabs', projectId, error: page.error };
   const idsArg = parseIdsArg(args);
   if (!idsArg.ok) return { ok: false, op: 'queryPrefabs', projectId, error: idsArg.error };
   const inc = parseBooleanArg(args, 'includeEntities');
   if (!inc.ok) return { ok: false, op: 'queryPrefabs', projectId, error: inc.error };
+  const stageArg = parseBooleanArg(args, 'stage');
+  if (!stageArg.ok) return { ok: false, op: 'queryPrefabs', projectId, error: stageArg.error };
+  if (stageArg.value && typeof args['prefabId'] !== 'string') return { ok: false, op: 'queryPrefabs', projectId, error: fieldType('/args/prefabId', args['prefabId'], 'string (the prefab whose stage is read)') };
   if (args['prefabId'] !== undefined && typeof args['prefabId'] !== 'string') {
     return {
       ok: false,
@@ -417,6 +421,7 @@ export function queryPrefabs(
       };
     }
   }
+  const stage = stageArg.value ? prefabStage(state.content, wanted!) : null;
   // `includeEntities: true` returns the exact stored definition value (the
   // query fixture pins this shape), never a projection.
   const prefabs: PrefabQueryEntry[] = pageRecords.map((d) => {
@@ -440,6 +445,7 @@ export function queryPrefabs(
     limit: page.limit,
     prefabs,
     ...(byIds !== null ? { missing: byIds.missing } : {}),
+    ...(stage !== null ? { stage: { prefabId: wanted!, ...stage } } : {}),
   };
 }
 
