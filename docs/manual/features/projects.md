@@ -40,7 +40,11 @@ games: games live in their own repositories.
 A project directory holds:
 
 - `project.json`: id, name, engine version (schemaVersion 7; a 6 is
-  upgraded on open, an older one is refused, see [Migration notes](migration.md));
+  upgraded on open, an older one is refused, see [Migration notes](migration.md)),
+  and `upgrades`: the one-time data upgrades the project has had (`trim-data`:
+  old trim paint and COLOR_0 moved, see [Vertex paint](vertex-paint.md); also
+  recorded by the edit that adds a project's first trim material), so none
+  runs twice;
 - `content.json`: the project-wide settings: settings, tags, the scene list
   and the start scenes, the environment (its presets' order), input, the game
   shell, event sounds, modes, the save schema, speakers and dialogue

@@ -1,7 +1,8 @@
 /**
  * Storage version 4 — a project is several files.
  *
- *   project.json            manifest schemaVersion 7 (id, name, engine, createdAt;
+ *   project.json            manifest schemaVersion 7 (id, name, engine, createdAt,
+ *                           the one-time upgrades it has had;
  *                           a 6 is upgraded on open, older ones are refused)
  *   content.json            { storageVersion: 5, type: "project-content", projectId,
  *                             revision, content (the project-wide settings), retry }

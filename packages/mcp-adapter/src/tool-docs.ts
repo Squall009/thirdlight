@@ -222,7 +222,7 @@ export const TOOL_DETAILS = {
     'carries it. revokeBehaviorTrust {sourceDigest} withdraws an acknowledgment (refused while a published script was built from that source or ' +
     'against that library version; the next publish of it asks again). setAssetOptions {assetId, vertexColors: ' +
     '"data"|"tint"|"trim"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour, "trim" reads it as trim data ' +
-    'authored for a trim sheet (R occlusion, B wetness: moved off COLOR_0 as the model loads; the open sets it on models mapped to a trim material); setAssetOptions {assetId, sourcePath} ' +
+    'authored for a trim sheet (R occlusion, B wetness: moved off COLOR_0 as the model loads; an older project\'s first open sets it once on models mapped to a trim material); setAssetOptions {assetId, sourcePath} ' +
     'moves the asset\'s file (with its sidecar) to that path of the game folder, or records a move already made there; the id and ' +
     'every reference stay. Audio is one kind, any length: Ogg Vorbis/Opus, MP3, WAV (PCM or float, any rate, channels, bits) or FLAC; ' +
     'setAssetOptions {assetId, loadType?: "decode-on-load"|"decode-while-playing"|"stream"|null, preload?: bool} sets how the game holds it ' +

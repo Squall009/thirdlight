@@ -19,7 +19,9 @@ import { applyFileMoves, checkReplayedMoves, movedFileKeys, prepareFileMoves } f
 import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
 import { externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
-import { withUntrackedSidecars, writeTransaction, type KnownFile, type V4State } from './store-v4';
+import { MANIFEST_REL_V4, manifestV2Bytes, withUntrackedSidecars, writeTransaction, type KnownFile, type V4State } from './store-v4';
+import { sha256Hex } from './digest';
+import { hasTrimMaterials, withTrimDataRecorded } from './trim-data-upgrade';
 import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4, type Placement } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
@@ -355,13 +357,22 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   if (change.type === 'importResources') ack = { ...ack, change: { ...ack.change, scenesAdded: (change.scenesAdded ?? []).map((a) => ({ sceneId: a.sceneId, name: a.name })) } as MutationSuccess['change'] };
   const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
   const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record, place);
+  // A project's first trim material is made in the current trim-data meaning: the edit records that upgrade as done,
+  // so no later open takes paint made from now on for the old meaning (`trim-data-upgrade.ts`).
+  const manifest = hasTrimMaterials(nextContent) ? withTrimDataRecorded(state.manifest) : null;
+  const manifestBytes = manifest === null ? null : manifestV2Bytes(manifest);
+  const writes = manifestBytes === null ? plan.writes : [...plan.writes, { rel: MANIFEST_REL_V4, bytes: manifestBytes }];
   // Files adopted where they are: what the file check read is the baseline their write is checked against.
-  const base = withUntrackedSidecars(core.ops, s.dir, gameRootOf(s), state.files, plan.writes);
+  const base = withUntrackedSidecars(core.ops, s.dir, gameRootOf(s), state.files, writes);
   const disk = place.disk;
   const known = disk === undefined ? base : { get: (rel: string): KnownFile | undefined => (disk.has(rel) ? (disk.get(rel) ?? undefined) : base.get(rel)) };
-  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, known, plan.writes, gameRootOf(s));
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, known, writes, gameRootOf(s));
   // The state after the write (its known files are brought up to date only once the write is done).
-  const nextState = (): V4State => ({ manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths });
+  const nextState = (): V4State => {
+    const files = plan.commitFiles();
+    if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+    return { manifest: manifest ?? state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files, fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths };
+  };
   if (!res.ok) {
     if ('unreadable' in res) {
       setPendingUnreadableV4(s, res.unreadable.rel);

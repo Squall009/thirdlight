@@ -10,19 +10,38 @@
  *   `vertexColors: 'trim'`, so the renderer moves that COLOR_0 into the trim
  *   data attribute as the model loads. The file is the game's and stays as
  *   it is (an art tool keeps writing that convention); a model imported
- *   later is caught by the next open, or set in its import settings.
+ *   later is set in its import settings.
  * - **Paint on trim surfaces.** Paint stored with the old trim meaning
  *   (G grime, B wetness) on meshes drawn with a trim material — a model's
  *   meshes, an instance set's copies, generated architecture's paths — has
  *   its wetness moved from B to A (the larger of the two) and its G and B
  *   cleared: grime is gone (dirt is a painted layer), and a trim sheet has
- *   no layers 2–4. Paint already in the new meaning has nothing on G or B
- *   and is left as it is, so the open runs this once in effect.
+ *   no layers 2–4.
+ *
+ * It runs once per project, recorded in `project.json` (`upgrades`): after the
+ * move, G and B are layers 3–4 again on any surface a later mapping makes
+ * layered, so the data cannot say which meaning it has. A project without a
+ * trim material holds nothing in the old meaning: its first trim material is
+ * made in the current one, and the edit that makes it records the upgrade.
  *
  * Pure apart from the reads and writes it is handed: the documents in, the
  * changed documents out (null: nothing to change).
  */
-import { paintMeshKey, resolveMaterial, VERTEX_PAINT_BYTES, type ContentCatalogV4, type InstancePaint, type MaterialDef, type ModelGeometryPrimitive, type SceneV4, type VertexPaintComponent } from '@thirdlight/project-model';
+import { paintMeshKey, resolveMaterial, VERTEX_PAINT_BYTES, type ContentCatalogV4, type InstancePaint, type MaterialDef, type ModelGeometryPrimitive, type ProjectManifestV2, type SceneV4, type VertexPaintComponent } from '@thirdlight/project-model';
+
+/** This upgrade's id in the manifest's `upgrades`. */
+export const TRIM_DATA_UPGRADE = 'trim-data';
+
+/** Whether a project's materials can draw anything as a trim sheet (a trim shader, or an instance that may resolve to one). */
+export function hasTrimMaterials(content: ContentCatalogV4): boolean {
+  return (content.materials ?? []).some((m) => m.shader === 'trim' || m.instanceOf !== undefined);
+}
+
+/** The manifest with this upgrade recorded (null: it is already). */
+export function withTrimDataRecorded(manifest: ProjectManifestV2): ProjectManifestV2 | null {
+  if (manifest.upgrades?.includes(TRIM_DATA_UPGRADE) === true) return null;
+  return { ...manifest, upgrades: [...(manifest.upgrades ?? []), TRIM_DATA_UPGRADE].sort() };
+}
 
 export interface TrimDataUpgradeIo {
   /** The render primitives of a model version (read with its surfaces), or null when it cannot be read. */

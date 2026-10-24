@@ -20,7 +20,7 @@ one directory.
 
 | File | What it holds |
 |---|---|
-| `project.json` | The id, the name and the project format version. |
+| `project.json` | The id, the name, the project format version and the one-time upgrades it has had. |
 | `content.json` | Project-wide settings: the gameplay settings, tags, the scene list and start scenes, input, the game shell and more. |
 | `scenes/<sceneId>.json` | One file per scene: its objects. |
 | `assets/…` | Imported files (models, textures, audio, fonts), each with a `.tlasset` sidecar beside it (its id, kind, import settings and labels). |

@@ -404,7 +404,9 @@ describe('a project with built-in grime opened over HTTP', () => {
  * held it: a kit model authored with trim data in COLOR_0 (R occlusion,
  * B wetness) on its trim-sheet surface, painted with the old trim meaning
  * (G grime, B wetness) there and with layers on its other surface. Built by
- * one backend through the commands, opened by a new one.
+ * one backend through the commands, opened by a new one; a third open finds
+ * the upgrade recorded and leaves paint made since (layers 3–4 on G and B) as
+ * it is.
  */
 describe('a project with trim data in COLOR_0 and old trim paint opened over HTTP', () => {
   const PID = 'demo-0001';
@@ -452,16 +454,15 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
     const tb = await startBackend({ tokens: [] });
     let closed = false;
     try {
-      const revision = (): number => {
-        const r = tb.backend._test.service.readCapturedV3(PID);
-        if (!r.ok) throw new Error(r.error.code);
-        return r.read.revision;
-      };
-      const ok = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-        const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'trim-data-upgrade' }, args }, token: tb.adminToken, origin: null });
+      type Backend = typeof tb.backend;
+      const commands = (backend: Backend, url: string) => async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+        const read = backend._test.service.readCapturedV3(PID);
+        if (!read.ok) throw new Error(read.error.code);
+        const r = await api(`${url}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: read.read.revision, requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'trim-data-upgrade' }, args }, token: tb.adminToken, origin: null });
         expect(r.status, JSON.stringify(r.json).slice(0, 400)).toBe(200);
         return r.json as Record<string, unknown>;
       };
+      const ok = commands(tb.backend, tb.authUrl);
       const glb = kitPiece();
       const stage = (await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages`, { body: {}, token: tb.adminToken, origin: null })).json as { stageId: string };
       const put = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/stages/${stage.stageId}/bytes`, {
@@ -478,12 +479,12 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       await ok('setMaterial', { material: { materialId: 'mat-sheet', name: 'Sheet', shader: 'trim', params: {}, textures: {}, trim } });
       await ok('setMaterial', { material: { materialId: 'mat-stone', name: 'Stone', shader: 'standard', params: {}, textures: {} } });
       await ok('setAssetOptions', { assetId: 'kit-piece', materials: { sheet: 'mat-sheet', stone: 'mat-stone' } });
-      const id = String((await ok('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Infirmary wall', model: { asset: { assetId: 'kit-piece' } } }))['createdId']);
+      const id = String((await ok('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Wall piece', model: { asset: { assetId: 'kit-piece' } } }))['createdId']);
       // Paint as the old trim tiles did: G (grime) at half, B (wetness) full; on both surfaces (one stroke reaches every mesh).
       await ok('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 1, channel: 2 } });
       await ok('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 0.5, channel: 1 } });
-      const paintOf = (): { mesh: string; paint: string }[] => {
-        const r = tb.backend._test.service.readCapturedV3(PID);
+      const paintOf = (backend: Backend = tb.backend): { mesh: string; paint: string }[] => {
+        const r = backend._test.service.readCapturedV3(PID);
         if (!r.ok) throw new Error(r.error.code);
         const e = (r.read.scene as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((x) => x.id === id)!;
         return (e.components['vertexPaint'] as { meshes: { mesh: string; paint: string }[] }).meshes;
@@ -494,14 +495,26 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       const old = blob(before[0]!.paint);
       for (let v = 0; v < 4; v++) expect(old[v * 4 + 1]! > 0 && old[v * 4 + 2]! > 0 && old[v * 4 + 3] === 0, String(old.slice(v * 4, v * 4 + 4))).toBe(true);
 
-      // The same data root, a new backend: its first read of the project opens (and upgrades) it.
+      // The project as an engine from before the upgrade left it: nothing recorded (this engine recorded it with the first trim material).
       await tb.backend.close();
       closed = true;
-      const second = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
-      try {
-        const url = `http://127.0.0.1:${second.backend.portAuthoring}`;
+      const manifestFile = join(tb.root, 'data', 'projects', PID, 'project.json');
+      const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+      expect(manifest()['upgrades']).toEqual(['trim-data']);
+      const { upgrades: _recorded, ...older } = manifest();
+      writeFileSync(manifestFile, `${JSON.stringify(older, null, 2)}\n`);
+      // The same data root, a new backend: its first read of the project opens (and upgrades) it.
+      const reopen = async (): Promise<{ backend: Backend; url: string; teardown: () => Promise<void> }> => {
+        const b = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
+        const url = `http://127.0.0.1:${b.backend.portAuthoring}`;
         const s = await api(`${url}/api/v1/sessions`, { body: { projectId: PID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'trim-data-upgrade' } }, token: tb.adminToken });
         expect(s.status, JSON.stringify(s.json).slice(0, 400)).toBe(200);
+        return { backend: b.backend, url, teardown: () => b.teardown() };
+      };
+      const second = await reopen();
+      let secondOpen = true;
+      try {
+        const url = second.url;
         const r = second.backend._test.service.readCapturedV3(PID);
         if (!r.ok) throw new Error(r.error.code);
         const asset = (r.read.content as { assets: { assetId: string; vertexColors?: string }[] }).assets.find((a) => a.assetId === 'kit-piece')!;
@@ -522,8 +535,33 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
           expect.stringContaining('1 model mapped to a trim material read its COLOR_0 as trim data now'),
           expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
         ]));
-      } finally {
+        // Recorded with the moved data.
+        expect(manifest()['upgrades']).toEqual(['trim-data']);
+
+        // Paint made after the upgrade, layers 3 and 4 (G and B) on both surfaces, the trim one included (a mapping can change).
+        const paint = commands(second.backend, url);
+        await paint('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 0.75, channel: 1 } });
+        await paint('paintVertices', { entityId: id, dabs: [[0, 1, 0]], brush: { radius: 4, strength: 0.5, channel: 2 } });
+        const painted = paintOf(second.backend);
+        const layers = blob(painted[0]!.paint);
+        for (let v = 0; v < 4; v++) expect(layers[v * 4 + 1]! > 0 && layers[v * 4 + 2]! > 0, String(layers.slice(v * 4, v * 4 + 4))).toBe(true);
         await second.teardown();
+        secondOpen = false;
+
+        // The next open (and the one after it) leaves that paint and every record as they are.
+        for (let i = 0; i < 2; i++) {
+          const next = await reopen();
+          try {
+            expect(paintOf(next.backend)).toEqual(painted);
+            expect(blob(paintOf(next.backend)[0]!.paint)).toEqual(layers);
+            const again = await api(`${next.url}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+            expect((again.json as { problems: { code: string; message: string }[] }).problems.filter((x) => x.code === 'project_upgraded' && /trim/.test(x.message))).toEqual([]);
+          } finally {
+            await next.teardown();
+          }
+        }
+      } finally {
+        if (secondOpen) await second.teardown();
       }
     } finally {
       if (closed) rmSync(tb.root, { recursive: true, force: true });

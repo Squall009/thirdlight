@@ -13,7 +13,7 @@ import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sce
 import { join } from 'node:path';
 
 import { loadPreparedSources, publishBlob, readBlob, readSourceBlob, type ContentContext } from './content-store';
-import { upgradeTrimData } from './trim-data-upgrade';
+import { hasTrimMaterials, upgradeTrimData, withTrimDataRecorded } from './trim-data-upgrade';
 import { loadabilityNotes, SCRIPT_NAMED_LABEL, upgradeLoadability, writeLoadabilityReport } from './upgrade-loadable';
 import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type RecoveryProblem } from './asset-recovery';
 import { sha256Hex } from './digest';
@@ -369,7 +369,7 @@ function migrateModelAnimationsOnOpen(core: Core, dir: string, thirdlightDir: st
  * An open's migration written as one new revision: it must validate like any
  * command result, else nothing is written and `why` says what failed.
  */
-function writeOpenMigration(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, nextContent: unknown, nextSceneDocs: readonly SceneV4[]): { state: V4State } | { why: string } {
+function writeOpenMigration(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, nextContent: unknown, nextSceneDocs: readonly SceneV4[], manifest?: ProjectManifestV2): { state: V4State } | { why: string } {
   const revision = state.revision + 1;
   const content = validateContentV4(nextContent);
   if (!content.ok) return { why: content.errors[0]?.message ?? 'the content does not validate' };
@@ -383,19 +383,41 @@ function writeOpenMigration(core: Core, dir: string, thirdlightDir: string, proj
   composeV4([...nextScenes.values()], content.normalized, errors, revision);
   if (errors.length > 0) return { why: errors[0]!.message };
   const plan = changedFiles(projectId, state, { content: content.normalized, scenes: nextScenes, revision }, null);
+  // The manifest, when given, is written in the same transaction (an upgrade's record goes with its data).
+  const manifestBytes = manifest === undefined ? null : manifestV2Bytes(manifest);
+  const writes = manifestBytes === null ? plan.writes : [...plan.writes, { rel: MANIFEST_REL_V4, bytes: manifestBytes }];
   const gameRoot = gameRootFor(core, projectId, dir);
-  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, plan.writes), plan.writes, gameRoot);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, writes), writes, gameRoot);
   if (!res.ok) return { why: 'the project files could not be written' };
-  return { state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths } };
+  const files = plan.commitFiles();
+  if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+  return { state: { manifest: manifest ?? state.manifest, content: content.normalized, scenes: nextScenes, revision, files, fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths } };
+}
+
+/** The manifest alone, rewritten at the open without a new revision (it records an upgrade that changed nothing). */
+function writeOpenManifest(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, manifest: ProjectManifestV2): V4State | null {
+  const bytes = manifestV2Bytes(manifest);
+  const writes: FileWrite[] = [{ rel: MANIFEST_REL_V4, bytes }];
+  const gameRoot = gameRootFor(core, projectId, dir);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, writes), writes, gameRoot);
+  if (!res.ok) return null;
+  const files = new Map(state.files);
+  files.set(MANIFEST_REL_V4, { bytes, hash: sha256Hex(bytes) });
+  return { ...state, manifest, files };
 }
 
 /**
  * Trim data left in its old places moves to where it is kept now (`trim-data-upgrade.ts`): models mapped to a trim
- * material with COLOR_0 read it as trim data, and paint on trim surfaces has its wetness moved from B to A. If it
- * cannot be written the project opens as it was (the next open tries again) and the notes say so.
+ * material with COLOR_0 read it as trim data, and paint on trim surfaces has its wetness moved from B to A. Once per
+ * project: the manifest records it with the moved data, so a later open never takes paint made since (layers 3–4 on
+ * G and B) for the old meaning. If it cannot be written the project opens as it was (the next open tries again) and
+ * the notes say so.
  */
 function upgradeTrimDataOnOpen(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State): { state: V4State; notes: string[] } {
-  if (!(state.content.materials ?? []).some((m) => m.shader === 'trim' || m.instanceOf !== undefined)) return { state, notes: [] };
+  const manifest = withTrimDataRecorded(state.manifest);
+  // Recorded already; or no trim material, so nothing holds the old meaning (the edit that makes the first one records it).
+  if (manifest === null || !hasTrimMaterials(state.content)) return { state, notes: [] };
+  const recorded = (notes: string[]): { state: V4State; notes: string[] } => ({ state: writeOpenManifest(core, dir, thirdlightDir, projectId, state, manifest) ?? state, notes });
   const scenes = [...state.scenes.values()];
   const ctx: ContentContext = { projectId, dir, thirdlightDir, storageVersion: 4, revision: state.revision, scene: primaryScene(state), content: state.content, scenes, gameFolder: core.registry.get(projectId)?.folder ?? null };
   const u = upgradeTrimData(state.content, scenes, {
@@ -415,13 +437,13 @@ function upgradeTrimDataOnOpen(core: Core, dir: string, thirdlightDir: string, p
       return r.ok ? digest : null;
     },
   });
-  if (u === null) return { state, notes: [] };
+  if (u === null) return recorded([]);
   const notes: string[] = [];
   if (u.models.length > 0) notes.push(`${u.models.length} model${u.models.length === 1 ? '' : 's'} mapped to a trim material read ${u.models.length === 1 ? 'its' : 'their'} COLOR_0 as trim data now (vertex colours: trim data; R occlusion, B wetness, moved off COLOR_0 as ${u.models.length === 1 ? 'it loads' : 'they load'}): ${u.models.slice(0, 8).join(', ')}${u.models.length > 8 ? ', …' : ''}`);
   if (u.repainted > 0) notes.push(`${u.repainted} painted trim surface${u.repainted === 1 ? '' : 's'} had ${u.repainted === 1 ? 'its' : 'their'} wetness moved from B to A (a trim sheet's paint is wetness on A, as on any layered surface) and ${u.repainted === 1 ? 'its' : 'their'} grime (G) dropped`);
   if (u.unread > 0) notes.push(`${u.unread} painted trim surface${u.unread === 1 ? '' : 's'} could not be read or written and keep${u.unread === 1 ? 's' : ''} the old meaning (G grime, B wetness) until repainted`);
-  if (u.models.length === 0 && u.repainted === 0) return { state, notes };
-  const w = writeOpenMigration(core, dir, thirdlightDir, projectId, state, u.content, u.scenes);
+  if (u.models.length === 0 && u.repainted === 0) return recorded(notes);
+  const w = writeOpenMigration(core, dir, thirdlightDir, projectId, state, u.content, u.scenes, manifest);
   return 'why' in w ? { state, notes: [`the trim data was not moved (${w.why}); the next open tries again`] } : { state: w.state, notes };
 }
 

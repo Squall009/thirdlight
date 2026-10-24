@@ -52,9 +52,16 @@ export interface ProjectManifestV2 {
   id: string;
   name: string;
   createdAt: string;
+  /**
+   * The open-time data upgrades this project has had (ids, ascending; absent = none). An upgrade that rewrites
+   * data whose old and new meanings look alike (paint channels) runs once, recorded here, rather than being
+   * re-derived from what the data looks like at every open.
+   */
+  upgrades?: string[];
 }
 
 const MANIFEST_V2_FIELDS = ['schemaVersion', 'engineVersion', 'id', 'name', 'createdAt'] as const;
+const MANIFEST_V2_OPTIONAL = ['upgrades'] as const;
 const UTC_SECONDS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectManifestV2> {
@@ -71,7 +78,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   }
   for (const k of MANIFEST_V2_FIELDS) if (doc[k] === undefined) errors.push(fieldMissing(`/${k}`, k));
   for (const k of Object.keys(doc)) {
-    if (!(MANIFEST_V2_FIELDS as readonly string[]).includes(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, MANIFEST_V2_FIELDS.join(', ')));
+    if (!(MANIFEST_V2_FIELDS as readonly string[]).includes(k) && !(MANIFEST_V2_OPTIONAL as readonly string[]).includes(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...MANIFEST_V2_FIELDS, ...MANIFEST_V2_OPTIONAL.map((o) => `${o} (optional)`)].join(', ')));
   }
   const id = doc['id'];
   if (id !== undefined && (typeof id !== 'string' || !ID_RE_V2.test(id))) errors.push(fieldValue('/id', id, 'project id syntax', 'the project id uses the id syntax'));
@@ -81,10 +88,15 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (ev !== undefined && typeof ev !== 'string') errors.push(fieldType('/engineVersion', ev, 'string'));
   const at = doc['createdAt'];
   if (at !== undefined && (typeof at !== 'string' || !UTC_SECONDS_RE.test(at))) errors.push(fieldValue('/createdAt', at, 'YYYY-MM-DDTHH:MM:SSZ', 'createdAt is a UTC second'));
+  const up = doc['upgrades'];
+  if (up !== undefined && (!Array.isArray(up) || up.some((u) => typeof u !== 'string' || !ID_RE_V2.test(u)) || new Set(up).size !== up.length)) {
+    errors.push(fieldValue('/upgrades', up, 'distinct upgrade ids', 'the open upgrades the project has had'));
+  }
   if (errors.length > 0) return fail(errors);
+  const upgrades = Array.isArray(up) && up.length > 0 ? [...(up as string[])].sort() : undefined;
   return {
     ok: true,
-    normalized: { schemaVersion: PROJECT_SCHEMA_VERSION, engineVersion: ev as string, id: id as string, name: name as string, createdAt: at as string },
+    normalized: { schemaVersion: PROJECT_SCHEMA_VERSION, engineVersion: ev as string, id: id as string, name: name as string, createdAt: at as string, ...(upgrades !== undefined ? { upgrades } : {}) },
   };
 }
 
